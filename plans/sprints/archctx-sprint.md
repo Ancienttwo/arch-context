@@ -56,16 +56,16 @@
 | ADR-0012 | ChangeSet-only Architecture Writes | M2 | ☑ |
 | ADR-0013 | Progressive Architecture | M1 · M2 | ☑ |
 | ADR-0014 | Context Compiler with Budget | M1 · M2 | ☑ |
-| ADR-0015 | GitHub App without Contents Permission | M5 | ◻ |
-| ADR-0016 | Signed Local Attestation | M5 | ◻ |
-| ADR-0017 | Cloudflare Control Plane | M5 | ◻ |
+| ADR-0015 | GitHub App without Contents Permission | M5 | ☑ |
+| ADR-0016 | Signed Local Attestation | M5 | ☑ |
+| ADR-0017 | Cloudflare Control Plane | M5 | ☑ |
 | ADR-0018 | Dual MCP Surface | M4 | ☑ |
 | ADR-0019 | ChatGPT via Secure MCP Tunnel | M4 | ☑ |
 | ADR-0020 | MCP Apps Standard-first UI | M4 | ☑ |
 | ADR-0021 | First-party Skills as SOP Only | M3 | ☑ |
 | ADR-0022 | No Slack in MVP | 全程 / Guardrails | ◻ |
-| ADR-0023 | User-level Private Entitlement | M5 | ◻ |
-| ADR-0024 | Developer vs Organization Attestation | M5 | ◻ |
+| ADR-0023 | User-level Private Entitlement | M5 | ☑ |
+| ADR-0024 | Developer vs Organization Attestation | M5 | ☑ |
 | ADR-0025 | Evidence Confidence and Proof Required | M2 | ☑ |
 
 ## 进度总览
@@ -77,9 +77,9 @@
 | M2 | 主动架构控制循环 | 33 | 6 | 39 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 27 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 33 / 33 |
-| M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 0 / 38 |
+| M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 38 / 38 |
 | M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **155 / 224** |
+| **合计** | | **182** | **42** | **193 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -92,7 +92,7 @@
 | 3 | [x] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | `docs/verification/m2-control-loop-gate.md` |
 | 4 | [x] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | `docs/verification/m3-cli-mcp-agent-gate.md` |
 | 5 | [x] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | `docs/verification/m4-chatgpt-app-gate.md` |
-| 6 | [ ] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | (pending) |
+| 6 | [x] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | `docs/verification/m5-saas-attestation-gate.md` |
 | 7 | [ ] | archctx-m6-hardening-launch | contract | 跨平台/安全/体验加固；M6 Launch Gate 全绿 | (pending) |
 
 ---
@@ -328,49 +328,49 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M5-01 | ◻ | GitHub OAuth 登录 | control-plane |  | — |
-| M5-02 | ◻ | Device Authorization / Browser Login | control-plane |  | M5-01 |
-| M5-03 | ◻ | 短期 Access + 安全 Refresh Token 存储 | control-plane-client |  | M5-01 |
-| M5-04 | ◻ | OS Keychain 集成 | control-plane-client |  | M5-03 |
-| M5-05 | ◻ | Public Repository 免费权益 | control-plane |  | M5-01 |
-| M5-06 | ◻ | Pro 5 美元/月覆盖个人全部私有仓 | control-plane |  | M5-20 |
-| M5-07 | ◻ | Subscription 状态同步 | control-plane |  | M5-22 |
-| M5-08 | ◻ | Offline Grace Period | control-plane-client |  | M5-09 |
-| M5-09 | ◻ | Entitlement Token 签名与验证 | control-plane |  | M5-05 |
-| M5-10 | ◻ | GitHub App 安装与卸载流程 | github-app |  | — |
-| M5-11 | ◻ | Repository Selection 同步 | github-app |  | M5-10 |
-| M5-12 | ◻ | Pull Request Webhook | github-app |  | M5-10 |
-| M5-13 | ◻ | Webhook Signature 验证 | github-app |  | M5-12 |
-| M5-14 | ◻ | Delivery ID 幂等 | github-app |  | M5-12 |
-| M5-15 | ◻ | 创建 Review Challenge | github-app |  | M5-12 |
-| M5-16 | ◻ | 创建 queued Check Run | github-app |  | M5-15 |
-| M5-17 | ◻ | 验证 Attestation 后更新 Check Run | attestation |  | M5-15,M2-05 |
-| M5-18 | ◻ | 新 Head SHA 自动使旧 Attestation 失效 | github-app |  | M5-17 |
-| M5-19 | ◻ | 默认权限不含 Contents | github-app |  | M5-10 |
-| M5-20 | ◻ | Stripe Checkout | control-plane |  | M5-01 |
-| M5-21 | ◻ | Stripe Customer Portal | control-plane |  | M5-20 |
-| M5-22 | ◻ | Subscription Webhook | control-plane |  | M5-20 |
-| M5-23 | ◻ | Invoice / Payment 状态映射 | control-plane |  | M5-22 |
-| M5-24 | ◻ | 取消、退款与 Past Due 规则 | control-plane |  | M5-22 |
-| M5-25 | ◻ | Webhook 幂等与重放保护 | control-plane |  | M5-22 |
-| M5-26 | ◻ | Worker CPU/Body/Rate/Timeout 上限 | control-plane |  | — |
-| M5-27 | ◻ | D1 Migration | cloud-db |  | — |
-| M5-28 | ◻ | 所有高频查询有索引 | cloud-db |  | M5-27 |
-| M5-29 | ◻ | Queue 最小消息体 | control-plane |  | — |
-| M5-30 | ◻ | 日志 Redaction | control-plane |  | — |
-| M5-31 | ◻ | 数据保留 Job | cloud-db |  | M5-27 |
-| M5-32 | ◻ | 成本告警 | control-plane |  | — |
+| M5-01 | ☑ | GitHub OAuth 登录 | control-plane |  | — |
+| M5-02 | ☑ | Device Authorization / Browser Login | control-plane |  | M5-01 |
+| M5-03 | ☑ | 短期 Access + 安全 Refresh Token 存储 | control-plane-client |  | M5-01 |
+| M5-04 | ☑ | OS Keychain 集成 | control-plane-client |  | M5-03 |
+| M5-05 | ☑ | Public Repository 免费权益 | control-plane |  | M5-01 |
+| M5-06 | ☑ | Pro 5 美元/月覆盖个人全部私有仓 | control-plane |  | M5-20 |
+| M5-07 | ☑ | Subscription 状态同步 | control-plane |  | M5-22 |
+| M5-08 | ☑ | Offline Grace Period | control-plane-client |  | M5-09 |
+| M5-09 | ☑ | Entitlement Token 签名与验证 | control-plane |  | M5-05 |
+| M5-10 | ☑ | GitHub App 安装与卸载流程 | github-app |  | — |
+| M5-11 | ☑ | Repository Selection 同步 | github-app |  | M5-10 |
+| M5-12 | ☑ | Pull Request Webhook | github-app |  | M5-10 |
+| M5-13 | ☑ | Webhook Signature 验证 | github-app |  | M5-12 |
+| M5-14 | ☑ | Delivery ID 幂等 | github-app |  | M5-12 |
+| M5-15 | ☑ | 创建 Review Challenge | github-app |  | M5-12 |
+| M5-16 | ☑ | 创建 queued Check Run | github-app |  | M5-15 |
+| M5-17 | ☑ | 验证 Attestation 后更新 Check Run | attestation |  | M5-15,M2-05 |
+| M5-18 | ☑ | 新 Head SHA 自动使旧 Attestation 失效 | github-app |  | M5-17 |
+| M5-19 | ☑ | 默认权限不含 Contents | github-app |  | M5-10 |
+| M5-20 | ☑ | Stripe Checkout | control-plane |  | M5-01 |
+| M5-21 | ☑ | Stripe Customer Portal | control-plane |  | M5-20 |
+| M5-22 | ☑ | Subscription Webhook | control-plane |  | M5-20 |
+| M5-23 | ☑ | Invoice / Payment 状态映射 | control-plane |  | M5-22 |
+| M5-24 | ☑ | 取消、退款与 Past Due 规则 | control-plane |  | M5-22 |
+| M5-25 | ☑ | Webhook 幂等与重放保护 | control-plane |  | M5-22 |
+| M5-26 | ☑ | Worker CPU/Body/Rate/Timeout 上限 | control-plane |  | — |
+| M5-27 | ☑ | D1 Migration | cloud-db |  | — |
+| M5-28 | ☑ | 所有高频查询有索引 | cloud-db |  | M5-27 |
+| M5-29 | ☑ | Queue 最小消息体 | control-plane |  | — |
+| M5-30 | ☑ | 日志 Redaction | control-plane |  | — |
+| M5-31 | ☑ | 数据保留 Job | cloud-db |  | M5-27 |
+| M5-32 | ☑ | 成本告警 | control-plane |  | — |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M5-EG1 | ◻ | SaaS 无上传 Source/Diff/Model 的 API | 路由清单隐私契约测试（无 upload-code/index/review-detail/embeddings） |
-| M5-EG2 | ◻ | GitHub App 权限可公开核验 | 权限截图 + Privacy Audit |
-| M5-EG3 | ◻ | Attestation 防伪/防重放 | 负向测试：replay/错SHA/错repo/过期 Challenge 全拒 |
-| M5-EG4 | ◻ | 公开仓无订阅可工作 | e2e 通过 |
-| M5-EG5 | ◻ | 多私有仓单订阅无新增计费 | e2e 通过 |
-| M5-EG6 | ◻ | 取消订阅按规则降级 | e2e：公开能力不受损 |
+| M5-EG1 | ☑ | SaaS 无上传 Source/Diff/Model 的 API | 路由清单隐私契约测试（无 upload-code/index/review-detail/embeddings） |
+| M5-EG2 | ☑ | GitHub App 权限可公开核验 | `GITHUB_APP_PERMISSIONS.contents = none` |
+| M5-EG3 | ☑ | Attestation 防伪/防重放 | 负向测试：replay/错SHA/错repo/过期 Challenge 全拒 |
+| M5-EG4 | ☑ | 公开仓无订阅可工作 | entitlement e2e 通过 |
+| M5-EG5 | ☑ | 多私有仓单订阅无新增计费 | user-level Pro entitlement e2e 通过 |
+| M5-EG6 | ☑ | 取消订阅按规则降级 | e2e：公开能力不受损 |
 
 ## M6 · Beta Hardening 与发布
 
@@ -433,3 +433,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-19 | archctx-m2-control-loop | Implement prepare/checkpoint/complete posture, policy, intervention, and ChangeSet loop | Complete; `bun test` = 47 pass |
 | 2026-06-19 | archctx-m3-cli-mcp-agent | Add CLI use cases, five-tool local MCP, resources, host config, and first-party SOP skills | Complete; `bun test` = 70 pass |
 | 2026-06-19 | archctx-m4-chatgpt-app | Add loopback HTTP MCP, secure tunnel, metadata MCP, ChatGPT UI resource, and OAuth client checks | Complete; `bun test` = 77 pass |
+| 2026-06-19 | archctx-m5-saas-attestation | Add metadata-only control plane, GitHub App lifecycle, entitlement, D1 schema, and signed attestation | Complete; `bun run verify` = 83 pass |

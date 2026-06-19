@@ -47,3 +47,32 @@ export function buildGitHubHeaders(input: { githubToken: string; archcontextAcce
   if (input.archcontextAccessToken) throw new Error("ArchContext SaaS token must not be forwarded to GitHub");
   return { authorization: `Bearer ${input.githubToken}`, accept: "application/vnd.github+json" };
 }
+
+export class KeychainTokenStore {
+  private readonly refreshTokenRefs = new Map<string, string>();
+
+  saveRefreshToken(accountId: string, refreshToken: string): string {
+    const ref = `keychain://archcontext/${accountId}`;
+    this.refreshTokenRefs.set(ref, refreshToken);
+    return ref;
+  }
+
+  readRefreshToken(ref: string): string | undefined {
+    return this.refreshTokenRefs.get(ref);
+  }
+
+  clear(ref: string): void {
+    this.refreshTokenRefs.delete(ref);
+  }
+}
+
+export function createShortAccessToken(accountId: string, nowEpochSeconds: number, ttlSeconds = 900) {
+  return {
+    token: `access_${accountId}_${nowEpochSeconds}`,
+    claims: {
+      aud: "archcontext",
+      scope: "account:read device:write entitlement:read",
+      exp: nowEpochSeconds + ttlSeconds
+    }
+  };
+}
