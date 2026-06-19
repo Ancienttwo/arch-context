@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { assertRepoRelativePath } from "../../architecture-domain/src/index";
 
 export interface CompatibilityContractInput {
@@ -51,7 +51,8 @@ export function assertAllowedArchContextPath(root: string, relativePath: string)
   }
   const absoluteRoot = resolve(root);
   const absoluteTarget = resolve(root, relativePath);
-  if (!absoluteTarget.startsWith(`${absoluteRoot}/`)) {
+  const targetFromRoot = relative(absoluteRoot, absoluteTarget);
+  if (targetFromRoot === "" || targetFromRoot === ".." || targetFromRoot.startsWith(`..${sep}`) || isAbsolute(targetFromRoot)) {
     throw new Error(`Path escapes repository: ${relativePath}`);
   }
 }

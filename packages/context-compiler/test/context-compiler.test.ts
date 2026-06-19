@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "../../contracts/src/index";
 import { compileTaskContext } from "../src/index";
 
-const root = new URL("../../../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../../../", import.meta.url));
 const workspace: WorkspaceRef = { root: "/tmp/repo", repositoryId: "repo.test", headSha: "abc" };
 
 function readJson(path: string) {

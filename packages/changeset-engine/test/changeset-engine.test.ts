@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { digestJson, validateJsonSchema } from "../../contracts/src/index";
 import { initializeArchContextModel } from "../../model-store-yaml/src/index";
 import { ChangeSetEngine } from "../src/index";
 
-const root = new URL("../../../", import.meta.url).pathname;
+const root = fileURLToPath(new URL("../../../", import.meta.url));
 const digest = `sha256:${"a".repeat(64)}`;
 
 function readJson(path: string) {

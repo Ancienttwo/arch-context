@@ -5,11 +5,11 @@ import { bindRepository, type RepositoryBinding } from "../../architecture-domai
 
 export function findRepositoryRoot(start: string): string {
   try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    return resolve(execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: start,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
+    }).trim());
   } catch {
     let cursor = resolve(start);
     while (cursor !== "/") {

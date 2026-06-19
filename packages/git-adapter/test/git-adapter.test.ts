@@ -4,7 +4,8 @@ import { readRepositoryBinding, readHeadSha, findRepositoryRoot } from "../src/i
 describe("@archcontext/git-adapter", () => {
   test("discovers the current repository root and HEAD binding", () => {
     const root = findRepositoryRoot(process.cwd());
-    expect(root.endsWith("arch-context")).toBe(true);
+    expect(root.length).toBeGreaterThan(0);
+    expect(findRepositoryRoot(root)).toBe(root);
 
     const headSha = readHeadSha(root);
     expect(headSha).toMatch(/^[a-f0-9]{40}$/);
