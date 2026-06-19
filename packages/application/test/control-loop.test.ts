@@ -102,15 +102,21 @@ describe("M2 architecture control loop", () => {
       const engine = new ChangeSetEngine();
       const draft = engine.plan({
         id: "changeset.m2",
+        base: {
+          headSha: "local",
+          worktreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          modelDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        reason: { taskSessionId: "task_test" },
         operations: [
           {
-            op: "write_file",
+            op: "update_entity_fields",
             path: existingPath,
             expectedHash,
             body: existingBody.replace("Keeps product", "Maintains product")
           },
           {
-            op: "write_file",
+            op: "create_entity",
             path: ".archcontext/model/nodes/module.new.yaml",
             expectedHash: "missing",
             body: "schemaVersion: archcontext.node/v1\nid: module.new\nkind: module\nname: New\nstatus: active\nsummary: New module\nresponsibilities:\n- own-new\n"
@@ -123,15 +129,35 @@ describe("M2 architecture control loop", () => {
       expect(readFileSync(join(root, existingPath), "utf8")).toBe(existingBody);
       expect(existsSync(join(root, ".archcontext/model/nodes/module.new.yaml"))).toBe(false);
       await expect(
-        engine.apply(root, engine.approve(engine.plan({ id: "changeset.escape", operations: [{ op: "write_file", path: "../escape", expectedHash: "missing", body: "bad" }] })))
+        engine.apply(
+          root,
+          engine.approve(
+            engine.plan({
+              id: "changeset.escape",
+              base: {
+                headSha: "local",
+                worktreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                modelDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              },
+              reason: { taskSessionId: "task_test" },
+              operations: [{ op: "create_entity", path: "../escape", expectedHash: "missing", body: "bad" }]
+            })
+          )
+        )
       ).rejects.toThrow();
 
       const success = engine.approve(
         engine.plan({
           id: "changeset.success",
+          base: {
+            headSha: "local",
+            worktreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            modelDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          reason: { taskSessionId: "task_test" },
           operations: [
             {
-              op: "write_file",
+              op: "create_entity",
               path: ".archcontext/model/nodes/module.success.yaml",
               expectedHash: "missing",
               body: "schemaVersion: archcontext.node/v1\nid: module.success\nkind: module\nname: Success\nstatus: active\nsummary: Success module\nresponsibilities:\n- own-success\n"
@@ -186,7 +212,7 @@ describe("M2 architecture control loop", () => {
           expectedWorktreeDigest,
           operations: [
             {
-              op: "write_file",
+              op: "create_entity",
               path: ".archcontext/model/nodes/module.stale.yaml",
               expectedHash: "missing",
               body: "schemaVersion: archcontext.node/v1\nid: module.stale\nkind: module\nname: Stale\nstatus: active\nsummary: Stale\nresponsibilities:\n- stale\n"

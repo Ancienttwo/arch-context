@@ -1,5 +1,5 @@
 import { computeWorktreeDigest } from "../../architecture-domain/src/index";
-import { ChangeSetEngine, type ChangeOperation } from "../../changeset-engine/src/index";
+import { ChangeSetEngine, type ChangeOperation, type ChangeSetBase, type ChangeSetReason } from "../../changeset-engine/src/index";
 import { compileTaskContext, type ContextBudget } from "../../context-compiler/src/index";
 import type { CodeFactsPort, ModelStorePort, WorkspaceRef } from "../../contracts/src/index";
 import { detectArchitecturePressure } from "../../pressure-engine/src/index";
@@ -55,15 +55,49 @@ export function completeTask(input: Parameters<typeof completeTaskGate>[0]) {
   return completeTaskGate(input);
 }
 
-export function planArchitectureUpdate(input: { id: string; operations: ChangeOperation[] }) {
-  return new ChangeSetEngine().plan({ id: input.id, operations: input.operations });
+const EMPTY_DIGEST = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+const DEFAULT_REASON: ChangeSetReason = { taskSessionId: "task_application" };
+
+export function planArchitectureUpdate(input: {
+  id: string;
+  operations: ChangeOperation[];
+  base?: ChangeSetBase;
+  reason?: ChangeSetReason;
+}) {
+  return new ChangeSetEngine().plan({
+    id: input.id,
+    base: input.base ?? defaultBase(),
+    reason: input.reason ?? DEFAULT_REASON,
+    operations: input.operations
+  });
 }
 
-export async function applyArchitectureUpdate(root: string, input: { id: string; operations: ChangeOperation[]; approved: boolean; expectedWorktreeDigest: string }) {
+export async function applyArchitectureUpdate(root: string, input: {
+  id: string;
+  operations: ChangeOperation[];
+  approved: boolean;
+  expectedWorktreeDigest: string;
+  headSha?: string;
+  modelDigest?: string;
+  reason?: ChangeSetReason;
+}) {
   const freshness = checkpoint({ root, expectedWorktreeDigest: input.expectedWorktreeDigest });
   if (!freshness.fresh) throw new Error("Snapshot freshness check failed before ChangeSet apply");
   const engine = new ChangeSetEngine();
-  const draft = engine.plan({ id: input.id, operations: input.operations });
+  const draft = engine.plan({
+    id: input.id,
+    base: {
+      headSha: input.headSha ?? "local",
+      worktreeDigest: input.expectedWorktreeDigest,
+      modelDigest: input.modelDigest ?? EMPTY_DIGEST
+    },
+    reason: input.reason ?? DEFAULT_REASON,
+    operations: input.operations
+  });
   const approved = input.approved ? engine.approve(draft) : draft;
   return engine.apply(root, approved, { approved: input.approved });
+}
+
+function defaultBase(): ChangeSetBase {
+  return { headSha: "local", worktreeDigest: EMPTY_DIGEST, modelDigest: EMPTY_DIGEST };
 }

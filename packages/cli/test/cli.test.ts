@@ -33,6 +33,14 @@ describe("archctx CLI", () => {
 
       const config = await runCli("config", [], root);
       expect((config.data as any).generic.transport).toBe("stdio");
+
+      writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=24 <26" } }), "utf8");
+      const install = await runCli("install", ["--host", "codex"], root);
+      expect((install.data as any).marker).toContain("archcontext_prepare_task");
+      const doctor = await runCli("doctor", [], root);
+      expect((doctor.data as any).privacyRouteDigest).toMatch(/^sha256:/);
+      const privacyAudit = await runCli("privacy-audit", [], root);
+      expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

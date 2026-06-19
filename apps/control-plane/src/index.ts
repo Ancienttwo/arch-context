@@ -117,6 +117,21 @@ export class ControlPlane {
   costAlert(input: { monthlyRevenueUsd: number; projectedCostUsd: number }) {
     return { alert: input.projectedCostUsd > input.monthlyRevenueUsd * 0.1 };
   }
+
+  exportAccount(accountId: string) {
+    return {
+      account: this.accounts.get(accountId),
+      revokedDevices: [...this.revokedDevices],
+      deliveries: [...this.webhookDeliveries].filter((delivery) => delivery.includes(accountId) || !delivery.includes(":"))
+    };
+  }
+
+  deleteAccount(accountId: string): void {
+    this.accounts.delete(accountId);
+    for (const device of [...this.revokedDevices]) {
+      if (device.includes(accountId)) this.revokedDevices.delete(device);
+    }
+  }
 }
 
 export function routeDigest(): string {

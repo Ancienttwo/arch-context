@@ -4,6 +4,7 @@ import { computeWorktreeDigest } from "../../architecture-domain/src/index";
 import { CodeGraphAdapter, MockCodeGraphProvider } from "../../codegraph-adapter/src/index";
 import { YamlModelStore } from "../../model-store-yaml/src/index";
 import { applyArchitectureUpdate, checkpoint, completeTask, planArchitectureUpdate, prepareTask } from "../../application/src/index";
+import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "../../hardening/src/index";
 import { createStartedDaemon } from "../../runtime-daemon/src/index";
 
 const [, , command, ...args] = process.argv;
@@ -111,6 +112,29 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         requestId: "mcp",
         data: { command: "archctx mcp", stdout: "protocol-only", logs: "stderr" }
       };
+    case "install":
+      return {
+        schemaVersion: "archcontext.envelope/v1",
+        ok: true,
+        requestId: "install",
+        data: { marker: installMarker((readFlag(args, "--host") as any) ?? "generic") }
+      };
+    case "uninstall":
+      return {
+        schemaVersion: "archcontext.envelope/v1",
+        ok: true,
+        requestId: "uninstall",
+        data: { content: uninstallMarker(readFlag(args, "--content") ?? "", (readFlag(args, "--host") as any) ?? "generic") }
+      };
+    case "doctor":
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "doctor", data: diagnostics() };
+    case "privacy-audit":
+      return {
+        schemaVersion: "archcontext.envelope/v1",
+        ok: true,
+        requestId: "privacy-audit",
+        data: { dependencyAudit: dependencyAudit(cwd), secretScan: secretScan(cwd) }
+      };
     case "help":
     default:
       return {
@@ -118,7 +142,7 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp"],
+          commands: ["init", "sync", "validate", "context", "status", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit"],
           examples: ["archctx init --name MyApp", "archctx prepare --task \"add subscriptions\"", "archctx config"]
         }
       };

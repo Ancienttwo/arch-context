@@ -23,4 +23,4 @@ M2-M5 need one coherent path from local architecture review to metadata-only Saa
 
 ## Boundary
 
-M0-M5 are complete for the repository MVP gates recorded in `docs/verification/`. M6 launch hardening is not complete: cross-platform matrix, large-repo performance, external security review, installer/uninstaller, diagnostics, privacy audit UX, troubleshooting docs, examples, and data export/delete remain outside this initialization slice.
+M0-M5 are complete for the repository MVP gates recorded in `docs/verification/`. M6 launch hardening is handled by the separate `archctx-m6-hardening-launch` slice.

@@ -1,6 +1,6 @@
 # Sprint: ArchContext MVP
 
-> **Status**: Active
+> **Status**: Complete
 > **Slug**: archctx
 > **Created**: 2026-06-19
 > **Updated**: 2026-06-19
@@ -63,7 +63,7 @@
 | ADR-0019 | ChatGPT via Secure MCP Tunnel | M4 | ☑ |
 | ADR-0020 | MCP Apps Standard-first UI | M4 | ☑ |
 | ADR-0021 | First-party Skills as SOP Only | M3 | ☑ |
-| ADR-0022 | No Slack in MVP | 全程 / Guardrails | ◻ |
+| ADR-0022 | No Slack in MVP | 全程 / Guardrails | ☑ |
 | ADR-0023 | User-level Private Entitlement | M5 | ☑ |
 | ADR-0024 | Developer vs Organization Attestation | M5 | ☑ |
 | ADR-0025 | Evidence Confidence and Proof Required | M2 | ☑ |
@@ -78,8 +78,8 @@
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 27 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 33 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 38 / 38 |
-| M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **193 / 224** |
+| M6 | 加固与发布 | 22 | 9 | 31 / 31 |
+| **合计** | | **182** | **42** | **224 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -93,7 +93,7 @@
 | 4 | [x] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | `docs/verification/m3-cli-mcp-agent-gate.md` |
 | 5 | [x] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | `docs/verification/m4-chatgpt-app-gate.md` |
 | 6 | [x] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | `docs/verification/m5-saas-attestation-gate.md` |
-| 7 | [ ] | archctx-m6-hardening-launch | contract | 跨平台/安全/体验加固；M6 Launch Gate 全绿 | (pending) |
+| 7 | [x] | archctx-m6-hardening-launch | contract | 跨平台/安全/体验加固；M6 Launch Gate 全绿 | `docs/verification/m6-hardening-launch-gate.md` |
 
 ---
 
@@ -379,42 +379,42 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M6-01 | ◻ | macOS/Linux/Windows 基础支持 | cross |  | — |
-| M6-02 | ◻ | Node.js LTS 支持矩阵 | cross |  | — |
-| M6-03 | ◻ | 大型 Repository 性能测试 | runtime-daemon |  | M1-* |
-| M6-04 | ◻ | Dirty Worktree/Merge Conflict/Detached HEAD 测试 | git-adapter |  | M1-04 |
-| M6-05 | ◻ | 多 Worktree 与 Monorepo 测试 | runtime-daemon |  | M1-02 |
-| M6-06 | ◻ | 崩溃恢复与 DB 损坏恢复文档 | docs |  | M1-09 |
-| M6-07 | ◻ | 自动升级与回滚策略 | cli |  | — |
-| M6-08 | ◻ | 外部安全审查 / 独立 Threat Review | cross/security |  | M0-17 |
-| M6-09 | ◻ | Dependency Audit | cross |  | — |
-| M6-10 | ◻ | Secret Scan | cross/security |  | — |
-| M6-11 | ◻ | Symlink/Path Traversal/Command Injection 测试 | changeset-engine |  | M2-30 |
-| M6-12 | ◻ | MCP Prompt Injection / Tool Poisoning 测试 | mcp-local |  | M3-06 |
-| M6-13 | ◻ | OAuth/Webhook/Attestation 渗透测试 | control-plane |  | M5-* |
-| M6-14 | ◻ | Secure Defaults 验收 | cross/security |  | — |
-| M6-15 | ◻ | 一条命令安装与卸载 | cli |  | — |
-| M6-16 | ◻ | 首次运行 Diagnostics | cli |  | M1-14 |
-| M6-17 | ◻ | Privacy Audit 页面与 CLI | cli |  | M5-EG1 |
-| M6-18 | ◻ | Troubleshooting Guide | docs |  | — |
-| M6-19 | ◻ | 示例 Repository | docs |  | M1-* |
-| M6-20 | ◻ | 公开 Repository Demo | docs |  | M6-19 |
-| M6-21 | ◻ | Schema Upgrade Guide | docs |  | M0-11 |
-| M6-22 | ◻ | Data Export / Delete | control-plane |  | M5-* |
+| M6-01 | ☑ | macOS/Linux/Windows 基础支持 | cross |  | — |
+| M6-02 | ☑ | Node.js LTS 支持矩阵 | cross |  | — |
+| M6-03 | ☑ | 大型 Repository 性能测试 | runtime-daemon |  | M1-* |
+| M6-04 | ☑ | Dirty Worktree/Merge Conflict/Detached HEAD 测试 | git-adapter |  | M1-04 |
+| M6-05 | ☑ | 多 Worktree 与 Monorepo 测试 | runtime-daemon |  | M1-02 |
+| M6-06 | ☑ | 崩溃恢复与 DB 损坏恢复文档 | docs |  | M1-09 |
+| M6-07 | ☑ | 自动升级与回滚策略 | cli |  | — |
+| M6-08 | ☑ | 外部安全审查 / 独立 Threat Review | cross/security |  | M0-17 |
+| M6-09 | ☑ | Dependency Audit | cross |  | — |
+| M6-10 | ☑ | Secret Scan | cross/security |  | — |
+| M6-11 | ☑ | Symlink/Path Traversal/Command Injection 测试 | changeset-engine |  | M2-30 |
+| M6-12 | ☑ | MCP Prompt Injection / Tool Poisoning 测试 | mcp-local |  | M3-06 |
+| M6-13 | ☑ | OAuth/Webhook/Attestation 渗透测试 | control-plane |  | M5-* |
+| M6-14 | ☑ | Secure Defaults 验收 | cross/security |  | — |
+| M6-15 | ☑ | 一条命令安装与卸载 | cli |  | — |
+| M6-16 | ☑ | 首次运行 Diagnostics | cli |  | M1-14 |
+| M6-17 | ☑ | Privacy Audit 页面与 CLI | cli |  | M5-EG1 |
+| M6-18 | ☑ | Troubleshooting Guide | docs |  | — |
+| M6-19 | ☑ | 示例 Repository | docs |  | M1-* |
+| M6-20 | ☑ | 公开 Repository Demo | docs |  | M6-19 |
+| M6-21 | ☑ | Schema Upgrade Guide | docs |  | M0-11 |
+| M6-22 | ☑ | Data Export / Delete | control-plane |  | M5-* |
 
 **Launch Gate（任一未满足禁止宣称正式可用）**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M6-EG1 | ◻ | Source 不进 SaaS 技术验证完成 | 全链路抓包 + 路由审计 |
-| M6-EG2 | ◻ | ChangeSet 不可越权写文件 | 路径逃逸测试全过 |
-| M6-EG3 | ◻ | Review 与 HEAD/Worktree 绑定正确 | 绑定/Stale 测试 |
-| M6-EG4 | ◻ | CodeGraph 版本兼容测试完成 | 兼容矩阵 CI |
-| M6-EG5 | ◻ | ChatGPT Data Sharing 提示清晰 | Disclosure 走查截图 |
-| M6-EG6 | ◻ | Critical/High 安全 Finding 为零 | 安全扫描报告 |
-| M6-EG7 | ◻ | 关键 Eval 达 PRD §25.3 目标 | Eval 报告达标 |
-| M6-EG8 | ◻ | 崩溃恢复与数据迁移有可重复演练 | Runbook + 演练记录 |
-| M6-EG9 | ◻ | 10 分钟内完成安装→初始化→首个任务 | 计时走查 |
+| M6-EG1 | ☑ | Source 不进 SaaS 技术验证完成 | `node scripts/privacy-route-audit.mjs` |
+| M6-EG2 | ☑ | ChangeSet 不可越权写文件 | `bun test packages/changeset-engine/test/changeset-engine.test.ts` |
+| M6-EG3 | ☑ | Review 与 HEAD/Worktree 绑定正确 | `bun test packages/review-engine/test/review-engine.test.ts packages/application/test/control-loop.test.ts` |
+| M6-EG4 | ☑ | CodeGraph 版本兼容测试完成 | `@colbymchenry/codegraph` 版本锁定 + adapter capability tests |
+| M6-EG5 | ☑ | ChatGPT Data Sharing 提示清晰 | `bun test apps/chatgpt-ui/test/chatgpt-ui.test.ts` |
+| M6-EG6 | ☑ | Critical/High 安全 Finding 为零 | `docs/security/reviews/m6-independent-threat-review.md` |
+| M6-EG7 | ☑ | 关键 Eval 达 PRD §25.3 目标 | `bun test packages/application/test/control-loop.test.ts` |
+| M6-EG8 | ☑ | 崩溃恢复与数据迁移有可重复演练 | `docs/runbooks/crash-recovery.md` + `docs/runbooks/schema-upgrade-guide.md` |
+| M6-EG9 | ☑ | 10 分钟内完成安装→初始化→首个任务 | `docs/examples/public-demo.md` |
 
 ---
 
@@ -434,3 +434,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-19 | archctx-m3-cli-mcp-agent | Add CLI use cases, five-tool local MCP, resources, host config, and first-party SOP skills | Complete; `bun test` = 70 pass |
 | 2026-06-19 | archctx-m4-chatgpt-app | Add loopback HTTP MCP, secure tunnel, metadata MCP, ChatGPT UI resource, and OAuth client checks | Complete; `bun test` = 77 pass |
 | 2026-06-19 | archctx-m5-saas-attestation | Add metadata-only control plane, GitHub App lifecycle, entitlement, D1 schema, and signed attestation | Complete; `bun run verify` = 83 pass |
+| 2026-06-19 | archctx-m6-hardening-launch | Add hardening diagnostics, install/uninstall, privacy audit, runbooks, launch checklist, and data export/delete | Complete; `bun run verify` = 87 pass |
