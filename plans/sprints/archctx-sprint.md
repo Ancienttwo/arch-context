@@ -47,7 +47,7 @@
 | ADR-0003 | Local-first Trust Boundary | M0 · M5 · M6 | ☑ |
 | ADR-0004 | SQLite Local Store | M1 | ☑ |
 | ADR-0005 | Single-writer Runtime Daemon | M1 | ☑ |
-| ADR-0006 | CLI and MCP as Thin Adapters | M3 | ◻ |
+| ADR-0006 | CLI and MCP as Thin Adapters | M3 | ☑ |
 | ADR-0007 | Structured Architecture Source of Truth | M0 · M1 | ☑ |
 | ADR-0008 | Declared / Observed / Verified | M1 · M2 | ☑ |
 | ADR-0009 | Target State vs Migration State | M2 | ☑ |
@@ -62,7 +62,7 @@
 | ADR-0018 | Dual MCP Surface | M4 | ◻ |
 | ADR-0019 | ChatGPT via Secure MCP Tunnel | M4 | ◻ |
 | ADR-0020 | MCP Apps Standard-first UI | M4 | ◻ |
-| ADR-0021 | First-party Skills as SOP Only | M3 | ◻ |
+| ADR-0021 | First-party Skills as SOP Only | M3 | ☑ |
 | ADR-0022 | No Slack in MVP | 全程 / Guardrails | ◻ |
 | ADR-0023 | User-level Private Entitlement | M5 | ◻ |
 | ADR-0024 | Developer vs Organization Attestation | M5 | ◻ |
@@ -75,11 +75,11 @@
 | M0 | 契约与架构冻结 | 18 | 5 | 23 / 23 |
 | M1 | 本地 Runtime 基础 | 28 | 5 | 33 / 33 |
 | M2 | 主动架构控制循环 | 33 | 6 | 39 / 39 |
-| M3 | CLI / MCP / Agent 集成 | 22 | 5 | 0 / 27 |
+| M3 | CLI / MCP / Agent 集成 | 22 | 5 | 27 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 0 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 0 / 38 |
 | M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **95 / 224** |
+| **合计** | | **182** | **42** | **122 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -90,7 +90,7 @@
 | 1 | [x] | archctx-m0-contracts-freeze | contract | 9 份 Schema + ID/Version/Envelope/错误码/Digest 绑定 + Adapter/Ports + Threat Model v1 + ADR 记录；M0 Exit Gate 全绿 | `docs/verification/m0-contracts-gate.md` |
 | 2 | [x] | archctx-m1-local-runtime | contract | `archctxd` + Session + SQLite + CodeGraph Adapter + 模型 Loader + `init/sync/validate/context/status`；M1 Exit Gate 全绿 | `docs/verification/m1-local-runtime-gate.md` |
 | 3 | [x] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | `docs/verification/m2-control-loop-gate.md` |
-| 4 | [ ] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | (pending) |
+| 4 | [x] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | `docs/verification/m3-cli-mcp-agent-gate.md` |
 | 5 | [ ] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | (pending) |
 | 6 | [ ] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | (pending) |
 | 7 | [ ] | archctx-m6-hardening-launch | contract | 跨平台/安全/体验加固；M6 Launch Gate 全绿 | (pending) |
@@ -242,38 +242,38 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M3-01 | ◻ | 所有核心 Use Case 有 CLI 入口 | cli |  | M2-* |
-| M3-02 | ◻ | 所有命令支持结构化 JSON 输出 | cli |  | M0-12 |
-| M3-03 | ◻ | 输出支持 `--max-bytes`/`--max-items`/分页 | cli |  | M3-02 |
-| M3-04 | ◻ | 提供 Human + Machine 两套渲染 | cli |  | M3-02 |
-| M3-05 | ◻ | CLI 不绕过 Core Service | cli |  | — |
-| M3-06 | ◻ | 实现 MCP Server 生命周期 | mcp-local |  | M2-* |
-| M3-07 | ◻ | 默认仅暴露 5 个 Workflow Tool | mcp-local |  | M3-06 |
-| M3-08 | ◻ | 详细对象通过 Resources 延迟加载 | mcp-local |  | M3-07 |
-| M3-09 | ◻ | Tool Description 明确何时调用/不调用 | mcp-local |  | M3-07 |
-| M3-10 | ◻ | 写 Tool 声明 Destructive/Idempotent/Read-only 注解 | mcp-local |  | M3-07 |
-| M3-11 | ◻ | 写 Tool 要求显式确认或已批准 Plan | mcp-local |  | M2-28 |
-| M3-12 | ◻ | MCP 输出不含无预算大段源码 | mcp-local |  | M2-03 |
-| M3-13 | ◻ | stdout 仅协议，日志走 stderr/文件 | mcp-local |  | M3-06 |
-| M3-14 | ◻ | 编写第一方 Bootstrap Skill | skills |  | M3-07 |
-| M3-15 | ◻ | 编写 Develop Skill | skills |  | M3-07 |
-| M3-16 | ◻ | 编写 Refactor/Intervention Skill | skills |  | M3-07 |
-| M3-17 | ◻ | 编写 Review Skill | skills |  | M3-07 |
-| M3-18 | ◻ | Skill 仅编排 Tool，不复制业务逻辑 | skills |  | — |
-| M3-19 | ◻ | 生成 Codex/Claude Code/通用 MCP Host 配置 | cli |  | M3-06 |
-| M3-20 | ◻ | Agent 编码前自动调用 `prepare_task` | skills |  | M3-14 |
-| M3-21 | ◻ | Agent 关键变更后调用 `checkpoint` | skills |  | M3-15 |
-| M3-22 | ◻ | Agent 完成前调用 `complete_task` | skills |  | M3-17 |
+| M3-01 | ☑ | 所有核心 Use Case 有 CLI 入口 | cli |  | M2-* |
+| M3-02 | ☑ | 所有命令支持结构化 JSON 输出 | cli |  | M0-12 |
+| M3-03 | ☑ | 输出支持 `--max-bytes`/`--max-items`/分页 | cli |  | M3-02 |
+| M3-04 | ☑ | 提供 Human + Machine 两套渲染 | cli |  | M3-02 |
+| M3-05 | ☑ | CLI 不绕过 Core Service | cli |  | — |
+| M3-06 | ☑ | 实现 MCP Server 生命周期 | mcp-local |  | M2-* |
+| M3-07 | ☑ | 默认仅暴露 5 个 Workflow Tool | mcp-local |  | M3-06 |
+| M3-08 | ☑ | 详细对象通过 Resources 延迟加载 | mcp-local |  | M3-07 |
+| M3-09 | ☑ | Tool Description 明确何时调用/不调用 | mcp-local |  | M3-07 |
+| M3-10 | ☑ | 写 Tool 声明 Destructive/Idempotent/Read-only 注解 | mcp-local |  | M3-07 |
+| M3-11 | ☑ | 写 Tool 要求显式确认或已批准 Plan | mcp-local |  | M2-28 |
+| M3-12 | ☑ | MCP 输出不含无预算大段源码 | mcp-local |  | M2-03 |
+| M3-13 | ☑ | stdout 仅协议，日志走 stderr/文件 | mcp-local |  | M3-06 |
+| M3-14 | ☑ | 编写第一方 Bootstrap Skill | skills |  | M3-07 |
+| M3-15 | ☑ | 编写 Develop Skill | skills |  | M3-07 |
+| M3-16 | ☑ | 编写 Refactor/Intervention Skill | skills |  | M3-07 |
+| M3-17 | ☑ | 编写 Review Skill | skills |  | M3-07 |
+| M3-18 | ☑ | Skill 仅编排 Tool，不复制业务逻辑 | skills |  | — |
+| M3-19 | ☑ | 生成 Codex/Claude Code/通用 MCP Host 配置 | cli |  | M3-06 |
+| M3-20 | ☑ | Agent 编码前自动调用 `prepare_task` | skills |  | M3-14 |
+| M3-21 | ☑ | Agent 关键变更后调用 `checkpoint` | skills |  | M3-15 |
+| M3-22 | ☑ | Agent 完成前调用 `complete_task` | skills |  | M3-17 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M3-EG1 | ◻ | CLI 与 MCP 同任务语义一致 | 对照快照测试一致 |
-| M3-EG2 | ◻ | Agent 不懂内部 Schema 也能同步 | 集成测试通过 |
-| M3-EG3 | ◻ | 典型任务 MCP Tool Call 不超预算 | 预算断言 ≤ 阈值 |
-| M3-EG4 | ◻ | Agent 不能直写未验证模型 | 安全测试：直写被拒 |
-| M3-EG5 | ◻ | 中断后新 Session 从 Task State 恢复 | 恢复测试通过 |
+| M3-EG1 | ☑ | CLI 与 MCP 同任务语义一致 | 对照快照测试一致 |
+| M3-EG2 | ☑ | Agent 不懂内部 Schema 也能同步 | 集成测试通过 |
+| M3-EG3 | ☑ | 典型任务 MCP Tool Call 不超预算 | 预算断言 ≤ 阈值 |
+| M3-EG4 | ☑ | Agent 不能直写未验证模型 | 安全测试：直写被拒 |
+| M3-EG5 | ☑ | 中断后新 Session 从 Task State 恢复 | 恢复测试通过 |
 
 ## M4 · ChatGPT App / GPT App
 
@@ -431,3 +431,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-19 | archctx-m0-contracts-freeze | Freeze schemas, ports, error/envelope/digest contract, ADRs, and threat model | Complete; `bun test packages/contracts/test/contracts.test.ts` = 26 pass |
 | 2026-06-19 | archctx-m1-local-runtime | Implement local daemon/session/store/codefacts/model/CLI foundation | Complete; `bun test` = 38 pass |
 | 2026-06-19 | archctx-m2-control-loop | Implement prepare/checkpoint/complete posture, policy, intervention, and ChangeSet loop | Complete; `bun test` = 47 pass |
+| 2026-06-19 | archctx-m3-cli-mcp-agent | Add CLI use cases, five-tool local MCP, resources, host config, and first-party SOP skills | Complete; `bun test` = 70 pass |

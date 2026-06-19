@@ -5,10 +5,23 @@ import { rebuildGeneratedProjection, YamlModelStore } from "../../model-store-ya
 import { assertAllowedArchContextPath, evaluateChangeSetPaths } from "../../policy-engine/src/index";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
+export type ChangeOperationKind = "create_entity" | "update_entity_fields" | "delete_entity" | "write_policy" | "render_projection";
+
+export interface ChangeSetBase {
+  headSha: string;
+  worktreeDigest: string;
+  modelDigest: string;
+}
+
+export interface ChangeSetReason {
+  taskSessionId: string;
+  interventionId?: string;
+}
 
 export interface ChangeOperation {
-  op: "write_file" | "delete_file";
-  path: string;
+  op: ChangeOperationKind;
+  path?: string;
+  entityId?: string;
   expectedHash: string;
   body?: string;
 }
@@ -17,6 +30,8 @@ export interface ChangeSetDraft {
   schemaVersion: "archcontext.changeset/v1";
   id: string;
   status: ChangeSetStatus;
+  base: ChangeSetBase;
+  reason: ChangeSetReason;
   operations: ChangeOperation[];
   preconditions: string[];
   postconditions: string[];
@@ -32,11 +47,19 @@ export interface ApplyOptions {
 export class ChangeSetEngine {
   private readonly states = new Map<string, ChangeSetDraft>();
 
-  plan(input: { id: string; operations: ChangeOperation[]; requiresConfirmation?: boolean }): ChangeSetDraft {
+  plan(input: {
+    id: string;
+    base: ChangeSetBase;
+    reason: ChangeSetReason;
+    operations: ChangeOperation[];
+    requiresConfirmation?: boolean;
+  }): ChangeSetDraft {
     const draft: ChangeSetDraft = {
       schemaVersion: "archcontext.changeset/v1",
       id: input.id,
       status: "proposed",
+      base: input.base,
+      reason: input.reason,
       operations: input.operations,
       preconditions: ["schema-valid-before", "expected-digest-match"],
       postconditions: ["schema-valid-after", "projection-rebuilt"],
@@ -48,7 +71,7 @@ export class ChangeSetEngine {
   }
 
   preview(root: string, draft: ChangeSetDraft): { digest: string; paths: string[]; allowed: boolean; findings: string[] } {
-    const paths = draft.operations.map((operation) => operation.path);
+    const paths = draft.operations.flatMap((operation) => operation.path ? [operation.path] : []);
     const findings = evaluateChangeSetPaths(root, paths).map((finding) => finding.message);
     return { digest: digestJson(draft as unknown as Json), paths, allowed: findings.length === 0, findings };
   }
@@ -66,10 +89,18 @@ export class ChangeSetEngine {
     let applied = 0;
     try {
       for (const operation of draft.operations) {
+        if (operation.op === "render_projection") {
+          rebuildGeneratedProjection(root);
+          applied += 1;
+          if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
+          continue;
+        }
+        if (!operation.path) throw new Error(`Change operation requires path: ${operation.op}`);
         assertSafeTarget(root, operation.path);
         const absolute = resolve(root, operation.path);
         const existed = existsSync(absolute);
         const backupPath = `${absolute}.archctx-backup`;
+        if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${operation.path}`);
         if (existed) {
           assertExpectedHash(absolute, operation.expectedHash);
           renameSync(absolute, backupPath);
@@ -77,11 +108,11 @@ export class ChangeSetEngine {
           throw new Error(`Expected missing file hash for new path: ${operation.path}`);
         }
         backups.push({ path: absolute, backupPath, existed });
-        if (operation.op === "write_file") {
+        if (operation.op === "delete_entity") {
+          rmSync(absolute, { force: true });
+        } else {
           mkdirSync(dirname(absolute), { recursive: true });
           writeFileSync(absolute, operation.body ?? "", "utf8");
-        } else {
-          rmSync(absolute, { force: true });
         }
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");

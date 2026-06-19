@@ -19,6 +19,20 @@ describe("archctx CLI", () => {
       const status = await runCli("status", [], root);
       expect(status.ok).toBe(true);
       expect((status.data as any).worktreeDigest).toMatch(/^sha256:/);
+
+      const prepare = await runCli("prepare", ["--task", "remove legacy v1 wrapper", "--max-items", "1"], root);
+      expect(prepare.ok).toBe(true);
+      expect((prepare.data as any).posture).toBeTruthy();
+
+      const checkpoint = await runCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
+      expect((checkpoint.data as any).fresh).toBe(true);
+
+      const complete = await runCli("complete", ["--task-session-id", "task_cli"], root);
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).schemaVersion).toBe("archcontext.review/v1");
+
+      const config = await runCli("config", [], root);
+      expect((config.data as any).generic.transport).toBe("stdio");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

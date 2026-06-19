@@ -48,5 +48,10 @@ export function completeTaskGate(input: CompleteTaskInput) {
       completed: input.cleanupCompleted ?? 0
     }
   };
-  return { ...result, digest: digestJson(result as unknown as Json) };
+  return {
+    ...result,
+    extensions: {
+      digest: digestJson(result as unknown as Json)
+    }
+  };
 }
