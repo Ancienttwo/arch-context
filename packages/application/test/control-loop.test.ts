@@ -65,7 +65,7 @@ describe("M2 architecture control loop", () => {
     expect(intervention.targetState.requiredRelations).not.toContain("relation.temporary-migration");
   });
 
-  test("compatibility debt eval reaches required recall", () => {
+  test("compatibility debt proxy fixture reaches required recall shape", () => {
     const cases = [
       { reason: "just in case", shouldFlag: true },
       { reason: "safer to keep", shouldFlag: true },

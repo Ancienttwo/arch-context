@@ -37,7 +37,7 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log("[sprint-status-check] OK");
+console.log("[sprint-status-check] STRUCTURE OK (does not validate task completion)");
 
 async function expectFile(path) {
   try {

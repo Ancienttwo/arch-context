@@ -41,7 +41,7 @@ Observed result:
 83 pass
 0 fail
 privacy-route-audit OK
-sprint-status-check OK
+sprint-status-check structure OK
 ```
 
 ## Boundary Notes

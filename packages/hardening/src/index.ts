@@ -68,15 +68,19 @@ export function largeRepoPerfEstimate(fileCount: number) {
 
 export function launchGateReport() {
   return {
+    status: "mvp-proxy-evidence",
     sourceExfiltration: "privacy-route-audit",
     changesetPathSafety: "changeset-engine tests",
     reviewBinding: "review-engine stale tests",
     codeGraphCompatibility: REQUIRED_CODEGRAPH_VERSION,
     chatgptDisclosure: "chatgpt-ui tests",
-    securityFindings: { critical: 0, high: 0 },
+    securityFindings: { scope: "deterministic-mvp-surface", critical: 0, high: 0, productionScan: "pending" },
     evals: ["compatibility-debt", "target-vs-migration", "high-pressure-low-confidence"],
+    representativeEval: "pending",
+    largeRepoBenchmark: "pending",
     recoveryRunbook: "docs/runbooks/crash-recovery.md",
-    installWalkthrough: "docs/examples/public-demo.md"
+    installWalkthrough: "docs/examples/public-demo.md",
+    timedInstallRehearsal: "pending"
   };
 }
 

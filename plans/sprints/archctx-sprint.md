@@ -1,6 +1,6 @@
 # Sprint: ArchContext MVP
 
-> **Status**: Complete
+> **Status**: MVP Scaffold Accepted; Production Launch Gate Partial
 > **Slug**: archctx
 > **Created**: 2026-06-19
 > **Updated**: 2026-06-19
@@ -8,7 +8,7 @@
 > **Source Spec**: `docs/spec.md`
 > **Goal Mode**: incremental
 
-开发进度跟踪清单，逐条派生自 ArchContext PRD v2.0 的里程碑（§26）、ADR 清单（§28）与功能需求（§9）。里程碑表中每行是可跟踪的最小单元，带稳定 ID（如 `M2-07`）。**状态列**：◻ 未开始 / ◐ 进行中 / ☑ 完成。**Owner** = 归属包（PRD §10.5，非人名）。**Est** 留空供团队填。**验证方式** 为目标检查（产品代码/脚本尚未存在）。开始一条前先用 `$think` 展开；完成后更新行状态、「进度总览」与「ADR 实现矩阵」。
+开发进度跟踪清单，逐条派生自 ArchContext PRD v2.0 的里程碑（§26）、ADR 清单（§28）与功能需求（§9）。里程碑表中每行是可跟踪的最小单元，带稳定 ID（如 `M2-07`）。**状态列**：◻ 未开始 / ◐ 进行中或 MVP 代理验证 / ☑ 完成。**Owner** = 归属包（PRD §10.5，非人名）。**Est** 留空供团队填。**验证方式** 为目标检查。开始一条前先用 `$think` 展开；完成后更新行状态、「进度总览」与「ADR 实现矩阵」。
 
 ## PRD 摘要
 
@@ -74,12 +74,14 @@
 |---|---|--:|--:|--:|
 | M0 | 契约与架构冻结 | 18 | 5 | 23 / 23 |
 | M1 | 本地 Runtime 基础 | 28 | 5 | 33 / 33 |
-| M2 | 主动架构控制循环 | 33 | 6 | 39 / 39 |
+| M2 | 主动架构控制循环 | 33 | 6 | 38 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 27 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 33 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 38 / 38 |
-| M6 | 加固与发布 | 22 | 9 | 31 / 31 |
-| **合计** | | **182** | **42** | **224 / 224** |
+| M6 | 加固与发布 | 22 | 9 | 25 / 31 |
+| **合计** | | **182** | **42** | **217 / 224** |
+
+**完成口径**：MVP scaffold 与确定性内核已验收；`bun run verify` 验证的是本地测试、隐私路由词法/结构审计和 sprint 文档结构，不等同于生产 Launch Gate 全绿。CI 矩阵已配置但仍需 hosted run readback；需要真实矩阵结果、benchmark、安全扫描/外审、代表性 eval 或计时演练的条目保留为 ◐。
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -93,7 +95,7 @@
 | 4 | [x] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | `docs/verification/m3-cli-mcp-agent-gate.md` |
 | 5 | [x] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | `docs/verification/m4-chatgpt-app-gate.md` |
 | 6 | [x] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | `docs/verification/m5-saas-attestation-gate.md` |
-| 7 | [x] | archctx-m6-hardening-launch | contract | 跨平台/安全/体验加固；M6 Launch Gate 全绿 | `docs/verification/m6-hardening-launch-gate.md` |
+| 7 | [ ] | archctx-m6-hardening-launch | contract | MVP 确定性加固证据完成；生产 Launch Gate 待补真实矩阵/benchmark/安全/eval/计时验收 | `docs/verification/m6-hardening-launch-gate.md` |
 
 ---
 
@@ -232,7 +234,7 @@
 | M2-EG2 | ☑ | 高压力低信心进入 Proof Required | Eval `high-pressure-low-confidence` → Posture=ProofRequired |
 | M2-EG3 | ☑ | 高/高 不只输出最小 Diff | Eval 断言无"仅最小补丁"建议 |
 | M2-EG4 | ☑ | Migration 不被误标 Target | Eval `target-vs-migration` 通过 |
-| M2-EG5 | ☑ | 无依据兼容检测 Recall ≥ 85% | `compatibility-debt` eval set 达标 |
+| M2-EG5 | ◐ | 无依据兼容检测 Recall ≥ 85% | 小型 deterministic proxy fixture 达标；代表性 recall eval 待补 |
 | M2-EG6 | ☑ | ChangeSet 可完整回滚 | fault-injection：apply 中断 100% 回滚 |
 
 ## M3 · CLI、MCP 与 Coding Agent 集成
@@ -379,9 +381,9 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M6-01 | ☑ | macOS/Linux/Windows 基础支持 | cross |  | — |
-| M6-02 | ☑ | Node.js LTS 支持矩阵 | cross |  | — |
-| M6-03 | ☑ | 大型 Repository 性能测试 | runtime-daemon |  | M1-* |
+| M6-01 | ◐ | macOS/Linux/Windows 基础支持 | cross |  | — |
+| M6-02 | ◐ | Node.js LTS 支持矩阵 | cross |  | — |
+| M6-03 | ◐ | 大型 Repository 性能测试 | runtime-daemon |  | M1-* |
 | M6-04 | ☑ | Dirty Worktree/Merge Conflict/Detached HEAD 测试 | git-adapter |  | M1-04 |
 | M6-05 | ☑ | 多 Worktree 与 Monorepo 测试 | runtime-daemon |  | M1-02 |
 | M6-06 | ☑ | 崩溃恢复与 DB 损坏恢复文档 | docs |  | M1-09 |
@@ -411,10 +413,10 @@
 | M6-EG3 | ☑ | Review 与 HEAD/Worktree 绑定正确 | `bun test packages/review-engine/test/review-engine.test.ts packages/application/test/control-loop.test.ts` |
 | M6-EG4 | ☑ | CodeGraph 版本兼容测试完成 | `@colbymchenry/codegraph` 版本锁定 + adapter capability tests |
 | M6-EG5 | ☑ | ChatGPT Data Sharing 提示清晰 | `bun test apps/chatgpt-ui/test/chatgpt-ui.test.ts` |
-| M6-EG6 | ☑ | Critical/High 安全 Finding 为零 | `docs/security/reviews/m6-independent-threat-review.md` |
-| M6-EG7 | ☑ | 关键 Eval 达 PRD §25.3 目标 | `bun test packages/application/test/control-loop.test.ts` |
+| M6-EG6 | ◐ | Critical/High 安全 Finding 为零 | MVP deterministic surface 无 Critical/High；生产安全扫描/外审待补 |
+| M6-EG7 | ◐ | 关键 Eval 达 PRD §25.3 目标 | 小型 proxy eval 覆盖；代表性 eval 报告待补 |
 | M6-EG8 | ☑ | 崩溃恢复与数据迁移有可重复演练 | `docs/runbooks/crash-recovery.md` + `docs/runbooks/schema-upgrade-guide.md` |
-| M6-EG9 | ☑ | 10 分钟内完成安装→初始化→首个任务 | `docs/examples/public-demo.md` |
+| M6-EG9 | ◐ | 10 分钟内完成安装→初始化→首个任务 | walkthrough 文档存在；计时实跑待补 |
 
 ---
 
@@ -434,4 +436,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-19 | archctx-m3-cli-mcp-agent | Add CLI use cases, five-tool local MCP, resources, host config, and first-party SOP skills | Complete; `bun test` = 70 pass |
 | 2026-06-19 | archctx-m4-chatgpt-app | Add loopback HTTP MCP, secure tunnel, metadata MCP, ChatGPT UI resource, and OAuth client checks | Complete; `bun test` = 77 pass |
 | 2026-06-19 | archctx-m5-saas-attestation | Add metadata-only control plane, GitHub App lifecycle, entitlement, D1 schema, and signed attestation | Complete; `bun run verify` = 83 pass |
-| 2026-06-19 | archctx-m6-hardening-launch | Add hardening diagnostics, install/uninstall, privacy audit, runbooks, launch checklist, and data export/delete | Complete; `bun run verify` = 87 pass |
+| 2026-06-19 | archctx-m6-hardening-launch | Add hardening diagnostics, install/uninstall, privacy audit, runbooks, launch checklist, and data export/delete | MVP proxy evidence complete; `bun run verify` = 87 pass; production Launch Gate pending matrix/benchmark/security/eval/timed rehearsal |

@@ -45,8 +45,12 @@ describe("@archcontext/hardening", () => {
   test("summarizes launch gate evidence without claiming release completion", () => {
     expect(largeRepoPerfEstimate(2500).estimatedContextQuerySeconds).toBe(3);
     expect(launchGateReport()).toMatchObject({
+      status: "mvp-proxy-evidence",
       sourceExfiltration: "privacy-route-audit",
-      securityFindings: { critical: 0, high: 0 }
+      securityFindings: { scope: "deterministic-mvp-surface", critical: 0, high: 0, productionScan: "pending" },
+      representativeEval: "pending",
+      largeRepoBenchmark: "pending",
+      timedInstallRehearsal: "pending"
     });
   });
 });

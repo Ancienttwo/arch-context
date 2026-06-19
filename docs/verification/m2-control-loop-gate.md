@@ -61,6 +61,10 @@ Observed result:
 - `refactor-or-patch`: high pressure/high confidence returns `intervention`.
 - `high-pressure-low-confidence`: returns `proof-required`.
 - `target-vs-migration`: target state does not contain migration-only relations.
-- `compatibility-debt`: unjustified compatibility recall is >= 85%.
+- `compatibility-debt`: small deterministic proxy fixture reaches the >= 85% target shape.
 - ChangeSet fault injection rolls back touched files completely.
 - Apply update refuses stale worktree digest before writing.
+
+## Boundary
+
+M2 is complete for the deterministic control-loop and ChangeSet safety surface. The `compatibility-debt` recall number comes from a small hand-built fixture in `packages/application/test/control-loop.test.ts`; it is not a representative product eval set and does not by itself close the PRD recall gate for production launch.
