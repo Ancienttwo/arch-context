@@ -865,7 +865,6 @@ archcontext/
 │   ├── architecture/
 │   └── adr/
 │
-├── pnpm-workspace.yaml
 └── package.json
 ```
 
@@ -874,7 +873,7 @@ archcontext/
 ```text
 Runtime               Node.js 24 LTS
 Language              TypeScript
-Workspace             pnpm workspaces
+Workspace             Bun workspaces
 Cloud API             Hono
 Cloud DB               Cloudflare D1
 D1 migrations          Drizzle Kit 或纯 SQL migrations

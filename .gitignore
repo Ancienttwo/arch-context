@@ -1,6 +1,7 @@
 # Project-specific
 artifacts/
 coverage/
+node_modules/
 *.tar.gz
 *.tgz
 # External references
