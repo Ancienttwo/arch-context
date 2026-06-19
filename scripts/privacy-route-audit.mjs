@@ -6,6 +6,10 @@ const root = process.cwd();
 const scanRoots = [
   "apps",
   "services",
+  "packages/notifications",
+  "packages/adapter-likec4",
+  "packages/adapter-structurizr",
+  "packages/renderer",
   "packages/control-plane",
   "packages/mcp-cloud-metadata",
   "packages/github-app",

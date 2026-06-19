@@ -85,4 +85,18 @@ describe("@archcontext/notifications", () => {
     expect(duplicate[0]).toMatchObject({ delivered: true, attempt: 0, reason: "duplicate-suppressed" });
     expect(working.deliveries).toHaveLength(1);
   });
+
+  test("publishes a notification batch without widening payload shape", async () => {
+    const transport = new MemoryNotificationTransport();
+    const publisher = createNotificationPublisher({ transports: { "github-check": transport } });
+    for (let index = 0; index < 50; index += 1) {
+      await publisher.publish({
+        ...event,
+        eventId: `notification.review-${index}`,
+        commitSha: `abc${index.toString(16).padStart(4, "0")}`
+      });
+    }
+    expect(transport.deliveries).toHaveLength(50);
+    expect(transport.deliveries.every((delivery) => auditNotificationPayload(delivery.payload).ok)).toBe(true);
+  });
 });

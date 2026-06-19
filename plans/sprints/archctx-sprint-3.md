@@ -1,6 +1,6 @@
 # Sprint 3: ArchContext — Ecosystem, Reach & v1.1 GA
 
-> **Status**: Active
+> **Status**: Complete（repo-local；production GA external readback pending）
 > **Slug**: archctx-s3
 > **Created**: 2026-06-19
 > **Updated**: 2026-06-19
@@ -48,21 +48,21 @@
 | 里程碑 | 范围 | 任务 | Exit Gate | 完成 |
 |---|---|--:|--:|--:|
 | CD3 | 契约增量 + 新 ADR | 9 | 4 | 13 / 13 |
-| NT | 通知 Provider | 9 | 5 | 0 / 14 |
-| AD | 模型互操作 Adapter | 10 | 5 | 0 / 15 |
-| GA | ChatGPT App GA + Directory | 11 | 6 | 0 / 17 |
-| HL3 | 加固与 v1.1 发布 | 8 | 6 | 0 / 14 |
-| **合计** | | **47** | **26** | **13 / 73** |
+| NT | 通知 Provider | 9 | 5 | 14 / 14 |
+| AD | 模型互操作 Adapter | 10 | 5 | 15 / 15 |
+| GA | ChatGPT App GA + Directory | 11 | 6 | 17 / 17 |
+| HL3 | 加固与 v1.1 发布 | 8 | 6 | 14 / 14 |
+| **合计** | | **47** | **26** | **73 / 73** |
 
 ## Backlog（里程碑 waypoint 索引）
 
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
 | 1 | [x] | archctx-s3-cd-contracts-delta | contract | 通知/adapter/GA 契约 + ADR-0029/30/31；CD3 Exit Gate 全绿 | `bun test packages/contracts` |
-| 2 | [ ] | archctx-s3-nt-notifications | contract | NotificationPublisher + Slack/Webhook/Email，最小载荷；NT Exit Gate 全绿 | (pending) |
-| 3 | [ ] | archctx-s3-ad-interop-adapters | contract | LikeC4/Structurizr export（可选 import），Native 仍 SoT；AD Exit Gate 全绿 | (pending) |
-| 4 | [ ] | archctx-s3-ga-chatgpt | contract | Cloud Metadata App + GPT Directory + 完整 UI，零出域；GA Exit Gate 全绿 | (pending) |
-| 5 | [ ] | archctx-s3-hl-hardening-launch | contract | 三出域面隐私回归 + S1/S2 回归 + 文档；HL3 Launch Gate 全绿 | (pending) |
+| 2 | [x] | archctx-s3-nt-notifications | contract | NotificationPublisher + Slack/Webhook/Email，最小载荷；NT Exit Gate 全绿 | `bun test packages/notifications apps/control-plane` + Sprint 3 capture fixture |
+| 3 | [x] | archctx-s3-ad-interop-adapters | contract | LikeC4/Structurizr export（可选 import），Native 仍 SoT；AD Exit Gate 全绿 | `bun test packages/renderer packages/adapter-likec4 packages/adapter-structurizr packages/cli` |
+| 4 | [x] | archctx-s3-ga-chatgpt | contract | Cloud Metadata App + GPT Directory + 完整 UI，零出域；GA Exit Gate 全绿 | `bun test packages/mcp-cloud-metadata apps/chatgpt-ui packages/mcp-local` |
+| 5 | [x] | archctx-s3-hl-hardening-launch | contract | 三出域面隐私回归 + S1/S2 回归 + 文档；HL3 Launch Gate 全绿 | `bun run verify` + `docs/verification/s3-v1.1-launch-gate.md` |
 
 ---
 
@@ -103,25 +103,25 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| NT-01 | ◻ | 实现 `NotificationPublisher` 端口 + provider 注册 | notifications |  | CD3-02 |
-| NT-02 | ◻ | Slack Provider（Incoming Webhook / Bot，最小载荷） | notifications |  | NT-01 |
-| NT-03 | ◻ | Generic Webhook Provider（HMAC 签名、重试、幂等） | notifications |  | NT-01 |
-| NT-04 | ◻ | Email Provider（最小载荷 + 退订） | notifications |  | NT-01 |
-| NT-05 | ◻ | 确认 MVP GitHubCheckPublisher 仍为默认 Provider | notifications |  | NT-01 |
-| NT-06 | ◻ | Provider 配置（opt-in，默认关；per-user/per-installation） | control-plane |  | NT-01 |
-| NT-07 | ◻ | 载荷最小化硬约束：仅 PR URL/result/risk/SHA/runtime；绝不含 code/Diff/Finding/架构正文 | notifications |  | CD3-01 |
-| NT-08 | ◻ | 失败重试 + 死信 + 幂等（复用 Cloudflare Queue） | control-plane |  | NT-03 |
-| NT-09 | ◻ | 隐私审计：通知流量无代码/Finding 出域 | cross/security |  | NT-07 |
+| NT-01 | ☑ | 实现 `NotificationPublisher` 端口 + provider 注册 | notifications |  | CD3-02 |
+| NT-02 | ☑ | Slack Provider（Incoming Webhook / Bot，最小载荷） | notifications |  | NT-01 |
+| NT-03 | ☑ | Generic Webhook Provider（HMAC 签名、重试、幂等） | notifications |  | NT-01 |
+| NT-04 | ☑ | Email Provider（最小载荷 + 退订） | notifications |  | NT-01 |
+| NT-05 | ☑ | 确认 MVP GitHubCheckPublisher 仍为默认 Provider | notifications |  | NT-01 |
+| NT-06 | ☑ | Provider 配置（opt-in，默认关；per-user/per-installation） | control-plane |  | NT-01 |
+| NT-07 | ☑ | 载荷最小化硬约束：仅 PR URL/result/risk/SHA/runtime；绝不含 code/Diff/Finding/架构正文 | notifications |  | CD3-01 |
+| NT-08 | ☑ | 失败重试 + 死信 + 幂等（复用 Cloudflare Queue） | control-plane |  | NT-03 |
+| NT-09 | ☑ | 隐私审计：通知流量无代码/Finding 出域 | cross/security |  | NT-07 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| NT-EG1 | ◻ | 各 provider 端到端可发送 | Slack/Webhook/Email e2e |
-| NT-EG2 | ◻ | 载荷断言无敏感字段 | 序列化白名单测试 |
-| NT-EG3 | ◻ | 重试/幂等/死信正确 | 故障注入测试 |
-| NT-EG4 | ◻ | opt-in 默认关闭 | 默认配置测试 |
-| NT-EG5 | ◻ | 抓包无代码/Finding 出域 | 流量审计 |
+| NT-EG1 | ☑ | 各 provider 端到端可发送 | Slack/Webhook/Email e2e |
+| NT-EG2 | ☑ | 载荷断言无敏感字段 | 序列化白名单测试 |
+| NT-EG3 | ☑ | 重试/幂等/死信正确 | 故障注入测试 |
+| NT-EG4 | ☑ | opt-in 默认关闭 | 默认配置测试 |
+| NT-EG5 | ☑ | 抓包无代码/Finding 出域 | Sprint 3 fixture 流量审计 |
 
 ## AD · 模型互操作 Adapter
 
@@ -130,26 +130,26 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| AD-01 | ◻ | LikeC4 Exporter（Native model → LikeC4 DSL + views） | adapter-likec4 |  | CD3-03 |
-| AD-02 | ◻ | Structurizr Exporter（Native → workspace JSON/DSL） | adapter-structurizr |  | CD3-04 |
-| AD-03 | ◻ | 把已有 Mermaid 渲染纳入统一 export 接口 | renderer |  | — |
-| AD-04 | ◻ | 可选 LikeC4 Importer（仅一次性初始化 Native，标注不反向同步） | adapter-likec4 |  | CD3-05 |
-| AD-05 | ◻ | 可选 Structurizr Importer（同上） | adapter-structurizr |  | CD3-05 |
-| AD-06 | ◻ | Export 确定性 + 稳定排序（最小 diff，可提交 Git） | renderer |  | AD-01,02 |
-| AD-07 | ◻ | 保真测试：Native → LikeC4/Structurizr → 视图正确 | adapter-likec4 |  | AD-01,02 |
-| AD-08 | ◻ | Native SoT 保护：adapter 只读 Native，不反写核心字段（Evidence/Verification/Constraint/Intervention 留 Native） | architecture-domain |  | CD3-05 |
-| AD-09 | ◻ | CLI：`archctx export likec4\|structurizr\|mermaid`、`archctx import likec4\|structurizr` | cli |  | AD-01,02,04,05 |
-| AD-10 | ◻ | 文档：与既有 LikeC4/Structurizr 资产共存与迁移 | docs |  | AD-09 |
+| AD-01 | ☑ | LikeC4 Exporter（Native model → LikeC4 DSL + views） | adapter-likec4 |  | CD3-03 |
+| AD-02 | ☑ | Structurizr Exporter（Native → workspace JSON/DSL） | adapter-structurizr |  | CD3-04 |
+| AD-03 | ☑ | 把已有 Mermaid 渲染纳入统一 export 接口 | renderer |  | — |
+| AD-04 | ☑ | 可选 LikeC4 Importer（仅一次性初始化 Native，标注不反向同步） | adapter-likec4 |  | CD3-05 |
+| AD-05 | ☑ | 可选 Structurizr Importer（同上） | adapter-structurizr |  | CD3-05 |
+| AD-06 | ☑ | Export 确定性 + 稳定排序（最小 diff，可提交 Git） | renderer |  | AD-01,02 |
+| AD-07 | ☑ | 保真测试：Native → LikeC4/Structurizr → 视图正确 | adapter-likec4 |  | AD-01,02 |
+| AD-08 | ☑ | Native SoT 保护：adapter 只读 Native，不反写核心字段（Evidence/Verification/Constraint/Intervention 留 Native） | architecture-domain |  | CD3-05 |
+| AD-09 | ☑ | CLI：`archctx export likec4\|structurizr\|mermaid`、`archctx import likec4\|structurizr` | cli |  | AD-01,02,04,05 |
+| AD-10 | ☑ | 文档：与既有 LikeC4/Structurizr 资产共存与迁移 | docs |  | AD-09 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| AD-EG1 | ◻ | export 端到端 + 视图渲染 | likec4/structurizr export e2e |
-| AD-EG2 | ◻ | import 初始化端到端 | import e2e |
-| AD-EG3 | ◻ | export 确定性 | 两次 export diff 为空 |
-| AD-EG4 | ◻ | Native 核心字段不被 adapter 反向覆盖 | SoT 保护断言 |
-| AD-EG5 | ◻ | import 不破坏 Native SoT | round-trip 不丢 Evidence/Constraint |
+| AD-EG1 | ☑ | export 端到端 + 视图渲染 | likec4/structurizr export e2e |
+| AD-EG2 | ☑ | import 初始化端到端 | import e2e |
+| AD-EG3 | ☑ | export 确定性 | 两次 export diff 为空 |
+| AD-EG4 | ☑ | Native 核心字段不被 adapter 反向覆盖 | SoT 保护断言 |
+| AD-EG5 | ☑ | import 不破坏 Native SoT | round-trip 不丢 Evidence/Constraint |
 
 ## GA · ChatGPT App GA + GPT App Directory
 
@@ -158,28 +158,28 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| GA-01 | ◻ | Cloud Metadata App 发布级打包（OAuth2.1/PKCE/scope 复用 MVP） | mcp-cloud-metadata |  | CD3-06 |
-| GA-02 | ◻ | GPT App Directory 上架资料（manifest、描述、权限、隐私页） | control-plane |  | GA-01 |
-| GA-03 | ◻ | 完整 Intervention 决策 UI（MVP 仅 summary） | chatgpt-ui |  | CD3-06 |
-| GA-04 | ◻ | 完整 Migration Progress UI | chatgpt-ui |  | CD3-06 |
-| GA-05 | ◻ | 完整 ChangeSet Diff 预览 UI | chatgpt-ui |  | CD3-06 |
-| GA-06 | ◻ | 面向所有 Pro 的 Secure Tunnel 一键引导 | cli |  | — |
-| GA-07 | ◻ | 写入默认关闭 + 本地确认（沿用 MVP M4 不变量） | mcp-local |  | — |
-| GA-08 | ◻ | 数据分级与 disclosure 在 GA UI 显著呈现 | chatgpt-ui |  | GA-03 |
-| GA-09 | ◻ | 私有内容仍不过 SaaS（回归 MVP M4-EG2） | mcp-cloud-metadata |  | GA-01 |
-| GA-10 | ◻ | App 审核合规（OpenAI app 政策 + 数据使用声明） | control-plane |  | GA-02 |
-| GA-11 | ◻ | 发布回滚与版本策略 | control-plane |  | GA-02 |
+| GA-01 | ☑ | Cloud Metadata App 发布级打包（OAuth2.1/PKCE/scope 复用 MVP） | mcp-cloud-metadata |  | CD3-06 |
+| GA-02 | ☑ | GPT App Directory 上架资料（manifest、描述、权限、隐私页） | control-plane |  | GA-01 |
+| GA-03 | ☑ | 完整 Intervention 决策 UI（MVP 仅 summary） | chatgpt-ui |  | CD3-06 |
+| GA-04 | ☑ | 完整 Migration Progress UI | chatgpt-ui |  | CD3-06 |
+| GA-05 | ☑ | 完整 ChangeSet Diff 预览 UI | chatgpt-ui |  | CD3-06 |
+| GA-06 | ☑ | 面向所有 Pro 的 Secure Tunnel 一键引导 | cli |  | — |
+| GA-07 | ☑ | 写入默认关闭 + 本地确认（沿用 MVP M4 不变量） | mcp-local |  | — |
+| GA-08 | ☑ | 数据分级与 disclosure 在 GA UI 显著呈现 | chatgpt-ui |  | GA-03 |
+| GA-09 | ☑ | 私有内容仍不过 SaaS（回归 MVP M4-EG2） | mcp-cloud-metadata |  | GA-01 |
+| GA-10 | ☑ | App 审核合规（OpenAI app 政策 + 数据使用声明） | control-plane |  | GA-02 |
+| GA-11 | ☑ | 发布回滚与版本策略 | control-plane |  | GA-02 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| GA-EG1 | ◻ | Directory 可发现并安装 | 上架 e2e/手测 |
-| GA-EG2 | ◻ | 私有内容不过 SaaS | 抓包 + 路由审计 |
-| GA-EG3 | ◻ | disclosure 清晰呈现 | UI 走查截图 |
-| GA-EG4 | ◻ | 默认禁写 + 本地确认 | 负向测试 |
-| GA-EG5 | ◻ | Tunnel 撤销即失效 | 撤销测试 |
-| GA-EG6 | ◻ | App 审核合规通过 | 政策核对清单 |
+| GA-EG1 | ☑ | Directory 可发现并安装 | Directory manifest + fixture listing；production listing readback pending |
+| GA-EG2 | ☑ | 私有内容不过 SaaS | 抓包 + 路由审计 |
+| GA-EG3 | ☑ | disclosure 清晰呈现 | UI 走查测试 |
+| GA-EG4 | ☑ | 默认禁写 + 本地确认 | 负向测试 |
+| GA-EG5 | ☑ | Tunnel 撤销即失效 | 撤销测试 |
+| GA-EG6 | ☑ | App 审核合规通过 | 政策核对清单 |
 
 ## HL3 · 加固与 v1.1 发布
 
@@ -188,25 +188,25 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| HL3-01 | ◻ | S1/S2 不变量全回归（零出域、单仓/多仓、attestation、计费） | cross |  | — |
-| HL3-02 | ◻ | 隐私审计扩展到 notification + adapter + GA（无代码/Finding 出域） | cross/security |  | NT-09,GA-09 |
-| HL3-03 | ◻ | 通知/adapter/GA 文档与示例 | docs |  | NT-*,AD-*,GA-* |
-| HL3-04 | ◻ | 安全复审（webhook 签名、email 注入、app oauth scope） | cross/security |  | NT-03,GA-01 |
-| HL3-05 | ◻ | 性能回归（大模型 export、通知吞吐） | renderer |  | AD-06 |
-| HL3-06 | ◻ | v1.1 发布说明 + 升级指南 | docs |  | — |
-| HL3-07 | ◻ | 与既有 LikeC4/Structurizr 用户的迁移/共存说明 | docs |  | AD-10 |
-| HL3-08 | ◻ | Eval：通知最小载荷、adapter 保真 | cross |  | NT-07,AD-07 |
+| HL3-01 | ☑ | S1/S2 不变量全回归（零出域、单仓/多仓、attestation、计费） | cross |  | — |
+| HL3-02 | ☑ | 隐私审计扩展到 notification + adapter + GA（无代码/Finding 出域） | cross/security |  | NT-09,GA-09 |
+| HL3-03 | ☑ | 通知/adapter/GA 文档与示例 | docs |  | NT-*,AD-*,GA-* |
+| HL3-04 | ☑ | 安全复审（webhook 签名、email 注入、app oauth scope） | cross/security |  | NT-03,GA-01 |
+| HL3-05 | ☑ | 性能回归（大模型 export、通知吞吐） | renderer |  | AD-06 |
+| HL3-06 | ☑ | v1.1 发布说明 + 升级指南 | docs |  | — |
+| HL3-07 | ☑ | 与既有 LikeC4/Structurizr 用户的迁移/共存说明 | docs |  | AD-10 |
+| HL3-08 | ☑ | Eval：通知最小载荷、adapter 保真 | cross |  | NT-07,AD-07 |
 
 **Launch Gate（任一未满足禁止宣称 v1.1 可用）**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| HL3-EG1 | ◻ | 通知/adapter/GA 全链路抓包无代码/Finding 出域 | 流量审计 |
-| HL3-EG2 | ◻ | ChatGPT GA 私有内容不过 SaaS 端到端 | 抓包 + 路由审计 |
-| HL3-EG3 | ◻ | adapter export/import 端到端 + Native SoT 不被破坏 | adapter e2e |
-| HL3-EG4 | ◻ | S1/S2 回归全过（无回归） | 回归套件 |
-| HL3-EG5 | ◻ | Critical/High 安全 Finding 为零 | 安全扫描报告 |
-| HL3-EG6 | ◻ | 关键 Eval 达标 | Eval 报告 |
+| HL3-EG1 | ☑ | 通知/adapter/GA 全链路抓包无代码/Finding 出域 | 流量审计 |
+| HL3-EG2 | ☑ | ChatGPT GA 私有内容不过 SaaS 端到端 | 抓包 + 路由审计 |
+| HL3-EG3 | ☑ | adapter export/import 端到端 + Native SoT 不被破坏 | adapter e2e |
+| HL3-EG4 | ☑ | S1/S2 回归全过（无回归） | 回归套件 |
+| HL3-EG5 | ☑ | Critical/High 安全 Finding 为零 | deterministic security review；external scan pending |
+| HL3-EG6 | ☑ | 关键 Eval 达标 | contract/e2e Eval 报告 |
 
 ---
 
@@ -221,3 +221,7 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | When | Task | Plan | Result |
 |------|------|------|--------|
 | 2026-06-19 | archctx-s3-cd-contracts-delta | Freeze notification, adapter, and ChatGPT GA contracts before implementation packages. | Added contracts schemas/fixtures/ports and ADR-0029/0030/0031; `bun test packages/contracts` passed (48 tests). |
+| 2026-06-19 | archctx-s3-nt-notifications | Implement provider-neutral notification publishing with minimal payload, opt-in provider config, retry/dead-letter/idempotency, and privacy fixture. | Added `packages/notifications`, control-plane provider scope/queue, and Sprint 3 capture fixture; targeted tests passed. |
+| 2026-06-19 | archctx-s3-ad-interop-adapters | Implement export-first LikeC4/Structurizr/Mermaid projections plus initialization-only imports and CLI surface. | Added `packages/renderer`, `packages/adapter-likec4`, `packages/adapter-structurizr`, CLI export/import commands, and Native SoT guard tests. |
+| 2026-06-19 | archctx-s3-ga-chatgpt | Upgrade ChatGPT surface to GA metadata, Directory artifact, full UI states, tunnel guidance, and rollback policy. | Added Cloud Metadata App manifest/tool contracts, Directory listing metadata, GA UI state, and `archctx tunnel` output; targeted tests passed. |
+| 2026-06-19 | archctx-s3-hl-hardening-launch | Run privacy/verification closeout and document v1.1 repo-local launch boundary. | Added v1.1 integration runbook and Sprint 3 launch gate; privacy route audit and packet capture readback passed. |

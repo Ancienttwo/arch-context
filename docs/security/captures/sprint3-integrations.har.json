@@ -1,0 +1,86 @@
+{
+  "log": {
+    "version": "1.2",
+    "creator": {
+      "name": "ArchContext Sprint 3 fixture",
+      "version": "1.1.0"
+    },
+    "entries": [
+      {
+        "request": {
+          "method": "POST",
+          "url": "https://api.archcontext.dev/notifications/events",
+          "headers": [
+            {
+              "name": "authorization",
+              "value": "Bearer [REDACTED]"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "postData": {
+            "mimeType": "application/json",
+            "text": "{\"eventId\":\"notification.review-complete\",\"prUrl\":\"https://github.com/ancienttwo/arch-context/pull/12\",\"result\":\"pass_with_warnings\",\"riskLevel\":\"medium\",\"commitSha\":\"abc1234\",\"runtimeVersion\":\"archctx/1.1.0\",\"occurredAt\":\"2026-06-19T00:00:00Z\"}"
+          }
+        },
+        "response": {
+          "status": 202,
+          "headers": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "content": {
+            "mimeType": "application/json",
+            "text": "{\"queued\":true,\"queueMessage\":{\"kind\":\"notification.event\",\"id\":\"notification.review-complete\"}}"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.archcontext.dev/chatgpt/directory",
+          "headers": [
+            {
+              "name": "authorization",
+              "value": "Bearer [REDACTED]"
+            }
+          ]
+        },
+        "response": {
+          "status": 200,
+          "content": {
+            "mimeType": "application/json",
+            "text": "{\"name\":\"ArchContext\",\"slug\":\"archcontext\",\"permissions\":[\"account:read\",\"billing:read\",\"installations:read\",\"device_sessions:revoke\"],\"repositoryContent\":\"local-runtime-only\"}"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "url": "https://api.archcontext.dev/chatgpt/releases/1.1.0/rollback",
+          "headers": [
+            {
+              "name": "authorization",
+              "value": "Bearer [REDACTED]"
+            }
+          ],
+          "postData": {
+            "mimeType": "application/json",
+            "text": "{\"version\":\"1.1.0\",\"reason\":\"fixture-readback\"}"
+          }
+        },
+        "response": {
+          "status": 200,
+          "content": {
+            "mimeType": "application/json",
+            "text": "{\"rolledBack\":true,\"version\":\"1.1.0\"}"
+          }
+        }
+      }
+    ]
+  }
+}

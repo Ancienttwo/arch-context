@@ -13,6 +13,17 @@
       "verifier": "scripts/privacy-packet-capture-audit.mjs"
     },
     {
+      "id": "fixture.sprint3-integrations",
+      "environment": "fixture",
+      "status": "verified",
+      "artifactPath": "docs/security/captures/sprint3-integrations.har.json",
+      "captureDigest": "sha256:65bf375b970c9f1e056d68fd1d4ea43ec5321776742884ef6736adc97d55de67",
+      "auditedAt": "2026-06-19T00:00:00.000Z",
+      "entries": 3,
+      "checkedValues": 42,
+      "verifier": "scripts/privacy-packet-capture-audit.mjs"
+    },
+    {
       "id": "production.real-capture",
       "environment": "production",
       "status": "pending",

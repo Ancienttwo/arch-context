@@ -36,4 +36,23 @@ describe("@archcontext/renderer", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("exports a larger model deterministically without dropping relations", () => {
+    const nodes = Array.from({ length: 250 }, (_, index) => ({
+      id: `module.service-${index.toString().padStart(3, "0")}`,
+      kind: "module",
+      name: `Service ${index}`
+    }));
+    const relations = nodes.slice(1).map((node, index) => ({
+      id: `relation.service-${index.toString().padStart(3, "0")}`,
+      kind: "calls",
+      source: nodes[index].id,
+      target: node.id,
+      intent: "large model regression"
+    }));
+    const first = exportMermaidModel({ nodes, relations });
+    const second = exportMermaidModel({ nodes: [...nodes].reverse(), relations: [...relations].reverse() });
+    expect(first.digest).toBe(second.digest);
+    expect(first.files[0].content.match(/-->/g)?.length).toBe(249);
+  });
 });
