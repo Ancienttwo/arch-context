@@ -6,6 +6,9 @@ import { YamlModelStore } from "../../model-store-yaml/src/index";
 import { applyArchitectureUpdate, checkpoint, completeTask, planArchitectureUpdate, prepareTask } from "../../application/src/index";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "../../hardening/src/index";
 import { createStartedDaemon } from "../../runtime-daemon/src/index";
+import { exportLikeC4Model, importLikeC4InitialModel } from "../../adapter-likec4/src/index";
+import { exportStructurizrWorkspace, importStructurizrInitialModel } from "../../adapter-structurizr/src/index";
+import { exportMermaidModel, loadNativeModelFromArchContext } from "../../renderer/src/index";
 
 const [, , command, ...args] = process.argv;
 
@@ -151,6 +154,41 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         requestId: "privacy-audit",
         data: { dependencyAudit: dependencyAudit(cwd), secretScan: secretScan(cwd) }
       };
+    case "export": {
+      const format = args[0] ?? readFlag(args, "--format") ?? "mermaid";
+      const model = loadNativeModelFromArchContext(cwd);
+      const result =
+        format === "likec4" ? exportLikeC4Model(model) :
+        format === "structurizr" ? exportStructurizrWorkspace(model) :
+        format === "mermaid" ? exportMermaidModel(model) :
+        undefined;
+      if (!result) return errorEnvelope("export", "AC_SCHEMA_INVALID", "export requires likec4, structurizr, or mermaid");
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "export", data: result as any };
+    }
+    case "import": {
+      const format = args[0] ?? readFlag(args, "--format");
+      const content = readFlag(args, "--content");
+      if (!format || !content) return errorEnvelope("import", "AC_SCHEMA_INVALID", "import requires likec4|structurizr and --content");
+      const result =
+        format === "likec4" ? importLikeC4InitialModel(content) :
+        format === "structurizr" ? importStructurizrInitialModel(content) :
+        undefined;
+      if (!result) return errorEnvelope("import", "AC_SCHEMA_INVALID", "import requires likec4 or structurizr");
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "import", data: { ...result, mode: "initialization-only" } as any };
+    }
+    case "tunnel":
+      return {
+        schemaVersion: "archcontext.envelope/v1",
+        ok: true,
+        requestId: "tunnel",
+        data: {
+          command: "archctx mcp",
+          bindHost: "127.0.0.1",
+          scopes: ["context:read", "changeset:preview"],
+          writes: "disabled-by-default-local-confirmation-required",
+          revocation: "archctx tunnel --revoke"
+        }
+      };
     case "help":
     default:
       return {
@@ -158,8 +196,8 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "repo", "landscape", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit"],
-          examples: ["archctx init --name MyApp", "archctx repo add --name web", "archctx context --landscape --task \"change shared API\"", "archctx config"]
+          commands: ["init", "sync", "validate", "context", "status", "repo", "landscape", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
   }

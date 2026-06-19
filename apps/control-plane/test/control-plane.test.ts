@@ -103,4 +103,43 @@ describe("control plane", () => {
       }).reason
     ).toBe("org-runner-revoked");
   });
+
+  test("stores opt-in notification providers and queues minimal notification events only", () => {
+    const cp = new ControlPlane();
+    expect(cp.listNotificationProviders().filter((config) => config.enabled).map((config) => config.provider)).toEqual(["github-check"]);
+    cp.setNotificationProvider({
+      schemaVersion: "archcontext.notification-provider/v1",
+      id: "notification-provider.webhook",
+      provider: "webhook",
+      enabled: true,
+      target: "https://notify.example",
+      secretRef: "secret://notify",
+      retry: { maxAttempts: 3, backoffSeconds: 30 }
+    }, { accountId: "acct_42", installationId: 123 });
+    expect(cp.listNotificationProviders({ accountId: "acct_42" }).map((config) => config.id)).toContain("notification-provider.webhook");
+    expect(cp.listNotificationProviders({ accountId: "acct_other" }).map((config) => config.id)).not.toContain("notification-provider.webhook");
+    const queued = cp.enqueueNotification({
+      schemaVersion: "archcontext.notification-event/v1",
+      eventId: "notification.review-complete",
+      prUrl: "https://github.com/ancienttwo/arch-context/pull/12",
+      result: "pass",
+      riskLevel: "low",
+      commitSha: "abc1234",
+      runtimeVersion: "archctx/1.1.0",
+      occurredAt: "2026-06-19T00:00:00Z"
+    });
+    expect(queued.queueMessage.kind).toBe("notification.event");
+    expect(queued.payloadDigest).toMatch(/^sha256:/);
+    expect(cp.notificationQueue).toHaveLength(1);
+    expect(() => cp.setNotificationProvider({ schemaVersion: "archcontext.notification-provider/v1", id: "notification-provider.slack", provider: "slack", enabled: true, target: "slack", retry: { maxAttempts: 1, backoffSeconds: 1 } })).toThrow("secret-ref");
+  });
+
+  test("publishes ChatGPT Directory metadata and rollback strategy without repository content", () => {
+    const cp = new ControlPlane();
+    const listing = cp.buildChatGptDirectoryListing();
+    expect(listing.slug).toBe("archcontext");
+    expect(listing.repositoryContent).toBe("local-runtime-only");
+    expect(cp.appReviewChecklist().writes).toBe("disabled-by-default-local-confirmation-required");
+    expect(cp.rollbackChatGptRelease("1.1.0")).toEqual({ rolledBack: true, version: "1.1.0" });
+  });
 });

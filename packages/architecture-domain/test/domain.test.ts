@@ -18,7 +18,9 @@ import {
   repoScopedArchitectureId,
   summarizeLandscapeForSaas,
   validateLandscape,
-  repositoryFingerprint
+  repositoryFingerprint,
+  assertAdapterDoesNotOverwriteNativeCore,
+  stripAdapterProtectedNativeFields
 } from "../src/index";
 
 describe("@archcontext/architecture-domain", () => {
@@ -107,5 +109,21 @@ describe("@archcontext/architecture-domain", () => {
     });
     expect(expanded.repositories.map((repo) => repo.repositoryId)).toContain("repo.worker");
     expect(expanded.relations).toContain("relation.worker-subscribes-api");
+  });
+
+  test("adapter imports cannot overwrite Native protected fields", () => {
+    const native = {
+      id: "module.subscription",
+      name: "Subscription",
+      evidence: ["verified-call-path"],
+      verification: ["bun test"],
+      constraint: ["payment-boundary"],
+      intervention: ["intervention.billing"]
+    };
+    const stripped = stripAdapterProtectedNativeFields(native);
+    expect(stripped.removedFields).toEqual(["evidence", "verification", "constraint", "intervention"]);
+    expect((stripped.clean as any).evidence).toBeUndefined();
+    expect(() => assertAdapterDoesNotOverwriteNativeCore(native, { ...native, evidence: ["changed"] })).toThrow("source-of-truth");
+    expect(() => assertAdapterDoesNotOverwriteNativeCore(native, native)).not.toThrow();
   });
 });

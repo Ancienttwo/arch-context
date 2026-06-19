@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { initializeArchContextModel } from "../../model-store-yaml/src/index";
 import { runCli } from "../src/main";
 
 describe("archctx CLI", () => {
@@ -59,6 +60,29 @@ describe("archctx CLI", () => {
       const context = await runCli("context", ["--landscape", "--task", "change local API", "--max-symbols", "2"], root);
       expect(context.ok).toBe(true);
       expect((context.data as any).extensions.landscapeDigest).toMatch(/^sha256:/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI exports and imports interop projections without overwriting Native model", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      initializeArchContextModel(root, "CLI Export App");
+      const likec4 = await runCli("export", ["likec4"], root);
+      expect(likec4.ok).toBe(true);
+      expect((likec4.data as any).format).toBe("likec4");
+      const imported = await runCli("import", ["likec4", "--content", (likec4.data as any).files[0].content], root);
+      expect(imported.ok).toBe(true);
+      expect((imported.data as any).mode).toBe("initialization-only");
+      const structurizr = await runCli("export", ["structurizr"], root);
+      expect((structurizr.data as any).files[0].path).toContain("structurizr");
+      const mermaid = await runCli("export", ["mermaid"], root);
+      expect((mermaid.data as any).files[0].path).toContain("architecture.mmd");
+      const tunnel = await runCli("tunnel", [], root);
+      expect((tunnel.data as any).bindHost).toBe("127.0.0.1");
+      expect((tunnel.data as any).writes).toContain("disabled-by-default");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

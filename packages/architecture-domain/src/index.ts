@@ -117,6 +117,8 @@ export interface ArchitectureInterventionModel {
   benefitLedger: BenefitLedger;
 }
 
+export const ADAPTER_PROTECTED_NATIVE_FIELDS = ["evidence", "verification", "constraint", "intervention"] as const;
+
 export function createInterventionId(task: string): string {
   return `intervention.${task
     .toLowerCase()
@@ -262,6 +264,26 @@ export function summarizeLandscapeForSaas(landscape: Landscape): { repositoryIds
   return {
     repositoryIds: landscape.repositories.map((repo) => repo.numericRepositoryId).sort((a, b) => a - b)
   };
+}
+
+export function stripAdapterProtectedNativeFields<T extends Record<string, Json>>(value: T): { clean: T; removedFields: string[] } {
+  const clean = { ...value };
+  const removedFields: string[] = [];
+  for (const field of ADAPTER_PROTECTED_NATIVE_FIELDS) {
+    if (field in clean) {
+      delete clean[field];
+      removedFields.push(field);
+    }
+  }
+  return { clean, removedFields };
+}
+
+export function assertAdapterDoesNotOverwriteNativeCore(before: Record<string, Json>, after: Record<string, Json>): void {
+  for (const field of ADAPTER_PROTECTED_NATIVE_FIELDS) {
+    if (field in before && JSON.stringify(before[field]) !== JSON.stringify(after[field])) {
+      throw new Error(`Adapter cannot overwrite Native source-of-truth field: ${field}`);
+    }
+  }
 }
 
 export function computeWorktreeDigest(root: string, options: WorktreeDigestOptions = {}): string {

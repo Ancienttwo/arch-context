@@ -5,7 +5,12 @@ import {
   type OrgRunnerIdentity,
   type ReviewChallenge
 } from "../../../packages/attestation/src/index";
-import { digestJson } from "../../../packages/contracts/src/index";
+import { digestJson, type NotificationEvent, type NotificationProviderConfig } from "../../../packages/contracts/src/index";
+import {
+  auditNotificationPayload,
+  defaultNotificationProviderConfigs,
+  serializeNotificationEvent
+} from "../../../packages/notifications/src/index";
 
 export const CONTROL_PLANE_ROUTES = [
   "GET /oauth/github/start",
@@ -18,7 +23,12 @@ export const CONTROL_PLANE_ROUTES = [
   "POST /attestations/verify",
   "POST /org-runners",
   "POST /org-runners/:runner/revoke",
-  "GET /mcp/metadata"
+  "GET /mcp/metadata",
+  "GET /chatgpt/directory",
+  "POST /chatgpt/releases/:version/rollback",
+  "GET /notifications/providers",
+  "PUT /notifications/providers/:provider",
+  "POST /notifications/events"
 ] as const;
 
 export const WORKER_LIMITS = {
@@ -46,6 +56,10 @@ export class ControlPlane {
   readonly webhookDeliveries = new Set<string>();
   readonly revokedDevices = new Set<string>();
   readonly orgRunners = new Map<string, OrgRunnerIdentity>();
+  readonly notificationProviders = new Map<string, NotificationProviderConfig>();
+  readonly notificationProviderScopes = new Map<string, { accountId?: string; installationId?: number }>();
+  readonly notificationQueue: NotificationEvent[] = [];
+  readonly releaseRollbacks: string[] = [];
 
   loginWithGitHub(githubUserId: string): Account {
     const id = `acct_${githubUserId}`;
@@ -179,6 +193,68 @@ export class ControlPlane {
 
   buildQueueMessage(input: { kind: string; id: string; accountId?: string }) {
     return input;
+  }
+
+  listNotificationProviders(scope: { accountId?: string; installationId?: number } = {}): NotificationProviderConfig[] {
+    if (this.notificationProviders.size === 0) {
+      for (const config of defaultNotificationProviderConfigs()) this.notificationProviders.set(config.id, config);
+    }
+    return [...this.notificationProviders.values()]
+      .filter((config) => {
+        const owner = this.notificationProviderScopes.get(config.id);
+        if (!owner || (!scope.accountId && !scope.installationId)) return true;
+        if (scope.accountId && owner.accountId === scope.accountId) return true;
+        if (scope.installationId && owner.installationId === scope.installationId) return true;
+        return false;
+      })
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  setNotificationProvider(config: NotificationProviderConfig, scope: { accountId?: string; installationId?: number } = {}): NotificationProviderConfig {
+    if (config.enabled && config.provider !== "github-check" && !config.secretRef) {
+      throw new Error("notification-provider-secret-ref-required");
+    }
+    this.notificationProviders.set(config.id, config);
+    this.notificationProviderScopes.set(config.id, scope);
+    return config;
+  }
+
+  enqueueNotification(event: NotificationEvent): { queued: boolean; queueMessage: { kind: string; id: string }; payloadDigest: string } {
+    const payload = serializeNotificationEvent(event);
+    const audit = auditNotificationPayload(payload);
+    if (!audit.ok) throw new Error(`notification-payload-invalid: ${audit.findings.join(", ")}`);
+    this.notificationQueue.push(event);
+    return {
+      queued: true,
+      queueMessage: this.buildQueueMessage({ kind: "notification.event", id: event.eventId }),
+      payloadDigest: digestJson(payload as any)
+    };
+  }
+
+  buildChatGptDirectoryListing() {
+    return {
+      name: "ArchContext",
+      slug: "archcontext",
+      description: "Architecture runtime for coding agents.",
+      permissions: ["account:read", "billing:read", "installations:read", "device_sessions:revoke"],
+      repositoryContent: "local-runtime-only",
+      privacyUrl: "https://archcontext.dev/privacy",
+      installUrl: "https://archcontext.dev/chatgpt/install"
+    };
+  }
+
+  appReviewChecklist() {
+    return {
+      oauth: "OAuth 2.1 + PKCE",
+      dataUse: "Remote MCP metadata only; local runtime handles private repository context.",
+      writes: "disabled-by-default-local-confirmation-required",
+      rollback: "versioned-cloud-metadata-release"
+    };
+  }
+
+  rollbackChatGptRelease(version: string): { rolledBack: boolean; version: string } {
+    this.releaseRollbacks.push(version);
+    return { rolledBack: true, version };
   }
 
   redactLog(value: string): string {

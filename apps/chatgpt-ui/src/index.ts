@@ -23,6 +23,9 @@ export function renderTaskContextHtml(input: {
   targetState?: Json;
   migrationState?: Json;
   changesetPreview?: Json;
+  intervention?: Json;
+  migrationProgress?: Json;
+  diffPreview?: Json;
   findings?: Json[];
 }): string {
   const findings = input.findings ?? [];
@@ -46,6 +49,9 @@ export function renderTaskContextHtml(input: {
     .bar > span { display: block; height: 100%; background: #1677ff; }
     pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-size: 12px; line-height: 1.45; }
     .notice { border-color: #e0bc49; background: #fff9df; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .metric { border: 1px solid #e1e6eb; border-radius: 6px; padding: 10px; background: #fbfcfd; }
+    .metric strong { display: block; font-size: 12px; color: #5b6673; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -66,11 +72,34 @@ export function renderTaskContextHtml(input: {
       <div>Confidence<div class="bar"><span style="width:${clamp(input.confidenceScore)}%"></span></div></div>
     </div></section>
     <section><h2>Target / Migration</h2><pre>${escapeHtml(JSON.stringify({ targetState: input.targetState ?? {}, migrationState: input.migrationState ?? {} }, null, 2))}</pre></section>
+    <section><h2>Intervention Decision</h2><pre>${escapeHtml(JSON.stringify(input.intervention ?? {}, null, 2))}</pre></section>
+    <section><h2>Migration Progress</h2><div class="grid3">
+      ${metric("Required", metricValue(input.migrationProgress, "required"))}
+      ${metric("Completed", metricValue(input.migrationProgress, "completed"))}
+      ${metric("Blocked", metricValue(input.migrationProgress, "blocked"))}
+    </div><pre>${escapeHtml(JSON.stringify(input.migrationProgress ?? {}, null, 2))}</pre></section>
     <section><h2>ChangeSet Preview</h2><pre>${escapeHtml(JSON.stringify(input.changesetPreview ?? {}, null, 2))}</pre></section>
+    <section><h2>ChangeSet Diff</h2><pre>${escapeHtml(JSON.stringify(input.diffPreview ?? {}, null, 2))}</pre></section>
     <section><h2>Review Findings</h2><pre>${escapeHtml(JSON.stringify(findings, null, 2))}</pre></section>
   </main>
 </body>
 </html>`;
+}
+
+export function buildGaUiState(input: {
+  intervention?: Json;
+  migrationProgress?: Json;
+  diffPreview?: Json;
+  writeEnabled?: boolean;
+}) {
+  return {
+    schemaVersion: "archcontext.chatgpt-ui-state/v1",
+    writeMode: input.writeEnabled ? "requires-local-confirmation" : "disabled",
+    intervention: input.intervention ?? {},
+    migrationProgress: input.migrationProgress ?? { required: 0, completed: 0, blocked: 0 },
+    diffPreview: input.diffPreview ?? { files: [] },
+    disclosure: "Private repository context stays in the local runtime; write tools require local confirmation."
+  };
 }
 
 function clamp(value: number): number {
@@ -79,4 +108,14 @@ function clamp(value: number): number {
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char]!));
+}
+
+function metric(label: string, value: string): string {
+  return `<div class="metric"><strong>${escapeHtml(label)}</strong>${escapeHtml(value)}</div>`;
+}
+
+function metricValue(value: Json | undefined, key: string): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "0";
+  const item = value[key];
+  return typeof item === "number" || typeof item === "string" ? String(item) : "0";
 }
