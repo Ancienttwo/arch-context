@@ -36,6 +36,8 @@ export interface NotificationTransport {
   send(request: NotificationTransportRequest): Promise<NotificationTransportResponse>;
 }
 
+export type NotificationSecretResolver = (secretRef: string) => string | undefined;
+
 export class MemoryNotificationTransport implements NotificationTransport {
   readonly deliveries: NotificationTransportRequest[] = [];
 
@@ -57,7 +59,8 @@ export class NotificationPublisherService implements NotificationPublisher {
 
   constructor(
     private readonly configs: NotificationProviderConfig[] = defaultNotificationProviderConfigs(),
-    private readonly transports: Partial<Record<NotificationProviderConfig["provider"], NotificationTransport>> = {}
+    private readonly transports: Partial<Record<NotificationProviderConfig["provider"], NotificationTransport>> = {},
+    private readonly secretResolver?: NotificationSecretResolver
   ) {}
 
   async publish(event: NotificationEvent): Promise<NotificationDeliveryResult[]> {
@@ -86,10 +89,11 @@ export class NotificationPublisherService implements NotificationPublisher {
     let lastError = "not-attempted";
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
+        const webhookSecret = config.provider === "webhook" ? this.resolveWebhookSecret(config) : undefined;
         const response = await transport.send({
           provider: config,
           payload,
-          signature: config.provider === "webhook" ? signWebhookPayload(payload, config.secretRef ?? "secret://missing") : undefined
+          signature: webhookSecret ? signWebhookPayload(payload, webhookSecret) : undefined
         });
         this.delivered.add(idempotencyKey);
         return { providerId: config.id, delivered: true, idempotencyKey, attempt, statusCode: response.statusCode };
@@ -99,6 +103,13 @@ export class NotificationPublisherService implements NotificationPublisher {
     }
     this.deadLetters.push({ providerId: config.id, eventId: event.eventId, reason: lastError });
     return { providerId: config.id, delivered: false, idempotencyKey, attempt: maxAttempts, deadLettered: true, reason: lastError };
+  }
+
+  private resolveWebhookSecret(config: NotificationProviderConfig): string {
+    if (!config.secretRef) throw new Error("webhook-provider-requires-secret-ref");
+    const secret = this.secretResolver?.(config.secretRef);
+    if (!secret) throw new Error(`webhook-provider-secret-unresolved: ${config.secretRef}`);
+    return secret;
   }
 }
 
@@ -121,8 +132,11 @@ export function defaultNotificationProviderConfigs(): NotificationProviderConfig
 export function createNotificationPublisher(input: {
   configs?: NotificationProviderConfig[];
   transports?: Partial<Record<NotificationProviderConfig["provider"], NotificationTransport>>;
+  secrets?: Record<string, string>;
+  secretResolver?: NotificationSecretResolver;
 } = {}): NotificationPublisherService {
-  return new NotificationPublisherService(input.configs ?? defaultNotificationProviderConfigs(), input.transports ?? {});
+  const secretResolver = input.secretResolver ?? (input.secrets ? (secretRef: string) => input.secrets?.[secretRef] : undefined);
+  return new NotificationPublisherService(input.configs ?? defaultNotificationProviderConfigs(), input.transports ?? {}, secretResolver);
 }
 
 export function serializeNotificationEvent(event: NotificationEvent): Record<(typeof NOTIFICATION_EVENT_FIELDS)[number], string> {
@@ -151,8 +165,9 @@ export function validateProviderConfig(config: NotificationProviderConfig): void
   }
 }
 
-export function signWebhookPayload(payload: Json, secretRef: string): string {
-  return `sha256=${createHmac("sha256", secretRef).update(JSON.stringify(payload)).digest("hex")}`;
+export function signWebhookPayload(payload: Json, secret: string): string {
+  if (secret.startsWith("secret://")) throw new Error("webhook-signing-requires-secret-value");
+  return `sha256=${createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex")}`;
 }
 
 export function auditNotificationPayload(payload: Record<string, unknown>): { ok: boolean; findings: string[] } {

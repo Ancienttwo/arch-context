@@ -1,5 +1,5 @@
 import { repoScopedArchitectureId, type CrossRepoRelation } from "../../architecture-domain/src/index";
-import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "../../contracts/src/index";
+import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "../../contracts/src/index";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
 export const REQUIRED_CODEGRAPH_VERSION = "1.0.1";
@@ -203,7 +203,7 @@ export class MockCodeGraphProvider implements CodeGraphProvider {
       symbols,
       edges: [],
       evidence: [],
-      digest: digestJson({ task, symbols, includeSource: options.includeSource })
+      digest: digestJson({ task, symbols, includeSource: options.includeSource } as unknown as Json)
     };
   }
 

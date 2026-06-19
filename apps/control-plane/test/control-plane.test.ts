@@ -131,6 +131,18 @@ describe("control plane", () => {
     expect(queued.queueMessage.kind).toBe("notification.event");
     expect(queued.payloadDigest).toMatch(/^sha256:/);
     expect(cp.notificationQueue).toHaveLength(1);
+    expect(cp.notificationQueue[0]).not.toHaveProperty("findings");
+    expect(() => cp.enqueueNotification({
+      schemaVersion: "archcontext.notification-event/v1",
+      eventId: "notification.review-private",
+      prUrl: "https://github.com/ancienttwo/arch-context/pull/12",
+      result: "pass",
+      riskLevel: "low",
+      commitSha: "abc1234",
+      runtimeVersion: "archctx/1.1.0",
+      occurredAt: "2026-06-19T00:00:00Z",
+      findings: [{ message: "private" }]
+    } as any)).toThrow("non-minimal");
     expect(() => cp.setNotificationProvider({ schemaVersion: "archcontext.notification-provider/v1", id: "notification-provider.slack", provider: "slack", enabled: true, target: "slack", retry: { maxAttempts: 1, backoffSeconds: 1 } })).toThrow("secret-ref");
   });
 

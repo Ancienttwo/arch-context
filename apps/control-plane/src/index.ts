@@ -7,6 +7,7 @@ import {
 } from "../../../packages/attestation/src/index";
 import { digestJson, type NotificationEvent, type NotificationProviderConfig } from "../../../packages/contracts/src/index";
 import {
+  assertNotificationEventMinimal,
   auditNotificationPayload,
   defaultNotificationProviderConfigs,
   serializeNotificationEvent
@@ -58,7 +59,7 @@ export class ControlPlane {
   readonly orgRunners = new Map<string, OrgRunnerIdentity>();
   readonly notificationProviders = new Map<string, NotificationProviderConfig>();
   readonly notificationProviderScopes = new Map<string, { accountId?: string; installationId?: number }>();
-  readonly notificationQueue: NotificationEvent[] = [];
+  readonly notificationQueue: ReturnType<typeof serializeNotificationEvent>[] = [];
   readonly releaseRollbacks: string[] = [];
 
   loginWithGitHub(githubUserId: string): Account {
@@ -220,10 +221,11 @@ export class ControlPlane {
   }
 
   enqueueNotification(event: NotificationEvent): { queued: boolean; queueMessage: { kind: string; id: string }; payloadDigest: string } {
+    assertNotificationEventMinimal(event as unknown as Record<string, unknown>);
     const payload = serializeNotificationEvent(event);
     const audit = auditNotificationPayload(payload);
     if (!audit.ok) throw new Error(`notification-payload-invalid: ${audit.findings.join(", ")}`);
-    this.notificationQueue.push(event);
+    this.notificationQueue.push(payload);
     return {
       queued: true,
       queueMessage: this.buildQueueMessage({ kind: "notification.event", id: event.eventId }),

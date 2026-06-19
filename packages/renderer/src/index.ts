@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { digestJson, stableId, type Json, type ModelExportResult, type RendererPort } from "../../contracts/src/index";
 
-export interface NativeNode extends Record<string, Json> {
+export interface NativeNode extends Record<string, Json | undefined> {
   id: string;
   kind: string;
   name: string;

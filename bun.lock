@@ -4,6 +4,11 @@
   "workspaces": {
     "": {
       "name": "archcontext",
+      "devDependencies": {
+        "@types/node": "^26.0.0",
+        "bun-types": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
     },
     "apps/chatgpt-ui": {
       "name": "@archcontext/chatgpt-ui",
@@ -11,6 +16,14 @@
     },
     "apps/control-plane": {
       "name": "@archcontext/control-plane",
+      "version": "0.1.0",
+    },
+    "packages/adapter-likec4": {
+      "name": "@archcontext/adapter-likec4",
+      "version": "0.1.0",
+    },
+    "packages/adapter-structurizr": {
+      "name": "@archcontext/adapter-structurizr",
       "version": "0.1.0",
     },
     "packages/application": {
@@ -87,6 +100,10 @@
       "name": "@archcontext/model-store-yaml",
       "version": "0.1.0",
     },
+    "packages/notifications": {
+      "name": "@archcontext/notifications",
+      "version": "0.1.0",
+    },
     "packages/policy-engine": {
       "name": "@archcontext/policy-engine",
       "version": "0.1.0",
@@ -103,6 +120,10 @@
       "name": "@archcontext/refactor-decision",
       "version": "0.1.0",
     },
+    "packages/renderer": {
+      "name": "@archcontext/renderer",
+      "version": "0.1.0",
+    },
     "packages/review-engine": {
       "name": "@archcontext/review-engine",
       "version": "0.1.0",
@@ -117,6 +138,10 @@
     },
   },
   "packages": {
+    "@archcontext/adapter-likec4": ["@archcontext/adapter-likec4@workspace:packages/adapter-likec4"],
+
+    "@archcontext/adapter-structurizr": ["@archcontext/adapter-structurizr@workspace:packages/adapter-structurizr"],
+
     "@archcontext/application": ["@archcontext/application@workspace:packages/application"],
 
     "@archcontext/architecture-domain": ["@archcontext/architecture-domain@workspace:packages/architecture-domain"],
@@ -155,6 +180,8 @@
 
     "@archcontext/model-store-yaml": ["@archcontext/model-store-yaml@workspace:packages/model-store-yaml"],
 
+    "@archcontext/notifications": ["@archcontext/notifications@workspace:packages/notifications"],
+
     "@archcontext/policy-engine": ["@archcontext/policy-engine@workspace:packages/policy-engine"],
 
     "@archcontext/pressure-engine": ["@archcontext/pressure-engine@workspace:packages/pressure-engine"],
@@ -162,6 +189,8 @@
     "@archcontext/reconcile-engine": ["@archcontext/reconcile-engine@workspace:packages/reconcile-engine"],
 
     "@archcontext/refactor-decision": ["@archcontext/refactor-decision@workspace:packages/refactor-decision"],
+
+    "@archcontext/renderer": ["@archcontext/renderer@workspace:packages/renderer"],
 
     "@archcontext/review-engine": ["@archcontext/review-engine@workspace:packages/review-engine"],
 
@@ -182,5 +211,13 @@
     "@colbymchenry/codegraph-win32-arm64": ["@colbymchenry/codegraph-win32-arm64@1.0.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-ZEG+HOakHiAe1AWMa2LgD52HyIEbWsY2FyNvDmon4Ss2889OghqUyA8BOLu5hNW+EI42JwwSXijVevn2Zn0hlg=="],
 
     "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-qU6jjyma635qKJ0aaL8XU8QtYUGkWly0Mu4Wm2cSWRcNDL1v6sVoHMElgfUY7E9tK0gnU+/LbZW3MfmtqLG1GA=="],
+
+    "@types/node": ["@types/node@26.0.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-vf2YFi1iY9lHGwNJMs01biZFbKJkrZR1T6/MlzjhJLPdntOHLhTrDSnSVcdtvjihi4VQNlrFRIxLsDBlQpAipA=="],
+
+    "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+
+    "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
   }
 }

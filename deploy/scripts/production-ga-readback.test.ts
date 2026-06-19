@@ -30,7 +30,7 @@ describe("production GA external readback script", () => {
       "--capture",
       "artifacts/test/staging-redacted.har.json"
     ]);
-    const result = await runExternalReadback(config, fetchImpl);
+    const result = await runExternalReadback(config, fetchImpl as unknown as typeof fetch) as { status: string; checks: { id: string }[] };
     expect(result.status).toBe("verified");
     expect(result.checks.map((check: any) => check.id)).toEqual(["privacy", "chatgpt-directory-metadata", "oauth-discovery"]);
     expect(seen).toHaveLength(3);

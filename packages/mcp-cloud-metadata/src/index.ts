@@ -22,7 +22,7 @@ export function callCloudMetadataTool(name: string, args: Record<string, unknown
     return errorEnvelope("cloud-mcp", "AC_TUNNEL_SCOPE_DENIED", "Remote MCP exposes metadata only; repository content proxy is not available");
   }
   const data: Record<CloudMetadataTool, Json> = {
-    archcontext_account_status: { accountId: args.accountId ?? "acct_demo", authenticated: true },
+    archcontext_account_status: { accountId: String(args.accountId ?? "acct_demo"), authenticated: true },
     archcontext_billing_status: { plan: "free", privateRepositoriesAllowed: false },
     archcontext_github_installations: { installations: [] },
     archcontext_device_sessions: { devices: [], revocable: true },

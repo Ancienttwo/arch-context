@@ -76,7 +76,7 @@ describe("local runtime foundation", () => {
     delete process.env.DO_NOT_TRACK;
     const provider = new MockCodeGraphProvider();
     const adapter = new CodeGraphAdapter(provider);
-    expect(process.env.DO_NOT_TRACK).toBe("1");
+    expect(String(process.env.DO_NOT_TRACK)).toBe("1");
     await expect(adapter.ensureReady({ root: "/tmp/repo", repositoryId: "repo.test", headSha: "abc" })).resolves.toMatchObject({
       provider: "codegraph",
       version: REQUIRED_CODEGRAPH_VERSION

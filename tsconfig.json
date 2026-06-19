@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2024",
+    "types": [
+      "bun-types",
+      "node"
+    ]
+  },
+  "include": [
+    "apps/**/*.ts",
+    "deploy/**/*.mjs",
+    "deploy/**/*.ts",
+    "packages/**/*.ts",
+    "scripts/**/*.mjs",
+    "scripts/**/*.ts"
+  ]
+}

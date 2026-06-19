@@ -1,4 +1,4 @@
-import type { Json } from "../../packages/contracts/src/index";
+import type { Json } from "../../../packages/contracts/src/index";
 
 export const CHATGPT_UI_RESOURCE_URI = "ui://archcontext/task-context.html";
 

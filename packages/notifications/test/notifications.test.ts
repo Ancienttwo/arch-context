@@ -57,14 +57,26 @@ describe("@archcontext/notifications", () => {
     const slack = new MemoryNotificationTransport();
     const webhook = new MemoryNotificationTransport();
     const email = new MemoryNotificationTransport();
-    const publisher = createNotificationPublisher({ configs, transports: { slack, webhook, email } });
+    const publisher = createNotificationPublisher({ configs, transports: { slack, webhook, email }, secrets: { "secret://webhook": "webhook-secret" } });
     expect((await publisher.publish(event)).every((item) => item.delivered)).toBe(true);
     for (const transport of [slack, webhook, email]) {
       expect(JSON.stringify(transport.deliveries[0].payload)).not.toContain("private");
       expect(auditNotificationPayload(transport.deliveries[0].payload).ok).toBe(true);
     }
     expect(webhook.deliveries[0].signature).toMatch(/^sha256=/);
-    expect(() => signWebhookPayload(serializeNotificationEvent(event), "secret://webhook")).not.toThrow();
+    expect(() => signWebhookPayload(serializeNotificationEvent(event), "webhook-secret")).not.toThrow();
+    expect(() => signWebhookPayload(serializeNotificationEvent(event), "secret://webhook")).toThrow("secret-value");
+  });
+
+  test("webhook delivery requires resolving the configured secret reference", async () => {
+    const configs: NotificationProviderConfig[] = [
+      { schemaVersion: "archcontext.notification-provider/v1", id: "notification-provider.webhook", provider: "webhook", enabled: true, target: "https://notify.example", secretRef: "secret://webhook", retry: { maxAttempts: 2, backoffSeconds: 1 } }
+    ];
+    const webhook = new MemoryNotificationTransport();
+    const publisher = createNotificationPublisher({ configs, transports: { webhook } });
+    const [result] = await publisher.publish(event);
+    expect(result).toMatchObject({ delivered: false, deadLettered: true, reason: "webhook-provider-secret-unresolved: secret://webhook" });
+    expect(webhook.deliveries).toHaveLength(0);
   });
 
   test("retry, dead letter, and idempotency are enforced", async () => {
@@ -72,13 +84,13 @@ describe("@archcontext/notifications", () => {
       { schemaVersion: "archcontext.notification-provider/v1", id: "notification-provider.webhook", provider: "webhook", enabled: true, target: "https://notify.example", secretRef: "secret://webhook", retry: { maxAttempts: 2, backoffSeconds: 1 } }
     ];
     const failing = new MemoryNotificationTransport(2);
-    const publisher = createNotificationPublisher({ configs, transports: { webhook: failing } });
+    const publisher = createNotificationPublisher({ configs, transports: { webhook: failing }, secrets: { "secret://webhook": "webhook-secret" } });
     const failed = await publisher.publish(event);
     expect(failed[0]).toMatchObject({ delivered: false, deadLettered: true, attempt: 2 });
     expect(publisher.deadLetters).toHaveLength(1);
 
     const working = new MemoryNotificationTransport();
-    const second = createNotificationPublisher({ configs, transports: { webhook: working } });
+    const second = createNotificationPublisher({ configs, transports: { webhook: working }, secrets: { "secret://webhook": "webhook-secret" } });
     const delivered = await second.publish(event);
     expect(delivered[0].delivered).toBe(true);
     const duplicate = await second.publish(event);

@@ -266,7 +266,7 @@ export function summarizeLandscapeForSaas(landscape: Landscape): { repositoryIds
   };
 }
 
-export function stripAdapterProtectedNativeFields<T extends Record<string, Json>>(value: T): { clean: T; removedFields: string[] } {
+export function stripAdapterProtectedNativeFields<T extends Record<string, Json | undefined>>(value: T): { clean: T; removedFields: string[] } {
   const clean = { ...value };
   const removedFields: string[] = [];
   for (const field of ADAPTER_PROTECTED_NATIVE_FIELDS) {
