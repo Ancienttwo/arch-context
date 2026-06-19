@@ -43,12 +43,12 @@
 | ADR | 标题 | 主里程碑 | 状态 |
 |---|---|---|:--:|
 | ADR-0001 | Agentic Architecture Control Loop | M2 | ◻ |
-| ADR-0002 | CodeGraph as Required Code Facts Engine | M0 · M1 | ◻ |
-| ADR-0003 | Local-first Trust Boundary | M0 · M5 · M6 | ◻ |
+| ADR-0002 | CodeGraph as Required Code Facts Engine | M0 · M1 | ☑ |
+| ADR-0003 | Local-first Trust Boundary | M0 · M5 · M6 | ☑ |
 | ADR-0004 | SQLite Local Store | M1 | ◻ |
 | ADR-0005 | Single-writer Runtime Daemon | M1 | ◻ |
 | ADR-0006 | CLI and MCP as Thin Adapters | M3 | ◻ |
-| ADR-0007 | Structured Architecture Source of Truth | M0 · M1 | ◻ |
+| ADR-0007 | Structured Architecture Source of Truth | M0 · M1 | ☑ |
 | ADR-0008 | Declared / Observed / Verified | M1 · M2 | ◻ |
 | ADR-0009 | Target State vs Migration State | M2 | ◻ |
 | ADR-0010 | Compatibility Code Requires Contract | M2 | ◻ |
@@ -72,14 +72,14 @@
 
 | 里程碑 | 范围 | 任务 | Exit Gate | 完成 |
 |---|---|--:|--:|--:|
-| M0 | 契约与架构冻结 | 18 | 5 | 0 / 23 |
+| M0 | 契约与架构冻结 | 18 | 5 | 23 / 23 |
 | M1 | 本地 Runtime 基础 | 28 | 5 | 0 / 33 |
 | M2 | 主动架构控制循环 | 33 | 6 | 0 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 0 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 0 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 0 / 38 |
 | M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **0 / 224** |
+| **合计** | | **182** | **42** | **23 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -87,7 +87,7 @@
 
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
-| 1 | [ ] | archctx-m0-contracts-freeze | contract | 9 份 Schema + ID/Version/Envelope/错误码/Digest 绑定 + Adapter/Ports + Threat Model v1 + ADR 记录；M0 Exit Gate 全绿 | (pending) |
+| 1 | [x] | archctx-m0-contracts-freeze | contract | 9 份 Schema + ID/Version/Envelope/错误码/Digest 绑定 + Adapter/Ports + Threat Model v1 + ADR 记录；M0 Exit Gate 全绿 | `docs/verification/m0-contracts-gate.md` |
 | 2 | [ ] | archctx-m1-local-runtime | contract | `archctxd` + Session + SQLite + CodeGraph Adapter + 模型 Loader + `init/sync/validate/context/status`；M1 Exit Gate 全绿 | (pending) |
 | 3 | [ ] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | (pending) |
 | 4 | [ ] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | (pending) |
@@ -108,34 +108,34 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M0-01 | ◻ | 冻结 `ArchitectureNode` JSON Schema | contracts |  | — |
-| M0-02 | ◻ | 冻结 `ArchitectureRelation` JSON Schema | contracts |  | — |
-| M0-03 | ◻ | 冻结 `Constraint` JSON Schema | contracts |  | — |
-| M0-04 | ◻ | 冻结 `ArchitectureIntervention` JSON Schema | contracts |  | — |
-| M0-05 | ◻ | 冻结 `CompatibilityContract` JSON Schema | contracts |  | — |
-| M0-06 | ◻ | 冻结 `TaskContext` JSON Schema | contracts |  | — |
-| M0-07 | ◻ | 冻结 `ChangeSet` JSON Schema | contracts |  | — |
-| M0-08 | ◻ | 冻结 `ReviewResult` JSON Schema | contracts |  | — |
-| M0-09 | ◻ | 冻结 `Attestation` JSON Schema | contracts |  | — |
-| M0-10 | ◻ | 定义所有对象的稳定 ID 规则 | contracts |  | M0-01..09 |
-| M0-11 | ◻ | 定义 Schema Version 与 Migration 协议 | contracts |  | M0-01..09 |
-| M0-12 | ◻ | 定义 CLI JSON Envelope | contracts |  | — |
-| M0-13 | ◻ | 定义错误码、严重级别与可恢复性（附录 A） | contracts |  | — |
-| M0-14 | ◻ | 定义 Repository / HEAD / Worktree Digest 绑定规则 | architecture-domain |  | — |
-| M0-15 | ◻ | 完成 CodeGraph Adapter Contract（`CodeFactsPort`） | codegraph-adapter |  | — |
-| M0-16 | ◻ | 完成 Local Store / Model Store / Policy / Renderer Port 接口 | architecture-domain |  | — |
-| M0-17 | ◻ | 完成 Threat Model v1 | cross/security |  | — |
-| M0-18 | ◻ | 记录 PRD §28 全部核心 ADR（统一模板） | docs/adr |  | — |
+| M0-01 | ☑ | 冻结 `ArchitectureNode` JSON Schema | contracts |  | — |
+| M0-02 | ☑ | 冻结 `ArchitectureRelation` JSON Schema | contracts |  | — |
+| M0-03 | ☑ | 冻结 `Constraint` JSON Schema | contracts |  | — |
+| M0-04 | ☑ | 冻结 `ArchitectureIntervention` JSON Schema | contracts |  | — |
+| M0-05 | ☑ | 冻结 `CompatibilityContract` JSON Schema | contracts |  | — |
+| M0-06 | ☑ | 冻结 `TaskContext` JSON Schema | contracts |  | — |
+| M0-07 | ☑ | 冻结 `ChangeSet` JSON Schema | contracts |  | — |
+| M0-08 | ☑ | 冻结 `ReviewResult` JSON Schema | contracts |  | — |
+| M0-09 | ☑ | 冻结 `Attestation` JSON Schema | contracts |  | — |
+| M0-10 | ☑ | 定义所有对象的稳定 ID 规则 | contracts |  | M0-01..09 |
+| M0-11 | ☑ | 定义 Schema Version 与 Migration 协议 | contracts |  | M0-01..09 |
+| M0-12 | ☑ | 定义 CLI JSON Envelope | contracts |  | — |
+| M0-13 | ☑ | 定义错误码、严重级别与可恢复性（附录 A） | contracts |  | — |
+| M0-14 | ☑ | 定义 Repository / HEAD / Worktree Digest 绑定规则 | architecture-domain |  | — |
+| M0-15 | ☑ | 完成 CodeGraph Adapter Contract（`CodeFactsPort`） | codegraph-adapter |  | — |
+| M0-16 | ☑ | 完成 Local Store / Model Store / Policy / Renderer Port 接口 | architecture-domain |  | — |
+| M0-17 | ☑ | 完成 Threat Model v1 | cross/security |  | — |
+| M0-18 | ☑ | 记录 PRD §28 全部核心 ADR（统一模板） | docs/adr |  | — |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M0-EG1 | ◻ | 所有 Schema 通过正/反/边界 Fixture | `pnpm --filter contracts test`：valid/invalid/boundary fixtures 全绿 |
-| M0-EG2 | ◻ | 未知/废弃字段与向前兼容规则有自动测试 | 字段策略单测通过 |
-| M0-EG3 | ◻ | YAML→Domain→JSON→YAML 往返语义不变 | round-trip 快照测试一致 |
-| M0-EG4 | ◻ | Contract 包不依赖 CLI/MCP/DB/Cloud | 依赖断言（depcruise / `pnpm why`）无越界 |
-| M0-EG5 | ◻ | Human Architecture Gate 批准 | 签批记录存档 |
+| M0-EG1 | ☑ | 所有 Schema 通过正/反/边界 Fixture | `bun test packages/contracts/test/contracts.test.ts`：valid/invalid/boundary fixtures 全绿 |
+| M0-EG2 | ☑ | 未知/废弃字段与向前兼容规则有自动测试 | 字段策略单测通过 |
+| M0-EG3 | ☑ | YAML→Domain→JSON→YAML 往返语义不变 | stable YAML / canonical JSON round-trip 断言通过 |
+| M0-EG4 | ☑ | Contract 包不依赖 CLI/MCP/DB/Cloud | `@archcontext/contracts` 只依赖 Node 标准库 |
+| M0-EG5 | ☑ | Human Architecture Gate 批准 | `docs/verification/m0-contracts-gate.md` |
 
 ## M1 · Local Runtime Foundation
 
@@ -428,3 +428,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 
 | When | Task | Plan | Result |
 |------|------|------|--------|
+| 2026-06-19 | archctx-m0-contracts-freeze | Freeze schemas, ports, error/envelope/digest contract, ADRs, and threat model | Complete; `bun test packages/contracts/test/contracts.test.ts` = 25 pass |

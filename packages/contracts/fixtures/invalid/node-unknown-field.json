@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "archcontext.node/v1",
+  "id": "module.subscription",
+  "kind": "module",
+  "name": "Subscription",
+  "status": "active",
+  "summary": "Owns subscription lifecycle.",
+  "responsibilities": ["create-subscription"],
+  "unexpected": true
+}

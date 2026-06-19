@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/compatibility-contract.schema.json",
+  "title": "CompatibilityContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "status",
+    "kind",
+    "protects",
+    "consumers",
+    "legacyPaths",
+    "reason",
+    "owner",
+    "introducedAt",
+    "reviewAt",
+    "removalConditions"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.compatibility/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "status": { "type": "string", "enum": ["active", "review-due", "expired", "removed"] },
+    "kind": {
+      "type": "string",
+      "enum": ["external-contract", "persisted-data-migration", "rolling-deployment", "temporary-feature-transition"]
+    },
+    "protects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" }
+      }
+    },
+    "consumers": { "type": "array", "items": { "type": "string" } },
+    "legacyPaths": { "type": "array", "items": { "type": "string" } },
+    "reason": { "type": "string", "pattern": "^(?!just in case$|safer to keep$|many internal callers$|large diff$|old code already exists$).+" },
+    "owner": { "type": "string" },
+    "introducedAt": { "type": "string" },
+    "reviewAt": { "type": "string" },
+    "expiresAt": { "type": "string" },
+    "removalConditions": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "migrationIssue": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

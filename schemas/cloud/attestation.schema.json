@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/cloud/attestation.schema.json",
+  "title": "Attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "attestationId", "challengeId", "repository", "headSha", "worktreeDigest", "reviewDigest", "device", "issuedAt", "expiresAt", "trustLevel", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.attestation/v1" },
+    "attestationId": { "type": "string" },
+    "challengeId": { "type": "string" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "owner", "name", "visibility"],
+      "properties": {
+        "provider": { "type": "string", "enum": ["github"] },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
+        "visibility": { "type": "string", "enum": ["public", "private"] }
+      }
+    },
+    "headSha": { "type": "string" },
+    "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "reviewDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deviceId", "publicKeyId"],
+      "properties": {
+        "deviceId": { "type": "string" },
+        "publicKeyId": { "type": "string" }
+      }
+    },
+    "issuedAt": { "type": "string" },
+    "expiresAt": { "type": "string" },
+    "trustLevel": { "type": "string", "enum": ["developer", "organization-runner"] },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alg", "value"],
+      "properties": {
+        "alg": { "type": "string", "enum": ["ed25519"] },
+        "value": { "type": "string" }
+      }
+    },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

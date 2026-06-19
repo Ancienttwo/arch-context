@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/task-context.schema.json",
+  "title": "TaskContext",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "task", "posture", "architecturePressure", "refactorConfidence", "relevantNodes", "constraints", "decisions"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.task-context/v1" },
+    "task": { "type": "string" },
+    "posture": { "type": "string", "enum": ["normal", "structural", "intervention", "proof-required"] },
+    "architecturePressure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "score", "signals"],
+      "properties": {
+        "level": { "type": "string", "enum": ["low", "medium", "high"] },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "signals": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "refactorConfidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "score", "coverage"],
+      "properties": {
+        "level": { "type": "string", "enum": ["low", "medium", "high"] },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "coverage": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "relevantNodes": { "type": "array", "items": { "type": "string" } },
+    "constraints": { "type": "array", "items": { "type": "string" } },
+    "decisions": { "type": "array", "items": { "type": "string" } },
+    "realConstraints": { "type": "array", "items": { "type": "string" } },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "recommendedTargetState": { "type": "object", "additionalProperties": true },
+    "requiredCheckpoints": { "type": "array", "items": { "type": "string" } },
+    "resources": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

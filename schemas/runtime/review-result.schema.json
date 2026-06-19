@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/review-result.schema.json",
+  "title": "ReviewResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "reviewId", "taskSessionId", "snapshot", "posture", "result", "summary", "findings"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.review/v1" },
+    "reviewId": { "type": "string" },
+    "taskSessionId": { "type": "string" },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headSha", "worktreeDigest", "modelDigest", "codeFactsDigest"],
+      "properties": {
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "modelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "posture": { "type": "string", "enum": ["normal", "structural", "intervention", "proof-required"] },
+    "result": { "type": "string", "enum": ["pass", "pass_with_warnings", "fail_action_required"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["errors", "warnings", "notices"],
+      "properties": {
+        "errors": { "type": "integer", "minimum": 0 },
+        "warnings": { "type": "integer", "minimum": 0 },
+        "notices": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findings": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "cleanup": { "type": "object", "additionalProperties": false, "properties": { "required": { "type": "integer" }, "completed": { "type": "integer" } } },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/changeset.schema.json",
+  "title": "ChangeSet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "status", "base", "reason", "operations", "preconditions", "postconditions", "requiresConfirmation", "idempotencyKey"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.changeset/v1" },
+    "id": { "type": "string", "pattern": "^changeset\\.[a-zA-Z0-9_-]+$" },
+    "status": { "type": "string", "enum": ["proposed", "approved", "applied", "rolled-back", "rejected"] },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headSha", "worktreeDigest", "modelDigest"],
+      "properties": {
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "modelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["taskSessionId"],
+      "properties": {
+        "taskSessionId": { "type": "string" },
+        "interventionId": { "type": "string" }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["op", "expectedHash"],
+        "properties": {
+          "op": { "type": "string", "enum": ["create_entity", "update_entity_fields", "delete_entity", "write_policy", "render_projection"] },
+          "entityId": { "type": "string" },
+          "path": { "type": "string" },
+          "expectedHash": { "type": "string" }
+        }
+      }
+    },
+    "preconditions": { "type": "array", "items": { "type": "string" } },
+    "postconditions": { "type": "array", "items": { "type": "string" } },
+    "requiresConfirmation": { "type": "boolean" },
+    "idempotencyKey": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

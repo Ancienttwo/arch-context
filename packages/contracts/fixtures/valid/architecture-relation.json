@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.relation/v1",
+  "id": "relation.subscription-calls-payment",
+  "kind": "calls",
+  "source": "module.subscription",
+  "target": "module.payment",
+  "via": "interface.payment-api",
+  "protocol": "https",
+  "synchrony": "synchronous",
+  "intent": "Authorize or refund payment through the payment boundary.",
+  "allowedData": ["payment-reference", "amount", "currency"],
+  "forbiddenData": ["card-number", "payment-credential"],
+  "criticality": "high"
+}

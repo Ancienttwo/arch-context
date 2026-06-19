@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "archcontext.node/v1",
+  "id": "interface.payment-api",
+  "kind": "interface",
+  "name": "Payment API",
+  "status": "active",
+  "summary": "Public boundary for payment facts.",
+  "extensions": {
+    "dev.archcontext.test": {
+      "owner": "contracts"
+    }
+  }
+}

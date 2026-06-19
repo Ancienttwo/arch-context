@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "archcontext.attestation/v1",
+  "attestationId": "att_123",
+  "challengeId": "challenge_123",
+  "repository": {
+    "provider": "github",
+    "owner": "ancienttwo",
+    "name": "arch-context",
+    "visibility": "private"
+  },
+  "headSha": "abc123",
+  "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "reviewDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "device": {
+    "deviceId": "device_local",
+    "publicKeyId": "pk_local"
+  },
+  "issuedAt": "2026-06-19T00:00:00Z",
+  "expiresAt": "2026-06-19T00:10:00Z",
+  "trustLevel": "developer",
+  "signature": {
+    "alg": "ed25519",
+    "value": "base64-test-signature"
+  }
+}

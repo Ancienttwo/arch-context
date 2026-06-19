@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/constraint.schema.json",
+  "title": "Constraint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "severity", "scope", "rule", "rationale"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.constraint/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "name": { "type": "string" },
+    "severity": { "type": "string", "enum": ["notice", "warning", "error", "critical"] },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "nodes": { "type": "array", "items": { "type": "string" } },
+        "relations": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "forbid-dependency",
+            "require-interface",
+            "forbid-data-access",
+            "require-owner",
+            "require-adr",
+            "require-compatibility-contract",
+            "forbid-cycle",
+            "require-cleanup-by",
+            "require-review"
+          ]
+        }
+      }
+    },
+    "allowedVia": { "type": "array", "items": { "type": "string" } },
+    "rationale": { "type": "string" },
+    "humanExplanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "consequence": { "type": "string" },
+        "recommendation": { "type": "string" }
+      }
+    },
+    "requiresAdrForException": { "type": "boolean" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/architecture-intervention.schema.json",
+  "title": "ArchitectureIntervention",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "status", "trigger", "thesis", "targetState", "constraints", "strategy", "completionCriteria"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.intervention/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "status": { "type": "string", "enum": ["proposed", "approved", "in-progress", "complete", "rejected"] },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task", "pressure", "confidence", "signals"],
+      "properties": {
+        "task": { "type": "string" },
+        "pressure": { "type": "string", "enum": ["low", "medium", "high"] },
+        "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+        "signals": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "thesis": { "type": "string" },
+    "targetState": { "type": "object", "additionalProperties": true },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["real", "inherited"],
+      "properties": {
+        "real": { "type": "array", "items": { "type": "string" } },
+        "inherited": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "strategy": { "type": "object", "additionalProperties": true, "required": ["selected"] },
+    "proofPoint": { "type": "object", "additionalProperties": true },
+    "falsifiers": { "type": "array", "items": { "type": "string" } },
+    "killList": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "completionCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

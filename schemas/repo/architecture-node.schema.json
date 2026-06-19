@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/architecture-node.schema.json",
+  "title": "ArchitectureNode",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "kind", "name", "status", "summary"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.node/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "kind": {
+      "type": "string",
+      "enum": ["capability", "module", "component", "interface", "event", "datastore", "external-system", "deployment"]
+    },
+    "name": { "type": "string" },
+    "status": { "type": "string", "enum": ["active", "planned", "deprecated", "removed"] },
+    "parent": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "summary": { "type": "string" },
+    "responsibilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": { "type": "array", "items": { "type": "string" } },
+        "exclude": { "type": "array", "items": { "type": "string" } },
+        "entrypoints": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lifecycle": { "type": "array", "items": { "type": "string" } },
+        "data": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "interfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provides": { "type": "array", "items": { "type": "string" } },
+        "consumes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "criticality": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "riskDomains": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "archcontext.constraint/v1",
+  "id": "constraint.payment-data-boundary",
+  "name": "Payment data boundary",
+  "severity": "error",
+  "scope": {
+    "nodes": ["module.subscription"]
+  },
+  "rule": {
+    "type": "forbid-data-access",
+    "target": "datastore.payment",
+    "operations": ["reads", "writes"]
+  },
+  "allowedVia": ["interface.payment-api"],
+  "rationale": "Payment data must remain owned by the payment module.",
+  "humanExplanation": {
+    "title": "订阅模块不能直接读取付款数据库",
+    "consequence": "Direct access would couple billing logic to payment storage.",
+    "recommendation": "Query payment state through the payment interface."
+  },
+  "requiresAdrForException": true
+}

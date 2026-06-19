@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "archcontext.compatibility/v1",
+  "id": "compatibility.subscription-webhook-v1",
+  "status": "active",
+  "kind": "external-contract",
+  "protects": {
+    "type": "webhook-payload",
+    "id": "interface.subscription-webhook-v1"
+  },
+  "consumers": ["partner.acme"],
+  "legacyPaths": ["src/subscription/webhook-v1.ts"],
+  "reason": "External partner migration window is still active.",
+  "owner": "module.integration",
+  "introducedAt": "2026-06-19T00:00:00Z",
+  "reviewAt": "2026-08-01T00:00:00Z",
+  "expiresAt": "2026-09-30T00:00:00Z",
+  "removalConditions": ["remaining-consumers == 0", "v1-delivery-count-30d == 0"],
+  "migrationIssue": "GH-482"
+}

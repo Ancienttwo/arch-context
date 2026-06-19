@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "archcontext.compatibility/v1",
+  "id": "compatibility.bad",
+  "status": "active",
+  "kind": "external-contract",
+  "protects": {
+    "type": "internal-api",
+    "id": "interface.legacy"
+  },
+  "consumers": ["module.internal"],
+  "legacyPaths": ["src/legacy.ts"],
+  "reason": "just in case",
+  "owner": "module.legacy",
+  "introducedAt": "2026-06-19T00:00:00Z",
+  "reviewAt": "2026-08-01T00:00:00Z",
+  "removalConditions": ["none"]
+}

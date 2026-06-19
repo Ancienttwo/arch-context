@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/architecture-relation.schema.json",
+  "title": "ArchitectureRelation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "kind", "source", "target", "intent"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.relation/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "kind": {
+      "type": "string",
+      "enum": ["depends-on", "calls", "publishes", "subscribes", "reads", "writes", "implements", "deployed-on"]
+    },
+    "source": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "target": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "via": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "protocol": { "type": "string" },
+    "synchrony": { "type": "string", "enum": ["synchronous", "asynchronous", "batch"] },
+    "intent": { "type": "string" },
+    "allowedData": { "type": "array", "items": { "type": "string" } },
+    "forbiddenData": { "type": "array", "items": { "type": "string" } },
+    "criticality": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "archcontext.intervention/v1",
+  "id": "intervention.subscription-lifecycle-unification",
+  "status": "approved",
+  "trigger": {
+    "task": "unify-subscription-and-payment-state",
+    "pressure": "high",
+    "confidence": "medium",
+    "signals": ["duplicate-lifecycle-owner", "unjustified-compatibility-path"]
+  },
+  "thesis": "Subscription owns subscription state; payment exposes payment facts.",
+  "targetState": {
+    "owners": {
+      "subscriptionLifecycle": "module.subscription"
+    }
+  },
+  "constraints": {
+    "real": ["persisted-status-values"],
+    "inherited": ["internal-v1-callers"]
+  },
+  "strategy": {
+    "selected": "staged"
+  },
+  "proofPoint": {
+    "description": "Move cancellation transition end-to-end to module.subscription."
+  },
+  "falsifiers": ["untracked-external-consumer-of-internal-api"],
+  "killList": [
+    {
+      "id": "remove-v1-manager",
+      "target": "symbol.SubscriptionManagerV1",
+      "required": true
+    }
+  ],
+  "completionCriteria": ["remaining-v1-callers == 0"]
+}

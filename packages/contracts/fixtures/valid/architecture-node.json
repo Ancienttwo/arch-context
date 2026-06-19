@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "archcontext.node/v1",
+  "id": "module.subscription",
+  "kind": "module",
+  "name": "Subscription",
+  "status": "active",
+  "parent": "capability.subscriptions",
+  "summary": "Owns subscription lifecycle and plan transitions.",
+  "responsibilities": ["create-subscription", "change-plan"],
+  "source": {
+    "include": ["src/subscription/**"],
+    "exclude": ["src/subscription/generated/**"],
+    "entrypoints": ["src/subscription/index.ts"]
+  },
+  "ownership": {
+    "lifecycle": ["subscription"],
+    "data": ["datastore.subscription"]
+  },
+  "interfaces": {
+    "provides": ["interface.subscription-api"],
+    "consumes": ["interface.payment-api"]
+  },
+  "criticality": "high",
+  "riskDomains": ["payments"]
+}

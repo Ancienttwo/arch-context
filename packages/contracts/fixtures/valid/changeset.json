@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "archcontext.changeset/v1",
+  "id": "changeset.01JTEST",
+  "status": "proposed",
+  "base": {
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "modelDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "reason": {
+    "taskSessionId": "task_123",
+    "interventionId": "intervention.subscription-lifecycle-unification"
+  },
+  "operations": [
+    {
+      "op": "update_entity_fields",
+      "entityId": "module.subscription",
+      "expectedHash": "sha256:old",
+      "changes": {
+        "responsibilities": {
+          "add": ["expose-subscription-status"]
+        }
+      }
+    }
+  ],
+  "preconditions": ["no-uncommitted-change-under:.archcontext/model", "schema-valid-before"],
+  "postconditions": ["schema-valid-after", "no-dangling-reference"],
+  "requiresConfirmation": true,
+  "idempotencyKey": "cs_test"
+}

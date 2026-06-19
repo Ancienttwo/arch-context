@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "archcontext.task-context/v1",
+  "task": "Add team invitations and role-based access",
+  "posture": "structural",
+  "architecturePressure": {
+    "level": "medium",
+    "score": 47,
+    "signals": []
+  },
+  "refactorConfidence": {
+    "level": "high",
+    "score": 82,
+    "coverage": []
+  },
+  "relevantNodes": ["module.auth", "module.team"],
+  "constraints": ["constraint.authorization-boundary"],
+  "decisions": ["adr.0009.permission-model"],
+  "realConstraints": [],
+  "unknowns": [],
+  "recommendedTargetState": {},
+  "requiredCheckpoints": ["after-data-model-change", "before-task-complete"],
+  "resources": []
+}

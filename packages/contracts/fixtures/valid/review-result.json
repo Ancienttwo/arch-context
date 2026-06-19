@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "archcontext.review/v1",
+  "reviewId": "review_123",
+  "taskSessionId": "task_123",
+  "snapshot": {
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "modelDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "codeFactsDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "posture": "intervention",
+  "result": "fail_action_required",
+  "summary": {
+    "errors": 1,
+    "warnings": 2,
+    "notices": 1
+  },
+  "findings": [
+    {
+      "id": "finding_1",
+      "type": "unjustified-compatibility-path",
+      "severity": "error",
+      "evidenceRefs": ["evidence_12"],
+      "message": "LegacyStatusMapper has no compatibility contract.",
+      "recommendedAction": "Migrate internal callers and delete the mapper."
+    }
+  ],
+  "cleanup": {
+    "required": 3,
+    "completed": 2
+  }
+}
