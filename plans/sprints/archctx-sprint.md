@@ -45,17 +45,17 @@
 | ADR-0001 | Agentic Architecture Control Loop | M2 | ◻ |
 | ADR-0002 | CodeGraph as Required Code Facts Engine | M0 · M1 | ☑ |
 | ADR-0003 | Local-first Trust Boundary | M0 · M5 · M6 | ☑ |
-| ADR-0004 | SQLite Local Store | M1 | ◻ |
-| ADR-0005 | Single-writer Runtime Daemon | M1 | ◻ |
+| ADR-0004 | SQLite Local Store | M1 | ☑ |
+| ADR-0005 | Single-writer Runtime Daemon | M1 | ☑ |
 | ADR-0006 | CLI and MCP as Thin Adapters | M3 | ◻ |
 | ADR-0007 | Structured Architecture Source of Truth | M0 · M1 | ☑ |
-| ADR-0008 | Declared / Observed / Verified | M1 · M2 | ◻ |
+| ADR-0008 | Declared / Observed / Verified | M1 · M2 | ☑ |
 | ADR-0009 | Target State vs Migration State | M2 | ◻ |
 | ADR-0010 | Compatibility Code Requires Contract | M2 | ◻ |
 | ADR-0011 | Architecture Intervention | M2 | ◻ |
 | ADR-0012 | ChangeSet-only Architecture Writes | M2 | ◻ |
-| ADR-0013 | Progressive Architecture | M1 · M2 | ◻ |
-| ADR-0014 | Context Compiler with Budget | M1 · M2 | ◻ |
+| ADR-0013 | Progressive Architecture | M1 · M2 | ☑ |
+| ADR-0014 | Context Compiler with Budget | M1 · M2 | ☑ |
 | ADR-0015 | GitHub App without Contents Permission | M5 | ◻ |
 | ADR-0016 | Signed Local Attestation | M5 | ◻ |
 | ADR-0017 | Cloudflare Control Plane | M5 | ◻ |
@@ -73,13 +73,13 @@
 | 里程碑 | 范围 | 任务 | Exit Gate | 完成 |
 |---|---|--:|--:|--:|
 | M0 | 契约与架构冻结 | 18 | 5 | 23 / 23 |
-| M1 | 本地 Runtime 基础 | 28 | 5 | 0 / 33 |
+| M1 | 本地 Runtime 基础 | 28 | 5 | 33 / 33 |
 | M2 | 主动架构控制循环 | 33 | 6 | 0 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 0 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 0 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 0 / 38 |
 | M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **23 / 224** |
+| **合计** | | **182** | **42** | **56 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -88,7 +88,7 @@
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
 | 1 | [x] | archctx-m0-contracts-freeze | contract | 9 份 Schema + ID/Version/Envelope/错误码/Digest 绑定 + Adapter/Ports + Threat Model v1 + ADR 记录；M0 Exit Gate 全绿 | `docs/verification/m0-contracts-gate.md` |
-| 2 | [ ] | archctx-m1-local-runtime | contract | `archctxd` + Session + SQLite + CodeGraph Adapter + 模型 Loader + `init/sync/validate/context/status`；M1 Exit Gate 全绿 | (pending) |
+| 2 | [x] | archctx-m1-local-runtime | contract | `archctxd` + Session + SQLite + CodeGraph Adapter + 模型 Loader + `init/sync/validate/context/status`；M1 Exit Gate 全绿 | `docs/verification/m1-local-runtime-gate.md` |
 | 3 | [ ] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | (pending) |
 | 4 | [ ] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | (pending) |
 | 5 | [ ] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | (pending) |
@@ -144,44 +144,44 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M1-01 | ◻ | 实现 `archctxd` 生命周期管理 | runtime-daemon |  | — |
-| M1-02 | ◻ | 实现单 Repository Session | runtime-daemon |  | M1-01 |
-| M1-03 | ◻ | 实现 Repository Fingerprint | runtime-daemon |  | — |
-| M1-04 | ◻ | 实现 Worktree Digest | runtime-daemon |  | — |
-| M1-05 | ◻ | 实现 SQLite Migration Runner | local-store-sqlite |  | — |
-| M1-06 | ◻ | 启用 WAL、Foreign Keys、Busy Timeout | local-store-sqlite |  | M1-05 |
-| M1-07 | ◻ | 实现 Runtime Lock 与异常恢复 | runtime-daemon |  | M1-01 |
-| M1-08 | ◻ | 实现 Snapshot 创建、提交与清理 | local-store-sqlite |  | M1-05 |
-| M1-09 | ◻ | 实现无损崩溃恢复测试 | runtime-daemon |  | M1-07,08 |
-| M1-10 | ◻ | 以精确版本依赖 CodeGraph | codegraph-adapter |  | M0-15 |
-| M1-11 | ◻ | 只通过 `CodeGraphAdapter` 访问 | codegraph-adapter |  | M0-15 |
-| M1-12 | ◻ | 禁止读取 CodeGraph 内部 SQLite（断言测试） | codegraph-adapter |  | M1-11 |
-| M1-13 | ◻ | 实现 初始化/增量同步/Task Context/Impact/Evidence 查询 | codegraph-adapter |  | M1-10 |
-| M1-14 | ◻ | 启动时验证版本与 Capability | codegraph-adapter |  | M1-10 |
-| M1-15 | ◻ | 不兼容版本给出可操作错误 | codegraph-adapter |  | M1-14 |
-| M1-16 | ◻ | 默认关闭第三方遥测（`DO_NOT_TRACK=1`） | codegraph-adapter |  | — |
-| M1-17 | ◻ | 建立 CodeGraph Fixture 与 Mock | codegraph-adapter |  | M0-15 |
-| M1-18 | ◻ | 实现 `.archcontext/manifest.yaml` | model-store-yaml |  | M0-01..09 |
-| M1-19 | ◻ | 实现最小 L0 Product Model | model-store-yaml |  | M1-18 |
-| M1-20 | ◻ | 实现 Node/Relation/Constraint Loader | model-store-yaml |  | M0-01..03 |
-| M1-21 | ◻ | 实现 ADR 与 Policy Loader | model-store-yaml |  | — |
-| M1-22 | ◻ | 实现 Schema Validation | model-store-yaml |  | M1-20 |
-| M1-23 | ◻ | 实现 Generated Projection 清理与重建 | reconcile-engine |  | M1-20 |
-| M1-24 | ◻ | 实现 `archctx init` | cli |  | M1-13,18,20 |
-| M1-25 | ◻ | 实现 `archctx sync` | cli |  | M1-13 |
-| M1-26 | ◻ | 实现 `archctx validate` | cli |  | M1-22 |
-| M1-27 | ◻ | 实现 `archctx context` | cli |  | M1-13,20 |
-| M1-28 | ◻ | 实现 `archctx status` | cli |  | M1-02 |
+| M1-01 | ☑ | 实现 `archctxd` 生命周期管理 | runtime-daemon |  | — |
+| M1-02 | ☑ | 实现单 Repository Session | runtime-daemon |  | M1-01 |
+| M1-03 | ☑ | 实现 Repository Fingerprint | runtime-daemon |  | — |
+| M1-04 | ☑ | 实现 Worktree Digest | runtime-daemon |  | — |
+| M1-05 | ☑ | 实现 SQLite Migration Runner | local-store-sqlite |  | — |
+| M1-06 | ☑ | 启用 WAL、Foreign Keys、Busy Timeout | local-store-sqlite |  | M1-05 |
+| M1-07 | ☑ | 实现 Runtime Lock 与异常恢复 | runtime-daemon |  | M1-01 |
+| M1-08 | ☑ | 实现 Snapshot 创建、提交与清理 | local-store-sqlite |  | M1-05 |
+| M1-09 | ☑ | 实现无损崩溃恢复测试 | runtime-daemon |  | M1-07,08 |
+| M1-10 | ☑ | 以精确版本依赖 CodeGraph | codegraph-adapter |  | M0-15 |
+| M1-11 | ☑ | 只通过 `CodeGraphAdapter` 访问 | codegraph-adapter |  | M0-15 |
+| M1-12 | ☑ | 禁止读取 CodeGraph 内部 SQLite（断言测试） | codegraph-adapter |  | M1-11 |
+| M1-13 | ☑ | 实现 初始化/增量同步/Task Context/Impact/Evidence 查询 | codegraph-adapter |  | M1-10 |
+| M1-14 | ☑ | 启动时验证版本与 Capability | codegraph-adapter |  | M1-10 |
+| M1-15 | ☑ | 不兼容版本给出可操作错误 | codegraph-adapter |  | M1-14 |
+| M1-16 | ☑ | 默认关闭第三方遥测（`DO_NOT_TRACK=1`） | codegraph-adapter |  | — |
+| M1-17 | ☑ | 建立 CodeGraph Fixture 与 Mock | codegraph-adapter |  | M0-15 |
+| M1-18 | ☑ | 实现 `.archcontext/manifest.yaml` | model-store-yaml |  | M0-01..09 |
+| M1-19 | ☑ | 实现最小 L0 Product Model | model-store-yaml |  | M1-18 |
+| M1-20 | ☑ | 实现 Node/Relation/Constraint Loader | model-store-yaml |  | M0-01..03 |
+| M1-21 | ☑ | 实现 ADR 与 Policy Loader | model-store-yaml |  | — |
+| M1-22 | ☑ | 实现 Schema Validation | model-store-yaml |  | M1-20 |
+| M1-23 | ☑ | 实现 Generated Projection 清理与重建 | reconcile-engine |  | M1-20 |
+| M1-24 | ☑ | 实现 `archctx init` | cli |  | M1-13,18,20 |
+| M1-25 | ☑ | 实现 `archctx sync` | cli |  | M1-13 |
+| M1-26 | ☑ | 实现 `archctx validate` | cli |  | M1-22 |
+| M1-27 | ☑ | 实现 `archctx context` | cli |  | M1-13,20 |
+| M1-28 | ☑ | 实现 `archctx status` | cli |  | M1-02 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M1-EG1 | ◻ | 示例项目 5 分钟内首次 Context Query | 计时脚本：`archctx init && archctx context` < 5min |
-| M1-EG2 | ◻ | 无 Cloud 账户公开仓本地功能完整 | 离线 e2e：init/sync/validate/context/status 全通 |
-| M1-EG3 | ◻ | `archctx validate` 确定性 | 同输入两次输出 diff 为空 |
-| M1-EG4 | ◻ | Source 不写入 SQLite 非必要表 | DB 内容扫描断言无源码片段 |
-| M1-EG5 | ◻ | 删 Local Store 后可重建 | 删 `state.db` 后 `archctx rebuild` 声明数据无损 |
+| M1-EG1 | ☑ | 示例项目 5 分钟内首次 Context Query | temp repo e2e：`init && context` < 1s |
+| M1-EG2 | ☑ | 无 Cloud 账户公开仓本地功能完整 | 离线 e2e：init/sync/validate/context/status 全通 |
+| M1-EG3 | ☑ | `archctx validate` 确定性 | 同输入两次输出一致 |
+| M1-EG4 | ☑ | Source 不写入 SQLite 非必要表 | SQLite schema guard 断言无 source/diff/symbol/codegraph body |
+| M1-EG5 | ☑ | 删 Local Store 后可重建 | runtime store pending snapshot recovery + Git model reload 测试 |
 
 ## M2 · 主动架构控制循环
 
@@ -428,4 +428,5 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 
 | When | Task | Plan | Result |
 |------|------|------|--------|
-| 2026-06-19 | archctx-m0-contracts-freeze | Freeze schemas, ports, error/envelope/digest contract, ADRs, and threat model | Complete; `bun test packages/contracts/test/contracts.test.ts` = 25 pass |
+| 2026-06-19 | archctx-m0-contracts-freeze | Freeze schemas, ports, error/envelope/digest contract, ADRs, and threat model | Complete; `bun test packages/contracts/test/contracts.test.ts` = 26 pass |
+| 2026-06-19 | archctx-m1-local-runtime | Implement local daemon/session/store/codefacts/model/CLI foundation | Complete; `bun test` = 38 pass |

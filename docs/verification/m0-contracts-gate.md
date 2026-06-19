@@ -26,7 +26,7 @@ bun test packages/contracts/test/contracts.test.ts
 Observed result:
 
 ```text
-25 pass
+26 pass
 0 fail
 ```
 
