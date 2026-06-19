@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/landscape.schema.json",
+  "title": "Landscape",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "name", "repositories", "relations", "syncPolicy"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.landscape/v1" },
+    "id": { "type": "string", "pattern": "^landscape\\.[a-z0-9][a-z0-9.-]*$" },
+    "name": { "type": "string" },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["repositoryId", "numericRepositoryId", "name", "role"],
+        "properties": {
+          "repositoryId": { "type": "string" },
+          "numericRepositoryId": { "type": "integer", "minimum": 1 },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "owner": { "type": "string" },
+          "defaultBranch": { "type": "string" }
+        }
+      }
+    },
+    "relations": { "type": "array", "items": { "type": "string" } },
+    "ownership": { "type": "object", "additionalProperties": true },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultActiveRepositories": { "type": "array", "items": { "type": "string" } },
+        "maxActiveRepositories": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "syncPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "archcontextSyncService"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["git-worktree-only"] },
+        "archcontextSyncService": { "type": "string", "enum": ["forbidden"] }
+      }
+    },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

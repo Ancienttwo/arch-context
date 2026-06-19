@@ -4,6 +4,8 @@ export type PressureSignalType =
   | "unjustified-wrapper-adapter"
   | "dual-track-business-concept"
   | "cross-boundary-data-access"
+  | "cross-repo-cycle"
+  | "cross-repo-dual-track"
   | "cycle-or-hotspot"
   | "overdue-migration-state";
 
@@ -53,4 +55,33 @@ export function detectArchitecturePressure(input: PressureInput): ArchitecturePr
     if (!condition) return;
     signals.push({ type, severity, evidence, evidenceKind: evidence[0] === "task-text" ? "heuristic" : "observed" });
   }
+}
+
+export function detectCrossRepoPressure(input: {
+  relations: { source: { repositoryId: string }; target: { repositoryId: string }; id: string }[];
+  task?: string;
+}): ArchitecturePressure {
+  const signals: PressureSignal[] = [];
+  const edges = new Set(input.relations.map((relation) => `${relation.source.repositoryId}->${relation.target.repositoryId}`));
+  for (const relation of input.relations) {
+    if (edges.has(`${relation.target.repositoryId}->${relation.source.repositoryId}`)) {
+      signals.push({
+        type: "cross-repo-cycle",
+        severity: "high",
+        evidence: [relation.id],
+        evidenceKind: "observed"
+      });
+      break;
+    }
+  }
+  if (/v1|v2|legacy|old|new/i.test(input.task ?? "")) {
+    signals.push({
+      type: "cross-repo-dual-track",
+      severity: "high",
+      evidence: ["task-text"],
+      evidenceKind: "heuristic"
+    });
+  }
+  const score = Math.min(100, signals.reduce((sum, signal) => sum + (signal.severity === "high" ? 25 : 15), 0));
+  return { level: score >= 60 ? "high" : score >= 30 ? "medium" : "low", score, signals };
 }

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "archcontext.org-runner-identity/v1",
+  "runnerId": "runner_acme_prod_1",
+  "installationId": 12345,
+  "repositoryNumericIds": [1001, 1002],
+  "publicKeyId": "org_pk_1",
+  "publicKeyFingerprint": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "status": "active",
+  "createdAt": "2026-06-19T00:00:00Z"
+}

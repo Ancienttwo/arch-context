@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { detectArchitecturePressure } from "../src/index";
+import { detectArchitecturePressure, detectCrossRepoPressure } from "../src/index";
 
 describe("@archcontext/pressure-engine", () => {
   test("detects high architecture pressure from structural risk signals", () => {
@@ -43,5 +43,16 @@ describe("@archcontext/pressure-engine", () => {
       score: 0,
       signals: []
     });
+  });
+
+  test("detects cross-repo cycle and dual-track pressure", () => {
+    const pressure = detectCrossRepoPressure({
+      task: "remove legacy v1/v2 contract",
+      relations: [
+        { id: "relation.web-calls-api", source: { repositoryId: "repo.web" }, target: { repositoryId: "repo.api" } },
+        { id: "relation.api-calls-web", source: { repositoryId: "repo.api" }, target: { repositoryId: "repo.web" } }
+      ]
+    });
+    expect(pressure.signals.map((signal) => signal.type)).toEqual(["cross-repo-cycle", "cross-repo-dual-track"]);
   });
 });

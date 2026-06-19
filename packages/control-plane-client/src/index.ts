@@ -13,6 +13,14 @@ export interface AccessTokenClaims {
   exp: number;
 }
 
+export interface OfflineEntitlement {
+  accountId: string;
+  plan: "free" | "pro";
+  billingInterval: "none" | "monthly" | "annual";
+  privateRepositoryScope: "public-only" | "user-all-private-repositories";
+  offlineUntil?: string;
+}
+
 export function createPkceAuthorizationRequest(input: {
   issuer: string;
   clientId: string;
@@ -75,4 +83,15 @@ export function createShortAccessToken(accountId: string, nowEpochSeconds: numbe
       exp: nowEpochSeconds + ttlSeconds
     }
   };
+}
+
+export function isOfflineEntitlementActive(entitlement: OfflineEntitlement, now: string): boolean {
+  if (entitlement.plan !== "pro") return false;
+  if (entitlement.privateRepositoryScope !== "user-all-private-repositories") return false;
+  return Boolean(entitlement.offlineUntil && entitlement.offlineUntil > now);
+}
+
+export function describeEntitlementScope(entitlement: OfflineEntitlement): string {
+  if (entitlement.plan !== "pro") return "public repositories only";
+  return `${entitlement.billingInterval} personal Pro covers all private repositories the user can access`;
 }

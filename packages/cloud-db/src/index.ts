@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   stripe_customer_id TEXT,
   status TEXT NOT NULL,
   plan TEXT NOT NULL,
+  billing_interval TEXT NOT NULL DEFAULT 'monthly',
   current_period_end TEXT,
   updated_at TEXT NOT NULL
 );
@@ -42,6 +43,17 @@ CREATE TABLE IF NOT EXISTS attestations (
   trust_level TEXT NOT NULL,
   accepted_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS org_runner_identities (
+  runner_id TEXT PRIMARY KEY,
+  installation_id INTEGER NOT NULL,
+  public_key_id TEXT NOT NULL,
+  public_key_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL,
+  repository_numeric_ids_json TEXT,
+  created_at TEXT NOT NULL,
+  rotated_at TEXT,
+  revoked_at TEXT
+);
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
   provider TEXT NOT NULL,
   delivery_id TEXT NOT NULL,
@@ -55,6 +67,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 CREATE INDEX IF NOT EXISTS idx_subscriptions_account ON subscriptions(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_challenges_repo_head ON review_challenges(repository_owner, repository_name, head_sha);
 CREATE INDEX IF NOT EXISTS idx_attestations_challenge ON attestations(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_org_runner_installation ON org_runner_identities(installation_id, status);
 CREATE INDEX IF NOT EXISTS idx_deliveries_provider ON webhook_deliveries(provider, received_at);`
   }
 ] as const;

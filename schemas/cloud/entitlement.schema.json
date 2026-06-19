@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/cloud/entitlement.schema.json",
+  "title": "Entitlement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "entitlementId", "accountId", "plan", "billingInterval", "privateRepositoryScope", "issuedAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.entitlement/v1" },
+    "entitlementId": { "type": "string" },
+    "accountId": { "type": "string" },
+    "plan": { "type": "string", "enum": ["free", "pro"] },
+    "billingInterval": { "type": "string", "enum": ["none", "monthly", "annual"] },
+    "privateRepositoryScope": {
+      "type": "string",
+      "enum": ["public-only", "user-all-private-repositories"]
+    },
+    "repositoryNumericIds": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+    "issuedAt": { "type": "string" },
+    "validUntil": { "type": "string" },
+    "offlineUntil": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

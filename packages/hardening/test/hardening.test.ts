@@ -10,6 +10,7 @@ import {
   launchGateReport,
   secretScan,
   secureDefaults,
+  sprint2LaunchGateReport,
   uninstallMarker
 } from "../src/index";
 
@@ -51,6 +52,16 @@ describe("@archcontext/hardening", () => {
       representativeEval: "pending",
       largeRepoBenchmark: "pending",
       timedInstallRehearsal: "pending"
+    });
+  });
+
+  test("summarizes Sprint 2 launch evidence without claiming production capture", () => {
+    expect(sprint2LaunchGateReport()).toMatchObject({
+      status: "sprint-2-deterministic-evidence",
+      organizationAttestation: "runner identity + installation + trustLevel tests",
+      annualBilling: "$99 annual interval + per-person entitlement tests",
+      securityFindings: { critical: 0, high: 0, productionScan: "pending" },
+      packetCapture: "pending-production-environment"
     });
   });
 });

@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { createReviewChallenge, type LocalAttestation, type ReviewChallenge } from "../../attestation/src/index";
+import { attestationLabel, createReviewChallenge, type LocalAttestation, type ReviewChallenge, type TrustLevel } from "../../attestation/src/index";
 
 export const GITHUB_APP_PERMISSIONS = {
   contents: "none",
@@ -21,11 +21,17 @@ export interface CheckRun {
   status: "queued" | "completed";
   conclusion?: "success" | "failure" | "neutral";
   headSha: string;
+  output?: {
+    title: "Developer-attested" | "Organization-attested" | "Attestation required";
+    summary: string;
+    trustLevel?: TrustLevel;
+  };
 }
 
 export class GitHubAppState {
   readonly deliveries = new Set<string>();
   readonly selectedRepositories = new Set<string>();
+  readonly organizationAttestationRequired = new Set<string>();
   readonly challenges = new Map<string, ReviewChallenge>();
   readonly checks = new Map<string, CheckRun>();
 
@@ -35,6 +41,12 @@ export class GitHubAppState {
 
   uninstall(): void {
     this.selectedRepositories.clear();
+    this.organizationAttestationRequired.clear();
+  }
+
+  requireOrganizationAttestation(repository: string, required = true): void {
+    if (required) this.organizationAttestationRequired.add(repository);
+    else this.organizationAttestationRequired.delete(repository);
   }
 
   handlePullRequest(event: PullRequestEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; challenge?: ReviewChallenge; checkRun?: CheckRun } {
@@ -60,10 +72,20 @@ export class GitHubAppState {
   updateCheckFromAttestation(checkRunId: string, attestation: LocalAttestation, accepted: boolean): CheckRun {
     const check = this.checks.get(checkRunId);
     if (!check) throw new Error(`Check run not found: ${checkRunId}`);
+    const repositoryKey = `${attestation.repository.owner}/${attestation.repository.name}`;
+    const requiresOrganization = this.organizationAttestationRequired.has(repositoryKey);
+    const trustAllowed = !requiresOrganization || attestation.trustLevel === "organization";
     const updated: CheckRun = {
       ...check,
       status: "completed",
-      conclusion: accepted && attestation.headSha === check.headSha ? "success" : "failure"
+      conclusion: accepted && attestation.headSha === check.headSha && trustAllowed ? "success" : "failure",
+      output: {
+        title: accepted ? attestationLabel(attestation.trustLevel) : "Attestation required",
+        summary: requiresOrganization
+          ? "Repository requires organization-attested review from a customer-controlled runner."
+          : "Repository accepts developer-attested or organization-attested review.",
+        trustLevel: accepted ? attestation.trustLevel : undefined
+      }
     };
     this.checks.set(checkRunId, updated);
     return updated;

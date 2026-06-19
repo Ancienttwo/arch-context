@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "../../contracts/src/index";
-import { compileTaskContext } from "../src/index";
+import { MultiRepoCodeGraphAdapter, MockCodeGraphProvider } from "../../codegraph-adapter/src/index";
+import { compileLandscapeTaskContext, compileTaskContext } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const workspace: WorkspaceRef = { root: "/tmp/repo", repositoryId: "repo.test", headSha: "abc" };
@@ -123,5 +124,53 @@ describe("@archcontext/context-compiler", () => {
     expect(context.resources).toHaveLength(1);
     expect(context.relevantNodes.length).toBeLessThanOrEqual(2);
     expect(context.extensions.budgetExceeded).toBe(true);
+  });
+
+  test("compiles cross-repo task context from a bounded landscape scope", async () => {
+    const context = await compileLandscapeTaskContext({
+      landscape: {
+        schemaVersion: "archcontext.landscape/v1",
+        id: "landscape.product",
+        name: "Product",
+        repositories: [
+          { repositoryId: "repo.web", numericRepositoryId: 1001, name: "web", role: "frontend" },
+          { repositoryId: "repo.api", numericRepositoryId: 1002, name: "api", role: "runtime" },
+          { repositoryId: "repo.worker", numericRepositoryId: 1003, name: "worker", role: "worker" }
+        ],
+        relations: ["relation.web-calls-api"],
+        scope: { defaultActiveRepositories: ["repo.web"], maxActiveRepositories: 2 },
+        syncPolicy: { mode: "git-worktree-only", archcontextSyncService: "forbidden" }
+      },
+      relations: [
+        {
+          schemaVersion: "archcontext.cross-repo-relation/v1",
+          id: "relation.web-calls-api",
+          kind: "calls",
+          source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+          target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+          via: { kind: "interface", id: "interface.billing-http" },
+          intent: "checkout to billing"
+        }
+      ],
+      workspaces: [
+        { root: "/tmp/web", repositoryId: "repo.web", headSha: "abc" },
+        { root: "/tmp/api", repositoryId: "repo.api", headSha: "def" },
+        { root: "/tmp/worker", repositoryId: "repo.worker", headSha: "ghi" }
+      ],
+      task: "change api contract used by web checkout",
+      codeFacts: new MultiRepoCodeGraphAdapter({
+        "repo.web": new MockCodeGraphProvider(),
+        "repo.api": new MockCodeGraphProvider()
+      }),
+      modelStore: modelStore(),
+      budget: { maxBytes: 4096, maxItems: 4 }
+    });
+
+    expect(context.resources[0].type).toBe("landscape");
+    expect(context.extensions.landscapeDigest).toMatch(/^sha256:/);
+    expect(context.extensions.activeRepositories).toEqual(["repo.api", "repo.web"]);
+    expect(context.extensions.crossRepoRelations).toEqual(["relation.web-calls-api"]);
+    expect(context.relevantNodes).toEqual(["repo.api::symbol.preparetask", "repo.web::symbol.preparetask"]);
+    expect(validateJsonSchema(readJson("schemas/runtime/task-context.schema.json") as any, context as any).valid).toBe(true);
   });
 });

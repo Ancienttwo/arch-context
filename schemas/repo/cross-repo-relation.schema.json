@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/repo/cross-repo-relation.schema.json",
+  "title": "CrossRepoRelation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "kind", "source", "target", "via", "intent"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.cross-repo-relation/v1" },
+    "id": { "type": "string", "pattern": "^relation\\.[a-z0-9][a-z0-9.-]*$" },
+    "kind": { "type": "string", "enum": ["depends-on", "calls", "publishes", "subscribes", "implements"] },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "nodeId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "nodeId": { "type": "string" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "nodeId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "nodeId": { "type": "string" }
+      }
+    },
+    "via": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["interface", "event"] },
+        "id": { "type": "string" }
+      }
+    },
+    "synchrony": { "type": "string", "enum": ["synchronous", "asynchronous", "batch"] },
+    "intent": { "type": "string" },
+    "owner": { "type": "string" },
+    "allowedData": { "type": "array", "items": { "type": "string" } },
+    "forbiddenData": { "type": "array", "items": { "type": "string" } },
+    "criticality": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

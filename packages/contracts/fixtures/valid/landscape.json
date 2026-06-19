@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "archcontext.landscape/v1",
+  "id": "landscape.archcontext-product",
+  "name": "ArchContext Product",
+  "repositories": [
+    {
+      "repositoryId": "repo.web",
+      "numericRepositoryId": 1001,
+      "name": "archcontext-web",
+      "role": "frontend",
+      "owner": "team.growth",
+      "defaultBranch": "main"
+    },
+    {
+      "repositoryId": "repo.api",
+      "numericRepositoryId": 1002,
+      "name": "archcontext-api",
+      "role": "runtime",
+      "owner": "team.platform",
+      "defaultBranch": "main"
+    }
+  ],
+  "relations": ["relation.web-calls-api"],
+  "ownership": {
+    "team.growth": ["repo.web"],
+    "team.platform": ["repo.api"]
+  },
+  "scope": {
+    "defaultActiveRepositories": ["repo.web"],
+    "maxActiveRepositories": 3
+  },
+  "syncPolicy": {
+    "mode": "git-worktree-only",
+    "archcontextSyncService": "forbidden"
+  }
+}

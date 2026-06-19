@@ -86,4 +86,37 @@ describe("local runtime foundation", () => {
     await expect(adapter.sync({ workspace: { root: "/tmp/repo", repositoryId: "repo.test", headSha: "abc" } })).rejects.toThrow("required");
     expect(() => assertNoCodeGraphInternalPathAccess(".codegraph/state.db")).toThrow();
   });
+
+  test("multi-repo sessions use LRU and landscape context stays local", async () => {
+    const first = tempRepo();
+    const second = tempRepo();
+    const third = tempRepo();
+    try {
+      const daemon = await createStartedDaemon({ maxRepoSessions: 2 });
+      const addedFirst = await daemon.repoAdd(first, "web");
+      const addedSecond = await daemon.repoAdd(second, "api");
+      const firstRepo = (addedFirst.data as any).repository.repositoryId;
+      const secondRepo = (addedSecond.data as any).repository.repositoryId;
+      await daemon.repoAdd(third, "worker");
+
+      expect(daemon.status().sessions).toBe(2);
+      expect(daemon.status().repositories).not.toContain(firstRepo);
+
+      const list = await daemon.repoList();
+      expect((list.data as any).repositories.map((repo: any) => repo.repositoryId)).toEqual([
+        firstRepo,
+        secondRepo,
+        repositoryFingerprint(third)
+      ].sort());
+
+      const context = await daemon.contextLandscape("change api used by web", 4);
+      expect(context.ok).toBe(true);
+      expect((context.data as any).extensions.landscapeDigest).toMatch(/^sha256:/);
+      expect(JSON.stringify(context.data)).not.toContain("archcontextSyncService\":\"allowed");
+    } finally {
+      rmSync(first, { recursive: true, force: true });
+      rmSync(second, { recursive: true, force: true });
+      rmSync(third, { recursive: true, force: true });
+    }
+  });
 });

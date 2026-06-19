@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "archcontext.entitlement/v1",
+  "entitlementId": "ent_acct_42_2026",
+  "accountId": "acct_42",
+  "plan": "pro",
+  "billingInterval": "annual",
+  "privateRepositoryScope": "user-all-private-repositories",
+  "repositoryNumericIds": [1001, 1002],
+  "issuedAt": "2026-06-19T00:00:00Z",
+  "validUntil": "2027-06-19T00:00:00Z",
+  "offlineUntil": "2026-06-26T00:00:00Z"
+}

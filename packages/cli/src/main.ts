@@ -28,10 +28,26 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
     case "context": {
       const task = readFlag(args, "--task") ?? args.join(" ").trim();
       if (!task) return errorEnvelope("context", "AC_SCHEMA_INVALID", "context requires --task or task text");
+      if (args.includes("--landscape")) {
+        await daemon.repoAdd(cwd, readFlag(args, "--name") ?? "local");
+        return daemon.contextLandscape(task, Number(readFlag(args, "--max-symbols") ?? 12));
+      }
       return daemon.context(cwd, task, Number(readFlag(args, "--max-symbols") ?? 12));
     }
     case "status":
       return daemon.runtimeStatus(cwd);
+    case "repo": {
+      const subcommand = args[0] ?? "list";
+      if (subcommand === "add") return daemon.repoAdd(readFlag(args, "--root") ?? cwd, readFlag(args, "--name"));
+      if (subcommand === "remove") {
+        const repositoryId = readFlag(args, "--repository-id") ?? args[1];
+        if (!repositoryId) return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", "repo remove requires --repository-id");
+        return daemon.repoRemove(repositoryId);
+      }
+      return daemon.repoList();
+    }
+    case "landscape":
+      return daemon.landscapeStatus();
     case "prepare": {
       const task = readFlag(args, "--task") ?? args.join(" ").trim();
       if (!task) return errorEnvelope("prepare", "AC_SCHEMA_INVALID", "prepare requires --task or task text");
@@ -142,8 +158,8 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit"],
-          examples: ["archctx init --name MyApp", "archctx prepare --task \"add subscriptions\"", "archctx config"]
+          commands: ["init", "sync", "validate", "context", "status", "repo", "landscape", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit"],
+          examples: ["archctx init --name MyApp", "archctx repo add --name web", "archctx context --landscape --task \"change shared API\"", "archctx config"]
         }
       };
   }

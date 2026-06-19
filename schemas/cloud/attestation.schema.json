@@ -34,7 +34,7 @@
     },
     "issuedAt": { "type": "string" },
     "expiresAt": { "type": "string" },
-    "trustLevel": { "type": "string", "enum": ["developer", "organization-runner"] },
+    "trustLevel": { "type": "string", "enum": ["developer", "organization"] },
     "signature": {
       "type": "object",
       "additionalProperties": false,

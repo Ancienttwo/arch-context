@@ -7,14 +7,14 @@
   "required": ["schemaVersion", "id", "kind", "name", "status", "summary"],
   "properties": {
     "schemaVersion": { "const": "archcontext.node/v1" },
-    "id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "id": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "kind": {
       "type": "string",
       "enum": ["capability", "module", "component", "interface", "event", "datastore", "external-system", "deployment"]
     },
     "name": { "type": "string" },
     "status": { "type": "string", "enum": ["active", "planned", "deprecated", "removed"] },
-    "parent": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+    "parent": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "summary": { "type": "string" },
     "responsibilities": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
     "source": {

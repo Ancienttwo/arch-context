@@ -45,4 +45,22 @@ describe("archctx CLI", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      const added = await runCli("repo", ["add", "--name", "web"], root);
+      expect(added.ok).toBe(true);
+      expect((added.data as any).repository.name).toBe("web");
+      const landscape = await runCli("landscape", [], root);
+      expect(landscape.ok).toBe(true);
+      expect((landscape.data as any).schemaVersion).toBe("archcontext.landscape/v1");
+      const context = await runCli("context", ["--landscape", "--task", "change local API", "--max-symbols", "2"], root);
+      expect(context.ok).toBe(true);
+      expect((context.data as any).extensions.landscapeDigest).toMatch(/^sha256:/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { assertNoUploadRoutes, ControlPlane, routeDigest, WORKER_LIMITS } from "../src/index";
+import { generateKeyPairSync } from "node:crypto";
+import { createReviewChallenge, signOrganizationAttestation } from "../../../packages/attestation/src/index";
+import { assertNoUploadRoutes, BILLING_PRICES, ControlPlane, routeDigest, WORKER_LIMITS } from "../src/index";
 import { createShortAccessToken, KeychainTokenStore } from "../../../packages/control-plane-client/src/index";
 
 describe("control plane", () => {
@@ -34,5 +36,71 @@ describe("control plane", () => {
     expect(() => cp.mapStripeEvent({ id: "evt_1", type: "invoice.payment_failed", accountId: account.id })).toThrow("duplicate");
     cp.revokeDevice("device_1");
     expect(cp.revokedDevices.has("device_1")).toBe(true);
+  });
+
+  test("annual billing remains per-person and covers all private repositories", () => {
+    const cp = new ControlPlane();
+    const account = cp.loginWithGitHub("99");
+    expect(BILLING_PRICES.annual.priceUsd).toBe(99);
+    expect(cp.stripeCheckout(account.id, "annual")).toMatchObject({ priceUsd: 99, billingInterval: "annual" });
+    cp.mapStripeEvent({ id: "evt_annual", type: "customer.subscription.created", accountId: account.id, billingInterval: "annual" });
+    expect(cp.accounts.get(account.id)?.billingInterval).toBe("annual");
+    expect(cp.entitlement({ accountId: account.id, repositoryVisibility: "private" })).toMatchObject({
+      allowed: true,
+      billingInterval: "annual",
+      privateRepositoryScope: "user-all-private-repositories"
+    });
+    expect(cp.switchBillingInterval(account.id, "monthly")).toMatchObject({ proration: "stripe-managed" });
+  });
+
+  test("verifies organization runner attestations without accepting runner revocation", () => {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const cp = new ControlPlane();
+    const runner = cp.registerOrgRunner({
+      schemaVersion: "archcontext.org-runner-identity/v1",
+      runnerId: "runner_acct_42",
+      installationId: 12345,
+      repositoryNumericIds: [1001],
+      publicKeyId: "org_pk_1",
+      publicKeyFingerprint: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      status: "active",
+      createdAt: "2026-06-19T00:00:00Z"
+    });
+    const challenge = createReviewChallenge({
+      repository: { provider: "github", owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      headSha: "abc",
+      expiresAt: "2026-06-19T00:10:00Z"
+    });
+    const attestation = signOrganizationAttestation({
+      challenge,
+      worktreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      reviewDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      runner,
+      privateKey,
+      issuedAt: "2026-06-19T00:00:00Z",
+      repositoryNumericId: 1001
+    });
+
+    expect(
+      cp.verifyOrgRunnerAttestation({
+        challenge,
+        attestation,
+        publicKey,
+        now: "2026-06-19T00:01:00Z",
+        expectedInstallationId: 12345,
+        expectedHeadSha: "abc"
+      }).accepted
+    ).toBe(true);
+    cp.revokeOrgRunner(runner.runnerId, "2026-06-19T00:02:00Z");
+    expect(
+      cp.verifyOrgRunnerAttestation({
+        challenge,
+        attestation,
+        publicKey,
+        now: "2026-06-19T00:01:00Z",
+        expectedInstallationId: 12345,
+        expectedHeadSha: "abc"
+      }).reason
+    ).toBe("org-runner-revoked");
   });
 });

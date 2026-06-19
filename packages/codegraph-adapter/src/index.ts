@@ -1,3 +1,4 @@
+import { repoScopedArchitectureId, type CrossRepoRelation } from "../../architecture-domain/src/index";
 import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "../../contracts/src/index";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
@@ -86,6 +87,101 @@ export class CodeGraphAdapter implements CodeFactsPort {
         throw new Error(`CodeGraph capability missing: ${capability}`);
       }
     }
+  }
+}
+
+export interface LandscapeContextInput {
+  task: string;
+  workspaces: WorkspaceRef[];
+  maxSymbols: number;
+  includeSource: boolean;
+  activeRepositoryIds?: string[];
+}
+
+export class MultiRepoCodeGraphAdapter {
+  private readonly adapters = new Map<string, CodeGraphAdapter>();
+
+  constructor(private readonly providers: Record<string, CodeGraphProvider>) {
+    process.env.DO_NOT_TRACK ??= "1";
+  }
+
+  async syncRepositories(workspaces: WorkspaceRef[]): Promise<CodeFactsSnapshot[]> {
+    const snapshots: CodeFactsSnapshot[] = [];
+    for (const workspace of workspaces) {
+      snapshots.push(await this.adapterFor(workspace.repositoryId).sync({ workspace }));
+    }
+    return snapshots;
+  }
+
+  async buildLandscapeTaskContext(input: LandscapeContextInput): Promise<NormalizedCodeContext> {
+    const active = new Set(input.activeRepositoryIds ?? input.workspaces.map((workspace) => workspace.repositoryId));
+    const selected = input.workspaces.filter((workspace) => active.has(workspace.repositoryId));
+    const perRepoMax = Math.max(1, Math.ceil(input.maxSymbols / Math.max(1, selected.length)));
+    const contexts: { workspace: WorkspaceRef; context: NormalizedCodeContext }[] = [];
+    for (const workspace of selected) {
+      const adapter = this.adapterFor(workspace.repositoryId);
+      await adapter.ensureReady(workspace);
+      contexts.push({
+        workspace,
+        context: await adapter.buildTaskContext({
+          task: input.task,
+          maxSymbols: perRepoMax,
+          includeSource: input.includeSource
+        })
+      });
+    }
+    const symbols = contexts.flatMap(({ workspace, context }) =>
+      context.symbols.map((symbol) => ({
+        ...symbol,
+        id: repoScopedArchitectureId(workspace.repositoryId, symbol.id),
+        path: `${workspace.repositoryId}:${symbol.path}`
+      }))
+    );
+    const edges = contexts.flatMap(({ workspace, context }) =>
+      context.edges.map((edge) => ({
+        ...edge,
+        source: repoScopedArchitectureId(workspace.repositoryId, edge.source),
+        target: repoScopedArchitectureId(workspace.repositoryId, edge.target)
+      }))
+    );
+    const evidence = contexts.flatMap(({ workspace, context }) =>
+      context.evidence.map((item) => ({
+        ...item,
+        snapshot: {
+          ...item.snapshot,
+          repositoryId: workspace.repositoryId,
+          headSha: workspace.headSha
+        }
+      }))
+    );
+    return {
+      task: input.task,
+      symbols: symbols.slice(0, input.maxSymbols),
+      edges,
+      evidence,
+      digest: digestJson({
+        task: input.task,
+        repositories: selected.map((workspace) => workspace.repositoryId),
+        symbols,
+        edges,
+        includeSource: input.includeSource
+      })
+    };
+  }
+
+  crossRepoImpact(relations: CrossRepoRelation[], repositoryId: string): CrossRepoRelation[] {
+    return relations
+      .filter((relation) => relation.source.repositoryId === repositoryId || relation.target.repositoryId === repositoryId)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private adapterFor(repositoryId: string): CodeGraphAdapter {
+    let adapter = this.adapters.get(repositoryId);
+    if (!adapter) {
+      adapter = new CodeGraphAdapter(this.providers[repositoryId] ?? new MockCodeGraphProvider());
+      this.adapters.set(repositoryId, adapter);
+    }
+    return adapter;
   }
 }
 

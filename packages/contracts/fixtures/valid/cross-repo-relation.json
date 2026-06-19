@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "archcontext.cross-repo-relation/v1",
+  "id": "relation.web-calls-api",
+  "kind": "calls",
+  "source": {
+    "repositoryId": "repo.web",
+    "nodeId": "module.checkout-ui"
+  },
+  "target": {
+    "repositoryId": "repo.api",
+    "nodeId": "module.billing-api"
+  },
+  "via": {
+    "kind": "interface",
+    "id": "interface.billing-http"
+  },
+  "synchrony": "synchronous",
+  "intent": "Checkout UI asks the billing API to create a subscription.",
+  "owner": "team.growth",
+  "allowedData": ["account-id", "plan-id"],
+  "forbiddenData": ["payment-credential"],
+  "criticality": "high"
+}

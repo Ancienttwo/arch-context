@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync } from "node:crypto";
+import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "../../attestation/src/index";
 import { GITHUB_APP_PERMISSIONS, GitHubAppState, verifyGitHubWebhookSignature } from "../src/index";
 
 describe("GitHub App", () => {
@@ -31,5 +32,51 @@ describe("GitHub App", () => {
     const signature256 = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
     expect(verifyGitHubWebhookSignature({ secret: "secret", body, signature256 })).toBe(true);
     expect(verifyGitHubWebhookSignature({ secret: "secret", body, signature256: "sha256=bad" })).toBe(false);
+  });
+
+  test("check runs display trust level and can require organization attestation", () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const repository = { provider: "github" as const, owner: "ancienttwo", name: "arch-context", visibility: "private" as const };
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    state.requireOrganizationAttestation("ancienttwo/arch-context");
+    const checkRun = state.handlePullRequest({
+      deliveryId: "d3",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 2, headSha: "abc123" }
+    }).checkRun!;
+    const developerChallenge = createReviewChallenge({ repository, headSha: "abc123", expiresAt: "2026-06-19T00:10:00Z" });
+    const developer = signLocalAttestation({
+      challenge: developerChallenge,
+      worktreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      reviewDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      deviceId: "device_1",
+      publicKeyId: "pk_1",
+      privateKey,
+      issuedAt: "2026-06-19T00:00:00Z"
+    });
+    expect(state.updateCheckFromAttestation(checkRun.id, developer, true).conclusion).toBe("failure");
+
+    const organizationChallenge = createReviewChallenge({ repository, headSha: "abc123", expiresAt: "2026-06-19T00:10:00Z" });
+    const organization = signOrganizationAttestation({
+      challenge: organizationChallenge,
+      worktreeDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      reviewDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      runner: {
+        schemaVersion: "archcontext.org-runner-identity/v1",
+        runnerId: "runner_1",
+        installationId: 123,
+        publicKeyId: "org_pk_1",
+        publicKeyFingerprint: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        status: "active",
+        createdAt: "2026-06-19T00:00:00Z"
+      },
+      privateKey,
+      issuedAt: "2026-06-19T00:00:00Z"
+    });
+    const updated = state.updateCheckFromAttestation(checkRun.id, organization, true);
+    expect(updated.conclusion).toBe("success");
+    expect(updated.output?.title).toBe("Organization-attested");
   });
 });

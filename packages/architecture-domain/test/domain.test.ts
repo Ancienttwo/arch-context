@@ -4,9 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assertRepoRelativePath,
+  activeRepositoriesForTask,
+  addCrossRepoRelation,
+  addRepositoryToLandscape,
   computeWorktreeDigest,
+  createLandscape,
   createInterventionId,
+  crossRepoImpact,
+  landscapeDigest,
+  landscapeYaml,
   listRepoFiles,
+  parseRepoScopedArchitectureId,
+  repoScopedArchitectureId,
+  summarizeLandscapeForSaas,
+  validateLandscape,
   repositoryFingerprint
 } from "../src/index";
 
@@ -49,5 +60,52 @@ describe("@archcontext/architecture-domain", () => {
     );
     expect(createInterventionId("")).toBe("intervention.architecture-change");
     expect(createInterventionId("x".repeat(120)).length).toBeLessThanOrEqual("intervention.".length + 80);
+  });
+
+  test("repo-scoped architecture ids preserve repository namespace", () => {
+    const id = repoScopedArchitectureId("repo.checkout", "module.billing-api");
+    expect(id).toBe("repo.checkout::module.billing-api");
+    expect(parseRepoScopedArchitectureId(id)).toEqual({ repositoryId: "repo.checkout", nodeId: "module.billing-api" });
+    expect(() => parseRepoScopedArchitectureId("module.billing-api")).toThrow("repo-scoped");
+  });
+
+  test("landscape registration validates cross-repo edges and exposes metadata-only SaaS summary", () => {
+    const relation = {
+      schemaVersion: "archcontext.cross-repo-relation/v1" as const,
+      id: "relation.web-calls-api",
+      kind: "calls" as const,
+      source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+      target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+      via: { kind: "interface" as const, id: "interface.billing-http" },
+      intent: "Checkout creates subscriptions through the API."
+    };
+    const landscape = createLandscape({
+      id: "archcontext-product",
+      name: "ArchContext Product",
+      maxActiveRepositories: 2,
+      repositories: [
+        { repositoryId: "repo.web", numericRepositoryId: 1001, name: "archcontext-web", role: "frontend" },
+        { repositoryId: "repo.api", numericRepositoryId: 1002, name: "archcontext-api", role: "runtime" }
+      ],
+      relations: [relation]
+    });
+    expect(validateLandscape(landscape, [relation])).toEqual({ valid: true, errors: [] });
+    expect(crossRepoImpact([relation], "repo.api").map((item) => item.id)).toEqual(["relation.web-calls-api"]);
+    expect(activeRepositoriesForTask(landscape, "change archcontext-api subscription endpoint").map((repo) => repo.repositoryId)).toEqual([
+      "repo.api",
+      "repo.web"
+    ]);
+    expect(summarizeLandscapeForSaas(landscape)).toEqual({ repositoryIds: [1001, 1002] });
+    expect(landscapeDigest(landscape, [relation])).toMatch(/^sha256:/);
+    expect(landscapeYaml(landscape)).toContain("archcontextSyncService: \"forbidden\"");
+
+    const expanded = addCrossRepoRelation(addRepositoryToLandscape(landscape, { repositoryId: "repo.worker", numericRepositoryId: 1003, name: "archcontext-worker", role: "worker" }), {
+      ...relation,
+      id: "relation.worker-subscribes-api",
+      source: { repositoryId: "repo.worker", nodeId: "module.billing-worker" },
+      via: { kind: "event", id: "event.subscription-created" }
+    });
+    expect(expanded.repositories.map((repo) => repo.repositoryId)).toContain("repo.worker");
+    expect(expanded.relations).toContain("relation.worker-subscribes-api");
   });
 });

@@ -41,3 +41,6 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0023 | User-level Private Entitlement |
 | ADR-0024 | Developer vs Organization Attestation |
 | ADR-0025 | Evidence Confidence and Proof Required |
+| ADR-0026 | Multi-repo Architecture Context |
+| ADR-0027 | Trusted Runner Attestation |
+| ADR-0028 | Per-seat Billing v1 |

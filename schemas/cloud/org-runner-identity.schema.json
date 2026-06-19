@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/cloud/org-runner-identity.schema.json",
+  "title": "OrgRunnerIdentity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runnerId", "installationId", "publicKeyId", "publicKeyFingerprint", "status", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.org-runner-identity/v1" },
+    "runnerId": { "type": "string" },
+    "installationId": { "type": "integer", "minimum": 1 },
+    "repositoryNumericIds": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+    "publicKeyId": { "type": "string" },
+    "publicKeyFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "status": { "type": "string", "enum": ["active", "revoked"] },
+    "createdAt": { "type": "string" },
+    "rotatedAt": { "type": "string" },
+    "revokedAt": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

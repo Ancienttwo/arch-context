@@ -12,7 +12,12 @@ describe("@archcontext/local-store-sqlite", () => {
     const sql = migrationSql();
     expect(sql.slice(0, SQLITE_PRAGMAS.length)).toEqual([...SQLITE_PRAGMAS]);
     expect(sql.some((statement) => statement.includes("repository_sessions"))).toBe(true);
-    expect(LOCAL_SQLITE_MIGRATIONS.map((migration) => migration.id)).toEqual(["0001_runtime_state", "0002_indexes"]);
+    expect(LOCAL_SQLITE_MIGRATIONS.map((migration) => migration.id)).toEqual([
+      "0001_runtime_state",
+      "0002_indexes",
+      "0003_landscape_state"
+    ]);
+    expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
   });
 
@@ -26,7 +31,7 @@ describe("@archcontext/local-store-sqlite", () => {
   test("in-memory store follows snapshot and task state contracts", async () => {
     const store = new InMemoryLocalStore();
     await store.migrate();
-    expect([...store.migrations]).toEqual(["0001_runtime_state", "0002_indexes"]);
+    expect([...store.migrations]).toEqual(["0001_runtime_state", "0002_indexes", "0003_landscape_state"]);
 
     const snapshot = {
       repositoryId: "repo.test",
@@ -43,5 +48,39 @@ describe("@archcontext/local-store-sqlite", () => {
 
     await store.beginSnapshot(snapshot);
     expect(store.recoverPendingSnapshots()).toBe(1);
+  });
+
+  test("stores derived landscape metadata and can rebuild from repo files", async () => {
+    const store = new InMemoryLocalStore();
+    await store.migrate();
+    const landscape = {
+      schemaVersion: "archcontext.landscape/v1" as const,
+      id: "landscape.product",
+      name: "Product",
+      repositories: [
+        { repositoryId: "repo.web", numericRepositoryId: 1001, name: "web", role: "frontend" },
+        { repositoryId: "repo.api", numericRepositoryId: 1002, name: "api", role: "runtime" }
+      ],
+      relations: ["relation.web-calls-api"],
+      syncPolicy: { mode: "git-worktree-only" as const, archcontextSyncService: "forbidden" as const }
+    };
+    const relation = {
+      schemaVersion: "archcontext.cross-repo-relation/v1" as const,
+      id: "relation.web-calls-api",
+      kind: "calls" as const,
+      source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+      target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+      via: { kind: "interface" as const, id: "interface.billing-http" },
+      intent: "checkout to billing"
+    };
+
+    await store.saveLandscape(landscape);
+    await store.saveCrossRepoRelation(relation);
+    expect(await store.readLandscape("landscape.product")).toEqual(landscape);
+    expect(await store.listCrossRepoRelations(landscape)).toEqual([relation]);
+
+    store.clearDerivedLandscapeState();
+    expect(await store.readLandscape("landscape.product")).toBeUndefined();
+    expect(await store.listCrossRepoRelations()).toEqual([]);
   });
 });

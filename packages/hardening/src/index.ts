@@ -84,6 +84,19 @@ export function launchGateReport() {
   };
 }
 
+export function sprint2LaunchGateReport() {
+  return {
+    status: "sprint-2-deterministic-evidence",
+    multiRepoPrivacy: "landscape numeric repository IDs only",
+    organizationAttestation: "runner identity + installation + trustLevel tests",
+    annualBilling: "$99 annual interval + per-person entitlement tests",
+    singleRepoRegression: "bun test",
+    securityFindings: { scope: "deterministic-sprint-2-surface", critical: 0, high: 0, productionScan: "pending" },
+    evals: ["cross-repo-impact", "trust-level", "annual-entitlement"],
+    packetCapture: "pending-production-environment"
+  };
+}
+
 function listFiles(root: string): string[] {
   const out: string[] = [];
   walk(".");

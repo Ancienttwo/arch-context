@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { buildGitHubHeaders, createPkceAuthorizationRequest, validateAccessTokenClaims } from "../src/index";
+import {
+  buildGitHubHeaders,
+  createPkceAuthorizationRequest,
+  describeEntitlementScope,
+  isOfflineEntitlementActive,
+  validateAccessTokenClaims
+} from "../src/index";
 
 describe("control-plane client auth", () => {
   test("creates OAuth 2.1 PKCE request", () => {
@@ -24,5 +30,18 @@ describe("control-plane client auth", () => {
     ).not.toThrow();
     expect(() => validateAccessTokenClaims({ aud: "other", scope: "account:read", exp: 100 }, { audience: "archcontext", requiredScopes: [], nowEpochSeconds: 1 })).toThrow("audience");
     expect(() => buildGitHubHeaders({ githubToken: "gh", archcontextAccessToken: "arch" })).toThrow("must not be forwarded");
+  });
+
+  test("handles annual offline entitlement as user-level private access", () => {
+    const entitlement = {
+      accountId: "acct_42",
+      plan: "pro" as const,
+      billingInterval: "annual" as const,
+      privateRepositoryScope: "user-all-private-repositories" as const,
+      offlineUntil: "2026-06-26T00:00:00Z"
+    };
+    expect(isOfflineEntitlementActive(entitlement, "2026-06-20T00:00:00Z")).toBe(true);
+    expect(isOfflineEntitlementActive(entitlement, "2026-06-27T00:00:00Z")).toBe(false);
+    expect(describeEntitlementScope(entitlement)).toContain("all private repositories");
   });
 });

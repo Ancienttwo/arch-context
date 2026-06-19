@@ -9,13 +9,17 @@ const root = fileURLToPath(new URL("../../../", import.meta.url));
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",
   "architecture-relation": "schemas/repo/architecture-relation.schema.json",
+  "cross-repo-relation": "schemas/repo/cross-repo-relation.schema.json",
+  "landscape": "schemas/repo/landscape.schema.json",
   "constraint": "schemas/repo/constraint.schema.json",
   "architecture-intervention": "schemas/repo/architecture-intervention.schema.json",
   "compatibility-contract": "schemas/repo/compatibility-contract.schema.json",
   "task-context": "schemas/runtime/task-context.schema.json",
   "changeset": "schemas/runtime/changeset.schema.json",
   "review-result": "schemas/runtime/review-result.schema.json",
-  "attestation": "schemas/cloud/attestation.schema.json"
+  "attestation": "schemas/cloud/attestation.schema.json",
+  "org-runner-identity": "schemas/cloud/org-runner-identity.schema.json",
+  "entitlement": "schemas/cloud/entitlement.schema.json"
 };
 
 function readJson(path: string): Json {
@@ -83,13 +87,17 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
   const byVersion: Record<string, string> = {
     "archcontext.node/v1": "architecture-node",
     "archcontext.relation/v1": "architecture-relation",
+    "archcontext.cross-repo-relation/v1": "cross-repo-relation",
+    "archcontext.landscape/v1": "landscape",
     "archcontext.constraint/v1": "constraint",
     "archcontext.intervention/v1": "architecture-intervention",
     "archcontext.compatibility/v1": "compatibility-contract",
     "archcontext.task-context/v1": "task-context",
     "archcontext.changeset/v1": "changeset",
     "archcontext.review/v1": "review-result",
-    "archcontext.attestation/v1": "attestation"
+    "archcontext.attestation/v1": "attestation",
+    "archcontext.org-runner-identity/v1": "org-runner-identity",
+    "archcontext.entitlement/v1": "entitlement"
   };
   const fixtureName = byVersion[schemaVersion];
   if (!fixtureName) throw new Error(`Unknown schemaVersion: ${schemaVersion}`);

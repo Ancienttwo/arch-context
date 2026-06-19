@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateJsonSchema } from "../../contracts/src/index";
-import { completeTaskGate } from "../src/index";
+import { completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const sha = `sha256:${"a".repeat(64)}`;
@@ -49,5 +49,30 @@ describe("@archcontext/review-engine", () => {
     expect(result.findings.map((finding) => finding.id)).toEqual(
       expect.arrayContaining(["stale-context", "compatibility-reason", "cleanup-incomplete"])
     );
+  });
+
+  test("reviews cross-repo landscape drift and pressure", () => {
+    const relation = {
+      schemaVersion: "archcontext.cross-repo-relation/v1" as const,
+      id: "relation.web-calls-api",
+      kind: "calls" as const,
+      source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+      target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+      via: { kind: "interface" as const, id: "interface.billing-http" },
+      intent: "checkout to billing"
+    };
+    const result = reviewCrossRepoLandscape({
+      landscape: {
+        schemaVersion: "archcontext.landscape/v1",
+        id: "landscape.product",
+        name: "Product",
+        repositories: [{ repositoryId: "repo.web", numericRepositoryId: 1001, name: "web", role: "frontend" }],
+        relations: [relation.id],
+        syncPolicy: { mode: "git-worktree-only", archcontextSyncService: "forbidden" }
+      },
+      relations: [relation]
+    });
+    expect(result.result).toBe("fail_action_required");
+    expect(result.findings.map((finding) => finding.type)).toContain("landscape-invalid");
   });
 });

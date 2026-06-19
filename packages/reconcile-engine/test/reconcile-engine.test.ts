@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeArchContextModel } from "../../model-store-yaml/src/index";
-import { assertNoHumanEditableGeneratedSection, reconcileGeneratedProjection } from "../src/index";
+import { assertNoHumanEditableGeneratedSection, reconcileCrossRepoEvidence, reconcileGeneratedProjection } from "../src/index";
 
 describe("@archcontext/reconcile-engine", () => {
   test("rebuilds generated projection when no human section exists", () => {
@@ -27,5 +27,38 @@ describe("@archcontext/reconcile-engine", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("reconciles declared cross-repo relation with observed repository evidence", () => {
+    const relation = {
+      schemaVersion: "archcontext.cross-repo-relation/v1" as const,
+      id: "relation.web-calls-api",
+      kind: "calls" as const,
+      source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+      target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+      via: { kind: "interface" as const, id: "interface.billing-http" },
+      intent: "checkout to billing"
+    };
+    const result = reconcileCrossRepoEvidence({
+      declared: [relation],
+      observed: [
+        {
+          id: "evidence.web",
+          selector: { path: "src/web.ts" },
+          summary: "web caller",
+          confidence: "observed",
+          snapshot: { repositoryId: "repo.web", headSha: "abc", worktreeDigest: "sha256:web" }
+        },
+        {
+          id: "evidence.api",
+          selector: { path: "src/api.ts" },
+          summary: "api callee",
+          confidence: "observed",
+          snapshot: { repositoryId: "repo.api", headSha: "def", worktreeDigest: "sha256:api" }
+        }
+      ]
+    });
+    expect(result.verified).toEqual(["relation.web-calls-api"]);
+    expect(result.missingEvidence).toEqual([]);
   });
 });
