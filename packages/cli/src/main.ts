@@ -51,6 +51,36 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
     }
     case "landscape":
       return daemon.landscapeStatus();
+    case "explore": {
+      const subcommand = args[0] ?? "status";
+      if (subcommand === "projection") return daemon.explorerProjection(cwd, readFlag(args, "--query"));
+      if (subcommand === "contract") return daemon.explorerServiceContract(Number(readFlag(args, "--token-ttl-seconds") ?? 900));
+      if (subcommand === "status") return daemon.explorerStatus();
+      if (subcommand === "stop") return daemon.stopExplorer();
+      if (subcommand === "revoke") return daemon.revokeExplorerToken();
+      if (subcommand === "start") {
+        if (args.includes("--foreground")) {
+          return daemon.startExplorer(cwd, {
+            port: Number(readFlag(args, "--port") ?? 0),
+            tokenTtlSeconds: Number(readFlag(args, "--token-ttl-seconds") ?? 900)
+          });
+        }
+        return {
+          schemaVersion: "archcontext.envelope/v1",
+          ok: true,
+          requestId: "explorer.start",
+          data: {
+            command: "archctx explore start --foreground",
+            bindHost: "127.0.0.1",
+            defaultEnabled: false,
+            readOnly: true,
+            egress: "none",
+            tokenRequired: true
+          }
+        };
+      }
+      return errorEnvelope("explore", "AC_SCHEMA_INVALID", "explore requires start|stop|status|revoke|projection|contract");
+    }
     case "prepare": {
       const task = readFlag(args, "--task") ?? args.join(" ").trim();
       if (!task) return errorEnvelope("prepare", "AC_SCHEMA_INVALID", "prepare requires --task or task text");
@@ -196,8 +226,8 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "repo", "landscape", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
   }

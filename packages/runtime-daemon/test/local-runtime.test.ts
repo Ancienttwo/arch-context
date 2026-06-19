@@ -119,4 +119,48 @@ describe("local runtime foundation", () => {
       rmSync(third, { recursive: true, force: true });
     }
   });
+
+  test("Explorer loopback service is token-gated, read-only, and revocable", async () => {
+    const root = tempRepo();
+    try {
+      const daemon = await createStartedDaemon({ clock: () => "2026-06-20T00:00:00.000Z" });
+      await daemon.init(root, "Explorer App");
+      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 60 });
+      expect(started.ok).toBe(true);
+      const data = started.data as any;
+      expect(data.host).toBe("127.0.0.1");
+      expect(data.readOnly).toBe(true);
+
+      const projectionDenied = await fetch(`${data.url}projection`);
+      expect(projectionDenied.status).toBe(401);
+
+      const projectionWrite = await fetch(`${data.url}projection`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(projectionWrite.status).toBe(405);
+
+      const projection = await fetch(`${data.url}projection`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(projection.status).toBe(200);
+      const body = await projection.json() as any;
+      expect(body.data.schemaVersion).toBe("archcontext.explorer-projection/v1");
+      expect(body.data.capabilities).toMatchObject({ readOnly: true, mutationMode: "forbidden", egress: "none" });
+      expect(JSON.stringify(body.data)).not.toContain("sourceBody");
+
+      const html = await fetch(`${data.url}?token=${data.token}`);
+      expect(await html.text()).toContain("ArchContext Explorer");
+
+      await daemon.revokeExplorerToken();
+      const revoked = await fetch(`${data.url}projection`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(revoked.status).toBe(401);
+      await daemon.stopExplorer();
+      expect((daemon.explorerStatus().data as any).running).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });

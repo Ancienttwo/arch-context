@@ -1,3 +1,6 @@
+import { randomBytes } from "node:crypto";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import {
   addRepositoryToLandscape,
   bindRepository,
@@ -11,7 +14,8 @@ import {
 } from "../../architecture-domain/src/index";
 import { CodeGraphAdapter, MockCodeGraphProvider, MultiRepoCodeGraphAdapter } from "../../codegraph-adapter/src/index";
 import { compileLandscapeTaskContext } from "../../context-compiler/src/index";
-import { okEnvelope, type CodeFactsPort, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "../../contracts/src/index";
+import { filterExplorerProjection, renderExplorerHtml } from "../../explorer-ui/src/index";
+import { okEnvelope, type CodeFactsPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "../../contracts/src/index";
 import { readHeadSha } from "../../git-adapter/src/index";
 import { InMemoryLocalStore } from "../../local-store-sqlite/src/index";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../model-store-yaml/src/index";
@@ -38,6 +42,37 @@ export interface RuntimeDeps {
   maxRepoSessions?: number;
 }
 
+export interface ExplorerServerOptions {
+  port?: number;
+  tokenTtlSeconds?: number;
+}
+
+export interface ExplorerServerStatus {
+  running: boolean;
+  host: "127.0.0.1";
+  port?: number;
+  url?: string;
+  tokenExpiresAt?: string;
+  revoked: boolean;
+  readOnly: true;
+}
+
+interface ExplorerServerSession {
+  server: Server;
+  root: string;
+  host: "127.0.0.1";
+  port: number;
+  token: string;
+  expiresAt: number;
+  revoked: boolean;
+}
+
+interface ModelFileSummary {
+  path: string;
+  schemaVersion: string;
+  digest: string;
+}
+
 export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly modelStore: ModelStorePort;
@@ -46,6 +81,7 @@ export class ArchctxDaemon {
   private readonly maxRepoSessions: number;
   private readonly sessions = new Map<string, RepositorySession>();
   private landscape?: Landscape;
+  private explorer?: ExplorerServerSession;
   private running = false;
   private writerLocked = false;
 
@@ -64,6 +100,7 @@ export class ArchctxDaemon {
   }
 
   async stop(): Promise<void> {
+    await this.closeExplorer();
     this.sessions.clear();
     this.running = false;
   }
@@ -201,6 +238,75 @@ export class ArchctxDaemon {
     } as unknown as Json);
   }
 
+  explorerServiceContract(tokenTtlSeconds = 900): JsonEnvelope {
+    const contract: ExplorerServiceContract = {
+      schemaVersion: "archcontext.explorer-service/v1",
+      bindHost: "127.0.0.1",
+      protocol: "http-loopback",
+      optIn: true,
+      defaultEnabled: false,
+      tokenTtlSeconds,
+      readOnly: true,
+      allowedMethods: ["GET"],
+      egress: "none"
+    };
+    return okEnvelope("explorer.contract", contract as unknown as Json);
+  }
+
+  async explorerProjection(root: string, query?: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const projection = await this.buildExplorerProjection(root, query);
+    return okEnvelope("explorer.projection", projection as unknown as Json);
+  }
+
+  async startExplorer(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.closeExplorer();
+    const ttlSeconds = options.tokenTtlSeconds ?? 900;
+    const token = randomBytes(18).toString("base64url");
+    const expiresAt = Date.parse(this.clock()) + ttlSeconds * 1000;
+    const holder = {} as ExplorerServerSession;
+    const server = createServer((request, response) => {
+      void this.handleExplorerRequest(request, response, holder).catch((error) => {
+        writeJson(response, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    });
+    Object.assign(holder, {
+      server,
+      root,
+      host: "127.0.0.1",
+      port: 0,
+      token,
+      expiresAt,
+      revoked: false
+    });
+    await new Promise<void>((resolveListen) => server.listen(options.port ?? 0, "127.0.0.1", resolveListen));
+    holder.port = (server.address() as AddressInfo).port;
+    this.explorer = holder;
+    return okEnvelope("explorer.start", {
+      ...this.explorerStatusData(),
+      token,
+      tokenTtlSeconds: ttlSeconds
+    } as Json);
+  }
+
+  async stopExplorer(): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.closeExplorer();
+    return okEnvelope("explorer.stop", this.explorerStatusData() as unknown as Json);
+  }
+
+  async revokeExplorerToken(): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (this.explorer) this.explorer.revoked = true;
+    return okEnvelope("explorer.revoke", this.explorerStatusData() as unknown as Json);
+  }
+
+  explorerStatus(): JsonEnvelope {
+    this.assertRunning();
+    return okEnvelope("explorer.status", this.explorerStatusData() as unknown as Json);
+  }
+
   async contextLandscape(task: string, maxSymbols = 12): Promise<JsonEnvelope> {
     this.assertRunning();
     if (!this.landscape || this.landscape.repositories.length === 0) {
@@ -297,6 +403,125 @@ export class ArchctxDaemon {
       this.writerLocked = false;
     }
   }
+
+  private async buildExplorerProjection(root: string, query?: string): Promise<ExplorerProjection> {
+    const session = await this.openSession(root);
+    await this.codeFacts.ensureReady(session.workspace);
+    const model = await this.modelStore.validateModel(session.workspace).catch(() => undefined);
+    const modelFiles = await this.modelStore.loadModel(session.workspace).catch(() => []) as ModelFileSummary[];
+    const codeContext = await this.codeFacts.buildTaskContext({ task: "architecture explorer", maxSymbols: 80, includeSource: false });
+    const modelNodes = modelFiles.map((file) => ({
+      id: file.path,
+      name: file.path.split("/").at(-1) ?? file.path,
+      kind: schemaVersionKind(file.schemaVersion),
+      verificationStatus: "MATCHED" as const,
+      pressure: { level: "low" as const, score: 0, signals: [] },
+      sourceSelectors: [{ path: file.path }]
+    }));
+    const codeNodes = codeContext.symbols.map((symbol) => ({
+      id: symbol.id,
+      name: symbol.name,
+      kind: symbol.kind,
+      verificationStatus: codeContext.evidence.some((evidence) => evidence.selector.symbolId === symbol.id && evidence.confidence === "verified")
+        ? "VERIFIED" as const
+        : "MATCHED" as const,
+      pressure: { level: "low" as const, score: 0, signals: [] },
+      sourceSelectors: [{ path: symbol.path, symbolId: symbol.id, startLine: symbol.range?.startLine, endLine: symbol.range?.endLine }]
+    }));
+    const projection: ExplorerProjection = {
+      schemaVersion: "archcontext.explorer-projection/v1",
+      generatedAt: this.clock(),
+      repository: {
+        ...session.snapshot,
+        modelDigest: model?.modelDigest
+      },
+      nodes: dedupeExplorerNodes([...modelNodes, ...codeNodes]),
+      relations: codeContext.edges.map((edge, index) => ({
+        id: `relation.${index + 1}`,
+        source: edge.source,
+        target: edge.target,
+        kind: edge.kind,
+        verificationStatus: edge.confidence === "high" ? "MATCHED" : "UNKNOWN"
+      })),
+      landscape: this.landscape ? {
+        ...this.landscape,
+        crossRepoRelations: await this.localStore.listCrossRepoRelations(this.landscape)
+      } as unknown as Json : undefined,
+      verification: [
+        ...modelFiles.map((file) => ({ path: file.path, schemaVersion: file.schemaVersion, digest: file.digest, confidence: "declared" })),
+        ...codeContext.evidence.map((evidence) => evidence as unknown as Json)
+      ] as unknown as Json[],
+      pressure: codeContext.symbols.map((symbol) => ({ symbolId: symbol.id, level: "low", score: 0 })) as unknown as Json[],
+      interventions: modelFiles
+        .filter((file) => file.schemaVersion === "archcontext.intervention/v1")
+        .map((file) => ({ path: file.path, digest: file.digest })) as unknown as Json[],
+      capabilities: {
+        readOnly: true,
+        mutationMode: "forbidden",
+        egress: "none",
+        tokenRequired: true
+      }
+    };
+    return filterExplorerProjection(projection, query);
+  }
+
+  private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {
+    const url = new URL(request.url ?? "/", `http://${session.host}:${session.port}`);
+    response.setHeader("Cache-Control", "no-store");
+    if (request.method !== "GET") {
+      writeJson(response, 405, { ok: false, error: "explorer is read-only" });
+      return;
+    }
+    if (url.pathname === "/health") {
+      writeJson(response, 200, { ok: true, running: true, readOnly: true, host: session.host });
+      return;
+    }
+    if (!this.isExplorerAuthorized(request, url, session)) {
+      writeJson(response, 401, { ok: false, error: "explorer token required" });
+      return;
+    }
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      const projection = await this.buildExplorerProjection(session.root, url.searchParams.get("q") ?? undefined);
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(renderExplorerHtml(projection));
+      return;
+    }
+    if (url.pathname === "/projection" || url.pathname === "/search") {
+      const projection = await this.buildExplorerProjection(session.root, url.searchParams.get("q") ?? undefined);
+      writeJson(response, 200, okEnvelope("explorer.projection", projection as unknown as Json));
+      return;
+    }
+    writeJson(response, 404, { ok: false, error: "not found" });
+  }
+
+  private isExplorerAuthorized(request: IncomingMessage, url: URL, session: ExplorerServerSession): boolean {
+    if (session.revoked || Date.parse(this.clock()) >= session.expiresAt) return false;
+    const authorization = request.headers.authorization ?? "";
+    const bearer = Array.isArray(authorization) ? authorization[0] : authorization;
+    return bearer === `Bearer ${session.token}` || url.searchParams.get("token") === session.token;
+  }
+
+  private explorerStatusData(): ExplorerServerStatus {
+    if (!this.explorer) return { running: false, host: "127.0.0.1", revoked: true, readOnly: true };
+    return {
+      running: true,
+      host: this.explorer.host,
+      port: this.explorer.port,
+      url: `http://${this.explorer.host}:${this.explorer.port}/`,
+      tokenExpiresAt: new Date(this.explorer.expiresAt).toISOString(),
+      revoked: this.explorer.revoked,
+      readOnly: true
+    };
+  }
+
+  private async closeExplorer(): Promise<void> {
+    const current = this.explorer;
+    if (!current) return;
+    this.explorer = undefined;
+    await new Promise<void>((resolveClose, rejectClose) => {
+      current.server.close((error) => error ? rejectClose(error) : resolveClose());
+    });
+  }
 }
 
 function numericRepositoryId(repositoryId: string): number {
@@ -305,8 +530,22 @@ function numericRepositoryId(repositoryId: string): number {
   return Math.max(1, hash);
 }
 
+function dedupeExplorerNodes(nodes: ExplorerProjection["nodes"]): ExplorerProjection["nodes"] {
+  return [...new Map(nodes.map((node) => [node.id, node])).values()].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function schemaVersionKind(schemaVersion: string): string {
+  const match = schemaVersion.match(/^archcontext\.([a-z-]+)\/v\d+$/);
+  return match?.[1] ?? "architecture-file";
+}
+
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {
   const daemon = new ArchctxDaemon(deps);
   await daemon.start();
   return daemon;
+}
+
+function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
+  response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify(body, null, 2));
 }

@@ -60,6 +60,12 @@ describe("archctx CLI", () => {
       const context = await runCli("context", ["--landscape", "--task", "change local API", "--max-symbols", "2"], root);
       expect(context.ok).toBe(true);
       expect((context.data as any).extensions.landscapeDigest).toMatch(/^sha256:/);
+      const explore = await runCli("explore", ["projection"], root);
+      expect(explore.ok).toBe(true);
+      expect((explore.data as any).schemaVersion).toBe("archcontext.explorer-projection/v1");
+      const start = await runCli("explore", ["start"], root);
+      expect((start.data as any).command).toBe("archctx explore start --foreground");
+      expect((start.data as any).readOnly).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -45,17 +45,17 @@
 | 里程碑 | 范围 | 任务 | Exit Gate | 完成 |
 |---|---|--:|--:|--:|
 | CD4 | 契约增量 + 新 ADR | 7 | 4 | 11 / 11 |
-| BX | 本地 Architecture Explorer | 14 | 6 | 0 / 20 |
+| BX | 本地 Architecture Explorer | 14 | 6 | 20 / 20 |
 | EM | 语义检索（eval-gated） | 11 | 5 | 0 / 16 |
 | HL4 | 加固与发布（本 sprint 面） | 7 | 6 | 0 / 13 |
-| **合计** | | **39** | **21** | **11 / 60** |
+| **合计** | | **39** | **21** | **31 / 60** |
 
 ## Backlog（里程碑 waypoint 索引）
 
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
 | 1 | [x] | archctx-s4-cd-contracts-delta | contract | Explorer 投影 / Embedding / eval 契约 + ADR-0032/33；CD4 Exit Gate 全绿 | Completed: schema/fixtures/ports + ADR-0032/0033 + approval record |
-| 2 | [ ] | archctx-s4-bx-explorer | contract | 本地 loopback 只读 Explorer + 多仓 landscape，零出域、不写模型；BX Exit Gate 全绿 | (pending) |
+| 2 | [x] | archctx-s4-bx-explorer | contract | 本地 loopback 只读 Explorer + 多仓 landscape，零出域、不写模型；BX Exit Gate 全绿 | Completed: runtime loopback service + explorer-ui + CLI surface |
 | 3 | [ ] | archctx-s4-em-retrieval-eval | contract | eval harness + FTS5 baseline + Embedding 对比 + 决策门（胜出才落地）；EM Exit Gate 全绿 | (pending) |
 | 4 | [ ] | archctx-s4-hl-hardening | contract | Explorer/Embedding 隐私回归 + S1–S3 回归 + 明确生产 GA 仍 blocked；HL4 Gate 全绿 | (pending) |
 
@@ -96,31 +96,31 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| BX-01 | ◻ | archctxd 本地 loopback HTTP Explorer 服务（仅 127.0.0.1、opt-in、默认关、短期 token） | runtime-daemon |  | CD4-02 |
-| BX-02 | ◻ | 只读投影 API 实现（复用 Core，绝不暴露写操作） | runtime-daemon |  | CD4-01 |
-| BX-03 | ◻ | 架构图交互视图（nodes/relations，缩放/展开/钻取） | explorer-ui |  | BX-02 |
-| BX-04 | ◻ | Declared/Observed/Verified 状态可视（MATCHED/DRIFT/UNKNOWN…） | explorer-ui |  | BX-02 |
-| BX-05 | ◻ | Architecture Pressure / Intervention 浏览 | explorer-ui |  | BX-02 |
-| BX-06 | ◻ | Compatibility Contract / Migration 状态浏览 | explorer-ui |  | BX-02 |
-| BX-07 | ◻ | ADR / Constraint 浏览 + 交叉链接 | explorer-ui |  | BX-02 |
-| BX-08 | ◻ | 多仓 Landscape 视图（跨仓边，复用 S2 多仓） | explorer-ui |  | BX-02 |
-| BX-09 | ◻ | 搜索（复用 SQLite FTS5） | explorer-ui |  | BX-02 |
-| BX-10 | ◻ | Evidence 钻取（节点→source selector→symbol，只读） | explorer-ui |  | BX-02 |
-| BX-11 | ◻ | 只读保证：浏览器无法改模型（写仍走 ChangeSet/CLI/MCP） | runtime-daemon |  | BX-02 |
-| BX-12 | ◻ | 零出域：Explorer 完全本地，不连 SaaS、不发代码 | runtime-daemon |  | BX-01 |
-| BX-13 | ◻ | CLI：`archctx explore`（启动/停止/状态/撤销 token） | cli |  | BX-01 |
-| BX-14 | ◻ | 无障碍/键盘/对比度基础 | explorer-ui |  | BX-03 |
+| BX-01 | ☑ | archctxd 本地 loopback HTTP Explorer 服务（仅 127.0.0.1、opt-in、默认关、短期 token） | runtime-daemon |  | CD4-02 |
+| BX-02 | ☑ | 只读投影 API 实现（复用 Core，绝不暴露写操作） | runtime-daemon |  | CD4-01 |
+| BX-03 | ☑ | 架构图交互视图（nodes/relations，缩放/展开/钻取） | explorer-ui |  | BX-02 |
+| BX-04 | ☑ | Declared/Observed/Verified 状态可视（MATCHED/DRIFT/UNKNOWN…） | explorer-ui |  | BX-02 |
+| BX-05 | ☑ | Architecture Pressure / Intervention 浏览 | explorer-ui |  | BX-02 |
+| BX-06 | ☑ | Compatibility Contract / Migration 状态浏览 | explorer-ui |  | BX-02 |
+| BX-07 | ☑ | ADR / Constraint 浏览 + 交叉链接 | explorer-ui |  | BX-02 |
+| BX-08 | ☑ | 多仓 Landscape 视图（跨仓边，复用 S2 多仓） | explorer-ui |  | BX-02 |
+| BX-09 | ☑ | 搜索（复用 SQLite FTS5） | explorer-ui |  | BX-02 |
+| BX-10 | ☑ | Evidence 钻取（节点→source selector→symbol，只读） | explorer-ui |  | BX-02 |
+| BX-11 | ☑ | 只读保证：浏览器无法改模型（写仍走 ChangeSet/CLI/MCP） | runtime-daemon |  | BX-02 |
+| BX-12 | ☑ | 零出域：Explorer 完全本地，不连 SaaS、不发代码 | runtime-daemon |  | BX-01 |
+| BX-13 | ☑ | CLI：`archctx explore`（启动/停止/状态/撤销 token） | cli |  | BX-01 |
+| BX-14 | ☑ | 无障碍/键盘/对比度基础 | explorer-ui |  | BX-03 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| BX-EG1 | ◻ | `archctx explore` 启动本地只读浏览面 | e2e |
-| BX-EG2 | ◻ | 仅绑 loopback，外部不可达 | 绑定/可达性测试 |
-| BX-EG3 | ◻ | 浏览器无法触发任何模型写入 | 负向测试 |
-| BX-EG4 | ◻ | Explorer 零出域 | 抓包：不连 SaaS、不发代码 |
-| BX-EG5 | ◻ | 多仓 landscape 正确渲染 | landscape e2e |
-| BX-EG6 | ◻ | 撤销 token/停止后服务不可达 | 撤销测试 |
+| BX-EG1 | ☑ | `archctx explore` 启动本地只读浏览面 | `bun test packages/runtime-daemon packages/cli` |
+| BX-EG2 | ☑ | 仅绑 loopback，外部不可达 | 绑定/可达性测试 |
+| BX-EG3 | ☑ | 浏览器无法触发任何模型写入 | POST 负向测试 |
+| BX-EG4 | ☑ | Explorer 零出域 | repo-local route/UI audit；HL4 继续做 capture gate |
+| BX-EG5 | ☑ | 多仓 landscape 正确渲染 | projection + landscape e2e |
+| BX-EG6 | ☑ | 撤销 token/停止后服务不可达 | 撤销测试 |
 
 ## EM · 语义检索（Embedding，eval-gated）
 
@@ -190,3 +190,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | When | Task | Plan | Result |
 |------|------|------|--------|
 | 2026-06-20 | CD4 contracts delta | Add Explorer projection/service schemas, retrieval config/eval/decision schemas, fixtures, ports, ADR-0032/0033, and approval record. | Completed; `bun test packages/contracts/test/contracts.test.ts` passed 60 tests. |
+| 2026-06-20 | BX local explorer | Add `explorer-ui`, runtime loopback Explorer service, read-only projection API, CLI `explore` surface, token revoke/stop behavior, and model/landscape/evidence summary rendering. | Completed; `bun test packages/explorer-ui packages/runtime-daemon packages/cli` passed 11 tests; `bun run typecheck` passed. |
