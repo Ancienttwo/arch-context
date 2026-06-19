@@ -3,7 +3,7 @@
 > **Status**: MVP Scaffold Accepted; Production Launch Gate Partial
 > **Slug**: archctx
 > **Created**: 2026-06-19
-> **Updated**: 2026-06-19
+> **Updated**: 2026-06-20
 > **Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Source Spec**: `docs/spec.md`
 > **Goal Mode**: incremental
@@ -74,14 +74,14 @@
 |---|---|--:|--:|--:|
 | M0 | 契约与架构冻结 | 18 | 5 | 23 / 23 |
 | M1 | 本地 Runtime 基础 | 28 | 5 | 33 / 33 |
-| M2 | 主动架构控制循环 | 33 | 6 | 38 / 39 |
+| M2 | 主动架构控制循环 | 33 | 6 | 39 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 27 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 33 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 38 / 38 |
-| M6 | 加固与发布 | 22 | 9 | 25 / 31 |
-| **合计** | | **182** | **42** | **217 / 224** |
+| M6 | 加固与发布 | 22 | 9 | 26 / 31 |
+| **合计** | | **182** | **42** | **219 / 224** |
 
-**完成口径**：MVP scaffold 与确定性内核已验收；`bun run verify` 验证的是本地测试、隐私路由词法/结构审计和 sprint 文档结构，不等同于生产 Launch Gate 全绿。CI 矩阵已配置但仍需 hosted run readback；需要真实矩阵结果、benchmark、安全扫描/外审、代表性 eval 或计时演练的条目保留为 ◐。
+**完成口径**：MVP scaffold 与确定性内核已验收；`bun run verify` 验证的是本地测试、隐私路由词法/结构审计、sprint 文档结构与代表性 §25.3 eval（`bun evals/run.ts`），不等同于生产 Launch Gate 全绿。CI 矩阵已配置但仍需 hosted run readback；需要真实矩阵结果、benchmark、安全扫描/外审或计时演练的条目保留为 ◐。
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -95,7 +95,7 @@
 | 4 | [x] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | `docs/verification/m3-cli-mcp-agent-gate.md` |
 | 5 | [x] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | `docs/verification/m4-chatgpt-app-gate.md` |
 | 6 | [x] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | `docs/verification/m5-saas-attestation-gate.md` |
-| 7 | [ ] | archctx-m6-hardening-launch | contract | MVP 确定性加固证据完成；生产 Launch Gate 待补真实矩阵/benchmark/安全/eval/计时验收 | `docs/verification/m6-hardening-launch-gate.md` |
+| 7 | [ ] | archctx-m6-hardening-launch | contract | MVP 确定性加固证据完成；生产 Launch Gate 待补真实矩阵/benchmark/安全/计时验收 | `docs/verification/m6-hardening-launch-gate.md` |
 
 ---
 
@@ -234,7 +234,7 @@
 | M2-EG2 | ☑ | 高压力低信心进入 Proof Required | Eval `high-pressure-low-confidence` → Posture=ProofRequired |
 | M2-EG3 | ☑ | 高/高 不只输出最小 Diff | Eval 断言无"仅最小补丁"建议 |
 | M2-EG4 | ☑ | Migration 不被误标 Target | Eval `target-vs-migration` 通过 |
-| M2-EG5 | ◐ | 无依据兼容检测 Recall ≥ 85% | 小型 deterministic proxy fixture 达标；代表性 recall eval 待补 |
+| M2-EG5 | ☑ | 无依据兼容检测 Recall ≥ 85% | 代表性 eval 达标 88.2% ≥ 85%（`bun evals/run.ts`；报告 `docs/verification/m6-representative-eval-report.md`）|
 | M2-EG6 | ☑ | ChangeSet 可完整回滚 | fault-injection：apply 中断 100% 回滚 |
 
 ## M3 · CLI、MCP 与 Coding Agent 集成
@@ -414,7 +414,7 @@
 | M6-EG4 | ☑ | CodeGraph 版本兼容测试完成 | `@colbymchenry/codegraph` 版本锁定 + adapter capability tests |
 | M6-EG5 | ☑ | ChatGPT Data Sharing 提示清晰 | `bun test apps/chatgpt-ui/test/chatgpt-ui.test.ts` |
 | M6-EG6 | ◐ | Critical/High 安全 Finding 为零 | MVP deterministic surface 无 Critical/High；生产安全扫描/外审待补 |
-| M6-EG7 | ◐ | 关键 Eval 达 PRD §25.3 目标 | 小型 proxy eval 覆盖；代表性 eval 报告待补 |
+| M6-EG7 | ☑ | 关键 Eval 达 PRD §25.3 目标 | `bun evals/run.ts` 四项 §25.3 统计目标全绿 + target/migration 不变量 20/20（报告 `docs/verification/m6-representative-eval-report.md`）|
 | M6-EG8 | ☑ | 崩溃恢复与数据迁移有可重复演练 | `docs/runbooks/crash-recovery.md` + `docs/runbooks/schema-upgrade-guide.md` |
 | M6-EG9 | ◐ | 10 分钟内完成安装→初始化→首个任务 | walkthrough 文档存在；计时实跑待补 |
 

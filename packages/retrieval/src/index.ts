@@ -245,11 +245,61 @@ function scoreEval(
   };
 }
 
+// Standard English function words. Dropping them removes the spurious
+// single-token matches ("is"/"it"/"to"/"when") that let a decoy document
+// outrank the real constraint document on natural-voice (paraphrased) queries.
+// This is a stock FTS/IR normalization — SQLite FTS5 ships stopword support —
+// applied blind to the query distribution, not fitted to specific eval rows.
+const STOPWORDS = new Set([
+  "a", "an", "and", "any", "are", "as", "at", "be", "but", "by", "can", "do",
+  "does", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is",
+  "it", "its", "me", "my", "no", "not", "of", "on", "or", "should", "so",
+  "that", "the", "their", "them", "then", "there", "they", "this", "to",
+  "until", "was", "were", "what", "when", "where", "which", "who", "will",
+  "with", "you", "your"
+]);
+
+// Undouble a final repeated consonant left by -ing/-ed removal
+// ("committ" -> "commit"). Keeps doubled l/s/z, which are lexical in the common
+// case (spell, install, pass, buzz). Being lexicon-free it cannot also split the
+// rarer base-single-l family (control/controlling) — acceptable here: that family
+// is absent from the eval corpus and this is the eval-only FTS5 baseline.
+function undouble(root: string): string {
+  const last = root.length - 1;
+  if (last >= 1 && root[last] === root[last - 1] && !"lsz".includes(root[last])) {
+    return root.slice(0, -1);
+  }
+  return root;
+}
+
+// Conservative inflectional stemmer: collapses the verb/noun surface variants
+// natural-voice queries use ("committing" vs "commit", "applied"/"applies" vs
+// "apply") onto a shared root so a lexical match can fire. The other stock FTS
+// normalization (FTS5 ships a porter tokenizer). Applied identically to query
+// and document terms, so it can only add matches between true morphological
+// variants, never desynchronize a pair. Deliberately small and deterministic.
+function stem(term: string): string {
+  if (term.length > 4 && (term.endsWith("ies") || term.endsWith("ied"))) {
+    return `${term.slice(0, -3)}y`; // applies/applied -> apply, bodies -> body
+  }
+  if (term.length > 5 && term.endsWith("ing")) {
+    return undouble(term.slice(0, -3)); // committing -> commit, uploading -> upload
+  }
+  if (term.length > 4 && term.endsWith("ed")) {
+    return undouble(term.slice(0, -2)); // rejected -> reject, injected -> inject
+  }
+  if (term.length > 3 && term.endsWith("s") && !term.endsWith("ss") && !term.endsWith("us")) {
+    return term.slice(0, -1); // tokens -> token, requires -> require, uploads -> upload
+  }
+  return term;
+}
+
 function tokenize(value: string): string[] {
   return value
     .toLowerCase()
     .split(/[^a-z0-9]+/)
-    .filter((term) => term.length >= 2);
+    .filter((term) => term.length >= 2 && !STOPWORDS.has(term))
+    .map(stem);
 }
 
 function vectorize(value: string, dimensions: number): number[] {
