@@ -260,6 +260,24 @@ export function landscapeYaml(landscape: Landscape): string {
   return stableYaml(landscape as unknown as Json);
 }
 
+export function parseLandscapeFile(body: string, path = LANDSCAPE_FILE): Landscape {
+  const value = parseJsonOrStableYaml(body, path);
+  assertObject(value, path);
+  if (value.schemaVersion !== "archcontext.landscape/v1") {
+    throw new Error(`${path}: expected archcontext.landscape/v1`);
+  }
+  return value as unknown as Landscape;
+}
+
+export function parseCrossRepoRelationFile(body: string, path: string): CrossRepoRelation {
+  const value = parseJsonOrStableYaml(body, path);
+  assertObject(value, path);
+  if (value.schemaVersion !== "archcontext.cross-repo-relation/v1") {
+    throw new Error(`${path}: expected archcontext.cross-repo-relation/v1`);
+  }
+  return value as unknown as CrossRepoRelation;
+}
+
 export function summarizeLandscapeForSaas(landscape: Landscape): { repositoryIds: number[] } {
   return {
     repositoryIds: landscape.repositories.map((repo) => repo.numericRepositoryId).sort((a, b) => a - b)
@@ -344,4 +362,92 @@ function dedupeRepositories(repositories: RepositoryRegistration[]): RepositoryR
 
 function dedupeStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function parseJsonOrStableYaml(body: string, path: string): Json {
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error(`${path}: empty model file`);
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return JSON.parse(trimmed) as Json;
+  return new StableYamlParser(body, path).parse();
+}
+
+function assertObject(value: Json, path: string): asserts value is { [key: string]: Json } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${path}: expected object`);
+  }
+}
+
+class StableYamlParser {
+  private readonly lines: { indent: number; text: string }[];
+  private index = 0;
+
+  constructor(body: string, private readonly path: string) {
+    this.lines = body
+      .split(/\r?\n/)
+      .map((line) => ({ indent: line.match(/^ */)?.[0].length ?? 0, text: line.trimEnd() }))
+      .filter((line) => line.text.trim().length > 0);
+  }
+
+  parse(): Json {
+    const value = this.parseBlock(this.lines[0]?.indent ?? 0);
+    if (this.index !== this.lines.length) throw new Error(`${this.path}: unexpected trailing YAML`);
+    return value;
+  }
+
+  private parseBlock(indent: number): Json {
+    const current = this.lines[this.index];
+    if (!current || current.indent < indent) return {};
+    if (current.indent !== indent) throw new Error(`${this.path}: invalid indentation`);
+    return current.text.trimStart().startsWith("- ") ? this.parseArray(indent) : this.parseObject(indent);
+  }
+
+  private parseArray(indent: number): Json[] {
+    const values: Json[] = [];
+    while (this.index < this.lines.length) {
+      const line = this.lines[this.index];
+      if (!line || line.indent !== indent || !line.text.trimStart().startsWith("- ")) break;
+      const item = line.text.trimStart().slice(2).trim();
+      this.index += 1;
+      if (!item) {
+        values.push(this.parseBlock(indent + 2));
+        continue;
+      }
+      if (this.isKeyValue(item)) {
+        values.push(this.parseObject(indent + 2, item));
+        continue;
+      }
+      values.push(parseScalar(item));
+    }
+    return values;
+  }
+
+  private parseObject(indent: number, firstEntry?: string): Json {
+    const object: Record<string, Json> = {};
+    if (firstEntry) this.assignEntry(object, firstEntry, indent);
+    while (this.index < this.lines.length) {
+      const line = this.lines[this.index];
+      if (!line || line.indent !== indent || line.text.trimStart().startsWith("- ")) break;
+      this.index += 1;
+      this.assignEntry(object, line.text.trimStart(), indent);
+    }
+    return object;
+  }
+
+  private assignEntry(object: Record<string, Json>, entry: string, indent: number): void {
+    const separator = entry.indexOf(":");
+    if (separator <= 0) throw new Error(`${this.path}: expected key/value entry`);
+    const key = entry.slice(0, separator).trim();
+    const rest = entry.slice(separator + 1).trim();
+    object[key] = rest ? parseScalar(rest) : this.parseBlock(indent + 2);
+  }
+
+  private isKeyValue(value: string): boolean {
+    return /^[A-Za-z0-9_-]+:/.test(value);
+  }
+}
+
+function parseScalar(value: string): Json {
+  if (value === "[]") return [];
+  if (value === "{}") return {};
+  return JSON.parse(value) as Json;
 }

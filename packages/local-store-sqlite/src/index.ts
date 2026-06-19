@@ -1,4 +1,15 @@
-import type { CrossRepoRelation, Landscape } from "../../architecture-domain/src/index";
+import { readdir, readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import {
+  LANDSCAPE_FILE,
+  landscapeDigest,
+  parseCrossRepoRelationFile,
+  parseLandscapeFile,
+  validateLandscape,
+  type CrossRepoRelation,
+  type Landscape,
+  type RepositoryRegistration
+} from "../../architecture-domain/src/index";
 import type { LocalStorePort, RepositorySnapshot } from "../../contracts/src/index";
 
 export const SQLITE_PRAGMAS = [
@@ -99,6 +110,20 @@ export function assertNoSourceStorageSchema(sql: string[]): void {
   }
 }
 
+export interface LandscapeRebuildInput {
+  root: string;
+  landscapePath?: string;
+  relationsDir?: string;
+  indexRepository?: (repository: RepositoryRegistration) => Promise<void>;
+}
+
+export interface LandscapeRebuildResult {
+  landscape: Landscape;
+  relations: CrossRepoRelation[];
+  indexedRepositories: string[];
+  digest: string;
+}
+
 export class InMemoryLocalStore implements LocalStorePort {
   readonly migrations = new Set<string>();
   readonly snapshots = new Map<string, { snapshot: RepositorySnapshot; state: "pending" | "committed" }>();
@@ -169,4 +194,49 @@ export class InMemoryLocalStore implements LocalStorePort {
     this.landscapes.clear();
     this.crossRepoEdges.clear();
   }
+
+  async rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult> {
+    const landscapePath = input.landscapePath ?? LANDSCAPE_FILE;
+    const relationsDir = input.relationsDir ?? ".archcontext/relations";
+    const landscape = parseLandscapeFile(await readFile(resolve(input.root, landscapePath), "utf8"), landscapePath);
+    const relations = await readRelationFiles(input.root, relationsDir);
+    const scopedRelations = relations.filter((relation) => landscape.relations.includes(relation.id));
+    const relationIds = new Set(relations.map((relation) => relation.id));
+    const missingRelations = landscape.relations.filter((relationId) => !relationIds.has(relationId));
+    if (missingRelations.length > 0) throw new Error(`Invalid landscape rebuild source: missing relations ${missingRelations.join(", ")}`);
+    const validation = validateLandscape(landscape, scopedRelations);
+    if (!validation.valid) throw new Error(`Invalid landscape rebuild source: ${validation.errors.join("; ")}`);
+
+    const indexedRepositories: string[] = [];
+    for (const repository of landscape.repositories) {
+      await input.indexRepository?.(repository);
+      indexedRepositories.push(repository.repositoryId);
+    }
+
+    await this.saveLandscape(landscape);
+    for (const relation of scopedRelations) await this.saveCrossRepoRelation(relation);
+    return {
+      landscape,
+      relations: scopedRelations,
+      indexedRepositories,
+      digest: landscapeDigest(landscape, scopedRelations)
+    };
+  }
+}
+
+async function readRelationFiles(root: string, relationsDir: string): Promise<CrossRepoRelation[]> {
+  let entries;
+  try {
+    entries = await readdir(resolve(root, relationsDir), { withFileTypes: true });
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return [];
+    throw error;
+  }
+  const relations: CrossRepoRelation[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !/\.(json|ya?ml)$/.test(entry.name)) continue;
+    const relativePath = join(relationsDir, entry.name).split("\\").join("/");
+    relations.push(parseCrossRepoRelationFile(await readFile(resolve(root, relativePath), "utf8"), relativePath));
+  }
+  return relations.sort((a, b) => a.id.localeCompare(b.id));
 }

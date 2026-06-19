@@ -12,6 +12,7 @@ import {
   secretScan,
   secureDefaults,
   sprint2LaunchGateReport,
+  sprint2RepresentativeEval,
   uninstallMarker
 } from "../src/index";
 
@@ -62,6 +63,7 @@ describe("@archcontext/hardening", () => {
       organizationAttestation: "runner identity + installation + trustLevel tests",
       annualBilling: "$99 annual interval + per-person entitlement tests",
       securityFindings: { critical: 0, high: 0, productionScan: "pending" },
+      representativeEval: "docs/verification/s2-representative-eval.md",
       packetCapture: {
         verifier: "scripts/privacy-packet-capture-audit.mjs",
         manifest: "docs/security/captures/manifest.json",
@@ -69,6 +71,21 @@ describe("@archcontext/hardening", () => {
         production: "pending-production-environment"
       }
     });
+  });
+
+  test("runs Sprint 2 representative eval across impact, trust, and entitlement", () => {
+    const report = sprint2RepresentativeEval();
+    expect(report).toMatchObject({
+      status: "passed",
+      threshold: 1,
+      score: 1,
+      passed: 8,
+      total: 8
+    });
+    expect(report.cases.map((item) => item.category)).toEqual(
+      expect.arrayContaining(["cross-repo-impact", "trust-level", "annual-entitlement"])
+    );
+    expect(report.cases.every((item) => item.passed)).toBe(true);
   });
 
   test("audits packet captures for code-bearing payloads and unredacted secrets", () => {

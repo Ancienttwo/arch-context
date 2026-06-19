@@ -14,6 +14,8 @@ import {
   landscapeDigest,
   landscapeYaml,
   listRepoFiles,
+  parseCrossRepoRelationFile,
+  parseLandscapeFile,
   parseRepoScopedArchitectureId,
   repoScopedArchitectureId,
   summarizeLandscapeForSaas,
@@ -100,6 +102,8 @@ describe("@archcontext/architecture-domain", () => {
     expect(summarizeLandscapeForSaas(landscape)).toEqual({ repositoryIds: [1001, 1002] });
     expect(landscapeDigest(landscape, [relation])).toMatch(/^sha256:/);
     expect(landscapeYaml(landscape)).toContain("archcontextSyncService: \"forbidden\"");
+    expect(parseLandscapeFile(landscapeYaml(landscape))).toEqual(landscape);
+    expect(parseCrossRepoRelationFile(JSON.stringify(relation), ".archcontext/relations/relation.web-calls-api.json")).toEqual(relation);
 
     const expanded = addCrossRepoRelation(addRepositoryToLandscape(landscape, { repositoryId: "repo.worker", numericRepositoryId: 1003, name: "archcontext-worker", role: "worker" }), {
       ...relation,

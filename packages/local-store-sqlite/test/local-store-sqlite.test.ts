@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { LANDSCAPE_FILE, landscapeYaml } from "../../architecture-domain/src/index";
 import {
   InMemoryLocalStore,
   LOCAL_SQLITE_MIGRATIONS,
@@ -50,37 +54,95 @@ describe("@archcontext/local-store-sqlite", () => {
     expect(store.recoverPendingSnapshots()).toBe(1);
   });
 
-  test("stores derived landscape metadata and can rebuild from repo files", async () => {
+  test("rebuilds derived landscape metadata from Git-tracked repo files and CodeGraph indexing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-landscape-root-"));
+    const webRoot = mkdtempSync(join(tmpdir(), "archctx-web-"));
+    const apiRoot = mkdtempSync(join(tmpdir(), "archctx-api-"));
     const store = new InMemoryLocalStore();
-    await store.migrate();
-    const landscape = {
-      schemaVersion: "archcontext.landscape/v1" as const,
-      id: "landscape.product",
-      name: "Product",
-      repositories: [
-        { repositoryId: "repo.web", numericRepositoryId: 1001, name: "web", role: "frontend" },
-        { repositoryId: "repo.api", numericRepositoryId: 1002, name: "api", role: "runtime" }
-      ],
-      relations: ["relation.web-calls-api"],
-      syncPolicy: { mode: "git-worktree-only" as const, archcontextSyncService: "forbidden" as const }
-    };
-    const relation = {
-      schemaVersion: "archcontext.cross-repo-relation/v1" as const,
-      id: "relation.web-calls-api",
-      kind: "calls" as const,
-      source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
-      target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
-      via: { kind: "interface" as const, id: "interface.billing-http" },
-      intent: "checkout to billing"
-    };
+    try {
+      await store.migrate();
+      const landscape = {
+        schemaVersion: "archcontext.landscape/v1" as const,
+        id: "landscape.product",
+        name: "Product",
+        repositories: [
+          { repositoryId: "repo.web", numericRepositoryId: 1001, name: "web", role: "frontend", root: webRoot },
+          { repositoryId: "repo.api", numericRepositoryId: 1002, name: "api", role: "runtime", root: apiRoot }
+        ],
+        relations: ["relation.web-calls-api"],
+        syncPolicy: { mode: "git-worktree-only" as const, archcontextSyncService: "forbidden" as const }
+      };
+      const relation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1" as const,
+        id: "relation.web-calls-api",
+        kind: "calls" as const,
+        source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+        target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+        via: { kind: "interface" as const, id: "interface.billing-http" },
+        intent: "checkout to billing"
+      };
+      writeRepoFile(root, LANDSCAPE_FILE, landscapeYaml(landscape));
+      writeRepoFile(root, ".archcontext/relations/relation.web-calls-api.json", JSON.stringify(relation, null, 2));
 
-    await store.saveLandscape(landscape);
-    await store.saveCrossRepoRelation(relation);
-    expect(await store.readLandscape("landscape.product")).toEqual(landscape);
-    expect(await store.listCrossRepoRelations(landscape)).toEqual([relation]);
+      await store.saveLandscape(landscape);
+      await store.saveCrossRepoRelation(relation);
+      store.clearDerivedLandscapeState();
+      expect(await store.readLandscape("landscape.product")).toBeUndefined();
+      expect(await store.listCrossRepoRelations()).toEqual([]);
 
-    store.clearDerivedLandscapeState();
-    expect(await store.readLandscape("landscape.product")).toBeUndefined();
-    expect(await store.listCrossRepoRelations()).toEqual([]);
+      const indexedRepositories: string[] = [];
+      const rebuilt = await store.rebuildDerivedLandscapeState({
+        root,
+        indexRepository: async (repository) => {
+          expect(repository.root).toBe(repository.repositoryId === "repo.web" ? webRoot : apiRoot);
+          indexedRepositories.push(repository.repositoryId);
+        }
+      });
+
+      expect(rebuilt.landscape).toEqual(landscape);
+      expect(rebuilt.relations).toEqual([relation]);
+      expect(rebuilt.indexedRepositories).toEqual(["repo.web", "repo.api"]);
+      expect(rebuilt.digest).toMatch(/^sha256:/);
+      expect(indexedRepositories).toEqual(["repo.web", "repo.api"]);
+      expect(await store.readLandscape("landscape.product")).toEqual(landscape);
+      expect(await store.listCrossRepoRelations(landscape)).toEqual([relation]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(webRoot, { recursive: true, force: true });
+      rmSync(apiRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("rebuild fails when a Git-tracked landscape references missing relation files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-landscape-root-"));
+    const store = new InMemoryLocalStore();
+    try {
+      await store.migrate();
+      writeRepoFile(
+        root,
+        LANDSCAPE_FILE,
+        landscapeYaml({
+          schemaVersion: "archcontext.landscape/v1" as const,
+          id: "landscape.product",
+          name: "Product",
+          repositories: [
+            { repositoryId: "repo.web", numericRepositoryId: 1001, name: "web", role: "frontend" },
+            { repositoryId: "repo.api", numericRepositoryId: 1002, name: "api", role: "runtime" }
+          ],
+          relations: ["relation.web-calls-api"],
+          syncPolicy: { mode: "git-worktree-only" as const, archcontextSyncService: "forbidden" as const }
+        })
+      );
+
+      await expect(store.rebuildDerivedLandscapeState({ root })).rejects.toThrow("missing relations relation.web-calls-api");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
+
+function writeRepoFile(root: string, path: string, body: string): void {
+  const absolute = join(root, path);
+  mkdirSync(dirname(absolute), { recursive: true });
+  writeFileSync(absolute, body.endsWith("\n") ? body : `${body}\n`, "utf8");
+}

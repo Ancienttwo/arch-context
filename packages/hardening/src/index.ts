@@ -1,7 +1,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { routeDigest } from "../../../apps/control-plane/src/index";
+import { crossRepoImpact, type CrossRepoRelation } from "../../architecture-domain/src/index";
+import { attestationLabel, deviceIntegritySignals } from "../../attestation/src/index";
 import { REQUIRED_CODEGRAPH_VERSION } from "../../codegraph-adapter/src/index";
+import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "../../control-plane-client/src/index";
 
 export const NODE_SUPPORT_MATRIX = [
   { runtime: "node", version: "24.x", status: "target-lts" },
@@ -93,6 +96,7 @@ export function sprint2LaunchGateReport() {
     singleRepoRegression: "bun test",
     securityFindings: { scope: "deterministic-sprint-2-surface", critical: 0, high: 0, productionScan: "pending" },
     evals: ["cross-repo-impact", "trust-level", "annual-entitlement"],
+    representativeEval: "docs/verification/s2-representative-eval.md",
     packetCapture: {
       verifier: "scripts/privacy-packet-capture-audit.mjs",
       fixture: "docs/security/captures/metadata-only.har.json",
@@ -103,11 +107,113 @@ export function sprint2LaunchGateReport() {
   };
 }
 
+export interface Sprint2EvalCase {
+  id: string;
+  category: "cross-repo-impact" | "trust-level" | "annual-entitlement";
+  expected: unknown;
+  actual: unknown;
+  passed: boolean;
+}
+
+export interface Sprint2RepresentativeEval {
+  status: "passed" | "failed";
+  threshold: number;
+  score: number;
+  passed: number;
+  total: number;
+  cases: Sprint2EvalCase[];
+}
+
+export function sprint2RepresentativeEval(): Sprint2RepresentativeEval {
+  const cases = [
+    ...crossRepoImpactEvalCases(),
+    ...trustLevelEvalCases(),
+    ...annualEntitlementEvalCases()
+  ];
+  const passed = cases.filter((item) => item.passed).length;
+  const score = passed / cases.length;
+  const threshold = 1;
+  return {
+    status: score >= threshold ? "passed" : "failed",
+    threshold,
+    score,
+    passed,
+    total: cases.length,
+    cases
+  };
+}
+
 export interface PacketCaptureFinding {
   entry: string;
   path: string;
   pattern: string;
   valuePreview: string;
+}
+
+function crossRepoImpactEvalCases(): Sprint2EvalCase[] {
+  const relations: CrossRepoRelation[] = [
+    {
+      schemaVersion: "archcontext.cross-repo-relation/v1",
+      id: "relation.web-calls-api",
+      kind: "calls",
+      source: { repositoryId: "repo.web", nodeId: "module.checkout-ui" },
+      target: { repositoryId: "repo.api", nodeId: "module.billing-api" },
+      via: { kind: "interface", id: "interface.billing-http" },
+      intent: "Checkout creates subscriptions through the API."
+    },
+    {
+      schemaVersion: "archcontext.cross-repo-relation/v1",
+      id: "relation.worker-subscribes-api",
+      kind: "subscribes",
+      source: { repositoryId: "repo.worker", nodeId: "module.billing-worker" },
+      target: { repositoryId: "repo.api", nodeId: "event.subscription-created" },
+      via: { kind: "event", id: "event.subscription-created" },
+      intent: "Worker reacts to subscription creation."
+    }
+  ];
+  return [
+    evalCase("s2.eval.cross-repo-impact.api", "cross-repo-impact", ["relation.web-calls-api", "relation.worker-subscribes-api"], crossRepoImpact(relations, "repo.api").map((item) => item.id)),
+    evalCase("s2.eval.cross-repo-impact.noise", "cross-repo-impact", [], crossRepoImpact(relations, "repo.docs").map((item) => item.id))
+  ];
+}
+
+function trustLevelEvalCases(): Sprint2EvalCase[] {
+  const organizationSignals = deviceIntegritySignals({ trustLevel: "organization", runnerControlled: true });
+  return [
+    evalCase("s2.eval.trust-level.organization-label", "trust-level", "Organization-attested", attestationLabel("organization")),
+    evalCase("s2.eval.trust-level.developer-label", "trust-level", "Developer-attested", attestationLabel("developer")),
+    evalCase("s2.eval.trust-level.honest-limitation", "trust-level", true, organizationSignals.signals.includes("customer-controlled-runner") && organizationSignals.limitation.includes("does not prove"))
+  ];
+}
+
+function annualEntitlementEvalCases(): Sprint2EvalCase[] {
+  const entitlement: OfflineEntitlement = {
+    accountId: "acct_42",
+    plan: "pro",
+    billingInterval: "annual",
+    privateRepositoryScope: "user-all-private-repositories",
+    offlineUntil: "2026-06-26T00:00:00Z"
+  };
+  return [
+    evalCase("s2.eval.annual-entitlement.active", "annual-entitlement", true, isOfflineEntitlementActive(entitlement, "2026-06-20T00:00:00Z")),
+    evalCase("s2.eval.annual-entitlement.expired", "annual-entitlement", false, isOfflineEntitlementActive(entitlement, "2026-06-27T00:00:00Z")),
+    evalCase("s2.eval.annual-entitlement.scope", "annual-entitlement", "annual personal Pro covers all private repositories the user can access", describeEntitlementScope(entitlement))
+  ];
+}
+
+function evalCase(
+  id: string,
+  category: Sprint2EvalCase["category"],
+  expected: unknown,
+  actual: unknown
+): Sprint2EvalCase {
+  return {
+    id,
+    category,
+    expected,
+    actual,
+    passed: JSON.stringify(actual) === JSON.stringify(expected)
+  };
 }
 
 export interface PacketCaptureAuditResult {

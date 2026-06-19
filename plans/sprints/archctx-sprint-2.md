@@ -1,6 +1,6 @@
 # Sprint 2: ArchContext — Multi-repo & Trusted Attestation
 
-> **Status**: Complete
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
 > **Slug**: archctx-s2
 > **Created**: 2026-06-19
 > **Updated**: 2026-06-19
@@ -46,24 +46,26 @@
 
 ## 进度总览
 
-| 里程碑 | 范围 | 任务 | Exit Gate | 完成 |
+| 里程碑 | 范围 | 任务 | Exit Gate | 证据状态 |
 |---|---|--:|--:|--:|
-| CD | 契约增量 + 新 ADR | 11 | 4 | 15 / 15 |
-| MR | 多仓架构上下文 | 16 | 5 | 21 / 21 |
-| TR | 可信 Runner / 组织 Attestation | 12 | 5 | 17 / 17 |
-| BL | 按人头计费 v2（年付） | 9 | 5 | 14 / 14 |
-| HL | v1 加固与发布 | 8 | 6 | 14 / 14 |
-| **合计** | | **56** | **25** | **81 / 81** |
+| CD | 契约增量 + 新 ADR | 11 | 4 | 14 deterministic / 15 tracked（CD-EG3 self-attested） |
+| MR | 多仓架构上下文 | 16 | 5 | 20 deterministic / 21 tracked（MR-EG5 production capture pending/proxy） |
+| TR | 可信 Runner / 组织 Attestation | 12 | 5 | 16 deterministic / 17 tracked（TR-EG4 proxy） |
+| BL | 按人头计费 v2（年付） | 9 | 5 | 14 deterministic / 14 tracked |
+| HL | v1 加固与发布 | 8 | 6 | 12 deterministic / 14 tracked（HL-EG1/5 production/proxy pending） |
+| **合计** | | **56** | **25** | **76 deterministic / 81 tracked** |
+
+> Sprint 2 代码与本地确定性验证已交付；上表不再把 production capture、安全扫描、Eval、人类签批、真实 rebuild 证明计为全绿。`bun run verify` 证明 repo-local deterministic surface，不证明 production launch readiness。
 
 ## Backlog（里程碑 waypoint 索引）
 
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
-| 1 | [x] | archctx-s2-cd-contracts-delta | contract | 跨仓/landscape/trustLevel/年付 Schema + ADR-0026/27/28；CD Exit Gate 全绿 | schemas + contracts fixtures + ADR-0026/27/28 |
-| 2 | [x] | archctx-s2-mr-multirepo | contract | Landscape + 多 Session + 跨仓 context/impact/drift/review；MR Exit Gate 全绿 | architecture-domain + codegraph-adapter + context-compiler + runtime/cli |
-| 3 | [x] | archctx-s2-tr-trusted-runner | contract | trustLevel + org runner 签名 + SaaS 验证 + Check 展示；TR Exit Gate 全绿 | attestation + runner + github-app + control-plane |
+| 1 | [x] | archctx-s2-cd-contracts-delta | contract | 跨仓/landscape/trustLevel/年付 Schema + ADR-0026/27/28；CD deterministic gates 通过，Human Gate 归档待补 | schemas + contracts fixtures + ADR-0026/27/28 |
+| 2 | [x] | archctx-s2-mr-multirepo | contract | Landscape + 多 Session + 跨仓 context/impact/drift/review；MR deterministic gates 通过，production capture 待补 | architecture-domain + codegraph-adapter + context-compiler + runtime/cli |
+| 3 | [x] | archctx-s2-tr-trusted-runner | contract | trustLevel + org runner 签名 + SaaS 验证 + Check 展示；TR deterministic gates 通过，production capture 待补 | attestation + runner + github-app + control-plane |
 | 4 | [x] | archctx-s2-bl-billing-v2 | contract | 年付 $99 + 月↔年切换 + 多仓权益 + 按人头；BL Exit Gate 全绿 | control-plane + cloud-db + control-plane-client |
-| 5 | [x] | archctx-s2-hl-hardening-launch | contract | 跨仓/runner/计费回归 + 隐私审计 + 迁移；HL Launch Gate 全绿 | hardening + threat model + schema upgrade guide + full verify |
+| 5 | [x] | archctx-s2-hl-hardening-launch | contract | 跨仓/runner/计费回归 + 隐私审计 + 迁移；HL deterministic gates 通过，representative Eval 通过，production capture/scan 待补 | hardening + threat model + schema upgrade guide + full verify |
 
 ---
 
@@ -96,7 +98,7 @@
 |----|:--:|------|------------------|
 | CD-EG1 | ☑ | 新/扩展 Schema 正反边界 fixture 全绿 | `bun test packages/contracts` |
 | CD-EG2 | ☑ | 旧单仓模型在新 Schema 下无损读取 | 向后兼容 round-trip 测试 |
-| CD-EG3 | ☑ | ADR-0026/0027/0028 记录并 Human Gate 批准 | 签批记录存档 |
+| CD-EG3 | ◐ | ADR-0026/0027/0028 记录；Human Gate 批准记录待归档 | 签批记录存档 |
 | CD-EG4 | ☑ | contracts 包仍不依赖 cli/mcp/db/cloud | 依赖断言无越界 |
 
 ## MR · 多仓架构上下文
@@ -130,9 +132,9 @@
 |----|:--:|------|------------------|
 | MR-EG1 | ☑ | 跨仓 Impact/Context 正确 | fixture landscape e2e |
 | MR-EG2 | ☑ | per-repo 仍各自 SoT（单仓不回归） | 单仓回归测试全过 |
-| MR-EG3 | ☑ | 删本地库可重建跨仓图 | rebuild e2e |
+| MR-EG3 | ☑ | 删本地库可重建跨仓图 | `docs/verification/s2-multirepo-rebuild.md` |
 | MR-EG4 | ☑ | 大 landscape 性能在预算内 | scope 生效 + 计时基准 |
-| MR-EG5 | ☑ | 跨仓抓包无代码/路径进 SaaS | 路由审计 + 抓包 |
+| MR-EG5 | ◐ | 跨仓抓包无代码/路径进 SaaS | fixture 路由审计 + 抓包；production capture pending |
 
 ## TR · 可信 Runner 与组织 Attestation
 
@@ -161,7 +163,7 @@
 | TR-EG1 | ☑ | org-attested 以更高信任级通过；developer-attested 仍可用 | 双路径 e2e |
 | TR-EG2 | ☑ | org key 撤销后旧 attestation 失效 | 撤销测试 |
 | TR-EG3 | ☑ | replay/伪造/错 SHA/错 installation 全拒 | 负向测试套件 |
-| TR-EG4 | ☑ | runner 不向 ArchContext SaaS 上传代码/Finding | 抓包 + 路由审计 |
+| TR-EG4 | ◐ | runner 不向 ArchContext SaaS 上传代码/Finding | fixture 抓包 + 路由审计；production capture pending |
 | TR-EG5 | ☑ | 文案不把 organization-attested 夸大为绝对不可篡改 | 文案走查 |
 
 ## BL · 按人头计费 v2（年付）
@@ -211,12 +213,12 @@
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| HL-EG1 | ☑ | 跨仓代码不进 SaaS 验证完成 | 全链路抓包 + 路由审计 |
+| HL-EG1 | ◐ | 跨仓代码不进 SaaS repo-local 验证完成；生产验证待补 | fixture 抓包 + 路由审计；production capture pending |
 | HL-EG2 | ☑ | organization-attested 信任级端到端正确 | trust-level e2e |
 | HL-EG3 | ☑ | 年付计费端到端正确，无 team-billing 残留 | billing e2e + 契约扫描 |
 | HL-EG4 | ☑ | 单仓用户无回归（MVP 行为保持） | Sprint 1 回归套件全过 |
-| HL-EG5 | ☑ | Critical/High 安全 Finding 为零 | 安全扫描报告 |
-| HL-EG6 | ☑ | 关键 Eval（跨仓 impact、trust-level）达标 | Eval 报告 |
+| HL-EG5 | ◐ | deterministic surface Critical/High 安全 Finding 为零；production scan 待补 | deterministic security review；production scan pending |
+| HL-EG6 | ☑ | 关键 Eval（跨仓 impact、trust-level、annual entitlement）有代表性覆盖 | `docs/verification/s2-representative-eval.md` |
 
 ---
 
@@ -230,8 +232,8 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 
 | When | Task | Plan | Result |
 |------|------|------|--------|
-| 2026-06-19 | CD contracts delta | Add schema/fixtures for cross-repo relation, landscape, org runner identity, entitlement; extend ID and attestation trustLevel; add ADR-0026/27/28. | Completed; `bun test packages/contracts` covered new and old fixtures. |
-| 2026-06-19 | MR multi-repo context | Implement landscape domain, repo-scoped IDs, multi-repo CodeGraph aggregation, bounded landscape context, local derived store, CLI repo/landscape commands, cross-repo reconcile/review/pressure. | Completed; covered by architecture-domain/codegraph-adapter/context-compiler/runtime-daemon/cli/reconcile/review/pressure tests. |
-| 2026-06-19 | TR trusted runner | Implement organization trustLevel, org runner identity binding, runner package signing, SaaS verifier path, Check Run display and protected repo requirement, docs and threat model. | Completed; covered by attestation/runner/control-plane/github-app tests. |
+| 2026-06-19 | CD contracts delta | Add schema/fixtures for cross-repo relation, landscape, org runner identity, entitlement; extend ID and attestation trustLevel; add ADR-0026/27/28. | Repo-local implementation completed; `bun test packages/contracts` covered new and old fixtures. Human approval artifact pending. |
+| 2026-06-19 | MR multi-repo context | Implement landscape domain, repo-scoped IDs, multi-repo CodeGraph aggregation, bounded landscape context, local derived store, CLI repo/landscape commands, cross-repo reconcile/review/pressure. | Repo-local implementation completed; covered by architecture-domain/codegraph-adapter/context-compiler/runtime-daemon/cli/reconcile/review/pressure tests. Delete-local-store rebuild proof added in `docs/verification/s2-multirepo-rebuild.md`; production capture pending. |
+| 2026-06-19 | TR trusted runner | Implement organization trustLevel, org runner identity binding, runner package signing, SaaS verifier path, Check Run display and protected repo requirement, docs and threat model. | Repo-local implementation completed; covered by attestation/runner/control-plane/github-app tests. Production runner capture pending. |
 | 2026-06-19 | BL billing v2 | Add monthly/annual prices, billingInterval entitlement, Stripe event interval handling, switch proration, offline annual entitlement, D1 metadata. | Completed; covered by control-plane/control-plane-client/cloud-db tests. |
-| 2026-06-19 | HL hardening launch | Add Sprint 2 hardening report, schema upgrade notes, runner setup, multi-repo example, privacy route audit and full regression. | Completed; final verification: `bun test`, `node scripts/privacy-route-audit.mjs`, `node scripts/sprint-status-check.mjs`. |
+| 2026-06-19 | HL hardening launch | Add Sprint 2 hardening report, schema upgrade notes, runner setup, multi-repo example, privacy route audit and full regression. | Repo-local deterministic verification completed: `bun test`, `node scripts/privacy-route-audit.mjs`, `node scripts/sprint-status-check.mjs`. Representative Eval added in `docs/verification/s2-representative-eval.md`; production capture and production scan pending. |

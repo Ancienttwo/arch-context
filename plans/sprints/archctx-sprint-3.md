@@ -6,7 +6,7 @@
 > **Updated**: 2026-06-19
 > **Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Source Spec**: `docs/spec.md`
-> **Prior Sprints**: `archctx-sprint.md`（MVP，scaffold 已验收、生产 Launch Gate proxy 待补）· `archctx-sprint-2.md`（多仓/可信 Runner/年付，Complete 81/81）
+> **Prior Sprints**: `archctx-sprint.md`（MVP，scaffold 已验收、生产 Launch Gate proxy 待补）· `archctx-sprint-2.md`（多仓/可信 Runner/年付，repo-local deterministic complete；production/governance evidence pending）
 > **Goal Mode**: incremental
 
 把 ArchContext 接到现有生态并完成 v1.1 发布面：**通知 Provider**、**LikeC4/Structurizr 互操作 Adapter**、**ChatGPT App GA**。一切以"集成既有、绝不重复造轮子"为原则。每行是可跟踪最小单元，带稳定 ID（如 `AD-04`）；状态列 ◻ 未开始 / ◐ 进行中 / ☑ 完成。验证命令以 **Bun** 为准。
@@ -73,7 +73,7 @@
 ## CD3 · 契约增量与新 ADR
 
 **目标**：先冻结通知/互操作/GA 引入的契约与决策，避免三条并行线分叉。
-**关联 ADR**：0029、0030、0031（并扩展 0019、0020、0022、0003）。 **前置**：S2 全绿。
+**关联 ADR**：0029、0030、0031（并扩展 0019、0020、0022、0003）。 **前置**：S2 repo-local deterministic surface 已验收；S2 production/governance evidence 不继承为生产已绿。
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
