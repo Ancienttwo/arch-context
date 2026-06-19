@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/cloud/attestation.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/cloud/attestation.schema.json",
   "title": "Attestation",
   "type": "object",
   "additionalProperties": false,

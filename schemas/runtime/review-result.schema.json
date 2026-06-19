@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/review-result.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/review-result.schema.json",
   "title": "ReviewResult",
   "type": "object",
   "additionalProperties": false,

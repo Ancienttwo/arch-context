@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/retrieval-config.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/retrieval-config.schema.json",
   "title": "RetrievalConfig",
   "type": "object",
   "additionalProperties": false,

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/integrations/adapter-fidelity.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/integrations/adapter-fidelity.schema.json",
   "title": "AdapterFidelityRule",
   "type": "object",
   "additionalProperties": false,

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/integrations/likec4-mapping.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/integrations/likec4-mapping.schema.json",
   "title": "LikeC4Mapping",
   "type": "object",
   "additionalProperties": false,

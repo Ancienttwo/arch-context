@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/explorer-service.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/explorer-service.schema.json",
   "title": "ExplorerServiceContract",
   "type": "object",
   "additionalProperties": false,

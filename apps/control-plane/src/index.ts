@@ -70,7 +70,7 @@ export class ControlPlane {
   }
 
   startDeviceAuthorization(accountId: string) {
-    return { deviceCode: `device_${accountId}`, userCode: "ARCH-CTX", verificationUri: "https://api.archcontext.dev/device" };
+    return { deviceCode: `device_${accountId}`, userCode: "ARCH-CTX", verificationUri: "https://archctx.repoharness.com/api/device" };
   }
 
   completeDeviceAuthorization(deviceCode: string) {
@@ -240,8 +240,8 @@ export class ControlPlane {
       description: "Architecture runtime for coding agents.",
       permissions: ["account:read", "billing:read", "installations:read", "device_sessions:revoke"],
       repositoryContent: "local-runtime-only",
-      privacyUrl: "https://archcontext.dev/privacy",
-      installUrl: "https://archcontext.dev/chatgpt/install"
+      privacyUrl: "https://archctx.repoharness.com/privacy",
+      installUrl: "https://archctx.repoharness.com/chatgpt/install"
     };
   }
 

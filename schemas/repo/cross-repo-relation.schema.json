@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/repo/cross-repo-relation.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/repo/cross-repo-relation.schema.json",
   "title": "CrossRepoRelation",
   "type": "object",
   "additionalProperties": false,

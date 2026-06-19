@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/notification-provider.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/notification-provider.schema.json",
   "title": "NotificationProviderConfig",
   "type": "object",
   "additionalProperties": false,

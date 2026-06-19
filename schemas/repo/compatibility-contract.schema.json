@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/repo/compatibility-contract.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/repo/compatibility-contract.schema.json",
   "title": "CompatibilityContract",
   "type": "object",
   "additionalProperties": false,

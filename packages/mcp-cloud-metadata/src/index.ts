@@ -42,7 +42,7 @@ export function assertNoRepositoryContentProxy(toolNames: string[]): void {
 }
 
 export function buildCloudMetadataAppManifest(input: { baseUrl?: string; privacyUrl?: string } = {}) {
-  const baseUrl = input.baseUrl ?? "https://archcontext.dev";
+  const baseUrl = input.baseUrl ?? "https://archctx.repoharness.com";
   return {
     schemaVersion: "archcontext.chatgpt-cloud-app/v1",
     name: "ArchContext",
