@@ -1,0 +1,49 @@
+import { createHash, randomBytes } from "node:crypto";
+
+export interface OAuthPkceRequest {
+  authorizationUrl: string;
+  codeVerifier: string;
+  codeChallenge: string;
+  scopes: string[];
+}
+
+export interface AccessTokenClaims {
+  aud: string;
+  scope: string;
+  exp: number;
+}
+
+export function createPkceAuthorizationRequest(input: {
+  issuer: string;
+  clientId: string;
+  redirectUri: string;
+  scopes: string[];
+  state?: string;
+  verifier?: string;
+}): OAuthPkceRequest {
+  const codeVerifier = input.verifier ?? randomBytes(32).toString("base64url");
+  const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+  const url = new URL("/oauth/authorize", input.issuer);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", input.clientId);
+  url.searchParams.set("redirect_uri", input.redirectUri);
+  url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("code_challenge", codeChallenge);
+  url.searchParams.set("scope", input.scopes.join(" "));
+  if (input.state) url.searchParams.set("state", input.state);
+  return { authorizationUrl: url.toString(), codeVerifier, codeChallenge, scopes: input.scopes };
+}
+
+export function validateAccessTokenClaims(claims: AccessTokenClaims, input: { audience: string; requiredScopes: string[]; nowEpochSeconds: number }): void {
+  if (claims.aud !== input.audience) throw new Error("Invalid token audience");
+  if (claims.exp <= input.nowEpochSeconds) throw new Error("Access token expired");
+  const scopes = new Set(claims.scope.split(/\s+/).filter(Boolean));
+  for (const scope of input.requiredScopes) {
+    if (!scopes.has(scope)) throw new Error(`Missing token scope: ${scope}`);
+  }
+}
+
+export function buildGitHubHeaders(input: { githubToken: string; archcontextAccessToken?: string }) {
+  if (input.archcontextAccessToken) throw new Error("ArchContext SaaS token must not be forwarded to GitHub");
+  return { authorization: `Bearer ${input.githubToken}`, accept: "application/vnd.github+json" };
+}

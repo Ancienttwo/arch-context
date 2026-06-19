@@ -59,6 +59,11 @@ export class McpLocalServer {
     return LOCAL_MCP_TOOLS;
   }
 
+  listChatGptTools(writeEnabled = false): McpToolDefinition[] {
+    const readOnly = LOCAL_MCP_TOOLS.filter((tool) => tool.name !== "archcontext_apply_update");
+    return writeEnabled ? LOCAL_MCP_TOOLS : readOnly;
+  }
+
   async callTool(name: string, args: Record<string, any>): Promise<ToolCallResult> {
     switch (name) {
       case "archcontext_prepare_task": {
@@ -130,6 +135,83 @@ export class McpLocalServer {
       resourceUri: uri,
       dataClassification: "local-architecture"
     };
+  }
+}
+
+export interface LocalHttpMcpRequest {
+  method: string;
+  path: string;
+  body?: Record<string, any>;
+  host?: string;
+}
+
+export class LocalHttpMcpServer {
+  readonly bindHost = "127.0.0.1";
+
+  constructor(private readonly localMcp = new McpLocalServer()) {}
+
+  async handle(request: LocalHttpMcpRequest) {
+    if (request.host && !["127.0.0.1", "localhost", this.bindHost].includes(request.host)) {
+      return { status: 403, body: errorEnvelope("http-mcp", "AC_TUNNEL_SCOPE_DENIED", "Local HTTP MCP only binds loopback") };
+    }
+    if (request.method === "GET" && request.path === "/mcp/tools") {
+      return { status: 200, body: { tools: this.localMcp.listTools() } };
+    }
+    if (request.method === "POST" && request.path === "/mcp/call") {
+      const body = request.body ?? {};
+      return { status: 200, body: await this.localMcp.callTool(body.name, body.arguments ?? {}) };
+    }
+    return { status: 404, body: errorEnvelope("http-mcp", "AC_SCHEMA_INVALID", "Unknown local MCP route") };
+  }
+}
+
+export interface TunnelSession {
+  id: string;
+  enabled: boolean;
+  scopes: string[];
+  credential: string;
+  expiresAt: string;
+  revoked: boolean;
+}
+
+export class SecureMcpTunnelManager {
+  private current?: TunnelSession;
+
+  status(): { enabled: boolean; session?: Omit<TunnelSession, "credential"> } {
+    if (!this.current || this.current.revoked) return { enabled: false };
+    const { credential: _credential, ...session } = this.current;
+    return { enabled: this.current.enabled, session };
+  }
+
+  start(input: { scopes: string[]; ttlSeconds?: number; now?: Date }): TunnelSession {
+    const now = input.now ?? new Date(0);
+    const ttlSeconds = input.ttlSeconds ?? 600;
+    this.current = {
+      id: `tunnel_${now.getTime()}`,
+      enabled: true,
+      scopes: input.scopes,
+      credential: `local-${now.getTime()}-${ttlSeconds}`,
+      expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString(),
+      revoked: false
+    };
+    return this.current;
+  }
+
+  stop(): void {
+    if (this.current) this.current.enabled = false;
+  }
+
+  revoke(): void {
+    if (this.current) {
+      this.current.enabled = false;
+      this.current.revoked = true;
+    }
+  }
+
+  validateScope(scope: string, now: Date = new Date(0)): void {
+    if (!this.current || !this.current.enabled || this.current.revoked) throw new Error("Tunnel is not active");
+    if (this.current.expiresAt <= now.toISOString()) throw new Error("Tunnel credential expired");
+    if (!this.current.scopes.includes(scope)) throw new Error(`Tunnel scope denied: ${scope}`);
   }
 }
 

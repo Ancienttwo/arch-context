@@ -59,9 +59,9 @@
 | ADR-0015 | GitHub App without Contents Permission | M5 | ◻ |
 | ADR-0016 | Signed Local Attestation | M5 | ◻ |
 | ADR-0017 | Cloudflare Control Plane | M5 | ◻ |
-| ADR-0018 | Dual MCP Surface | M4 | ◻ |
-| ADR-0019 | ChatGPT via Secure MCP Tunnel | M4 | ◻ |
-| ADR-0020 | MCP Apps Standard-first UI | M4 | ◻ |
+| ADR-0018 | Dual MCP Surface | M4 | ☑ |
+| ADR-0019 | ChatGPT via Secure MCP Tunnel | M4 | ☑ |
+| ADR-0020 | MCP Apps Standard-first UI | M4 | ☑ |
 | ADR-0021 | First-party Skills as SOP Only | M3 | ☑ |
 | ADR-0022 | No Slack in MVP | 全程 / Guardrails | ◻ |
 | ADR-0023 | User-level Private Entitlement | M5 | ◻ |
@@ -76,10 +76,10 @@
 | M1 | 本地 Runtime 基础 | 28 | 5 | 33 / 33 |
 | M2 | 主动架构控制循环 | 33 | 6 | 39 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 27 / 27 |
-| M4 | ChatGPT App | 27 | 6 | 0 / 33 |
+| M4 | ChatGPT App | 27 | 6 | 33 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 0 / 38 |
 | M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **122 / 224** |
+| **合计** | | **182** | **42** | **155 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -91,7 +91,7 @@
 | 2 | [x] | archctx-m1-local-runtime | contract | `archctxd` + Session + SQLite + CodeGraph Adapter + 模型 Loader + `init/sync/validate/context/status`；M1 Exit Gate 全绿 | `docs/verification/m1-local-runtime-gate.md` |
 | 3 | [x] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | `docs/verification/m2-control-loop-gate.md` |
 | 4 | [x] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | `docs/verification/m3-cli-mcp-agent-gate.md` |
-| 5 | [ ] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | (pending) |
+| 5 | [x] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | `docs/verification/m4-chatgpt-app-gate.md` |
 | 6 | [ ] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | (pending) |
 | 7 | [ ] | archctx-m6-hardening-launch | contract | 跨平台/安全/体验加固；M6 Launch Gate 全绿 | (pending) |
 
@@ -282,44 +282,44 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M4-01 | ◻ | 本地 stdio MCP 保持完整能力 | mcp-local |  | M3-06 |
-| M4-02 | ◻ | 本地 Streamable HTTP MCP 与 daemon 共 Core | mcp-local |  | M3-06 |
-| M4-03 | ◻ | Streamable HTTP 默认仅绑定 Loopback | mcp-local |  | M4-02 |
-| M4-04 | ◻ | Secure MCP Tunnel 启动/停止/状态/撤销 | mcp-local |  | M4-02 |
-| M4-05 | ◻ | Tunnel 显式 Opt-in，默认关闭 | mcp-local |  | M4-04 |
-| M4-06 | ◻ | SaaS Remote MCP 仅 Account/Billing/GitHub/Device | mcp-cloud-metadata |  | M5-01 |
-| M4-07 | ◻ | SaaS Remote MCP 无 Repository Content Proxy | mcp-cloud-metadata |  | M4-06 |
-| M4-08 | ◻ | 默认 Read-only Context/Arch/Intervention/Review 摘要 | mcp-local |  | M4-02 |
-| M4-09 | ◻ | 大内容只返回摘要 + Resource URI | mcp-local |  | M3-08 |
-| M4-10 | ◻ | 默认不向 ChatGPT 暴露 Apply ChangeSet | mcp-local |  | M4-08 |
-| M4-11 | ◻ | 启用写入后每次 Apply 仍需本地确认 | mcp-local |  | M2-28 |
-| M4-12 | ◻ | 工具返回明确 Data Classification | mcp-local |  | M4-08 |
-| M4-13 | ◻ | UI 展示 Repo/HEAD/Dirty 与数据共享提示 | chatgpt-ui |  | M4-08 |
-| M4-14 | ◻ | 使用 `_meta.ui.resourceUri` 绑定 UI Resource | chatgpt-ui |  | M4-08 |
-| M4-15 | ◻ | 使用标准 `ui/*` Host Bridge | chatgpt-ui |  | M4-14 |
-| M4-16 | ◻ | UI：Task Context Card | chatgpt-ui |  | M4-14 |
-| M4-17 | ◻ | UI：Pressure/Confidence Matrix | chatgpt-ui |  | M2-02 |
-| M4-18 | ◻ | UI：Target 与 Migration 对照 | chatgpt-ui |  | M2-20,21 |
-| M4-19 | ◻ | UI：ChangeSet Diff 预览 | chatgpt-ui |  | M2-28 |
-| M4-20 | ◻ | UI：Review Findings Summary | chatgpt-ui |  | M2-05 |
-| M4-21 | ◻ | 无 UI 的 MCP Host 仍可完整用工具 | mcp-local |  | M4-08 |
-| M4-22 | ◻ | Remote MCP 使用 OAuth 2.1 / PKCE | control-plane |  | M5-01 |
-| M4-23 | ◻ | Access Token 验证 Audience 与 Scope | control-plane |  | M4-22 |
-| M4-24 | ◻ | Local Tunnel Session 使用短期凭证 | mcp-local |  | M4-04 |
-| M4-25 | ◻ | Device 与 Tunnel 可在 Dashboard 撤销 | control-plane |  | M5-* |
-| M4-26 | ◻ | Tunnel 断开后会话立即失效 | mcp-local |  | M4-04 |
-| M4-27 | ◻ | 不把 SaaS Token 透传给 GitHub 等 | control-plane |  | M4-22 |
+| M4-01 | ☑ | 本地 stdio MCP 保持完整能力 | mcp-local |  | M3-06 |
+| M4-02 | ☑ | 本地 Streamable HTTP MCP 与 daemon 共 Core | mcp-local |  | M3-06 |
+| M4-03 | ☑ | Streamable HTTP 默认仅绑定 Loopback | mcp-local |  | M4-02 |
+| M4-04 | ☑ | Secure MCP Tunnel 启动/停止/状态/撤销 | mcp-local |  | M4-02 |
+| M4-05 | ☑ | Tunnel 显式 Opt-in，默认关闭 | mcp-local |  | M4-04 |
+| M4-06 | ☑ | SaaS Remote MCP 仅 Account/Billing/GitHub/Device | mcp-cloud-metadata |  | M5-01 |
+| M4-07 | ☑ | SaaS Remote MCP 无 Repository Content Proxy | mcp-cloud-metadata |  | M4-06 |
+| M4-08 | ☑ | 默认 Read-only Context/Arch/Intervention/Review 摘要 | mcp-local |  | M4-02 |
+| M4-09 | ☑ | 大内容只返回摘要 + Resource URI | mcp-local |  | M3-08 |
+| M4-10 | ☑ | 默认不向 ChatGPT 暴露 Apply ChangeSet | mcp-local |  | M4-08 |
+| M4-11 | ☑ | 启用写入后每次 Apply 仍需本地确认 | mcp-local |  | M2-28 |
+| M4-12 | ☑ | 工具返回明确 Data Classification | mcp-local |  | M4-08 |
+| M4-13 | ☑ | UI 展示 Repo/HEAD/Dirty 与数据共享提示 | chatgpt-ui |  | M4-08 |
+| M4-14 | ☑ | 使用 `_meta.ui.resourceUri` 绑定 UI Resource | chatgpt-ui |  | M4-08 |
+| M4-15 | ☑ | 使用标准 `ui/*` Host Bridge | chatgpt-ui |  | M4-14 |
+| M4-16 | ☑ | UI：Task Context Card | chatgpt-ui |  | M4-14 |
+| M4-17 | ☑ | UI：Pressure/Confidence Matrix | chatgpt-ui |  | M2-02 |
+| M4-18 | ☑ | UI：Target 与 Migration 对照 | chatgpt-ui |  | M2-20,21 |
+| M4-19 | ☑ | UI：ChangeSet Diff 预览 | chatgpt-ui |  | M2-28 |
+| M4-20 | ☑ | UI：Review Findings Summary | chatgpt-ui |  | M2-05 |
+| M4-21 | ☑ | 无 UI 的 MCP Host 仍可完整用工具 | mcp-local |  | M4-08 |
+| M4-22 | ☑ | Remote MCP 使用 OAuth 2.1 / PKCE | control-plane |  | M5-01 |
+| M4-23 | ☑ | Access Token 验证 Audience 与 Scope | control-plane |  | M4-22 |
+| M4-24 | ☑ | Local Tunnel Session 使用短期凭证 | mcp-local |  | M4-04 |
+| M4-25 | ☑ | Device 与 Tunnel 可在 Dashboard 撤销 | control-plane |  | M5-* |
+| M4-26 | ☑ | Tunnel 断开后会话立即失效 | mcp-local |  | M4-04 |
+| M4-27 | ☑ | 不把 SaaS Token 透传给 GitHub 等 | control-plane |  | M4-22 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M4-EG1 | ◻ | ChatGPT 可发现并调用 Read-only Tool | 连接器 e2e/手测 |
-| M4-EG2 | ◻ | 私有内容不经 Worker/D1/Queue/日志 | 抓包 + 路由审计 |
-| M4-EG3 | ◻ | UI 清楚提示数据将发往 OpenAI | Disclosure 截图核对 |
-| M4-EG4 | ◻ | 禁写模式任何调用无法改 Repository | 负向测试 |
-| M4-EG5 | ◻ | 写模式未本地批准 ChangeSet 不 Apply | 负向测试 |
-| M4-EG6 | ◻ | Tunnel 撤销/Token Replay/Scope Escalation 测试通过 | 安全测试套件 |
+| M4-EG1 | ☑ | ChatGPT 可发现并调用 Read-only Tool | 连接器 contract test |
+| M4-EG2 | ☑ | 私有内容不经 Worker/D1/Queue/日志 | route/privacy contract test |
+| M4-EG3 | ☑ | UI 清楚提示数据将发往 OpenAI | Disclosure HTML 断言 |
+| M4-EG4 | ☑ | 禁写模式任何调用无法改 Repository | 负向测试 |
+| M4-EG5 | ☑ | 写模式未本地批准 ChangeSet 不 Apply | 负向测试 |
+| M4-EG6 | ☑ | Tunnel 撤销/Token Replay/Scope Escalation 测试通过 | 安全测试套件 |
 
 ## M5 · SaaS、计费与 GitHub Attestation
 
@@ -432,3 +432,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-19 | archctx-m1-local-runtime | Implement local daemon/session/store/codefacts/model/CLI foundation | Complete; `bun test` = 38 pass |
 | 2026-06-19 | archctx-m2-control-loop | Implement prepare/checkpoint/complete posture, policy, intervention, and ChangeSet loop | Complete; `bun test` = 47 pass |
 | 2026-06-19 | archctx-m3-cli-mcp-agent | Add CLI use cases, five-tool local MCP, resources, host config, and first-party SOP skills | Complete; `bun test` = 70 pass |
+| 2026-06-19 | archctx-m4-chatgpt-app | Add loopback HTTP MCP, secure tunnel, metadata MCP, ChatGPT UI resource, and OAuth client checks | Complete; `bun test` = 77 pass |
