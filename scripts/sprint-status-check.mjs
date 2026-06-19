@@ -54,7 +54,8 @@ async function validateSprint2EvidenceClaims(root, failures) {
   const hardening = await readOptional(root, "packages/hardening/src/index.ts");
   const manifest = await readOptional(root, "docs/security/captures/manifest.json");
   const pendingCapture = !manifest || !hardening || captureManifestHasPending(manifest, ["production", "staging"], failures) || hardening.includes("pending-production-environment");
-  const pendingProductionScan = !hardening || /productionScan:\s*"pending"/.test(hardening);
+  const securityScanManifest = await readOptional(root, "docs/security/scans/manifest.json");
+  const pendingProductionScan = !hardening || /productionScan:\s*"pending"/.test(hardening) || !securityScanManifest || securityScanManifestHasPending(securityScanManifest, ["production", "staging"], failures);
   const missingRepresentativeEval = !(await fileExists(root, "docs/verification/s2-representative-eval.md"));
   const missingHumanApproval = !(await fileExists(root, "docs/approvals/archctx-sprint-2.md"));
   const missingRebuildProof = !(await fileExists(root, "docs/verification/s2-multirepo-rebuild.md"));
@@ -120,6 +121,17 @@ function captureManifestHasPending(manifestText, environments, failures) {
     return true;
   }
   return (manifest.captures ?? []).some((entry) => environments.includes(entry.environment) && entry.status === "pending");
+}
+
+function securityScanManifestHasPending(manifestText, environments, failures) {
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestText);
+  } catch {
+    failures.push("docs/security/scans/manifest.json: invalid JSON");
+    return true;
+  }
+  return (manifest.scans ?? []).some((entry) => environments.includes(entry.environment) && entry.status === "pending");
 }
 
 function findStatusLine(document) {

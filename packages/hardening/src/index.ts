@@ -77,7 +77,14 @@ export function launchGateReport() {
     reviewBinding: "review-engine stale tests",
     codeGraphCompatibility: REQUIRED_CODEGRAPH_VERSION,
     chatgptDisclosure: "chatgpt-ui tests",
-    securityFindings: { scope: "deterministic-mvp-surface", critical: 0, high: 0, productionScan: "pending" },
+    securityFindings: {
+      scope: "deterministic-mvp-surface",
+      critical: 0,
+      high: 0,
+      manifest: "docs/security/scans/manifest.json",
+      readback: "scripts/security-scan-manifest.mjs readback",
+      productionScan: "pending"
+    },
     evals: ["compatibility-debt", "target-vs-migration", "high-pressure-low-confidence"],
     representativeEval: "pending",
     largeRepoBenchmark: "pending",
@@ -94,7 +101,14 @@ export function sprint2LaunchGateReport() {
     organizationAttestation: "runner identity + installation + trustLevel tests",
     annualBilling: "$99 annual interval + per-person entitlement tests",
     singleRepoRegression: "bun test",
-    securityFindings: { scope: "deterministic-sprint-2-surface", critical: 0, high: 0, productionScan: "pending" },
+    securityFindings: {
+      scope: "deterministic-sprint-2-surface",
+      critical: 0,
+      high: 0,
+      manifest: "docs/security/scans/manifest.json",
+      readback: "scripts/security-scan-manifest.mjs readback",
+      productionScan: "pending"
+    },
     evals: ["cross-repo-impact", "trust-level", "annual-entitlement"],
     representativeEval: "docs/verification/s2-representative-eval.md",
     packetCapture: {

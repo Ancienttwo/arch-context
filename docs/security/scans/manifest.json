@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "archcontext.security-scan-manifest/v1",
+  "scans": [
+    {
+      "id": "deterministic.m6-independent-threat-review",
+      "environment": "deterministic",
+      "status": "verified",
+      "artifactPath": "docs/security/reviews/m6-independent-threat-review.md",
+      "artifactDigest": "sha256:7380a0d4d417ae61f5ad0952d2966968c07dd8b4207abc7249325804988e9fae",
+      "auditedAt": "2026-06-19T00:00:00.000Z",
+      "scanner": "independent-threat-review",
+      "scope": "deterministic-mvp-surface",
+      "critical": 0,
+      "high": 0
+    },
+    {
+      "id": "deterministic.s3-integration-security-review",
+      "environment": "deterministic",
+      "status": "verified",
+      "artifactPath": "docs/security/reviews/s3-integration-security-review.md",
+      "artifactDigest": "sha256:fedc02df25431a23b1e3ef864e357596ffe01c20ec065adbddd7bc2b6f152bd2",
+      "auditedAt": "2026-06-19T00:00:00.000Z",
+      "scanner": "integration-security-review",
+      "scope": "deterministic-sprint-3-surface",
+      "critical": 0,
+      "high": 0
+    },
+    {
+      "id": "production.security-scan",
+      "environment": "production",
+      "status": "pending",
+      "artifactPath": "docs/security/reviews/production-security-scan.md",
+      "reason": "Awaiting production or external security scan artifact with zero Critical and High findings.",
+      "scanner": "external-security-scan"
+    }
+  ]
+}

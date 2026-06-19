@@ -50,7 +50,14 @@ describe("@archcontext/hardening", () => {
     expect(launchGateReport()).toMatchObject({
       status: "mvp-proxy-evidence",
       sourceExfiltration: "privacy-route-audit",
-      securityFindings: { scope: "deterministic-mvp-surface", critical: 0, high: 0, productionScan: "pending" },
+      securityFindings: {
+        scope: "deterministic-mvp-surface",
+        critical: 0,
+        high: 0,
+        manifest: "docs/security/scans/manifest.json",
+        readback: "scripts/security-scan-manifest.mjs readback",
+        productionScan: "pending"
+      },
       representativeEval: "pending",
       largeRepoBenchmark: "pending",
       timedInstallRehearsal: "pending"
@@ -62,7 +69,13 @@ describe("@archcontext/hardening", () => {
       status: "sprint-2-deterministic-evidence",
       organizationAttestation: "runner identity + installation + trustLevel tests",
       annualBilling: "$99 annual interval + per-person entitlement tests",
-      securityFindings: { critical: 0, high: 0, productionScan: "pending" },
+      securityFindings: {
+        critical: 0,
+        high: 0,
+        manifest: "docs/security/scans/manifest.json",
+        readback: "scripts/security-scan-manifest.mjs readback",
+        productionScan: "pending"
+      },
       representativeEval: "docs/verification/s2-representative-eval.md",
       packetCapture: {
         verifier: "scripts/privacy-packet-capture-audit.mjs",

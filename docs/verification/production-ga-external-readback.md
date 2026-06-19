@@ -16,6 +16,7 @@ This readback did not produce a production-verified capture because the required
 - `https://archcontext.dev/privacy` returned HTTP 404.
 - `https://archcontext.dev/chatgpt/directory` returned HTTP 404.
 - `https://archcontext.dev/.well-known/oauth-authorization-server` returned HTTP 404.
+- `docs/security/scans/manifest.json` contains deterministic review evidence only; `production.security-scan` remains pending.
 
 ## Readback Contract
 
@@ -32,6 +33,7 @@ Required production evidence:
 - GPT App Directory listing or non-secret evidence artifact.
 - Real provider delivery evidence or explicitly safe provider webhook probe.
 - Redacted production or staging HAR registered into `docs/security/captures/manifest.json` and verified with `node scripts/privacy-capture-manifest.mjs readback --require-external`.
+- Production or staging security scan registered into `docs/security/scans/manifest.json` and verified with `node scripts/security-scan-manifest.mjs readback --require-external`.
 
 ## Boundary
 
