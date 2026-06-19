@@ -7,6 +7,8 @@ const scanRoots = [
   "apps",
   "services",
   "packages/notifications",
+  "packages/explorer-ui",
+  "packages/retrieval",
   "packages/adapter-likec4",
   "packages/adapter-structurizr",
   "packages/renderer",

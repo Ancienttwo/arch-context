@@ -33,7 +33,7 @@
     "dir": "plans/sprints",
     "active_marker_file": ".ai/harness/sprint/active-sprint",
     "template_file": ".claude/templates/sprint.template.md",
-    "helper_script": "scripts/sprint-backlog.sh",
+    "helper_script": "repo-harness run sprint-backlog",
     "statuses": [
       "Draft",
       "Approved",
@@ -71,11 +71,11 @@
     "profile": "stable-root-progressive-subdir",
     "map_file": ".ai/context/context-map.json",
     "capability_registry_file": ".ai/context/capabilities.json",
-    "capability_resolver": "scripts/capability-resolver.ts",
-    "capability_config": "scripts/capability-config.ts",
+    "capability_resolver": "repo-harness run capability-resolver",
+    "capability_config": "repo-harness run capability-config",
     "capability_match_rule": "longest-prefix; same-length ambiguity fails",
     "functional_block_selector": {
-      "script": "scripts/select-agent-context-blocks.sh",
+      "script": "repo-harness run select-agent-context-blocks",
       "config_file": ".ai/context/agent-context-blocks.txt",
       "env": "REPO_HARNESS_CONTEXT_BLOCKS",
       "rule": "compatibility selector; capability registry is the source of truth"
@@ -109,7 +109,7 @@
     "pending_card_scope": "capability",
     "pending_block_begin": "<!-- BEGIN ARCHITECTURE PENDING REQUESTS -->",
     "pending_block_end": "<!-- END ARCHITECTURE PENDING REQUESTS -->",
-    "queue_script": ".ai/harness/scripts/architecture-queue.sh",
+    "queue_script": "repo-harness run architecture-queue",
     "contract_block_begin": "<!-- BEGIN ARCHITECTURE CONTRACT -->",
     "contract_block_end": "<!-- END ARCHITECTURE CONTRACT -->",
     "rule": "hooks record architecture queue cards and sync controlled local context blocks; agents author semantic snapshots and diagrams"
@@ -154,8 +154,8 @@
       "default_brain_path": "brain/<project>/*",
       "project_path": "brain/<project>/*",
       "manifest_file": ".ai/harness/brain-manifest.json",
-      "drift_check": "scripts/check-brain-manifest.sh",
-      "sync_script": "scripts/sync-brain-docs.sh",
+      "drift_check": "repo-harness run check-brain-manifest",
+      "sync_script": "repo-harness run sync-brain-docs",
       "hook_trigger": "PostToolUse Edit|Write for manifest entries with sync.direction=repo-to-brain",
       "rule": "external knowledge stores long-lived explanations, runbooks, and patterns only; repo-local contracts, hooks, scripts, checks, and evidence remain authoritative",
       "sync_rule": "only explicitly opted-in repo-to-brain manifest entries may be written to the default brain vault; pointer-only externalized stubs remain check-only"
@@ -167,14 +167,14 @@
     "auto_start_new_session": false
   },
   "plan_capture": {
-    "script": "scripts/capture-plan.sh",
+    "script": "repo-harness run capture-plan",
     "sources": [
       "codex-plan-mode",
       "waza-think",
       "repo-harness-plan",
       "repo-harness-sprint"
     ],
-    "rule": "Codex Plan mode and Waza think planning should capture decision-complete plans into plans/plan-*.md; implementation approval then projects the active approved plan through scripts/plan-to-todo.sh; sprint backlog rows are long-task waypoints and should be expanded with $think before capture/execution"
+    "rule": "Codex Plan mode and Waza think planning should capture decision-complete plans into plans/plan-*.md; implementation approval then projects the active approved plan through repo-harness run plan-to-todo; sprint backlog rows are long-task waypoints and should be expanded with $think before capture/execution"
   },
   "planning": {
     "pending_orchestration_file": ".ai/harness/planning/pending.json",
@@ -240,9 +240,9 @@
     "branch_prefix": "codex/",
     "base_branch": "main",
     "worktree_dir_template": "../{{repo}}-wt-{{slug}}",
-    "start_script": "scripts/contract-worktree.sh start --plan <plan-file>",
-    "finish_script": "scripts/contract-worktree.sh finish",
-    "cleanup_script": "scripts/contract-worktree.sh cleanup --slug <slug>",
+    "start_script": "repo-harness run contract-worktree start --plan <plan-file>",
+    "finish_script": "repo-harness run contract-worktree finish",
+    "cleanup_script": "repo-harness run contract-worktree cleanup --slug <slug>",
     "conflict_signals": [
       "dirty_worktree_overlaps_task_files",
       "current_branch_not_suitable_for_task",

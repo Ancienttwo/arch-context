@@ -24,6 +24,17 @@
       "verifier": "scripts/privacy-packet-capture-audit.mjs"
     },
     {
+      "id": "fixture.sprint4-explorer-retrieval",
+      "environment": "fixture",
+      "status": "verified",
+      "artifactPath": "docs/security/captures/sprint4-explorer-retrieval.har.json",
+      "captureDigest": "sha256:1ef89172d528403da1dfc3ccd171d1068fbe9a2930f493d9cbbacce0b903828a",
+      "auditedAt": "2026-06-20T00:00:00.000Z",
+      "entries": 3,
+      "checkedValues": 45,
+      "verifier": "scripts/privacy-packet-capture-audit.mjs"
+    },
+    {
       "id": "production.real-capture",
       "environment": "production",
       "status": "pending",

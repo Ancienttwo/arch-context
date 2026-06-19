@@ -31,7 +31,7 @@ Required production evidence:
 - Deployed ArchContext base URL.
 - GPT App Directory listing or non-secret evidence artifact.
 - Real provider delivery evidence or explicitly safe provider webhook probe.
-- Redacted production or staging HAR registered into `docs/security/captures/manifest.json`.
+- Redacted production or staging HAR registered into `docs/security/captures/manifest.json` and verified with `node scripts/privacy-capture-manifest.mjs readback --require-external`.
 
 ## Boundary
 

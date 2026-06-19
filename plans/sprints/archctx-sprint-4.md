@@ -1,6 +1,6 @@
 # Sprint 4: ArchContext — Local Explorer & Semantic Retrieval
 
-> **Status**: Active
+> **Status**: Done
 > **Slug**: archctx-s4
 > **Created**: 2026-06-20
 > **Updated**: 2026-06-20
@@ -8,6 +8,7 @@
 > **Source Spec**: `docs/spec.md`
 > **Prior Sprints**: `archctx-sprint.md`（MVP）· `archctx-sprint-2.md`（多仓/可信 Runner/年付）· `archctx-sprint-3.md`（生态/GA，repo-local Complete；production GA external readback pending）
 > **Goal Mode**: incremental
+> **Completion Scope**: repo-local deterministic；production GA / external readback debt remains pending
 
 做掉两个延后面：**本地浏览器 Architecture Explorer** 与 **语义检索（Embedding，eval-gated）**。Explorer 是本地 loopback、只读、零出域；Embedding 默认关、必须先过 eval 才落地。每行可跟踪，带稳定 ID（如 `BX-08`）；状态列 ◻ / ◐ / ☑。验证命令以 **Bun** 为准。
 
@@ -47,8 +48,8 @@
 | CD4 | 契约增量 + 新 ADR | 7 | 4 | 11 / 11 |
 | BX | 本地 Architecture Explorer | 14 | 6 | 20 / 20 |
 | EM | 语义检索（eval-gated） | 11 | 5 | 16 / 16 |
-| HL4 | 加固与发布（本 sprint 面） | 7 | 6 | 0 / 13 |
-| **合计** | | **39** | **21** | **47 / 60** |
+| HL4 | 加固与发布（本 sprint 面） | 7 | 6 | 13 / 13 |
+| **合计** | | **39** | **21** | **60 / 60** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -57,7 +58,7 @@
 | 1 | [x] | archctx-s4-cd-contracts-delta | contract | Explorer 投影 / Embedding / eval 契约 + ADR-0032/33；CD4 Exit Gate 全绿 | Completed: schema/fixtures/ports + ADR-0032/0033 + approval record |
 | 2 | [x] | archctx-s4-bx-explorer | contract | 本地 loopback 只读 Explorer + 多仓 landscape，零出域、不写模型；BX Exit Gate 全绿 | Completed: runtime loopback service + explorer-ui + CLI surface |
 | 3 | [x] | archctx-s4-em-retrieval-eval | contract | eval harness + FTS5 baseline + Embedding 对比 + 决策门（胜出才落地）；EM Exit Gate 全绿 | Completed: eval decision = keep FTS5 / embedding off |
-| 4 | [ ] | archctx-s4-hl-hardening | contract | Explorer/Embedding 隐私回归 + S1–S3 回归 + 明确生产 GA 仍 blocked；HL4 Gate 全绿 | (pending) |
+| 4 | [x] | archctx-s4-hl-hardening | contract | Explorer/Embedding 隐私回归 + S1–S3 回归 + 明确生产 GA 仍 blocked；HL4 Gate 全绿 | Completed: repo-local hardening and release gate |
 
 ---
 
@@ -158,24 +159,24 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| HL4-01 | ◻ | S1–S3 不变量全回归（零出域、单仓/多仓、attestation、计费、通知/adapter/GA） | cross |  | — |
-| HL4-02 | ◻ | 隐私审计扩展到 Explorer + Embedding（无代码/向量出域） | cross/security |  | BX-12,EM-10 |
-| HL4-03 | ◻ | Explorer/Embedding 文档与示例 | docs |  | BX-13,EM-11 |
-| HL4-04 | ◻ | 安全复审（loopback 服务、短期 token、本地端口暴露面） | cross/security |  | BX-01 |
-| HL4-05 | ◻ | 性能（Explorer 大 landscape 渲染、Embedding 索引开销） | explorer-ui |  | BX-08 |
-| HL4-06 | ◻ | 显式声明：S1–S3 生产/外部 readback 仍 pending，本 sprint 不继承为生产已绿 | docs |  | — |
-| HL4-07 | ◻ | 更新 deferred ledger（Embedding 决策结果、Explorer 完成、剩余项） | docs |  | EM-06 |
+| HL4-01 | ☑ | S1–S3 不变量全回归（零出域、单仓/多仓、attestation、计费、通知/adapter/GA） | cross |  | — |
+| HL4-02 | ☑ | 隐私审计扩展到 Explorer + Embedding（无代码/向量出域） | cross/security |  | BX-12,EM-10 |
+| HL4-03 | ☑ | Explorer/Embedding 文档与示例 | docs |  | BX-13,EM-11 |
+| HL4-04 | ☑ | 安全复审（loopback 服务、短期 token、本地端口暴露面） | cross/security |  | BX-01 |
+| HL4-05 | ☑ | 性能（Explorer 大 landscape 渲染、Embedding 索引开销） | explorer-ui |  | BX-08 |
+| HL4-06 | ☑ | 显式声明：S1–S3 生产/外部 readback 仍 pending，本 sprint 不继承为生产已绿 | docs |  | — |
+| HL4-07 | ☑ | 更新 deferred ledger（Embedding 决策结果、Explorer 完成、剩余项） | docs |  | EM-06 |
 
 **Exit Gate（本 sprint 面，非生产 GA）**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| HL4-EG1 | ◻ | Explorer/Embedding 抓包零出域 | 流量审计 |
-| HL4-EG2 | ◻ | 浏览器只读（无写入路径）回归 | 负向测试 |
-| HL4-EG3 | ◻ | S1–S3 回归全过 | 回归套件 |
-| HL4-EG4 | ◻ | Embedding 决策门已闭合（建或不建都有记录） | 决策记录 + ledger |
-| HL4-EG5 | ◻ | Critical/High 安全 Finding 为零（本 sprint 面） | 安全扫描 |
-| HL4-EG6 | ◻ | 诚实声明到位：本 sprint=repo-local，生产 GA 仍 blocked | 文档核对 |
+| HL4-EG1 | ☑ | Explorer/Embedding 抓包零出域 | `docs/security/captures/sprint4-explorer-retrieval.har.json` + manifest readback |
+| HL4-EG2 | ☑ | 浏览器只读（无写入路径）回归 | runtime POST 405 negative test |
+| HL4-EG3 | ☑ | S1–S3 回归全过 | `bun test` + privacy/sprint gates |
+| HL4-EG4 | ☑ | Embedding 决策门已闭合（建或不建都有记录） | `docs/verification/s4-retrieval-eval.md` + ledger |
+| HL4-EG5 | ☑ | Critical/High 安全 Finding 为零（本 sprint 面） | `node scripts/privacy-route-audit.mjs` + `privacy-audit` tests |
+| HL4-EG6 | ☑ | 诚实声明到位：本 sprint=repo-local，生产 GA 仍 blocked | `docs/verification/s4-hardening-release.md` |
 
 ---
 
@@ -192,3 +193,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-20 | CD4 contracts delta | Add Explorer projection/service schemas, retrieval config/eval/decision schemas, fixtures, ports, ADR-0032/0033, and approval record. | Completed; `bun test packages/contracts/test/contracts.test.ts` passed 60 tests. |
 | 2026-06-20 | BX local explorer | Add `explorer-ui`, runtime loopback Explorer service, read-only projection API, CLI `explore` surface, token revoke/stop behavior, and model/landscape/evidence summary rendering. | Completed; `bun test packages/explorer-ui packages/runtime-daemon packages/cli` passed 11 tests; `bun run typecheck` passed. |
 | 2026-06-20 | EM retrieval eval | Add deterministic retrieval eval harness, FTS5 baseline, local deterministic embedding prototype, decision gate, and eval report. | Completed; decision is `keep-fts5`, embedding remains default off; `bun test packages/retrieval` and `bun run typecheck` passed. |
+| 2026-06-20 | HL4 hardening closeout | Extend privacy route audit to Explorer/Retrieval, add Sprint 4 capture fixture, harden capture manifest strict external readback, update repo-local completion docs, and run full verification. | Completed; Sprint 4 is `60 / 60` repo-local deterministic. Production GA/external readback remains pending. |

@@ -30,6 +30,13 @@ Read back the current ledger:
 node scripts/privacy-capture-manifest.mjs readback
 ```
 
+Require a real staging or production capture before launch claims:
+
+```bash
+node scripts/privacy-capture-manifest.mjs readback --require-external
+node scripts/privacy-capture-manifest.mjs readback --require-environment production
+```
+
 Record a sanitized staging or production capture only after the packet audit passes:
 
 ```bash
@@ -39,4 +46,4 @@ node scripts/privacy-capture-manifest.mjs record \
   --id staging.2026-06-19
 ```
 
-`readback` re-audits verified artifacts, checks the committed file digest, and leaves pending staging/production rows pending until a real redacted HAR exists.
+`readback` re-audits verified artifacts, checks the committed file digest, and leaves pending staging/production rows pending until a real redacted HAR exists. The strict readback flags fail until at least one external capture, or the requested production capture, is verified.

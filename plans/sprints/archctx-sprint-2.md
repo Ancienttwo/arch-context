@@ -134,7 +134,7 @@
 | MR-EG2 | ☑ | per-repo 仍各自 SoT（单仓不回归） | 单仓回归测试全过 |
 | MR-EG3 | ☑ | 删本地库可重建跨仓图 | `docs/verification/s2-multirepo-rebuild.md` |
 | MR-EG4 | ☑ | 大 landscape 性能在预算内 | scope 生效 + 计时基准 |
-| MR-EG5 | ◐ | 跨仓抓包无代码/路径进 SaaS | fixture 路由审计 + 抓包；production capture pending |
+| MR-EG5 | ◐ | 跨仓抓包无代码/路径进 SaaS | fixture 路由审计 + 抓包；strict external readback in `docs/verification/s2-production-capture-readback.md`; production capture pending |
 
 ## TR · 可信 Runner 与组织 Attestation
 
@@ -163,7 +163,7 @@
 | TR-EG1 | ☑ | org-attested 以更高信任级通过；developer-attested 仍可用 | 双路径 e2e |
 | TR-EG2 | ☑ | org key 撤销后旧 attestation 失效 | 撤销测试 |
 | TR-EG3 | ☑ | replay/伪造/错 SHA/错 installation 全拒 | 负向测试套件 |
-| TR-EG4 | ◐ | runner 不向 ArchContext SaaS 上传代码/Finding | fixture 抓包 + 路由审计；production capture pending |
+| TR-EG4 | ◐ | runner 不向 ArchContext SaaS 上传代码/Finding | fixture 抓包 + 路由审计；strict external readback in `docs/verification/s2-production-capture-readback.md`; production capture pending |
 | TR-EG5 | ☑ | 文案不把 organization-attested 夸大为绝对不可篡改 | 文案走查 |
 
 ## BL · 按人头计费 v2（年付）
@@ -213,7 +213,7 @@
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| HL-EG1 | ◐ | 跨仓代码不进 SaaS repo-local 验证完成；生产验证待补 | fixture 抓包 + 路由审计；production capture pending |
+| HL-EG1 | ◐ | 跨仓代码不进 SaaS repo-local 验证完成；生产验证待补 | fixture 抓包 + 路由审计；strict external readback in `docs/verification/s2-production-capture-readback.md`; production capture pending |
 | HL-EG2 | ☑ | organization-attested 信任级端到端正确 | trust-level e2e |
 | HL-EG3 | ☑ | 年付计费端到端正确，无 team-billing 残留 | billing e2e + 契约扫描 |
 | HL-EG4 | ☑ | 单仓用户无回归（MVP 行为保持） | Sprint 1 回归套件全过 |
@@ -236,4 +236,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | 2026-06-19 | MR multi-repo context | Implement landscape domain, repo-scoped IDs, multi-repo CodeGraph aggregation, bounded landscape context, local derived store, CLI repo/landscape commands, cross-repo reconcile/review/pressure. | Repo-local implementation completed; covered by architecture-domain/codegraph-adapter/context-compiler/runtime-daemon/cli/reconcile/review/pressure tests. Delete-local-store rebuild proof added in `docs/verification/s2-multirepo-rebuild.md`; production capture pending. |
 | 2026-06-19 | TR trusted runner | Implement organization trustLevel, org runner identity binding, runner package signing, SaaS verifier path, Check Run display and protected repo requirement, docs and threat model. | Repo-local implementation completed; covered by attestation/runner/control-plane/github-app tests. Production runner capture pending. |
 | 2026-06-19 | BL billing v2 | Add monthly/annual prices, billingInterval entitlement, Stripe event interval handling, switch proration, offline annual entitlement, D1 metadata. | Completed; covered by control-plane/control-plane-client/cloud-db tests. |
-| 2026-06-19 | HL hardening launch | Add Sprint 2 hardening report, schema upgrade notes, runner setup, multi-repo example, privacy route audit and full regression. | Repo-local deterministic verification completed: `bun test`, `node scripts/privacy-route-audit.mjs`, `node scripts/sprint-status-check.mjs`. Representative Eval added in `docs/verification/s2-representative-eval.md`; production capture and production scan pending. |
+| 2026-06-19 | HL hardening launch | Add Sprint 2 hardening report, schema upgrade notes, runner setup, multi-repo example, privacy route audit and full regression. | Repo-local deterministic verification completed: `bun test`, `node scripts/privacy-route-audit.mjs`, `node scripts/sprint-status-check.mjs`. Representative Eval added in `docs/verification/s2-representative-eval.md`; strict external capture readback added in `docs/verification/s2-production-capture-readback.md`; production capture and production scan pending. |

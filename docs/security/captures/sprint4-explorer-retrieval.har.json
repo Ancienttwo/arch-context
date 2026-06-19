@@ -1,0 +1,61 @@
+{
+  "log": {
+    "version": "1.2",
+    "entries": [
+      {
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1:4173/projection",
+          "headers": [
+            { "name": "authorization", "value": "Bearer [REDACTED]" }
+          ]
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            { "name": "content-type", "value": "application/json" }
+          ],
+          "content": {
+            "text": "{\"schemaVersion\":\"archcontext.explorer-projection/v1\",\"repository\":{\"repositoryId\":\"repo.local\",\"headSha\":\"abc123\",\"worktreeDigest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\"},\"nodes\":[{\"id\":\"module.runtime\",\"name\":\"Runtime\",\"kind\":\"module\",\"verificationStatus\":\"MATCHED\",\"pressure\":{\"level\":\"low\",\"score\":0,\"signals\":[]},\"sourceSelectors\":[{\"path\":\"packages/runtime-daemon/src/index.ts\"}]}],\"relations\":[],\"verification\":[],\"pressure\":[],\"interventions\":[],\"capabilities\":{\"readOnly\":true,\"mutationMode\":\"forbidden\",\"egress\":\"none\",\"tokenRequired\":true}}"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "url": "http://127.0.0.1:4173/projection",
+          "headers": [
+            { "name": "authorization", "value": "Bearer [REDACTED]" }
+          ]
+        },
+        "response": {
+          "status": 405,
+          "headers": [
+            { "name": "content-type", "value": "application/json" }
+          ],
+          "content": {
+            "text": "{\"ok\":false,\"error\":\"explorer is read-only\"}"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "http://127.0.0.1:4173/search?q=loopback",
+          "headers": [
+            { "name": "authorization", "value": "Bearer [REDACTED]" }
+          ]
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            { "name": "content-type", "value": "application/json" }
+          ],
+          "content": {
+            "text": "{\"schemaVersion\":\"archcontext.explorer-projection/v1\",\"capabilities\":{\"readOnly\":true,\"mutationMode\":\"forbidden\",\"egress\":\"none\",\"tokenRequired\":true}}"
+          }
+        }
+      }
+    ]
+  }
+}

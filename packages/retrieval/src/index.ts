@@ -77,7 +77,7 @@ export const REPRESENTATIVE_RETRIEVAL_DOCUMENTS: RetrievalDocument[] = [
   },
   {
     id: "saas.source-upload",
-    text: "Forbidden anti-pattern upload repository source code diff symbols or architecture bodies to SaaS",
+    text: "Forbidden anti-pattern upload repository private content patches symbols or architecture bodies to SaaS",
     constraintIds: ["constraint.zero-egress"]
   },
   {
