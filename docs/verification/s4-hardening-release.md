@@ -17,7 +17,7 @@ This closes Sprint 4 as repo-local deterministic work only. It does not close Sp
 
 ## Verification
 
-- `bun run verify`: passed; includes `tsc --noEmit`, 178 Bun tests, route audit, metadata capture audit, capture manifest readback, security scan manifest readback, and sprint evidence-claim check.
+- `bun run verify`: passed; includes `tsc --noEmit`, the Bun test suite, route audit, metadata capture audit, capture manifest readback, security scan manifest readback, and sprint evidence-claim check.
 - `node scripts/privacy-packet-capture-audit.mjs docs/security/captures/sprint4-explorer-retrieval.har.json`: passed; entries=3 checked=45.
 - `node scripts/privacy-capture-manifest.mjs readback --require-external`: failed as expected because no verified staging or production capture exists yet.
 - `node scripts/security-scan-manifest.mjs readback --require-external`: failed as expected because no verified staging or production security scan exists yet.
