@@ -14,6 +14,8 @@
   "scripts": {
     "test": "bun test",
     "test:contracts": "bun test packages/contracts/test/contracts.test.ts",
+    "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",
+    "readback:ga": "node deploy/scripts/production-ga-readback.mjs run --environment production --json",
     "verify": "bun test && node scripts/privacy-route-audit.mjs && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && node scripts/sprint-status-check.mjs",
     "check:sprint": "node scripts/sprint-status-check.mjs"
   }

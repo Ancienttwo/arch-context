@@ -10,6 +10,7 @@
 - `deploy/sql/` for ordered deployment SQL files named like `0001_create_tables.sql`.
 - `deploy/*.md` for runbooks and operating notes.
 - `deploy/env/.env.example` for documented variable shapes only.
+- `deploy/env/*.env.example` for non-secret env templates used by release/readback scripts.
 
 ## Do Not Track
 

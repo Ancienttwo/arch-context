@@ -28,7 +28,7 @@
       "environment": "production",
       "status": "pending",
       "artifactPath": "docs/security/captures/production-redacted.har.json",
-      "reason": "Awaiting sanitized production HAR from deployed environment.",
+      "reason": "Awaiting deployed production endpoints, GPT App Directory evidence, real provider delivery evidence, and sanitized production HAR.",
       "verifier": "scripts/privacy-packet-capture-audit.mjs"
     },
     {
@@ -36,7 +36,7 @@
       "environment": "staging",
       "status": "pending",
       "artifactPath": "docs/security/captures/staging-redacted.har.json",
-      "reason": "Awaiting sanitized staging HAR from deployed environment.",
+      "reason": "Awaiting deployed staging endpoints and sanitized staging HAR.",
       "verifier": "scripts/privacy-packet-capture-audit.mjs"
     }
   ]
