@@ -25,3 +25,7 @@ Keep retrieval in FTS5 mode by default. Embeddings may only be enabled after the
 - Embedding work can stop at a recorded "keep off" decision when it does not win the eval gate.
 - If embeddings win later, local-store owns index persistence while retrieval owns scoring and decision records.
 - Eval reports, not implementation enthusiasm, decide whether the extra abstraction is allowed.
+
+# Sprint 4 Decision Record
+
+The Sprint 4 repo-local eval kept embeddings off. Evidence is recorded in `docs/verification/s4-retrieval-eval.md`.
