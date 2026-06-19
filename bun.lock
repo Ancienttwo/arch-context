@@ -107,6 +107,10 @@
       "name": "@archcontext/review-engine",
       "version": "0.1.0",
     },
+    "packages/runner": {
+      "name": "@archcontext/runner",
+      "version": "0.1.0",
+    },
     "packages/runtime-daemon": {
       "name": "@archcontext/runtime-daemon",
       "version": "0.1.0",
@@ -160,6 +164,8 @@
     "@archcontext/refactor-decision": ["@archcontext/refactor-decision@workspace:packages/refactor-decision"],
 
     "@archcontext/review-engine": ["@archcontext/review-engine@workspace:packages/review-engine"],
+
+    "@archcontext/runner": ["@archcontext/runner@workspace:packages/runner"],
 
     "@archcontext/runtime-daemon": ["@archcontext/runtime-daemon@workspace:packages/runtime-daemon"],
 

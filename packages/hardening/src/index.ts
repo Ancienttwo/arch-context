@@ -93,8 +93,135 @@ export function sprint2LaunchGateReport() {
     singleRepoRegression: "bun test",
     securityFindings: { scope: "deterministic-sprint-2-surface", critical: 0, high: 0, productionScan: "pending" },
     evals: ["cross-repo-impact", "trust-level", "annual-entitlement"],
-    packetCapture: "pending-production-environment"
+    packetCapture: {
+      verifier: "scripts/privacy-packet-capture-audit.mjs",
+      fixture: "docs/security/captures/metadata-only.har.json",
+      production: "pending-production-environment"
+    }
   };
+}
+
+export interface PacketCaptureFinding {
+  entry: string;
+  path: string;
+  pattern: string;
+  valuePreview: string;
+}
+
+export interface PacketCaptureAuditResult {
+  ok: boolean;
+  entries: number;
+  checkedValues: number;
+  findings: PacketCaptureFinding[];
+}
+
+const FORBIDDEN_CAPTURE_KEYS = new Set([
+  "sourceCode",
+  "source_code",
+  "sourceBody",
+  "source_body",
+  "diff",
+  "diffBody",
+  "diff_body",
+  "symbolPayload",
+  "symbol_payload",
+  "codegraph",
+  "codeGraph",
+  "architectureModelBody",
+  "architecture_model_body",
+  "findingDetail",
+  "finding_detail",
+  "embedding",
+  "fileBody",
+  "file_body",
+  "modelBody",
+  "model_body",
+  "findings"
+]);
+
+const FORBIDDEN_CAPTURE_VALUE_PATTERNS = [
+  /source\s*code/i,
+  /diff\s*body/i,
+  /symbol\s*payload/i,
+  /architecture\s*model\s*body/i,
+  /finding\s*detail/i,
+  /codegraph/i,
+  /\/Users\/[^/\s]+\/Projects\//,
+  /file:\/\/\//i,
+  /Bearer\s+(?!\[REDACTED\])/i,
+  /(access|refresh|secret|token)_[A-Za-z0-9_-]+/
+] as const;
+
+export function auditPacketCapture(capture: unknown): PacketCaptureAuditResult {
+  const entries = normalizeCaptureEntries(capture);
+  const findings: PacketCaptureFinding[] = [];
+  let checkedValues = 0;
+  for (const entry of entries) {
+    checkedValues += inspectValue(entry.payload, entry.id, "$", findings);
+  }
+  return { ok: findings.length === 0, entries: entries.length, checkedValues, findings };
+}
+
+function normalizeCaptureEntries(capture: unknown): { id: string; payload: unknown }[] {
+  if (capture && typeof capture === "object" && "log" in capture) {
+    const entries = (capture as { log?: { entries?: unknown[] } }).log?.entries ?? [];
+    return entries.map((entry, index) => ({ id: `har.entries[${index}]`, payload: projectHarEntry(entry) }));
+  }
+  if (Array.isArray(capture)) {
+    return capture.map((entry, index) => ({ id: `entries[${index}]`, payload: entry }));
+  }
+  return [{ id: "capture", payload: capture }];
+}
+
+function projectHarEntry(entry: unknown): unknown {
+  if (!entry || typeof entry !== "object") return entry;
+  const value = entry as Record<string, any>;
+  return {
+    request: {
+      method: value.request?.method,
+      url: value.request?.url,
+      headers: value.request?.headers,
+      postData: value.request?.postData?.text
+    },
+    response: {
+      status: value.response?.status,
+      headers: value.response?.headers,
+      content: value.response?.content?.text
+    }
+  };
+}
+
+function inspectValue(value: unknown, entry: string, path: string, findings: PacketCaptureFinding[]): number {
+  if (value === null || value === undefined) return 0;
+  let checked = 1;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => {
+      checked += inspectValue(item, entry, `${path}[${index}]`, findings);
+    });
+    return checked;
+  }
+  if (typeof value === "object") {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      const childPath = `${path}.${key}`;
+      if (FORBIDDEN_CAPTURE_KEYS.has(key)) {
+        findings.push({ entry, path: childPath, pattern: `key:${key}`, valuePreview: preview(child) });
+      }
+      checked += inspectValue(child, entry, childPath, findings);
+    }
+    return checked;
+  }
+  if (typeof value === "string") {
+    for (const pattern of FORBIDDEN_CAPTURE_VALUE_PATTERNS) {
+      if (pattern.test(value)) {
+        findings.push({ entry, path, pattern: pattern.toString(), valuePreview: preview(value) });
+      }
+    }
+  }
+  return checked;
+}
+
+function preview(value: unknown): string {
+  return JSON.stringify(value).slice(0, 120);
 }
 
 function listFiles(root: string): string[] {

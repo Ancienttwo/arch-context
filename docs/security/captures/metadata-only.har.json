@@ -1,0 +1,63 @@
+{
+  "log": {
+    "version": "1.2",
+    "creator": {
+      "name": "ArchContext fixture",
+      "version": "0.1.0"
+    },
+    "entries": [
+      {
+        "request": {
+          "method": "POST",
+          "url": "https://api.archcontext.dev/attestations/verify",
+          "headers": [
+            {
+              "name": "authorization",
+              "value": "Bearer [REDACTED]"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "postData": {
+            "mimeType": "application/json",
+            "text": "{\"attestationId\":\"att_fixture\",\"challengeId\":\"challenge_fixture\",\"headSha\":\"abc123\",\"worktreeDigest\":\"sha256:1111111111111111111111111111111111111111111111111111111111111111\",\"reviewDigest\":\"sha256:2222222222222222222222222222222222222222222222222222222222222222\",\"trustLevel\":\"organization\",\"repositoryNumericId\":1001,\"installationId\":12345}"
+          }
+        },
+        "response": {
+          "status": 200,
+          "headers": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ],
+          "content": {
+            "mimeType": "application/json",
+            "text": "{\"accepted\":true,\"checkRunId\":\"check_fixture\"}"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "url": "https://api.archcontext.dev/entitlements/1001",
+          "headers": [
+            {
+              "name": "authorization",
+              "value": "Bearer [REDACTED]"
+            }
+          ]
+        },
+        "response": {
+          "status": 200,
+          "content": {
+            "mimeType": "application/json",
+            "text": "{\"allowed\":true,\"billingInterval\":\"annual\",\"privateRepositoryScope\":\"user-all-private-repositories\"}"
+          }
+        }
+      }
+    ]
+  }
+}

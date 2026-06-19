@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   dependencyAudit,
+  auditPacketCapture,
   diagnostics,
   installMarker,
   largeRepoPerfEstimate,
@@ -61,7 +62,51 @@ describe("@archcontext/hardening", () => {
       organizationAttestation: "runner identity + installation + trustLevel tests",
       annualBilling: "$99 annual interval + per-person entitlement tests",
       securityFindings: { critical: 0, high: 0, productionScan: "pending" },
-      packetCapture: "pending-production-environment"
+      packetCapture: {
+        verifier: "scripts/privacy-packet-capture-audit.mjs",
+        production: "pending-production-environment"
+      }
     });
+  });
+
+  test("audits packet captures for code-bearing payloads and unredacted secrets", () => {
+    const clean = auditPacketCapture({
+      log: {
+        entries: [
+          {
+            request: {
+              method: "POST",
+              url: "https://api.archcontext.dev/attestations/verify",
+              headers: [{ name: "authorization", value: "Bearer [REDACTED]" }],
+              postData: {
+                text: JSON.stringify({
+                  attestationId: "att_1",
+                  headSha: "abc",
+                  worktreeDigest: `sha256:${"1".repeat(64)}`,
+                  reviewDigest: `sha256:${"2".repeat(64)}`,
+                  trustLevel: "organization",
+                  repositoryNumericId: 1001
+                })
+              }
+            },
+            response: { status: 200, content: { text: "{\"accepted\":true}" } }
+          }
+        ]
+      }
+    });
+    expect(clean).toMatchObject({ ok: true, entries: 1 });
+
+    const dirty = auditPacketCapture([
+      {
+        request: {
+          headers: [{ name: "authorization", value: "Bearer live_token" }],
+          body: { sourceCode: "function leaked() {}", findingDetail: "do not upload" }
+        }
+      }
+    ]);
+    expect(dirty.ok).toBe(false);
+    expect(dirty.findings.map((finding) => finding.pattern)).toEqual(
+      expect.arrayContaining(["key:sourceCode", "key:findingDetail", "/Bearer\\s+(?!\\[REDACTED\\])/i"])
+    );
   });
 });

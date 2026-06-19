@@ -14,7 +14,7 @@
   "scripts": {
     "test": "bun test",
     "test:contracts": "bun test packages/contracts/test/contracts.test.ts",
-    "verify": "bun test && node scripts/privacy-route-audit.mjs && node scripts/sprint-status-check.mjs",
+    "verify": "bun test && node scripts/privacy-route-audit.mjs && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/sprint-status-check.mjs",
     "check:sprint": "node scripts/sprint-status-check.mjs"
   }
 }
