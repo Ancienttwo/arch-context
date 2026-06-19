@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "archcontext.privacy-capture-manifest/v1",
+  "captures": [
+    {
+      "id": "fixture.metadata-only",
+      "environment": "fixture",
+      "status": "verified",
+      "artifactPath": "docs/security/captures/metadata-only.har.json",
+      "captureDigest": "sha256:d9605f36104a4db4d4035f8bda7e0818a1a61f127369651567a26c736061bc52",
+      "auditedAt": "2026-06-19T00:00:00.000Z",
+      "entries": 2,
+      "checkedValues": 30,
+      "verifier": "scripts/privacy-packet-capture-audit.mjs"
+    },
+    {
+      "id": "production.real-capture",
+      "environment": "production",
+      "status": "pending",
+      "artifactPath": "docs/security/captures/production-redacted.har.json",
+      "reason": "Awaiting sanitized production HAR from deployed environment.",
+      "verifier": "scripts/privacy-packet-capture-audit.mjs"
+    },
+    {
+      "id": "staging.real-capture",
+      "environment": "staging",
+      "status": "pending",
+      "artifactPath": "docs/security/captures/staging-redacted.har.json",
+      "reason": "Awaiting sanitized staging HAR from deployed environment.",
+      "verifier": "scripts/privacy-packet-capture-audit.mjs"
+    }
+  ]
+}

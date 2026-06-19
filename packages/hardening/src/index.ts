@@ -96,6 +96,8 @@ export function sprint2LaunchGateReport() {
     packetCapture: {
       verifier: "scripts/privacy-packet-capture-audit.mjs",
       fixture: "docs/security/captures/metadata-only.har.json",
+      manifest: "docs/security/captures/manifest.json",
+      readback: "scripts/privacy-capture-manifest.mjs readback",
       production: "pending-production-environment"
     }
   };

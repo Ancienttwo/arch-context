@@ -64,6 +64,8 @@ describe("@archcontext/hardening", () => {
       securityFindings: { critical: 0, high: 0, productionScan: "pending" },
       packetCapture: {
         verifier: "scripts/privacy-packet-capture-audit.mjs",
+        manifest: "docs/security/captures/manifest.json",
+        readback: "scripts/privacy-capture-manifest.mjs readback",
         production: "pending-production-environment"
       }
     });
