@@ -10,6 +10,65 @@ export interface RepositoryBinding {
   worktreeDigest: string;
 }
 
+export type ArchitecturePosture = "normal" | "structural" | "intervention" | "proof-required";
+
+export interface TargetState {
+  owners: Record<string, string>;
+  requiredRelations: string[];
+  removedConcepts: string[];
+}
+
+export interface MigrationState {
+  active: boolean;
+  compatibilityContracts: string[];
+  cleanupBy?: string;
+  temporaryRelations: string[];
+}
+
+export interface KillListItem {
+  id: string;
+  target: string;
+  required: boolean;
+  completed?: boolean;
+}
+
+export interface ProofPoint {
+  description: string;
+  successCriteria: string[];
+  falsifiers: string[];
+}
+
+export interface BenefitLedger {
+  benefits: string[];
+  costs: string[];
+  rollbackPoint: string;
+}
+
+export interface ConstraintClassification {
+  real: string[];
+  inherited: string[];
+}
+
+export interface ArchitectureInterventionModel {
+  id: string;
+  status: "proposed" | "approved" | "in-progress" | "complete" | "rejected";
+  thesis: string;
+  targetState: TargetState;
+  migrationState: MigrationState;
+  constraints: ConstraintClassification;
+  proofPoint?: ProofPoint;
+  killList: KillListItem[];
+  benefitLedger: BenefitLedger;
+}
+
+export function createInterventionId(task: string): string {
+  return `intervention.${task
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "architecture-change"}`;
+}
+
 export interface WorktreeDigestOptions {
   ignore?: string[];
 }

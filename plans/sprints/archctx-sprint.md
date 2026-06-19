@@ -42,7 +42,7 @@
 
 | ADR | 标题 | 主里程碑 | 状态 |
 |---|---|---|:--:|
-| ADR-0001 | Agentic Architecture Control Loop | M2 | ◻ |
+| ADR-0001 | Agentic Architecture Control Loop | M2 | ☑ |
 | ADR-0002 | CodeGraph as Required Code Facts Engine | M0 · M1 | ☑ |
 | ADR-0003 | Local-first Trust Boundary | M0 · M5 · M6 | ☑ |
 | ADR-0004 | SQLite Local Store | M1 | ☑ |
@@ -50,10 +50,10 @@
 | ADR-0006 | CLI and MCP as Thin Adapters | M3 | ◻ |
 | ADR-0007 | Structured Architecture Source of Truth | M0 · M1 | ☑ |
 | ADR-0008 | Declared / Observed / Verified | M1 · M2 | ☑ |
-| ADR-0009 | Target State vs Migration State | M2 | ◻ |
-| ADR-0010 | Compatibility Code Requires Contract | M2 | ◻ |
-| ADR-0011 | Architecture Intervention | M2 | ◻ |
-| ADR-0012 | ChangeSet-only Architecture Writes | M2 | ◻ |
+| ADR-0009 | Target State vs Migration State | M2 | ☑ |
+| ADR-0010 | Compatibility Code Requires Contract | M2 | ☑ |
+| ADR-0011 | Architecture Intervention | M2 | ☑ |
+| ADR-0012 | ChangeSet-only Architecture Writes | M2 | ☑ |
 | ADR-0013 | Progressive Architecture | M1 · M2 | ☑ |
 | ADR-0014 | Context Compiler with Budget | M1 · M2 | ☑ |
 | ADR-0015 | GitHub App without Contents Permission | M5 | ◻ |
@@ -66,7 +66,7 @@
 | ADR-0022 | No Slack in MVP | 全程 / Guardrails | ◻ |
 | ADR-0023 | User-level Private Entitlement | M5 | ◻ |
 | ADR-0024 | Developer vs Organization Attestation | M5 | ◻ |
-| ADR-0025 | Evidence Confidence and Proof Required | M2 | ◻ |
+| ADR-0025 | Evidence Confidence and Proof Required | M2 | ☑ |
 
 ## 进度总览
 
@@ -74,12 +74,12 @@
 |---|---|--:|--:|--:|
 | M0 | 契约与架构冻结 | 18 | 5 | 23 / 23 |
 | M1 | 本地 Runtime 基础 | 28 | 5 | 33 / 33 |
-| M2 | 主动架构控制循环 | 33 | 6 | 0 / 39 |
+| M2 | 主动架构控制循环 | 33 | 6 | 39 / 39 |
 | M3 | CLI / MCP / Agent 集成 | 22 | 5 | 0 / 27 |
 | M4 | ChatGPT App | 27 | 6 | 0 / 33 |
 | M5 | SaaS / 计费 / GitHub Attestation | 32 | 6 | 0 / 38 |
 | M6 | 加固与发布 | 22 | 9 | 0 / 31 |
-| **合计** | | **182** | **42** | **56 / 224** |
+| **合计** | | **182** | **42** | **95 / 224** |
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -89,7 +89,7 @@
 |---|--------|------|------|------------|------|
 | 1 | [x] | archctx-m0-contracts-freeze | contract | 9 份 Schema + ID/Version/Envelope/错误码/Digest 绑定 + Adapter/Ports + Threat Model v1 + ADR 记录；M0 Exit Gate 全绿 | `docs/verification/m0-contracts-gate.md` |
 | 2 | [x] | archctx-m1-local-runtime | contract | `archctxd` + Session + SQLite + CodeGraph Adapter + 模型 Loader + `init/sync/validate/context/status`；M1 Exit Gate 全绿 | `docs/verification/m1-local-runtime-gate.md` |
-| 3 | [ ] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | (pending) |
+| 3 | [x] | archctx-m2-control-loop | contract | prepare/checkpoint/complete Gate + Posture + Pressure + Confidence + Intervention/Compatibility + ChangeSet；M2 Exit Gate 全绿 | `docs/verification/m2-control-loop-gate.md` |
 | 4 | [ ] | archctx-m3-cli-mcp-agent | contract | 全 CLI + 5-tool stdio MCP + Resources + 第一方 Skills + Agent SOP 接入；M3 Exit Gate 全绿 | (pending) |
 | 5 | [ ] | archctx-m4-chatgpt-app | contract | 双通道 MCP + Secure Tunnel + GPT 工具面 + MCP Apps UI + OAuth2.1；M4 Exit Gate 全绿 | (pending) |
 | 6 | [ ] | archctx-m5-saas-attestation | contract | Identity/Entitlement + GitHub App + Stripe + Cloudflare；M5 Exit Gate 全绿 | (pending) |
@@ -190,50 +190,50 @@
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
-| M2-01 | ◻ | 实现 `prepare_task` | context-compiler |  | M1-13,20 |
-| M2-02 | ◻ | 实现 Posture：Normal/Structural/Intervention/Proof Required | refactor-decision |  | M2-07,15 |
-| M2-03 | ◻ | 实现 Task Context Budget | context-compiler |  | M2-01 |
-| M2-04 | ◻ | 实现 Checkpoint | application |  | M2-01 |
-| M2-05 | ◻ | 实现 `complete_task` Gate | review-engine |  | M2-04 |
-| M2-06 | ◻ | 任何写入均验证 Snapshot Freshness | runtime-daemon |  | M1-04 |
-| M2-07 | ◻ | 检测重复责任 | pressure-engine |  | M1-13 |
-| M2-08 | ◻ | 检测多 Lifecycle Owner | pressure-engine |  | M1-13 |
-| M2-09 | ◻ | 检测无依据 Wrapper 与 Adapter | pressure-engine |  | M1-13 |
-| M2-10 | ◻ | 检测同一业务概念的新旧双轨 | pressure-engine |  | M1-13 |
-| M2-11 | ◻ | 检测跨边界数据访问 | pressure-engine |  | M1-20 |
-| M2-12 | ◻ | 检测循环依赖与变更热点 | pressure-engine |  | M1-13 |
-| M2-13 | ◻ | 检测超期 Migration State | pressure-engine |  | M2-21 |
-| M2-14 | ◻ | 压力结果附 Evidence 或标记 Heuristic | pressure-engine |  | M2-07 |
-| M2-15 | ◻ | 计算调用方覆盖度 | refactor-decision |  | M1-13 |
-| M2-16 | ◻ | 识别 Public Contract/Persisted Data/External Consumer | refactor-decision |  | M1-13 |
-| M2-17 | ◻ | 评估测试覆盖与回滚点 | refactor-decision |  | — |
-| M2-18 | ◻ | 低信心生成 Proof Point | refactor-decision |  | M2-15 |
-| M2-19 | ◻ | 高压力高信心生成 Intervention Proposal | refactor-decision |  | M2-02,20 |
-| M2-20 | ◻ | 实现 Target State | architecture-domain |  | M0-04 |
-| M2-21 | ◻ | 实现 Migration State | architecture-domain |  | M0-04 |
-| M2-22 | ◻ | 实现 Kill List | architecture-domain |  | M2-20 |
-| M2-23 | ◻ | 实现 Real/Inherited Constraint 分类 | architecture-domain |  | M0-03 |
-| M2-24 | ◻ | 实现 Proof Point 与 Falsifier | architecture-domain |  | M2-18 |
-| M2-25 | ◻ | 实现 Benefit Ledger | architecture-domain |  | — |
-| M2-26 | ◻ | 实现 Compatibility Contract 创建与复审 | policy-engine |  | M0-05 |
-| M2-27 | ◻ | 未绑定真实契约的兼容层触发 Review Finding | review-engine |  | M2-26 |
-| M2-28 | ◻ | ChangeSet Plan/Preview/Approve/Apply/Rollback 状态机 | changeset-engine |  | M0-07 |
-| M2-29 | ◻ | 写操作限于 Allowlist 路径 | changeset-engine |  | M2-28 |
-| M2-30 | ◻ | 拒绝 Path Traversal/Symlink Escape/越权路径 | changeset-engine |  | M2-29 |
-| M2-31 | ◻ | 支持 Precondition/Expected Digest/原子替换 | changeset-engine |  | M2-28 |
-| M2-32 | ◻ | 人类手写区不被生成器覆盖 | reconcile-engine |  | M1-23 |
-| M2-33 | ◻ | Apply 后自动 Validation 与 Projection 重建 | changeset-engine |  | M2-28,32 |
+| M2-01 | ☑ | 实现 `prepare_task` | context-compiler |  | M1-13,20 |
+| M2-02 | ☑ | 实现 Posture：Normal/Structural/Intervention/Proof Required | refactor-decision |  | M2-07,15 |
+| M2-03 | ☑ | 实现 Task Context Budget | context-compiler |  | M2-01 |
+| M2-04 | ☑ | 实现 Checkpoint | application |  | M2-01 |
+| M2-05 | ☑ | 实现 `complete_task` Gate | review-engine |  | M2-04 |
+| M2-06 | ☑ | 任何写入均验证 Snapshot Freshness | runtime-daemon |  | M1-04 |
+| M2-07 | ☑ | 检测重复责任 | pressure-engine |  | M1-13 |
+| M2-08 | ☑ | 检测多 Lifecycle Owner | pressure-engine |  | M1-13 |
+| M2-09 | ☑ | 检测无依据 Wrapper 与 Adapter | pressure-engine |  | M1-13 |
+| M2-10 | ☑ | 检测同一业务概念的新旧双轨 | pressure-engine |  | M1-13 |
+| M2-11 | ☑ | 检测跨边界数据访问 | pressure-engine |  | M1-20 |
+| M2-12 | ☑ | 检测循环依赖与变更热点 | pressure-engine |  | M1-13 |
+| M2-13 | ☑ | 检测超期 Migration State | pressure-engine |  | M2-21 |
+| M2-14 | ☑ | 压力结果附 Evidence 或标记 Heuristic | pressure-engine |  | M2-07 |
+| M2-15 | ☑ | 计算调用方覆盖度 | refactor-decision |  | M1-13 |
+| M2-16 | ☑ | 识别 Public Contract/Persisted Data/External Consumer | refactor-decision |  | M1-13 |
+| M2-17 | ☑ | 评估测试覆盖与回滚点 | refactor-decision |  | — |
+| M2-18 | ☑ | 低信心生成 Proof Point | refactor-decision |  | M2-15 |
+| M2-19 | ☑ | 高压力高信心生成 Intervention Proposal | refactor-decision |  | M2-02,20 |
+| M2-20 | ☑ | 实现 Target State | architecture-domain |  | M0-04 |
+| M2-21 | ☑ | 实现 Migration State | architecture-domain |  | M0-04 |
+| M2-22 | ☑ | 实现 Kill List | architecture-domain |  | M2-20 |
+| M2-23 | ☑ | 实现 Real/Inherited Constraint 分类 | architecture-domain |  | M0-03 |
+| M2-24 | ☑ | 实现 Proof Point 与 Falsifier | architecture-domain |  | M2-18 |
+| M2-25 | ☑ | 实现 Benefit Ledger | architecture-domain |  | — |
+| M2-26 | ☑ | 实现 Compatibility Contract 创建与复审 | policy-engine |  | M0-05 |
+| M2-27 | ☑ | 未绑定真实契约的兼容层触发 Review Finding | review-engine |  | M2-26 |
+| M2-28 | ☑ | ChangeSet Plan/Preview/Approve/Apply/Rollback 状态机 | changeset-engine |  | M0-07 |
+| M2-29 | ☑ | 写操作限于 Allowlist 路径 | changeset-engine |  | M2-28 |
+| M2-30 | ☑ | 拒绝 Path Traversal/Symlink Escape/越权路径 | changeset-engine |  | M2-29 |
+| M2-31 | ☑ | 支持 Precondition/Expected Digest/原子替换 | changeset-engine |  | M2-28 |
+| M2-32 | ☑ | 人类手写区不被生成器覆盖 | reconcile-engine |  | M1-23 |
+| M2-33 | ☑ | Apply 后自动 Validation 与 Projection 重建 | changeset-engine |  | M2-28,32 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| M2-EG1 | ◻ | 能区分真实外部契约 vs 内部历史惯性 | Eval `refactor-or-patch` 分类正确 |
-| M2-EG2 | ◻ | 高压力低信心进入 Proof Required | Eval `high-pressure-low-confidence` → Posture=ProofRequired |
-| M2-EG3 | ◻ | 高/高 不只输出最小 Diff | Eval 断言无"仅最小补丁"建议 |
-| M2-EG4 | ◻ | Migration 不被误标 Target | Eval `target-vs-migration` 通过 |
-| M2-EG5 | ◻ | 无依据兼容检测 Recall ≥ 85% | `compatibility-debt` eval set 达标 |
-| M2-EG6 | ◻ | ChangeSet 可完整回滚 | fault-injection：apply 中断 100% 回滚 |
+| M2-EG1 | ☑ | 能区分真实外部契约 vs 内部历史惯性 | Eval `refactor-or-patch` 分类正确 |
+| M2-EG2 | ☑ | 高压力低信心进入 Proof Required | Eval `high-pressure-low-confidence` → Posture=ProofRequired |
+| M2-EG3 | ☑ | 高/高 不只输出最小 Diff | Eval 断言无"仅最小补丁"建议 |
+| M2-EG4 | ☑ | Migration 不被误标 Target | Eval `target-vs-migration` 通过 |
+| M2-EG5 | ☑ | 无依据兼容检测 Recall ≥ 85% | `compatibility-debt` eval set 达标 |
+| M2-EG6 | ☑ | ChangeSet 可完整回滚 | fault-injection：apply 中断 100% 回滚 |
 
 ## M3 · CLI、MCP 与 Coding Agent 集成
 
@@ -430,3 +430,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 |------|------|------|--------|
 | 2026-06-19 | archctx-m0-contracts-freeze | Freeze schemas, ports, error/envelope/digest contract, ADRs, and threat model | Complete; `bun test packages/contracts/test/contracts.test.ts` = 26 pass |
 | 2026-06-19 | archctx-m1-local-runtime | Implement local daemon/session/store/codefacts/model/CLI foundation | Complete; `bun test` = 38 pass |
+| 2026-06-19 | archctx-m2-control-loop | Implement prepare/checkpoint/complete posture, policy, intervention, and ChangeSet loop | Complete; `bun test` = 47 pass |

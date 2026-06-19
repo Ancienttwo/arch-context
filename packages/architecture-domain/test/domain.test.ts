@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   assertRepoRelativePath,
   computeWorktreeDigest,
+  createInterventionId,
   listRepoFiles,
   repositoryFingerprint
 } from "../src/index";
@@ -40,5 +41,13 @@ describe("@archcontext/architecture-domain", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("intervention ids are stable and bounded", () => {
+    expect(createInterventionId("Unify Subscription & Payment State")).toBe(
+      "intervention.unify-subscription-payment-state"
+    );
+    expect(createInterventionId("")).toBe("intervention.architecture-change");
+    expect(createInterventionId("x".repeat(120)).length).toBeLessThanOrEqual("intervention.".length + 80);
   });
 });
