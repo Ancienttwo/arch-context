@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "archcontext.retrieval-config/v1",
+  "defaultMode": "fts5",
+  "fts5": {
+    "enabled": true
+  },
+  "embedding": {
+    "enabled": false,
+    "provider": "local-deterministic",
+    "dimensions": 64,
+    "egress": "forbidden"
+  },
+  "decisionGate": {
+    "minContextRecallLift": 0.08,
+    "minConstraintRecallLift": 0.05,
+    "maxIrrelevantRatio": 0.25,
+    "maxToolCallIncrease": 0
+  }
+}

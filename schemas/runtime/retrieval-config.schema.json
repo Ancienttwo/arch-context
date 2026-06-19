@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/retrieval-config.schema.json",
+  "title": "RetrievalConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "defaultMode", "fts5", "embedding", "decisionGate"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.retrieval-config/v1" },
+    "defaultMode": { "type": "string", "enum": ["fts5"] },
+    "fts5": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "const": true }
+      }
+    },
+    "embedding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "provider", "dimensions", "egress"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "provider": { "type": "string", "enum": ["local-deterministic", "local-provider"] },
+        "dimensions": { "type": "integer", "minimum": 1 },
+        "indexPath": { "type": "string" },
+        "egress": { "type": "string", "enum": ["forbidden"] }
+      }
+    },
+    "decisionGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minContextRecallLift", "minConstraintRecallLift", "maxIrrelevantRatio", "maxToolCallIncrease"],
+      "properties": {
+        "minContextRecallLift": { "type": "number", "minimum": 0 },
+        "minConstraintRecallLift": { "type": "number", "minimum": 0 },
+        "maxIrrelevantRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "maxToolCallIncrease": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

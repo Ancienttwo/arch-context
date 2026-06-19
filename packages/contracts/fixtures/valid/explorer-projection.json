@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "archcontext.explorer-projection/v1",
+  "generatedAt": "2026-06-20T00:00:00.000Z",
+  "repository": {
+    "repositoryId": "repo.local",
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "modelDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "nodes": [
+    {
+      "id": "module.runtime-daemon",
+      "name": "Runtime Daemon",
+      "kind": "module",
+      "repositoryId": "repo.local",
+      "verificationStatus": "MATCHED",
+      "pressure": {
+        "level": "low",
+        "score": 12,
+        "signals": []
+      },
+      "sourceSelectors": [
+        {
+          "path": "packages/runtime-daemon/src/index.ts",
+          "symbolId": "ArchctxDaemon",
+          "startLine": 41,
+          "endLine": 300
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "relation.cli-runtime",
+      "source": "module.cli",
+      "target": "module.runtime-daemon",
+      "kind": "uses",
+      "verificationStatus": "MATCHED"
+    }
+  ],
+  "landscape": {
+    "repositories": ["repo.local"]
+  },
+  "verification": [],
+  "pressure": [],
+  "interventions": [],
+  "capabilities": {
+    "readOnly": true,
+    "mutationMode": "forbidden",
+    "egress": "none",
+    "tokenRequired": true
+  }
+}

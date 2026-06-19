@@ -17,6 +17,11 @@ const schemaByFixture: Record<string, string> = {
   "task-context": "schemas/runtime/task-context.schema.json",
   "changeset": "schemas/runtime/changeset.schema.json",
   "review-result": "schemas/runtime/review-result.schema.json",
+  "explorer-projection": "schemas/runtime/explorer-projection.schema.json",
+  "explorer-service": "schemas/runtime/explorer-service.schema.json",
+  "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
+  "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
+  "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json",
   "notification-event": "schemas/runtime/notification-event.schema.json",
   "notification-provider": "schemas/runtime/notification-provider.schema.json",
   "likec4-mapping": "schemas/integrations/likec4-mapping.schema.json",
@@ -113,6 +118,30 @@ describe("JSON schema contracts", () => {
     expect(fixture.reverseSync).toBe("forbidden");
     expect(fixture.protectedNativeFields).toEqual(["evidence", "verification", "constraint", "intervention"]);
   });
+
+  test("explorer projection contract is read-only and contains no SaaS egress fields", () => {
+    const schema = readJson("schemas/runtime/explorer-projection.schema.json") as any;
+    const rootProperties = Object.keys(schema.properties);
+    for (const forbidden of ["operation", "operations", "changeset", "mutationEndpoint", "saasEndpoint", "remoteUrl"]) {
+      expect(rootProperties).not.toContain(forbidden);
+    }
+    expect(schema.properties.capabilities.properties.readOnly.const).toBe(true);
+    expect(schema.properties.capabilities.properties.mutationMode.enum).toEqual(["forbidden"]);
+    expect(schema.properties.capabilities.properties.egress.enum).toEqual(["none"]);
+  });
+
+  test("retrieval decision gate exposes machine-checkable thresholds", () => {
+    const schema = readJson("schemas/runtime/retrieval-decision.schema.json") as any;
+    expect(schema.properties.thresholds.required.sort()).toEqual([
+      "maxIrrelevantRatio",
+      "maxToolCallIncrease",
+      "minConstraintRecallLift",
+      "minContextRecallLift"
+    ]);
+    const fixture = readJson("packages/contracts/fixtures/valid/retrieval-decision.json") as any;
+    expect(fixture.thresholds.minContextRecallLift).toBeGreaterThan(0);
+    expect(fixture.decision).toBe("keep-fts5");
+  });
 });
 
 function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
@@ -128,6 +157,11 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.task-context/v1": "task-context",
     "archcontext.changeset/v1": "changeset",
     "archcontext.review/v1": "review-result",
+    "archcontext.explorer-projection/v1": "explorer-projection",
+    "archcontext.explorer-service/v1": "explorer-service",
+    "archcontext.retrieval-config/v1": "retrieval-config",
+    "archcontext.retrieval-eval/v1": "retrieval-eval",
+    "archcontext.retrieval-decision/v1": "retrieval-decision",
     "archcontext.notification-event/v1": "notification-event",
     "archcontext.notification-provider/v1": "notification-provider",
     "archcontext.likec4-mapping/v1": "likec4-mapping",

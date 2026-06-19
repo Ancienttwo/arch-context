@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.retrieval-eval/v1",
+  "id": "eval.local-context-recall.v1",
+  "seed": 42,
+  "queries": [
+    {
+      "id": "q.loopback-explorer",
+      "text": "show the local explorer loopback boundary",
+      "expectedContextIds": ["adr.0032", "guardrail.local-loopback"],
+      "expectedConstraintIds": ["constraint.zero-egress"],
+      "prohibitedContextIds": ["saas.source-upload"]
+    }
+  ]
+}

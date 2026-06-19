@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "archcontext.retrieval-decision/v1",
+  "decidedAt": "2026-06-20T00:00:00.000Z",
+  "baseline": {
+    "mode": "fts5",
+    "contextRecall": 0.8,
+    "constraintRecall": 0.75,
+    "irrelevantRatio": 0.1,
+    "toolCalls": 1
+  },
+  "candidate": {
+    "mode": "embedding",
+    "contextRecall": 0.82,
+    "constraintRecall": 0.76,
+    "irrelevantRatio": 0.12,
+    "toolCalls": 1
+  },
+  "thresholds": {
+    "minContextRecallLift": 0.08,
+    "minConstraintRecallLift": 0.05,
+    "maxIrrelevantRatio": 0.25,
+    "maxToolCallIncrease": 0
+  },
+  "decision": "keep-fts5",
+  "evidenceDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+}

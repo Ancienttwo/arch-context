@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/explorer-projection.schema.json",
+  "title": "ExplorerProjection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "repository", "nodes", "relations", "verification", "pressure", "interventions", "capabilities"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.explorer-projection/v1" },
+    "generatedAt": { "type": "string" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "headSha", "worktreeDigest"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string" },
+        "modelDigest": { "type": "string" }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "kind", "verificationStatus", "pressure", "sourceSelectors"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "repositoryId": { "type": "string" },
+          "verificationStatus": { "type": "string", "enum": ["MATCHED", "DRIFT", "UNKNOWN", "VERIFIED"] },
+          "pressure": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["level", "score", "signals"],
+            "properties": {
+              "level": { "type": "string", "enum": ["low", "medium", "high"] },
+              "score": { "type": "number", "minimum": 0, "maximum": 100 },
+              "signals": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "sourceSelectors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": {
+                "path": { "type": "string" },
+                "symbolId": { "type": "string" },
+                "startLine": { "type": "integer", "minimum": 1 },
+                "endLine": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "target", "kind", "verificationStatus"],
+        "properties": {
+          "id": { "type": "string" },
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "kind": { "type": "string" },
+          "verificationStatus": { "type": "string", "enum": ["MATCHED", "DRIFT", "UNKNOWN", "VERIFIED"] }
+        }
+      }
+    },
+    "landscape": { "type": "object", "additionalProperties": true },
+    "verification": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "pressure": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "interventions": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readOnly", "mutationMode", "egress", "tokenRequired"],
+      "properties": {
+        "readOnly": { "const": true },
+        "mutationMode": { "type": "string", "enum": ["forbidden"] },
+        "egress": { "type": "string", "enum": ["none"] },
+        "tokenRequired": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -180,6 +180,116 @@ export interface ModelInteropImporter {
   importInitialModel(input: { content: string; source: "likec4" | "structurizr" }): Promise<{ nodes: Json[]; relations: Json[]; warnings: string[] }>;
 }
 
+export type ExplorerVerificationStatus = "MATCHED" | "DRIFT" | "UNKNOWN" | "VERIFIED";
+export type ExplorerPressureLevel = "low" | "medium" | "high";
+
+export interface ExplorerNodeView {
+  id: string;
+  name: string;
+  kind: string;
+  repositoryId?: string;
+  verificationStatus: ExplorerVerificationStatus;
+  pressure: {
+    level: ExplorerPressureLevel;
+    score: number;
+    signals: string[];
+  };
+  sourceSelectors: SourceSelector[];
+}
+
+export interface ExplorerRelationView {
+  id: string;
+  source: string;
+  target: string;
+  kind: string;
+  verificationStatus: ExplorerVerificationStatus;
+}
+
+export interface ExplorerProjection {
+  schemaVersion: "archcontext.explorer-projection/v1";
+  generatedAt: string;
+  repository: RepositorySnapshot;
+  nodes: ExplorerNodeView[];
+  relations: ExplorerRelationView[];
+  landscape?: Json;
+  verification: Json[];
+  pressure: Json[];
+  interventions: Json[];
+  capabilities: {
+    readOnly: true;
+    mutationMode: "forbidden";
+    egress: "none";
+    tokenRequired: boolean;
+  };
+}
+
+export interface ExplorerServiceContract {
+  schemaVersion: "archcontext.explorer-service/v1";
+  bindHost: "127.0.0.1";
+  protocol: "http-loopback";
+  optIn: true;
+  defaultEnabled: false;
+  tokenTtlSeconds: number;
+  readOnly: true;
+  allowedMethods: ["GET"];
+  egress: "none";
+}
+
+export interface RetrievalConfig {
+  schemaVersion: "archcontext.retrieval-config/v1";
+  defaultMode: "fts5";
+  fts5: {
+    enabled: true;
+  };
+  embedding: {
+    enabled: boolean;
+    provider: "local-deterministic" | "local-provider";
+    dimensions: number;
+    indexPath?: string;
+    egress: "forbidden";
+  };
+  decisionGate: RetrievalDecisionThresholds;
+}
+
+export interface RetrievalEvalQuery {
+  id: string;
+  text: string;
+  expectedContextIds: string[];
+  expectedConstraintIds: string[];
+  prohibitedContextIds: string[];
+}
+
+export interface RetrievalEvalSet {
+  schemaVersion: "archcontext.retrieval-eval/v1";
+  id: string;
+  seed: number;
+  queries: RetrievalEvalQuery[];
+}
+
+export interface RetrievalScore {
+  contextRecall: number;
+  constraintRecall: number;
+  irrelevantRatio: number;
+  toolCalls: number;
+}
+
+export interface RetrievalDecisionThresholds {
+  minContextRecallLift: number;
+  minConstraintRecallLift: number;
+  maxIrrelevantRatio: number;
+  maxToolCallIncrease: number;
+}
+
+export interface RetrievalDecisionRecord {
+  schemaVersion: "archcontext.retrieval-decision/v1";
+  decidedAt: string;
+  baseline: RetrievalScore & { mode: "fts5" };
+  candidate: RetrievalScore & { mode: "embedding" };
+  thresholds: RetrievalDecisionThresholds;
+  decision: "enable-embedding" | "keep-fts5";
+  evidenceDigest: string;
+}
+
 export interface ChatGptGaToolContract {
   schemaVersion: "archcontext.chatgpt-ga-tool/v1";
   toolName: string;

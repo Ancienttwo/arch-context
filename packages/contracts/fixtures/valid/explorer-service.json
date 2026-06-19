@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "archcontext.explorer-service/v1",
+  "bindHost": "127.0.0.1",
+  "protocol": "http-loopback",
+  "optIn": true,
+  "defaultEnabled": false,
+  "tokenTtlSeconds": 900,
+  "readOnly": true,
+  "allowedMethods": ["GET"],
+  "egress": "none"
+}

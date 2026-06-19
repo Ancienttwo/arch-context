@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "archcontext.explorer-projection/v1",
+  "generatedAt": "2026-06-20T00:00:00.000Z",
+  "repository": {
+    "repositoryId": "repo.local",
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "nodes": [],
+  "relations": [],
+  "verification": [],
+  "pressure": [],
+  "interventions": [],
+  "capabilities": {
+    "readOnly": true,
+    "mutationMode": "forbidden",
+    "egress": "none",
+    "tokenRequired": true
+  },
+  "mutationEndpoint": "/changesets/apply"
+}

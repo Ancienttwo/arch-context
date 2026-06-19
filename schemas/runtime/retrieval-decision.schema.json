@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/retrieval-decision.schema.json",
+  "title": "RetrievalDecisionRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "decidedAt", "baseline", "candidate", "thresholds", "decision", "evidenceDigest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.retrieval-decision/v1" },
+    "decidedAt": { "type": "string" },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "contextRecall", "constraintRecall", "irrelevantRatio", "toolCalls"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["fts5"] },
+        "contextRecall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "constraintRecall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "irrelevantRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "toolCalls": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "contextRecall", "constraintRecall", "irrelevantRatio", "toolCalls"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["embedding"] },
+        "contextRecall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "constraintRecall": { "type": "number", "minimum": 0, "maximum": 1 },
+        "irrelevantRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "toolCalls": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minContextRecallLift", "minConstraintRecallLift", "maxIrrelevantRatio", "maxToolCallIncrease"],
+      "properties": {
+        "minContextRecallLift": { "type": "number", "minimum": 0 },
+        "minConstraintRecallLift": { "type": "number", "minimum": 0 },
+        "maxIrrelevantRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "maxToolCallIncrease": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "decision": { "type": "string", "enum": ["enable-embedding", "keep-fts5"] },
+    "evidenceDigest": { "type": "string" }
+  }
+}

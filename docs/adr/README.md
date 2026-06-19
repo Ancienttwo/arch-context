@@ -47,3 +47,5 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0029 | Notification Providers |
 | ADR-0030 | Model Interop Adapters |
 | ADR-0031 | ChatGPT App GA |
+| ADR-0032 | Browser Architecture Explorer |
+| ADR-0033 | Semantic Retrieval and Embeddings |

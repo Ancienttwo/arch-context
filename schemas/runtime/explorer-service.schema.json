@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/explorer-service.schema.json",
+  "title": "ExplorerServiceContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "bindHost", "protocol", "optIn", "defaultEnabled", "tokenTtlSeconds", "readOnly", "allowedMethods", "egress"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.explorer-service/v1" },
+    "bindHost": { "const": "127.0.0.1" },
+    "protocol": { "const": "http-loopback" },
+    "optIn": { "const": true },
+    "defaultEnabled": { "const": false },
+    "tokenTtlSeconds": { "type": "integer", "minimum": 1 },
+    "readOnly": { "const": true },
+    "allowedMethods": { "type": "array", "items": { "type": "string", "enum": ["GET"] } },
+    "egress": { "type": "string", "enum": ["none"] }
+  }
+}
