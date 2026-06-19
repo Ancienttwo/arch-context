@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/integrations/structurizr-mapping.schema.json",
+  "title": "StructurizrMapping",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "exportMode", "native", "structurizr", "views"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.structurizr-mapping/v1" },
+    "id": { "type": "string", "pattern": "^mapping\\.structurizr\\.[a-z0-9][a-z0-9-]*$" },
+    "exportMode": { "const": "export-first" },
+    "native": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeKinds", "relationKinds"],
+      "properties": {
+        "nodeKinds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "relationKinds": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "structurizr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace", "model", "views"],
+      "properties": {
+        "workspace": { "type": "string" },
+        "model": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "views": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "views": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+  }
+}

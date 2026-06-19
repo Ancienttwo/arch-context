@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/runtime/notification-provider.schema.json",
+  "title": "NotificationProviderConfig",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "provider", "enabled", "target", "retry"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.notification-provider/v1" },
+    "id": { "type": "string", "pattern": "^notification-provider\\.[a-z0-9][a-z0-9-]*$" },
+    "provider": { "type": "string", "enum": ["github-check", "slack", "webhook", "email"] },
+    "enabled": { "type": "boolean" },
+    "target": { "type": "string" },
+    "secretRef": { "type": "string", "pattern": "^(env|secret|keychain)://[A-Za-z0-9_.:/-]+$" },
+    "unsubscribeUrl": { "type": "string" },
+    "retry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxAttempts", "backoffSeconds"],
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "backoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+      }
+    }
+  }
+}

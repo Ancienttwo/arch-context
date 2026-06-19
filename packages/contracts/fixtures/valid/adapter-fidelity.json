@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "archcontext.adapter-fidelity/v1",
+  "id": "adapter-fidelity.native-sot",
+  "direction": "export-first",
+  "importScope": "initialization-only",
+  "nativeIsSourceOfTruth": true,
+  "reverseSync": "forbidden",
+  "protectedNativeFields": ["evidence", "verification", "constraint", "intervention"]
+}

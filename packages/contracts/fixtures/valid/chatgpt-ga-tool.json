@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "archcontext.chatgpt-ga-tool/v1",
+  "toolName": "archcontext_prepare_task",
+  "surface": "local-runtime",
+  "readOnlyByDefault": true,
+  "dataClassification": "local-architecture",
+  "requiresLocalConfirmationForWrite": false,
+  "disclosure": "Private repository content is processed by the local runtime; remote ArchContext MCP exposes metadata only."
+}

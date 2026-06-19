@@ -1,3 +1,5 @@
+import type { Json } from "./schema";
+
 export interface WorkspaceRef {
   root: string;
   repositoryId: string;
@@ -114,4 +116,76 @@ export interface RendererPort {
 export interface CloudMetadataPort {
   verifyEntitlement(input: { repositoryVisibility: "public" | "private"; accountId?: string }): Promise<{ allowed: boolean; reason?: string }>;
   submitAttestation(input: unknown): Promise<{ accepted: boolean; checkRunId?: string; reason?: string }>;
+}
+
+export type NotificationResult = "pass" | "pass_with_warnings" | "fail_action_required";
+export type NotificationRiskLevel = "low" | "medium" | "high" | "critical";
+export type NotificationProviderKind = "github-check" | "slack" | "webhook" | "email";
+
+export interface NotificationEvent {
+  schemaVersion: "archcontext.notification-event/v1";
+  eventId: string;
+  prUrl: string;
+  result: NotificationResult;
+  riskLevel: NotificationRiskLevel;
+  commitSha: string;
+  runtimeVersion: string;
+  occurredAt: string;
+}
+
+export interface NotificationProviderConfig {
+  schemaVersion: "archcontext.notification-provider/v1";
+  id: string;
+  provider: NotificationProviderKind;
+  enabled: boolean;
+  target: string;
+  secretRef?: string;
+  unsubscribeUrl?: string;
+  retry: {
+    maxAttempts: number;
+    backoffSeconds: number;
+  };
+}
+
+export interface NotificationDeliveryResult {
+  providerId: string;
+  delivered: boolean;
+  idempotencyKey: string;
+  attempt: number;
+  statusCode?: number;
+  deadLettered?: boolean;
+  reason?: string;
+}
+
+export interface NotificationPublisher {
+  publish(event: NotificationEvent): Promise<NotificationDeliveryResult[]>;
+}
+
+export interface ModelProjectionFile {
+  path: string;
+  content: string;
+}
+
+export interface ModelExportResult {
+  format: "likec4" | "structurizr" | "mermaid";
+  digest: string;
+  files: ModelProjectionFile[];
+}
+
+export interface ModelInteropExporter {
+  exportModel(input: { nodes: Json[]; relations: Json[] }): Promise<ModelExportResult>;
+}
+
+export interface ModelInteropImporter {
+  importInitialModel(input: { content: string; source: "likec4" | "structurizr" }): Promise<{ nodes: Json[]; relations: Json[]; warnings: string[] }>;
+}
+
+export interface ChatGptGaToolContract {
+  schemaVersion: "archcontext.chatgpt-ga-tool/v1";
+  toolName: string;
+  surface: "cloud-metadata" | "local-runtime";
+  readOnlyByDefault: boolean;
+  dataClassification: "cloud-metadata" | "local-metadata" | "local-architecture";
+  requiresLocalConfirmationForWrite: boolean;
+  disclosure: string;
 }

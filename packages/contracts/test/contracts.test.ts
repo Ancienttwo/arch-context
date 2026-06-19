@@ -17,6 +17,12 @@ const schemaByFixture: Record<string, string> = {
   "task-context": "schemas/runtime/task-context.schema.json",
   "changeset": "schemas/runtime/changeset.schema.json",
   "review-result": "schemas/runtime/review-result.schema.json",
+  "notification-event": "schemas/runtime/notification-event.schema.json",
+  "notification-provider": "schemas/runtime/notification-provider.schema.json",
+  "likec4-mapping": "schemas/integrations/likec4-mapping.schema.json",
+  "structurizr-mapping": "schemas/integrations/structurizr-mapping.schema.json",
+  "adapter-fidelity": "schemas/integrations/adapter-fidelity.schema.json",
+  "chatgpt-ga-tool": "schemas/integrations/chatgpt-ga-tool.schema.json",
   "attestation": "schemas/cloud/attestation.schema.json",
   "org-runner-identity": "schemas/cloud/org-runner-identity.schema.json",
   "entitlement": "schemas/cloud/entitlement.schema.json"
@@ -80,6 +86,33 @@ describe("JSON schema contracts", () => {
       .sort();
     expect(fixtures).toEqual(Object.keys(schemaByFixture).sort());
   });
+
+  test("notification event is a Check-level whitelist and rejects private content fields", () => {
+    const schema = readJson("schemas/runtime/notification-event.schema.json") as any;
+    const fixture = readJson("packages/contracts/fixtures/valid/notification-event.json") as Record<string, Json>;
+    expect(Object.keys(schema.properties).sort()).toEqual([
+      "commitSha",
+      "eventId",
+      "occurredAt",
+      "prUrl",
+      "result",
+      "riskLevel",
+      "runtimeVersion",
+      "schemaVersion"
+    ]);
+    for (const field of ["code", "diff", "finding", "findings", "architectureBody", "modelBody"]) {
+      expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid).toBe(false);
+    }
+  });
+
+  test("adapter fidelity contract keeps Native model as source of truth", () => {
+    const schema = readJson("schemas/integrations/adapter-fidelity.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/adapter-fidelity.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+    expect(fixture.nativeIsSourceOfTruth).toBe(true);
+    expect(fixture.reverseSync).toBe("forbidden");
+    expect(fixture.protectedNativeFields).toEqual(["evidence", "verification", "constraint", "intervention"]);
+  });
 });
 
 function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
@@ -95,6 +128,12 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.task-context/v1": "task-context",
     "archcontext.changeset/v1": "changeset",
     "archcontext.review/v1": "review-result",
+    "archcontext.notification-event/v1": "notification-event",
+    "archcontext.notification-provider/v1": "notification-provider",
+    "archcontext.likec4-mapping/v1": "likec4-mapping",
+    "archcontext.structurizr-mapping/v1": "structurizr-mapping",
+    "archcontext.adapter-fidelity/v1": "adapter-fidelity",
+    "archcontext.chatgpt-ga-tool/v1": "chatgpt-ga-tool",
     "archcontext.attestation/v1": "attestation",
     "archcontext.org-runner-identity/v1": "org-runner-identity",
     "archcontext.entitlement/v1": "entitlement"

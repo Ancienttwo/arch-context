@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.likec4-mapping/v1",
+  "id": "mapping.likec4.native",
+  "exportMode": "export-first",
+  "native": {
+    "nodeKinds": ["capability", "module", "component", "interface", "datastore", "external-system"],
+    "relationKinds": ["depends-on", "calls", "publishes", "subscribes", "reads", "writes"]
+  },
+  "likec4": {
+    "elementKinds": ["person", "system", "container", "component"],
+    "relationLabels": ["depends-on", "calls", "publishes", "subscribes", "reads", "writes"]
+  },
+  "views": ["landscape", "module"]
+}

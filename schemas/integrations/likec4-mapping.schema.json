@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/integrations/likec4-mapping.schema.json",
+  "title": "LikeC4Mapping",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "exportMode", "native", "likec4", "views"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.likec4-mapping/v1" },
+    "id": { "type": "string", "pattern": "^mapping\\.likec4\\.[a-z0-9][a-z0-9-]*$" },
+    "exportMode": { "const": "export-first" },
+    "native": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeKinds", "relationKinds"],
+      "properties": {
+        "nodeKinds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "relationKinds": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "likec4": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["elementKinds", "relationLabels"],
+      "properties": {
+        "elementKinds": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "relationLabels": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "views": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+  }
+}

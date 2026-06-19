@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/integrations/chatgpt-ga-tool.schema.json",
+  "title": "ChatGptGaToolContract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "toolName",
+    "surface",
+    "readOnlyByDefault",
+    "dataClassification",
+    "requiresLocalConfirmationForWrite",
+    "disclosure"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.chatgpt-ga-tool/v1" },
+    "toolName": { "type": "string", "pattern": "^archcontext_[a-z0-9_]+$" },
+    "surface": { "type": "string", "enum": ["cloud-metadata", "local-runtime"] },
+    "readOnlyByDefault": { "const": true },
+    "dataClassification": { "type": "string", "enum": ["cloud-metadata", "local-metadata", "local-architecture"] },
+    "requiresLocalConfirmationForWrite": { "type": "boolean" },
+    "disclosure": { "type": "string" }
+  }
+}

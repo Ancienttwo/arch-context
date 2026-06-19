@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "archcontext.notification-provider/v1",
+  "id": "notification-provider.slack-review",
+  "provider": "slack",
+  "enabled": true,
+  "target": "https://hooks.slack.com/services/example",
+  "secretRef": "secret://slack-review-webhook",
+  "retry": {
+    "maxAttempts": 3,
+    "backoffSeconds": 30
+  }
+}

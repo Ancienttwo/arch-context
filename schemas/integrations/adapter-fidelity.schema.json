@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.archcontext.dev/integrations/adapter-fidelity.schema.json",
+  "title": "AdapterFidelityRule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "direction", "importScope", "nativeIsSourceOfTruth", "reverseSync", "protectedNativeFields"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.adapter-fidelity/v1" },
+    "id": { "type": "string", "pattern": "^adapter-fidelity\\.[a-z0-9][a-z0-9-]*$" },
+    "direction": { "const": "export-first" },
+    "importScope": { "const": "initialization-only" },
+    "nativeIsSourceOfTruth": { "const": true },
+    "reverseSync": { "const": "forbidden" },
+    "protectedNativeFields": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["evidence", "verification", "constraint", "intervention"] },
+      "minItems": 4
+    }
+  }
+}

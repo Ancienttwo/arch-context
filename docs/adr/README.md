@@ -44,3 +44,6 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0026 | Multi-repo Architecture Context |
 | ADR-0027 | Trusted Runner Attestation |
 | ADR-0028 | Per-seat Billing v1 |
+| ADR-0029 | Notification Providers |
+| ADR-0030 | Model Interop Adapters |
+| ADR-0031 | ChatGPT App GA |

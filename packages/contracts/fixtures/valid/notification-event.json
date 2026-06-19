@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "archcontext.notification-event/v1",
+  "eventId": "notification.review-complete",
+  "prUrl": "https://github.com/ancienttwo/arch-context/pull/12",
+  "result": "pass_with_warnings",
+  "riskLevel": "medium",
+  "commitSha": "abc1234",
+  "runtimeVersion": "archctx/1.1.0",
+  "occurredAt": "2026-06-19T00:00:00Z"
+}
