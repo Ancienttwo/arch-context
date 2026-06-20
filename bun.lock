@@ -72,6 +72,10 @@
       "name": "@archcontext/control-plane-client",
       "version": "0.1.0",
     },
+    "packages/explorer-ui": {
+      "name": "@archcontext/explorer-ui",
+      "version": "0.1.0",
+    },
     "packages/git-adapter": {
       "name": "@archcontext/git-adapter",
       "version": "0.1.0",
@@ -124,6 +128,10 @@
       "name": "@archcontext/renderer",
       "version": "0.1.0",
     },
+    "packages/retrieval": {
+      "name": "@archcontext/retrieval",
+      "version": "0.1.0",
+    },
     "packages/review-engine": {
       "name": "@archcontext/review-engine",
       "version": "0.1.0",
@@ -166,6 +174,8 @@
 
     "@archcontext/control-plane-client": ["@archcontext/control-plane-client@workspace:packages/control-plane-client"],
 
+    "@archcontext/explorer-ui": ["@archcontext/explorer-ui@workspace:packages/explorer-ui"],
+
     "@archcontext/git-adapter": ["@archcontext/git-adapter@workspace:packages/git-adapter"],
 
     "@archcontext/github-app": ["@archcontext/github-app@workspace:packages/github-app"],
@@ -191,6 +201,8 @@
     "@archcontext/refactor-decision": ["@archcontext/refactor-decision@workspace:packages/refactor-decision"],
 
     "@archcontext/renderer": ["@archcontext/renderer@workspace:packages/renderer"],
+
+    "@archcontext/retrieval": ["@archcontext/retrieval@workspace:packages/retrieval"],
 
     "@archcontext/review-engine": ["@archcontext/review-engine@workspace:packages/review-engine"],
 
