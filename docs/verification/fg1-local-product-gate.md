@@ -6,7 +6,7 @@
   - `2e46bc066216f3840ee48c654e76b533f0b92679` — FG1-04 packaged CLI/daemon/MCP smoke
   - `d2194008d086d74b8f31c2ac28c9f81a8c576ce1` — FG1-05/06 CLI and MCP shared daemon RPC
   - `2fb84124dd077f2022d254b0fccc8fcbae8666f7` — FG1-07 daemon health, RPC version negotiation, and lifecycle readback
-  - pending — FG1-08 stale daemon control-file recovery and crash reconnect
+  - `f085b34846a57df83e896660ff826c10ef86e540` — FG1-08 stale daemon control-file recovery and crash reconnect
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
