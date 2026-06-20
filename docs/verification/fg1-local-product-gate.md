@@ -11,7 +11,7 @@
   - `42cdf9c846013d8898ee1875b9d1ca40640db8b0` — FG1-10 doctor version, daemon, SQLite, CodeGraph, Git, and permission checks
   - `1a98f1277d85ee5f6c292748166798845e5956fc` — FG1-11 ordinary single-repo fixture and first-experience E2E
   - `022da6296f901d5af0ec0876794937a0dd5f868b` — FG1-12 single-repo monorepo fixture and first-experience E2E
-  - pending — FG1-13 and FG1-EG4 multi-repo unsupported topology boundary
+  - 6876ef46aee8d47446711a1a34f28ce650f7fd61 — FG1-13 and FG1-EG4 multi-repo unsupported topology boundary
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
