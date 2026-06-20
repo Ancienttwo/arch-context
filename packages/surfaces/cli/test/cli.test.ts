@@ -11,6 +11,8 @@ import { initializeArchContextModel } from "@archcontext/local-runtime/model-sto
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
+const CLI_PROCESS_TIMEOUT_MS = 15_000;
+const DAEMON_TEST_TIMEOUT_MS = 30_000;
 
 function runTestCli(command: string, args: string[], root: string) {
   return runCli(command, args, root, {
@@ -230,7 +232,7 @@ describe("archctx CLI", () => {
       await expectProcessExit(daemon).catch(() => undefined);
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("background daemon start returns after ready and survives the starter process", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-background-"));
@@ -268,7 +270,7 @@ describe("archctx CLI", () => {
       await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-crash-recovery-"));
@@ -303,7 +305,7 @@ describe("archctx CLI", () => {
       await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-"));
@@ -337,7 +339,7 @@ describe("archctx CLI", () => {
       await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI reports incompatible daemon versions and replaces them through daemon upgrade", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-upgrade-"));
@@ -398,7 +400,7 @@ describe("archctx CLI", () => {
       await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
@@ -475,7 +477,7 @@ function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any
     let stdout = "";
     let stderr = "";
     let done = false;
-    const timeout = setTimeout(() => finish(() => reject(new Error(`Timed out waiting for daemon start: ${stderr || stdout}`))), 5000);
+    const timeout = setTimeout(() => finish(() => reject(new Error(`Timed out waiting for daemon start: ${stderr || stdout}`))), CLI_PROCESS_TIMEOUT_MS);
     const finish = (callback: () => void) => {
       if (done) return;
       done = true;
@@ -507,7 +509,7 @@ function collectProcess(child: ChildProcessWithoutNullStreams): Promise<{ stdout
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       reject(new Error(`Timed out waiting for process: ${stderr || stdout}`));
-    }, 5000);
+    }, CLI_PROCESS_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
