@@ -98,7 +98,7 @@ bun run verify
 - FG1-16 lifecycle runbook focused test: PASS, 1 test.
 - Contract tests: PASS, 83 tests.
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
-- `bun test`: PASS, 274 tests.
+- `bun test`: PASS, 275 tests.
 - `node scripts/packaged-cli-smoke.mjs`: PASS.
 - `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 40-entry acceptance ledger, sprint-status, and representative eval.
 
@@ -132,7 +132,7 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 ## Known Limitations
 
-FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, cross-OS IPC matrix readback, host-owned config file mutation/readback, doctor auto-remediation, or Local Core quickstart publication.
+FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, cross-OS IPC matrix readback, host-owned config file mutation/readback, doctor auto-remediation, or Local Core quickstart publication. A platform IPC readback script and GitHub Actions artifact step exist for FG1-17, but FG1-17 remains unclaimed until hosted Linux/macOS/Windows readback artifacts exist.
 
 ## Linked CI / GitHub Run IDs
 
