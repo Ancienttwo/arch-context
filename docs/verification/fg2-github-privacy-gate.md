@@ -2,6 +2,7 @@
 
 - Commit SHAs:
   - `0c81204833be188c095a0e3870882ce33dc6e559` — FG2-01 GitHub App permission manifest
+  - `0f39b06d1c89ae5f77d128ba22a005aa8e12aefc` — FG2-02 / FG2-EG6 staging ruleset expected-source permission decision
   - `6db79fc35f8ac8722aa6abd1bcc6e4e45a38b3a7` — FG2-03 raw-body GitHub webhook HMAC verification
   - `635cc1c43f14727c13abf9a999c73eaff1a7400d` — FG2-04 Webhook delivery replay rejection
   - `f60ed79d3088588f080228ebeb58c132632d73ea` — FG2-05 GitHub webhook privacy projection
@@ -27,12 +28,12 @@
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, FG2-EG2, and FG2-EG3. FG2-17 remains a pending staging readback artifact only.
+This evidence currently covers FG2-01, FG2-02, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-17, FG2-18, FG2-19, FG2-20, FG2-EG1, FG2-EG2, FG2-EG3, FG2-EG4, FG2-EG5, and FG2-EG6. FG2-EG7 remains a pending staging revoke readback artifact.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
-- The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
+- The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, Commit Statuses write, and Contents none.
 - Actions, Administration, Deployments, Issues, Members, Secrets, and Workflows are forbidden by default.
-- Commit Statuses remains `none` and is documented as conditional on FG2-02 / FG2-EG6 staging evidence.
+- Commit Statuses write is documented as required only for GitHub ruleset expected-source binding; runtime still publishes Review through Checks.
 - Subscribed events are frozen to installation, installation repositories, pull request opened/reopened/synchronize/closed, and check run rerequested.
 - `packages/cloud/github-app/src/index.ts` now derives `GITHUB_APP_PERMISSIONS` from the contracts manifest instead of maintaining a separate local copy.
 - `verifyGitHubWebhookSignature` verifies `X-Hub-Signature-256` against `rawBody: string | Uint8Array`.
@@ -79,16 +80,17 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Error projection keeps low-sensitivity error codes/status/request context and drops message/private content fields.
 - `docs/security/fixtures/cloud-private-content-bait.json` carries source code, patch, symbol, and finding bait values.
 - `scripts/cloud-private-content-bait.test.ts` proves the bait cannot enter Cloud DTOs: control-plane log/trace/queue/error projections, notification event DTO/schema, and cloud-egress envelope schema.
-- `docs/verification/fg2-egress-recording.json` is the pending FG2-17 staging readback artifact for GitHub egress and bait-hit counts.
+- `docs/verification/fg2-egress-recording.json` is the verified FG2-17 staging readback artifact for GitHub egress and bait-hit counts.
 - `scripts/github-egress-recording-readback.mjs` verifies a future staging recording by requiring allowlisted GitHub egress categories, zero forbidden endpoint/media counts, and zero log/trace/queue bait hits.
 - The control-plane GitHub App tab exposes install/reconfigure state, selected-repository installation wording, permission names, permission uses, and retention defaults.
 - The install disclosure states that ArchContext does not read code to run Review; the local runtime signs the result and the SaaS verifies metadata.
-- The install disclosure lists Commit Statuses as `None now` and explicitly ties any change to the FG2-02 staging decision.
+- The install disclosure lists Commit Statuses as `Write` and explains that the permission is required only for ruleset expected-source binding.
 - `docs/security/threat-model-v1.md` now names GitHub App permission expansion, SDK/API drift, webhook replay/forgery, and raw payload/log leakage as explicit FG2 threats.
 - The threat model traces webhook raw body/signature/delivery ID through projection, replay handling, selected-repository checks, challenge/check side effects, typed egress, and metadata-only recording.
-- The threat model preserves the current open gates: FG2-02 for any future Commit Statuses permission and FG2-17 for live staging egress recording.
-- `docs/verification/fg2-staging-evidence.json` is the combined pending packet for FG2-02, FG2-17, FG2-EG1, FG2-EG4, FG2-EG5, FG2-EG6, and FG2-EG7.
+- The threat model preserves the current open gate: FG2-EG7 for install revoke E2E readback.
+- `docs/verification/fg2-staging-evidence.json` is the combined pending packet for FG2 staging and now remains pending only on FG2-EG7.
 - `scripts/fg2-staging-evidence-readback.mjs` verifies a future staging packet by requiring GitHub App event/check proof, strict egress/DLP readback, ruleset expected-source decision proof, and install revoke E2E proof.
+- `docs/verification/fg2-ruleset-expected-source.md` records the staging ruleset expected-source smoke: App installation accepted `statuses:write`, temporary ruleset `17927634` bound `ArchContext / Developer Review` to App ID `4102781`, and the ruleset was deleted after readback.
 - `packages/cloud/github-app/test/github-webhook-security.integration.test.ts` is the FG2-EG2 security integration suite.
 - The integration suite rejects every invalid signature fixture before webhook projection.
 - The integration suite proves an old delivery ID replay, even with a newly signed different payload, creates no second challenge or check side effect.
@@ -137,8 +139,11 @@ bun run verify
 - `node scripts/privacy-route-audit.mjs`: PASS.
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
 - `bun run verify:privacy-contract`: PASS, scanned 18 production files.
-- `bun run readback:fg2:egress`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging export exists.
-- `bun run readback:fg2:staging`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging App/check/egress/ruleset/revoke evidence exists.
+- `bun run readback:fg2:egress`: PASS with verified staging egress/DLP recording.
+- `bun run readback:fg2:staging`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until install revoke E2E evidence exists.
+- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts packages/cloud/control-plane/test/control-plane-ui.test.ts`: PASS, 118 tests, 450 expects after adding Commit Statuses write to the manifest and install disclosure.
+- `bun run verify:github-api-contract`: PASS, scanned 18 production files after the permission update.
+- `bun run typecheck`: PASS after the permission update.
 - `node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json`: PENDING, exits nonzero with the current blockers.
 - `bun run verify:acceptance-ledger`: PASS, 67 entries.
 - `bun run check:sprint`: PASS, structure and evidence claims OK.
@@ -169,16 +174,16 @@ bun run verify
 - Static GitHub API contract gate proves the production Cloud/Contracts surface currently contains no business-layer generic Octokit use or forbidden GitHub endpoint/media literals.
 - GitHub App tests prove the egress recorder emits only `CloudEgressEnvelope` metadata and excludes concrete paths, request/response bodies, repository identifiers, PR identifiers, and private PR fields.
 - Control-plane tests prove log, trace, queue, and error surfaces keep only projected fields and remove private content fields before storage.
-- Control-plane UI tests prove the public GitHub App install disclosure lists current permissions, permission uses, retention defaults, the local Review privacy promise, and the FG2-02 Commit Statuses pending decision.
-- Threat model review proves FG2 security docs cover permission expansion, SDK/API drift, raw payload/log leakage, and webhook replay without claiming FG2-02 or FG2-17 are complete.
+- Control-plane UI tests prove the public GitHub App install disclosure lists current permissions, permission uses, retention defaults, the local Review privacy promise, and the Commit Statuses expected-source boundary.
+- Threat model review proves FG2 security docs cover permission expansion, SDK/API drift, raw payload/log leakage, webhook replay, and the narrowed Commit Statuses expected-source boundary.
 - GitHub webhook security integration tests prove invalid signatures, reserialized raw bodies, stale delivery replay, and duplicate delivery side effects are rejected in one end-to-end local path.
 - Cloud private content bait tests prove source, Patch, Symbol, and Finding fixture values are removed from projected Cloud surfaces and rejected by notification/egress DTO schema.
 - GitHub egress recording readback tests reject nonzero PR Files/Contents/Blob/Tree/Diff/Patch and log/trace/queue bait counts in a verified staging artifact.
 
 ## Known Limitations
 
-FG2 is not complete. FG2-02 remains open for the Commit Statuses expected-source staging decision, and FG2-17 remains open because no deployed staging GitHub App, staging installation, sanitized GitHub egress recorder export, or staging log/trace/queue DLP export is available in this local environment. `docs/verification/fg2-staging-evidence.json` records the combined pending packet for the remaining FG2 staging gates. This slice does not claim dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, or full staging DLP export coverage.
+FG2 is not complete. FG2-EG7 remains open because install revoke E2E proof has not been executed. `docs/verification/fg2-staging-evidence.json` records the combined pending packet for the remaining FG2 staging gate. This slice does not claim install revoke E2E, persistent Check Delivery retry queues, or retention pruning.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, FG2-EG2, and FG2-EG3. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for all FG2 tasks and for FG2-EG1 through FG2-EG6. FG2-EG7 stays open.

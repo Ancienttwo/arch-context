@@ -2,18 +2,17 @@
   "schemaVersion": "archcontext.fg2-staging-evidence/v1",
   "environment": "staging",
   "status": "pending",
-  "reason": "Staging GitHub App, installation, PR event/check readback, sanitized egress recording, and DLP bait scan are verified. Ruleset expected-source decision and install revoke E2E proof remain open.",
+  "reason": "Staging GitHub App, installation, PR event/check readback, sanitized egress recording, DLP bait scan, and ruleset expected-source decision are verified. Install revoke E2E proof remains open.",
   "gates": {
-    "FG2-02": "blocked",
+    "FG2-02": "verified",
     "FG2-17": "verified",
     "FG2-EG1": "verified",
     "FG2-EG4": "verified",
     "FG2-EG5": "verified",
-    "FG2-EG6": "blocked",
+    "FG2-EG6": "verified",
     "FG2-EG7": "blocked"
   },
   "blockers": [
-    "Ruleset expected-source decision record is unavailable.",
     "Install revoke E2E readback is unavailable."
   ],
   "partialEvidence": {
@@ -29,7 +28,8 @@
       "permissions": {
         "checks": "write",
         "metadata": "read",
-        "pull_requests": "read"
+        "pull_requests": "read",
+        "statuses": "write"
       },
       "events": [
         "check_run",
@@ -50,6 +50,28 @@
       "tailCaptureLocal": "_ops/env/fg2-staging-tail-sync-20260620T154522Z.jsonl",
       "baitMarkerRedacted": true,
       "forbiddenEndpointOrMediaMatches": 0
+    },
+    "rulesetExpectedSource": {
+      "commitStatusesPermission": "required-and-implemented",
+      "decisionRecord": "docs/verification/fg2-ruleset-expected-source.md",
+      "rulesetVerified": true,
+      "permissionManifestCommit": "0f39b06d1c89ae5f77d128ba22a005aa8e12aefc",
+      "adrCommit": "0f39b06d1c89ae5f77d128ba22a005aa8e12aefc",
+      "installDisclosureCommit": "0f39b06d1c89ae5f77d128ba22a005aa8e12aefc",
+      "temporaryRuleset": {
+        "id": 17927634,
+        "namePrefix": "archcontext-fg2-expected-source-smoke",
+        "target": "branch",
+        "enforcement": "active",
+        "include": [
+          "refs/heads/fg2-ruleset-smoke/*"
+        ],
+        "requiredStatusCheck": {
+          "context": "ArchContext / Developer Review",
+          "integrationId": 4102781
+        },
+        "deletedAfterReadback": true
+      }
     }
   },
   "requiredEvidence": {

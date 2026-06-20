@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T14:35:59Z",
+  "updatedAt": "2026-06-20T16:11:34Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -565,6 +565,20 @@
       ]
     },
     {
+      "id": "FG2-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-ruleset-expected-source.md",
+        "docs/verification/fg2-staging-evidence.json",
+        "packages/contracts/src/github-governance.ts",
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md",
+        "packages/cloud/control-plane/src/ui.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
       "id": "FG2-03",
       "kind": "task",
       "status": "completed",
@@ -723,6 +737,20 @@
       ]
     },
     {
+      "id": "FG2-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "deploy/cloudflare/fg2-staging-worker.ts",
+        "deploy/cloudflare/fg2-staging-worker.test.ts",
+        "docs/verification/fg2-egress-recording.json",
+        "docs/verification/fg2-staging-evidence.json",
+        "scripts/github-egress-recording-readback.mjs",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
       "id": "FG2-18",
       "kind": "task",
       "status": "completed",
@@ -757,6 +785,17 @@
       ]
     },
     {
+      "id": "FG2-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-staging-evidence.json",
+        "deploy/cloudflare/fg2-staging-worker.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
       "id": "FG2-EG2",
       "kind": "exit-gate",
       "status": "completed",
@@ -777,6 +816,45 @@
         "scripts/github-api-contract-audit.mjs",
         "scripts/github-api-contract-audit.test.ts",
         "package.json",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-egress-recording.json",
+        "scripts/github-egress-recording-readback.mjs",
+        "docs/verification/fg2-staging-evidence.json",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-egress-recording.json",
+        "docs/security/fixtures/cloud-private-content-bait.json",
+        "scripts/cloud-private-content-bait.test.ts",
+        "docs/verification/fg2-staging-evidence.json",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-ruleset-expected-source.md",
+        "docs/verification/fg2-staging-evidence.json",
+        "packages/contracts/src/github-governance.ts",
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md",
+        "packages/cloud/control-plane/src/ui.ts",
         "docs/verification/fg2-github-privacy-gate.md"
       ]
     }
