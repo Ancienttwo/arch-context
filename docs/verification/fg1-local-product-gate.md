@@ -1,6 +1,8 @@
 # FG1 Local Product Verification
 
-- Commit SHA: `0877df7b13da476700ce136915a2474518dc6622`
+- Commit SHAs:
+  - `0877df7b13da476700ce136915a2474518dc6622` — FG1-01/02 production composition root
+  - `3fea18a76c14877035304435860e60cb555728bc` — FG1-03 product version manifest
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
