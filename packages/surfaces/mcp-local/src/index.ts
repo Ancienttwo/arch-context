@@ -1,7 +1,7 @@
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import { errorEnvelope, okEnvelope, type Json } from "@archcontext/contracts";
 import { completeTask } from "@archcontext/core/application";
-import { ArchctxDaemon, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { createRuntimeRpcClientFromConnectionFile, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
 
@@ -50,10 +50,10 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
 
 export class McpLocalServer {
   readonly resources = new Map<string, Json>();
-  private daemonInstance?: ArchctxDaemon;
+  private runtimeInstance?: RuntimeDaemonClient;
 
-  constructor(daemon?: ArchctxDaemon) {
-    this.daemonInstance = daemon;
+  constructor(runtime?: RuntimeDaemonClient) {
+    this.runtimeInstance = runtime;
   }
 
   listTools(): McpToolDefinition[] {
@@ -70,13 +70,14 @@ export class McpLocalServer {
       case "archcontext_prepare_task": {
         const root = requiredArg(args, "root");
         const task = requiredArg(args, "task");
-        const result = await (await this.daemon()).prepare(root, task, args.maxBytes ?? 12_288, args.maxItems ?? 12);
+        const result = await (await this.runtime(root)).prepare(root, task, args.maxBytes ?? 12_288, args.maxItems ?? 12);
         return this.budgeted("prepare", result as unknown as Json, args.maxBytes ?? 12_288);
       }
       case "archcontext_checkpoint":
         return { content: errorEnvelope("checkpoint", "AC_SCHEMA_INVALID", "checkpoint moved to archctxd status/context RPC") as unknown as Json, dataClassification: "local-metadata" };
       case "archcontext_plan_update": {
-        const result = await (await this.daemon()).planUpdate(requiredArg(args, "root"), {
+        const root = requiredArg(args, "root");
+        const result = await (await this.runtime(root)).planUpdate(root, {
           id: requiredArg(args, "id"),
           reason: args.reason ?? { taskSessionId: args.taskSessionId ?? "task_mcp" },
           operations: args.operations as ChangeOperation[]
@@ -86,7 +87,8 @@ export class McpLocalServer {
       case "archcontext_apply_update": {
         if (!args.approved) return { content: errorEnvelope("apply_update", "AC_USER_CONFIRMATION_REQUIRED", "ChangeSet apply requires explicit local approval") as unknown as Json, dataClassification: "local-metadata" };
         try {
-          const result = await (await this.daemon()).applyUpdate(requiredArg(args, "root"), {
+          const root = requiredArg(args, "root");
+          const result = await (await this.runtime(root)).applyUpdate(root, {
             id: requiredArg(args, "id"),
             approved: true,
             expectedWorktreeDigest: requiredArg(args, "expectedWorktreeDigest")
@@ -129,9 +131,18 @@ export class McpLocalServer {
     };
   }
 
-  private async daemon(): Promise<ArchctxDaemon> {
-    this.daemonInstance ??= await createStartedDaemon();
-    return this.daemonInstance;
+  private async runtime(root = process.cwd()): Promise<RuntimeDaemonClient> {
+    if (this.runtimeInstance) return this.runtimeInstance;
+    const client = createRuntimeRpcClientFromConnectionFile(root);
+    if (client) {
+      const health = await client.health().catch(() => undefined);
+      if ((health as any)?.ok === true) {
+        this.runtimeInstance = client;
+        return this.runtimeInstance;
+      }
+    }
+    this.runtimeInstance = await createStartedDaemon();
+    return this.runtimeInstance;
   }
 }
 

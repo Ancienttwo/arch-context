@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
@@ -8,7 +8,15 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
-import { createStartedDaemon } from "../src/index";
+import {
+  ArchctxRuntimeRpcServer,
+  RUNTIME_RPC_VERSION,
+  RuntimeRpcClient,
+  createStartedDaemon,
+  defaultDaemonConnectionPath,
+  defaultDaemonLockPath,
+  readRuntimeRpcConnection
+} from "../src/index";
 
 function tempRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-"));
@@ -81,6 +89,100 @@ describe("local runtime foundation", () => {
     expect(store.recoverPendingSnapshots()).toBe(1);
     expect(store.snapshots.has(pending)).toBe(false);
     expect(store.snapshots.get(committed)?.state).toBe("committed");
+  });
+
+  test("runtime RPC server is loopback, versioned, token-gated, and single-locked", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "runtime-test-token",
+      clock: () => "2026-06-20T00:00:00.000Z"
+    });
+    let stopped = false;
+    try {
+      const connection = await rpc.start();
+      expect(connection.url.startsWith("http://127.0.0.1:")).toBe(true);
+      expect(connection.schemaVersion).toBe(RUNTIME_RPC_VERSION);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+      expect(existsSync(connection.lockPath)).toBe(true);
+      if (process.platform !== "win32") {
+        expect(statSync(connection.connectionPath).mode & 0o777).toBe(0o600);
+        expect(statSync(connection.lockPath).mode & 0o777).toBe(0o600);
+      }
+
+      const health = await fetch(`${connection.url}health`, {
+        headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
+      });
+      expect(health.status).toBe(200);
+      expect((await health.json() as any).schemaVersion).toBe(RUNTIME_RPC_VERSION);
+
+      const denied = await fetch(`${connection.url}rpc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] })
+      });
+      expect(denied.status).toBe(401);
+
+      const clientA = new RuntimeRpcClient(connection);
+      const init = await clientA.init(root, "RPC App");
+      expect(init.ok).toBe(true);
+      const clientB = new RuntimeRpcClient(connection);
+      const status = await clientB.runtimeStatus(root);
+      expect((status.data as any).sessions).toBe(1);
+      expect((status.data as any).repositoryId).toBe(repositoryFingerprint(root));
+
+      const lockedDaemon = await createStartedTestDaemon();
+      const locked = new ArchctxRuntimeRpcServer(lockedDaemon, { root, port: 0, token: "other-token" });
+      await expect(locked.start()).rejects.toThrow("already running");
+      await lockedDaemon.stop();
+
+      await rpc.stop();
+      stopped = true;
+      expect(existsSync(connection.connectionPath)).toBe(false);
+      expect(existsSync(connection.lockPath)).toBe(false);
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime RPC ignores insecure connection files and recovers stale locks", async () => {
+    const root = tempRepo();
+    const connectionPath = defaultDaemonConnectionPath(root);
+    const lockPath = defaultDaemonLockPath(root);
+    mkdirSync(join(root, ".archcontext/.local"), { recursive: true });
+    writeFileSync(connectionPath, JSON.stringify({
+      schemaVersion: RUNTIME_RPC_VERSION,
+      protocol: "http-loopback",
+      version: 1,
+      root,
+      url: "http://127.0.0.1:1/",
+      token: "leaky-token",
+      pid: process.pid,
+      lockPath,
+      connectionPath,
+      startedAt: "2026-06-20T00:00:00.000Z"
+    }, null, 2), { mode: 0o600 });
+    if (process.platform !== "win32") chmodSync(connectionPath, 0o644);
+    expect(readRuntimeRpcConnection(root)).toBeUndefined();
+
+    writeFileSync(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2), { mode: 0o600 });
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "stale-lock-token" });
+    let stopped = false;
+    try {
+      const connection = await rpc.start();
+      expect(connection.lockPath).toBe(lockPath);
+      expect(JSON.parse(readFileSync(lockPath, "utf8")).pid).toBe(process.pid);
+      expect(readRuntimeRpcConnection(root)?.token).toBe("stale-lock-token");
+      await rpc.stop();
+      stopped = true;
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("CodeGraph adapter is version/capability checked and blocks internal storage access", async () => {

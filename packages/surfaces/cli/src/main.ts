@@ -1,10 +1,17 @@
 #!/usr/bin/env bun
-import { errorEnvelope } from "@archcontext/contracts";
+import { errorEnvelope, okEnvelope } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { checkpoint, completeTask } from "@archcontext/core/application";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
-import { createStartedDaemon, type RuntimeDeps } from "@archcontext/local-runtime/runtime-daemon";
+import {
+  ArchctxRuntimeRpcServer,
+  createRuntimeRpcClientFromConnectionFile,
+  createStartedDaemon,
+  defaultDaemonConnectionPath,
+  type RuntimeDaemonClient,
+  type RuntimeDeps
+} from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext/surfaces/renderer";
@@ -12,14 +19,27 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 const [, , command, ...args] = process.argv;
 
 if (import.meta.main) {
-  const result = await runCli(command, args, process.cwd()).catch((error) =>
-    errorEnvelope("cli", "AC_RUNTIME_UNAVAILABLE", error instanceof Error ? error.message : String(error))
-  );
-  process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
+  if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
+    await runForegroundDaemon(process.cwd(), args).catch((error) => {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    });
+  } else {
+    const result = await runCli(command, args, process.cwd()).catch((error) =>
+      errorEnvelope("cli", "AC_RUNTIME_UNAVAILABLE", error instanceof Error ? error.message : String(error))
+    );
+    process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
+  }
 }
 
-export async function runCli(command = "help", args: string[] = [], cwd: string, deps: RuntimeDeps = {}) {
-  const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd), ...deps });
+export interface CliRuntimeDeps extends RuntimeDeps {
+  runtimeClient?: RuntimeDaemonClient;
+  disableRpcDiscovery?: boolean;
+}
+
+export async function runCli(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
+  if (command === "daemon") return runDaemonCommand(args, cwd);
+  const daemon = await createCliRuntime(cwd, deps);
   switch (command) {
     case "init":
       return daemon.init(cwd, readFlag(args, "--name") ?? "ArchContext Project");
@@ -216,6 +236,104 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
         }
       };
   }
+}
+
+async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<RuntimeDaemonClient> {
+  if (deps.runtimeClient) return deps.runtimeClient;
+  if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
+    const client = createRuntimeRpcClientFromConnectionFile(cwd);
+    if (client) {
+      const health = await client.health().catch(() => undefined);
+      if ((health as any)?.ok === true) return client;
+    }
+  }
+  return createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd), ...deps });
+}
+
+function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
+  return [
+    "codeFacts",
+    "codeGraphProviderFactory",
+    "modelStore",
+    "localStore",
+    "changeSetEngine",
+    "localStorePath",
+    "clock",
+    "maxRepoSessions"
+  ].some((key) => key in deps);
+}
+
+async function runDaemonCommand(args: string[], cwd: string) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand === "status") {
+    const client = createRuntimeRpcClientFromConnectionFile(cwd);
+    if (!client) {
+      return okEnvelope("daemon.status", {
+        running: false,
+        protocol: "http-loopback",
+        connectionPath: defaultDaemonConnectionPath(cwd)
+      } as any);
+    }
+    const health = await client.health().catch(() => undefined);
+    if ((health as any)?.ok === true) {
+      return okEnvelope("daemon.status", {
+        running: true,
+        ...client.connectionInfo(),
+        token: "stored-in-connection-file"
+      } as any);
+    }
+    return okEnvelope("daemon.status", {
+      running: false,
+      staleConnection: true,
+      connectionPath: client.connectionInfo().connectionPath
+    } as any);
+  }
+  if (subcommand === "start") {
+    return okEnvelope("daemon.start", {
+      command: "archctx daemon start --foreground",
+      protocol: "http-loopback",
+      bindHost: "127.0.0.1",
+      connectionPath: defaultDaemonConnectionPath(cwd),
+      note: "foreground process writes the bearer token to the local connection file"
+    } as any);
+  }
+  if (subcommand === "stop") {
+    const client = createRuntimeRpcClientFromConnectionFile(cwd);
+    if (!client) return errorEnvelope("daemon.stop", "AC_RUNTIME_UNAVAILABLE", "No archctxd connection file found");
+    return client.shutdown();
+  }
+  return errorEnvelope("daemon", "AC_SCHEMA_INVALID", "daemon requires start|status|stop");
+}
+
+export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {
+  const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd) });
+  let resolveStopped!: () => void;
+  const stopped = new Promise<void>((resolve) => {
+    resolveStopped = resolve;
+  });
+  const server = new ArchctxRuntimeRpcServer(daemon, {
+    root: cwd,
+    port: Number(readFlag(args, "--port") ?? 0),
+    onStop: resolveStopped
+  });
+  const connection = await server.start();
+  const result = okEnvelope("daemon.start", {
+    running: true,
+    protocol: connection.protocol,
+    version: connection.version,
+    url: connection.url,
+    pid: connection.pid,
+    connectionPath: connection.connectionPath,
+    lockPath: connection.lockPath,
+    token: "stored-in-connection-file"
+  } as any);
+  process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
+  const stop = async () => {
+    await server.stop();
+  };
+  process.once("SIGINT", () => void stop());
+  process.once("SIGTERM", () => void stop());
+  await stopped;
 }
 
 function paginate(value: any, args: string[]) {

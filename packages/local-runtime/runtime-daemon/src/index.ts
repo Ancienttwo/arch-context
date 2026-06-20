@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { dirname, join } from "node:path";
 import {
   addRepositoryToLandscape,
   bindRepository,
@@ -59,6 +61,53 @@ export interface ExplorerServerStatus {
   tokenExpiresAt?: string;
   revoked: boolean;
   readOnly: true;
+}
+
+export const RUNTIME_RPC_VERSION = "archcontext.runtime-rpc/v1";
+
+export interface RuntimeRpcConnection {
+  schemaVersion: typeof RUNTIME_RPC_VERSION;
+  protocol: "http-loopback";
+  version: 1;
+  root: string;
+  url: string;
+  token: string;
+  pid: number;
+  lockPath: string;
+  connectionPath: string;
+  startedAt: string;
+}
+
+export interface RuntimeRpcServerOptions {
+  root?: string;
+  port?: number;
+  token?: string;
+  lockPath?: string;
+  connectionPath?: string;
+  clock?: () => string;
+  onStop?: () => void;
+}
+
+export interface RuntimeDaemonClient {
+  init(root: string, productName?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope> | JsonEnvelope;
+  validate(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  prepare(root: string, task: string, maxBytes?: number, maxItems?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
+  applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
+  repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  repoList(): Promise<JsonEnvelope> | JsonEnvelope;
+  repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
+  landscapeStatus(): Promise<JsonEnvelope> | JsonEnvelope;
+  explorerServiceContract(tokenTtlSeconds?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  explorerProjection(root: string, query?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  startExplorer(root: string, options?: ExplorerServerOptions): Promise<JsonEnvelope> | JsonEnvelope;
+  stopExplorer(): Promise<JsonEnvelope> | JsonEnvelope;
+  revokeExplorerToken(): Promise<JsonEnvelope> | JsonEnvelope;
+  explorerStatus(): Promise<JsonEnvelope> | JsonEnvelope;
+  contextLandscape(task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  runtimeStatus(root?: string): Promise<JsonEnvelope> | JsonEnvelope;
 }
 
 interface ExplorerServerSession {
@@ -601,6 +650,303 @@ export class ArchctxDaemon {
   }
 }
 
+export class RuntimeRpcClient implements RuntimeDaemonClient {
+  constructor(private readonly connection: RuntimeRpcConnection) {}
+
+  async health(): Promise<Json> {
+    const response = await fetch(`${this.connection.url}health`, {
+      headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
+    });
+    return await response.json() as Json;
+  }
+
+  async shutdown(): Promise<JsonEnvelope> {
+    return this.call("shutdown", []);
+  }
+
+  connectionInfo(): Omit<RuntimeRpcConnection, "token"> {
+    const { token: _token, ...safe } = this.connection;
+    return safe;
+  }
+
+  init(root: string, productName?: string) {
+    return this.call("init", [root, productName]);
+  }
+
+  sync(root: string, changedPaths: string[] = []) {
+    return this.call("sync", [root, changedPaths]);
+  }
+
+  validate(root: string) {
+    return this.call("validate", [root]);
+  }
+
+  context(root: string, task: string, maxSymbols = 12) {
+    return this.call("context", [root, task, maxSymbols]);
+  }
+
+  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12) {
+    return this.call("prepare", [root, task, maxBytes, maxItems]);
+  }
+
+  planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }) {
+    return this.call("planUpdate", [root, input]);
+  }
+
+  applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }) {
+    return this.call("applyUpdate", [root, input]);
+  }
+
+  repoAdd(root: string, name?: string) {
+    return this.call("repoAdd", [root, name]);
+  }
+
+  repoList() {
+    return this.call("repoList", []);
+  }
+
+  repoRemove(repositoryId: string) {
+    return this.call("repoRemove", [repositoryId]);
+  }
+
+  landscapeStatus() {
+    return this.call("landscapeStatus", []);
+  }
+
+  explorerServiceContract(tokenTtlSeconds = 900) {
+    return this.call("explorerServiceContract", [tokenTtlSeconds]);
+  }
+
+  explorerProjection(root: string, query?: string) {
+    return this.call("explorerProjection", [root, query]);
+  }
+
+  startExplorer(root: string, options: ExplorerServerOptions = {}) {
+    return this.call("startExplorer", [root, options]);
+  }
+
+  stopExplorer() {
+    return this.call("stopExplorer", []);
+  }
+
+  revokeExplorerToken() {
+    return this.call("revokeExplorerToken", []);
+  }
+
+  explorerStatus() {
+    return this.call("explorerStatus", []);
+  }
+
+  contextLandscape(task: string, maxSymbols = 12) {
+    return this.call("contextLandscape", [task, maxSymbols]);
+  }
+
+  runtimeStatus(root?: string) {
+    return this.call("runtimeStatus", [root]);
+  }
+
+  private async call(method: string, params: unknown[]): Promise<JsonEnvelope> {
+    const response = await fetch(`${this.connection.url}rpc`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${this.connection.token}`,
+        "Content-Type": "application/json",
+        "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
+      },
+      body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
+    });
+    return await response.json() as JsonEnvelope;
+  }
+}
+
+export class ArchctxRuntimeRpcServer {
+  private server?: Server;
+  private connection?: RuntimeRpcConnection;
+  private lockFd?: number;
+
+  constructor(private readonly daemon: ArchctxDaemon, private readonly options: RuntimeRpcServerOptions = {}) {}
+
+  async start(): Promise<RuntimeRpcConnection> {
+    if (this.server) return this.connection!;
+    if (!this.daemon.status().running) await this.daemon.start();
+    const root = this.options.root ?? process.cwd();
+    const connectionPath = this.options.connectionPath ?? defaultDaemonConnectionPath(root);
+    const lockPath = this.options.lockPath ?? defaultDaemonLockPath(root);
+    mkdirSync(dirname(connectionPath), { recursive: true });
+    mkdirSync(dirname(lockPath), { recursive: true });
+    this.lockFd = acquireDaemonLock(lockPath, root);
+    const token = this.options.token ?? randomBytes(18).toString("base64url");
+    const server = createServer((request, response) => {
+      void this.handleRequest(request, response).catch((error) => {
+        writeJson(response, 500, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    });
+    await new Promise<void>((resolveListen) => server.listen(this.options.port ?? 0, "127.0.0.1", resolveListen));
+    this.server = server;
+    const port = (server.address() as AddressInfo).port;
+    this.connection = {
+      schemaVersion: RUNTIME_RPC_VERSION,
+      protocol: "http-loopback",
+      version: 1,
+      root,
+      url: `http://127.0.0.1:${port}/`,
+      token,
+      pid: process.pid,
+      lockPath,
+      connectionPath,
+      startedAt: (this.options.clock ?? (() => new Date().toISOString()))()
+    };
+    writeFileSync(connectionPath, JSON.stringify(this.connection, null, 2), { mode: 0o600 });
+    chmodSync(connectionPath, 0o600);
+    return this.connection;
+  }
+
+  async stop(): Promise<void> {
+    const server = this.server;
+    this.server = undefined;
+    const connection = this.connection;
+    this.connection = undefined;
+    if (server) {
+      await new Promise<void>((resolveClose, rejectClose) => {
+        server.close((error) => error ? rejectClose(error) : resolveClose());
+      });
+    }
+    await this.daemon.stop();
+    if (connection) rmSync(connection.connectionPath, { force: true });
+    if (this.lockFd !== undefined) closeSync(this.lockFd);
+    this.lockFd = undefined;
+    if (connection) rmSync(connection.lockPath, { force: true });
+    this.options.onStop?.();
+  }
+
+  private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    response.setHeader("Cache-Control", "no-store");
+    if (!isLoopbackRemote(request.socket.remoteAddress)) {
+      writeJson(response, 403, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC only accepts loopback clients" });
+      return;
+    }
+    const url = new URL(request.url ?? "/", this.connection?.url ?? "http://127.0.0.1/");
+    if (request.method === "GET" && url.pathname === "/health") {
+      writeJson(response, 200, {
+        schemaVersion: RUNTIME_RPC_VERSION,
+        ok: true,
+        pid: process.pid,
+        protocol: "http-loopback",
+        version: 1
+      });
+      return;
+    }
+    if (request.method !== "POST" || url.pathname !== "/rpc") {
+      writeJson(response, 404, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "unknown runtime RPC route" });
+      return;
+    }
+    if (!this.isAuthorized(request)) {
+      writeJson(response, 401, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC token required" });
+      return;
+    }
+    const body = await readRequestJson(request) as { schemaVersion?: string; method?: string; params?: unknown[] };
+    if (body.schemaVersion !== RUNTIME_RPC_VERSION) {
+      writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
+      return;
+    }
+    const result = await this.dispatch(body.method ?? "", body.params ?? []);
+    writeJson(response, 200, result);
+    if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
+  }
+
+  private isAuthorized(request: IncomingMessage): boolean {
+    const authorization = request.headers.authorization ?? "";
+    const bearer = Array.isArray(authorization) ? authorization[0] : authorization;
+    return bearer === `Bearer ${this.connection?.token}`;
+  }
+
+  private async dispatch(method: string, params: unknown[]): Promise<JsonEnvelope> {
+    switch (method) {
+      case "init":
+        return this.daemon.init(params[0] as string, params[1] as string | undefined);
+      case "sync":
+        return this.daemon.sync(params[0] as string, params[1] as string[] | undefined);
+      case "validate":
+        return this.daemon.validate(params[0] as string);
+      case "context":
+        return this.daemon.context(params[0] as string, params[1] as string, params[2] as number | undefined);
+      case "prepare":
+        return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined);
+      case "planUpdate":
+        return this.daemon.planUpdate(params[0] as string, params[1] as any);
+      case "applyUpdate":
+        return this.daemon.applyUpdate(params[0] as string, params[1] as any);
+      case "repoAdd":
+        return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
+      case "repoList":
+        return this.daemon.repoList();
+      case "repoRemove":
+        return this.daemon.repoRemove(params[0] as string);
+      case "landscapeStatus":
+        return this.daemon.landscapeStatus();
+      case "explorerServiceContract":
+        return this.daemon.explorerServiceContract(params[0] as number | undefined);
+      case "explorerProjection":
+        return this.daemon.explorerProjection(params[0] as string, params[1] as string | undefined);
+      case "startExplorer":
+        return this.daemon.startExplorer(params[0] as string, params[1] as ExplorerServerOptions | undefined);
+      case "stopExplorer":
+        return this.daemon.stopExplorer();
+      case "revokeExplorerToken":
+        return this.daemon.revokeExplorerToken();
+      case "explorerStatus":
+        return this.daemon.explorerStatus();
+      case "contextLandscape":
+        return this.daemon.contextLandscape(params[0] as string, params[1] as number | undefined);
+      case "runtimeStatus":
+        return this.daemon.runtimeStatus(params[0] as string | undefined);
+      case "shutdown":
+        return okEnvelope("daemon.stop", { stopping: true } as Json);
+      default:
+        return {
+          schemaVersion: "archcontext.envelope/v1",
+          ok: false,
+          requestId: "runtime-rpc",
+          error: {
+            code: "AC_SCHEMA_INVALID",
+            message: `Unknown runtime RPC method: ${method}`,
+            severity: "error",
+            retryable: false,
+            action: "upgrade-client"
+          }
+        };
+    }
+  }
+}
+
+export function defaultDaemonControlDir(root = process.cwd()): string {
+  return join(root, ".archcontext", ".local");
+}
+
+export function defaultDaemonConnectionPath(root = process.cwd()): string {
+  return join(defaultDaemonControlDir(root), "archctxd.json");
+}
+
+export function defaultDaemonLockPath(root = process.cwd()): string {
+  return join(defaultDaemonControlDir(root), "archctxd.lock");
+}
+
+export function readRuntimeRpcConnection(root = process.cwd()): RuntimeRpcConnection | undefined {
+  const path = defaultDaemonConnectionPath(root);
+  try {
+    if (!isPrivateControlFile(path)) return undefined;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as RuntimeRpcConnection;
+    return isValidRuntimeRpcConnection(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function createRuntimeRpcClientFromConnectionFile(root = process.cwd()): RuntimeRpcClient | undefined {
+  const connection = readRuntimeRpcConnection(root);
+  return connection ? new RuntimeRpcClient(connection) : undefined;
+}
+
 function numericRepositoryId(repositoryId: string): number {
   let hash = 0;
   for (const char of repositoryId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
@@ -637,6 +983,71 @@ export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<Archc
   const daemon = new ArchctxDaemon(deps);
   await daemon.start();
   return daemon;
+}
+
+function acquireDaemonLock(lockPath: string, root: string): number {
+  try {
+    const fd = openSync(lockPath, "wx", 0o600);
+    writeFileSync(fd, JSON.stringify({ pid: process.pid, root, startedAt: new Date().toISOString() }, null, 2), "utf8");
+    return fd;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EEXIST") throw error;
+    if (isStaleLock(lockPath)) {
+      rmSync(lockPath, { force: true });
+      return acquireDaemonLock(lockPath, root);
+    }
+    throw new Error(`archctxd already running for ${root}; lock=${lockPath}`);
+  }
+}
+
+function isValidRuntimeRpcConnection(value: RuntimeRpcConnection): value is RuntimeRpcConnection {
+  return value.schemaVersion === RUNTIME_RPC_VERSION
+    && value.protocol === "http-loopback"
+    && value.version === 1
+    && typeof value.url === "string"
+    && value.url.startsWith("http://127.0.0.1:")
+    && typeof value.token === "string"
+    && value.token.length > 0
+    && typeof value.pid === "number"
+    && typeof value.connectionPath === "string"
+    && typeof value.lockPath === "string";
+}
+
+function isPrivateControlFile(path: string): boolean {
+  if (process.platform === "win32") return true;
+  const mode = statSync(path).mode & 0o777;
+  return (mode & 0o077) === 0;
+}
+
+function isStaleLock(lockPath: string): boolean {
+  try {
+    const lock = JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: number };
+    if (typeof lock.pid !== "number" || lock.pid <= 0) return true;
+    return !isProcessAlive(lock.pid);
+  } catch {
+    return true;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function isLoopbackRemote(remoteAddress = ""): boolean {
+  return ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddress);
+}
+
+async function readRequestJson(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  if (chunks.length === 0) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {

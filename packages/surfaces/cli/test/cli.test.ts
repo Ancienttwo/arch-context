@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
+import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
+import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { runCli } from "../src/main";
+
+const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
 
 function runTestCli(command: string, args: string[], root: string) {
   return runCli(command, args, root, {
@@ -61,6 +66,114 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI discovers a running daemon RPC connection before embedded fallback", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-rpc-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "cli-rpc-token" });
+    let stopped = false;
+    try {
+      const connection = await rpc.start();
+      const init = await runCli("init", ["--name", "CLI RPC App"], root, {
+        runtimeClient: new RuntimeRpcClient(connection)
+      });
+      expect(init.ok).toBe(true);
+
+      const status = await runCli("status", [], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any).sessions).toBe(1);
+
+      const daemonStatus = await runCli("daemon", ["status"], root);
+      expect((daemonStatus.data as any).running).toBe(true);
+      expect(JSON.stringify(daemonStatus.data)).not.toContain("cli-rpc-token");
+
+      await rpc.stop();
+      stopped = true;
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-foreground-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const daemon = spawn(process.execPath, [CLI_ENTRY, "daemon", "start", "--foreground", "--port", "0"], {
+      cwd: root,
+      env: process.env
+    });
+    try {
+      const started = await readJsonFromProcess(daemon);
+      expect(started.ok).toBe(true);
+      expect(started.data.running).toBe(true);
+      expect(started.data.protocol).toBe("http-loopback");
+      expect(String(started.data.url)).toMatch(/^http:\/\/127\.0\.0\.1:/);
+      expect(existsSync(join(root, ".archcontext/.local/archctxd.json"))).toBe(true);
+      expect(existsSync(join(root, ".archcontext/.local/archctxd.lock"))).toBe(true);
+
+      const init = await runCliProcess(root, "init", "--name", "Foreground App");
+      expect(init.ok).toBe(true);
+
+      const status = await runCliProcess(root, "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.sessions).toBe(1);
+      expect(status.data.running).toBe(true);
+
+      const daemonStatus = await runCliProcess(root, "daemon", "status");
+      const connection = JSON.parse(readFileSync(join(root, ".archcontext/.local/archctxd.json"), "utf8"));
+      expect(daemonStatus.data.running).toBe(true);
+      expect(JSON.stringify(daemonStatus.data)).toContain("stored-in-connection-file");
+      expect(JSON.stringify(daemonStatus.data)).not.toContain(connection.token);
+
+      const stopped = await runCliProcess(root, "daemon", "stop");
+      expect(stopped.ok).toBe(true);
+      await expectProcessExit(daemon);
+      expect(existsSync(join(root, ".archcontext/.local/archctxd.json"))).toBe(false);
+      expect(existsSync(join(root, ".archcontext/.local/archctxd.lock"))).toBe(false);
+    } finally {
+      if (daemon.exitCode === null && !daemon.killed) daemon.kill("SIGTERM");
+      await expectProcessExit(daemon).catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const connectionPath = defaultDaemonConnectionPath(root);
+      const lockPath = defaultDaemonLockPath(root);
+      mkdirSync(join(root, ".archcontext/.local"), { recursive: true });
+      writeFileSync(connectionPath, JSON.stringify({
+        schemaVersion: RUNTIME_RPC_VERSION,
+        protocol: "http-loopback",
+        version: 1,
+        root,
+        url: "http://127.0.0.1:1/",
+        token: "dead-token",
+        pid: 1,
+        lockPath,
+        connectionPath,
+        startedAt: "2026-06-20T00:00:00.000Z"
+      }, null, 2), { mode: 0o600 });
+      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
+
+      const daemonStatus = await runCli("daemon", ["status"], root);
+      expect((daemonStatus.data as any).running).toBe(false);
+      expect((daemonStatus.data as any).staleConnection).toBe(true);
+
+      const status = await runCli("status", [], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any).running).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
     try {
@@ -108,3 +221,75 @@ describe("archctx CLI", () => {
     }
   });
 });
+
+async function runCliProcess(root: string, ...args: string[]): Promise<any> {
+  const child = spawn(process.execPath, [CLI_ENTRY, ...args], {
+    cwd: root,
+    env: process.env
+  });
+  const { stdout, stderr, code } = await collectProcess(child);
+  if (code !== 0) throw new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
+  return JSON.parse(stdout);
+}
+
+function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+    const timeout = setTimeout(() => finish(() => reject(new Error(`Timed out waiting for daemon start: ${stderr || stdout}`))), 5000);
+    const finish = (callback: () => void) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      callback();
+    };
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+      try {
+        const parsed = JSON.parse(stdout);
+        finish(() => resolve(parsed));
+      } catch {
+        // Wait for the pretty-printed JSON object to finish.
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("exit", (code) => {
+      finish(() => reject(new Error(`daemon exited before ready (${code}): ${stderr || stdout}`)));
+    });
+  });
+}
+
+function collectProcess(child: ChildProcessWithoutNullStreams): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`Timed out waiting for process: ${stderr || stdout}`));
+    }, 5000);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve({ stdout, stderr, code });
+    });
+  });
+}
+
+function expectProcessExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out waiting for daemon process exit")), 5000);
+    child.once("exit", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}

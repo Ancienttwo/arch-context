@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -117,6 +117,36 @@ describe("local MCP server", () => {
       expect((cli.data as any).posture).toBe((mcp.content as any).data.posture);
       expect(JSON.stringify(mcp.content)).not.toContain("sourceCode");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("MCP discovers and reuses daemon RPC by repository root", async () => {
+    const root = tempModel();
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "mcp-rpc-token" });
+    let stopped = false;
+    try {
+      const connection = await rpc.start();
+      const server = new McpLocalServer();
+      const result = await server.callTool("archcontext_prepare_task", {
+        root,
+        task: "remove legacy v1 wrapper",
+        maxItems: 2,
+        maxBytes: 12_288
+      });
+      expect((result.content as any).ok).toBe(true);
+      const status = await new RuntimeRpcClient(connection).runtimeStatus(root);
+      expect((status.data as any).sessions).toBe(1);
+      expect(JSON.stringify(result.content)).not.toContain("sourceCode");
+      await rpc.stop();
+      stopped = true;
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
       rmSync(root, { recursive: true, force: true });
     }
   });
