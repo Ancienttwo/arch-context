@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "archcontext.private-content-bait/v1",
+  "description": "FG2-15 bait payload for proving private content cannot enter Cloud DTOs.",
+  "payload": {
+    "sourceCode": "function leakedSecret() { return process.env.PAYMENT_TOKEN; }",
+    "patch": "@@ -1 +1 private patch",
+    "symbol": "PaymentGateway.privateKey",
+    "finding": "Detailed review finding with private implementation notes"
+  }
+}

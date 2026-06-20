@@ -14,13 +14,14 @@
   - `722c0e8de38dfba85a0f0a74356303ad37d36b8c` — FG2-12 generic Octokit client lint boundary
   - `ef0ec3093fdbe57bfdc973902a0ea9d0cc489caa` — FG2-13 GitHub egress recorder
   - `449de452139052dc80f08c42f03b4853d325bcf4` — FG2-14 Cloud privacy surface projection
+  - `(pending FG2-15 implementation commit)` — FG2-15 Cloud private content bait fixture
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, or FG2-14 local E1/E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, or FG2-15 local E1/E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, and FG2-14.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, and FG2-15.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -64,6 +65,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Control-plane queue messages now pass through the queue projection before storage.
 - Structured log/trace projection keeps only low-sensitivity identifiers and turns full `headSha` into `headShaPrefix`.
 - Error projection keeps low-sensitivity error codes/status/request context and drops message/private content fields.
+- `docs/security/fixtures/cloud-private-content-bait.json` carries source code, patch, symbol, and finding bait values.
+- `scripts/cloud-private-content-bait.test.ts` proves the bait cannot enter Cloud DTOs: control-plane log/trace/queue/error projections, notification event DTO/schema, and cloud-egress envelope schema.
 
 ## Commands
 
@@ -73,6 +76,7 @@ bun test packages/cloud/github-app/test/github-app.test.ts
 bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts
 bun test packages/cloud/control-plane/test/control-plane.test.ts
 bun test scripts/github-api-contract-audit.test.ts
+bun test scripts/cloud-private-content-bait.test.ts
 bun run typecheck
 node scripts/privacy-route-audit.mjs
 bun run verify:github-api-contract
@@ -86,10 +90,11 @@ bun run verify
 - `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 21 tests, 135 expects.
 - `bun test packages/cloud/control-plane/test/control-plane.test.ts`: PASS, 7 tests, 51 expects.
 - `bun test scripts/github-api-contract-audit.test.ts`: PASS, 3 tests, 6 expects.
+- `bun test scripts/cloud-private-content-bait.test.ts`: PASS, 1 test, 38 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
-- `bun run verify`: PASS, 302 tests, 1310 expects, 60-entry acceptance ledger.
+- `bun run verify`: PASS, 303 tests, 1348 expects, 61-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -112,11 +117,12 @@ bun run verify
 - GitHub API contract audit tests prove typed `GitHubGovernancePort` stays allowed while generic Octokit imports and `githubClient` injection are rejected.
 - GitHub App tests prove the egress recorder emits only `CloudEgressEnvelope` metadata and excludes concrete paths, request/response bodies, repository identifiers, PR identifiers, and private PR fields.
 - Control-plane tests prove log, trace, queue, and error surfaces keep only projected fields and remove private content fields before storage.
+- Cloud private content bait tests prove source, Patch, Symbol, and Finding fixture values are removed from projected Cloud surfaces and rejected by notification/egress DTO schema.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim full static forbidden endpoint scanning, dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or seeded DLP fixture coverage.
+FG2 is not complete. This slice does not claim full static forbidden endpoint scanning, dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or full staging DLP export coverage.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, and FG2-14. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, and FG2-15. Remaining FG2 tasks and exit gates stay open.

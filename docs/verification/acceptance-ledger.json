@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T13:59:00Z",
+  "updatedAt": "2026-06-20T14:02:49Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -696,6 +696,17 @@
       "evidence": [
         "packages/cloud/control-plane/src/index.ts",
         "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/security/fixtures/cloud-private-content-bait.json",
+        "scripts/cloud-private-content-bait.test.ts",
         "docs/verification/fg2-github-privacy-gate.md"
       ]
     }
