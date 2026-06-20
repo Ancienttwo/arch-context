@@ -37,6 +37,35 @@ describe("local product first-experience E2E", () => {
       }
     });
   });
+
+  test("installed archctx rejects sibling repository input before starting the daemon", async () => {
+    expect(existsSync(ARCHCTX_BIN)).toBe(true);
+    const workspace = mkdtempSync(join(tmpdir(), "archctx-multirepo-reject-e2e-"));
+    const repo = join(workspace, "primary");
+    const otherRepo = join(workspace, "other");
+    cpSync(SINGLE_REPO_FIXTURE_ROOT, repo, { recursive: true });
+    cpSync(SINGLE_REPO_FIXTURE_ROOT, otherRepo, { recursive: true });
+    try {
+      git(repo, "init");
+      git(repo, "add", ".");
+      git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "primary");
+      git(otherRepo, "init");
+      git(otherRepo, "add", ".");
+      git(otherRepo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "other");
+
+      const denied = await runArchctx(repo, "repo", "add", "--root", otherRepo, "--name", "other");
+      expect(denied.ok).toBe(false);
+      expect(denied.error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(denied.error.action).toBe("stay-within-single-repository");
+
+      const daemonStatus = await runArchctx(repo, "daemon", "status");
+      expect(daemonStatus.ok).toBe(true);
+      expect(daemonStatus.data.running).toBe(false);
+    } finally {
+      await runArchctx(repo, "daemon", "stop").catch(() => undefined);
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
 });
 
 async function runFirstExperience(

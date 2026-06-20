@@ -20,6 +20,7 @@ export type ArchContextErrorCode =
   | "AC_POLICY_VIOLATION"
   | "AC_PATH_DENIED"
   | "AC_PRECONDITION_FAILED"
+  | "AC_CAPABILITY_UNSUPPORTED"
   | "AC_INTERVENTION_REQUIRED"
   | "AC_PROOF_REQUIRED"
   | "AC_COMPAT_CONTRACT_REQUIRED"
@@ -54,6 +55,7 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_POLICY_VIOLATION: { code: "AC_POLICY_VIOLATION", severity: "error", retryable: false, action: "revise-plan" },
   AC_PATH_DENIED: { code: "AC_PATH_DENIED", severity: "critical", retryable: false, action: "do-not-bypass" },
   AC_PRECONDITION_FAILED: { code: "AC_PRECONDITION_FAILED", severity: "warning", retryable: true, action: "rebuild-plan" },
+  AC_CAPABILITY_UNSUPPORTED: { code: "AC_CAPABILITY_UNSUPPORTED", severity: "error", retryable: false, action: "stay-within-single-repository" },
   AC_INTERVENTION_REQUIRED: { code: "AC_INTERVENTION_REQUIRED", severity: "error", retryable: false, action: "enter-intervention-sop" },
   AC_PROOF_REQUIRED: { code: "AC_PROOF_REQUIRED", severity: "warning", retryable: false, action: "execute-proof-point" },
   AC_COMPAT_CONTRACT_REQUIRED: { code: "AC_COMPAT_CONTRACT_REQUIRED", severity: "error", retryable: false, action: "delete-or-contract" },

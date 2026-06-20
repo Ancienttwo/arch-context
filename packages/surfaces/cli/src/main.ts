@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
@@ -93,8 +93,15 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
       return (await runtime()).runtimeStatus(cwd);
     case "repo": {
       const subcommand = args[0] ?? "list";
+      if (subcommand === "add") {
+        const root = readFlag(args, "--root") ?? cwd;
+        if (resolve(root) !== resolve(cwd)) {
+          return errorEnvelope("repo.add", "AC_CAPABILITY_UNSUPPORTED", "Multi-repo architecture context is outside the Local Core MVP; run archctx inside one Git repository.");
+        }
+        const daemon = await runtime();
+        return daemon.repoAdd(root, readFlag(args, "--name"));
+      }
       const daemon = await runtime();
-      if (subcommand === "add") return daemon.repoAdd(readFlag(args, "--root") ?? cwd, readFlag(args, "--name"));
       if (subcommand === "remove") {
         const repositoryId = readFlag(args, "--repository-id") ?? args[1];
         if (!repositoryId) return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", "repo remove requires --repository-id");

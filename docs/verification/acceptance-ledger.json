@@ -396,6 +396,32 @@
         "packages/surfaces/cli/src/main.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/src/schema.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/surfaces/cli/test/local-product-e2e.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
+      "id": "FG1-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/test/fixtures/single-repo-basic",
+        "packages/surfaces/cli/test/fixtures/monorepo-basic",
+        "packages/surfaces/cli/test/local-product-e2e.test.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }

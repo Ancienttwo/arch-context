@@ -305,11 +305,16 @@ describe("archctx CLI", () => {
 
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "archctx-cli-other-"));
     try {
       writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      writeFileSync(join(otherRoot, "README.md"), "# other\n", "utf8");
       const added = await runTestCli("repo", ["add", "--name", "web"], root);
       expect(added.ok).toBe(true);
       expect((added.data as any).repository.name).toBe("web");
+      const denied = await runTestCli("repo", ["add", "--root", otherRoot, "--name", "other"], root);
+      expect(denied.ok).toBe(false);
+      expect((denied as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
       const landscape = await runTestCli("landscape", [], root);
       expect(landscape.ok).toBe(true);
       expect((landscape.data as any).schemaVersion).toBe("archcontext.landscape/v1");
@@ -324,6 +329,7 @@ describe("archctx CLI", () => {
       expect((start.data as any).readOnly).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
+      rmSync(otherRoot, { recursive: true, force: true });
     }
   });
 
