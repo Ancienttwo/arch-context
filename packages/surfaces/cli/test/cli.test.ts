@@ -57,8 +57,15 @@ describe("archctx CLI", () => {
       writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=24 <26" } }), "utf8");
       const install = await runTestCli("install", ["--host", "codex"], root);
       expect((install.data as any).marker).toContain("archcontext_prepare_task");
+      mkdirSync(join(root, ".git"), { recursive: true });
       const doctor = await runTestCli("doctor", [], root);
-      expect((doctor.data as any).privacyRouteDigest).toMatch(/^sha256:/);
+      expect((doctor.data as any).version.rpcSchemaVersion).toBe(RUNTIME_RPC_VERSION);
+      expect((doctor.data as any).daemon.running).toBe(false);
+      expect((doctor.data as any).sqlite.path).toContain("runtime.sqlite");
+      expect((doctor.data as any).git).toMatchObject({ ok: true, root, headSha: "unborn" });
+      expect((doctor.data as any).permissions.workspace.writable).toBe(true);
+      expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.0.1");
+      expect((doctor.data as any).hardening.privacyRouteDigest).toMatch(/^sha256:/);
       const privacyAudit = await runTestCli("privacy-audit", [], root);
       expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);
     } finally {

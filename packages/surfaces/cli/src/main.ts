@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { errorEnvelope, okEnvelope } from "@archcontext/contracts";
+import { errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { checkpoint, completeTask } from "@archcontext/core/application";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
+import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
@@ -210,7 +211,7 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
         data: { content: uninstallMarker(readFlag(args, "--content") ?? "", (readFlag(args, "--host") as any) ?? "generic") }
       };
     case "doctor":
-      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "doctor", data: diagnostics() };
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "doctor", data: await doctorReport(cwd) };
     case "privacy-audit":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -325,6 +326,118 @@ function agentHostConfig(host: AgentHost) {
 function agentHostRemoveConfig(host: AgentHost) {
   if (host === "generic") return { command: null, args: [], transport: "stdio", remove: true };
   return { mcpServers: { archcontext: null } };
+}
+
+async function doctorReport(cwd: string) {
+  const product = productVersionManifest();
+  const daemon = await doctorDaemon(cwd);
+  const git = doctorGit(cwd);
+  const sqlite = doctorSqlite(cwd);
+  const permissions = doctorPermissions(cwd);
+  const hardening = diagnostics();
+  return {
+    product,
+    version: {
+      product: product.product.version,
+      cli: product.surfaces.cli.version,
+      daemon: product.surfaces.daemon.version,
+      mcp: product.surfaces.mcp.version,
+      rpcSchemaVersion: product.runtime.localRpc.schemaVersion,
+      schemaSetVersion: product.schemas.schemaSetVersion
+    },
+    daemon,
+    sqlite,
+    codeGraph: product.runtime.codeGraph,
+    git,
+    permissions,
+    hardening,
+    ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable
+  };
+}
+
+async function doctorDaemon(cwd: string) {
+  const client = createRuntimeRpcClientFromConnectionFile(cwd);
+  if (!client) {
+    return {
+      running: false,
+      connectionPath: defaultDaemonConnectionPath(cwd),
+      lockPath: defaultDaemonLockPath(cwd)
+    };
+  }
+  const health = await client.health().catch(() => undefined);
+  return {
+    running: (health as any)?.ok === true,
+    staleConnection: (health as any)?.ok !== true,
+    rpcVersionCompatible: (health as any)?.schemaVersion === productVersionManifest().runtime.localRpc.schemaVersion,
+    connection: client.connectionInfo(),
+    health: (health as any)?.ok === true ? {
+      composition: (health as any).composition,
+      product: (health as any).product
+    } : undefined
+  };
+}
+
+function doctorGit(cwd: string) {
+  try {
+    const root = findRepositoryRoot(cwd);
+    return {
+      ok: true,
+      root,
+      headSha: readHeadSha(root)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function doctorSqlite(cwd: string) {
+  const path = defaultLocalStorePath(cwd);
+  return {
+    path,
+    exists: existsSync(path),
+    migrations: productVersionManifest().runtime.sqliteMigrations
+  };
+}
+
+function doctorPermissions(cwd: string) {
+  const controlDir = dirname(defaultDaemonConnectionPath(cwd));
+  return {
+    workspace: pathAccess(cwd),
+    controlDir: pathAccess(controlDir),
+    sqlite: pathAccess(defaultLocalStorePath(cwd))
+  };
+}
+
+function pathAccess(path: string) {
+  const exists = existsSync(path);
+  return {
+    path,
+    exists,
+    readable: canAccess(path, constants.R_OK),
+    writable: canAccess(path, constants.W_OK),
+    private: exists ? isPrivatePath(path) : undefined
+  };
+}
+
+function canAccess(path: string, mode: number): boolean {
+  try {
+    accessSync(path, mode);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isPrivatePath(path: string): boolean {
+  if (process.platform === "win32") return true;
+  try {
+    return (statSync(path).mode & 0o077) === 0;
+  } catch {
+    return false;
+  }
 }
 
 async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<RuntimeDaemonClient> {

@@ -356,6 +356,21 @@
         "packages/cloud/hardening/src/index.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/contracts/src/product-version.ts",
+        "packages/local-runtime/git-adapter/src/index.ts",
+        "packages/local-runtime/local-store-sqlite/src/index.ts",
+        "packages/cloud/hardening/src/index.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }
