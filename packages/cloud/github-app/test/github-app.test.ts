@@ -2,7 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
 import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
-import { GITHUB_APP_PERMISSIONS, GitHubAppState, InMemoryWebhookDeliveryLedger, projectVerifiedGitHubWebhook, verifyGitHubWebhookSignature } from "../src/index";
+import {
+  GITHUB_APP_PERMISSIONS,
+  GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
+  GitHubAppState,
+  GitHubGovernanceRestPort,
+  InMemoryWebhookDeliveryLedger,
+  projectVerifiedGitHubWebhook,
+  verifyGitHubWebhookSignature,
+  type GitHubGovernanceApiRequest
+} from "../src/index";
 
 describe("GitHub App", () => {
   test("uses no Contents permission and handles PR challenge/check lifecycle", () => {
@@ -73,6 +82,66 @@ describe("GitHub App", () => {
     }, "2026-06-19T00:03:00Z");
     expect(replay.replayRejected).toBe(true);
     expect(state.challenges.size).toBe(2);
+  });
+
+  test("getPullHeadMetadata uses typed GitHub pull endpoint and projects head metadata only", async () => {
+    const requests: GitHubGovernanceApiRequest[] = [];
+    const port = new GitHubGovernanceRestPort({
+      async request(input) {
+        requests.push(input);
+        return {
+          statusCode: 200,
+          requestId: "req_1",
+          body: {
+            title: "not retained",
+            body: "private-note",
+            changed_files: 3,
+            head: { sha: "head123", ref: "feature/private" },
+            base: { sha: "base456", ref: "main" }
+          }
+        };
+      }
+    });
+
+    const result = await port.getPullHeadMetadata({ installationId: 123, repositoryId: 987, pullRequestNumber: 42 });
+
+    expect(requests).toEqual([{
+      category: "github.pull-head",
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      method: "GET",
+      pathTemplate: GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
+      path: "/repositories/987/pulls/42",
+      accept: "application/vnd.github+json"
+    }]);
+    expect(result).toEqual({
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      headSha: "head123",
+      baseSha: "base456"
+    });
+    const serialized = JSON.stringify(result);
+    for (const rejected of ["private-note", "changed_files", "feature/private", "main"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
+  test("getPullHeadMetadata rejects failed and malformed GitHub responses", async () => {
+    const failed = new GitHubGovernanceRestPort({
+      async request() {
+        return { statusCode: 404, body: { message: "not found" } };
+      }
+    });
+    await expect(failed.getPullHeadMetadata({ installationId: 123, repositoryId: 987, pullRequestNumber: 42 })).rejects.toThrow("github-pull-head-metadata-fetch-failed");
+
+    const malformed = new GitHubGovernanceRestPort({
+      async request() {
+        return { statusCode: 200, body: { head: {}, base: { sha: "base456" } } };
+      }
+    });
+    await expect(malformed.getPullHeadMetadata({ installationId: 123, repositoryId: 987, pullRequestNumber: 42 })).rejects.toThrow("github-governance-response-invalid");
   });
 
   test("delivery ledger rejects replayed delivery ids by provider", () => {

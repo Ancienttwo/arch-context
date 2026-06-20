@@ -4,12 +4,67 @@ import {
   DEVELOPER_REVIEW_CHECK_NAME,
   GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
+  type GitHubGovernancePort,
   type GovernanceCheckName,
   type NotificationResult,
-  type NotificationRiskLevel
+  type NotificationRiskLevel,
+  type PullHeadMetadata
 } from "@archcontext/contracts";
 
 export const GITHUB_APP_PERMISSIONS = GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions;
+export const GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE = "/repositories/{repository_id}/pulls/{pull_number}" as const;
+
+export interface GitHubGovernanceApiRequest {
+  category: "github.pull-head";
+  installationId: number;
+  repositoryId: number;
+  pullRequestNumber: number;
+  method: "GET";
+  pathTemplate: typeof GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE;
+  path: string;
+  accept: "application/vnd.github+json";
+}
+
+export interface GitHubGovernanceApiResponse {
+  statusCode: number;
+  body: unknown;
+  requestId?: string;
+}
+
+export interface GitHubGovernanceApiTransport {
+  request(input: GitHubGovernanceApiRequest): Promise<GitHubGovernanceApiResponse>;
+}
+
+export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "getPullHeadMetadata"> {
+  constructor(private readonly transport: GitHubGovernanceApiTransport) {}
+
+  async getPullHeadMetadata(input: { installationId: number; repositoryId: number; pullRequestNumber: number }): Promise<PullHeadMetadata> {
+    const installationId = requirePositiveInteger(input.installationId, "installationId");
+    const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
+    const pullRequestNumber = requirePositiveInteger(input.pullRequestNumber, "pullRequestNumber");
+    const response = await this.transport.request({
+      category: "github.pull-head",
+      installationId,
+      repositoryId,
+      pullRequestNumber,
+      method: "GET",
+      pathTemplate: GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
+      path: `/repositories/${repositoryId}/pulls/${pullRequestNumber}`,
+      accept: "application/vnd.github+json"
+    });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`github-pull-head-metadata-fetch-failed: ${response.statusCode}`);
+    }
+    const body = requireApiRecord(response.body, "pull");
+    return {
+      installationId,
+      repositoryId,
+      pullRequestNumber,
+      headSha: requireApiString(requireApiRecord(body.head, "pull.head").sha, "pull.head.sha"),
+      baseSha: requireApiString(requireApiRecord(body.base, "pull.base").sha, "pull.base.sha")
+    };
+  }
+}
 
 export interface PullRequestEvent {
   deliveryId: string;
@@ -355,6 +410,21 @@ function requireStringId(value: unknown, path: string): string {
 
 function requireNumber(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isInteger(value)) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return value;
+}
+
+function requirePositiveInteger(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) throw new Error(`github-governance-input-invalid: ${path}`);
+  return value;
+}
+
+function requireApiRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`github-governance-response-invalid: ${path}`);
+  return value as Record<string, unknown>;
+}
+
+function requireApiString(value: unknown, path: string): string {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`github-governance-response-invalid: ${path}`);
   return value;
 }
 

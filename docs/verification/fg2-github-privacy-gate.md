@@ -6,13 +6,14 @@
   - `635cc1c43f14727c13abf9a999c73eaff1a7400d` — FG2-04 Webhook delivery replay rejection
   - `f60ed79d3088588f080228ebeb58c132632d73ea` — FG2-05 GitHub webhook privacy projection
   - `6c0c22eec7e662e9090a4566c9af20a9ac8f3545` — FG2-06 GitHub webhook event family support
+  - Pending first FG2-07 implementation commit — GitHub pull head metadata typed port
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, or FG2-06 local E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, or FG2-07 local E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, and FG2-06.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, and FG2-07.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -34,6 +35,9 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, and FG2-06.
 - Pull request webhook projection supports `opened`, `synchronize`, and `reopened`.
 - Check run webhook projection supports only `rerequested` for ArchContext governance check names.
 - `handleCheckRunRerequest` uses the delivery ledger, creates a fresh Review Challenge for the same head, and resets the addressed check to queued without reusing the earlier nonce.
+- `GitHubGovernanceRestPort.getPullHeadMetadata` implements the contracts-owned `GitHubGovernancePort` method through a typed transport.
+- Pull head metadata uses `GET /repositories/{repository_id}/pulls/{pull_number}` with GitHub's JSON accept header.
+- The returned DTO contains only installation ID, repository ID, pull request number, head SHA, and base SHA.
 
 ## Commands
 
@@ -48,12 +52,12 @@ bun run verify
 
 ## Results
 
-- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 95 tests, 330 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 11 tests, 61 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 12 tests, 71 expects.
+- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 97 tests, 338 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 13 tests, 69 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 14 tests, 79 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
-- `bun run verify`: PASS, 289 tests, 1227 expects, 52-entry acceptance ledger.
+- `bun run verify`: PASS, 291 tests, 1235 expects, 53-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -66,11 +70,13 @@ bun run verify
 - GitHub App tests prove nonessential pull request fields from the webhook payload do not appear in the returned projection.
 - GitHub App tests reject unsupported Check Run actions and non-ArchContext check names.
 - GitHub App tests prove `rerequested` creates a fresh challenge and duplicate rerequest deliveries do not create another challenge.
+- GitHub App tests reject failed or malformed pull head metadata responses.
+- GitHub App tests prove PR title, body, branch names, and change counts are not returned by `getPullHeadMetadata`.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, GitHub API allowlist, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
+FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, full GitHub API allowlist, check create/update, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, and FG2-06. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, and FG2-07. Remaining FG2 tasks and exit gates stay open.
