@@ -11,6 +11,7 @@ import {
   GitHubGovernanceRestPort,
   InMemoryWebhookDeliveryLedger,
   assertGitHubGovernanceApiRequestAllowed,
+  identifyForbiddenGitHubGovernanceApiEndpoint,
   projectVerifiedGitHubWebhook,
   verifyGitHubWebhookSignature,
   type GitHubGovernanceApiRequest
@@ -278,12 +279,42 @@ describe("GitHub App", () => {
     }
     for (const denied of [
       { ...allowed[0], method: "POST" },
-      { ...allowed[1], path: "/repositories/987/pulls/42/files" },
+      { ...allowed[1], path: "/repositories/987/issues/42" },
       { ...allowed[2], path: "/repositories/987/check-runs/check/42" },
       { ...allowed[2], accept: "application/vnd.github.diff" },
       { ...allowed[0], category: "github.unknown" }
     ]) {
       expect(() => assertGitHubGovernanceApiRequestAllowed(denied as GitHubGovernanceApiRequest)).toThrow("github-api-request-denied");
+    }
+  });
+
+  test("GitHub API allowlist explicitly rejects code-bearing endpoints", () => {
+    const forbiddenCases = [
+      { path: "/repos/ancienttwo/arch-context/pulls/42/files?per_page=100", name: "github.pr-files" },
+      { path: "/repositories/987/pulls/42/files", name: "github.pr-files-by-repository-id" },
+      { path: "/repos/ancienttwo/arch-context/contents/src/index.ts", name: "github.contents" },
+      { path: "/repositories/987/contents?ref=main", name: "github.contents-by-repository-id" },
+      { path: "/repos/ancienttwo/arch-context/git/blobs/abc123?ref=main", name: "github.blob" },
+      { path: "/repositories/987/git/blobs/abc123", name: "github.blob-by-repository-id" },
+      { path: "/repos/ancienttwo/arch-context/git/trees/abc123?recursive=1", name: "github.tree" },
+      { path: "/repositories/987/git/trees/abc123?recursive=1", name: "github.tree-by-repository-id" }
+    ] as const;
+
+    const probe: GitHubGovernanceApiRequest = {
+      category: "github.pull-head",
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      method: "GET",
+      pathTemplate: GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
+      path: "/repositories/987/pulls/42",
+      accept: "application/vnd.github+json"
+    };
+
+    for (const { path, name } of forbiddenCases) {
+      const request = { ...probe, path };
+      expect(identifyForbiddenGitHubGovernanceApiEndpoint(request)).toBe(name);
+      expect(() => assertGitHubGovernanceApiRequestAllowed(request)).toThrow(`github-api-forbidden-endpoint: ${name}`);
     }
   });
 

@@ -18,6 +18,48 @@ export const GITHUB_APP_PERMISSIONS = GITHUB_APP_PERMISSION_MANIFEST.repositoryP
 export const GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE = "/repositories/{repository_id}/pulls/{pull_number}" as const;
 export const GITHUB_CHECK_CREATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs" as const;
 export const GITHUB_CHECK_UPDATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs/{check_run_id}" as const;
+export const GITHUB_FORBIDDEN_API_ENDPOINTS = [
+  {
+    name: "github.pr-files",
+    method: "GET",
+    pathPattern: /^\/repos\/[^/]+\/[^/]+\/pulls\/[1-9]\d*\/files(?:\?.*)?$/
+  },
+  {
+    name: "github.pr-files-by-repository-id",
+    method: "GET",
+    pathPattern: /^\/repositories\/[1-9]\d*\/pulls\/[1-9]\d*\/files(?:\?.*)?$/
+  },
+  {
+    name: "github.contents",
+    method: "GET",
+    pathPattern: /^\/repos\/[^/]+\/[^/]+\/contents(?:\/[^?#]*)?(?:\?.*)?$/
+  },
+  {
+    name: "github.contents-by-repository-id",
+    method: "GET",
+    pathPattern: /^\/repositories\/[1-9]\d*\/contents(?:\/[^?#]*)?(?:\?.*)?$/
+  },
+  {
+    name: "github.blob",
+    method: "GET",
+    pathPattern: /^\/repos\/[^/]+\/[^/]+\/git\/blobs\/[^/?#]+(?:\?.*)?$/
+  },
+  {
+    name: "github.blob-by-repository-id",
+    method: "GET",
+    pathPattern: /^\/repositories\/[1-9]\d*\/git\/blobs\/[^/?#]+(?:\?.*)?$/
+  },
+  {
+    name: "github.tree",
+    method: "GET",
+    pathPattern: /^\/repos\/[^/]+\/[^/]+\/git\/trees\/[^/?#]+(?:\?.*)?$/
+  },
+  {
+    name: "github.tree-by-repository-id",
+    method: "GET",
+    pathPattern: /^\/repositories\/[1-9]\d*\/git\/trees\/[^/?#]+(?:\?.*)?$/
+  }
+] as const;
 
 export type GitHubGovernanceApiRequest =
   | GitHubPullHeadApiRequest
@@ -80,8 +122,16 @@ export interface GitHubGovernanceApiTransport {
   request(input: GitHubGovernanceApiRequest): Promise<GitHubGovernanceApiResponse>;
 }
 
+export function identifyForbiddenGitHubGovernanceApiEndpoint(input: { method?: unknown; path?: unknown }): typeof GITHUB_FORBIDDEN_API_ENDPOINTS[number]["name"] | undefined {
+  const method = typeof input.method === "string" ? input.method.toUpperCase() : "";
+  const path = typeof input.path === "string" ? input.path : "";
+  return GITHUB_FORBIDDEN_API_ENDPOINTS.find((endpoint) => endpoint.method === method && endpoint.pathPattern.test(path))?.name;
+}
+
 export function assertGitHubGovernanceApiRequestAllowed(input: GitHubGovernanceApiRequest): GitHubGovernanceApiRequest {
   const denied = () => new Error(`github-api-request-denied: ${String((input as { method?: unknown }).method)} ${String((input as { path?: unknown }).path)}`);
+  const forbiddenEndpoint = identifyForbiddenGitHubGovernanceApiEndpoint(input);
+  if (forbiddenEndpoint) throw new Error(`github-api-forbidden-endpoint: ${forbiddenEndpoint}`);
   if (input.accept !== "application/vnd.github+json") throw denied();
   if (input.category === "github.pull-head") {
     if (
