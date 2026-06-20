@@ -276,6 +276,21 @@
         "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "package.json",
+        "bun.lock",
+        "packages/surfaces/package.json",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/mcp-local/src/index.ts",
+        "scripts/packaged-cli-smoke.mjs",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }

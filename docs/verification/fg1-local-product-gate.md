@@ -13,7 +13,7 @@
 
 ## Scope
 
-This evidence covers FG1-01, FG1-02, and FG1-03.
+This evidence covers FG1-01, FG1-02, FG1-03, and FG1-04.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -21,6 +21,8 @@ This evidence covers FG1-01, FG1-02, and FG1-03.
 - MCP no longer creates an independent in-process runtime when daemon RPC is unavailable.
 - `ProductVersionManifest` is a contracts-owned manifest covering CLI, daemon, MCP, local RPC, schema set, SQLite migration range, CodeGraph compatibility, package manager, and Node engine.
 - `archctxd` health readback exposes the same product version manifest used by contract tests.
+- The root workspace now installs `@archcontext/surfaces`, exposing `node_modules/.bin/archctx`.
+- `scripts/packaged-cli-smoke.mjs` verifies one installed `archctx` bin can start the daemon, run CLI state, and serve MCP stdio `tools/list`.
 
 ## Commands
 
@@ -52,6 +54,7 @@ bun run verify
 - Runtime RPC without bearer token remains rejected.
 - CLI daemon health readback reports `mode=production` and `productionSafe=true`.
 - Product manifest schema rejects unknown top-level fields through the contract matrix.
+- Packaged MCP stdio preserves JSON-RPC request id and exposes `archcontext_prepare_task`.
 
 ## Privacy Scan
 
@@ -67,4 +70,4 @@ None for this local partial slice.
 
 ## Decision
 
-PARTIAL PASS for FG1-01, FG1-02, and FG1-03 only. FG1 exit gates remain open.
+PARTIAL PASS for FG1-01 through FG1-04 only. FG1 exit gates remain open.

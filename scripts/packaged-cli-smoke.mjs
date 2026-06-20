@@ -37,6 +37,12 @@ try {
   assert(status.data?.running === true, "status must reuse daemon");
   assert(status.data?.sessions === 1, "status must observe shared daemon session");
 
+  const mcp = await runArchctxMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+  assert(mcp.jsonrpc === "2.0", "mcp must return JSON-RPC");
+  assert(mcp.id === 1, "mcp must preserve request id");
+  assert(Array.isArray(mcp.result?.tools), "mcp must list tools");
+  assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
+
   const again = await runArchctx("daemon", "start");
   assert(again.ok === true, "second daemon start must succeed");
   assert(again.data?.alreadyRunning === true, "second daemon start must be idempotent");
@@ -85,6 +91,43 @@ function runArchctx(...args) {
         rejectPromise(new Error(`archctx ${args.join(" ")} returned invalid JSON: ${stdout}\n${stderr}\n${error}`));
       }
     });
+  });
+}
+
+function runArchctxMcp(message) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(archctxBin, ["mcp"], {
+      cwd: repo,
+      env: {
+        ...process.env,
+        PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`
+      }
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      rejectPromise(new Error(`archctx mcp timed out: ${stderr || stdout}`));
+    }, 5_000);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        rejectPromise(new Error(`archctx mcp failed (${code}): ${stderr || stdout}`));
+        return;
+      }
+      try {
+        resolvePromise(JSON.parse(stdout.trim().split("\n").at(-1) ?? ""));
+      } catch (error) {
+        rejectPromise(new Error(`archctx mcp returned invalid JSON: ${stdout}\n${stderr}\n${error}`));
+      }
+    });
+    child.stdin.end(`${JSON.stringify(message)}\n`);
   });
 }
 

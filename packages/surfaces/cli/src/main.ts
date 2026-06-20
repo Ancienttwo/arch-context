@@ -19,6 +19,7 @@ import {
 } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
+import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
 import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
@@ -26,7 +27,9 @@ const CLI_ENTRY = fileURLToPath(import.meta.url);
 const DAEMON_START_TIMEOUT_MS = 5_000;
 
 if (import.meta.main) {
-  if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
+  if (command === "mcp" && args.length === 0) {
+    await runStdioMcpLoop(stdinLines(), (line) => process.stdout.write(`${line}\n`));
+  } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
     await runForegroundDaemon(process.cwd(), args).catch((error) => {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
       process.exitCode = 1;
@@ -37,6 +40,22 @@ if (import.meta.main) {
     );
     process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
   }
+}
+
+async function* stdinLines(): AsyncIterable<string> {
+  let buffer = "";
+  for await (const chunk of process.stdin) {
+    buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    let newline = buffer.indexOf("\n");
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (line) yield line;
+      newline = buffer.indexOf("\n");
+    }
+  }
+  const trailing = buffer.trim();
+  if (trailing) yield trailing;
 }
 
 export interface CliRuntimeDeps extends RuntimeDeps {
