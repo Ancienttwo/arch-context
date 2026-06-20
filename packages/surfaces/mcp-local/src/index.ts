@@ -1,6 +1,5 @@
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
-import { errorEnvelope, okEnvelope, type Json } from "@archcontext/contracts";
-import { completeTask } from "@archcontext/core/application";
+import { assertNoCallerProvidedAttestationFields, errorEnvelope, type Json } from "@archcontext/contracts";
 import { createRuntimeRpcClientFromConnectionFile, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
@@ -106,8 +105,28 @@ export class McpLocalServer {
           return { content: errorEnvelope("apply_update", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error)) as unknown as Json, dataClassification: "local-metadata" };
         }
       }
-      case "archcontext_complete_task":
-        return { content: okEnvelope("complete_task", completeTask(args as any) as unknown as Json) as unknown as Json, dataClassification: "local-metadata" };
+      case "archcontext_complete_task": {
+        try {
+          assertNoCallerProvidedAttestationFields(args, "complete-task");
+        } catch (error) {
+          return { content: errorEnvelope("complete_task", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)) as unknown as Json, dataClassification: "local-metadata" };
+        }
+        try {
+          const root = requiredArg(args, "root");
+          const result = await (await this.runtime(root)).completeTask(root, {
+            taskSessionId: args.taskSessionId,
+            posture: args.posture,
+            headSha: args.headSha,
+            compatibilityContract: args.compatibilityContract,
+            compatibilityPathIntroduced: args.compatibilityPathIntroduced,
+            cleanupRequired: args.cleanupRequired,
+            cleanupCompleted: args.cleanupCompleted
+          });
+          return { content: result as unknown as Json, dataClassification: "local-metadata" };
+        } catch (error) {
+          return runtimeUnavailable("complete_task", error);
+        }
+      }
       default:
         return { content: errorEnvelope("mcp", "AC_SCHEMA_INVALID", `Unknown tool: ${name}`) as unknown as Json, dataClassification: "local-metadata" };
     }

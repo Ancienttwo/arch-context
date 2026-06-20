@@ -1,3 +1,5 @@
+import { canonicalize, digestJson, type Json } from "./schema";
+
 export const DEVELOPER_REVIEW_CHECK_NAME = "ArchContext / Developer Review" as const;
 export const ORGANIZATION_RUNNER_CHECK_NAME = "ArchContext / Organization Runner" as const;
 
@@ -13,6 +15,23 @@ export type ReviewChallengeStatus = "PENDING" | "LEASED" | "SUBMITTED" | "VERIFI
 export type CheckDeliveryStatus = "PENDING" | "PUBLISHED" | "RETRYING" | "DEAD_LETTER";
 export type AttestationResult = "pass" | "fail" | "error";
 export type GitHubAppPermissionLevel = "none" | "read" | "write";
+export type CallerProvidedAttestationField = (typeof CALLER_PROVIDED_ATTESTATION_FIELDS)[number];
+export type CreateAttestationV2Input = Omit<AttestationV2, "schemaVersion" | "attestationId" | "signature"> & {
+  attestationId?: string;
+  signature?: AttestationV2["signature"];
+};
+
+export interface DevicePrivateKeySignerPort {
+  signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string;
+}
+
+export const CALLER_PROVIDED_ATTESTATION_FIELDS = [
+  "result",
+  "reviewDigest",
+  "policyDigest",
+  "modelDigest",
+  "signature"
+] as const;
 
 export const GITHUB_APP_PERMISSION_MANIFEST = {
   schemaVersion: "archcontext.github-app-permission-manifest/v1",
@@ -68,7 +87,109 @@ export const CHECK_DELIVERY_STATUS_TRANSITIONS: Record<CheckDeliveryStatus, read
   DEAD_LETTER: []
 } as const;
 
+export function findCallerProvidedAttestationFields(value: unknown): CallerProvidedAttestationField[] {
+  const found = new Set<CallerProvidedAttestationField>();
+  collectCallerProvidedAttestationFields(value, found);
+  return CALLER_PROVIDED_ATTESTATION_FIELDS.filter((field) => found.has(field));
+}
+
+export function assertNoCallerProvidedAttestationFields(value: unknown, boundary = "review request"): void {
+  const fields = findCallerProvidedAttestationFields(value);
+  if (fields.length > 0) throw new Error(`${boundary}-caller-provided-attestation-field-forbidden: ${fields.join(",")}`);
+}
+
+export function createAttestationV2(input: CreateAttestationV2Input): AttestationV2 {
+  return {
+    schemaVersion: "archcontext.attestation/v2",
+    attestationId: input.attestationId ?? attestationV2Id(input),
+    challengeId: input.challengeId,
+    installationId: input.installationId,
+    repositoryId: input.repositoryId,
+    pullRequestNumber: input.pullRequestNumber,
+    headSha: input.headSha,
+    baseSha: input.baseSha,
+    mergeBaseSha: input.mergeBaseSha,
+    headTreeOid: input.headTreeOid,
+    worktreeDigest: input.worktreeDigest,
+    modelDigest: input.modelDigest,
+    policyDigest: input.policyDigest,
+    codeFactsDigest: input.codeFactsDigest,
+    reviewDigest: input.reviewDigest,
+    result: input.result,
+    ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
+    execution: input.execution,
+    runtime: input.runtime,
+    nonce: input.nonce,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    expiresAt: input.expiresAt,
+    signature: input.signature ?? { algorithm: "ed25519", value: "" }
+  };
+}
+
+export function unsignedAttestationV2(attestation: AttestationV2): AttestationV2 {
+  return {
+    ...attestation,
+    signature: {
+      ...attestation.signature,
+      value: ""
+    }
+  };
+}
+
+export function canonicalAttestationV2(attestation: AttestationV2): string {
+  return canonicalize(unsignedAttestationV2(attestation) as unknown as Json);
+}
+
+export function attestationV2Digest(attestation: AttestationV2): string {
+  return digestJson(unsignedAttestationV2(attestation) as unknown as Json);
+}
+
+function attestationV2Id(input: Omit<CreateAttestationV2Input, "attestationId">): string {
+  const digest = digestJson({
+    schemaVersion: "archcontext.attestation/v2",
+    challengeId: input.challengeId,
+    installationId: input.installationId,
+    repositoryId: input.repositoryId,
+    pullRequestNumber: input.pullRequestNumber,
+    headSha: input.headSha,
+    baseSha: input.baseSha,
+    mergeBaseSha: input.mergeBaseSha,
+    headTreeOid: input.headTreeOid,
+    worktreeDigest: input.worktreeDigest,
+    modelDigest: input.modelDigest,
+    policyDigest: input.policyDigest,
+    codeFactsDigest: input.codeFactsDigest,
+    reviewDigest: input.reviewDigest,
+    result: input.result,
+    ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
+    execution: input.execution,
+    runtime: input.runtime,
+    nonce: input.nonce,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    expiresAt: input.expiresAt,
+    signature: { algorithm: input.signature?.algorithm ?? "ed25519", value: "" }
+  } as unknown as Json);
+  return `att_${digest.slice("sha256:".length, "sha256:".length + 16)}`;
+}
+
+function collectCallerProvidedAttestationFields(value: unknown, found: Set<CallerProvidedAttestationField>): void {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectCallerProvidedAttestationFields(item, found);
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if ((CALLER_PROVIDED_ATTESTATION_FIELDS as readonly string[]).includes(key)) {
+      found.add(key as CallerProvidedAttestationField);
+    }
+    collectCallerProvidedAttestationFields(child, found);
+  }
+}
+
 export type GovernanceReasonCode =
+  | "ATTESTATION_SCHEMA_UNSUPPORTED"
   | "CHALLENGE_NOT_FOUND"
   | "CHALLENGE_EXPIRED"
   | "CHALLENGE_SUPERSEDED"
@@ -80,6 +201,7 @@ export type GovernanceReasonCode =
   | "BASE_SHA_MISMATCH"
   | "TREE_OID_MISMATCH"
   | "TRUST_LEVEL_MISMATCH"
+  | "DIGEST_INVALID"
   | "RUNNER_NOT_FOUND"
   | "RUNNER_REVOKED"
   | "RUNNER_SCOPE_MISMATCH"
@@ -90,6 +212,7 @@ export type GovernanceReasonCode =
   | "PAYLOAD_PRIVACY_VIOLATION";
 
 export const GOVERNANCE_REASON_CATALOG: Record<GovernanceReasonCode, { retryable: boolean; action: string }> = {
+  ATTESTATION_SCHEMA_UNSUPPORTED: { retryable: true, action: "rerun-with-attestation-v2" },
   CHALLENGE_NOT_FOUND: { retryable: false, action: "refresh-current-challenge" },
   CHALLENGE_EXPIRED: { retryable: true, action: "lease-new-challenge" },
   CHALLENGE_SUPERSEDED: { retryable: true, action: "review-latest-head" },
@@ -101,6 +224,7 @@ export const GOVERNANCE_REASON_CATALOG: Record<GovernanceReasonCode, { retryable
   BASE_SHA_MISMATCH: { retryable: true, action: "refresh-pull-request-metadata" },
   TREE_OID_MISMATCH: { retryable: true, action: "recreate-clean-worktree" },
   TRUST_LEVEL_MISMATCH: { retryable: false, action: "use-required-review-mode" },
+  DIGEST_INVALID: { retryable: false, action: "rerun-review-session" },
   RUNNER_NOT_FOUND: { retryable: false, action: "register-runner-identity" },
   RUNNER_REVOKED: { retryable: false, action: "rotate-runner-key" },
   RUNNER_SCOPE_MISMATCH: { retryable: false, action: "register-runner-for-repository" },
@@ -222,7 +346,7 @@ export interface CheckDelivery {
 export interface CloudEgressEnvelope {
   schemaVersion: "archcontext.cloud-egress/v1";
   requestId: string;
-  category: "github.metadata" | "github.pull-head" | "github.check-create" | "github.check-update";
+  category: "github.metadata" | "github.pull-head" | "github.check-list-for-ref" | "github.check-create" | "github.check-update";
   method: "GET" | "POST" | "PATCH";
   host: "api.github.com";
   pathTemplate: string;
@@ -245,6 +369,23 @@ export interface PullHeadMetadata {
   pullRequestNumber: number;
   headSha: string;
   baseSha: string;
+}
+
+export interface ReviewChallengePullHeadIdentity {
+  installationId: number;
+  repositoryId: number;
+  pullRequestNumber: number;
+  headSha: string;
+  baseSha: string;
+}
+
+export interface ReviewChallengePullHeadVerification {
+  schemaVersion: "archcontext.review-challenge-pull-head-verification/v1";
+  accepted: boolean;
+  reasonCode?: Extract<GovernanceReasonCode, "REPOSITORY_MISMATCH" | "PULL_REQUEST_MISMATCH" | "HEAD_SHA_MISMATCH" | "BASE_SHA_MISMATCH">;
+  challengeId: string;
+  expected: ReviewChallengePullHeadIdentity;
+  observed: PullHeadMetadata;
 }
 
 export interface CreateGovernanceCheckInput {
@@ -274,6 +415,17 @@ export interface CheckReference {
   htmlUrl?: string;
 }
 
+export interface CheckRunReference extends CheckReference {
+  name: GovernanceCheckName;
+  headSha: string;
+  status: CreateGovernanceCheckInput["status"];
+  conclusion?: NonNullable<UpdateGovernanceCheckInput["conclusion"]> | null;
+  output?: {
+    title?: string | null;
+    summary?: string | null;
+  };
+}
+
 export interface GitHubGovernancePort {
   getRepositoryMetadata(input: { installationId: number; repositoryId: number }): Promise<RepositoryMetadata>;
   getPullHeadMetadata(input: {
@@ -281,12 +433,30 @@ export interface GitHubGovernancePort {
     repositoryId: number;
     pullRequestNumber: number;
   }): Promise<PullHeadMetadata>;
+  listCheckRunsForRef(input: {
+    installationId: number;
+    repositoryId: number;
+    ref: string;
+    name: GovernanceCheckName;
+  }): Promise<CheckRunReference[]>;
   createCheckRun(input: CreateGovernanceCheckInput): Promise<CheckReference>;
   updateCheckRun(input: UpdateGovernanceCheckInput): Promise<void>;
 }
 
 export function canTransitionChallenge(from: ReviewChallengeStatus, to: ReviewChallengeStatus): boolean {
+  if (!isReviewChallengeStatus(from) || !isReviewChallengeStatus(to)) return false;
   return CHALLENGE_STATUS_TRANSITIONS[from].includes(to);
+}
+
+export function assertCanTransitionChallenge(from: ReviewChallengeStatus, to: ReviewChallengeStatus): void {
+  if (!isReviewChallengeStatus(from)) throw new Error(`challenge-status-invalid: ${String(from)}`);
+  if (!isReviewChallengeStatus(to)) throw new Error(`challenge-status-invalid: ${String(to)}`);
+  if (!canTransitionChallenge(from, to)) throw new Error(`challenge-transition-invalid: ${from}->${to}`);
+}
+
+export function transitionReviewChallengeStatus(challenge: ReviewChallengeV2, to: ReviewChallengeStatus): ReviewChallengeV2 {
+  assertCanTransitionChallenge(challenge.status, to);
+  return { ...challenge, status: to };
 }
 
 export function canTransitionCheckDelivery(from: CheckDeliveryStatus, to: CheckDeliveryStatus): boolean {
@@ -296,4 +466,8 @@ export function canTransitionCheckDelivery(from: CheckDeliveryStatus, to: CheckD
 export function satisfiesRequiredTrust(attestationTrustLevel: GovernanceTrustLevel, requiredTrust: RequiredTrust): boolean {
   if (requiredTrust === "organization") return attestationTrustLevel === "organization";
   return attestationTrustLevel === "developer" || attestationTrustLevel === "organization";
+}
+
+function isReviewChallengeStatus(value: unknown): value is ReviewChallengeStatus {
+  return typeof value === "string" && value in CHALLENGE_STATUS_TRANSITIONS;
 }

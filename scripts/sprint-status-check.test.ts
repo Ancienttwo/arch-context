@@ -182,6 +182,38 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("accepts FG3 progress only after FG2 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG3 In Progress",
+          total: "| **合计** | | **141** | **51** | **75 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 1 / 32 |",
+            "| FG3-01 | ☑ | 实现 ReviewChallenge v2 Domain 和 canonical serialization | contracts · attestation | E1 | FG0-06 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...Array.from({ length: 18 }, (_, index) => `FG1-${String(index + 1).padStart(2, "0")}`),
+          ...Array.from({ length: 6 }, (_, index) => `FG1-EG${index + 1}`),
+          ...Array.from({ length: 20 }, (_, index) => `FG2-${String(index + 1).padStart(2, "0")}`),
+          ...Array.from({ length: 7 }, (_, index) => `FG2-EG${index + 1}`),
+          "FG3-01"
+        ]);
+        await write(root, "docs/verification/fg1-local-product-gate.md", "# FG1 Verification\n\n## Decision\n\nPASS for FG1-01 through FG1-18 plus FG1-EG1 through FG1-EG6.\n");
+        await write(root, "docs/verification/fg2-github-privacy-gate.md", "# FG2 Verification\n\n## Decision\n\nPASS for all FG2 tasks and for FG2-EG1 through FG2-EG7.\n");
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
     await withFixture(
       `# Sprint 2

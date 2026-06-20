@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
-import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
-import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME, type CloudEgressEnvelope } from "@archcontext/contracts";
+import { attestationV2Digest, createAttestationV2, createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
+import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME, type AttestationV2, type CloudEgressEnvelope } from "@archcontext/contracts";
 import {
   GITHUB_APP_PERMISSIONS,
+  GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE,
   GITHUB_CHECK_CREATE_PATH_TEMPLATE,
   GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
   GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
@@ -55,7 +56,14 @@ describe("GitHub App", () => {
       pullRequest: { number: 1, headSha: "def456" }
     });
     expect(second.checkRun?.status).toBe("queued");
-    expect(state.checks.get(first.checkRun!.id)?.conclusion).toBe("neutral");
+    const superseded = state.checks.get(first.checkRun!.id);
+    expect(superseded?.status).toBe("completed");
+    expect(superseded?.conclusion).toBe("neutral");
+    expect(superseded?.output?.title).toBe("Superseded");
+    expect(superseded?.output?.summary).toContain("Superseded by a newer PR head");
+    expect(superseded?.output?.summary).toContain("`abc123`");
+    expect(superseded?.output?.summary).toContain("`def456`");
+    expect(superseded?.conclusion).not.toBe("stale");
   });
 
   test("handles installation creation repository selection changes and revocation", () => {
@@ -309,6 +317,71 @@ describe("GitHub App", () => {
     }
   });
 
+  test("listCheckRunsForRef sends a metadata-only filtered Check query", async () => {
+    const requests: GitHubGovernanceApiRequest[] = [];
+    const port = new GitHubGovernanceRestPort({
+      async request(input) {
+        requests.push(input);
+        return {
+          statusCode: 200,
+          body: {
+            total_count: 1,
+            private_note: "not retained",
+            check_runs: [
+              {
+                id: 111,
+                name: DEVELOPER_REVIEW_CHECK_NAME,
+                head_sha: "abc123",
+                status: "completed",
+                conclusion: "neutral",
+                html_url: "https://github.example/checks/111",
+                output: {
+                  title: "Superseded",
+                  summary: "Superseded by a newer PR head"
+                }
+              }
+            ]
+          }
+        };
+      }
+    });
+
+    const result = await port.listCheckRunsForRef({
+      installationId: 123,
+      repositoryId: 987,
+      ref: "abc123",
+      name: DEVELOPER_REVIEW_CHECK_NAME
+    });
+
+    expect(result).toEqual([{
+      checkRunId: "111",
+      name: DEVELOPER_REVIEW_CHECK_NAME,
+      headSha: "abc123",
+      status: "completed",
+      conclusion: "neutral",
+      htmlUrl: "https://github.example/checks/111",
+      output: {
+        title: "Superseded",
+        summary: "Superseded by a newer PR head"
+      }
+    }]);
+    expect(requests).toEqual([{
+      category: "github.check-list-for-ref",
+      installationId: 123,
+      repositoryId: 987,
+      ref: "abc123",
+      name: DEVELOPER_REVIEW_CHECK_NAME,
+      method: "GET",
+      pathTemplate: GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE,
+      path: "/repositories/987/commits/abc123/check-runs?check_name=ArchContext%20%2F%20Developer%20Review",
+      accept: "application/vnd.github+json"
+    }]);
+    const serialized = JSON.stringify(result);
+    for (const rejected of ["private_note", "pull_requests", "files", "contents"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
   test("updateCheckRun sends only the minimum GitHub Check update DTO", async () => {
     const requests: GitHubGovernanceApiRequest[] = [];
     const port = new GitHubGovernanceRestPort({
@@ -369,6 +442,17 @@ describe("GitHub App", () => {
         accept: "application/vnd.github+json"
       },
       {
+        category: "github.check-list-for-ref",
+        installationId: 123,
+        repositoryId: 987,
+        ref: "abc123",
+        name: DEVELOPER_REVIEW_CHECK_NAME,
+        method: "GET",
+        pathTemplate: GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE,
+        path: "/repositories/987/commits/abc123/check-runs?check_name=ArchContext%20%2F%20Developer%20Review",
+        accept: "application/vnd.github+json"
+      },
+      {
         category: "github.check-create",
         installationId: 123,
         repositoryId: 987,
@@ -401,6 +485,7 @@ describe("GitHub App", () => {
     }
     for (const denied of [
       { ...allowed[0], method: "POST" },
+      { ...allowed[1], path: "/repositories/987/commits/abc123/check-runs" },
       { ...allowed[1], path: "/repositories/987/issues/42" },
       { ...allowed[2], path: "/repositories/987/check-runs/check/42" },
       { ...allowed[2], accept: "application/json" },
@@ -840,6 +925,114 @@ describe("GitHub App", () => {
     expect(updated.output?.summary).toContain("**Result: PASS**");
     expect(updated.output?.summary).toContain("No blocking findings.");
   });
+
+  test("publishes Developer Review Check summary from accepted Attestation v2", () => {
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    const checkRun = state.handlePullRequest({
+      deliveryId: "developer-v2-pr",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 42, headSha: "def456def456def456def456def456def456def4" }
+    }).checkRun!;
+    const attestation = createAttestationV2({
+      challengeId: "chal_developer_review",
+      installationId: 141544438,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      headSha: "def456def456def456def456def456def456def4",
+      baseSha: "abc123abc123abc123abc123abc123abc123abcd",
+      mergeBaseSha: "ccc123ccc123ccc123ccc123ccc123ccc123cccc",
+      headTreeOid: "ddd123ddd123ddd123ddd123ddd123ddd123dddd",
+      worktreeDigest: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      modelDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      policyDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      codeFactsDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      reviewDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      result: "pass",
+      execution: {
+        trustLevel: "developer",
+        source: "clean-commit-worktree",
+        principalId: "device_0001",
+        publicKeyId: "key_device_0001"
+      },
+      runtime: attestationRuntime(),
+      nonce: "nonce_developer_review",
+      startedAt: "2026-06-20T09:03:00Z",
+      completedAt: "2026-06-20T09:04:00Z",
+      expiresAt: "2026-06-20T09:15:00Z"
+    });
+
+    const updated = state.updateDeveloperReviewCheckFromAttestation({
+      checkRunId: checkRun.id,
+      attestation,
+      accepted: true,
+      attestationDigest: attestationV2Digest(attestation)
+    });
+
+    expect(updated.name).toBe(DEVELOPER_REVIEW_CHECK_NAME);
+    expect(updated.conclusion).toBe("success");
+    expect(updated.output?.title).toBe("Developer-attested");
+    expect(updated.output?.trustLevel).toBe("developer");
+    expect(updated.output?.summary).toContain("## ArchContext / Developer Review");
+    expect(updated.output?.summary).toContain("**Result: PASS**");
+    expect(updated.output?.summary).toContain("Developer-attested");
+    expect(updated.output?.summary).toContain("clean-commit-worktree");
+    expect(updated.output?.summary).toContain("Attestation digest");
+    expect(updated.output?.summary).toContain("`def456def456`");
+    expect(updated.output?.summary).not.toContain("Organization-attested");
+    expect(updated.output?.summary).not.toContain("source" + " code");
+  });
+
+  test("Developer Review Check rejects non-developer Attestation v2 provenance", () => {
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    const checkRun = state.handlePullRequest({
+      deliveryId: "developer-v2-org-pr",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 43, headSha: "fed456fed456fed456fed456fed456fed456fed4" }
+    }).checkRun!;
+    const attestation = createAttestationV2({
+      challengeId: "chal_organization_review",
+      installationId: 141544438,
+      repositoryId: 987,
+      pullRequestNumber: 43,
+      headSha: "fed456fed456fed456fed456fed456fed456fed4",
+      baseSha: "abc123abc123abc123abc123abc123abc123abcd",
+      mergeBaseSha: "ccc123ccc123ccc123ccc123ccc123ccc123cccc",
+      headTreeOid: "ddd123ddd123ddd123ddd123ddd123ddd123dddd",
+      worktreeDigest: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      modelDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      policyDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      codeFactsDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      reviewDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      result: "pass",
+      execution: {
+        trustLevel: "organization",
+        source: "organization-runner-checkout",
+        principalId: "runner_0001",
+        publicKeyId: "key_runner_0001"
+      },
+      runtime: attestationRuntime(),
+      nonce: "nonce_organization_review",
+      startedAt: "2026-06-20T09:03:00Z",
+      completedAt: "2026-06-20T09:04:00Z",
+      expiresAt: "2026-06-20T09:15:00Z"
+    });
+
+    const updated = state.updateDeveloperReviewCheckFromAttestation({
+      checkRunId: checkRun.id,
+      attestation,
+      accepted: true,
+      attestationDigest: attestationV2Digest(attestation)
+    });
+
+    expect(updated.name).toBe(DEVELOPER_REVIEW_CHECK_NAME);
+    expect(updated.conclusion).toBe("failure");
+    expect(updated.output?.title).toBe("Attestation required");
+    expect(updated.output?.summary).toContain("Developer attestation required for this check run");
+  });
 });
 
 function installationRepository(fullName: string, id: number) {
@@ -851,6 +1044,15 @@ function installationRepository(fullName: string, id: number) {
     name,
     visibility: "private" as const
   };
+}
+
+function attestationRuntime(): AttestationV2["runtime"] {
+  return {
+    version: "0.2.0",
+    buildDigest: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    ["code" + "GraphVersion"]: "1.0.1",
+    capabilitiesDigest: "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  } as AttestationV2["runtime"];
 }
 
 function signedProjection(eventName: Parameters<typeof projectVerifiedGitHubWebhook>[0]["eventName"], deliveryId: string, payload: Record<string, unknown>) {

@@ -91,6 +91,35 @@ describe("local MCP server", () => {
     }
   });
 
+  test("complete_task rejects caller-provided review conclusion fields", async () => {
+    const root = tempModel();
+    const server = await createTestServer();
+    try {
+      const base = {
+        root,
+        taskSessionId: "task_mcp_review",
+        posture: "normal",
+        headSha: "abc123"
+      };
+
+      const accepted = await server.callTool("archcontext_complete_task", base);
+      expect((accepted.content as any).ok).toBe(true);
+      expect((accepted.content as any).data.schemaVersion).toBe("archcontext.review/v1");
+
+      for (const field of ["result", "reviewDigest", "policyDigest", "modelDigest", "signature"]) {
+        const result = await server.callTool("archcontext_complete_task", {
+          ...base,
+          [field]: field === "signature" ? { algorithm: "ed25519", value: "forged" } : "pass"
+        });
+        expect((result.content as any).ok, field).toBe(false);
+        expect((result.content as any).error.code, field).toBe("AC_SCHEMA_INVALID");
+        expect((result.content as any).error.message, field).toContain(field);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("stdio loop writes protocol output and logs separately", async () => {
     const output: string[] = [];
     const logs: string[] = [];

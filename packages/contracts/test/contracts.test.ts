@@ -8,9 +8,20 @@ import {
   GOVERNANCE_CHECK_NAMES,
   GOVERNANCE_REASON_CATALOG,
   ORGANIZATION_RUNNER_CHECK_NAME,
+  CALLER_PROVIDED_ATTESTATION_FIELDS,
+  attestationV2Digest,
+  assertCanTransitionChallenge,
+  assertNoCallerProvidedAttestationFields,
   canTransitionChallenge,
   canTransitionCheckDelivery,
-  satisfiesRequiredTrust
+  canonicalAttestationV2,
+  createAttestationV2,
+  findCallerProvidedAttestationFields,
+  satisfiesRequiredTrust,
+  transitionReviewChallengeStatus,
+  unsignedAttestationV2,
+  type ReviewChallengeStatus,
+  type ReviewChallengeV2
 } from "../src/github-governance";
 import {
   ARCHCONTEXT_PACKAGE_MANAGER,
@@ -325,14 +336,81 @@ describe("GitHub governance contracts", () => {
     expect(satisfiesRequiredTrust("developer", "organization")).toBe(false);
   });
 
+  test("freezes caller-provided Attestation field denylist for Agent CLI and MCP inputs", () => {
+    expect(CALLER_PROVIDED_ATTESTATION_FIELDS).toEqual([
+      "result",
+      "reviewDigest",
+      "policyDigest",
+      "modelDigest",
+      "signature"
+    ]);
+    const forged = {
+      challengeId: "chal_1",
+      result: "pass",
+      digests: {
+        reviewDigest: `sha256:${"1".repeat(64)}`,
+        policyDigest: `sha256:${"2".repeat(64)}`,
+        modelDigest: `sha256:${"3".repeat(64)}`
+      },
+      nested: {
+        signature: { algorithm: "ed25519", value: "forged" }
+      }
+    };
+    expect(findCallerProvidedAttestationFields(forged)).toEqual([
+      "result",
+      "reviewDigest",
+      "policyDigest",
+      "modelDigest",
+      "signature"
+    ]);
+    expect(() => assertNoCallerProvidedAttestationFields(forged, "agent")).toThrow(
+      "agent-caller-provided-attestation-field-forbidden: result,reviewDigest,policyDigest,modelDigest,signature"
+    );
+    expect(() => assertNoCallerProvidedAttestationFields({ challengeId: "chal_1", taskSessionId: "task_1" }, "agent")).not.toThrow();
+  });
+
+  test("Attestation v2 canonical signing payload excludes signature value", () => {
+    const schema = readJson("schemas/cloud/attestation-v2.schema.json") as any;
+    const fixture = readJson("packages/contracts/fixtures/valid/attestation-v2.json") as any;
+    const { schemaVersion: _schemaVersion, attestationId: _attestationId, signature: _signature, ...input } = fixture;
+    const signedA = createAttestationV2({
+      ...input,
+      signature: { algorithm: "ed25519", value: "signature_a" }
+    });
+    const signedB = createAttestationV2({
+      ...input,
+      signature: { algorithm: "ed25519", value: "signature_b" }
+    });
+
+    expect(validateJsonSchema(schema, signedA as unknown as Json).valid).toBe(true);
+    expect(JSON.parse(canonicalAttestationV2(signedA))).toEqual(unsignedAttestationV2(signedA));
+    expect(canonicalAttestationV2(signedA)).toBe(canonicalAttestationV2(signedB));
+    expect(attestationV2Digest(signedA)).toBe(attestationV2Digest(signedB));
+  });
+
   test("challenge and check delivery state machines reject illegal backward moves", () => {
     expect(canTransitionChallenge("PENDING", "LEASED")).toBe(true);
     expect(canTransitionChallenge("LEASED", "PENDING")).toBe(false);
     expect(canTransitionChallenge("VERIFIED", "REJECTED")).toBe(false);
+    expect(() => assertCanTransitionChallenge("LEASED", "PENDING")).toThrow("challenge-transition-invalid: LEASED->PENDING");
+    expect(() => assertCanTransitionChallenge("VERIFIED", "REJECTED")).toThrow("challenge-transition-invalid: VERIFIED->REJECTED");
+    expect(() => assertCanTransitionChallenge("PENDING" as ReviewChallengeStatus, "PENDING")).toThrow("challenge-transition-invalid: PENDING->PENDING");
 
     expect(canTransitionCheckDelivery("PENDING", "RETRYING")).toBe(true);
     expect(canTransitionCheckDelivery("RETRYING", "PUBLISHED")).toBe(true);
     expect(canTransitionCheckDelivery("PUBLISHED", "RETRYING")).toBe(false);
+  });
+
+  test("ReviewChallenge v2 transition returns a new value only for legal moves", () => {
+    const challenge = readJson("packages/contracts/fixtures/valid/review-challenge-v2.json") as unknown as ReviewChallengeV2;
+    const leased = transitionReviewChallengeStatus(challenge, "LEASED");
+    expect(leased).toEqual({ ...challenge, status: "LEASED" });
+    expect(challenge.status).toBe("PENDING");
+    expect(transitionReviewChallengeStatus(leased, "SUBMITTED").status).toBe("SUBMITTED");
+    expect(() => transitionReviewChallengeStatus(leased, "PENDING")).toThrow("challenge-transition-invalid: LEASED->PENDING");
+    expect(() => transitionReviewChallengeStatus({ ...challenge, status: "VERIFIED" }, "EXPIRED")).toThrow("challenge-transition-invalid: VERIFIED->EXPIRED");
+    expect(canTransitionChallenge("PENDING", "NOT_A_STATUS" as ReviewChallengeStatus)).toBe(false);
+    expect(() => assertCanTransitionChallenge("NOT_A_STATUS" as ReviewChallengeStatus, "LEASED")).toThrow("challenge-status-invalid: NOT_A_STATUS");
   });
 
   test("reason catalog has retryability and user action for every reason code", () => {
@@ -342,6 +420,7 @@ describe("GitHub governance contracts", () => {
     }
     expect(GOVERNANCE_REASON_CATALOG.TRUST_LEVEL_MISMATCH.retryable).toBe(false);
     expect(GOVERNANCE_REASON_CATALOG.CHALLENGE_EXPIRED.retryable).toBe(true);
+    expect(GOVERNANCE_REASON_CATALOG.ATTESTATION_SCHEMA_UNSUPPORTED.action).toBe("rerun-with-attestation-v2");
   });
 
   test("cloud egress envelope schema rejects private content keys", () => {

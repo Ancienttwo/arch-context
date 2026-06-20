@@ -4,6 +4,7 @@ import {
   GitHubGovernanceRestPort,
   RecordingGitHubGovernanceApiTransport,
   projectVerifiedGitHubWebhook,
+  renderSupersededCheckSummary,
   verifyGitHubWebhookSignature,
   type GitHubGovernanceApiRequest,
   type GitHubGovernanceApiResponse,
@@ -124,6 +125,15 @@ async function handlePullRequestWebhook(input: {
     repositoryId: context.repositoryId,
     pullRequestNumber: input.projection.event.pullRequest.number
   });
+  const supersededCheckRunIds = await supersedePreviousDeveloperReviewChecks({
+    port,
+    installationId: context.installationId,
+    repositoryId: context.repositoryId,
+    pullRequestNumber: input.projection.event.pullRequest.number,
+    action: input.projection.event.action,
+    previousHeadSha: context.previousHeadSha,
+    currentHeadSha: pullHead.headSha
+  });
 
   const check = await port.createCheckRun({
     installationId: context.installationId,
@@ -161,8 +171,50 @@ async function handlePullRequestWebhook(input: {
     headSha: pullHead.headSha,
     checkRunId: check.checkRunId,
     checkHtmlUrl: check.htmlUrl,
+    supersededCheckRunIds,
     rawBodyRetained: input.projection.rawBodyRetained
   });
+}
+
+async function supersedePreviousDeveloperReviewChecks(input: {
+  port: GitHubGovernanceRestPort;
+  installationId: number;
+  repositoryId: number;
+  pullRequestNumber: number;
+  action: "opened" | "synchronize" | "reopened";
+  previousHeadSha?: string;
+  currentHeadSha: string;
+}): Promise<string[]> {
+  if (input.action !== "synchronize") return [];
+  if (!input.previousHeadSha || input.previousHeadSha === input.currentHeadSha) return [];
+  const previousChecks = await input.port.listCheckRunsForRef({
+    installationId: input.installationId,
+    repositoryId: input.repositoryId,
+    ref: input.previousHeadSha,
+    name: DEVELOPER_REVIEW_CHECK_NAME
+  });
+  const superseded: string[] = [];
+  for (const check of previousChecks) {
+    if (check.name !== DEVELOPER_REVIEW_CHECK_NAME || check.headSha !== input.previousHeadSha) continue;
+    await input.port.updateCheckRun({
+      installationId: input.installationId,
+      repositoryId: input.repositoryId,
+      checkRunId: check.checkRunId,
+      name: DEVELOPER_REVIEW_CHECK_NAME,
+      status: "completed",
+      conclusion: "neutral",
+      output: {
+        title: "Superseded",
+        summary: renderSupersededCheckSummary({
+          checkName: DEVELOPER_REVIEW_CHECK_NAME,
+          previousHeadSha: input.previousHeadSha,
+          currentHeadSha: input.currentHeadSha
+        })
+      }
+    });
+    superseded.push(check.checkRunId);
+  }
+  return superseded;
 }
 
 class GitHubFetchTransport implements GitHubGovernanceApiTransport {
@@ -242,13 +294,15 @@ function base64Url(value: Buffer): string {
   return value.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function extractPullRequestContext(rawBody: string): { installationId: number; repositoryId: number } {
+function extractPullRequestContext(rawBody: string): { installationId: number; repositoryId: number; previousHeadSha?: string } {
   const payload = parseRecord(rawBody);
   const installation = requireRecord(payload.installation, "installation");
   const repository = requireRecord(payload.repository, "repository");
+  const before = typeof payload.before === "string" && payload.before.length > 0 ? payload.before : undefined;
   return {
     installationId: requirePositiveInteger(installation.id, "installation.id"),
-    repositoryId: requirePositiveInteger(repository.id, "repository.id")
+    repositoryId: requirePositiveInteger(repository.id, "repository.id"),
+    ...(before ? { previousHeadSha: before } : {})
   };
 }
 

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "archcontext.fg3-cloud-dlp-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T21:53:56.281Z",
+  "evidence": {
+    "baitFixture": "docs/security/fixtures/cloud-private-content-bait.json",
+    "evidenceFiles": [
+      {
+        "path": "docs/verification/fg3-developer-review-process-e2e.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-negative-identity-matrix.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-adversarial-review-conclusion.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-attestation-security-suite.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-check-supersede-readback.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-developer-review-check-readback.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-real-pr-synchronize-e2e.json",
+        "status": "verified",
+        "ok": true
+      },
+      {
+        "path": "docs/verification/fg3-required-trust-staging-readback.json",
+        "status": "verified",
+        "ok": true
+      }
+    ],
+    "dtoScan": {
+      "surfaces": [
+        "log",
+        "trace",
+        "queue",
+        "error",
+        "notification",
+        "egress"
+      ],
+      "baitValueMatches": 0,
+      "forbiddenKeyRetained": 0,
+      "notificationMinimalRejectedBait": true,
+      "egressSchemaRejectedBait": true
+    },
+    "egressScan": {
+      "totalRecordedRequests": 13,
+      "categories": {
+        "github.pull-head": 3,
+        "github.check-create": 5,
+        "github.check-update": 5
+      },
+      "unexpectedCategories": [],
+      "forbiddenEndpointOrMediaMatches": 0
+    },
+    "tailScan": {
+      "tailCaptureLocal": "_ops/env/fg3-eg8-tail-20260620T215234Z.jsonl",
+      "egressEnvelopeMatches": 8,
+      "acceptedWebhookLogMatches": 0,
+      "baitValueMatches": 0,
+      "baitMarkerMatches": 0,
+      "forbiddenEndpointOrMediaMatches": 0
+    }
+  },
+  "failures": []
+}

@@ -1,4 +1,12 @@
-import { createHash, randomBytes } from "node:crypto";
+import {
+  createHash,
+  createPrivateKey,
+  generateKeyPairSync,
+  randomBytes,
+  sign,
+  type KeyObject
+} from "node:crypto";
+import { publicKeyFingerprint } from "@archcontext/cloud/attestation";
 
 export interface OAuthPkceRequest {
   authorizationUrl: string;
@@ -19,6 +27,26 @@ export interface OfflineEntitlement {
   billingInterval: "none" | "monthly" | "annual";
   privateRepositoryScope: "public-only" | "user-all-private-repositories";
   offlineUntil?: string;
+}
+
+export interface CredentialSecretStore {
+  saveSecret(ref: string, value: string): void;
+  readSecret(ref: string): string | undefined;
+  clear(ref: string): void;
+}
+
+export interface DeviceKeyCredentialReference {
+  schemaVersion: "archcontext.device-key-credential-ref/v1";
+  accountId: string;
+  publicKeyId: string;
+  publicKeyFingerprint: string;
+  keyRef: string;
+  createdAt: string;
+}
+
+export interface ProvisionDevicePrivateKeyResult {
+  reference: DeviceKeyCredentialReference;
+  publicKey: KeyObject;
 }
 
 export function createPkceAuthorizationRequest(input: {
@@ -74,6 +102,103 @@ export class KeychainTokenStore {
   }
 }
 
+export class InMemoryCredentialSecretStore implements CredentialSecretStore {
+  private readonly secrets = new Map<string, string>();
+
+  saveSecret(ref: string, value: string): void {
+    assertCredentialStoreRef(ref);
+    this.secrets.set(ref, value);
+  }
+
+  readSecret(ref: string): string | undefined {
+    assertCredentialStoreRef(ref);
+    return this.secrets.get(ref);
+  }
+
+  clear(ref: string): void {
+    assertCredentialStoreRef(ref);
+    this.secrets.delete(ref);
+  }
+}
+
+export class DevicePrivateKeyStore {
+  constructor(private readonly credentials: CredentialSecretStore = new InMemoryCredentialSecretStore()) {}
+
+  provisionDevicePrivateKey(input: {
+    accountId: string;
+    publicKeyId: string;
+    createdAt?: string;
+    keyPair?: { publicKey: KeyObject; privateKey: KeyObject };
+  }): ProvisionDevicePrivateKeyResult {
+    const accountId = requireCredentialSegment(input.accountId, "accountId");
+    const publicKeyId = requireCredentialSegment(input.publicKeyId, "publicKeyId");
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    if (!Number.isFinite(Date.parse(createdAt))) throw new Error("device-private-key-createdAt-invalid");
+
+    const keyPair = input.keyPair ?? generateKeyPairSync("ed25519");
+    if (keyPair.publicKey.type !== "public") throw new Error("device-private-key-public-key-required");
+    if (keyPair.privateKey.type !== "private") throw new Error("device-private-key-private-key-required");
+    const fingerprint = publicKeyFingerprint(keyPair.publicKey);
+    const keyRef = devicePrivateKeyRef({ accountId, publicKeyId });
+    const privateKeyPem = keyPair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    this.credentials.saveSecret(keyRef, privateKeyPem);
+    return {
+      reference: {
+        schemaVersion: "archcontext.device-key-credential-ref/v1",
+        accountId,
+        publicKeyId,
+        publicKeyFingerprint: fingerprint,
+        keyRef,
+        createdAt
+      },
+      publicKey: keyPair.publicKey
+    };
+  }
+
+  readPrivateKey(keyRef: string): KeyObject {
+    assertDevicePrivateKeyCredentialRef(keyRef);
+    const privateKeyPem = this.credentials.readSecret(keyRef);
+    if (!privateKeyPem) throw new Error("device-private-key-not-found");
+    return createPrivateKey(privateKeyPem);
+  }
+
+  signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string {
+    const privateKey = this.readPrivateKey(input.keyRef);
+    return sign(null, typeof input.payload === "string" ? Buffer.from(input.payload, "utf8") : input.payload, privateKey).toString("base64");
+  }
+
+  removeDevicePrivateKey(keyRef: string): void {
+    assertDevicePrivateKeyCredentialRef(keyRef);
+    this.credentials.clear(keyRef);
+  }
+}
+
+export function devicePrivateKeyRef(input: { accountId: string; publicKeyId: string }): string {
+  const accountId = requireCredentialSegment(input.accountId, "accountId");
+  const publicKeyId = requireCredentialSegment(input.publicKeyId, "publicKeyId");
+  return `keychain://archcontext/device/${accountId}/${publicKeyId}`;
+}
+
+export function assertCredentialStoreRef(ref: string): void {
+  if (!/^keychain:\/\/archcontext\/[A-Za-z0-9._/-]+$/.test(ref)) throw new Error("credential-store-ref-required");
+}
+
+export function assertDevicePrivateKeyCredentialRef(ref: string): void {
+  assertCredentialStoreRef(ref);
+  if (!/^keychain:\/\/archcontext\/device\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(ref)) {
+    throw new Error("device-private-key-ref-required");
+  }
+}
+
+export function assertNoDevicePrivateKeyMaterial(value: unknown): void {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  if (!serialized) return;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(serialized)) throw new Error("device-private-key-material-forbidden");
+  if (/(^|["'\s])(?:file:\/\/|\/|\.\/|\.\.\/|~\/)[^"'\s]*(?:private|device|key)[^"'\s]*/i.test(serialized)) {
+    throw new Error("device-private-key-file-ref-forbidden");
+  }
+}
+
 export function createShortAccessToken(accountId: string, nowEpochSeconds: number, ttlSeconds = 900) {
   return {
     token: `access_${accountId}_${nowEpochSeconds}`,
@@ -94,4 +219,9 @@ export function isOfflineEntitlementActive(entitlement: OfflineEntitlement, now:
 export function describeEntitlementScope(entitlement: OfflineEntitlement): string {
   if (entitlement.plan !== "pro") return "public repositories only";
   return `${entitlement.billingInterval} personal Pro covers all private repositories the user can access`;
+}
+
+function requireCredentialSegment(value: string, field: string): string {
+  if (typeof value !== "string" || !/^[A-Za-z0-9._-]+$/.test(value)) throw new Error(`device-private-key-${field}-invalid`);
+  return value;
 }

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const DEFAULT_RECORDING = "docs/verification/fg2-egress-recording.json";
-const ALLOWED_CATEGORIES = new Set(["github.pull-head", "github.check-create", "github.check-update"]);
+const ALLOWED_CATEGORIES = new Set(["github.pull-head", "github.check-list-for-ref", "github.check-create", "github.check-update"]);
 const FORBIDDEN_ENDPOINT_KEYS = ["prFiles", "contents", "blob", "tree"];
 const FORBIDDEN_MEDIA_TYPE_KEYS = ["diff", "patch"];
 const BAIT_SURFACE_KEYS = ["log", "trace", "queue"];

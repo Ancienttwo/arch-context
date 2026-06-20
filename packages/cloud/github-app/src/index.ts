@@ -4,7 +4,9 @@ import {
   DEVELOPER_REVIEW_CHECK_NAME,
   GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
+  type AttestationV2,
   type CheckReference,
+  type CheckRunReference,
   type CloudEgressEnvelope,
   type CreateGovernanceCheckInput,
   type GitHubGovernancePort,
@@ -17,6 +19,7 @@ import {
 
 export const GITHUB_APP_PERMISSIONS = GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions;
 export const GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE = "/repositories/{repository_id}/pulls/{pull_number}" as const;
+export const GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE = "/repositories/{repository_id}/commits/{ref}/check-runs" as const;
 export const GITHUB_CHECK_CREATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs" as const;
 export const GITHUB_CHECK_UPDATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs/{check_run_id}" as const;
 export const GITHUB_FORBIDDEN_ACCEPT_MEDIA_TYPES = [
@@ -70,6 +73,7 @@ export const GITHUB_FORBIDDEN_API_ENDPOINTS = [
 
 export type GitHubGovernanceApiRequest =
   | GitHubPullHeadApiRequest
+  | GitHubCheckListForRefApiRequest
   | GitHubCheckCreateApiRequest
   | GitHubCheckUpdateApiRequest;
 
@@ -80,6 +84,18 @@ export interface GitHubPullHeadApiRequest {
   pullRequestNumber: number;
   method: "GET";
   pathTemplate: typeof GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE;
+  path: string;
+  accept: "application/vnd.github+json";
+}
+
+export interface GitHubCheckListForRefApiRequest {
+  category: "github.check-list-for-ref";
+  installationId: number;
+  repositoryId: number;
+  ref: string;
+  name: GovernanceCheckName;
+  method: "GET";
+  pathTemplate: typeof GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE;
   path: string;
   accept: "application/vnd.github+json";
 }
@@ -199,6 +215,14 @@ export function assertGitHubGovernanceApiRequestAllowed(input: GitHubGovernanceA
     ) return input;
     throw denied();
   }
+  if (input.category === "github.check-list-for-ref") {
+    if (
+      input.method === "GET" &&
+      input.pathTemplate === GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE &&
+      input.path === `/repositories/${input.repositoryId}/commits/${encodeURIComponent(input.ref)}/check-runs?check_name=${encodeURIComponent(input.name)}`
+    ) return input;
+    throw denied();
+  }
   if (input.category === "github.check-create") {
     if (
       input.method === "POST" &&
@@ -218,7 +242,7 @@ export function assertGitHubGovernanceApiRequestAllowed(input: GitHubGovernanceA
   throw denied();
 }
 
-export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "getPullHeadMetadata" | "createCheckRun" | "updateCheckRun"> {
+export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "getPullHeadMetadata" | "listCheckRunsForRef" | "createCheckRun" | "updateCheckRun"> {
   constructor(private readonly transport: GitHubGovernanceApiTransport) {}
 
   async getPullHeadMetadata(input: { installationId: number; repositoryId: number; pullRequestNumber: number }): Promise<PullHeadMetadata> {
@@ -275,6 +299,52 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
       checkRunId: requireStringId(body.id, "check_run.id"),
       ...(htmlUrl ? { htmlUrl } : {})
     };
+  }
+
+  async listCheckRunsForRef(input: {
+    installationId: number;
+    repositoryId: number;
+    ref: string;
+    name: GovernanceCheckName;
+  }): Promise<CheckRunReference[]> {
+    const installationId = requirePositiveInteger(input.installationId, "installationId");
+    const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
+    const ref = requireNonEmptyInputString(input.ref, "ref");
+    const name = requireGovernanceCheckName(input.name);
+    const response = await this.transport.request(assertGitHubGovernanceApiRequestAllowed({
+      category: "github.check-list-for-ref",
+      installationId,
+      repositoryId,
+      ref,
+      name,
+      method: "GET",
+      pathTemplate: GITHUB_CHECK_LIST_FOR_REF_PATH_TEMPLATE,
+      path: `/repositories/${repositoryId}/commits/${encodeURIComponent(ref)}/check-runs?check_name=${encodeURIComponent(name)}`,
+      accept: "application/vnd.github+json"
+    }));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`github-check-list-for-ref-failed: ${response.statusCode}`);
+    }
+    const body = requireApiRecord(response.body, "check_runs_response");
+    const items = Array.isArray(body.check_runs) ? body.check_runs : [];
+    return items.map((item, index) => {
+      const check = requireApiRecord(item, `check_runs[${index}]`);
+      const output = check.output === undefined || check.output === null ? undefined : requireApiRecord(check.output, `check_runs[${index}].output`);
+      return {
+        checkRunId: requireStringId(check.id, `check_runs[${index}].id`),
+        name: requireGovernanceCheckName(check.name),
+        headSha: requireApiString(check.head_sha, `check_runs[${index}].head_sha`),
+        status: requireCheckStatus(check.status),
+        ...(check.conclusion === undefined || check.conclusion === null ? { conclusion: null } : { conclusion: requireCheckConclusion(check.conclusion) }),
+        ...(typeof check.html_url === "string" && check.html_url.length > 0 ? { htmlUrl: check.html_url } : {}),
+        ...(output ? {
+          output: {
+            ...(typeof output.title === "string" ? { title: output.title } : {}),
+            ...(typeof output.summary === "string" ? { summary: output.summary } : {})
+          }
+        } : {})
+      };
+    });
   }
 
   async updateCheckRun(input: UpdateGovernanceCheckInput): Promise<void> {
@@ -394,10 +464,10 @@ export interface CheckRun {
   id: string;
   name: GovernanceCheckName;
   status: "queued" | "completed";
-  conclusion?: "success" | "failure" | "neutral";
+  conclusion?: "success" | "failure" | "neutral" | "cancelled";
   headSha: string;
   output?: {
-    title: "Developer-attested" | "Organization-attested" | "Attestation required";
+    title: "Developer-attested" | "Organization-attested" | "Attestation required" | "Superseded";
     summary: string;
     trustLevel?: TrustLevel;
   };
@@ -528,10 +598,57 @@ export class GitHubAppState {
     return updated;
   }
 
+  updateDeveloperReviewCheckFromAttestation(input: {
+    checkRunId: string;
+    attestation: AttestationV2;
+    accepted: boolean;
+    attestationDigest?: string;
+  }): CheckRun {
+    const check = this.checks.get(input.checkRunId);
+    if (!check) throw new Error(`Check run not found: ${input.checkRunId}`);
+    const isDeveloperReview = check.name === DEVELOPER_REVIEW_CHECK_NAME;
+    const developerAttested = input.attestation.execution.trustLevel === "developer";
+    const bound = input.attestation.headSha === check.headSha;
+    const reviewPassed = input.attestation.result === "pass";
+    const passed = input.accepted && isDeveloperReview && developerAttested && bound && reviewPassed;
+    const summary = renderArchitectureCheckSummary(
+      buildDeveloperReviewCheckSummaryInput({
+        check,
+        attestation: input.attestation,
+        accepted: input.accepted,
+        attestationDigest: input.attestationDigest
+      })
+    );
+    const updated: CheckRun = {
+      ...check,
+      status: "completed",
+      conclusion: passed ? "success" : "failure",
+      output: {
+        title: input.accepted && developerAttested ? "Developer-attested" : "Attestation required",
+        summary,
+        trustLevel: input.accepted ? input.attestation.execution.trustLevel : undefined
+      }
+    };
+    this.checks.set(input.checkRunId, updated);
+    return updated;
+  }
+
   private invalidateHead(owner: string, name: string, pr: number, newHeadSha: string): void {
     for (const [id, check] of this.checks) {
       if (id.startsWith(`check_${pr}_`) && check.headSha !== newHeadSha) {
-        this.checks.set(id, { ...check, status: "completed", conclusion: "neutral" });
+        this.checks.set(id, {
+          ...check,
+          status: "completed",
+          conclusion: "neutral",
+          output: {
+            title: "Superseded",
+            summary: renderSupersededCheckSummary({
+              checkName: check.name,
+              previousHeadSha: check.headSha,
+              currentHeadSha: newHeadSha
+            })
+          }
+        });
       }
     }
     for (const [id, challenge] of this.challenges) {
@@ -593,9 +710,86 @@ function buildArchitectureCheckSummaryInput(input: {
   };
 }
 
+export function buildDeveloperReviewCheckSummaryInput(input: {
+  check: CheckRun;
+  attestation: AttestationV2;
+  accepted: boolean;
+  attestationDigest?: string;
+}): ArchitectureCheckSummaryInput {
+  const isDeveloperReview = input.check.name === DEVELOPER_REVIEW_CHECK_NAME;
+  const bound = input.attestation.headSha === input.check.headSha;
+  const developerAttested = input.attestation.execution.trustLevel === "developer";
+  const reviewPassed = input.attestation.result === "pass";
+  const pass = input.accepted && isDeveloperReview && developerAttested && bound && reviewPassed;
+  const findings: ArchitectureCheckSummaryInput["findings"] = [];
+
+  if (!isDeveloperReview) {
+    findings.push({ severity: "error", message: "Developer Review check name required for this publication" });
+  }
+  if (!input.accepted) {
+    findings.push({ severity: "error", message: "Developer attestation was not accepted for this check run" });
+  }
+  if (!developerAttested) {
+    findings.push({ severity: "error", message: "Developer attestation required for this check run" });
+  }
+  if (!bound) {
+    findings.push({ severity: "error", message: "Attestation head does not match the check head" });
+  }
+  if (input.accepted && developerAttested && bound && !reviewPassed) {
+    findings.push({ severity: "error", message: `Developer Review result is ${input.attestation.result}` });
+  }
+  if (input.attestation.errorCode) {
+    findings.push({ severity: "error", message: `Developer Review error code: ${input.attestation.errorCode}` });
+  }
+
+  return {
+    checkName: input.check.name,
+    repository: { owner: "github-repository-id", name: String(input.attestation.repositoryId) },
+    prNumber: input.attestation.pullRequestNumber,
+    headSha: input.check.headSha,
+    result: pass ? "pass" : "fail_action_required",
+    riskLevel: pass ? "low" : "high",
+    pressureScore: pass ? 0 : 100,
+    confidenceScore: input.accepted && developerAttested && bound ? 100 : 0,
+    findings,
+    attestation: {
+      trustLevel: input.attestation.execution.trustLevel,
+      title: attestationLabel(input.attestation.execution.trustLevel),
+      verifiedAt: input.attestation.completedAt,
+      bound,
+      execution: input.attestation.execution.source,
+      digest: input.attestationDigest
+    }
+  };
+}
+
 function checkRunPrNumber(checkRunId: string): number {
   const match = /^check_(\d+)_/.exec(checkRunId);
   return match ? Number(match[1]) : 0;
+}
+
+export function renderSupersededCheckSummary(input: {
+  checkName: GovernanceCheckName;
+  previousHeadSha: string;
+  currentHeadSha: string;
+}): string {
+  return [
+    `## ${input.checkName}`,
+    "",
+    "**Result: SUPERSEDED**",
+    "",
+    "Superseded by a newer PR head.",
+    "",
+    "| Head | Value |",
+    "| --- | --- |",
+    `| Previous | \`${input.previousHeadSha.slice(0, 12)}\` |`,
+    `| Current | \`${input.currentHeadSha.slice(0, 12)}\` |`,
+    "",
+    "This Check no longer represents the current PR head. A new Check was queued for the newer commit.",
+    "",
+    "---",
+    "Generated by ArchContext"
+  ].join("\n");
 }
 
 export function verifyGitHubWebhookSignature(input: { secret: string; rawBody: string | Uint8Array; signature256: string }): boolean {
@@ -835,6 +1029,8 @@ export interface ArchitectureCheckSummaryInput {
     title: string;
     verifiedAt: string;
     bound: boolean;
+    execution?: string;
+    digest?: string;
   };
 }
 
@@ -854,6 +1050,12 @@ function findingMark(severity: "info" | "warning" | "error"): string {
   if (severity === "error") return "[x]";
   if (severity === "warning") return "[!]";
   return "[ok]";
+}
+
+function shortDigest(value: string): string {
+  const match = /^sha256:([0-9a-f]{64})$/i.exec(value);
+  if (match) return `sha256:${match[1].slice(0, 12)}`;
+  return value.slice(0, 24);
 }
 
 export function renderArchitectureCheckSummary(input: ArchitectureCheckSummaryInput): string {
@@ -914,6 +1116,8 @@ export function renderArchitectureCheckSummary(input: ArchitectureCheckSummaryIn
   lines.push(`> This attestation is valid only for \`${shortSha}\`. Pushing a new commit invalidates it`);
   lines.push(`> immediately and re-queues the review.`);
   lines.push(`> ${input.attestation.title} · verified ${input.attestation.verifiedAt}`);
+  if (input.attestation.execution) lines.push(`> Execution: ${input.attestation.execution}`);
+  if (input.attestation.digest) lines.push(`> Attestation digest: \`${shortDigest(input.attestation.digest)}\``);
   lines.push(`>`);
   lines.push(`> The SaaS verifies minimal fields only; it never receives your code, diffs, symbols, the dependency graph, model bodies, or detailed findings.`);
   lines.push(`>`);
