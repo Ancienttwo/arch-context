@@ -5,6 +5,7 @@ import {
   GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
   type CheckReference,
+  type CloudEgressEnvelope,
   type CreateGovernanceCheckInput,
   type GitHubGovernancePort,
   type GovernanceCheckName,
@@ -128,6 +129,17 @@ export interface GitHubGovernanceApiTransport {
   request(input: GitHubGovernanceApiRequest): Promise<GitHubGovernanceApiResponse>;
 }
 
+export interface GitHubGovernanceEgressRecorder {
+  record(envelope: CloudEgressEnvelope): void | Promise<void>;
+}
+
+export interface RecordingGitHubGovernanceApiTransportOptions {
+  transport: GitHubGovernanceApiTransport;
+  recorder: GitHubGovernanceEgressRecorder;
+  now?: () => string;
+  monotonicNowMs?: () => number;
+}
+
 export function identifyForbiddenGitHubGovernanceApiEndpoint(input: { method?: unknown; path?: unknown }): typeof GITHUB_FORBIDDEN_API_ENDPOINTS[number]["name"] | undefined {
   const method = typeof input.method === "string" ? input.method.toUpperCase() : "";
   const path = typeof input.path === "string" ? input.path : "";
@@ -142,6 +154,34 @@ export function identifyForbiddenGitHubGovernanceAcceptHeader(input: { accept?: 
     if (forbiddenMediaType) return forbiddenMediaType;
   }
   return undefined;
+}
+
+export class RecordingGitHubGovernanceApiTransport implements GitHubGovernanceApiTransport {
+  private readonly now: () => string;
+  private readonly monotonicNowMs: () => number;
+
+  constructor(private readonly options: RecordingGitHubGovernanceApiTransportOptions) {
+    this.now = options.now ?? (() => new Date().toISOString());
+    this.monotonicNowMs = options.monotonicNowMs ?? (() => Date.now());
+  }
+
+  async request(input: GitHubGovernanceApiRequest): Promise<GitHubGovernanceApiResponse> {
+    const allowed = assertGitHubGovernanceApiRequestAllowed(input);
+    const startedAt = this.monotonicNowMs();
+    const response = await this.options.transport.request(allowed);
+    await this.options.recorder.record({
+      schemaVersion: "archcontext.cloud-egress/v1",
+      requestId: response.requestId ?? "github-request-id-unavailable",
+      category: allowed.category,
+      method: allowed.method,
+      host: "api.github.com",
+      pathTemplate: allowed.pathTemplate,
+      statusCode: response.statusCode,
+      latencyMs: Math.max(0, Math.round(this.monotonicNowMs() - startedAt)),
+      recordedAt: this.now()
+    });
+    return response;
+  }
 }
 
 export function assertGitHubGovernanceApiRequestAllowed(input: GitHubGovernanceApiRequest): GitHubGovernanceApiRequest {

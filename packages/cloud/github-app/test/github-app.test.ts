@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
-import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
+import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME, type CloudEgressEnvelope } from "@archcontext/contracts";
 import {
   GITHUB_APP_PERMISSIONS,
   GITHUB_CHECK_CREATE_PATH_TEMPLATE,
@@ -10,6 +10,7 @@ import {
   GitHubAppState,
   GitHubGovernanceRestPort,
   InMemoryWebhookDeliveryLedger,
+  RecordingGitHubGovernanceApiTransport,
   assertGitHubGovernanceApiRequestAllowed,
   identifyForbiddenGitHubGovernanceAcceptHeader,
   identifyForbiddenGitHubGovernanceApiEndpoint,
@@ -147,6 +148,64 @@ describe("GitHub App", () => {
       }
     });
     await expect(malformed.getPullHeadMetadata({ installationId: 123, repositoryId: 987, pullRequestNumber: 42 })).rejects.toThrow("github-governance-response-invalid");
+  });
+
+  test("recording transport captures only GitHub egress metadata", async () => {
+    const envelopes: CloudEgressEnvelope[] = [];
+    const monotonicReadings = [1000, 1017];
+    const port = new GitHubGovernanceRestPort(new RecordingGitHubGovernanceApiTransport({
+      transport: {
+        async request() {
+          return {
+            statusCode: 200,
+            requestId: "req_egress_1",
+            body: {
+              title: "not retained",
+              body: "private-note",
+              changed_files: 3,
+              head: { sha: "head123", ref: "feature/private" },
+              base: { sha: "base456", ref: "main" }
+            }
+          };
+        }
+      },
+      recorder: {
+        record(envelope) {
+          envelopes.push(envelope);
+        }
+      },
+      now: () => "2026-06-20T13:50:00Z",
+      monotonicNowMs: () => monotonicReadings.shift() ?? 1017
+    }));
+
+    await port.getPullHeadMetadata({ installationId: 123, repositoryId: 987, pullRequestNumber: 42 });
+
+    expect(envelopes).toEqual([{
+      schemaVersion: "archcontext.cloud-egress/v1",
+      requestId: "req_egress_1",
+      category: "github.pull-head",
+      method: "GET",
+      host: "api.github.com",
+      pathTemplate: GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
+      statusCode: 200,
+      latencyMs: 17,
+      recordedAt: "2026-06-20T13:50:00Z"
+    }]);
+    expect(Object.keys(envelopes[0]).sort()).toEqual([
+      "category",
+      "host",
+      "latencyMs",
+      "method",
+      "pathTemplate",
+      "recordedAt",
+      "requestId",
+      "schemaVersion",
+      "statusCode"
+    ].sort());
+    const serialized = JSON.stringify(envelopes[0]);
+    for (const rejected of ["/repositories/987", "private-note", "feature/private", "head123", "base456", "installationId", "repositoryId", "pullRequestNumber", "changed_files"]) {
+      expect(serialized).not.toContain(rejected);
+    }
   });
 
   test("createCheckRun sends only the minimum GitHub Check create DTO", async () => {
