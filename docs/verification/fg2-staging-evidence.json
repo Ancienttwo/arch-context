@@ -1,8 +1,8 @@
 {
   "schemaVersion": "archcontext.fg2-staging-evidence/v1",
   "environment": "staging",
-  "status": "pending",
-  "reason": "Staging GitHub App, installation, PR event/check readback, sanitized egress recording, DLP bait scan, and ruleset expected-source decision are verified. Install revoke E2E proof remains open.",
+  "status": "verified",
+  "reason": "Staging GitHub App, installation, PR event/check readback, sanitized egress recording, DLP bait scan, ruleset expected-source decision, and install revoke E2E proof are verified.",
   "gates": {
     "FG2-02": "verified",
     "FG2-17": "verified",
@@ -10,12 +10,10 @@
     "FG2-EG4": "verified",
     "FG2-EG5": "verified",
     "FG2-EG6": "verified",
-    "FG2-EG7": "blocked"
+    "FG2-EG7": "verified"
   },
-  "blockers": [
-    "Install revoke E2E readback is unavailable."
-  ],
-  "partialEvidence": {
+  "blockers": [],
+  "evidence": {
     "githubApp": {
       "appId": "4102781",
       "appSlug": "archcontext-staging",
@@ -72,6 +70,16 @@
         },
         "deletedAfterReadback": true
       }
+    },
+    "installRevoke": {
+      "mode": "suspend-unsuspend",
+      "recordingPath": "fg2-install-revoke-readback.json",
+      "installationRevoked": true,
+      "tokenRejectedAfterRevoke": true,
+      "challengeCreationStopped": true,
+      "checkUpdateStopped": true,
+      "restoredAfterReadback": true,
+      "syntheticWebhookStopPoint": "github-installation-token-before-pull-head-or-check"
     }
   },
   "requiredEvidence": {

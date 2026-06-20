@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T16:11:34Z",
+  "updatedAt": "2026-06-20T16:30:09Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -855,6 +855,20 @@
         "packages/contracts/src/github-governance.ts",
         "docs/adr/ADR-0015-github-app-without-contents-permission.md",
         "packages/cloud/control-plane/src/ui.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-install-revoke-readback.json",
+        "docs/verification/fg2-staging-evidence.json",
+        "scripts/fg2-install-revoke-readback.mjs",
+        "scripts/fg2-install-revoke-readback.test.ts",
+        "deploy/cloudflare/fg2-staging-worker.test.ts",
         "docs/verification/fg2-github-privacy-gate.md"
       ]
     }

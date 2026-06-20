@@ -52,7 +52,7 @@ Input source of truth is the GitHub webhook raw body plus `X-Hub-Signature-256`,
 2. `projectVerifiedGitHubWebhook` accepts only supported pull request, check run, installation, and repository-selection events, then projects the payload to delivery/action/repository/head metadata.
 3. `GitHubAppState` records the provider/delivery ID, treats repeats as idempotent replays, rejects unselected repositories, and creates challenge/check side effects only from the projected DTO.
 4. Outbound GitHub calls must cross the typed governance port. Method, path, endpoint category, and `Accept` media type are checked before transport; the recorder stores only category, status, latency, and request ID.
-5. The first failure pressure points are hidden permission expansion, SDK endpoint/media drift, raw payload leakage through logs/queues/errors, and webhook replay. FG2-02 resolved that Commit Statuses write is required only for GitHub ruleset expected-source binding; runtime egress remains limited to pull-head metadata and Check create/update. FG2-EG7 still gates install revoke E2E proof.
+5. The first failure pressure points are hidden permission expansion, SDK endpoint/media drift, raw payload leakage through logs/queues/errors, webhook replay, and revoke behavior. FG2-02 resolved that Commit Statuses write is required only for GitHub ruleset expected-source binding; runtime egress remains limited to pull-head metadata and Check create/update. FG2-EG7 verified the reversible install revoke path: suspend blocks new/existing installation token use and stops the staging webhook before pull-head or Check egress, then unsuspend restores access.
 
 ## Security Invariants
 

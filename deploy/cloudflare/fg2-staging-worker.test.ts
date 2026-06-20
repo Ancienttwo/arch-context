@@ -126,6 +126,54 @@ describe("fg2 staging Cloudflare Worker", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("stops before pull metadata and Check updates when installation access is revoked", async () => {
+    const calls: { method: string; path: string }[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input.toString());
+      calls.push({ method: init?.method ?? "GET", path: url.pathname });
+      if (url.pathname === "/app/installations/123/access_tokens") {
+        return new Response(JSON.stringify({ message: "installation suspended" }), { status: 403 });
+      }
+      return new Response(JSON.stringify({ message: "unexpected downstream call" }), { status: 500 });
+    }) as typeof fetch;
+
+    try {
+      const rawBody = JSON.stringify({
+        action: "opened",
+        installation: { id: 123 },
+        repository: {
+          id: 987,
+          name: "arch-context",
+          full_name: "Ancienttwo/arch-context",
+          owner: { login: "Ancienttwo" },
+          private: true
+        },
+        pull_request: {
+          number: 42,
+          head: { sha: "abc123abc123abc123abc123abc123abc123abcd" }
+        }
+      });
+
+      await expect(worker.fetch(new Request("https://worker.example/v1/github/webhooks", {
+        method: "POST",
+        body: rawBody,
+        headers: {
+          "x-github-delivery": "delivery-revoked",
+          "x-github-event": "pull_request",
+          "x-hub-signature-256": sign(rawBody)
+        }
+      }), env)).rejects.toThrow("github-installation-token-failed: 403");
+
+      expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+        "POST /app/installations/123/access_tokens"
+      ]);
+      expect(calls.some((call) => /\/pulls\/42|\/check-runs/.test(call.path))).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 function sign(rawBody: string): string {

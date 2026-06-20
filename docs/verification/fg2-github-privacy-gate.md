@@ -28,7 +28,7 @@
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-02, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-17, FG2-18, FG2-19, FG2-20, FG2-EG1, FG2-EG2, FG2-EG3, FG2-EG4, FG2-EG5, and FG2-EG6. FG2-EG7 remains a pending staging revoke readback artifact.
+This evidence currently covers FG2-01, FG2-02, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-17, FG2-18, FG2-19, FG2-20, FG2-EG1, FG2-EG2, FG2-EG3, FG2-EG4, FG2-EG5, FG2-EG6, and FG2-EG7.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, Commit Statuses write, and Contents none.
@@ -87,9 +87,11 @@ This evidence currently covers FG2-01, FG2-02, FG2-03, FG2-04, FG2-05, FG2-06, F
 - The install disclosure lists Commit Statuses as `Write` and explains that the permission is required only for ruleset expected-source binding.
 - `docs/security/threat-model-v1.md` now names GitHub App permission expansion, SDK/API drift, webhook replay/forgery, and raw payload/log leakage as explicit FG2 threats.
 - The threat model traces webhook raw body/signature/delivery ID through projection, replay handling, selected-repository checks, challenge/check side effects, typed egress, and metadata-only recording.
-- The threat model preserves the current open gate: FG2-EG7 for install revoke E2E readback.
-- `docs/verification/fg2-staging-evidence.json` is the combined pending packet for FG2 staging and now remains pending only on FG2-EG7.
-- `scripts/fg2-staging-evidence-readback.mjs` verifies a future staging packet by requiring GitHub App event/check proof, strict egress/DLP readback, ruleset expected-source decision proof, and install revoke E2E proof.
+- The threat model records that hidden permission expansion, SDK endpoint drift, replay, and revoke behavior are FG2 pressure points.
+- `docs/verification/fg2-staging-evidence.json` is the combined verified packet for FG2 staging.
+- `docs/verification/fg2-install-revoke-readback.json` records the reversible install revoke readback: suspend returned 204, suspended installation readback observed `suspended_at`, new and existing installation token probes returned 403, the synthetic signed webhook stopped before pull-head/check egress, unsuspend returned 204, restored token creation returned 201, and the previous Check run remained unchanged.
+- `scripts/fg2-staging-evidence-readback.mjs` verifies the staging packet by requiring GitHub App event/check proof, strict egress/DLP readback, ruleset expected-source decision proof, and install revoke E2E proof.
+- `scripts/fg2-install-revoke-readback.mjs` performs the reversible suspend/probe/unsuspend readback and inspects its own artifact for persisted token, private key, bearer token, webhook signature, and private-content leakage.
 - `docs/verification/fg2-ruleset-expected-source.md` records the staging ruleset expected-source smoke: App installation accepted `statuses:write`, temporary ruleset `17927634` bound `ArchContext / Developer Review` to App ID `4102781`, and the ruleset was deleted after readback.
 - `packages/cloud/github-app/test/github-webhook-security.integration.test.ts` is the FG2-EG2 security integration suite.
 - The integration suite rejects every invalid signature fixture before webhook projection.
@@ -109,6 +111,7 @@ bun test scripts/github-api-contract-audit.test.ts
 bun test scripts/cloud-private-content-bait.test.ts
 bun test scripts/github-egress-recording-readback.test.ts
 bun test scripts/fg2-staging-evidence-readback.test.ts
+bun test deploy/cloudflare/fg2-staging-worker.test.ts scripts/fg2-install-revoke-readback.test.ts scripts/fg2-staging-evidence-readback.test.ts
 bun test packages/cloud/control-plane/test/control-plane-ui.test.ts
 bun test packages/cloud/github-app/test/github-webhook-security.integration.test.ts
 bun run typecheck
@@ -116,6 +119,7 @@ node scripts/privacy-route-audit.mjs
 bun run verify:github-api-contract
 bun run verify:privacy-contract
 bun run readback:fg2:egress
+bun run readback:fg2:install-revoke
 bun run readback:fg2:staging
 node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json
 bun run verify:acceptance-ledger
@@ -133,6 +137,7 @@ bun run verify
 - `bun test scripts/cloud-private-content-bait.test.ts`: PASS, 1 test, 38 expects.
 - `bun test scripts/github-egress-recording-readback.test.ts`: PASS, 4 tests, 5 expects.
 - `bun test scripts/fg2-staging-evidence-readback.test.ts`: PASS, 5 tests, 6 expects.
+- `bun test deploy/cloudflare/fg2-staging-worker.test.ts scripts/fg2-install-revoke-readback.test.ts scripts/fg2-staging-evidence-readback.test.ts`: PASS, 12 tests, 26 expects.
 - `bun test packages/cloud/control-plane/test/control-plane-ui.test.ts`: PASS, 10 tests, 33 expects.
 - `bun test packages/cloud/github-app/test/github-webhook-security.integration.test.ts`: PASS, 3 tests, 20 expects.
 - `bun run typecheck`: PASS.
@@ -140,14 +145,15 @@ bun run verify
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
 - `bun run verify:privacy-contract`: PASS, scanned 18 production files.
 - `bun run readback:fg2:egress`: PASS with verified staging egress/DLP recording.
-- `bun run readback:fg2:staging`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until install revoke E2E evidence exists.
+- `bun run readback:fg2:install-revoke`: PASS; reversible suspend/probe/unsuspend verified install revoke E2E and restored staging access.
+- `bun run readback:fg2:staging`: PASS with verified staging packet.
 - `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts packages/cloud/control-plane/test/control-plane-ui.test.ts`: PASS, 118 tests, 450 expects after adding Commit Statuses write to the manifest and install disclosure.
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files after the permission update.
 - `bun run typecheck`: PASS after the permission update.
-- `node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json`: PENDING, exits nonzero with the current blockers.
-- `bun run verify:acceptance-ledger`: PASS, 67 entries.
+- `node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json`: PASS.
+- `bun run verify:acceptance-ledger`: PASS, 74 entries.
 - `bun run check:sprint`: PASS, structure and evidence claims OK.
-- `bun run verify`: PASS, 325 tests, 1425 expects, 67-entry acceptance ledger.
+- `bun run verify`: PASS, 332 tests, 1445 expects, 74-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -179,11 +185,13 @@ bun run verify
 - GitHub webhook security integration tests prove invalid signatures, reserialized raw bodies, stale delivery replay, and duplicate delivery side effects are rejected in one end-to-end local path.
 - Cloud private content bait tests prove source, Patch, Symbol, and Finding fixture values are removed from projected Cloud surfaces and rejected by notification/egress DTO schema.
 - GitHub egress recording readback tests reject nonzero PR Files/Contents/Blob/Tree/Diff/Patch and log/trace/queue bait counts in a verified staging artifact.
+- Install revoke readback tests reject persisted GitHub tokens, bearer tokens, private keys, webhook signatures, and private content in the sanitized revoke artifact.
+- Staging Worker tests prove revoked installation access stops before pull metadata and Check create/update egress.
 
 ## Known Limitations
 
-FG2 is not complete. FG2-EG7 remains open because install revoke E2E proof has not been executed. `docs/verification/fg2-staging-evidence.json` records the combined pending packet for the remaining FG2 staging gate. This slice does not claim install revoke E2E, persistent Check Delivery retry queues, or retention pruning.
+FG2 is complete at the staging privacy-governance level. This slice does not claim persistent Check Delivery retry queues, retention pruning, FG3 Developer Attestation, FG4 Organization Runner, FG5 persistent control-plane delivery, or FG6 production release readiness.
 
 ## Decision
 
-PARTIAL PASS for all FG2 tasks and for FG2-EG1 through FG2-EG6. FG2-EG7 stays open.
+PASS for all FG2 tasks and for FG2-EG1 through FG2-EG7.

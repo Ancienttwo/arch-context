@@ -30,6 +30,7 @@
     "readback:s2:external": "node scripts/sprint2-external-evidence-readback.mjs readback --json",
     "readback:fg2:egress": "node scripts/github-egress-recording-readback.mjs readback --allow-pending",
     "readback:fg2:staging": "node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json --allow-pending --json",
+    "readback:fg2:install-revoke": "node scripts/fg2-install-revoke-readback.mjs run --env-file _ops/env/fg2-staging.env --packet docs/verification/fg2-staging-evidence.json --out docs/verification/fg2-install-revoke-readback.json --confirm-suspend --json",
     "deploy:fg2:staging:secrets": "node deploy/scripts/fg2-staging-secrets.mjs install --env-file _ops/env/fg2-staging.env --environment staging",
     "deploy:fg2:staging": "wrangler deploy --env staging --config wrangler.jsonc",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",
