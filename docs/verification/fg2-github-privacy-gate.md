@@ -20,7 +20,7 @@
   - `126b031e5048eac47f54fff323523ff72e20470b` — FG2-19 GitHub App install disclosure
   - `5b59c7b54384563e3cd2d1921146b56627bd785c` — FG2-20 GitHub governance threat model update
   - `2dd03549be1d29e016d13f155ee7d7b97fb34ad2` — FG2-EG2 webhook signature and delivery replay integration gate
-  - `(pending FG2-EG3 evidence commit)` — FG2-EG3 static GitHub API contract gate
+  - `464fa5ad661dcb5c7ca9076619968e2abd16dc77` — FG2-EG3 static GitHub API contract gate
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, FG2-EG2, or FG2-EG3 local E1/E2/E3 slice
 - Started At: 2026-06-20
