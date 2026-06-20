@@ -315,6 +315,67 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI reports incompatible daemon versions and replaces them through daemon upgrade", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-upgrade-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = defaultDaemonConnectionPath(root);
+    try {
+      const started = await runCliProcess(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      writeFileSync(connectionPath, JSON.stringify({
+        ...firstConnection,
+        schemaVersion: "archcontext.runtime-rpc/v0"
+      }, null, 2), { mode: 0o600 });
+      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
+
+      const daemonStatus = await runCliProcess(root, "daemon", "status");
+      expect(daemonStatus.ok).toBe(true);
+      expect(daemonStatus.data).toMatchObject({
+        running: true,
+        rpcVersionCompatible: false,
+        versionUnsupported: {
+          expected: RUNTIME_RPC_VERSION,
+          received: "archcontext.runtime-rpc/v0",
+          action: "upgrade-archctx-runtime",
+          command: "archctx daemon upgrade"
+        }
+      });
+
+      const ordinaryStatus = await runCliProcess(root, "status");
+      expect(ordinaryStatus.ok).toBe(false);
+      expect(ordinaryStatus.error).toMatchObject({
+        code: "AC_RUNTIME_VERSION_UNSUPPORTED",
+        action: "upgrade-archctx-runtime"
+      });
+
+      const startAgain = await runCliProcess(root, "daemon", "start");
+      expect(startAgain.ok).toBe(false);
+      expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
+
+      const upgraded = await runCliProcess(root, "daemon", "upgrade");
+      expect(upgraded.ok).toBe(true);
+      expect(upgraded.requestId).toBe("daemon.upgrade");
+      expect(upgraded.data.upgraded).toBe(true);
+      expect(upgraded.data.replacedRuntime).toMatchObject({
+        previousRpcSchemaVersion: "archcontext.runtime-rpc/v0",
+        expectedRpcSchemaVersion: RUNTIME_RPC_VERSION,
+        previousPid: firstConnection.pid
+      });
+      await expectPidGone(firstConnection.pid);
+      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      expect(secondConnection.pid).not.toBe(firstConnection.pid);
+      expect(secondConnection.schemaVersion).toBe(RUNTIME_RPC_VERSION);
+
+      const status = await runCliProcess(root, "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.running).toBe(true);
+    } finally {
+      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
     const otherRoot = mkdtempSync(join(tmpdir(), "archctx-cli-other-"));

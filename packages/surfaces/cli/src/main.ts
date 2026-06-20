@@ -18,6 +18,8 @@ import {
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
   recoverStaleDaemonControlFiles,
+  runtimeRpcCompatibilityIssue,
+  type RuntimeRpcCompatibilityIssue,
   type RuntimeDaemonClient,
   type RuntimeDeps
 } from "@archcontext/local-runtime/runtime-daemon";
@@ -29,6 +31,12 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
 const DAEMON_START_TIMEOUT_MS = 5_000;
+
+class RuntimeVersionUnsupportedError extends Error {
+  constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
+    super(runtimeVersionUnsupportedMessage(issue));
+  }
+}
 
 if (import.meta.main) {
   if (command === "mcp" && args.length === 0) {
@@ -70,6 +78,17 @@ export interface CliRuntimeDeps extends RuntimeDeps {
 type AgentHost = "codex" | "claude" | "generic";
 
 export async function runCli(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
+  try {
+    return await runCliUnchecked(command, args, cwd, deps);
+  } catch (error) {
+    if (error instanceof RuntimeVersionUnsupportedError) {
+      return errorEnvelope(command ?? "cli", "AC_RUNTIME_VERSION_UNSUPPORTED", error.message);
+    }
+    throw error;
+  }
+}
+
+async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "daemon") return runDaemonCommand(args, cwd);
   const runtime = () => createCliRuntime(cwd, deps);
   switch (command) {
@@ -451,9 +470,13 @@ function isPrivatePath(path: string): boolean {
 async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<RuntimeDaemonClient> {
   if (deps.runtimeClient) return deps.runtimeClient;
   if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
+    const fileIssue = runtimeRpcCompatibilityIssue(cwd);
+    if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
     const client = createRuntimeRpcClientFromConnectionFile(cwd);
     if (client) {
       const health = await client.health().catch(() => undefined);
+      const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
+      if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
       if ((health as any)?.ok === true) return client;
       recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
     } else {
@@ -489,6 +512,10 @@ async function runDaemonCommand(args: string[], cwd: string) {
   if (subcommand === "status") {
     const client = createRuntimeRpcClientFromConnectionFile(cwd);
     if (!client) {
+      const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd);
+      if (compatibilityIssue?.pidAlive) {
+        return okEnvelope("daemon.status", incompatibleDaemonStatus(compatibilityIssue) as any);
+      }
       const recovery = recoverStaleDaemonControlFiles(cwd);
       return okEnvelope("daemon.status", {
         running: false,
@@ -498,6 +525,10 @@ async function runDaemonCommand(args: string[], cwd: string) {
       } as any);
     }
     const health = await client.health().catch(() => undefined);
+    const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
+    if (healthIssue) {
+      return okEnvelope("daemon.status", incompatibleDaemonStatus(healthIssue) as any);
+    }
     if ((health as any)?.ok === true) {
       return okEnvelope("daemon.status", {
         running: true,
@@ -527,6 +558,7 @@ async function runDaemonCommand(args: string[], cwd: string) {
     }
     return startBackgroundDaemon(args, cwd);
   }
+  if (subcommand === "upgrade") return upgradeDaemon(args, cwd);
   if (subcommand === "stop") {
     const client = createRuntimeRpcClientFromConnectionFile(cwd);
     if (!client) return errorEnvelope("daemon.stop", "AC_RUNTIME_UNAVAILABLE", "No archctxd connection file found");
@@ -536,6 +568,10 @@ async function runDaemonCommand(args: string[], cwd: string) {
 }
 
 async function startBackgroundDaemon(args: string[], cwd: string) {
+  const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd);
+  if (compatibilityIssue?.pidAlive) {
+    return errorEnvelope("daemon.start", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(compatibilityIssue));
+  }
   const discovered = await discoverRunningDaemonInfo(cwd, { recoverStale: true });
   if (discovered.info) {
     return okEnvelope("daemon.start", {
@@ -585,6 +621,42 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
   }
 }
 
+async function upgradeDaemon(args: string[], cwd: string) {
+  const issue = runtimeRpcCompatibilityIssue(cwd);
+  if (!issue) {
+    const started = await startBackgroundDaemon(args, cwd);
+    return started.ok ? { ...started, requestId: "daemon.upgrade", data: { ...(started.data as any), upgraded: false, reason: "runtime-compatible" } } : started;
+  }
+  if (issue.pidAlive && issue.pid === undefined) {
+    return errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(issue));
+  }
+  if (issue.pidAlive && issue.pid !== undefined) {
+    process.kill(issue.pid, "SIGTERM");
+    const stopped = await waitForPidExit(issue.pid, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
+    if (!stopped) {
+      return errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED", `Incompatible archctxd pid ${issue.pid} did not stop; stop it manually, then run archctx daemon upgrade.`);
+    }
+  }
+  const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
+  const started = await startBackgroundDaemon(args, cwd);
+  return started.ok
+    ? {
+        ...started,
+        requestId: "daemon.upgrade",
+        data: {
+          ...(started.data as any),
+          upgraded: true,
+          replacedRuntime: {
+            previousRpcSchemaVersion: issue.received,
+            expectedRpcSchemaVersion: issue.expected,
+            previousPid: issue.pid
+          },
+          ...recoveryData(recovery)
+        }
+      }
+    : started;
+}
+
 async function runningDaemonInfo(cwd: string) {
   return (await discoverRunningDaemonInfo(cwd)).info;
 }
@@ -605,6 +677,68 @@ async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: 
     info: undefined,
     recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true }) : emptyRecovery(cwd)
   };
+}
+
+function runtimeRpcCompatibilityIssueFromHealth(
+  cwd: string,
+  client: { connectionInfo(): { pid?: number; connectionPath?: string; lockPath?: string } },
+  health: unknown
+): RuntimeRpcCompatibilityIssue | undefined {
+  if (!(health && typeof health === "object")) return undefined;
+  const body = health as { ok?: unknown; error?: unknown; expected?: unknown; received?: unknown };
+  if (body.ok !== false || body.error !== "runtime RPC version mismatch") return undefined;
+  const connection = client.connectionInfo();
+  const pid = typeof connection.pid === "number" ? connection.pid : undefined;
+  return {
+    reason: "rpc-version-mismatch",
+    expected: RUNTIME_RPC_VERSION,
+    received: typeof body.expected === "string" ? body.expected : "unknown",
+    connectionPath: connection.connectionPath ?? defaultDaemonConnectionPath(cwd),
+    lockPath: connection.lockPath ?? defaultDaemonLockPath(cwd),
+    pid,
+    pidAlive: pid !== undefined ? isPidAlive(pid) : false,
+    upgradeCommand: "archctx daemon upgrade"
+  };
+}
+
+function incompatibleDaemonStatus(issue: RuntimeRpcCompatibilityIssue) {
+  return {
+    running: issue.pidAlive,
+    protocol: "http-loopback",
+    rpcVersionCompatible: false,
+    connectionPath: issue.connectionPath,
+    lockPath: issue.lockPath,
+    pid: issue.pid,
+    versionUnsupported: {
+      reason: issue.reason,
+      expected: issue.expected,
+      received: issue.received,
+      action: "upgrade-archctx-runtime",
+      command: issue.upgradeCommand
+    }
+  };
+}
+
+function runtimeVersionUnsupportedMessage(issue: RuntimeRpcCompatibilityIssue): string {
+  return `archctxd RPC version ${issue.received} is incompatible with this CLI (${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
+}
+
+async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) return true;
+    await sleep(50);
+  }
+  return !isPidAlive(pid);
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
 }
 
 function emptyRecovery(cwd: string) {

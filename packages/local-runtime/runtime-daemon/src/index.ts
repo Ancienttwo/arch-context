@@ -104,6 +104,30 @@ export interface RuntimeRpcConnection {
   startedAt: string;
 }
 
+export interface RuntimeRpcConnectionFile {
+  schemaVersion?: string;
+  protocol?: string;
+  version?: number;
+  root?: string;
+  url?: string;
+  token?: string;
+  pid?: number;
+  lockPath?: string;
+  connectionPath?: string;
+  startedAt?: string;
+}
+
+export interface RuntimeRpcCompatibilityIssue {
+  reason: "rpc-version-mismatch";
+  expected: typeof RUNTIME_RPC_VERSION;
+  received: string;
+  connectionPath: string;
+  lockPath: string;
+  pid?: number;
+  pidAlive: boolean;
+  upgradeCommand: "archctx daemon upgrade";
+}
+
 export type DaemonControlRecoveryReason =
   | "insecure-connection-file"
   | "invalid-connection-file"
@@ -987,6 +1011,40 @@ export function defaultDaemonConnectionPath(root = process.cwd()): string {
 
 export function defaultDaemonLockPath(root = process.cwd()): string {
   return join(defaultDaemonControlDir(root), "archctxd.lock");
+}
+
+export function readRuntimeRpcConnectionFile(root = process.cwd()): RuntimeRpcConnectionFile | undefined {
+  const path = defaultDaemonConnectionPath(root);
+  try {
+    if (!isPrivateControlFile(path)) return undefined;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as RuntimeRpcConnectionFile;
+    if (!parsed || typeof parsed !== "object") return undefined;
+    return {
+      ...parsed,
+      connectionPath: typeof parsed.connectionPath === "string" ? parsed.connectionPath : path,
+      lockPath: typeof parsed.lockPath === "string" ? parsed.lockPath : defaultDaemonLockPath(root)
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function runtimeRpcCompatibilityIssue(root = process.cwd()): RuntimeRpcCompatibilityIssue | undefined {
+  const connection = readRuntimeRpcConnectionFile(root);
+  if (!connection) return undefined;
+  const received = typeof connection.schemaVersion === "string" ? connection.schemaVersion : "unknown";
+  if (received === RUNTIME_RPC_VERSION) return undefined;
+  const pid = typeof connection.pid === "number" ? connection.pid : undefined;
+  return {
+    reason: "rpc-version-mismatch",
+    expected: RUNTIME_RPC_VERSION,
+    received,
+    connectionPath: connection.connectionPath ?? defaultDaemonConnectionPath(root),
+    lockPath: connection.lockPath ?? defaultDaemonLockPath(root),
+    pid,
+    pidAlive: pid !== undefined ? isProcessAlive(pid) : false,
+    upgradeCommand: "archctx daemon upgrade"
+  };
 }
 
 export function readRuntimeRpcConnection(root = process.cwd()): RuntimeRpcConnection | undefined {
