@@ -168,11 +168,13 @@ function checkRunPrNumber(checkRunId: string): number {
   return match ? Number(match[1]) : 0;
 }
 
-export function verifyGitHubWebhookSignature(input: { secret: string; body: string; signature256: string }): boolean {
-  const expected = `sha256=${createHmac("sha256", input.secret).update(input.body).digest("hex")}`;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(input.signature256);
-  return a.length === b.length && timingSafeEqual(a, b);
+export function verifyGitHubWebhookSignature(input: { secret: string; rawBody: string | Uint8Array; signature256: string }): boolean {
+  if (!input.signature256.startsWith("sha256=")) return false;
+  const signatureHex = input.signature256.slice("sha256=".length);
+  if (!/^[0-9a-fA-F]{64}$/.test(signatureHex)) return false;
+  const expected = Buffer.from(createHmac("sha256", input.secret).update(input.rawBody).digest("hex"), "hex");
+  const received = Buffer.from(signatureHex, "hex");
+  return received.length === expected.length && timingSafeEqual(received, expected);
 }
 
 // ---------------------------------------------------------------------------

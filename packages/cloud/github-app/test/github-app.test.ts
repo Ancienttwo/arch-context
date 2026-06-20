@@ -37,10 +37,15 @@ describe("GitHub App", () => {
   });
 
   test("validates webhook signature", () => {
-    const body = JSON.stringify({ ok: true });
-    const signature256 = `sha256=${createHmac("sha256", "secret").update(body).digest("hex")}`;
-    expect(verifyGitHubWebhookSignature({ secret: "secret", body, signature256 })).toBe(true);
-    expect(verifyGitHubWebhookSignature({ secret: "secret", body, signature256: "sha256=bad" })).toBe(false);
+    const rawBody = Buffer.from('{"ok": true, "nested": {"keep": "spacing"}}\n', "utf8");
+    const signature256 = `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`;
+    const reparsedBody = Buffer.from(JSON.stringify(JSON.parse(rawBody.toString("utf8"))), "utf8");
+
+    expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody, signature256 })).toBe(true);
+    expect(verifyGitHubWebhookSignature({ secret: "wrong-secret", rawBody, signature256 })).toBe(false);
+    expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody: reparsedBody, signature256 })).toBe(false);
+    expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody, signature256: signature256.replace("sha256=", "sha1=") })).toBe(false);
+    expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody, signature256: "sha256=bad" })).toBe(false);
   });
 
   test("check runs display trust level and can require organization attestation", () => {
