@@ -4,16 +4,17 @@
   "title": "RetrievalConfig",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "defaultMode", "fts5", "embedding", "decisionGate"],
+  "required": ["schemaVersion", "defaultMode", "lexical", "embedding", "decisionGate"],
   "properties": {
     "schemaVersion": { "const": "archcontext.retrieval-config/v1" },
-    "defaultMode": { "type": "string", "enum": ["fts5"] },
-    "fts5": {
+    "defaultMode": { "type": "string", "enum": ["lexical"] },
+    "lexical": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled"],
+      "required": ["enabled", "tokenizer"],
       "properties": {
-        "enabled": { "const": true }
+        "enabled": { "const": true },
+        "tokenizer": { "type": "string", "enum": ["english-normalized+jieba-search"] }
       }
     },
     "embedding": {

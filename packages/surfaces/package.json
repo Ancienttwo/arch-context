@@ -1,0 +1,25 @@
+{
+  "name": "@archcontext/surfaces",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "archctx": "./cli/src/main.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapter-likec4": "./adapter-likec4/src/index.ts",
+    "./adapter-structurizr": "./adapter-structurizr/src/index.ts",
+    "./chatgpt-ui": "./chatgpt-ui/src/index.ts",
+    "./cli": "./cli/src/main.ts",
+    "./explorer-ui": "./explorer-ui/src/index.ts",
+    "./mcp-local": "./mcp-local/src/index.ts",
+    "./renderer": "./renderer/src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/cloud": "workspace:*",
+    "@archcontext/core": "workspace:*",
+    "@archcontext/local-runtime": "workspace:*"
+  }
+}

@@ -1,11 +1,11 @@
 // Constraint-tagged corpus for §25.3 context constraint recall + irrelevant ratio.
-// Retriever under test: retrieval.Fts5BaselineRetriever via runRetrievalEval (shipping
-// default; embedding stays default-off per ADR-0033). Each line is a RetrievalDocument
+// Retriever under test: retrieval.InMemoryLexicalRetriever via runRetrievalEval (shipping
+// lexical default; embedding stays default-off per ADR-0033). Each line is a RetrievalDocument
 // {id, text, constraintIds}. note is audit metadata. anti.* docs are decoys that share
 // surface tokens but are never a correct answer.
 {"id":"adr.zero-egress","text":"ArchContext never uploads repository source code diffs symbol bodies or architecture model bodies to any SaaS or cloud endpoint","constraintIds":["constraint.zero-egress"],"note":"core privacy guarantee"}
 {"id":"guardrail.explorer-loopback","text":"The architecture explorer binds to the local loopback 127.0.0.1 only is read only requires a short lived token and rejects non GET methods","constraintIds":["constraint.read-only-explorer","constraint.zero-egress"],"note":"explorer guardrail"}
-{"id":"adr.embedding-gate","text":"Semantic retrieval embeddings stay disabled by default run on a local vector index only and ship only if they beat the FTS5 baseline under the decision gate","constraintIds":["constraint.embedding-default-off"],"note":"ADR-0033"}
+{"id":"adr.embedding-gate","text":"Semantic retrieval embeddings stay disabled by default run on a local vector index only and ship only if they beat the lexical baseline under the decision gate","constraintIds":["constraint.embedding-default-off"],"note":"ADR-0033"}
 {"id":"guardrail.changeset-approval","text":"Every ChangeSet requires explicit human approval and applies atomically with full rollback when a fault is injected","constraintIds":["constraint.changeset-approval"],"note":"changeset safety"}
 {"id":"guardrail.path-allowlist","text":"Writes are confined to the archcontext model policies decisions and generated directories and any path that escapes the repository root is denied","constraintIds":["constraint.path-allowlist"],"note":"path safety"}
 {"id":"guardrail.freshness","text":"Review binds to the current HEAD commit and worktree digest and a stale snapshot is rejected before any apply","constraintIds":["constraint.freshness-binding"],"note":"freshness"}

@@ -8,8 +8,8 @@
  *
  *   1. Unjustified Compatibility detection Recall >= 85%   (policy-engine)
  *   2. Architecture Drift Precision            >= 90%      (pressure-engine + refactor-decision)
- *   3. Context Constraint Recall               >= 95%      (retrieval FTS5 baseline)
- *   4. Context irrelevant-content ratio        <= 20%      (retrieval FTS5 baseline)
+ *   3. Context Constraint Recall               >= 95%      (retrieval lexical baseline)
+ *   4. Context irrelevant-content ratio        <= 20%      (retrieval lexical baseline)
  *
  * It also asserts the deterministic target-vs-migration separation invariant
  * (refactor-decision). The six other §25.3 deterministic targets already pass
@@ -23,15 +23,17 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validateCompatibilityContract, type CompatibilityContractInput } from "../packages/policy-engine/src/index";
-import { detectArchitecturePressure } from "../packages/pressure-engine/src/index";
-import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../packages/refactor-decision/src/index";
+import { validateCompatibilityContract, type CompatibilityContractInput } from "../packages/core/policy-engine/src/index";
+import { detectArchitecturePressure } from "../packages/core/pressure-engine/src/index";
+import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../packages/core/refactor-decision/src/index";
 import {
-  Fts5BaselineRetriever,
+  InMemoryLexicalRetriever,
+  REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
+  createChineseRetrievalEvalSet,
   runRetrievalEval,
   type RetrievalDocument
-} from "../packages/retrieval/src/index";
-import type { ArchitecturePosture } from "../packages/architecture-domain/src/index";
+} from "../packages/core/retrieval/src/index";
+import type { ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
 import type { RetrievalEvalQuery, RetrievalEvalSet } from "../packages/contracts/src/index";
 
 const DATE = "2026-06-20";
@@ -290,7 +292,7 @@ function scoreTargetMigration(cases: TargetMigrationCase[]): InvariantResult {
 }
 
 // ---------------------------------------------------------------------------
-// Targets 3 & 4 — Context Constraint Recall + irrelevant ratio (retrieval FTS5)
+// Targets 3 & 4 — Context Constraint Recall + irrelevant ratio (retrieval lexical baseline)
 // ---------------------------------------------------------------------------
 
 interface RetrievalTier {
@@ -311,6 +313,15 @@ interface RetrievalResult {
   missedConstraintQueries: { id: string; expected: string[] }[];
 }
 
+interface ChineseRetrievalResult {
+  contextRecall: number;
+  constraintRecall: number;
+  irrelevantRatio: number;
+  queries: number;
+  documents: number;
+  pass: boolean;
+}
+
 function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocument[]): RetrievalResult {
   const evalSet: RetrievalEvalSet = {
     schemaVersion: "archcontext.retrieval-eval/v1",
@@ -326,7 +337,7 @@ function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocum
   };
 
   const tiers: RetrievalTier[] = RETRIEVAL_LIMITS.map((limit) => {
-    const report = runRetrievalEval({ evalSet, documents, retriever: new Fts5BaselineRetriever(), limit });
+    const report = runRetrievalEval({ evalSet, documents, retriever: new InMemoryLexicalRetriever(), limit });
     return {
       limit,
       contextRecall: report.score.contextRecall,
@@ -338,7 +349,7 @@ function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocum
   const gate = tiers.find((tier) => tier.limit === RETRIEVAL_GATE_LIMIT) ?? tiers[0];
 
   // Re-run at the gate limit to attribute per-query constraint misses.
-  const gateReport = runRetrievalEval({ evalSet, documents, retriever: new Fts5BaselineRetriever(), limit: gate.limit });
+  const gateReport = runRetrievalEval({ evalSet, documents, retriever: new InMemoryLexicalRetriever(), limit: gate.limit });
   const documentById = new Map(documents.map((document) => [document.id, document]));
   const missedConstraintQueries: { id: string; expected: string[] }[] = [];
   for (const result of gateReport.queryResults) {
@@ -359,6 +370,28 @@ function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocum
   };
 }
 
+function scoreChineseRetrieval(): ChineseRetrievalResult {
+  const evalSet = createChineseRetrievalEvalSet();
+  const report = runRetrievalEval({
+    evalSet,
+    documents: REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
+    retriever: new InMemoryLexicalRetriever(),
+    limit: 1
+  });
+  const pass =
+    report.score.contextRecall === 1 &&
+    report.score.constraintRecall === 1 &&
+    report.score.irrelevantRatio === 0;
+  return {
+    contextRecall: report.score.contextRecall,
+    constraintRecall: report.score.constraintRecall,
+    irrelevantRatio: report.score.irrelevantRatio,
+    queries: evalSet.queries.length,
+    documents: REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS.length,
+    pass
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
@@ -375,15 +408,16 @@ function buildReport(input: {
   compatibility: CompatibilityResult;
   drift: DriftResult;
   retrieval: RetrievalResult;
+  chinese: ChineseRetrievalResult;
   invariant: InvariantResult;
   gates: GateRow[];
   allPass: boolean;
 }): string {
-  const { compatibility, drift, retrieval, invariant, gates, allPass } = input;
+  const { compatibility, drift, retrieval, chinese, invariant, gates, allPass } = input;
   const verdict = allPass ? "PASS" : "FAIL (measured gap)";
 
   const gateTable = [
-    "| Target (§25.3) | Metric | Threshold | Observed | Result |",
+    "| Target / gate | Metric | Threshold | Observed | Result |",
     "|---|---|---:|---:|:--:|",
     ...gates.map((row) => `| ${row.target} | ${row.metric} | ${row.threshold} | ${row.observed} | ${row.pass ? "✅ PASS" : "❌ FAIL"} |`)
   ].join("\n");
@@ -428,7 +462,7 @@ function buildReport(input: {
   if (retrieval.constraintRecall < THRESHOLDS.contextConstraintRecall) {
     backlog.push(
       `- **Context constraint recall ${pct(retrieval.constraintRecall)} < ${pct(THRESHOLDS.contextConstraintRecall)}** at top-k ${retrieval.gateLimit}. ` +
-        "The FTS5 lexical baseline misses constraints whose query uses paraphrases/synonyms absent from the document text. " +
+        "The in-memory lexical baseline misses constraints whose query uses paraphrases/synonyms absent from the document text. " +
         "Fix: expand document surface text / synonyms, or revisit the ADR-0033 embedding decision gate with this representative set."
     );
   }
@@ -443,6 +477,12 @@ function buildReport(input: {
     backlog.push(
       `- **Target/migration separation invariant violated** in ${invariant.violations.length} case(s): ` +
         invariant.violations.map((violation) => `\`${violation.id}\` (${violation.reason})`).join(", ")
+    );
+  }
+  if (!chinese.pass) {
+    backlog.push(
+      `- **Chinese jieba retrieval gate failed.** Observed context recall ${pct(chinese.contextRecall)}, constraint recall ${pct(chinese.constraintRecall)}, irrelevant ratio ${pct(chinese.irrelevantRatio)}. ` +
+        "Fix: keep Chinese query/document tokenization on jieba search-mode segmentation and do not fall back to English regex tokenization."
     );
   }
 
@@ -467,13 +507,14 @@ The deterministic target-vs-migration separation invariant: **${invariant.pass ?
 |---|---|---|
 | Unjustified Compatibility Recall | \`policy-engine.validateCompatibilityContract\` | \`evals/compatibility-debt/cases.jsonl\` |
 | Architecture Drift Precision | \`pressure-engine.detectArchitecturePressure\` + \`refactor-decision.decidePosture\` | \`evals/refactor-or-patch/cases.jsonl\` |
-| Context Constraint Recall | \`retrieval.runRetrievalEval\` (\`Fts5BaselineRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
-| Context irrelevant ratio | \`retrieval.runRetrievalEval\` (\`Fts5BaselineRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
+| Context Constraint Recall | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
+| Context irrelevant ratio | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
+| Chinese retrieval gate | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\` + jieba tokenizer) | \`packages/core/retrieval.createChineseRetrievalEvalSet()\` |
 | Target/migration invariant | \`refactor-decision.createInterventionProposal\` | \`evals/target-vs-migration/cases.jsonl\` |
 
 ### Correction vs. the original plan
 
-The follow-up plan proposed measuring constraint recall and irrelevant ratio from **\`context-compiler\` output**. Reading the shipping code shows that is the wrong surface: \`compileTaskContext\` hardcodes \`constraints: []\` and performs no relevance ranking — it is a byte-budget trimmer over whatever the code-facts adapter returns. The real measurement surface for these two §25.3 metrics is the **\`retrieval\` engine** (\`runRetrievalEval\`), added by the Sprint 4 retrieval eval gate, which retrieves constraint-tagged documents and scores \`constraintRecall\`/\`irrelevantRatio\` directly. This eval therefore measures the retrieval engine's **shipping FTS5 baseline** (embedding stays default-off per ADR-0033). The pre-existing retrieval test only asserted \`contextRecall ≥ 0.8\` on a 3-query set; the §25.3 thresholds had never been gated on a representative set until now.
+The follow-up plan proposed measuring constraint recall and irrelevant ratio from **\`context-compiler\` output**. Reading the shipping code shows that is the wrong surface: \`compileTaskContext\` hardcodes \`constraints: []\` and performs no relevance ranking — it is a byte-budget trimmer over whatever the code-facts adapter returns. The real measurement surface for these two §25.3 metrics is the **\`retrieval\` engine** (\`runRetrievalEval\`), added by the Sprint 4 retrieval eval gate, which retrieves constraint-tagged documents and scores \`constraintRecall\`/\`irrelevantRatio\` directly. This eval therefore measures the retrieval engine's **shipping in-memory lexical baseline** (embedding stays default-off per ADR-0033; real SQLite FTS5 remains a future implementation gate). The pre-existing retrieval test only asserted \`contextRecall ≥ 0.8\` on a 3-query set; the §25.3 thresholds had never been gated on a representative set until now.
 
 The six other §25.3 targets (schema precision, stale interception, path-escape, changeset atomic recovery, attestation replay, SaaS code-route count) are deterministic and already pass via \`bun run verify\`; they are intentionally out of scope here.
 
@@ -503,6 +544,12 @@ ${tierTable}
 
 ${retrieval.missedConstraintQueries.length ? `- Queries missing expected constraints at gate top-k: ${retrieval.missedConstraintQueries.map((query) => `\`${query.id}\` (${query.expected.join(", ")})`).join(", ")}.` : "- No expected constraints were missed at the gate top-k."}
 
+## Chinese Jieba Retrieval Gate
+
+- Corpus: ${chinese.documents} Chinese architecture documents, ${chinese.queries} Chinese queries.
+- Gate at top-k 1: context recall **${pct(chinese.contextRecall)}**, constraint recall **${pct(chinese.constraintRecall)}**, irrelevant ratio **${pct(chinese.irrelevantRatio)}**.
+- This gate exists because Chinese search must use jieba segmentation; English regex tokenization is not a valid fallback for Chinese queries.
+
 ## Prioritized engine-fix backlog
 
 ${backlog.length ? backlog.join("\n") : "_None — all statistical targets met and the invariant holds._"}
@@ -528,6 +575,7 @@ function main(): void {
   const drift = scoreDrift(driftCases);
   const invariant = scoreTargetMigration(targetMigrationCases);
   const retrieval = scoreRetrieval(retrievalQueries, retrievalDocuments);
+  const chinese = scoreChineseRetrieval();
 
   const gates: GateRow[] = [
     {
@@ -557,6 +605,13 @@ function main(): void {
       threshold: `≤ ${pct(THRESHOLDS.contextIrrelevantRatio)}`,
       observed: pct(retrieval.irrelevantRatio),
       pass: retrieval.irrelevantRatio <= THRESHOLDS.contextIrrelevantRatio
+    },
+    {
+      target: "Chinese Jieba Retrieval Gate",
+      metric: "recall / irrelevant ratio @ top-k 1",
+      threshold: "100.0% / 0.0%",
+      observed: `${pct(chinese.contextRecall)} context, ${pct(chinese.constraintRecall)} constraint, ${pct(chinese.irrelevantRatio)} irrelevant`,
+      pass: chinese.pass
     }
   ];
 
@@ -567,7 +622,7 @@ function main(): void {
   // the report, keeping the verify path read-only — consistent with the repo's
   // other readback gates. The report is (re)generated on demand by `bun run eval`.
   const checkOnly = process.argv.includes("--check");
-  const report = buildReport({ compatibility, drift, retrieval, invariant, gates, allPass });
+  const report = buildReport({ compatibility, drift, retrieval, chinese, invariant, gates, allPass });
   const reportPath = fileURLToPath(new URL("../docs/verification/m6-representative-eval-report.md", import.meta.url));
   if (!checkOnly) {
     mkdirSync(dirname(reportPath), { recursive: true });
@@ -580,7 +635,7 @@ function main(): void {
     console.log(`  ${gate.pass ? "PASS" : "FAIL"}  ${gate.target}: ${gate.observed} (threshold ${gate.threshold})`);
   }
   console.log(`  ${invariant.pass ? "PASS" : "FAIL"}  Target/migration separation invariant: ${invariant.passed}/${invariant.total}`);
-  console.log(`\nDatasets: compatibility=${compatibility.total}, drift=${drift.total}, target-migration=${invariant.total}, retrieval=${retrieval.queries} queries / ${retrieval.documents} docs`);
+  console.log(`\nDatasets: compatibility=${compatibility.total}, drift=${drift.total}, target-migration=${invariant.total}, retrieval=${retrieval.queries} queries / ${retrieval.documents} docs, zh-retrieval=${chinese.queries} queries / ${chinese.documents} docs`);
   if (!checkOnly) console.log(`Report: docs/verification/m6-representative-eval-report.md`);
   console.log(`\nVerdict: ${allPass ? "PASS — all §25.3 statistical targets met" : "FAIL — measured gap (see report backlog)"}`);
 

@@ -14,13 +14,13 @@
 
 ## Sprint 目标与边界
 
-- **目标**：① 本地只读 Architecture Explorer（交互式浏览节点/关系/Declared-Observed-Verified/压力/Intervention/多仓 landscape），不写模型、不出域；② 语义检索 eval：建 eval harness，跑 FTS5 baseline vs Embedding，**按判据决定是否落地** Embedding（默认 off）。
+- **目标**：① 本地只读 Architecture Explorer（交互式浏览节点/关系/Declared-Observed-Verified/压力/Intervention/多仓 landscape），不写模型、不出域；② 语义检索 eval：建 eval harness，跑当前 lexical baseline vs Embedding，**按判据决定是否落地** Embedding（默认 off）。真实 SQLite FTS5 仍是本地存储目标，不作为本 sprint 已实现声明。
 - **明确不做**：不关闭 S1–S3 的**生产 GA / 外部 readback 债**（托管 CI 矩阵、真实 benchmark、外部安全审计、GPT Directory 真实上架、生产抓包等仍 pending，留待专门的"生产就绪"sprint）；不自研可视化编辑器（Explorer 只读，写仍走 ChangeSet）；不无条件实现 Embedding（不胜出就保持 off）；Team/Enterprise 治理继续排除；协作仍交给 Git。
 - **不变量延续**：S1–S3 全部 Guardrails 保持；单仓/多仓行为不得回归；**本 sprint 完成 = repo-local；不得把 S1–S3 的 proxy/外部验证继承为生产已绿**。
 
 ## Architecture Notes
 
-- **新增/扩展包**：新增 `explorer-ui`（本地只读浏览面）· 新增 `retrieval`（FTS5/Embedding 检索 port + eval harness）· `runtime-daemon`（loopback Explorer 服务）· `local-store-sqlite`（embedding 索引，条件）· `cli`（`explore` 命令）· `contracts`（Explorer 投影 / Embedding / eval 契约）。
+- **新增/扩展包**：新增 `explorer-ui`（本地只读浏览面）· 新增 `retrieval`（lexical/Embedding 检索 port + eval harness）· `runtime-daemon`（loopback Explorer 服务）· `local-store-sqlite`（embedding 索引，条件）· `cli`（`explore` 命令）· `contracts`（Explorer 投影 / Embedding / eval 契约）。
 - **依赖顺序**：CD4 契约增量 →（并行）BX Explorer、EM 语义检索 eval → HL4 加固与发布。EM 内部有**决策门**：eval 未胜出则跳过实现任务、记录保持 off。
 - **Risks**：Explorer 本地服务的端口暴露面（仅 loopback + 短期 token + 默认关）；Embedding 引入复杂度但可能不胜出（先 eval 后决定，避免沉没成本）；新面让人误以为生产已就绪（HL4 显式声明仍 repo-local、生产 GA 仍 blocked）。
 
@@ -28,7 +28,7 @@
 
 1–15. 延续 S1–S3 全部（零出域；写入必经 ChangeSet；兼容层持证；Target/Migration 分离；Proof Required；渐进治理；结果绑定 Digest；跨仓全本地；Runner 客户控制；按人头计费；单仓不回归；协作=Git；通知载荷最小化；Adapter Native-SoT；ChatGPT GA 隐私不变量）。
 16. **Explorer 仅本地 loopback、只读、opt-in、默认关**：仅绑 `127.0.0.1` + 短期 token；不连 SaaS、不发代码；**浏览器不能写模型**（所有写仍走 ChangeSet/CLI/MCP）；撤销/停止后立即不可达。
-17. **Embedding eval-gated**：默认 off；只有在代表性 eval 上**明确胜过 FTS5 baseline**才落地；向量索引全本地、不出域；未胜出则记录"保持 off"。
+17. **Embedding eval-gated**：默认 off；只有在代表性 eval 上**明确胜过当前 lexical baseline**才落地；向量索引全本地、不出域；未胜出则记录"保持 off"。真实 SQLite FTS5 需要单独实现和验证，不能由 in-memory baseline 代称。
 18. **本 sprint 不关生产 GA 债**：S1–S3 的 production/external readback 仍 pending，本 sprint 完成度仅限 repo-local + 确定性本地验证，不得对外宣称生产 GA。
 
 ## ADR Delta（Sprint 4）
@@ -57,7 +57,7 @@
 |---|--------|------|------|------------|------|
 | 1 | [x] | archctx-s4-cd-contracts-delta | contract | Explorer 投影 / Embedding / eval 契约 + ADR-0032/33；CD4 Exit Gate 全绿 | Completed: schema/fixtures/ports + ADR-0032/0033 + approval record |
 | 2 | [x] | archctx-s4-bx-explorer | contract | 本地 loopback 只读 Explorer + 多仓 landscape，零出域、不写模型；BX Exit Gate 全绿 | Completed: runtime loopback service + explorer-ui + CLI surface |
-| 3 | [x] | archctx-s4-em-retrieval-eval | contract | eval harness + FTS5 baseline + Embedding 对比 + 决策门（胜出才落地）；EM Exit Gate 全绿 | Completed: eval decision = keep FTS5 / embedding off |
+| 3 | [x] | archctx-s4-em-retrieval-eval | contract | eval harness + lexical baseline + Embedding 对比 + 决策门（胜出才落地）；EM Exit Gate 全绿 | Completed: eval decision = keep lexical / embedding off |
 | 4 | [x] | archctx-s4-hl-hardening | contract | Explorer/Embedding 隐私回归 + S1–S3 回归 + 明确生产 GA 仍 blocked；HL4 Gate 全绿 | Completed: repo-local hardening and release gate |
 
 ---
@@ -77,7 +77,7 @@
 | CD4-02 | ☑ | Explorer 本地服务契约（loopback-only、只读、opt-in、短期 token；复用 MVP local HTTP 模式） | contracts |  | CD4-01 |
 | CD4-03 | ☑ | Embedding 索引/配置 Schema（默认 off；本地；provider 可插拔） | contracts |  | — |
 | CD4-04 | ☑ | Retrieval 评测契约（eval set 格式 + 指标：context-recall/constraint-recall/无关比例/tool-call） | contracts |  | — |
-| CD4-05 | ☑ | 定义 Embedding 决策门判据（FTS5 baseline vs Embedding 的明确胜出阈值） | contracts |  | CD4-04 |
+| CD4-05 | ☑ | 定义 Embedding 决策门判据（lexical baseline vs Embedding 的明确胜出阈值） | contracts |  | CD4-04 |
 | CD4-06 | ☑ | 撰写 ADR-0032 Browser Architecture Explorer（本地只读、loopback、零出域、不写模型） | docs/adr |  | CD4-01,02 |
 | CD4-07 | ☑ | 撰写 ADR-0033 Semantic Retrieval / Embeddings（eval-gated、默认 off、本地、经 retrieval port） | docs/adr |  | CD4-03,05 |
 
@@ -105,7 +105,7 @@
 | BX-06 | ☑ | Compatibility Contract / Migration 状态浏览 | explorer-ui |  | BX-02 |
 | BX-07 | ☑ | ADR / Constraint 浏览 + 交叉链接 | explorer-ui |  | BX-02 |
 | BX-08 | ☑ | 多仓 Landscape 视图（跨仓边，复用 S2 多仓） | explorer-ui |  | BX-02 |
-| BX-09 | ☑ | 搜索（复用 SQLite FTS5） | explorer-ui |  | BX-02 |
+| BX-09 | ☑ | 搜索（本地 projection 过滤；SQLite FTS5 仍为未来存储搜索目标） | explorer-ui |  | BX-02 |
 | BX-10 | ☑ | Evidence 钻取（节点→source selector→symbol，只读） | explorer-ui |  | BX-02 |
 | BX-11 | ☑ | 只读保证：浏览器无法改模型（写仍走 ChangeSet/CLI/MCP） | runtime-daemon |  | BX-02 |
 | BX-12 | ☑ | 零出域：Explorer 完全本地，不连 SaaS、不发代码 | runtime-daemon |  | BX-01 |
@@ -116,7 +116,7 @@
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
-| BX-EG1 | ☑ | `archctx explore` 启动本地只读浏览面 | `bun test packages/runtime-daemon packages/cli` |
+| BX-EG1 | ☑ | `archctx explore` 启动本地只读浏览面 | `bun test packages/local-runtime/runtime-daemon packages/surfaces/cli` |
 | BX-EG2 | ☑ | 仅绑 loopback，外部不可达 | 绑定/可达性测试 |
 | BX-EG3 | ☑ | 浏览器无法触发任何模型写入 | POST 负向测试 |
 | BX-EG4 | ☑ | Explorer 零出域 | repo-local route/UI audit；HL4 继续做 capture gate |
@@ -125,30 +125,30 @@
 
 ## EM · 语义检索（Embedding，eval-gated）
 
-**目标**：先用真实 eval 判断 Embedding 是否优于 FTS5；**胜出才落地**，否则保持 off 并记录。
-**关联 ADR**：0033、0013、0014、0003。 **前置**：CD4-03/04/05；MVP FTS5（M1）。
+**目标**：先用真实 eval 判断 Embedding 是否优于当前 lexical baseline；**胜出才落地**，否则保持 off 并记录。
+**关联 ADR**：0033、0013、0014、0003。 **前置**：CD4-03/04/05；MVP lexical retrieval（M1）。
 
 | ID | St | 任务 | Owner | Est | Deps |
 |----|:--:|------|-------|:--:|------|
 | EM-01 | ☑ | 建立 Retrieval 评测 harness（可重复、确定性 seed） | retrieval |  | CD4-04 |
 | EM-02 | ☑ | 构造代表性 context-recall eval set（多场景任务） | retrieval |  | EM-01 |
-| EM-03 | ☑ | FTS5 baseline 跑分（context-recall/constraint-recall/无关比例/tool-call） | retrieval |  | EM-02 |
+| EM-03 | ☑ | Lexical baseline 跑分（context-recall/constraint-recall/无关比例/tool-call） | retrieval |  | EM-02 |
 | EM-04 | ☑ | 本地 Embedding 索引原型（默认 off，经 retrieval port，provider 可插拔） | retrieval |  | CD4-03 |
 | EM-05 | ☑ | Embedding 跑同一 eval set | retrieval |  | EM-02,04 |
-| EM-06 | ☑ | **决策门**：按 CD4-05 判据比对 FTS5 vs Embedding，记录结果 | retrieval |  | EM-03,05 |
+| EM-06 | ☑ | **决策门**：按 CD4-05 判据比对 lexical vs Embedding，记录结果 | retrieval |  | EM-03,05 |
 | EM-07 | ☑ | （条件·胜出）本地 Embedding 索引落地（增量、重建、隐私本地） | local-store-sqlite |  | EM-06；决策未胜出，条件不触发 |
-| EM-08 | ☑ | （条件·胜出）retrieval port 融合 FTS5 + Embedding（混合检索） | retrieval |  | EM-07；决策未胜出，条件不触发 |
+| EM-08 | ☑ | （条件·胜出）retrieval port 融合 lexical + Embedding（混合检索） | retrieval |  | EM-07；决策未胜出，条件不触发 |
 | EM-09 | ☑ | （条件·未胜出）记录"保持 off"，更新 ledger 与 ADR-0033 状态 | docs/adr |  | EM-06 |
 | EM-10 | ☑ | 隐私：Embedding 全本地，向量不出域，默认 off | retrieval |  | EM-04 |
-| EM-11 | ☑ | 文档：何时开启、代价、与 FTS5 的关系 | docs |  | EM-06 |
+| EM-11 | ☑ | 文档：何时开启、代价、与 lexical baseline / 未来 FTS5 的关系 | docs |  | EM-06 |
 
 **Exit Gate**
 
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
 | EM-EG1 | ☑ | eval harness 可复现 | 同 seed 同结果 |
-| EM-EG2 | ☑ | FTS5 baseline 有报告 | `docs/verification/s4-retrieval-eval.md` |
-| EM-EG3 | ☑ | 决策门产出明确 pass/fail + 证据 | decision = `keep-fts5` |
+| EM-EG2 | ☑ | Lexical baseline 有报告 | `docs/verification/s4-retrieval-eval.md` |
+| EM-EG3 | ☑ | 决策门产出明确 pass/fail + 证据 | decision = `keep-lexical` |
 | EM-EG4 | ☑ | 条件实现仅在胜出后启用；默认仍 off | 配置默认测试 |
 | EM-EG5 | ☑ | Embedding 向量零出域 | 本地断言；HL4 继续做 capture gate |
 
@@ -191,6 +191,6 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | When | Task | Plan | Result |
 |------|------|------|--------|
 | 2026-06-20 | CD4 contracts delta | Add Explorer projection/service schemas, retrieval config/eval/decision schemas, fixtures, ports, ADR-0032/0033, and approval record. | Completed; `bun test packages/contracts/test/contracts.test.ts` passed 60 tests. |
-| 2026-06-20 | BX local explorer | Add `explorer-ui`, runtime loopback Explorer service, read-only projection API, CLI `explore` surface, token revoke/stop behavior, and model/landscape/evidence summary rendering. | Completed; `bun test packages/explorer-ui packages/runtime-daemon packages/cli` passed 11 tests; `bun run typecheck` passed. |
-| 2026-06-20 | EM retrieval eval | Add deterministic retrieval eval harness, FTS5 baseline, local deterministic embedding prototype, decision gate, and eval report. | Completed; decision is `keep-fts5`, embedding remains default off; `bun test packages/retrieval` and `bun run typecheck` passed. |
+| 2026-06-20 | BX local explorer | Add `explorer-ui`, runtime loopback Explorer service, read-only projection API, CLI `explore` surface, token revoke/stop behavior, and model/landscape/evidence summary rendering. | Completed; `bun test packages/surfaces/explorer-ui packages/local-runtime/runtime-daemon packages/surfaces/cli` passed 11 tests; `bun run typecheck` passed. |
+| 2026-06-20 | EM retrieval eval | Add deterministic retrieval eval harness, lexical baseline, local deterministic embedding prototype, decision gate, and eval report. | Completed; decision is `keep-lexical`, embedding remains default off; `bun test packages/core/retrieval` and `bun run typecheck` passed. |
 | 2026-06-20 | HL4 hardening closeout | Extend privacy route audit to Explorer/Retrieval, add Sprint 4 capture fixture, harden capture manifest strict external readback, update repo-local completion docs, and run full verification. | Completed; Sprint 4 is `60 / 60` repo-local deterministic. Production GA/external readback remains pending. |

@@ -21,7 +21,7 @@
       },
       "sourceSelectors": [
         {
-          "path": "packages/runtime-daemon/src/index.ts",
+          "path": "packages/local-runtime/runtime-daemon/src/index.ts",
           "symbolId": "ArchctxDaemon",
           "startLine": 41,
           "endLine": 300

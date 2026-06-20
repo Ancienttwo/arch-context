@@ -8,7 +8,7 @@ This gate closes the deterministic MVP hardening and proxy-evidence surface. It 
 
 ## Evidence
 
-- Cross-platform state paths and Node support matrix are exposed by `@archcontext/hardening`; `.github/workflows/verify.yml` configures ubuntu/macos/windows x Node 24/25, with hosted execution readback still pending.
+- Cross-platform state paths and Node support matrix are exposed by `@archcontext/cloud/hardening`; `.github/workflows/verify.yml` configures ubuntu/macos/windows x Node 24/25, with hosted execution readback still pending.
 - Large-repo context-query estimate is deterministic and tested; real benchmark execution is still pending.
 - Dirty/stale worktree writes are rejected before ChangeSet apply.
 - Multi-worktree safety is covered by repository fingerprint and worktree digest tests.

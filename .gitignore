@@ -9,6 +9,7 @@ _ref/
 .codegraph/
 # Local operations state
 _ops/
+.archcontext/.local/
 # Environment
 .env
 .env.*

@@ -1,0 +1,23 @@
+{
+  "name": "@archcontext/cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./attestation": "./attestation/src/index.ts",
+    "./cloud-db": "./cloud-db/src/index.ts",
+    "./control-plane": "./control-plane/src/index.ts",
+    "./control-plane-client": "./control-plane-client/src/index.ts",
+    "./github-app": "./github-app/src/index.ts",
+    "./hardening": "./hardening/src/index.ts",
+    "./mcp-cloud-metadata": "./mcp-cloud-metadata/src/index.ts",
+    "./notifications": "./notifications/src/index.ts",
+    "./runner": "./runner/src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/core": "workspace:*",
+    "@archcontext/local-runtime": "workspace:*"
+  }
+}

@@ -8,10 +8,10 @@ M4 adds the ChatGPT-facing local surface: loopback Streamable HTTP MCP, explicit
 
 ## Evidence
 
-- Local HTTP MCP and tunnel: `packages/mcp-local/src/index.ts`.
-- Metadata-only remote MCP: `packages/mcp-cloud-metadata/src/index.ts`.
-- OAuth/PKCE client checks: `packages/control-plane-client/src/index.ts`.
-- ChatGPT UI resource: `apps/chatgpt-ui/src/index.ts`.
+- Local HTTP MCP and tunnel: `packages/surfaces/mcp-local/src/index.ts`.
+- Metadata-only remote MCP: `packages/cloud/mcp-cloud-metadata/src/index.ts`.
+- OAuth/PKCE client checks: `packages/cloud/control-plane-client/src/index.ts`.
+- ChatGPT UI resource: `packages/surfaces/chatgpt-ui/src/index.ts`.
 
 ## Verified Path
 

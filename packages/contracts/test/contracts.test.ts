@@ -140,7 +140,7 @@ describe("JSON schema contracts", () => {
     ]);
     const fixture = readJson("packages/contracts/fixtures/valid/retrieval-decision.json") as any;
     expect(fixture.thresholds.minContextRecallLift).toBeGreaterThan(0);
-    expect(fixture.decision).toBe("keep-fts5");
+    expect(fixture.decision).toBe("keep-lexical");
   });
 });
 

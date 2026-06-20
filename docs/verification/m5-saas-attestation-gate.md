@@ -8,11 +8,11 @@ M5 implements the metadata-only control plane: GitHub OAuth/device auth contract
 
 ## Evidence
 
-- Control plane: `apps/control-plane/src/index.ts`.
-- Control-plane client/token storage: `packages/control-plane-client/src/index.ts`.
-- GitHub App: `packages/github-app/src/index.ts`.
-- Attestation: `packages/attestation/src/index.ts`.
-- D1 schema: `packages/cloud-db/src/index.ts`, `deploy/sql/0001_archcontext_control_plane.sql`.
+- Control plane: `packages/cloud/control-plane/src/index.ts`.
+- Control-plane client/token storage: `packages/cloud/control-plane-client/src/index.ts`.
+- GitHub App: `packages/cloud/github-app/src/index.ts`.
+- Attestation: `packages/cloud/attestation/src/index.ts`.
+- D1 schema: `packages/cloud/cloud-db/src/index.ts`, `deploy/sql/0001_archcontext_control_plane.sql`.
 
 ## Verified Path
 

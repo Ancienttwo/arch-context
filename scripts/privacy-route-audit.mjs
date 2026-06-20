@@ -6,16 +6,16 @@ const root = process.cwd();
 const scanRoots = [
   "apps",
   "services",
-  "packages/notifications",
-  "packages/explorer-ui",
-  "packages/retrieval",
-  "packages/adapter-likec4",
-  "packages/adapter-structurizr",
-  "packages/renderer",
-  "packages/control-plane",
-  "packages/mcp-cloud-metadata",
-  "packages/github-app",
-  "packages/cloud-db"
+  "packages/cloud/notifications",
+  "packages/surfaces/explorer-ui",
+  "packages/core/retrieval",
+  "packages/surfaces/adapter-likec4",
+  "packages/surfaces/adapter-structurizr",
+  "packages/surfaces/renderer",
+  "packages/cloud/control-plane",
+  "packages/cloud/mcp-cloud-metadata",
+  "packages/cloud/github-app",
+  "packages/cloud/cloud-db"
 ];
 const forbidden = [
   /source\s*code/i,

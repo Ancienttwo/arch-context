@@ -28,7 +28,7 @@
       "environment": "fixture",
       "status": "verified",
       "artifactPath": "docs/security/captures/sprint4-explorer-retrieval.har.json",
-      "captureDigest": "sha256:1ef89172d528403da1dfc3ccd171d1068fbe9a2930f493d9cbbacce0b903828a",
+      "captureDigest": "sha256:dc9e2f3555250d232803b29a376d4232e4a1060b7911dfe5bd53d74bd9adadde",
       "auditedAt": "2026-06-20T00:00:00.000Z",
       "entries": 3,
       "checkedValues": 45,
