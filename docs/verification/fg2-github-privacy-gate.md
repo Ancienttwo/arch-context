@@ -11,7 +11,7 @@
   - `669d8a8165d723b8ea77c30c8d9d3e35ed22f923` — FG2-09 GitHub API method/path allowlist
   - `340a75120f7e6df41575a654aca9df9e6f08c873` — FG2-10 forbidden GitHub code endpoint rejection
   - `a2e16fe01b932a698fe242411cbcc56566c99642` — FG2-11 forbidden GitHub diff/patch media type rejection
-  - `(pending FG2-12 implementation commit)` — FG2-12 generic Octokit client lint boundary
+  - `722c0e8de38dfba85a0f0a74356303ad37d36b8c` — FG2-12 generic Octokit client lint boundary
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, or FG2-12 local E1/E2 slice
 - Started At: 2026-06-20
