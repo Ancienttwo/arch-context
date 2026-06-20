@@ -9,6 +9,7 @@ const binDir = resolve(root, "node_modules", ".bin");
 const archctxBin = process.platform === "win32"
   ? join(binDir, "archctx.cmd")
   : join(binDir, "archctx");
+const PROCESS_TIMEOUT_MS = 10_000;
 
 if (!existsSync(archctxBin)) {
   fail(`missing packaged archctx bin at ${archctxBin}; run bun install first`);
@@ -90,6 +91,11 @@ try {
   assert(again.ok === true, "second daemon start must succeed");
   assert(again.data?.alreadyRunning === true, "second daemon start must be idempotent");
 
+  const daemonStatus = await runArchctx("daemon", "status");
+  assert(daemonStatus.ok === true, "daemon status must succeed");
+  assert(daemonStatus.data?.rpcVersionCompatible === true, "daemon status must report RPC compatibility");
+  assert(daemonStatus.data?.product?.schemaVersion === "archcontext.product-version-manifest/v1", "daemon status must include product manifest");
+
   const stopped = await runArchctx("daemon", "stop");
   assert(stopped.ok === true, "daemon stop must succeed");
   await waitForRemoved(connectionPath, "connection file");
@@ -115,7 +121,7 @@ function runArchctx(...args) {
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       rejectPromise(new Error(`archctx ${args.join(" ")} timed out: ${stderr || stdout}`));
-    }, 5_000);
+    }, PROCESS_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
@@ -151,7 +157,7 @@ function runArchctxMcp(message) {
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       rejectPromise(new Error(`archctx mcp timed out: ${stderr || stdout}`));
-    }, 5_000);
+    }, PROCESS_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });

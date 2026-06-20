@@ -135,6 +135,9 @@ describe("archctx CLI", () => {
       const daemonStatus = await runCliProcess(root, "daemon", "status");
       const connection = JSON.parse(readFileSync(join(root, ".archcontext/.local/archctxd.json"), "utf8"));
       expect(daemonStatus.data.running).toBe(true);
+      expect(daemonStatus.data.rpcVersionCompatible).toBe(true);
+      expect(daemonStatus.data.product.schemaVersion).toBe("archcontext.product-version-manifest/v1");
+      expect(daemonStatus.data.product.runtime.localRpc.schemaVersion).toBe(RUNTIME_RPC_VERSION);
       expect(JSON.stringify(daemonStatus.data)).toContain("stored-in-connection-file");
       expect(JSON.stringify(daemonStatus.data)).not.toContain(connection.token);
 

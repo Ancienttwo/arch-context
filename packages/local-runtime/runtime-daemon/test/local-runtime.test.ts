@@ -123,12 +123,29 @@ describe("local runtime foundation", () => {
       expect(healthBody.product.runtime.localRpc.schemaVersion).toBe(RUNTIME_RPC_VERSION);
       expect(healthBody.product.surfaces.daemon.rpcSchemaVersion).toBe(RUNTIME_RPC_VERSION);
 
+      const mismatchedHealth = await fetch(`${connection.url}health`, {
+        headers: { "X-ArchContext-RPC-Version": "archcontext.runtime-rpc/v0" }
+      });
+      expect(mismatchedHealth.status).toBe(426);
+      expect((await mismatchedHealth.json() as any).expected).toBe(RUNTIME_RPC_VERSION);
+
       const denied = await fetch(`${connection.url}rpc`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] })
       });
       expect(denied.status).toBe(401);
+
+      const mismatchedRpc = await fetch(`${connection.url}rpc`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${connection.token}`,
+          "Content-Type": "application/json",
+          "X-ArchContext-RPC-Version": "archcontext.runtime-rpc/v0"
+        },
+        body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] })
+      });
+      expect(mismatchedRpc.status).toBe(426);
 
       const clientA = new RuntimeRpcClient(connection);
       const init = await clientA.init(root, "RPC App");

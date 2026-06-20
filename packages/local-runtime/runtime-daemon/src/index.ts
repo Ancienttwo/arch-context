@@ -858,6 +858,16 @@ export class ArchctxRuntimeRpcServer {
       writeJson(response, 403, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC only accepts loopback clients" });
       return;
     }
+    if (!isRpcVersionHeaderCompatible(request)) {
+      writeJson(response, 426, {
+        schemaVersion: RUNTIME_RPC_VERSION,
+        ok: false,
+        error: "runtime RPC version mismatch",
+        expected: RUNTIME_RPC_VERSION,
+        received: requestRpcVersionHeader(request)
+      });
+      return;
+    }
     const url = new URL(request.url ?? "/", this.connection?.url ?? "http://127.0.0.1/");
     if (request.method === "GET" && url.pathname === "/health") {
       writeJson(response, 200, {
@@ -1126,6 +1136,16 @@ function isProcessAlive(pid: number): boolean {
 
 function isLoopbackRemote(remoteAddress = ""): boolean {
   return ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddress);
+}
+
+function requestRpcVersionHeader(request: IncomingMessage): string | undefined {
+  const header = request.headers["x-archcontext-rpc-version"];
+  return Array.isArray(header) ? header[0] : header;
+}
+
+function isRpcVersionHeaderCompatible(request: IncomingMessage): boolean {
+  const header = requestRpcVersionHeader(request);
+  return header === undefined || header === RUNTIME_RPC_VERSION;
 }
 
 async function readRequestJson(request: IncomingMessage): Promise<unknown> {

@@ -10,6 +10,7 @@ import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarke
 import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
 import {
   ArchctxRuntimeRpcServer,
+  RUNTIME_RPC_VERSION,
   createRuntimeRpcClientFromConnectionFile,
   createStartedDaemon,
   createStartedProductionDaemon,
@@ -315,6 +316,8 @@ async function runDaemonCommand(args: string[], cwd: string) {
     if ((health as any)?.ok === true) {
       return okEnvelope("daemon.status", {
         running: true,
+        product: (health as any).product,
+        rpcVersionCompatible: (health as any).schemaVersion === RUNTIME_RPC_VERSION,
         ...client.connectionInfo(),
         token: "stored-in-connection-file"
       } as any);

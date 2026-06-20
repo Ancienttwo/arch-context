@@ -316,6 +316,20 @@
         "packages/surfaces/mcp-local/test/mcp-local.test.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "scripts/packaged-cli-smoke.mjs",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }
