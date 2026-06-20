@@ -2,6 +2,7 @@
 
 - Commit SHAs:
   - `0c81204833be188c095a0e3870882ce33dc6e559` — FG2-01 GitHub App permission manifest
+  - `6db79fc35f8ac8722aa6abd1bcc6e4e45a38b3a7` — FG2-03 raw-body GitHub webhook HMAC verification
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01
 - Started At: 2026-06-20
