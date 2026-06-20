@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.check-delivery/v1",
+  "deliveryId": "delivery_dead_letter",
+  "challengeId": "chal_20260620_0001",
+  "checkRunId": null,
+  "checkName": "ArchContext / Organization Runner",
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "DEAD_LETTER",
+  "attemptCount": 5,
+  "nextAttemptAt": null,
+  "lastErrorCode": "CHALLENGE_SUPERSEDED",
+  "createdAt": "2026-06-20T09:00:00Z",
+  "updatedAt": "2026-06-20T09:30:00Z"
+}

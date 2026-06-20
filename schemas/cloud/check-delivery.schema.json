@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/cloud/check-delivery.schema.json",
+  "title": "CheckDelivery",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "deliveryId", "challengeId", "checkName", "headSha", "status", "attemptCount", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.check-delivery/v1" },
+    "deliveryId": { "type": "string" },
+    "challengeId": { "type": "string" },
+    "checkRunId": { "type": ["string", "null"] },
+    "checkName": { "type": "string", "enum": ["ArchContext / Developer Review", "ArchContext / Organization Runner"] },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "status": { "type": "string", "enum": ["PENDING", "PUBLISHED", "RETRYING", "DEAD_LETTER"] },
+    "attemptCount": { "type": "integer", "minimum": 0 },
+    "nextAttemptAt": { "type": ["string", "null"] },
+    "lastErrorCode": {
+      "type": ["string", "null"],
+      "enum": ["CHALLENGE_NOT_FOUND", "CHALLENGE_EXPIRED", "CHALLENGE_SUPERSEDED", "CHALLENGE_ALREADY_CONSUMED", "NONCE_MISMATCH", "REPOSITORY_MISMATCH", "PULL_REQUEST_MISMATCH", "HEAD_SHA_MISMATCH", "BASE_SHA_MISMATCH", "TREE_OID_MISMATCH", "TRUST_LEVEL_MISMATCH", "RUNNER_NOT_FOUND", "RUNNER_REVOKED", "RUNNER_SCOPE_MISMATCH", "WORKFLOW_REF_MISMATCH", "DEVICE_REVOKED", "RUNTIME_VERSION_UNSUPPORTED", "SIGNATURE_INVALID", "PAYLOAD_PRIVACY_VIOLATION", null]
+    },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" }
+  }
+}

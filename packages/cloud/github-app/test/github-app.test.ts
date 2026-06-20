@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
+import { DEVELOPER_REVIEW_CHECK_NAME, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
 import { GITHUB_APP_PERMISSIONS, GitHubAppState, verifyGitHubWebhookSignature } from "../src/index";
 
 describe("GitHub App", () => {
@@ -16,6 +17,7 @@ describe("GitHub App", () => {
       pullRequest: { number: 1, headSha: "abc123" }
     });
     expect(first.checkRun?.status).toBe("queued");
+    expect(first.checkRun?.name).toBe(DEVELOPER_REVIEW_CHECK_NAME);
     expect(state.handlePullRequest({ deliveryId: "d1", action: "opened", repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" }, pullRequest: { number: 1, headSha: "abc123" } }).idempotent).toBe(true);
     const second = state.handlePullRequest({
       deliveryId: "d2",
@@ -46,6 +48,7 @@ describe("GitHub App", () => {
       repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
       pullRequest: { number: 2, headSha: "abc123" }
     }).checkRun!;
+    expect(checkRun.name).toBe(ORGANIZATION_RUNNER_CHECK_NAME);
     const developerChallenge = createReviewChallenge({ repository, headSha: "abc123", expiresAt: "2026-06-19T00:10:00Z" });
     const developer = signLocalAttestation({
       challenge: developerChallenge,
@@ -58,7 +61,7 @@ describe("GitHub App", () => {
     });
     const developerUpdated = state.updateCheckFromAttestation(checkRun.id, developer, true);
     expect(developerUpdated.conclusion).toBe("failure");
-    expect(developerUpdated.output?.summary).toContain("## ArchContext — Architecture Review");
+    expect(developerUpdated.output?.summary).toContain("## ArchContext / Organization Runner");
     expect(developerUpdated.output?.summary).toContain("Organization attestation required");
 
     const organizationChallenge = createReviewChallenge({ repository, headSha: "abc123", expiresAt: "2026-06-19T00:10:00Z" });

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.check-delivery/v1",
+  "deliveryId": "delivery_0001",
+  "challengeId": "chal_20260620_0001",
+  "checkRunId": "check_0001",
+  "checkName": "ArchContext / Developer Review",
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "PENDING",
+  "attemptCount": 0,
+  "nextAttemptAt": null,
+  "lastErrorCode": null,
+  "createdAt": "2026-06-20T09:00:00Z",
+  "updatedAt": "2026-06-20T09:00:00Z"
+}

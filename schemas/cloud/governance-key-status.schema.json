@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/cloud/governance-key-status.schema.json",
+  "title": "GovernanceKeyStatus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "publicKeyId", "ownerKind", "ownerId", "fingerprint", "status", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.governance-key-status/v1" },
+    "publicKeyId": { "type": "string" },
+    "ownerKind": { "type": "string", "enum": ["device", "runner"] },
+    "ownerId": { "type": "string" },
+    "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "status": { "type": "string", "enum": ["active", "rotating", "revoked"] },
+    "createdAt": { "type": "string" },
+    "rotatedAt": { "type": ["string", "null"] },
+    "revokedAt": { "type": ["string", "null"] }
+  }
+}

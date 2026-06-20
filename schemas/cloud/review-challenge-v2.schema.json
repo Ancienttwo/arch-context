@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/cloud/review-challenge-v2.schema.json",
+  "title": "ReviewChallengeV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "challengeId", "installationId", "repositoryId", "pullRequestNumber", "headSha", "baseSha", "nonce", "requiredTrust", "policyProfileId", "createdAt", "expiresAt", "status"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.review-challenge/v2" },
+    "challengeId": { "type": "string" },
+    "installationId": { "type": "integer", "minimum": 1 },
+    "repositoryId": { "type": "integer", "minimum": 1 },
+    "pullRequestNumber": { "type": "integer", "minimum": 1 },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "baseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "nonce": { "type": "string" },
+    "requiredTrust": { "type": "string", "enum": ["developer", "organization"] },
+    "policyProfileId": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "expiresAt": { "type": "string" },
+    "status": { "type": "string", "enum": ["PENDING", "LEASED", "SUBMITTED", "VERIFIED", "REJECTED", "SUPERSEDED", "EXPIRED"] }
+  }
+}

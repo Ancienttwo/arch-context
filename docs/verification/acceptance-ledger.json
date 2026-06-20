@@ -1,0 +1,237 @@
+{
+  "schemaVersion": "archcontext.acceptance-ledger/v1",
+  "sprint": "archctx-local-github-governance",
+  "updatedAt": "2026-06-20T00:00:00Z",
+  "entries": [
+    {
+      "id": "FG0-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "plans/prds/20260620-0236-archcontext-local-github-governance.prd.md",
+        "docs/verification/fg0-contract-correction-gate.md"
+      ]
+    },
+    {
+      "id": "FG0-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": ["docs/spec.md"]
+    },
+    {
+      "id": "FG0-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": ["README.md"]
+    },
+    {
+      "id": "FG0-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "docs/spec.md",
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md",
+        "docs/adr/ADR-0035-github-governance-privacy-contract.md"
+      ]
+    },
+    {
+      "id": "FG0-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/contracts/test/contracts.test.ts"
+      ]
+    },
+    {
+      "id": "FG0-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "schemas/cloud/review-challenge-v2.schema.json",
+        "packages/contracts/fixtures/valid/review-challenge-v2.json",
+        "packages/contracts/fixtures/boundary/review-challenge-v2-organization.json"
+      ]
+    },
+    {
+      "id": "FG0-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "schemas/cloud/attestation-v2.schema.json",
+        "packages/contracts/fixtures/valid/attestation-v2.json",
+        "packages/contracts/fixtures/boundary/attestation-v2-error.json"
+      ]
+    },
+    {
+      "id": "FG0-08",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "schemas/cloud/runner-identity.schema.json",
+        "schemas/cloud/device-identity.schema.json",
+        "schemas/cloud/governance-key-status.schema.json"
+      ]
+    },
+    {
+      "id": "FG0-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "schemas/cloud/check-delivery.schema.json"
+      ]
+    },
+    {
+      "id": "FG0-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "docs/adr/ADR-0024-developer-vs-organization-attestation.md"
+      ]
+    },
+    {
+      "id": "FG0-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md"
+      ]
+    },
+    {
+      "id": "FG0-12",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "schemas/cloud/cloud-egress-envelope.schema.json",
+        "packages/contracts/fixtures/valid/cloud-egress-envelope.json",
+        "docs/adr/ADR-0035-github-governance-privacy-contract.md"
+      ]
+    },
+    {
+      "id": "FG0-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts"
+      ]
+    },
+    {
+      "id": "FG0-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": ["docs/adr/ADR-0034-one-package-local-product-distribution.md"]
+    },
+    {
+      "id": "FG0-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": ["docs/adr/ADR-0035-github-governance-privacy-contract.md"]
+    },
+    {
+      "id": "FG0-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": ["docs/adr/ADR-0036-deterministic-gate-llm-advisory.md"]
+    },
+    {
+      "id": "FG0-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E0",
+      "evidence": [
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md",
+        "docs/adr/ADR-0016-signed-local-attestation.md",
+        "docs/adr/ADR-0024-developer-vs-organization-attestation.md",
+        "docs/adr/ADR-0027-trusted-runner-attestation.md"
+      ]
+    },
+    {
+      "id": "FG0-18",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "docs/verification/acceptance-ledger.json",
+        "scripts/verify-acceptance-ledger.mjs",
+        "package.json"
+      ]
+    },
+    {
+      "id": "FG0-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "docs/spec.md",
+        "README.md",
+        "docs/adr/ADR-0034-one-package-local-product-distribution.md",
+        "docs/verification/fg0-contract-correction-gate.md"
+      ]
+    },
+    {
+      "id": "FG0-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/test/contracts.test.ts",
+        "packages/contracts/fixtures/valid/review-challenge-v2.json",
+        "packages/contracts/fixtures/invalid/attestation-v2-finding-field.json"
+      ]
+    },
+    {
+      "id": "FG0-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts"
+      ]
+    },
+    {
+      "id": "FG0-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts"
+      ]
+    },
+    {
+      "id": "FG0-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "docs/verification/acceptance-ledger.json",
+        "scripts/verify-acceptance-ledger.mjs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "archcontext.cloud-egress/v1",
+  "requestId": "req_bad_private_field",
+  "category": "github.pull-head",
+  "method": "GET",
+  "host": "api.github.com",
+  "pathTemplate": "/repos/{owner}/{repo}/pulls/{pull_number}/files",
+  "statusCode": 200,
+  "latencyMs": 42,
+  "recordedAt": "2026-06-20T09:00:00Z",
+  "patch": "@@ private diff"
+}

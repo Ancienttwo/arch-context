@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "archcontext.governance-key-status/v1",
+  "publicKeyId": "key_runner_0001",
+  "ownerKind": "runner",
+  "ownerId": "runner_0001",
+  "fingerprint": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "status": "active",
+  "createdAt": "2026-06-20T09:00:00Z",
+  "rotatedAt": null,
+  "revokedAt": null
+}

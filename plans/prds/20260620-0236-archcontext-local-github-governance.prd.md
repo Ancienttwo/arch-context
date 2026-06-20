@@ -1,6 +1,6 @@
 # ArchContext Follow-up PRD：本地产品封装、GitHub 治理与客户控制 Runner
 
-> **Status**: Draft for Architecture Review  
+> **Status**: Accepted for FG0 Contract Execution
 > **Slug**: archcontext-local-github-governance  
 > **Created**: 2026-06-20  
 > **Updated**: 2026-06-20  
@@ -640,7 +640,7 @@ ArchContext / Organization Runner
 不得再使用一个模糊的：
 
 ```text
-ArchContext / Architecture Review
+<legacy single Architecture Review check>
 ```
 
 来承载两种信任等级。
@@ -1426,7 +1426,7 @@ v1 不得满足 Organization Runner required check。
 旧：
 
 ```text
-ArchContext / Architecture Review
+<legacy single Architecture Review check>
 ```
 
 新：

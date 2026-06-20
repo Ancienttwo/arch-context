@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "archcontext.review-challenge/v2",
+  "challengeId": "chal_bad_private_field",
+  "installationId": 10001,
+  "repositoryId": 20002,
+  "pullRequestNumber": 42,
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "nonce": "nonce_base64url_0001",
+  "requiredTrust": "developer",
+  "policyProfileId": "policy.default",
+  "createdAt": "2026-06-20T09:00:00Z",
+  "expiresAt": "2026-06-20T09:15:00Z",
+  "status": "PENDING",
+  "filename": "src/private.ts"
+}

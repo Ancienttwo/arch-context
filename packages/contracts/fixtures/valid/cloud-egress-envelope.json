@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "archcontext.cloud-egress/v1",
+  "requestId": "req_0001",
+  "category": "github.pull-head",
+  "method": "GET",
+  "host": "api.github.com",
+  "pathTemplate": "/repos/{owner}/{repo}/pulls/{pull_number}",
+  "statusCode": 200,
+  "latencyMs": 42,
+  "recordedAt": "2026-06-20T09:00:00Z"
+}

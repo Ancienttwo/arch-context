@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/cloud/attestation-v2.schema.json",
+  "title": "AttestationV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "attestationId", "challengeId", "installationId", "repositoryId", "pullRequestNumber", "headSha", "baseSha", "mergeBaseSha", "headTreeOid", "worktreeDigest", "modelDigest", "policyDigest", "codeFactsDigest", "reviewDigest", "result", "execution", "runtime", "nonce", "startedAt", "completedAt", "expiresAt", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.attestation/v2" },
+    "attestationId": { "type": "string" },
+    "challengeId": { "type": "string" },
+    "installationId": { "type": "integer", "minimum": 1 },
+    "repositoryId": { "type": "integer", "minimum": 1 },
+    "pullRequestNumber": { "type": "integer", "minimum": 1 },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "baseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "mergeBaseSha": { "type": "string", "pattern": "^[a-f0-9]{40,64}$" },
+    "headTreeOid": { "type": "string" },
+    "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "modelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "policyDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "reviewDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "result": { "type": "string", "enum": ["pass", "fail", "error"] },
+    "errorCode": { "type": "string", "enum": ["RUNTIME_VERSION_UNSUPPORTED", "HEAD_UNAVAILABLE", "WORKTREE_NOT_CLEAN", "CODEGRAPH_FAILED", "POLICY_INVALID", "REVIEW_INCOMPLETE"] },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trustLevel", "source", "principalId", "publicKeyId"],
+      "properties": {
+        "trustLevel": { "type": "string", "enum": ["developer", "organization"] },
+        "source": { "type": "string", "enum": ["clean-commit-worktree", "organization-runner-checkout"] },
+        "principalId": { "type": "string" },
+        "publicKeyId": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "buildDigest", "codeGraphVersion", "capabilitiesDigest"],
+      "properties": {
+        "version": { "type": "string" },
+        "buildDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "codeGraphVersion": { "type": "string" },
+        "capabilitiesDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "nonce": { "type": "string" },
+    "startedAt": { "type": "string" },
+    "completedAt": { "type": "string" },
+    "expiresAt": { "type": "string" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["ed25519"] },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

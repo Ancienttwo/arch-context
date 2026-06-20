@@ -2,6 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  DEVELOPER_REVIEW_CHECK_NAME,
+  GOVERNANCE_CHECK_NAMES,
+  GOVERNANCE_REASON_CATALOG,
+  ORGANIZATION_RUNNER_CHECK_NAME,
+  canTransitionChallenge,
+  canTransitionCheckDelivery,
+  satisfiesRequiredTrust
+} from "../src/github-governance";
 import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
 
@@ -29,6 +38,13 @@ const schemaByFixture: Record<string, string> = {
   "adapter-fidelity": "schemas/integrations/adapter-fidelity.schema.json",
   "chatgpt-ga-tool": "schemas/integrations/chatgpt-ga-tool.schema.json",
   "attestation": "schemas/cloud/attestation.schema.json",
+  "review-challenge-v2": "schemas/cloud/review-challenge-v2.schema.json",
+  "attestation-v2": "schemas/cloud/attestation-v2.schema.json",
+  "runner-identity": "schemas/cloud/runner-identity.schema.json",
+  "device-identity": "schemas/cloud/device-identity.schema.json",
+  "governance-key-status": "schemas/cloud/governance-key-status.schema.json",
+  "check-delivery": "schemas/cloud/check-delivery.schema.json",
+  "cloud-egress-envelope": "schemas/cloud/cloud-egress-envelope.schema.json",
   "org-runner-identity": "schemas/cloud/org-runner-identity.schema.json",
   "entitlement": "schemas/cloud/entitlement.schema.json"
 };
@@ -60,6 +76,20 @@ describe("JSON schema contracts", () => {
     const schema = readJson("schemas/repo/architecture-node.schema.json");
     const fixture = readJson("packages/contracts/fixtures/boundary/architecture-node-extension.json");
     expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+  });
+
+  test("all boundary fixtures are accepted by their schema", () => {
+    const boundaryFixtures = readdirSync(join(root, "packages/contracts/fixtures/boundary"))
+      .filter((file) => file.endsWith(".json"))
+      .sort();
+
+    for (const file of boundaryFixtures) {
+      const fixture = readJson(`packages/contracts/fixtures/boundary/${file}`) as Record<string, Json>;
+      const schemaPath = schemaByFixture[fixtureNameFromSchemaVersion(fixture.schemaVersion)];
+      const result = validateJsonSchema(readJson(schemaPath) as any, fixture);
+      expect(result.issues, file).toEqual([]);
+      expect(result.valid, file).toBe(true);
+    }
   });
 
   test("compatibility contract rejects non-contract reasons", () => {
@@ -169,6 +199,13 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.adapter-fidelity/v1": "adapter-fidelity",
     "archcontext.chatgpt-ga-tool/v1": "chatgpt-ga-tool",
     "archcontext.attestation/v1": "attestation",
+    "archcontext.review-challenge/v2": "review-challenge-v2",
+    "archcontext.attestation/v2": "attestation-v2",
+    "archcontext.runner-identity/v1": "runner-identity",
+    "archcontext.device-identity/v1": "device-identity",
+    "archcontext.governance-key-status/v1": "governance-key-status",
+    "archcontext.check-delivery/v1": "check-delivery",
+    "archcontext.cloud-egress/v1": "cloud-egress-envelope",
     "archcontext.org-runner-identity/v1": "org-runner-identity",
     "archcontext.entitlement/v1": "entitlement"
   };
@@ -195,5 +232,57 @@ describe("contract utilities", () => {
     const failed = errorEnvelope("req_2", "AC_PATH_DENIED", "outside allowlist");
     expect(failed.ok).toBe(false);
     expect(failed.error?.retryable).toBe(false);
+  });
+});
+
+describe("GitHub governance contracts", () => {
+  test("freezes separate Developer and Organization check contexts", () => {
+    expect(GOVERNANCE_CHECK_NAMES).toEqual([
+      "ArchContext / Developer Review",
+      "ArchContext / Organization Runner"
+    ]);
+    expect(DEVELOPER_REVIEW_CHECK_NAME).not.toBe(ORGANIZATION_RUNNER_CHECK_NAME);
+
+    const schema = readJson("schemas/cloud/check-delivery.schema.json") as any;
+    expect(schema.properties.checkName.enum).toEqual([...GOVERNANCE_CHECK_NAMES]);
+    const legacy = readJson("packages/contracts/fixtures/invalid/check-delivery-legacy-check-name.json");
+    expect(validateJsonSchema(schema, legacy).valid).toBe(false);
+    const exactLegacyName = ["ArchContext", "Architecture Review"].join(" / ");
+    const validDelivery = readJson("packages/contracts/fixtures/valid/check-delivery.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema, { ...validDelivery, checkName: exactLegacyName }).valid).toBe(false);
+  });
+
+  test("requiredTrust rejects developer evidence for organization policy", () => {
+    expect(satisfiesRequiredTrust("developer", "developer")).toBe(true);
+    expect(satisfiesRequiredTrust("organization", "developer")).toBe(true);
+    expect(satisfiesRequiredTrust("organization", "organization")).toBe(true);
+    expect(satisfiesRequiredTrust("developer", "organization")).toBe(false);
+  });
+
+  test("challenge and check delivery state machines reject illegal backward moves", () => {
+    expect(canTransitionChallenge("PENDING", "LEASED")).toBe(true);
+    expect(canTransitionChallenge("LEASED", "PENDING")).toBe(false);
+    expect(canTransitionChallenge("VERIFIED", "REJECTED")).toBe(false);
+
+    expect(canTransitionCheckDelivery("PENDING", "RETRYING")).toBe(true);
+    expect(canTransitionCheckDelivery("RETRYING", "PUBLISHED")).toBe(true);
+    expect(canTransitionCheckDelivery("PUBLISHED", "RETRYING")).toBe(false);
+  });
+
+  test("reason catalog has retryability and user action for every reason code", () => {
+    for (const [reason, entry] of Object.entries(GOVERNANCE_REASON_CATALOG)) {
+      expect(typeof entry.retryable, reason).toBe("boolean");
+      expect(entry.action.length, reason).toBeGreaterThan(0);
+    }
+    expect(GOVERNANCE_REASON_CATALOG.TRUST_LEVEL_MISMATCH.retryable).toBe(false);
+    expect(GOVERNANCE_REASON_CATALOG.CHALLENGE_EXPIRED.retryable).toBe(true);
+  });
+
+  test("cloud egress envelope schema rejects private content keys", () => {
+    const schema = readJson("schemas/cloud/cloud-egress-envelope.schema.json") as any;
+    const fixture = readJson("packages/contracts/fixtures/valid/cloud-egress-envelope.json") as Record<string, Json>;
+    for (const field of ["source", "sourceCode", "diff", "patch", "filename", "filePath", "symbol", "finding", "prompt", "completion", "llmProvider"]) {
+      expect(validateJsonSchema(schema, { ...fixture, [field]: "private content" }).valid, field).toBe(false);
+    }
   });
 });

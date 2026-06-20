@@ -66,8 +66,10 @@ async function validateGovernanceFollowupPlan(root, failures) {
     return;
   }
 
-  if (!prd.includes("**Status**: Draft for Architecture Review")) {
-    failures.push(`${prdPath}: follow-up PRD must remain Draft for Architecture Review until human acceptance is recorded`);
+  const draftIntake = prd.includes("**Status**: Draft for Architecture Review");
+  const fg0Accepted = prd.includes("**Status**: Accepted for FG0 Contract Execution");
+  if (!draftIntake && !fg0Accepted) {
+    failures.push(`${prdPath}: follow-up PRD status must be Draft for Architecture Review or Accepted for FG0 Contract Execution`);
   }
   if (!prd.includes("**Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`")) {
     failures.push(`${prdPath}: Source PRD must point at the canonical ArchContext PRD`);
@@ -77,25 +79,81 @@ async function validateGovernanceFollowupPlan(root, failures) {
   }
 
   const statusLine = findStatusLine(sprint);
-  if (!statusLine || !/Draft\s+—\s+Not Started/.test(statusLine)) {
-    failures.push(`${sprintPath}: status must remain Draft — Not Started until FG0 acceptance starts`);
-  }
   if (!sprint.includes(`**Source PRD**: \`${prdPath}\``)) {
     failures.push(`${sprintPath}: Source PRD must point at ${prdPath}`);
   }
   if (!sprint.includes("**Parent Sprint**: `plans/sprints/archctx-sprint.md`")) {
     failures.push(`${sprintPath}: Parent Sprint must point at the MVP sprint`);
   }
-  if (!/\|\s*\*\*合计\*\*\s*\|[^|\n]*\|\s*\*\*141\*\*\s*\|\s*\*\*51\*\*\s*\|\s*\*\*0\s*\/\s*192\*\*\s*\|/.test(sprint)) {
-    failures.push(`${sprintPath}: progress total must stay 0 / 192 while draft intake is not accepted`);
-  }
-  if (/^\|\s*FG\d+(?:-\d+|-EG\d+)\s*\|\s*☑\s*\|/m.test(sprint)) {
-    failures.push(`${sprintPath}: follow-up FG tasks/gates must not be marked complete during draft intake`);
+  if (draftIntake) {
+    if (!statusLine || !/Draft\s+—\s+Not Started/.test(statusLine)) {
+      failures.push(`${sprintPath}: status must remain Draft — Not Started until FG0 acceptance starts`);
+    }
+    if (!/\|\s*\*\*合计\*\*\s*\|[^|\n]*\|\s*\*\*141\*\*\s*\|\s*\*\*51\*\*\s*\|\s*\*\*0\s*\/\s*192\*\*\s*\|/.test(sprint)) {
+      failures.push(`${sprintPath}: progress total must stay 0 / 192 while draft intake is not accepted`);
+    }
+    if (/^\|\s*FG\d+(?:-\d+|-EG\d+)\s*\|\s*☑\s*\|/m.test(sprint)) {
+      failures.push(`${sprintPath}: follow-up FG tasks/gates must not be marked complete during draft intake`);
+    }
+
+    const todos = await readOptional(root, "tasks/todos.md");
+    if (!todos || !todos.includes(sprintPath)) {
+      failures.push(`tasks/todos.md: must reference ${sprintPath} as deferred follow-up work`);
+    }
+    return;
   }
 
-  const todos = await readOptional(root, "tasks/todos.md");
-  if (!todos || !todos.includes(sprintPath)) {
-    failures.push(`tasks/todos.md: must reference ${sprintPath} as deferred follow-up work`);
+  if (fg0Accepted) {
+    await validateGovernanceFollowupFg0(root, sprint, statusLine, failures);
+  }
+}
+
+async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures) {
+  const sprintPath = "plans/sprints/archctx-local-github-governance-sprint.md";
+  if (!statusLine || !/Executing\s+—\s+FG0 Complete/.test(statusLine)) {
+    failures.push(`${sprintPath}: accepted follow-up must be Executing — FG0 Complete until FG1 starts`);
+  }
+  if (!/\|\s*\*\*合计\*\*\s*\|[^|\n]*\|\s*\*\*141\*\*\s*\|\s*\*\*51\*\*\s*\|\s*\*\*23\s*\/\s*192\*\*\s*\|/.test(sprint)) {
+    failures.push(`${sprintPath}: accepted FG0 progress must be exactly 23 / 192`);
+  }
+  if (/^\|\s*FG[1-6](?:-\d+|-EG\d+)\s*\|\s*☑\s*\|/m.test(sprint)) {
+    failures.push(`${sprintPath}: FG1-FG6 tasks/gates must not be marked complete before their evidence gates exist`);
+  }
+
+  const ledgerPath = "docs/verification/acceptance-ledger.json";
+  const evidencePath = "docs/verification/fg0-contract-correction-gate.md";
+  const [ledgerText, evidence] = await Promise.all([
+    readOptional(root, ledgerPath),
+    readOptional(root, evidencePath)
+  ]);
+  if (!ledgerText) failures.push(`${ledgerPath}: missing FG0 acceptance ledger`);
+  if (!evidence) failures.push(`${evidencePath}: missing FG0 evidence file`);
+  if (!ledgerText) return;
+
+  let ledger;
+  try {
+    ledger = JSON.parse(ledgerText);
+  } catch {
+    failures.push(`${ledgerPath}: invalid JSON`);
+    return;
+  }
+  const entries = Array.isArray(ledger.entries) ? ledger.entries : [];
+  const completed = entries.filter((entry) => entry.status === "completed");
+  if (completed.length !== 23) {
+    failures.push(`${ledgerPath}: FG0 complete state must have exactly 23 completed entries`);
+  }
+  for (const entry of completed) {
+    if (!/^FG0(?:-\d+|-EG\d+)$/.test(entry.id)) {
+      failures.push(`${ledgerPath}: non-FG0 entry is completed before evidence gate: ${entry.id}`);
+    }
+    if (!Array.isArray(entry.evidence) || entry.evidence.length === 0) {
+      failures.push(`${ledgerPath}: completed entry lacks evidence: ${entry.id}`);
+    }
+  }
+  for (const required of ["FG0-01", "FG0-18", "FG0-EG1", "FG0-EG2", "FG0-EG3", "FG0-EG4", "FG0-EG5"]) {
+    if (!completed.some((entry) => entry.id === required)) {
+      failures.push(`${ledgerPath}: missing completed FG0 entry ${required}`);
+    }
   }
 }
 

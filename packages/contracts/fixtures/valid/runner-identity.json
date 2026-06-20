@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "archcontext.runner-identity/v1",
+  "runnerId": "runner_0001",
+  "installationId": 10001,
+  "repositoryIds": [20002],
+  "workflowRef": "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+  "publicKeyId": "key_runner_0001",
+  "publicKeyFingerprint": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "status": "active",
+  "createdAt": "2026-06-20T09:00:00Z",
+  "rotatedAt": null,
+  "revokedAt": null
+}

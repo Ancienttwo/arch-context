@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/cloud/runner-identity.schema.json",
+  "title": "RunnerIdentity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runnerId", "installationId", "repositoryIds", "workflowRef", "publicKeyId", "publicKeyFingerprint", "status", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.runner-identity/v1" },
+    "runnerId": { "type": "string" },
+    "installationId": { "type": "integer", "minimum": 1 },
+    "repositoryIds": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } },
+    "workflowRef": { "type": "string" },
+    "publicKeyId": { "type": "string" },
+    "publicKeyFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "status": { "type": "string", "enum": ["active", "rotating", "revoked"] },
+    "createdAt": { "type": "string" },
+    "rotatedAt": { "type": ["string", "null"] },
+    "revokedAt": { "type": ["string", "null"] }
+  }
+}

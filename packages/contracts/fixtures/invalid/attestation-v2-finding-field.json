@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "archcontext.attestation/v2",
+  "attestationId": "att_bad_finding",
+  "challengeId": "chal_20260620_0001",
+  "installationId": 10001,
+  "repositoryId": 20002,
+  "pullRequestNumber": 42,
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "mergeBaseSha": "cccccccccccccccccccccccccccccccccccccccc",
+  "headTreeOid": "tree_aaaaaaaa",
+  "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "modelDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "policyDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "codeFactsDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "reviewDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "result": "pass",
+  "execution": {
+    "trustLevel": "developer",
+    "source": "clean-commit-worktree",
+    "principalId": "device_0001",
+    "publicKeyId": "key_device_0001"
+  },
+  "runtime": {
+    "version": "0.2.0",
+    "buildDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+    "codeGraphVersion": "1.0.1",
+    "capabilitiesDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "nonce": "nonce_base64url_0001",
+  "startedAt": "2026-06-20T09:03:00Z",
+  "completedAt": "2026-06-20T09:04:00Z",
+  "expiresAt": "2026-06-20T09:15:00Z",
+  "signature": {
+    "algorithm": "ed25519",
+    "value": "base64url_signature"
+  },
+  "finding": "private finding body"
+}

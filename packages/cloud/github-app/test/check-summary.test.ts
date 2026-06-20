@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { DEVELOPER_REVIEW_CHECK_NAME } from "@archcontext/contracts";
 import { renderArchitectureCheckSummary, type ArchitectureCheckSummaryInput } from "../src/index";
 
 const BASE: ArchitectureCheckSummaryInput = {
+  checkName: DEVELOPER_REVIEW_CHECK_NAME,
   repository: { owner: "ancienttwo", name: "arch-context" },
   prNumber: 142,
   headSha: "dccf0a672947abcdef1234567890",
