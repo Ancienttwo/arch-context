@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
 const root = process.cwd();
 const binDir = resolve(root, "node_modules", ".bin");
-const archctxBin = process.platform === "win32"
-  ? join(binDir, "archctx.cmd")
-  : join(binDir, "archctx");
+const archctxBin = resolveArchctxBin();
 const PROCESS_TIMEOUT_MS = 10_000;
 
 if (!existsSync(archctxBin)) {
-  fail(`missing packaged archctx bin at ${archctxBin}; run bun install first`);
+  const entries = existsSync(binDir) ? readdirSync(binDir).join(", ") : "<missing .bin directory>";
+  fail(`missing packaged archctx bin; checked ${archctxBin}; .bin entries: ${entries}; run bun install first`);
 }
 
 const repo = mkdtempSync(join(tmpdir(), "archctx-packaged-cli-"));
@@ -141,6 +140,13 @@ function runArchctx(...args) {
       }
     });
   });
+}
+
+function resolveArchctxBin() {
+  const candidates = process.platform === "win32"
+    ? [join(binDir, "archctx.cmd"), join(binDir, "archctx.exe"), join(binDir, "archctx")]
+    : [join(binDir, "archctx")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
 function runArchctxMcp(message) {
