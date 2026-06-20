@@ -18,6 +18,12 @@ export const GITHUB_APP_PERMISSIONS = GITHUB_APP_PERMISSION_MANIFEST.repositoryP
 export const GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE = "/repositories/{repository_id}/pulls/{pull_number}" as const;
 export const GITHUB_CHECK_CREATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs" as const;
 export const GITHUB_CHECK_UPDATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs/{check_run_id}" as const;
+export const GITHUB_FORBIDDEN_ACCEPT_MEDIA_TYPES = [
+  "application/vnd.github.diff",
+  "application/vnd.github.patch",
+  "application/vnd.github.v3.diff",
+  "application/vnd.github.v3.patch"
+] as const;
 export const GITHUB_FORBIDDEN_API_ENDPOINTS = [
   {
     name: "github.pr-files",
@@ -128,10 +134,22 @@ export function identifyForbiddenGitHubGovernanceApiEndpoint(input: { method?: u
   return GITHUB_FORBIDDEN_API_ENDPOINTS.find((endpoint) => endpoint.method === method && endpoint.pathPattern.test(path))?.name;
 }
 
+export function identifyForbiddenGitHubGovernanceAcceptHeader(input: { accept?: unknown }): typeof GITHUB_FORBIDDEN_ACCEPT_MEDIA_TYPES[number] | undefined {
+  if (typeof input.accept !== "string") return undefined;
+  for (const part of input.accept.split(",")) {
+    const mediaType = part.trim().split(";")[0]?.toLowerCase();
+    const forbiddenMediaType = GITHUB_FORBIDDEN_ACCEPT_MEDIA_TYPES.find((forbidden) => forbidden === mediaType);
+    if (forbiddenMediaType) return forbiddenMediaType;
+  }
+  return undefined;
+}
+
 export function assertGitHubGovernanceApiRequestAllowed(input: GitHubGovernanceApiRequest): GitHubGovernanceApiRequest {
   const denied = () => new Error(`github-api-request-denied: ${String((input as { method?: unknown }).method)} ${String((input as { path?: unknown }).path)}`);
   const forbiddenEndpoint = identifyForbiddenGitHubGovernanceApiEndpoint(input);
   if (forbiddenEndpoint) throw new Error(`github-api-forbidden-endpoint: ${forbiddenEndpoint}`);
+  const forbiddenAccept = identifyForbiddenGitHubGovernanceAcceptHeader(input);
+  if (forbiddenAccept) throw new Error(`github-api-forbidden-accept: ${forbiddenAccept}`);
   if (input.accept !== "application/vnd.github+json") throw denied();
   if (input.category === "github.pull-head") {
     if (

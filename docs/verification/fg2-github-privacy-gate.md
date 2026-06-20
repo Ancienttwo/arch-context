@@ -10,13 +10,14 @@
   - `4faf17c721b9b1f7692a7c3f04ef46196d8909c3` — FG2-08 GitHub Check create/update typed port
   - `669d8a8165d723b8ea77c30c8d9d3e35ed22f923` — FG2-09 GitHub API method/path allowlist
   - `340a75120f7e6df41575a654aca9df9e6f08c873` — FG2-10 forbidden GitHub code endpoint rejection
+  - `(pending FG2-11 implementation commit)` — FG2-11 forbidden GitHub diff/patch media type rejection
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, or FG2-10 local E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, or FG2-11 local E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, and FG2-10.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, and FG2-11.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -49,6 +50,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Unknown categories, methods, paths, path templates, or non-JSON accept headers fail closed with `github-api-request-denied`.
 - `identifyForbiddenGitHubGovernanceApiEndpoint` names PR Files, Repository Contents, Git Blob, and Git Tree endpoints before the generic allowlist fallback.
 - Forbidden endpoint variants using owner/repo paths and repository-id paths fail closed with `github-api-forbidden-endpoint` before transport execution.
+- `identifyForbiddenGitHubGovernanceAcceptHeader` names GitHub diff and patch media types before the generic non-JSON fallback.
+- Diff and patch `Accept` values, including comma-separated and parameterized variants, fail closed with `github-api-forbidden-accept` before transport execution.
 
 ## Commands
 
@@ -63,12 +66,12 @@ bun run verify
 
 ## Results
 
-- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 102 tests, 375 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 18 tests, 106 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 19 tests, 116 expects.
+- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 103 tests, 383 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 19 tests, 114 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 20 tests, 124 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
-- `bun run verify`: PASS, 296 tests, 1272 expects, 56-entry acceptance ledger.
+- `bun run verify`: PASS, 297 tests, 1280 expects, 57-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -87,11 +90,12 @@ bun run verify
 - GitHub App tests prove Check create/update request bodies do not include installation IDs, repository IDs, check IDs, PR numbers, or private payload fields.
 - GitHub App tests prove unknown methods, paths, categories, and media types are denied by the API allowlist.
 - GitHub App tests prove PR Files, Repository Contents, Git Blob, and Git Tree endpoint variants are explicitly identified and rejected before transport.
+- GitHub App tests prove GitHub diff and patch media types are explicitly identified and rejected before transport.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, explicit Diff/Patch media type deny tests, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
+FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, and FG2-10. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, and FG2-11. Remaining FG2 tasks and exit gates stay open.

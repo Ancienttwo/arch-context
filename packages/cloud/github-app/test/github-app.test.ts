@@ -11,6 +11,7 @@ import {
   GitHubGovernanceRestPort,
   InMemoryWebhookDeliveryLedger,
   assertGitHubGovernanceApiRequestAllowed,
+  identifyForbiddenGitHubGovernanceAcceptHeader,
   identifyForbiddenGitHubGovernanceApiEndpoint,
   projectVerifiedGitHubWebhook,
   verifyGitHubWebhookSignature,
@@ -281,7 +282,7 @@ describe("GitHub App", () => {
       { ...allowed[0], method: "POST" },
       { ...allowed[1], path: "/repositories/987/issues/42" },
       { ...allowed[2], path: "/repositories/987/check-runs/check/42" },
-      { ...allowed[2], accept: "application/vnd.github.diff" },
+      { ...allowed[2], accept: "application/json" },
       { ...allowed[0], category: "github.unknown" }
     ]) {
       expect(() => assertGitHubGovernanceApiRequestAllowed(denied as GitHubGovernanceApiRequest)).toThrow("github-api-request-denied");
@@ -315,6 +316,37 @@ describe("GitHub App", () => {
       const request = { ...probe, path };
       expect(identifyForbiddenGitHubGovernanceApiEndpoint(request)).toBe(name);
       expect(() => assertGitHubGovernanceApiRequestAllowed(request)).toThrow(`github-api-forbidden-endpoint: ${name}`);
+    }
+  });
+
+  test("GitHub API allowlist explicitly rejects diff and patch accept headers", () => {
+    const forbiddenAcceptCases = [
+      { accept: "application/vnd.github.diff", mediaType: "application/vnd.github.diff" },
+      { accept: "application/vnd.github.patch", mediaType: "application/vnd.github.patch" },
+      { accept: "application/vnd.github.v3.diff; q=1", mediaType: "application/vnd.github.v3.diff" },
+      { accept: "application/vnd.github+json, application/vnd.github.v3.patch", mediaType: "application/vnd.github.v3.patch" }
+    ] as const;
+    const probe: GitHubGovernanceApiRequest = {
+      category: "github.check-update",
+      installationId: 123,
+      repositoryId: 987,
+      checkRunId: "check/42",
+      method: "PATCH",
+      pathTemplate: GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
+      path: "/repositories/987/check-runs/check%2F42",
+      accept: "application/vnd.github+json",
+      body: {
+        name: DEVELOPER_REVIEW_CHECK_NAME,
+        status: "completed",
+        conclusion: "neutral",
+        output: { title: "Attestation required", summary: "Minimal check summary" }
+      }
+    };
+
+    for (const { accept, mediaType } of forbiddenAcceptCases) {
+      const request = { ...probe, accept };
+      expect(identifyForbiddenGitHubGovernanceAcceptHeader(request)).toBe(mediaType);
+      expect(() => assertGitHubGovernanceApiRequestAllowed(request as unknown as GitHubGovernanceApiRequest)).toThrow(`github-api-forbidden-accept: ${mediaType}`);
     }
   });
 
