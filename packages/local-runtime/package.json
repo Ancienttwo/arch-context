@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@archcontext/contracts": "workspace:*",
-    "@archcontext/core": "workspace:*"
+    "@archcontext/core": "workspace:*",
+    "@colbymchenry/codegraph": "1.0.1"
   }
 }

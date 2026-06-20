@@ -215,12 +215,19 @@ describe("local runtime foundation", () => {
       connectionPath,
       startedAt: "2026-06-20T00:00:00.000Z"
     }, null, 2), { mode: 0o600 });
-    if (process.platform !== "win32") chmodSync(connectionPath, 0o644);
-    expect(readRuntimeRpcConnection(root)).toBeUndefined();
+    if (process.platform === "win32") {
+      expect(readRuntimeRpcConnection(root)?.token).toBe("leaky-token");
+    } else {
+      chmodSync(connectionPath, 0o644);
+      expect(readRuntimeRpcConnection(root)).toBeUndefined();
+    }
     const insecureRecovery = recoverStaleDaemonControlFiles(root);
     if (process.platform !== "win32") {
       expect(insecureRecovery.removed).toContain("insecure-connection-file");
       expect(existsSync(connectionPath)).toBe(false);
+    } else {
+      expect(insecureRecovery.removed).not.toContain("insecure-connection-file");
+      rmSync(connectionPath, { force: true });
     }
 
     writeFileSync(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2), { mode: 0o600 });

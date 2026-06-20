@@ -218,9 +218,13 @@ function atomicWriteFile(path: string, tempPath: string, body: string): void {
 }
 
 function fsyncFile(path: string): void {
-  const fd = openSync(path, "r");
+  const fd = openSync(path, process.platform === "win32" ? "r+" : "r");
   try {
-    fsyncSync(fd);
+    try {
+      fsyncSync(fd);
+    } catch (error) {
+      if (!isIgnorableWindowsFsyncError(error)) throw error;
+    }
   } finally {
     closeSync(fd);
   }
@@ -230,13 +234,27 @@ function fsyncDirectory(path: string): void {
   try {
     const fd = openSync(path, "r");
     try {
-      fsyncSync(fd);
+      try {
+        fsyncSync(fd);
+      } catch (error) {
+        if (!isIgnorableDirectoryFsyncError(error)) throw error;
+      }
     } finally {
       closeSync(fd);
     }
   } catch (error) {
-    if ((error as { code?: string }).code !== "EINVAL" && (error as { code?: string }).code !== "EISDIR") throw error;
+    if (!isIgnorableDirectoryFsyncError(error)) throw error;
   }
+}
+
+function isIgnorableWindowsFsyncError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return process.platform === "win32" && (code === "EPERM" || code === "EINVAL");
+}
+
+function isIgnorableDirectoryFsyncError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return code === "EINVAL" || code === "EISDIR" || (process.platform === "win32" && code === "EPERM");
 }
 
 function rollback(backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[]): void {

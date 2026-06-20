@@ -15,7 +15,8 @@
     "node": ">=24 <26"
   },
   "dependencies": {
-    "@archcontext/surfaces": "workspace:*"
+    "@archcontext/surfaces": "workspace:*",
+    "@colbymchenry/codegraph": "1.0.1"
   },
   "scripts": {
     "test": "bun test",

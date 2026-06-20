@@ -8,7 +8,7 @@ const ROOT = process.cwd();
 const SINGLE_REPO_FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/single-repo-basic");
 const MONOREPO_FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/monorepo-basic");
 const BIN_DIR = join(ROOT, "node_modules", ".bin");
-const ARCHCTX_BIN = process.platform === "win32" ? join(BIN_DIR, "archctx.cmd") : join(BIN_DIR, "archctx");
+const ARCHCTX_BIN = resolveArchctxBin();
 const DIGEST_A = `sha256:${"a".repeat(64)}`;
 const DIGEST_B = `sha256:${"b".repeat(64)}`;
 
@@ -209,4 +209,11 @@ function testEnv() {
     DO_NOT_TRACK: "1",
     PATH: `${BIN_DIR}${delimiter}${process.env.PATH ?? ""}`
   };
+}
+
+function resolveArchctxBin(): string {
+  const candidates = process.platform === "win32"
+    ? [join(BIN_DIR, "archctx.cmd"), join(BIN_DIR, "archctx.exe"), join(BIN_DIR, "archctx")]
+    : [join(BIN_DIR, "archctx")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }

@@ -464,8 +464,13 @@ function fsyncDirectory(path: string): void {
       closeSync(fd);
     }
   } catch (error) {
-    if ((error as { code?: string }).code !== "EINVAL" && (error as { code?: string }).code !== "EISDIR") throw error;
+    if (!isIgnorableDirectoryFsyncError(error)) throw error;
   }
+}
+
+function isIgnorableDirectoryFsyncError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return code === "EINVAL" || code === "EISDIR" || (process.platform === "win32" && code === "EPERM");
 }
 
 function reviewTaskSessionId(result: unknown): string | undefined {
