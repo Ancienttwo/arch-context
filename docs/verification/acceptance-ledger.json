@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T00:00:00Z",
+  "updatedAt": "2026-06-20T12:17:00Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -449,6 +449,19 @@
         "scripts/local-product-lifecycle-doc.test.ts",
         "scripts/packaged-cli-smoke.mjs",
         "packages/surfaces/cli/src/main.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
+      "id": "FG1-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        ".github/workflows/verify.yml",
+        "scripts/platform-ipc-permission-readback.mjs",
+        "scripts/platform-ipc-permission-workflow.test.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
     },

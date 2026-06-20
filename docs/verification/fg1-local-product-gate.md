@@ -15,6 +15,8 @@
   - 5e397ef93d538375b8fa42b166d358783d607054 — FG1-14 local third-party telemetry default and doctor egress status
   - 153e5da3740c4937cf51e2de9bc2dd30258c5d8d — FG1-15 runtime RPC version mismatch action and daemon upgrade path
   - 598aa99defa343a2472cec89d0a571d281e58839 — FG1-16 local product install, upgrade, uninstall, and data retention lifecycle policy
+  - 81a952326ee8ffc6d0dc61e75e63904b87d5b288 — FG1-17 hosted platform IPC permission readback workflow and script
+  - 6ff7e9e7f62b7a7b1791992f8f52e47aedc78fad — FG1-17 final hosted matrix pass after Windows CI hardening
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
@@ -25,7 +27,7 @@
 
 ## Scope
 
-This evidence covers FG1-01 through FG1-16 and closes FG1-EG4.
+This evidence covers FG1-01 through FG1-17 and closes FG1-EG4.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -64,6 +66,9 @@ This evidence covers FG1-01 through FG1-16 and closes FG1-EG4.
 - `docs/runbooks/local-product-lifecycle.md` now defines the Local Core install, upgrade, uninstall, and data retention policy.
 - The lifecycle policy keeps MCP host config removal separate from repository data deletion, and makes destructive `.archcontext/` deletion an explicit user action rather than an uninstall side effect.
 - `scripts/local-product-lifecycle-doc.test.ts` locks the lifecycle runbook to the packaged CLI smoke, `archctx mcp install/remove`, `archctx daemon upgrade`, and retained `.archcontext/` state.
+- `.github/workflows/verify.yml` runs `scripts/platform-ipc-permission-readback.mjs` after `bun run verify` on ubuntu, macOS, and Windows for Node 24.x and 25.x.
+- `scripts/platform-ipc-permission-readback.mjs` starts a real daemon in a temporary repository, reads the platform transport and control-file permissions, verifies token redaction, then stops the daemon.
+- Hosted Verify run `27870884813` completed all six matrix jobs and uploaded one `platform-ipc-permission-readback.json` artifact per OS/Node pair.
 
 ## Commands
 
@@ -79,7 +84,10 @@ bun test packages/contracts/test/contracts.test.ts packages/local-runtime/runtim
 bun test scripts/local-product-lifecycle-doc.test.ts
 bun test
 node scripts/packaged-cli-smoke.mjs
+node scripts/platform-ipc-permission-readback.mjs
 bun run verify
+gh run watch 27870884813 --repo Ancienttwo/arch-context --exit-status
+gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg1-17-artifacts
 ```
 
 ## Results
@@ -100,7 +108,11 @@ bun run verify
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
 - `bun test`: PASS, 275 tests.
 - `node scripts/packaged-cli-smoke.mjs`: PASS.
-- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 40-entry acceptance ledger, sprint-status, and representative eval.
+- `node scripts/platform-ipc-permission-readback.mjs`: PASS locally.
+- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 41-entry acceptance ledger, sprint-status, and representative eval.
+- GitHub Actions Verify run `27870884813`: PASS on ubuntu-latest, macos-latest, and windows-latest for Node 24.x and 25.x.
+- Downloaded hosted IPC artifacts: PASS, six `platform-ipc-permission-readback.json` files verified for schema `archcontext.platform-ipc-permission-readback/v1`, `http-loopback`, `127.0.0.1`, `loopbackOnly=true`, `tokenRedactedFromStatus=true`, and daemon start/status/stop lifecycle.
+- Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
 
 ## Negative Tests
 
@@ -125,6 +137,7 @@ bun run verify
 - Product manifest schema rejects unknown top-level fields through the contract matrix.
 - Packaged MCP stdio preserves JSON-RPC request id and exposes `archcontext_prepare_task`.
 - Packaged CLI `apply` fails unless it can read the MCP-created ChangeSet draft from the same daemon process; the smoke test covers this positive shared-state path.
+- Platform IPC readback would fail if the daemon exposed a non-loopback transport, leaked the bearer token through status, missed connection/lock files, failed to stop, or produced non-`600` POSIX control-file modes.
 
 ## Privacy Scan
 
@@ -132,12 +145,19 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 ## Known Limitations
 
-FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, cross-OS IPC matrix readback, host-owned config file mutation/readback, doctor auto-remediation, or Local Core quickstart publication. A platform IPC readback script and GitHub Actions artifact step exist for FG1-17, but FG1-17 remains unclaimed until hosted Linux/macOS/Windows readback artifacts exist.
+FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, host-owned config file mutation/readback, doctor auto-remediation, or Local Core quickstart publication. FG1-17 is complete, but FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
 
 ## Linked CI / GitHub Run IDs
 
-None for this local partial slice.
+- Verify run `27870884813`, head `6ff7e9e7f62b7a7b1791992f8f52e47aedc78fad`: https://github.com/Ancienttwo/arch-context/actions/runs/27870884813
+- Artifact names verified from that run:
+  - `platform-ipc-permission-ubuntu-latest-node-24.x`
+  - `platform-ipc-permission-ubuntu-latest-node-25.x`
+  - `platform-ipc-permission-macos-latest-node-24.x`
+  - `platform-ipc-permission-macos-latest-node-25.x`
+  - `platform-ipc-permission-windows-latest-node-24.x`
+  - `platform-ipc-permission-windows-latest-node-25.x`
 
 ## Decision
 
-PARTIAL PASS for FG1-01 through FG1-16 plus FG1-EG4. Remaining FG1 exit gates stay open.
+PARTIAL PASS for FG1-01 through FG1-17 plus FG1-EG4. Remaining FG1 exit gates stay open.
