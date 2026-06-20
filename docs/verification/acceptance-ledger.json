@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T14:29:00Z",
+  "updatedAt": "2026-06-20T14:33:31Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -753,6 +753,18 @@
         "docs/security/threat-model-v1.md",
         "docs/adr/ADR-0015-github-app-without-contents-permission.md",
         "docs/adr/ADR-0035-github-governance-privacy-contract.md",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/github-app/test/github-webhook-security.integration.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/cloud-db/src/index.ts",
         "docs/verification/fg2-github-privacy-gate.md"
       ]
     }
