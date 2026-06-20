@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "../../contracts/src/index";
+import { digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
 
 export interface RepositoryBinding {
   repositoryId: string;

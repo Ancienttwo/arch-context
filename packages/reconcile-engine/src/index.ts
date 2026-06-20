@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { CrossRepoRelation } from "../../architecture-domain/src/index";
-import type { ObservedEvidence } from "../../contracts/src/index";
-import { rebuildGeneratedProjection } from "../../model-store-yaml/src/index";
+import type { CrossRepoRelation } from "@archcontext/architecture-domain";
+import type { ObservedEvidence } from "@archcontext/contracts";
 
-export function reconcileGeneratedProjection(root: string): { rebuilt: boolean; preservedHumanSections: boolean } {
+export interface ProjectionRebuilderPort {
+  rebuildGeneratedProjection(root: string): void;
+}
+
+export function reconcileGeneratedProjection(root: string, projection: ProjectionRebuilderPort): { rebuilt: boolean; preservedHumanSections: boolean } {
   assertNoHumanEditableGeneratedSection(root);
-  rebuildGeneratedProjection(root);
+  projection.rebuildGeneratedProjection(root);
   return { rebuilt: true, preservedHumanSections: true };
 }
 

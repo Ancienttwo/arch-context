@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateJsonSchema } from "../../contracts/src/index";
+import { validateJsonSchema } from "@archcontext/contracts";
 import { completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));

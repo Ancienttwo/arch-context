@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "../src/index";
-import type { NativeModel } from "../../renderer/src/index";
+import type { NativeModel } from "@archcontext/renderer";
 
 const model: NativeModel = {
   nodes: [

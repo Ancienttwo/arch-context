@@ -5,5 +5,12 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/policy-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@archcontext/model-store-yaml": "workspace:*"
   }
 }

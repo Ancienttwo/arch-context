@@ -1,14 +1,15 @@
 #!/usr/bin/env bun
-import { errorEnvelope } from "../../contracts/src/index";
-import { computeWorktreeDigest } from "../../architecture-domain/src/index";
-import { CodeGraphAdapter, MockCodeGraphProvider } from "../../codegraph-adapter/src/index";
-import { YamlModelStore } from "../../model-store-yaml/src/index";
-import { applyArchitectureUpdate, checkpoint, completeTask, planArchitectureUpdate, prepareTask } from "../../application/src/index";
-import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "../../hardening/src/index";
-import { createStartedDaemon } from "../../runtime-daemon/src/index";
-import { exportLikeC4Model, importLikeC4InitialModel } from "../../adapter-likec4/src/index";
-import { exportStructurizrWorkspace, importStructurizrInitialModel } from "../../adapter-structurizr/src/index";
-import { exportMermaidModel, loadNativeModelFromArchContext } from "../../renderer/src/index";
+import { errorEnvelope } from "@archcontext/contracts";
+import { computeWorktreeDigest } from "@archcontext/architecture-domain";
+import { ChangeSetEngine } from "@archcontext/changeset-engine";
+import { CodeGraphAdapter, MockCodeGraphProvider } from "@archcontext/codegraph-adapter";
+import { rebuildGeneratedProjection, YamlModelStore } from "@archcontext/model-store-yaml";
+import { applyArchitectureUpdate, checkpoint, completeTask, planArchitectureUpdate, prepareTask } from "@archcontext/application";
+import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/hardening";
+import { createStartedDaemon } from "@archcontext/runtime-daemon";
+import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/adapter-likec4";
+import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/adapter-structurizr";
+import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext/renderer";
 
 const [, , command, ...args] = process.argv;
 
@@ -140,6 +141,8 @@ export async function runCli(command = "help", args: string[] = [], cwd: string)
         approved: args.includes("--approved"),
         expectedWorktreeDigest,
         operations: [{ op: "create_entity", path, expectedHash: readFlag(args, "--expected-hash") ?? "missing", body: readFlag(args, "--body") ?? "" }]
+      }, {
+        changeSetEngine: createYamlChangeSetEngine()
       });
       return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "apply", data: result as any };
     }
@@ -250,6 +253,13 @@ function renderResult(result: any, format: string): string {
   if (format !== "human") return JSON.stringify(result, null, 2);
   if (!result.ok) return `ERROR ${result.error?.code}: ${result.error?.message}`;
   return `OK ${result.requestId}\n${JSON.stringify(result.data, null, 2)}`;
+}
+
+function createYamlChangeSetEngine(): ChangeSetEngine {
+  return new ChangeSetEngine({
+    modelStore: new YamlModelStore(),
+    projection: { rebuildGeneratedProjection }
+  });
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

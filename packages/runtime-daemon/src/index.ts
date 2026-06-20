@@ -11,14 +11,14 @@ import {
   validateLandscape,
   type Landscape,
   type RepositoryRegistration
-} from "../../architecture-domain/src/index";
-import { CodeGraphAdapter, MockCodeGraphProvider, MultiRepoCodeGraphAdapter } from "../../codegraph-adapter/src/index";
-import { compileLandscapeTaskContext } from "../../context-compiler/src/index";
-import { filterExplorerProjection, renderExplorerHtml } from "../../explorer-ui/src/index";
-import { okEnvelope, type CodeFactsPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "../../contracts/src/index";
-import { readHeadSha } from "../../git-adapter/src/index";
-import { InMemoryLocalStore } from "../../local-store-sqlite/src/index";
-import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../model-store-yaml/src/index";
+} from "@archcontext/architecture-domain";
+import { CodeGraphAdapter, MockCodeGraphProvider, MultiRepoCodeGraphAdapter } from "@archcontext/codegraph-adapter";
+import { compileLandscapeTaskContext } from "@archcontext/context-compiler";
+import { filterExplorerProjection, renderExplorerHtml } from "@archcontext/explorer-ui";
+import { okEnvelope, type CodeFactsPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { readHeadSha } from "@archcontext/git-adapter";
+import { InMemoryLocalStore } from "@archcontext/local-store-sqlite";
+import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/model-store-yaml";
 
 export interface RuntimeStatus {
   running: boolean;

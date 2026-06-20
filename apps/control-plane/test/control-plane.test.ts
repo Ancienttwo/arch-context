@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { createReviewChallenge, signOrganizationAttestation } from "../../../packages/attestation/src/index";
+import { createReviewChallenge, signOrganizationAttestation } from "@archcontext/attestation";
 import { assertNoUploadRoutes, BILLING_PRICES, ControlPlane, routeDigest, WORKER_LIMITS } from "../src/index";
-import { createShortAccessToken, KeychainTokenStore } from "../../../packages/control-plane-client/src/index";
+import { createShortAccessToken, KeychainTokenStore } from "@archcontext/control-plane-client";
 
 describe("control plane", () => {
   test("routes, worker limits, queue messages, logs, retention, and cost alerts are bounded", () => {

@@ -237,9 +237,10 @@ export interface ExplorerServiceContract {
 
 export interface RetrievalConfig {
   schemaVersion: "archcontext.retrieval-config/v1";
-  defaultMode: "fts5";
-  fts5: {
+  defaultMode: "lexical";
+  lexical: {
     enabled: true;
+    tokenizer: "english-normalized+jieba-search";
   };
   embedding: {
     enabled: boolean;
@@ -283,10 +284,10 @@ export interface RetrievalDecisionThresholds {
 export interface RetrievalDecisionRecord {
   schemaVersion: "archcontext.retrieval-decision/v1";
   decidedAt: string;
-  baseline: RetrievalScore & { mode: "fts5" };
+  baseline: RetrievalScore & { mode: "lexical" };
   candidate: RetrievalScore & { mode: "embedding" };
   thresholds: RetrievalDecisionThresholds;
-  decision: "enable-embedding" | "keep-fts5";
+  decision: "enable-embedding" | "keep-lexical";
   evidenceDigest: string;
 }
 

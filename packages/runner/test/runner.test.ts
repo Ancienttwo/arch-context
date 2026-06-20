@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { createReviewChallenge, verifyLocalAttestation } from "../../attestation/src/index";
+import { createReviewChallenge, verifyLocalAttestation } from "@archcontext/attestation";
 import { buildRunnerUploadPayload, runTrustedReview, runnerPrivacyAudit } from "../src/index";
 
 const digest = `sha256:${"1".repeat(64)}`;

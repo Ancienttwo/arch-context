@@ -4,13 +4,13 @@ Date: 2026-06-20
 
 ## Scope
 
-This is a repo-local deterministic eval for Sprint 4 EM. It compares a local FTS5-style token baseline against a local deterministic embedding prototype over the same representative context-recall set. It does not enable embedding in the runtime path.
+This is a repo-local deterministic eval for Sprint 4 EM. It compares the shipped in-memory lexical baseline against a local deterministic embedding prototype over the same representative context-recall set. It does not enable embedding in the runtime path, and it does not claim that the current baseline executes SQLite FTS5.
 
 ## Decision
 
 Embedding remains off.
 
-Reason: the candidate did not clearly beat the FTS5 baseline under the ADR-0033 decision gate:
+Reason: the candidate did not clearly beat the lexical baseline under the ADR-0033 decision gate:
 
 - `minContextRecallLift`: 0.08
 - `minConstraintRecallLift`: 0.05
@@ -24,7 +24,7 @@ Reason: the candidate did not clearly beat the FTS5 baseline under the ADR-0033 
 
 ## Boundary
 
-- Default retrieval mode remains `fts5`.
+- Default retrieval mode remains `lexical`.
 - Embedding config remains `enabled: false`.
 - Embedding provider is local deterministic test code only.
 - Vector/embedding egress is forbidden.

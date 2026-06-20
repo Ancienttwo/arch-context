@@ -1,6 +1,6 @@
-import { digestJson, stableId, type Json, type ModelExportResult } from "../../contracts/src/index";
-import { stripAdapterProtectedNativeFields } from "../../architecture-domain/src/index";
-import { normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "../../renderer/src/index";
+import { digestJson, stableId, type Json, type ModelExportResult } from "@archcontext/contracts";
+import { stripAdapterProtectedNativeFields } from "@archcontext/architecture-domain";
+import { normalizeNativeModel, type NativeModel, type NativeNode, type NativeRelation } from "@archcontext/renderer";
 
 export function exportLikeC4Model(model: NativeModel): ModelExportResult {
   const normalized = normalizeNativeModel(model);

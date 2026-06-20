@@ -1,5 +1,5 @@
-import { repoScopedArchitectureId, type CrossRepoRelation } from "../../architecture-domain/src/index";
-import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "../../contracts/src/index";
+import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/architecture-domain";
+import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
 export const REQUIRED_CODEGRAPH_VERSION = "1.0.1";

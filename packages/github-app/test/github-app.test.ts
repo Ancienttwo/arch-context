@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
-import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "../../attestation/src/index";
+import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/attestation";
 import { GITHUB_APP_PERMISSIONS, GitHubAppState, verifyGitHubWebhookSignature } from "../src/index";
 
 describe("GitHub App", () => {

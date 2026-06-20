@@ -1,8 +1,9 @@
 {
   "schemaVersion": "archcontext.retrieval-config/v1",
-  "defaultMode": "fts5",
-  "fts5": {
-    "enabled": true
+  "defaultMode": "lexical",
+  "lexical": {
+    "enabled": true,
+    "tokenizer": "english-normalized+jieba-search"
   },
   "embedding": {
     "enabled": false,

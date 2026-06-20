@@ -5,5 +5,14 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/architecture-domain": "workspace:*",
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/pressure-engine": "workspace:*",
+    "@archcontext/refactor-decision": "workspace:*"
+  },
+  "devDependencies": {
+    "@archcontext/codegraph-adapter": "workspace:*"
   }
 }

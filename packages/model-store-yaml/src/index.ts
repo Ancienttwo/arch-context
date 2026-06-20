@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { digestJson, stableYaml, type Json, type ModelStorePort, type WorkspaceRef } from "../../contracts/src/index";
+import { digestJson, stableYaml, type Json, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 
 export interface ModelFile {
   path: string;

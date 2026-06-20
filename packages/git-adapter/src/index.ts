@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { bindRepository, type RepositoryBinding } from "../../architecture-domain/src/index";
+import { bindRepository, type RepositoryBinding } from "@archcontext/architecture-domain";
 
 export function findRepositoryRoot(start: string): string {
   try {

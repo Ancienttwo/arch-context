@@ -6,7 +6,7 @@ import {
   type NotificationEvent,
   type NotificationProviderConfig,
   type NotificationPublisher
-} from "../../contracts/src/index";
+} from "@archcontext/contracts";
 
 export const NOTIFICATION_EVENT_FIELDS = [
   "schemaVersion",

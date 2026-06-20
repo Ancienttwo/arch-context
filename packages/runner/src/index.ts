@@ -4,9 +4,9 @@ import {
   type LocalAttestation,
   type OrgRunnerIdentity,
   type ReviewChallenge
-} from "../../attestation/src/index";
-import { digestJson, type Json } from "../../contracts/src/index";
-import { completeTaskGate, type CompleteTaskInput } from "../../review-engine/src/index";
+} from "@archcontext/attestation";
+import { digestJson, type Json } from "@archcontext/contracts";
+import { completeTaskGate, type CompleteTaskInput } from "@archcontext/review-engine";
 
 export interface TrustedRunnerReviewInput extends CompleteTaskInput {
   challenge: ReviewChallenge;

@@ -5,5 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/contracts": "workspace:*",
+    "@node-rs/jieba": "2.0.1"
   }
 }

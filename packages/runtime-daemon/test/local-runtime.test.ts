@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { repositoryFingerprint } from "../../architecture-domain/src/index";
-import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, MockCodeGraphProvider, REQUIRED_CODEGRAPH_VERSION } from "../../codegraph-adapter/src/index";
-import { migrationSql, assertNoSourceStorageSchema, InMemoryLocalStore, SQLITE_PRAGMAS } from "../../local-store-sqlite/src/index";
-import { listModelFiles } from "../../model-store-yaml/src/index";
+import { repositoryFingerprint } from "@archcontext/architecture-domain";
+import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, MockCodeGraphProvider, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/codegraph-adapter";
+import { migrationSql, assertNoSourceStorageSchema, InMemoryLocalStore, SQLITE_PRAGMAS } from "@archcontext/local-store-sqlite";
+import { listModelFiles } from "@archcontext/model-store-yaml";
 import { createStartedDaemon } from "../src/index";
 
 function tempRepo(): string {

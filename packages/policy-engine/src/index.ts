@@ -1,5 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { assertRepoRelativePath } from "../../architecture-domain/src/index";
+import { assertRepoRelativePath } from "@archcontext/architecture-domain";
 
 export interface CompatibilityContractInput {
   kind?: string;

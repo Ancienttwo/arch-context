@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@archcontext/architecture-domain": "workspace:*",
+    "@archcontext/contracts": "workspace:*",
     "@colbymchenry/codegraph": "1.0.1"
   },
   "exports": {

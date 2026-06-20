@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ExplorerProjection } from "../../contracts/src/index";
+import type { ExplorerProjection } from "@archcontext/contracts";
 import { filterExplorerProjection, renderExplorerHtml } from "../src/index";
 
 const projection: ExplorerProjection = {

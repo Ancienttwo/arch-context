@@ -8,5 +8,18 @@
   },
   "exports": {
     ".": "./src/main.ts"
+  },
+  "dependencies": {
+    "@archcontext/adapter-likec4": "workspace:*",
+    "@archcontext/adapter-structurizr": "workspace:*",
+    "@archcontext/application": "workspace:*",
+    "@archcontext/architecture-domain": "workspace:*",
+    "@archcontext/changeset-engine": "workspace:*",
+    "@archcontext/codegraph-adapter": "workspace:*",
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/hardening": "workspace:*",
+    "@archcontext/model-store-yaml": "workspace:*",
+    "@archcontext/renderer": "workspace:*",
+    "@archcontext/runtime-daemon": "workspace:*"
   }
 }

@@ -5,5 +5,16 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/application": "workspace:*",
+    "@archcontext/architecture-domain": "workspace:*",
+    "@archcontext/changeset-engine": "workspace:*",
+    "@archcontext/codegraph-adapter": "workspace:*",
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/model-store-yaml": "workspace:*"
+  },
+  "devDependencies": {
+    "@archcontext/cli": "workspace:*"
   }
 }

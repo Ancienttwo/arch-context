@@ -5,5 +5,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/architecture-domain": "workspace:*",
+    "@archcontext/codegraph-adapter": "workspace:*",
+    "@archcontext/context-compiler": "workspace:*",
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/explorer-ui": "workspace:*",
+    "@archcontext/git-adapter": "workspace:*",
+    "@archcontext/local-store-sqlite": "workspace:*",
+    "@archcontext/model-store-yaml": "workspace:*"
   }
 }

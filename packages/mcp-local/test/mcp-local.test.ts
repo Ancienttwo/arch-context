@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeWorktreeDigest } from "../../architecture-domain/src/index";
-import { initializeArchContextModel } from "../../model-store-yaml/src/index";
+import { computeWorktreeDigest } from "@archcontext/architecture-domain";
+import { initializeArchContextModel } from "@archcontext/model-store-yaml";
 import { LOCAL_MCP_TOOLS, McpLocalServer, runStdioMcpLoop } from "../src/index";
-import { runCli } from "../../cli/src/main";
+import { runCli } from "@archcontext/cli";
 
 function tempModel(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-mcp-"));

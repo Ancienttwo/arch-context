@@ -9,8 +9,8 @@ import {
   type CrossRepoRelation,
   type Landscape,
   type RepositoryRegistration
-} from "../../architecture-domain/src/index";
-import type { LocalStorePort, RepositorySnapshot } from "../../contracts/src/index";
+} from "@archcontext/architecture-domain";
+import type { LocalStorePort, RepositorySnapshot } from "@archcontext/contracts";
 
 export const SQLITE_PRAGMAS = [
   "PRAGMA journal_mode = WAL",

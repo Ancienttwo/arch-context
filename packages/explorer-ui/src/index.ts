@@ -4,7 +4,7 @@ import type {
   ExplorerRelationView,
   ExplorerVerificationStatus,
   ExplorerPressureLevel
-} from "../../contracts/src/index";
+} from "@archcontext/contracts";
 
 export function filterExplorerProjection(projection: ExplorerProjection, query = ""): ExplorerProjection {
   const normalized = query.trim().toLowerCase();

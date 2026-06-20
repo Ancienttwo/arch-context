@@ -13,7 +13,7 @@
       "additionalProperties": false,
       "required": ["mode", "contextRecall", "constraintRecall", "irrelevantRatio", "toolCalls"],
       "properties": {
-        "mode": { "type": "string", "enum": ["fts5"] },
+        "mode": { "type": "string", "enum": ["lexical"] },
         "contextRecall": { "type": "number", "minimum": 0, "maximum": 1 },
         "constraintRecall": { "type": "number", "minimum": 0, "maximum": 1 },
         "irrelevantRatio": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -43,7 +43,7 @@
         "maxToolCallIncrease": { "type": "integer", "minimum": 0 }
       }
     },
-    "decision": { "type": "string", "enum": ["enable-embedding", "keep-fts5"] },
+    "decision": { "type": "string", "enum": ["enable-embedding", "keep-lexical"] },
     "evidenceDigest": { "type": "string" }
   }
 }

@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "../../contracts/src/index";
-import { MultiRepoCodeGraphAdapter, MockCodeGraphProvider } from "../../codegraph-adapter/src/index";
+import { validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { MultiRepoCodeGraphAdapter, MockCodeGraphProvider } from "@archcontext/codegraph-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));

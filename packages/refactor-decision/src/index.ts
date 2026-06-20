@@ -1,5 +1,5 @@
-import { createInterventionId, type ArchitectureInterventionModel, type ArchitecturePosture } from "../../architecture-domain/src/index";
-import type { ArchitecturePressure } from "../../pressure-engine/src/index";
+import { createInterventionId, type ArchitectureInterventionModel, type ArchitecturePosture } from "@archcontext/architecture-domain";
+import type { ArchitecturePressure } from "@archcontext/pressure-engine";
 
 export interface RefactorConfidence {
   level: "low" | "medium" | "high";

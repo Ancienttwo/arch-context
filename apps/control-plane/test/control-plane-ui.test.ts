@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NotificationProviderConfig } from "../../../packages/contracts/src/index";
+import type { NotificationProviderConfig } from "@archcontext/contracts";
 import { BILLING_PRICES, type Account } from "../src/index";
 import {
   buildControlPlaneView,

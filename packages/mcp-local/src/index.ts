@@ -1,9 +1,9 @@
-import { computeWorktreeDigest } from "../../architecture-domain/src/index";
-import { ChangeSetEngine, type ChangeOperation } from "../../changeset-engine/src/index";
-import { CodeGraphAdapter, MockCodeGraphProvider } from "../../codegraph-adapter/src/index";
-import { errorEnvelope, okEnvelope, type Json } from "../../contracts/src/index";
-import { YamlModelStore } from "../../model-store-yaml/src/index";
-import { checkpoint, completeTask, prepareTask } from "../../application/src/index";
+import { computeWorktreeDigest } from "@archcontext/architecture-domain";
+import { ChangeSetEngine, type ChangeOperation } from "@archcontext/changeset-engine";
+import { CodeGraphAdapter, MockCodeGraphProvider } from "@archcontext/codegraph-adapter";
+import { errorEnvelope, okEnvelope, type Json } from "@archcontext/contracts";
+import { rebuildGeneratedProjection, YamlModelStore } from "@archcontext/model-store-yaml";
+import { checkpoint, completeTask, prepareTask } from "@archcontext/application";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
 
@@ -53,7 +53,10 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
 export class McpLocalServer {
   readonly resources = new Map<string, Json>();
   private readonly changesets = new Map<string, ReturnType<ChangeSetEngine["plan"]>>();
-  private readonly changeSetEngine = new ChangeSetEngine();
+  private readonly changeSetEngine = new ChangeSetEngine({
+    modelStore: new YamlModelStore(),
+    projection: { rebuildGeneratedProjection }
+  });
 
   listTools(): McpToolDefinition[] {
     return LOCAL_MCP_TOOLS;

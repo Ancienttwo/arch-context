@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ArchitecturePressure } from "../../pressure-engine/src/index";
+import type { ArchitecturePressure } from "@archcontext/pressure-engine";
 import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "../src/index";
 
 const highPressure: ArchitecturePressure = {

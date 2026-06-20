@@ -7,7 +7,7 @@ import {
   serializeNotificationEvent,
   signWebhookPayload
 } from "../src/index";
-import type { NotificationEvent, NotificationProviderConfig } from "../../contracts/src/index";
+import type { NotificationEvent, NotificationProviderConfig } from "@archcontext/contracts";
 
 const event: NotificationEvent = {
   schemaVersion: "archcontext.notification-event/v1",

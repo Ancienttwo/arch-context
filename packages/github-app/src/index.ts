@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { attestationLabel, createReviewChallenge, type LocalAttestation, type ReviewChallenge, type TrustLevel } from "../../attestation/src/index";
-import type { NotificationResult, NotificationRiskLevel } from "../../contracts/src/index";
+import { attestationLabel, createReviewChallenge, type LocalAttestation, type ReviewChallenge, type TrustLevel } from "@archcontext/attestation";
+import type { NotificationResult, NotificationRiskLevel } from "@archcontext/contracts";
 
 export const GITHUB_APP_PERMISSIONS = {
   contents: "none",

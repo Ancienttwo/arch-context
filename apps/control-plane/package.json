@@ -5,5 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@archcontext/attestation": "workspace:*",
+    "@archcontext/contracts": "workspace:*",
+    "@archcontext/notifications": "workspace:*"
+  },
+  "devDependencies": {
+    "@archcontext/control-plane-client": "workspace:*"
   }
 }

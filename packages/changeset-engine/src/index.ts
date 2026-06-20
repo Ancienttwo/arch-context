@@ -1,8 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { digestJson, type Json } from "../../contracts/src/index";
-import { rebuildGeneratedProjection, YamlModelStore } from "../../model-store-yaml/src/index";
-import { assertAllowedArchContextPath, evaluateChangeSetPaths } from "../../policy-engine/src/index";
+import { digestJson, type Json, type ModelStorePort } from "@archcontext/contracts";
+import { assertAllowedArchContextPath, evaluateChangeSetPaths } from "@archcontext/policy-engine";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
 export type ChangeOperationKind = "create_entity" | "update_entity_fields" | "delete_entity" | "write_policy" | "render_projection";
@@ -44,8 +43,19 @@ export interface ApplyOptions {
   faultAfterOperations?: number;
 }
 
+export interface ProjectionRebuilderPort {
+  rebuildGeneratedProjection(root: string): void;
+}
+
+export interface ChangeSetEngineDeps {
+  modelStore: ModelStorePort;
+  projection: ProjectionRebuilderPort;
+}
+
 export class ChangeSetEngine {
   private readonly states = new Map<string, ChangeSetDraft>();
+
+  constructor(private readonly deps?: ChangeSetEngineDeps) {}
 
   plan(input: {
     id: string;
@@ -85,12 +95,13 @@ export class ChangeSetEngine {
   async apply(root: string, draft: ChangeSetDraft, options: ApplyOptions = {}): Promise<ChangeSetDraft> {
     const approved = options.approved || draft.status === "approved";
     if (!approved) throw new Error("ChangeSet must be approved before apply");
+    const deps = this.requireDeps();
     const backups: { path: string; backupPath: string; existed: boolean }[] = [];
     let applied = 0;
     try {
       for (const operation of draft.operations) {
         if (operation.op === "render_projection") {
-          rebuildGeneratedProjection(root);
+          this.rebuildGeneratedProjection(root, deps);
           applied += 1;
           if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
           continue;
@@ -117,8 +128,8 @@ export class ChangeSetEngine {
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
-      rebuildGeneratedProjection(root);
-      await new YamlModelStore().validateModel({ root, repositoryId: "repo.apply", headSha: "apply" });
+      this.rebuildGeneratedProjection(root, deps);
+      await this.validateModel(root, deps);
       cleanupBackups(backups);
       const appliedDraft = { ...draft, status: "applied" as const };
       this.states.set(draft.id, appliedDraft);
@@ -129,6 +140,19 @@ export class ChangeSetEngine {
       this.states.set(draft.id, rolledBack);
       throw error;
     }
+  }
+
+  private rebuildGeneratedProjection(root: string, deps: ChangeSetEngineDeps): void {
+    deps.projection.rebuildGeneratedProjection(root);
+  }
+
+  private async validateModel(root: string, deps: ChangeSetEngineDeps): Promise<void> {
+    await deps.modelStore.validateModel({ root, repositoryId: "repo.apply", headSha: "apply" });
+  }
+
+  private requireDeps(): ChangeSetEngineDeps {
+    if (!this.deps) throw new Error("ChangeSetEngine apply requires modelStore and projection dependencies");
+    return this.deps;
   }
 }
 

@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodeGraphAdapter, MockCodeGraphProvider } from "../../codegraph-adapter/src/index";
-import { ChangeSetEngine } from "../../changeset-engine/src/index";
-import { digestJson } from "../../contracts/src/index";
-import { computeWorktreeDigest } from "../../architecture-domain/src/index";
-import { initializeArchContextModel, YamlModelStore } from "../../model-store-yaml/src/index";
-import { detectArchitecturePressure } from "../../pressure-engine/src/index";
-import { validateCompatibilityContract } from "../../policy-engine/src/index";
-import { assertNoHumanEditableGeneratedSection } from "../../reconcile-engine/src/index";
-import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../../refactor-decision/src/index";
+import { CodeGraphAdapter, MockCodeGraphProvider } from "@archcontext/codegraph-adapter";
+import { ChangeSetEngine } from "@archcontext/changeset-engine";
+import { digestJson } from "@archcontext/contracts";
+import { computeWorktreeDigest } from "@archcontext/architecture-domain";
+import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/model-store-yaml";
+import { detectArchitecturePressure } from "@archcontext/pressure-engine";
+import { validateCompatibilityContract } from "@archcontext/policy-engine";
+import { assertNoHumanEditableGeneratedSection } from "@archcontext/reconcile-engine";
+import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "@archcontext/refactor-decision";
 import { applyArchitectureUpdate, completeTask, prepareTask } from "../src/index";
 
 function tempModel(): string {
@@ -18,6 +18,13 @@ function tempModel(): string {
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   initializeArchContextModel(root, "M2 App");
   return root;
+}
+
+function yamlChangeSetEngine(): ChangeSetEngine {
+  return new ChangeSetEngine({
+    modelStore: new YamlModelStore(),
+    projection: { rebuildGeneratedProjection }
+  });
 }
 
 describe("M2 architecture control loop", () => {
@@ -99,7 +106,7 @@ describe("M2 architecture control loop", () => {
       const existingPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
       const existingBody = readFileSync(join(root, existingPath), "utf8");
       const expectedHash = digestJson({ body: existingBody });
-      const engine = new ChangeSetEngine();
+      const engine = yamlChangeSetEngine();
       const draft = engine.plan({
         id: "changeset.m2",
         base: {

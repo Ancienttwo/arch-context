@@ -1,10 +1,10 @@
-import { computeWorktreeDigest } from "../../architecture-domain/src/index";
-import { ChangeSetEngine, type ChangeOperation, type ChangeSetBase, type ChangeSetReason } from "../../changeset-engine/src/index";
-import { compileTaskContext, type ContextBudget } from "../../context-compiler/src/index";
-import type { CodeFactsPort, ModelStorePort, WorkspaceRef } from "../../contracts/src/index";
-import { detectArchitecturePressure } from "../../pressure-engine/src/index";
-import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "../../refactor-decision/src/index";
-import { completeTaskGate } from "../../review-engine/src/index";
+import { computeWorktreeDigest } from "@archcontext/architecture-domain";
+import { ChangeSetEngine, type ChangeOperation, type ChangeSetBase, type ChangeSetReason } from "@archcontext/changeset-engine";
+import { compileTaskContext, type ContextBudget } from "@archcontext/context-compiler";
+import type { CodeFactsPort, ModelStorePort, WorkspaceRef } from "@archcontext/contracts";
+import { detectArchitecturePressure } from "@archcontext/pressure-engine";
+import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "@archcontext/refactor-decision";
+import { completeTaskGate } from "@archcontext/review-engine";
 
 export interface PrepareTaskInput {
   workspace: WorkspaceRef;
@@ -72,6 +72,10 @@ export function planArchitectureUpdate(input: {
   });
 }
 
+export interface ApplyArchitectureUpdateDeps {
+  changeSetEngine: ChangeSetEngine;
+}
+
 export async function applyArchitectureUpdate(root: string, input: {
   id: string;
   operations: ChangeOperation[];
@@ -80,10 +84,11 @@ export async function applyArchitectureUpdate(root: string, input: {
   headSha?: string;
   modelDigest?: string;
   reason?: ChangeSetReason;
-}) {
+}, deps?: ApplyArchitectureUpdateDeps) {
   const freshness = checkpoint({ root, expectedWorktreeDigest: input.expectedWorktreeDigest });
   if (!freshness.fresh) throw new Error("Snapshot freshness check failed before ChangeSet apply");
-  const engine = new ChangeSetEngine();
+  const engine = deps?.changeSetEngine;
+  if (!engine) throw new Error("applyArchitectureUpdate requires a ChangeSetEngine dependency");
   const draft = engine.plan({
     id: input.id,
     base: {

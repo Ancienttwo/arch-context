@@ -7,7 +7,9 @@ import {
   type RetrievalEvalQuery,
   type RetrievalEvalSet,
   type RetrievalScore
-} from "../../contracts/src/index";
+} from "@archcontext/contracts";
+import { Jieba } from "@node-rs/jieba";
+import { dict } from "@node-rs/jieba/dict.js";
 
 export interface RetrievalDocument {
   id: string;
@@ -20,9 +22,13 @@ export interface RetrievalHit {
   score: number;
 }
 
+export interface SearchTokenizer {
+  tokenize(value: string): string[];
+}
+
 export interface RetrievalEvalReport {
   schemaVersion: "archcontext.retrieval-eval-report/v1";
-  mode: "fts5" | "embedding";
+  mode: "lexical" | "embedding";
   evalSetId: string;
   seed: number;
   score: RetrievalScore;
@@ -37,14 +43,14 @@ export interface RetrievalEvalReport {
 }
 
 export interface Retriever {
-  readonly mode: "fts5" | "embedding";
+  readonly mode: "lexical" | "embedding";
   search(query: string, documents: RetrievalDocument[], limit: number): RetrievalHit[];
 }
 
 export const DEFAULT_RETRIEVAL_CONFIG: RetrievalConfig = {
   schemaVersion: "archcontext.retrieval-config/v1",
-  defaultMode: "fts5",
-  fts5: { enabled: true },
+  defaultMode: "lexical",
+  lexical: { enabled: true, tokenizer: "english-normalized+jieba-search" },
   embedding: {
     enabled: false,
     provider: "local-deterministic",
@@ -118,14 +124,58 @@ export function createRepresentativeRetrievalEvalSet(): RetrievalEvalSet {
   };
 }
 
-export class Fts5BaselineRetriever implements Retriever {
-  readonly mode = "fts5" as const;
+export const REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS: RetrievalDocument[] = [
+  {
+    id: "cn.local-daemon",
+    text: "本地 Daemon 负责单写者运行时状态，CLI 和 MCP 只是薄适配层。",
+    constraintIds: ["constraint.single-writer-daemon", "constraint.thin-adapters"]
+  },
+  {
+    id: "cn.zero-egress",
+    text: "ArchContext SaaS 不接收源码、Diff、Symbol、代码图谱或架构模型正文。",
+    constraintIds: ["constraint.zero-egress"]
+  },
+  {
+    id: "cn.anti-cloud-source",
+    text: "反模式：把私有仓库源码上传到云端服务做全文搜索。",
+    constraintIds: []
+  }
+];
+
+export function createChineseRetrievalEvalSet(): RetrievalEvalSet {
+  return {
+    schemaVersion: "archcontext.retrieval-eval/v1",
+    id: "eval.archctx.retrieval.zh-jieba.v1",
+    seed: 42,
+    queries: [
+      {
+        id: "q.zh-daemon-owner",
+        text: "单写运行时状态由谁负责，CLI MCP 是否只是适配层",
+        expectedContextIds: ["cn.local-daemon"],
+        expectedConstraintIds: ["constraint.single-writer-daemon", "constraint.thin-adapters"],
+        prohibitedContextIds: ["cn.anti-cloud-source"]
+      },
+      {
+        id: "q.zh-zero-egress",
+        text: "源码 Diff 和代码图谱会不会上传到 SaaS 云端",
+        expectedContextIds: ["cn.zero-egress"],
+        expectedConstraintIds: ["constraint.zero-egress"],
+        prohibitedContextIds: ["cn.anti-cloud-source"]
+      }
+    ]
+  };
+}
+
+export class InMemoryLexicalRetriever implements Retriever {
+  readonly mode = "lexical" as const;
+
+  constructor(private readonly tokenizer: SearchTokenizer = defaultSearchTokenizer()) {}
 
   search(query: string, documents: RetrievalDocument[], limit: number): RetrievalHit[] {
-    const queryTerms = tokenize(query);
+    const queryTerms = this.tokenizer.tokenize(query);
     return documents
       .map((document) => {
-        const terms = tokenize(document.text);
+        const terms = this.tokenizer.tokenize(document.text);
         const overlap = queryTerms.filter((term) => terms.includes(term)).length;
         const exactBonus = document.text.toLowerCase().includes(query.toLowerCase()) ? 2 : 0;
         return { id: document.id, score: overlap + exactBonus };
@@ -134,6 +184,29 @@ export class Fts5BaselineRetriever implements Retriever {
       .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
       .slice(0, limit);
   }
+}
+
+export class JiebaSearchTokenizer implements SearchTokenizer {
+  constructor(private readonly segmenter = Jieba.withDict(dict)) {}
+
+  tokenize(value: string): string[] {
+    const englishTerms = tokenizeEnglish(value);
+    const chineseTerms = containsChinese(value)
+      ? this.segmenter.cutForSearch(value, true).flatMap(normalizeJiebaTerm)
+      : [];
+    return unique([...englishTerms, ...chineseTerms]);
+  }
+}
+
+let cachedTokenizer: SearchTokenizer | undefined;
+
+export function defaultSearchTokenizer(): SearchTokenizer {
+  cachedTokenizer ??= new JiebaSearchTokenizer();
+  return cachedTokenizer;
+}
+
+export function tokenizeForSearch(value: string, tokenizer: SearchTokenizer = defaultSearchTokenizer()): string[] {
+  return tokenizer.tokenize(value);
 }
 
 export class DeterministicEmbeddingRetriever implements Retriever {
@@ -198,16 +271,16 @@ export function decideEmbedding(input: {
   return {
     schemaVersion: "archcontext.retrieval-decision/v1",
     decidedAt: input.decidedAt ?? new Date(0).toISOString(),
-    baseline: { mode: "fts5", ...input.baseline.score },
+    baseline: { mode: "lexical", ...input.baseline.score },
     candidate: { mode: "embedding", ...input.candidate.score },
     thresholds,
-    decision: wins ? "enable-embedding" : "keep-fts5",
+    decision: wins ? "enable-embedding" : "keep-lexical",
     evidenceDigest: digestJson({ baseline: input.baseline.digest, candidate: input.candidate.digest, thresholds } as unknown as Json)
   };
 }
 
 export function assertEmbeddingConfigIsLocalAndDefaultOff(config: RetrievalConfig = DEFAULT_RETRIEVAL_CONFIG): void {
-  if (config.defaultMode !== "fts5") throw new Error("retrieval default mode must remain fts5");
+  if (config.defaultMode !== "lexical") throw new Error("retrieval default mode must remain lexical");
   if (config.embedding.enabled) throw new Error("embedding must be disabled until the decision gate wins");
   if (config.embedding.egress !== "forbidden") throw new Error("embedding egress must be forbidden");
 }
@@ -248,8 +321,9 @@ function scoreEval(
 // Standard English function words. Dropping them removes the spurious
 // single-token matches ("is"/"it"/"to"/"when") that let a decoy document
 // outrank the real constraint document on natural-voice (paraphrased) queries.
-// This is a stock FTS/IR normalization — SQLite FTS5 ships stopword support —
-// applied blind to the query distribution, not fitted to specific eval rows.
+// This is stock lexical IR normalization. Real SQLite FTS5 remains a later
+// persistence/indexing step; this in-memory baseline must not claim SQL FTS.
+// Applied blind to the query distribution, not fitted to specific eval rows.
 const STOPWORDS = new Set([
   "a", "an", "and", "any", "are", "as", "at", "be", "but", "by", "can", "do",
   "does", "for", "from", "had", "has", "have", "how", "if", "in", "into", "is",
@@ -262,8 +336,9 @@ const STOPWORDS = new Set([
 // Undouble a final repeated consonant left by -ing/-ed removal
 // ("committ" -> "commit"). Keeps doubled l/s/z, which are lexical in the common
 // case (spell, install, pass, buzz). Being lexicon-free it cannot also split the
-// rarer base-single-l family (control/controlling) — acceptable here: that family
-// is absent from the eval corpus and this is the eval-only FTS5 baseline.
+// rarer base-single-l family (control/controlling). This is acceptable for the
+// deterministic in-memory lexical baseline, which is gated by representative
+// evals rather than treated as a production SQL index.
 function undouble(root: string): string {
   const last = root.length - 1;
   if (last >= 1 && root[last] === root[last - 1] && !"lsz".includes(root[last])) {
@@ -274,8 +349,7 @@ function undouble(root: string): string {
 
 // Conservative inflectional stemmer: collapses the verb/noun surface variants
 // natural-voice queries use ("committing" vs "commit", "applied"/"applies" vs
-// "apply") onto a shared root so a lexical match can fire. The other stock FTS
-// normalization (FTS5 ships a porter tokenizer). Applied identically to query
+// "apply") onto a shared root so a lexical match can fire. Applied identically to query
 // and document terms, so it can only add matches between true morphological
 // variants, never desynchronize a pair. Deliberately small and deterministic.
 function stem(term: string): string {
@@ -294,7 +368,7 @@ function stem(term: string): string {
   return term;
 }
 
-function tokenize(value: string): string[] {
+function tokenizeEnglish(value: string): string[] {
   return value
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -302,9 +376,25 @@ function tokenize(value: string): string[] {
     .map(stem);
 }
 
+function normalizeJiebaTerm(term: string): string[] {
+  const normalized = term.trim().toLowerCase();
+  if (!normalized) return [];
+  if (/^[a-z0-9]+$/.test(normalized)) return tokenizeEnglish(normalized);
+  if (!containsChinese(normalized)) return [];
+  return normalized.length >= 2 ? [normalized] : [];
+}
+
+function containsChinese(value: string): boolean {
+  return /\p{Script=Han}/u.test(value);
+}
+
+function unique(terms: string[]): string[] {
+  return [...new Set(terms)];
+}
+
 function vectorize(value: string, dimensions: number): number[] {
   const vector = Array.from({ length: dimensions }, () => 0);
-  for (const term of tokenize(value)) {
+  for (const term of tokenizeForSearch(value)) {
     let hash = 0;
     for (const char of term) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
     vector[hash % dimensions] += 1;

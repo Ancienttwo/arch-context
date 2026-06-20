@@ -13,11 +13,11 @@ supersedes: []
 
 # Context
 
-FTS5 plus CodeGraph provides deterministic local recall today. Embeddings may improve semantic context recall, but they add index complexity, provider choice, storage cost, privacy risk, and nondeterministic tuning pressure if introduced unconditionally.
+The current shipped retrieval path is an in-memory lexical baseline over constraint-tagged documents, with English normalization and jieba search tokenization for Chinese. Real SQLite FTS5 remains part of the local-store target architecture, but it is not the current implementation. Embeddings may improve semantic context recall, but they add index complexity, provider choice, storage cost, privacy risk, and nondeterministic tuning pressure if introduced unconditionally.
 
 # Decision
 
-Keep retrieval in FTS5 mode by default. Embeddings may only be enabled after the retrieval eval gate shows a clear lift over the same FTS5 baseline using fixed metrics: context recall, constraint recall, irrelevant ratio, and tool-call count. Any embedding index is local, provider-pluggable through the retrieval port, and forbidden from egress.
+Keep retrieval in lexical mode by default until a real SQLite FTS5 index is implemented and verified. Embeddings may only be enabled after the retrieval eval gate shows a clear lift over the same lexical baseline using fixed metrics: context recall, constraint recall, irrelevant ratio, and tool-call count. Any embedding index is local, provider-pluggable through the retrieval port, and forbidden from egress.
 
 # Consequences
 

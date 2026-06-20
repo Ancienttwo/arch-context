@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { routeDigest } from "../../../apps/control-plane/src/index";
-import { crossRepoImpact, type CrossRepoRelation } from "../../architecture-domain/src/index";
-import { attestationLabel, deviceIntegritySignals } from "../../attestation/src/index";
-import { REQUIRED_CODEGRAPH_VERSION } from "../../codegraph-adapter/src/index";
-import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "../../control-plane-client/src/index";
+import { crossRepoImpact, type CrossRepoRelation } from "@archcontext/architecture-domain";
+import { attestationLabel, deviceIntegritySignals } from "@archcontext/attestation";
+import { REQUIRED_CODEGRAPH_VERSION } from "@archcontext/codegraph-adapter";
+import { controlPlaneRouteDigest } from "@archcontext/contracts";
+import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "@archcontext/control-plane-client";
 
 export const NODE_SUPPORT_MATRIX = [
   { runtime: "node", version: "24.x", status: "target-lts" },
@@ -22,7 +22,7 @@ export function diagnostics() {
     node: process.version,
     supportedNode: /^v(24|25)\./.test(process.version),
     codeGraphVersion: REQUIRED_CODEGRAPH_VERSION,
-    privacyRouteDigest: routeDigest(),
+    privacyRouteDigest: controlPlaneRouteDigest(),
     secureDefaults: secureDefaults()
   };
 }

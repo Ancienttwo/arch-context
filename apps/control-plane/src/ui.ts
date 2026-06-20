@@ -9,7 +9,7 @@
 // NOT a contract interface and adds no field to any port.
 
 import type { Account, BILLING_PRICES } from "./index";
-import type { NotificationProviderConfig, NotificationProviderKind } from "../../../packages/contracts/src/index";
+import type { NotificationProviderConfig, NotificationProviderKind } from "@archcontext/contracts";
 
 // ---------------------------------------------------------------------------
 // View-state input types (compose existing shapes; never mutate the contracts)

@@ -4,33 +4,22 @@ import {
   type LocalAttestation,
   type OrgRunnerIdentity,
   type ReviewChallenge
-} from "../../../packages/attestation/src/index";
-import { digestJson, type NotificationEvent, type NotificationProviderConfig } from "../../../packages/contracts/src/index";
+} from "@archcontext/attestation";
+import {
+  CONTROL_PLANE_ROUTES,
+  controlPlaneRouteDigest,
+  digestJson,
+  type NotificationEvent,
+  type NotificationProviderConfig
+} from "@archcontext/contracts";
 import {
   assertNotificationEventMinimal,
   auditNotificationPayload,
   defaultNotificationProviderConfigs,
   serializeNotificationEvent
-} from "../../../packages/notifications/src/index";
+} from "@archcontext/notifications";
 
-export const CONTROL_PLANE_ROUTES = [
-  "GET /oauth/github/start",
-  "POST /oauth/github/callback",
-  "POST /device/authorize",
-  "POST /device/complete",
-  "GET /entitlements/:repository",
-  "POST /github/webhook",
-  "POST /stripe/webhook",
-  "POST /attestations/verify",
-  "POST /org-runners",
-  "POST /org-runners/:runner/revoke",
-  "GET /mcp/metadata",
-  "GET /chatgpt/directory",
-  "POST /chatgpt/releases/:version/rollback",
-  "GET /notifications/providers",
-  "PUT /notifications/providers/:provider",
-  "POST /notifications/events"
-] as const;
+export { CONTROL_PLANE_ROUTES };
 
 export const WORKER_LIMITS = {
   maxBodyBytes: 64 * 1024,
@@ -289,7 +278,7 @@ export class ControlPlane {
 }
 
 export function routeDigest(): string {
-  return digestJson([...CONTROL_PLANE_ROUTES]);
+  return controlPlaneRouteDigest();
 }
 
 export function assertNoUploadRoutes(routes: readonly string[] = CONTROL_PLANE_ROUTES): void {

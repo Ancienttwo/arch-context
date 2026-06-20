@@ -20,8 +20,9 @@
     "readback:s2:external": "node scripts/sprint2-external-evidence-readback.mjs readback --json",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",
     "readback:ga": "node deploy/scripts/production-ga-readback.mjs run --environment production --json",
-    "verify": "bun run typecheck && bun test && node scripts/privacy-route-audit.mjs && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && node scripts/security-scan-manifest.mjs readback && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
+    "verify": "bun run typecheck && node scripts/package-boundary-audit.mjs && bun test && node scripts/privacy-route-audit.mjs && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && node scripts/security-scan-manifest.mjs readback && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
     "check:sprint": "node scripts/sprint-status-check.mjs",
+    "check:package-boundaries": "node scripts/package-boundary-audit.mjs",
     "eval": "bun evals/run.ts"
   },
   "devDependencies": {

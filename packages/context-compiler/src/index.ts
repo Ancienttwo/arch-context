@@ -3,11 +3,11 @@ import {
   landscapeDigest,
   type CrossRepoRelation,
   type Landscape
-} from "../../architecture-domain/src/index";
-import { digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext, type WorkspaceRef } from "../../contracts/src/index";
-import type { ArchitecturePosture } from "../../architecture-domain/src/index";
-import { detectArchitecturePressure } from "../../pressure-engine/src/index";
-import { computeRefactorConfidence, decidePosture } from "../../refactor-decision/src/index";
+} from "@archcontext/architecture-domain";
+import { digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext, type WorkspaceRef } from "@archcontext/contracts";
+import type { ArchitecturePosture } from "@archcontext/architecture-domain";
+import { detectArchitecturePressure } from "@archcontext/pressure-engine";
+import { computeRefactorConfidence, decidePosture } from "@archcontext/refactor-decision";
 
 export interface ContextBudget {
   maxBytes: number;

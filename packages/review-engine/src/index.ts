@@ -1,8 +1,8 @@
-import { digestJson, type Json } from "../../contracts/src/index";
-import { validateLandscape, type CrossRepoRelation, type Landscape } from "../../architecture-domain/src/index";
-import { detectCrossRepoPressure } from "../../pressure-engine/src/index";
-import { validateCompatibilityContract, type CompatibilityContractInput, type PolicyFinding } from "../../policy-engine/src/index";
-import type { ArchitecturePosture } from "../../architecture-domain/src/index";
+import { digestJson, type Json } from "@archcontext/contracts";
+import { validateLandscape, type CrossRepoRelation, type Landscape } from "@archcontext/architecture-domain";
+import { detectCrossRepoPressure } from "@archcontext/pressure-engine";
+import { validateCompatibilityContract, type CompatibilityContractInput, type PolicyFinding } from "@archcontext/policy-engine";
+import type { ArchitecturePosture } from "@archcontext/architecture-domain";
 
 export interface CompleteTaskInput {
   taskSessionId: string;

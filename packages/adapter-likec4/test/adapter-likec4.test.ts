@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { exportLikeC4Model, importLikeC4InitialModel } from "../src/index";
-import type { NativeModel } from "../../renderer/src/index";
+import type { NativeModel } from "@archcontext/renderer";
 
 const model: NativeModel = {
   nodes: [

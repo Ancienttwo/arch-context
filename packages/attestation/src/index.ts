@@ -1,5 +1,5 @@
 import { createHash, sign, verify, type KeyObject } from "node:crypto";
-import { canonicalize, digestJson, type Json } from "../../contracts/src/index";
+import { canonicalize, digestJson, type Json } from "@archcontext/contracts";
 
 export type TrustLevel = "developer" | "organization";
 

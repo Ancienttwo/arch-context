@@ -1,5 +1,5 @@
-import { errorEnvelope, okEnvelope, type Json } from "../../contracts/src/index";
-import type { ChatGptGaToolContract } from "../../contracts/src/index";
+import { errorEnvelope, okEnvelope, type Json } from "@archcontext/contracts";
+import type { ChatGptGaToolContract } from "@archcontext/contracts";
 
 export const CLOUD_METADATA_TOOLS = [
   "archcontext_account_status",

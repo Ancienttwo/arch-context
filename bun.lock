@@ -13,40 +13,102 @@
     "apps/chatgpt-ui": {
       "name": "@archcontext/chatgpt-ui",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "apps/control-plane": {
       "name": "@archcontext/control-plane",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/attestation": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/notifications": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/control-plane-client": "workspace:*",
+      },
     },
     "packages/adapter-likec4": {
       "name": "@archcontext/adapter-likec4",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/renderer": "workspace:*",
+      },
     },
     "packages/adapter-structurizr": {
       "name": "@archcontext/adapter-structurizr",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/renderer": "workspace:*",
+      },
     },
     "packages/application": {
       "name": "@archcontext/application",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/changeset-engine": "workspace:*",
+        "@archcontext/context-compiler": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/pressure-engine": "workspace:*",
+        "@archcontext/refactor-decision": "workspace:*",
+        "@archcontext/review-engine": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/model-store-yaml": "workspace:*",
+        "@archcontext/policy-engine": "workspace:*",
+        "@archcontext/reconcile-engine": "workspace:*",
+      },
     },
     "packages/architecture-domain": {
       "name": "@archcontext/architecture-domain",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/attestation": {
       "name": "@archcontext/attestation",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/changeset-engine": {
       "name": "@archcontext/changeset-engine",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/policy-engine": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/model-store-yaml": "workspace:*",
+      },
     },
     "packages/cli": {
       "name": "@archcontext/cli",
       "version": "0.1.0",
       "bin": {
         "archctx": "./src/main.ts",
+      },
+      "dependencies": {
+        "@archcontext/adapter-likec4": "workspace:*",
+        "@archcontext/adapter-structurizr": "workspace:*",
+        "@archcontext/application": "workspace:*",
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/changeset-engine": "workspace:*",
+        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/hardening": "workspace:*",
+        "@archcontext/model-store-yaml": "workspace:*",
+        "@archcontext/renderer": "workspace:*",
+        "@archcontext/runtime-daemon": "workspace:*",
       },
     },
     "packages/cloud-db": {
@@ -57,12 +119,23 @@
       "name": "@archcontext/codegraph-adapter",
       "version": "0.1.0",
       "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
         "@colbymchenry/codegraph": "1.0.1",
       },
     },
     "packages/context-compiler": {
       "name": "@archcontext/context-compiler",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/pressure-engine": "workspace:*",
+        "@archcontext/refactor-decision": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/codegraph-adapter": "workspace:*",
+      },
     },
     "packages/contracts": {
       "name": "@archcontext/contracts",
@@ -75,42 +148,86 @@
     "packages/explorer-ui": {
       "name": "@archcontext/explorer-ui",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/git-adapter": {
       "name": "@archcontext/git-adapter",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+      },
     },
     "packages/github-app": {
       "name": "@archcontext/github-app",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/attestation": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/hardening": {
       "name": "@archcontext/hardening",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/attestation": "workspace:*",
+        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/control-plane-client": "workspace:*",
+      },
     },
     "packages/local-store-sqlite": {
       "name": "@archcontext/local-store-sqlite",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/mcp-cloud-metadata": {
       "name": "@archcontext/mcp-cloud-metadata",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/mcp-local": {
       "name": "@archcontext/mcp-local",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/application": "workspace:*",
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/changeset-engine": "workspace:*",
+        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/model-store-yaml": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/cli": "workspace:*",
+      },
     },
     "packages/model-store-yaml": {
       "name": "@archcontext/model-store-yaml",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/notifications": {
       "name": "@archcontext/notifications",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
     },
     "packages/policy-engine": {
       "name": "@archcontext/policy-engine",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+      },
     },
     "packages/pressure-engine": {
       "name": "@archcontext/pressure-engine",
@@ -119,30 +236,72 @@
     "packages/reconcile-engine": {
       "name": "@archcontext/reconcile-engine",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/model-store-yaml": "workspace:*",
+      },
     },
     "packages/refactor-decision": {
       "name": "@archcontext/refactor-decision",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/pressure-engine": "workspace:*",
+      },
     },
     "packages/renderer": {
       "name": "@archcontext/renderer",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@archcontext/model-store-yaml": "workspace:*",
+      },
     },
     "packages/retrieval": {
       "name": "@archcontext/retrieval",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/contracts": "workspace:*",
+        "@node-rs/jieba": "2.0.1",
+      },
     },
     "packages/review-engine": {
       "name": "@archcontext/review-engine",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/policy-engine": "workspace:*",
+        "@archcontext/pressure-engine": "workspace:*",
+      },
     },
     "packages/runner": {
       "name": "@archcontext/runner",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/attestation": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/review-engine": "workspace:*",
+      },
     },
     "packages/runtime-daemon": {
       "name": "@archcontext/runtime-daemon",
       "version": "0.1.0",
+      "dependencies": {
+        "@archcontext/architecture-domain": "workspace:*",
+        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/context-compiler": "workspace:*",
+        "@archcontext/contracts": "workspace:*",
+        "@archcontext/explorer-ui": "workspace:*",
+        "@archcontext/git-adapter": "workspace:*",
+        "@archcontext/local-store-sqlite": "workspace:*",
+        "@archcontext/model-store-yaml": "workspace:*",
+      },
     },
   },
   "packages": {
@@ -224,9 +383,51 @@
 
     "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-qU6jjyma635qKJ0aaL8XU8QtYUGkWly0Mu4Wm2cSWRcNDL1v6sVoHMElgfUY7E9tK0gnU+/LbZW3MfmtqLG1GA=="],
 
+    "@emnapi/core": ["@emnapi/core@1.11.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ=="],
+
+    "@emnapi/runtime": ["@emnapi/runtime@1.11.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw=="],
+
+    "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
+
+    "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@0.2.12", "", { "dependencies": { "@emnapi/core": "^1.4.3", "@emnapi/runtime": "^1.4.3", "@tybys/wasm-util": "^0.10.0" } }, "sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ=="],
+
+    "@node-rs/jieba": ["@node-rs/jieba@2.0.1", "", { "optionalDependencies": { "@node-rs/jieba-android-arm-eabi": "2.0.1", "@node-rs/jieba-android-arm64": "2.0.1", "@node-rs/jieba-darwin-arm64": "2.0.1", "@node-rs/jieba-darwin-x64": "2.0.1", "@node-rs/jieba-freebsd-x64": "2.0.1", "@node-rs/jieba-linux-arm-gnueabihf": "2.0.1", "@node-rs/jieba-linux-arm64-gnu": "2.0.1", "@node-rs/jieba-linux-arm64-musl": "2.0.1", "@node-rs/jieba-linux-x64-gnu": "2.0.1", "@node-rs/jieba-linux-x64-musl": "2.0.1", "@node-rs/jieba-wasm32-wasi": "2.0.1", "@node-rs/jieba-win32-arm64-msvc": "2.0.1", "@node-rs/jieba-win32-ia32-msvc": "2.0.1", "@node-rs/jieba-win32-x64-msvc": "2.0.1" } }, "sha512-tnfzXOMqzVQF2dSKMhPC9HrHzzWmN6KheL/zYtGenhOpq/bCKHJWVASSggEnHlkmHgXGeIJHR2N/IuPzewz1BQ=="],
+
+    "@node-rs/jieba-android-arm-eabi": ["@node-rs/jieba-android-arm-eabi@2.0.1", "", { "os": "android", "cpu": "arm" }, "sha512-tavsIaxybnlA9tRbJ+oc3NW3zhx0d5rNiCGdpIdGWjflwS7HyeUTVAZmAFDlg58Mc6EjTdVKZH+RolBbAJtgcQ=="],
+
+    "@node-rs/jieba-android-arm64": ["@node-rs/jieba-android-arm64@2.0.1", "", { "os": "android", "cpu": "arm64" }, "sha512-AwdyqKvVNuSDnDq3anUfq+nJ5J/kzXjkfbr/1WY6TfaAlTNuuGVskuQv72/wIx/jn7NoXfm/UPuJrWYG16NC6w=="],
+
+    "@node-rs/jieba-darwin-arm64": ["@node-rs/jieba-darwin-arm64@2.0.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-10+nwGQ6KzXXJlIL/sELA6Fi6m7eJ7xJksBiKuw1kxKUgaJwtVfAG0iqRF+NRQv0Sdq7r3k5ew9K9y0+IYaEcA=="],
+
+    "@node-rs/jieba-darwin-x64": ["@node-rs/jieba-darwin-x64@2.0.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-IJ5RK0X/uPQa1XRmTvwKSieya+w1IJeiKLw0EekoBFJKybXQdvo8/uqM/8z2eVJ8vQxW9X6K2vkVGFvYQa9dYA=="],
+
+    "@node-rs/jieba-freebsd-x64": ["@node-rs/jieba-freebsd-x64@2.0.1", "", { "os": "freebsd", "cpu": "x64" }, "sha512-yg7vyhqzP2weJu5DJ3q9q4pb0b4GWWRwcv54zK7MSSA6KNJ/uQv2a4R9/qmptLU/fZv14gWuJBEMFdL7y1Dv2w=="],
+
+    "@node-rs/jieba-linux-arm-gnueabihf": ["@node-rs/jieba-linux-arm-gnueabihf@2.0.1", "", { "os": "linux", "cpu": "arm" }, "sha512-fxQYunS7w2tv8XV9GigkWJPzHnbcw6tjrUdDu5/qU0FdQVEzGuEYG85DjlNf8lZTDGSUKHBVyAQs7bBIvq8yqg=="],
+
+    "@node-rs/jieba-linux-arm64-gnu": ["@node-rs/jieba-linux-arm64-gnu@2.0.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-VnLU630hQIyO/fwyxh2vqZi72mO+hXkVUC3jVLPfOAlppinmsGX9N81tpTPUK3840hbV8WLtbYTWN1XodI38eg=="],
+
+    "@node-rs/jieba-linux-arm64-musl": ["@node-rs/jieba-linux-arm64-musl@2.0.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-K4EDyNixSLVdTNYnHwD+7I/ytvzpo7tt+vdCLqwQViiek2PMpL/FFRvA39uU2tk99jXIxvkczdxARG20BRZppg=="],
+
+    "@node-rs/jieba-linux-x64-gnu": ["@node-rs/jieba-linux-x64-gnu@2.0.1", "", { "os": "linux", "cpu": "x64" }, "sha512-sq3J6L2ANTE25I9eVFq/nb57OtXcvUIeUD1CTKJxwgTKIVmcB2LyOZpWf20AjHRUfbMER9Klqg5dgyyO+Six+w=="],
+
+    "@node-rs/jieba-linux-x64-musl": ["@node-rs/jieba-linux-x64-musl@2.0.1", "", { "os": "linux", "cpu": "x64" }, "sha512-0zfP9Qy68yEXrhBFknfhF6WUJDPU/8eRuyIrkMGdMjfRpxhpSbr2fMfnsqhOQLvhuK4w3iDFvTy4t5d0s6JKMA=="],
+
+    "@node-rs/jieba-wasm32-wasi": ["@node-rs/jieba-wasm32-wasi@2.0.1", "", { "dependencies": { "@napi-rs/wasm-runtime": "^0.2.5" }, "cpu": "none" }, "sha512-7I5rJya5rlQNJIhv8PvPzIVT1/gVc0vFzHmlfRGwCPGDJ3tHVxkSPW34dDx3OgDmbIeadNpmgIyC1RaS9djPJg=="],
+
+    "@node-rs/jieba-win32-arm64-msvc": ["@node-rs/jieba-win32-arm64-msvc@2.0.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-Aj/2EwYSaPgAbKnSl+vKM/2kOaZNMZWnShiZzbSNyzlLy3eIOyOYVLbYRDno4547KngRxer8uzROhIQIwXwkvw=="],
+
+    "@node-rs/jieba-win32-ia32-msvc": ["@node-rs/jieba-win32-ia32-msvc@2.0.1", "", { "os": "win32", "cpu": "ia32" }, "sha512-tpJt3uuBlGrcOInQLTYvcgamQgfadl5cwExLYU+CX9rXKpXLDO31dIujUDBgNWoiQq3tOiU1/AKbT7ZdNd4lBQ=="],
+
+    "@node-rs/jieba-win32-x64-msvc": ["@node-rs/jieba-win32-x64-msvc@2.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-LDOyo2/2CO8UnpSGLJdgqtH8mOnsABPhNxkfIky7UT9cyLEzOaU44nbA5YzPGpBI3qzMbWcwJYQsjBcgK2VqAg=="],
+
+    "@tybys/wasm-util": ["@tybys/wasm-util@0.10.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg=="],
+
     "@types/node": ["@types/node@26.0.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-vf2YFi1iY9lHGwNJMs01biZFbKJkrZR1T6/MlzjhJLPdntOHLhTrDSnSVcdtvjihi4VQNlrFRIxLsDBlQpAipA=="],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
+
+    "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

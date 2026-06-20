@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initializeArchContextModel } from "../../model-store-yaml/src/index";
+import { initializeArchContextModel } from "@archcontext/model-store-yaml";
 import { exportMermaidModel, loadNativeModelFromArchContext, normalizeNativeModel, type NativeModel } from "../src/index";
 
 const model: NativeModel = {
