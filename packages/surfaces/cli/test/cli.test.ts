@@ -20,7 +20,17 @@ function runTestCli(command: string, args: string[], root: string) {
 }
 
 function removeTempRoot(root: string): void {
-  rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+  } catch (error) {
+    if (isIgnorableWindowsCleanupError(error)) return;
+    throw error;
+  }
+}
+
+function isIgnorableWindowsCleanupError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
 
 function expectSameExistingPath(actual: string, expected: string): void {
