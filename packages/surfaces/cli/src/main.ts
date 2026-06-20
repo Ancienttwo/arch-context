@@ -66,6 +66,8 @@ export interface CliRuntimeDeps extends RuntimeDeps {
   disableRpcDiscovery?: boolean;
 }
 
+type AgentHost = "codex" | "claude" | "generic";
+
 export async function runCli(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "daemon") return runDaemonCommand(args, cwd);
   const runtime = () => createCliRuntime(cwd, deps);
@@ -186,18 +188,13 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
         ok: true,
         requestId: "config",
         data: {
-          codex: { mcpServers: { archcontext: { command: "archctx", args: ["mcp"] } } },
-          claude: { mcpServers: { archcontext: { command: "archctx", args: ["mcp"] } } },
-          generic: { command: "archctx", args: ["mcp"], transport: "stdio" }
+          codex: agentHostConfig("codex"),
+          claude: agentHostConfig("claude"),
+          generic: agentHostConfig("generic")
         }
       };
     case "mcp":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: "mcp",
-        data: { command: "archctx mcp", stdout: "protocol-only", logs: "stderr" }
-      };
+      return runMcpCommand(args);
     case "install":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -268,6 +265,66 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
         }
       };
   }
+}
+
+function runMcpCommand(args: string[]) {
+  const subcommand = args[0] ?? "serve";
+  if (subcommand === "serve" || subcommand === "start") {
+    return okEnvelope("mcp", {
+      command: "archctx mcp",
+      stdout: "protocol-only",
+      logs: "stderr"
+    } as any);
+  }
+  if (!["install", "status", "remove"].includes(subcommand)) {
+    return errorEnvelope("mcp", "AC_SCHEMA_INVALID", "mcp requires install|status|remove");
+  }
+  const host = readAgentHost(args);
+  if (!host) return errorEnvelope("mcp", "AC_SCHEMA_INVALID", "--host must be codex, claude, or generic");
+  if (subcommand === "install") {
+    return okEnvelope("mcp.install", {
+      host,
+      installed: true,
+      writes: "manual-host-config",
+      serverName: "archcontext",
+      config: agentHostConfig(host),
+      marker: installMarker(host)
+    } as any);
+  }
+  if (subcommand === "status") {
+    return okEnvelope("mcp.status", {
+      host,
+      installed: "config-ready",
+      serverName: "archcontext",
+      config: agentHostConfig(host),
+      command: "archctx mcp",
+      transport: "stdio"
+    } as any);
+  }
+  return okEnvelope("mcp.remove", {
+    host,
+    installed: false,
+    writes: "manual-host-config",
+    serverName: "archcontext",
+    removeConfig: agentHostRemoveConfig(host),
+    markerRemovedFrom: uninstallMarker(readFlag(args, "--content") ?? "", host)
+  } as any);
+}
+
+function readAgentHost(args: string[]): AgentHost | undefined {
+  const host = readFlag(args, "--host") ?? "generic";
+  return host === "codex" || host === "claude" || host === "generic" ? host : undefined;
+}
+
+function agentHostConfig(host: AgentHost) {
+  const server = { command: "archctx", args: ["mcp"] };
+  if (host === "generic") return { command: "archctx", args: ["mcp"], transport: "stdio" };
+  return { mcpServers: { archcontext: server } };
+}
+
+function agentHostRemoveConfig(host: AgentHost) {
+  if (host === "generic") return { command: null, args: [], transport: "stdio", remove: true };
+  return { mcpServers: { archcontext: null } };
 }
 
 async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<RuntimeDaemonClient> {

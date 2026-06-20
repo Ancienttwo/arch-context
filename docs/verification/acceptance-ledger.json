@@ -343,6 +343,19 @@
         "packages/surfaces/cli/test/cli.test.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/surfaces/mcp-local/src/index.ts",
+        "packages/cloud/hardening/src/index.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }

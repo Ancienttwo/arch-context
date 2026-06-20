@@ -99,6 +99,42 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI renders MCP install, status, and remove host configuration", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-host-"));
+    try {
+      const install = await runCli("mcp", ["install", "--host", "codex"], root);
+      expect(install.ok).toBe(true);
+      expect((install.data as any).host).toBe("codex");
+      expect((install.data as any).config.mcpServers.archcontext).toEqual({
+        command: "archctx",
+        args: ["mcp"]
+      });
+      expect((install.data as any).marker).toContain("archcontext_prepare_task");
+
+      const status = await runCli("mcp", ["status", "--host", "claude"], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any).host).toBe("claude");
+      expect((status.data as any).installed).toBe("config-ready");
+      expect((status.data as any).transport).toBe("stdio");
+
+      const remove = await runCli("mcp", [
+        "remove",
+        "--host",
+        "generic",
+        "--content",
+        "before\n<!-- BEGIN ARCHCONTEXT generic -->\nUse archcontext_prepare_task before coding.\n<!-- END ARCHCONTEXT generic -->\nafter"
+      ], root);
+      expect(remove.ok).toBe(true);
+      expect((remove.data as any).removeConfig.remove).toBe(true);
+      expect((remove.data as any).markerRemovedFrom).toBe("before\nafter");
+
+      const invalid = await runCli("mcp", ["install", "--host", "unknown"], root);
+      expect(invalid.ok).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-foreground-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
