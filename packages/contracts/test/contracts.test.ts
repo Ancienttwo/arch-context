@@ -11,6 +11,13 @@ import {
   canTransitionCheckDelivery,
   satisfiesRequiredTrust
 } from "../src/github-governance";
+import {
+  ARCHCONTEXT_PACKAGE_MANAGER,
+  ARCHCONTEXT_PRODUCT_VERSION,
+  ARCHCONTEXT_SCHEMA_SET_VERSION,
+  LOCAL_RUNTIME_RPC_SCHEMA_VERSION,
+  productVersionManifest
+} from "../src/product-version";
 import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
 
@@ -28,6 +35,7 @@ const schemaByFixture: Record<string, string> = {
   "review-result": "schemas/runtime/review-result.schema.json",
   "explorer-projection": "schemas/runtime/explorer-projection.schema.json",
   "explorer-service": "schemas/runtime/explorer-service.schema.json",
+  "product-version-manifest": "schemas/runtime/product-version-manifest.schema.json",
   "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
   "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
   "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json",
@@ -189,6 +197,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.review/v1": "review-result",
     "archcontext.explorer-projection/v1": "explorer-projection",
     "archcontext.explorer-service/v1": "explorer-service",
+    "archcontext.product-version-manifest/v1": "product-version-manifest",
     "archcontext.retrieval-config/v1": "retrieval-config",
     "archcontext.retrieval-eval/v1": "retrieval-eval",
     "archcontext.retrieval-decision/v1": "retrieval-decision",
@@ -232,6 +241,27 @@ describe("contract utilities", () => {
     const failed = errorEnvelope("req_2", "AC_PATH_DENIED", "outside allowlist");
     expect(failed.ok).toBe(false);
     expect(failed.error?.retryable).toBe(false);
+  });
+
+  test("product version manifest aligns CLI, daemon, MCP, schema, and package versions", () => {
+    const manifest = productVersionManifest();
+    const schema = readJson("schemas/runtime/product-version-manifest.schema.json");
+    const rootManifest = readJson("package.json") as any;
+    const contractManifest = readJson("packages/contracts/package.json") as any;
+    const runtimeManifest = readJson("packages/local-runtime/package.json") as any;
+    const surfacesManifest = readJson("packages/surfaces/package.json") as any;
+
+    expect(validateJsonSchema(schema as any, manifest as unknown as Json).valid).toBe(true);
+    expect(manifest.product.version).toBe(rootManifest.version);
+    expect(manifest.product.version).toBe(ARCHCONTEXT_PRODUCT_VERSION);
+    expect(manifest.packageManager).toBe(ARCHCONTEXT_PACKAGE_MANAGER);
+    expect(manifest.schemas.schemaSetVersion).toBe(ARCHCONTEXT_SCHEMA_SET_VERSION);
+    expect(manifest.schemas.contractsPackageVersion).toBe(contractManifest.version);
+    expect(manifest.surfaces.daemon.version).toBe(runtimeManifest.version);
+    expect(manifest.surfaces.cli.version).toBe(surfacesManifest.version);
+    expect(manifest.surfaces.mcp.version).toBe(surfacesManifest.version);
+    expect(manifest.runtime.localRpc.schemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
+    expect(manifest.surfaces.daemon.rpcSchemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
   });
 });
 

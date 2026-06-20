@@ -118,7 +118,10 @@ describe("local runtime foundation", () => {
         headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
       });
       expect(health.status).toBe(200);
-      expect((await health.json() as any).schemaVersion).toBe(RUNTIME_RPC_VERSION);
+      const healthBody = await health.json() as any;
+      expect(healthBody.schemaVersion).toBe(RUNTIME_RPC_VERSION);
+      expect(healthBody.product.runtime.localRpc.schemaVersion).toBe(RUNTIME_RPC_VERSION);
+      expect(healthBody.product.surfaces.daemon.rpcSchemaVersion).toBe(RUNTIME_RPC_VERSION);
 
       const denied = await fetch(`${connection.url}rpc`, {
         method: "POST",

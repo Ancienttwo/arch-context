@@ -261,6 +261,21 @@
         "scripts/sprint-status-check.test.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/src/product-version.ts",
+        "schemas/runtime/product-version-manifest.schema.json",
+        "packages/contracts/fixtures/valid/product-version-manifest.json",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }

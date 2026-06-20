@@ -11,12 +11,14 @@
 
 ## Scope
 
-This evidence covers only FG1-01 and FG1-02.
+This evidence covers FG1-01, FG1-02, and FG1-03.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
 - CLI foreground/background daemon startup uses the production root; normal CLI runtime commands start or reuse daemon RPC when no test dependencies are injected.
 - MCP no longer creates an independent in-process runtime when daemon RPC is unavailable.
+- `ProductVersionManifest` is a contracts-owned manifest covering CLI, daemon, MCP, local RPC, schema set, SQLite migration range, CodeGraph compatibility, package manager, and Node engine.
+- `archctxd` health readback exposes the same product version manifest used by contract tests.
 
 ## Commands
 
@@ -24,6 +26,7 @@ This evidence covers only FG1-01 and FG1-02.
 bun install
 bun run typecheck
 bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts
+bun test packages/contracts/test/contracts.test.ts
 bun test scripts/sprint-status-check.test.ts
 bun test
 node scripts/packaged-cli-smoke.mjs
@@ -35,8 +38,9 @@ bun run verify
 - `bun install`: PASS, installed local TypeScript toolchain.
 - `bun run typecheck`: PASS.
 - Runtime/CLI/MCP focused tests: PASS, 24 tests.
+- Contract tests: PASS, 83 tests.
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
-- `bun test`: PASS, 263 tests.
+- `bun test`: PASS, 266 tests.
 - `node scripts/packaged-cli-smoke.mjs`: PASS.
 - `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, acceptance ledger, sprint-status, and representative eval.
 
@@ -45,6 +49,7 @@ bun run verify
 - `assertProductionRuntimeDeps` rejects injected `codeFacts`, `codeGraphProviderFactory`, `localStore`, and `clock`.
 - Runtime RPC without bearer token remains rejected.
 - CLI daemon health readback reports `mode=production` and `productionSafe=true`.
+- Product manifest schema rejects unknown top-level fields through the contract matrix.
 
 ## Privacy Scan
 
@@ -60,4 +65,4 @@ None for this local partial slice.
 
 ## Decision
 
-PARTIAL PASS for FG1-01 and FG1-02 only. FG1 exit gates remain open.
+PARTIAL PASS for FG1-01, FG1-02, and FG1-03 only. FG1 exit gates remain open.

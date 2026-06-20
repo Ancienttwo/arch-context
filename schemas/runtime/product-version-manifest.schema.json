@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/product-version-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "product", "packageManager", "engines", "surfaces", "schemas", "runtime"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.product-version-manifest/v1" },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "distribution"],
+      "properties": {
+        "name": { "const": "archctx" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "distribution": { "enum": ["one-package"] }
+      }
+    },
+    "packageManager": { "type": "string", "minLength": 1 },
+    "engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node"],
+      "properties": {
+        "node": { "const": ">=24 <26" }
+      }
+    },
+    "surfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cli", "daemon", "mcp"],
+      "properties": {
+        "cli": { "$ref": "#/$defs/surface" },
+        "daemon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["packageName", "version", "entrypoint", "rpcSchemaVersion"],
+          "properties": {
+            "packageName": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+            "entrypoint": { "type": "string", "minLength": 1 },
+            "rpcSchemaVersion": { "const": "archcontext.runtime-rpc/v1" }
+          }
+        },
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["packageName", "version", "entrypoint", "transport"],
+          "properties": {
+            "packageName": { "type": "string", "minLength": 1 },
+            "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+            "entrypoint": { "type": "string", "minLength": 1 },
+            "transport": { "enum": ["stdio"] }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaSetVersion", "contractsPackageVersion", "reviewChallenge", "attestation", "deviceIdentity", "runnerIdentity"],
+      "properties": {
+        "schemaSetVersion": { "type": "string", "minLength": 1 },
+        "contractsPackageVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "reviewChallenge": { "const": "archcontext.review-challenge/v2" },
+        "attestation": { "const": "archcontext.attestation/v2" },
+        "deviceIdentity": { "const": "archcontext.device-identity/v1" },
+        "runnerIdentity": { "const": "archcontext.runner-identity/v1" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["localRpc", "sqliteMigrations", "codeGraph"],
+      "properties": {
+        "localRpc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "protocol"],
+          "properties": {
+            "schemaVersion": { "const": "archcontext.runtime-rpc/v1" },
+            "protocol": { "enum": ["http-loopback"] }
+          }
+        },
+        "sqliteMigrations": { "type": "string", "minLength": 1 },
+        "codeGraph": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["packageName", "requiredVersion", "adapter"],
+          "properties": {
+            "packageName": { "const": "@colbymchenry/codegraph" },
+            "requiredVersion": { "type": "string", "minLength": 1 },
+            "adapter": { "enum": ["codegraph-cli"] }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageName", "version", "entrypoint"],
+      "properties": {
+        "packageName": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "entrypoint": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

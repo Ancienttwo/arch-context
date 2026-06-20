@@ -18,7 +18,7 @@ import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@arc
 import { prepareTask } from "@archcontext/core/application";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
-import { okEnvelope, type CodeFactsPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
+import { LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type CodeFactsPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
 import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -89,7 +89,7 @@ export interface ExplorerServerStatus {
   readOnly: true;
 }
 
-export const RUNTIME_RPC_VERSION = "archcontext.runtime-rpc/v1";
+export const RUNTIME_RPC_VERSION = LOCAL_RUNTIME_RPC_SCHEMA_VERSION;
 
 export interface RuntimeRpcConnection {
   schemaVersion: typeof RUNTIME_RPC_VERSION;
@@ -866,6 +866,7 @@ export class ArchctxRuntimeRpcServer {
         pid: process.pid,
         protocol: "http-loopback",
         version: 1,
+        product: productVersionManifest(),
         composition: this.daemon.compositionReport()
       });
       return;
