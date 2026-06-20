@@ -10,7 +10,7 @@
   - `8a5e75c7f7a77c6543cadd5c81c6d57610c7b2b4` — FG1-09 MCP host install/status/remove config output
   - `42cdf9c846013d8898ee1875b9d1ca40640db8b0` — FG1-10 doctor version, daemon, SQLite, CodeGraph, Git, and permission checks
   - `1a98f1277d85ee5f6c292748166798845e5956fc` — FG1-11 ordinary single-repo fixture and first-experience E2E
-  - pending — FG1-12 single-repo monorepo fixture and first-experience E2E
+  - `022da6296f901d5af0ec0876794937a0dd5f868b` — FG1-12 single-repo monorepo fixture and first-experience E2E
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
