@@ -8,7 +8,7 @@
   - `6c0c22eec7e662e9090a4566c9af20a9ac8f3545` — FG2-06 GitHub webhook event family support
   - `c3db4ba63e4cd5532130846c23606b9fb7fd4506` — FG2-07 GitHub pull head metadata typed port
   - `4faf17c721b9b1f7692a7c3f04ef46196d8909c3` — FG2-08 GitHub Check create/update typed port
-  - Pending first FG2-09 implementation commit — GitHub API method/path allowlist
+  - `669d8a8165d723b8ea77c30c8d9d3e35ed22f923` — FG2-09 GitHub API method/path allowlist
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, or FG2-09 local E2 slice
 - Started At: 2026-06-20
