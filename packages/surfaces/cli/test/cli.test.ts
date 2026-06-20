@@ -255,7 +255,7 @@ describe("archctx CLI", () => {
       await expectFileRemoved(connectionPath);
       await expectFileRemoved(lockPath);
     } finally {
-      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
   });
@@ -290,7 +290,7 @@ describe("archctx CLI", () => {
       expect(status.ok).toBe(true);
       expect(status.data.running).toBe(true);
     } finally {
-      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
   });
@@ -324,7 +324,7 @@ describe("archctx CLI", () => {
       expect(status.ok).toBe(true);
       expect((status.data as any).running).toBe(true);
     } finally {
-      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
   });
@@ -385,7 +385,7 @@ describe("archctx CLI", () => {
       expect(status.ok).toBe(true);
       expect(status.data.running).toBe(true);
     } finally {
-      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      await stopDaemonAndWait(root);
       removeTempRoot(root);
     }
   });
@@ -452,6 +452,12 @@ async function runCliProcess(root: string, ...args: string[]): Promise<any> {
   const { stdout, stderr, code } = await collectProcess(child);
   if (code !== 0) throw new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
   return JSON.parse(stdout);
+}
+
+async function stopDaemonAndWait(root: string): Promise<void> {
+  await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+  await expectFileRemoved(defaultDaemonConnectionPath(root)).catch(() => undefined);
+  await expectFileRemoved(defaultDaemonLockPath(root)).catch(() => undefined);
 }
 
 function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any> {

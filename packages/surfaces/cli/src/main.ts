@@ -75,6 +75,11 @@ export interface CliRuntimeDeps extends RuntimeDeps {
   disableRpcDiscovery?: boolean;
 }
 
+interface CliRuntimeHandle {
+  client: RuntimeDaemonClient;
+  close(): Promise<void>;
+}
+
 type AgentHost = "codex" | "claude" | "generic";
 
 export async function runCli(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
@@ -90,8 +95,14 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
 
 async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "daemon") return runDaemonCommand(args, cwd);
-  const runtime = () => createCliRuntime(cwd, deps);
-  switch (command) {
+  const runtimeHandles: CliRuntimeHandle[] = [];
+  const runtime = async () => {
+    const handle = await createCliRuntime(cwd, deps);
+    runtimeHandles.push(handle);
+    return handle.client;
+  };
+  try {
+    switch (command) {
     case "init":
       return (await runtime()).init(cwd, readFlag(args, "--name") ?? "ArchContext Project");
     case "sync":
@@ -291,6 +302,9 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
           examples: ["archctx init --name MyApp", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
+    }
+  } finally {
+    for (const handle of runtimeHandles.reverse()) await handle.close();
   }
 }
 
@@ -467,8 +481,8 @@ function isPrivatePath(path: string): boolean {
   }
 }
 
-async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<RuntimeDaemonClient> {
-  if (deps.runtimeClient) return deps.runtimeClient;
+async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliRuntimeHandle> {
+  if (deps.runtimeClient) return { client: deps.runtimeClient, close: async () => undefined };
   if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
     const fileIssue = runtimeRpcCompatibilityIssue(cwd);
     if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
@@ -477,7 +491,7 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<Runt
       const health = await client.health().catch(() => undefined);
       const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
       if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
-      if ((health as any)?.ok === true) return client;
+      if ((health as any)?.ok === true) return { client, close: async () => undefined };
       recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
     } else {
       recoverStaleDaemonControlFiles(cwd);
@@ -487,11 +501,12 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<Runt
     const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
     if (startedClient) {
       const health = await startedClient.health().catch(() => undefined);
-      if ((health as any)?.ok === true) return startedClient;
+      if ((health as any)?.ok === true) return { client: startedClient, close: async () => undefined };
     }
     throw new Error("archctxd started but no healthy runtime RPC connection was available");
   }
-  return createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd), ...deps });
+  const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd), ...deps });
+  return { client: daemon, close: () => daemon.stop() };
 }
 
 function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {

@@ -21,7 +21,7 @@ describe("local product first-experience E2E", () => {
       task: "inspect greeting module",
       taskSessionId: "task_single_repo_e2e"
     });
-  });
+  }, 30_000);
 
   test("installed archctx treats a workspace monorepo as one local repository", async () => {
     await runFirstExperience(MONOREPO_FIXTURE_ROOT, {
@@ -36,7 +36,7 @@ describe("local product first-experience E2E", () => {
         expect(existsSync(join(repo, "packages", "lib", "package.json"))).toBe(true);
       }
     });
-  });
+  }, 30_000);
 
   test("installed archctx rejects sibling repository input before starting the daemon", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
@@ -62,10 +62,10 @@ describe("local product first-experience E2E", () => {
       expect(daemonStatus.ok).toBe(true);
       expect(daemonStatus.data.running).toBe(false);
     } finally {
-      await runArchctx(repo, "daemon", "stop").catch(() => undefined);
+      await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
-  });
+  }, 30_000);
 });
 
 async function runFirstExperience(
@@ -152,7 +152,7 @@ async function runFirstExperience(
     expect(complete.ok).toBe(true);
     expect(complete.data.schemaVersion).toBe("archcontext.review/v1");
   } finally {
-    await runArchctx(repo, "daemon", "stop").catch(() => undefined);
+    await stopDaemonAndWait(repo);
     removeTempRoot(workspace);
   }
 }
@@ -217,6 +217,21 @@ function resolveArchctxBin(): string {
     ? [join(BIN_DIR, "archctx.cmd"), join(BIN_DIR, "archctx.exe"), join(BIN_DIR, "archctx")]
     : [join(BIN_DIR, "archctx")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+async function stopDaemonAndWait(root: string): Promise<void> {
+  await runArchctx(root, "daemon", "stop").catch(() => undefined);
+  await expectFileRemoved(join(root, ".archcontext", ".local", "archctxd.json")).catch(() => undefined);
+  await expectFileRemoved(join(root, ".archcontext", ".local", "archctxd.lock")).catch(() => undefined);
+}
+
+async function expectFileRemoved(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (!existsSync(path)) return;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+  }
+  throw new Error(`Timed out waiting for file removal: ${path}`);
 }
 
 function removeTempRoot(root: string): void {
