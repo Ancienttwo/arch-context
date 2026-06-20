@@ -1,5 +1,5 @@
 -- ArchContext D1 control-plane metadata schema.
--- This file is generated from packages/cloud-db/src/index.ts.
+-- This file is generated from packages/cloud/cloud-db/src/index.ts.
 -- It must never contain source, diff, symbol, CodeGraph payload, model body, or finding detail columns.
 
 CREATE TABLE IF NOT EXISTS accounts (

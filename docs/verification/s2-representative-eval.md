@@ -8,10 +8,10 @@ This report closes HL-EG6 for repo-local deterministic verification. It verifies
 
 ## Source of Truth
 
-- `packages/hardening/src/index.ts` defines `sprint2RepresentativeEval`.
-- `packages/architecture-domain/src/index.ts` owns cross-repo impact traversal.
-- `packages/attestation/src/index.ts` owns trust-level labels and device-integrity disclosure.
-- `packages/control-plane-client/src/index.ts` owns offline annual entitlement behavior.
+- `packages/cloud/hardening/src/index.ts` defines `sprint2RepresentativeEval`.
+- `packages/core/architecture-domain/src/index.ts` owns cross-repo impact traversal.
+- `packages/cloud/attestation/src/index.ts` owns trust-level labels and device-integrity disclosure.
+- `packages/cloud/control-plane-client/src/index.ts` owns offline annual entitlement behavior.
 
 ## Eval Set
 
@@ -30,7 +30,7 @@ Observed: 8/8 representative cases passed.
 ## Verification
 
 ```bash
-bun test packages/hardening/test/hardening.test.ts
+bun test packages/cloud/hardening/test/hardening.test.ts
 ```
 
 Result: pass.

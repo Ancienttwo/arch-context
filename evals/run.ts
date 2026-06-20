@@ -23,17 +23,17 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { validateCompatibilityContract, type CompatibilityContractInput } from "../packages/policy-engine/src/index";
-import { detectArchitecturePressure } from "../packages/pressure-engine/src/index";
-import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../packages/refactor-decision/src/index";
+import { validateCompatibilityContract, type CompatibilityContractInput } from "../packages/core/policy-engine/src/index";
+import { detectArchitecturePressure } from "../packages/core/pressure-engine/src/index";
+import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../packages/core/refactor-decision/src/index";
 import {
   InMemoryLexicalRetriever,
   REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
   createChineseRetrievalEvalSet,
   runRetrievalEval,
   type RetrievalDocument
-} from "../packages/retrieval/src/index";
-import type { ArchitecturePosture } from "../packages/architecture-domain/src/index";
+} from "../packages/core/retrieval/src/index";
+import type { ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
 import type { RetrievalEvalQuery, RetrievalEvalSet } from "../packages/contracts/src/index";
 
 const DATE = "2026-06-20";
@@ -509,7 +509,7 @@ The deterministic target-vs-migration separation invariant: **${invariant.pass ?
 | Architecture Drift Precision | \`pressure-engine.detectArchitecturePressure\` + \`refactor-decision.decidePosture\` | \`evals/refactor-or-patch/cases.jsonl\` |
 | Context Constraint Recall | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
 | Context irrelevant ratio | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
-| Chinese retrieval gate | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\` + jieba tokenizer) | \`packages/retrieval.createChineseRetrievalEvalSet()\` |
+| Chinese retrieval gate | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\` + jieba tokenizer) | \`packages/core/retrieval.createChineseRetrievalEvalSet()\` |
 | Target/migration invariant | \`refactor-decision.createInterventionProposal\` | \`evals/target-vs-migration/cases.jsonl\` |
 
 ### Correction vs. the original plan

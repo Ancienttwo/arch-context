@@ -25,14 +25,14 @@ The deterministic target-vs-migration separation invariant: **✅ HOLD** (20/20)
 |---|---|---|
 | Unjustified Compatibility Recall | `policy-engine.validateCompatibilityContract` | `evals/compatibility-debt/cases.jsonl` |
 | Architecture Drift Precision | `pressure-engine.detectArchitecturePressure` + `refactor-decision.decidePosture` | `evals/refactor-or-patch/cases.jsonl` |
-| Context Constraint Recall | `retrieval.runRetrievalEval` (`Fts5BaselineRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
-| Context irrelevant ratio | `retrieval.runRetrievalEval` (`Fts5BaselineRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
-| Chinese retrieval gate | `retrieval.runRetrievalEval` (`Fts5BaselineRetriever` + jieba tokenizer) | `packages/retrieval.createChineseRetrievalEvalSet()` |
+| Context Constraint Recall | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
+| Context irrelevant ratio | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
+| Chinese retrieval gate | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever` + jieba tokenizer) | `packages/core/retrieval.createChineseRetrievalEvalSet()` |
 | Target/migration invariant | `refactor-decision.createInterventionProposal` | `evals/target-vs-migration/cases.jsonl` |
 
 ### Correction vs. the original plan
 
-The follow-up plan proposed measuring constraint recall and irrelevant ratio from **`context-compiler` output**. Reading the shipping code shows that is the wrong surface: `compileTaskContext` hardcodes `constraints: []` and performs no relevance ranking — it is a byte-budget trimmer over whatever the code-facts adapter returns. The real measurement surface for these two §25.3 metrics is the **`retrieval` engine** (`runRetrievalEval`), added by the Sprint 4 retrieval eval gate, which retrieves constraint-tagged documents and scores `constraintRecall`/`irrelevantRatio` directly. This eval therefore measures the retrieval engine's **shipping FTS5 baseline** (embedding stays default-off per ADR-0033). The pre-existing retrieval test only asserted `contextRecall ≥ 0.8` on a 3-query set; the §25.3 thresholds had never been gated on a representative set until now.
+The follow-up plan proposed measuring constraint recall and irrelevant ratio from **`context-compiler` output**. Reading the shipping code shows that is the wrong surface: `compileTaskContext` hardcodes `constraints: []` and performs no relevance ranking — it is a byte-budget trimmer over whatever the code-facts adapter returns. The real measurement surface for these two §25.3 metrics is the **`retrieval` engine** (`runRetrievalEval`), added by the Sprint 4 retrieval eval gate, which retrieves constraint-tagged documents and scores `constraintRecall`/`irrelevantRatio` directly. This eval therefore measures the retrieval engine's **shipping in-memory lexical baseline** (embedding stays default-off per ADR-0033; real SQLite FTS5 remains a future implementation gate). The pre-existing retrieval test only asserted `contextRecall ≥ 0.8` on a 3-query set; the §25.3 thresholds had never been gated on a representative set until now.
 
 The six other §25.3 targets (schema precision, stale interception, path-escape, changeset atomic recovery, attestation replay, SaaS code-route count) are deterministic and already pass via `bun run verify`; they are intentionally out of scope here.
 

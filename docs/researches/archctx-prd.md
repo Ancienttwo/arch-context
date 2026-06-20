@@ -254,8 +254,8 @@ archctx mcp ───────►│ ApplicationService │
 CLI 和 MCP 使用同一个 npm package、同一组 Use Case 和同一套输入输出 Schema。
 
 ```text
-packages/cli/src/bin.ts
-packages/cli/src/mcp.ts
+packages/surfaces/cli/src/bin.ts
+packages/surfaces/cli/src/mcp.ts
 packages/core/src/application-service.ts
 ```
 

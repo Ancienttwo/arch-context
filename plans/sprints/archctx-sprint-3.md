@@ -59,9 +59,9 @@
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
 | 1 | [x] | archctx-s3-cd-contracts-delta | contract | 通知/adapter/GA 契约 + ADR-0029/30/31；CD3 Exit Gate 全绿 | `bun test packages/contracts` |
-| 2 | [x] | archctx-s3-nt-notifications | contract | NotificationPublisher + Slack/Webhook/Email，最小载荷；NT Exit Gate 全绿 | `bun test packages/notifications apps/control-plane` + Sprint 3 capture fixture |
-| 3 | [x] | archctx-s3-ad-interop-adapters | contract | LikeC4/Structurizr export（可选 import），Native 仍 SoT；AD Exit Gate 全绿 | `bun test packages/renderer packages/adapter-likec4 packages/adapter-structurizr packages/cli` |
-| 4 | [x] | archctx-s3-ga-chatgpt | contract | Cloud Metadata App + GPT Directory + 完整 UI，零出域；GA Exit Gate 全绿 | `bun test packages/mcp-cloud-metadata apps/chatgpt-ui packages/mcp-local` |
+| 2 | [x] | archctx-s3-nt-notifications | contract | NotificationPublisher + Slack/Webhook/Email，最小载荷；NT Exit Gate 全绿 | `bun test packages/cloud/notifications packages/cloud/control-plane` + Sprint 3 capture fixture |
+| 3 | [x] | archctx-s3-ad-interop-adapters | contract | LikeC4/Structurizr export（可选 import），Native 仍 SoT；AD Exit Gate 全绿 | `bun test packages/surfaces/renderer packages/surfaces/adapter-likec4 packages/surfaces/adapter-structurizr packages/surfaces/cli` |
+| 4 | [x] | archctx-s3-ga-chatgpt | contract | Cloud Metadata App + GPT Directory + 完整 UI，零出域；GA Exit Gate 全绿 | `bun test packages/cloud/mcp-cloud-metadata packages/surfaces/chatgpt-ui packages/surfaces/mcp-local` |
 | 5 | [x] | archctx-s3-hl-hardening-launch | contract | 三出域面隐私回归 + S1/S2 回归 + 文档；HL3 Launch Gate 全绿 | `bun run verify` + `docs/verification/s3-v1.1-launch-gate.md` |
 
 ---
@@ -221,7 +221,7 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 | When | Task | Plan | Result |
 |------|------|------|--------|
 | 2026-06-19 | archctx-s3-cd-contracts-delta | Freeze notification, adapter, and ChatGPT GA contracts before implementation packages. | Added contracts schemas/fixtures/ports and ADR-0029/0030/0031; `bun test packages/contracts` passed (48 tests). |
-| 2026-06-19 | archctx-s3-nt-notifications | Implement provider-neutral notification publishing with minimal payload, opt-in provider config, retry/dead-letter/idempotency, and privacy fixture. | Added `packages/notifications`, control-plane provider scope/queue, and Sprint 3 capture fixture; targeted tests passed. |
-| 2026-06-19 | archctx-s3-ad-interop-adapters | Implement export-first LikeC4/Structurizr/Mermaid projections plus initialization-only imports and CLI surface. | Added `packages/renderer`, `packages/adapter-likec4`, `packages/adapter-structurizr`, CLI export/import commands, and Native SoT guard tests. |
+| 2026-06-19 | archctx-s3-nt-notifications | Implement provider-neutral notification publishing with minimal payload, opt-in provider config, retry/dead-letter/idempotency, and privacy fixture. | Added `packages/cloud/notifications`, control-plane provider scope/queue, and Sprint 3 capture fixture; targeted tests passed. |
+| 2026-06-19 | archctx-s3-ad-interop-adapters | Implement export-first LikeC4/Structurizr/Mermaid projections plus initialization-only imports and CLI surface. | Added `packages/surfaces/renderer`, `packages/surfaces/adapter-likec4`, `packages/surfaces/adapter-structurizr`, CLI export/import commands, and Native SoT guard tests. |
 | 2026-06-19 | archctx-s3-ga-chatgpt | Upgrade ChatGPT surface to GA metadata, Directory artifact, full UI states, tunnel guidance, and rollback policy. | Added Cloud Metadata App manifest/tool contracts, Directory listing metadata, GA UI state, and `archctx tunnel` output; targeted tests passed. |
 | 2026-06-19 | archctx-s3-hl-hardening-launch | Run privacy/verification closeout and document v1.1 repo-local launch boundary. | Added v1.1 integration runbook and Sprint 3 launch gate; privacy route audit and packet capture readback passed. |

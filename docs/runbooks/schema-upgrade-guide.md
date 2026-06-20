@@ -26,5 +26,5 @@ bun test packages/contracts/test/contracts.test.ts
 Verification:
 
 ```bash
-bun test packages/contracts packages/runtime-daemon packages/local-store-sqlite
+bun test packages/contracts packages/local-runtime/runtime-daemon packages/local-runtime/local-store-sqlite
 ```

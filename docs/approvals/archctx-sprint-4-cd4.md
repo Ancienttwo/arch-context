@@ -12,8 +12,8 @@
 ## Approved Boundary
 
 - Explorer remains local loopback, read-only, token-gated, and zero-egress.
-- Retrieval remains FTS5 by default.
-- Embeddings stay disabled unless the retrieval eval decision gate clearly beats the FTS5 baseline.
+- Retrieval remains lexical by default; real SQLite FTS5 is a future local-store implementation target, not the current shipped baseline.
+- Embeddings stay disabled unless the retrieval eval decision gate clearly beats the same lexical baseline.
 - This approval does not close Sprint 1-3 production/external readback debt.
 
 ## Evidence

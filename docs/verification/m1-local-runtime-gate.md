@@ -8,12 +8,12 @@ M1 establishes the local-only runtime foundation: `archctxd`, repository session
 
 ## Evidence
 
-- Runtime daemon: `packages/runtime-daemon/src/index.ts`.
-- Repository and Git binding: `packages/architecture-domain/src/index.ts`, `packages/git-adapter/src/index.ts`.
-- Local store: `packages/local-store-sqlite/src/index.ts`.
-- CodeGraph adapter: `packages/codegraph-adapter/src/index.ts`, pinned to `@colbymchenry/codegraph@1.0.1`.
-- Model store: `packages/model-store-yaml/src/index.ts`.
-- CLI: `packages/cli/src/main.ts`.
+- Runtime daemon: `packages/local-runtime/runtime-daemon/src/index.ts`.
+- Repository and Git binding: `packages/core/architecture-domain/src/index.ts`, `packages/local-runtime/git-adapter/src/index.ts`.
+- Local store: `packages/local-runtime/local-store-sqlite/src/index.ts`.
+- CodeGraph adapter: `packages/local-runtime/codegraph-adapter/src/index.ts`, pinned to `@colbymchenry/codegraph@1.0.1`.
+- Model store: `packages/local-runtime/model-store-yaml/src/index.ts`.
+- CLI: `packages/surfaces/cli/src/main.ts`.
 
 ## Verified Path
 

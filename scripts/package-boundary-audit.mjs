@@ -3,44 +3,12 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 
 const root = process.cwd();
 
-const CORE_PACKAGES = new Set([
-  "@archcontext/application",
-  "@archcontext/architecture-domain",
-  "@archcontext/changeset-engine",
-  "@archcontext/context-compiler",
-  "@archcontext/policy-engine",
-  "@archcontext/pressure-engine",
-  "@archcontext/reconcile-engine",
-  "@archcontext/refactor-decision",
-  "@archcontext/retrieval",
-  "@archcontext/review-engine"
-]);
-
-const APP_PACKAGES = new Set([
-  "@archcontext/chatgpt-ui",
-  "@archcontext/control-plane"
-]);
-
-const ADAPTER_AND_RUNTIME_PACKAGES = new Set([
-  "@archcontext/adapter-likec4",
-  "@archcontext/adapter-structurizr",
-  "@archcontext/attestation",
-  "@archcontext/cli",
-  "@archcontext/cloud-db",
-  "@archcontext/codegraph-adapter",
-  "@archcontext/control-plane-client",
-  "@archcontext/explorer-ui",
-  "@archcontext/git-adapter",
-  "@archcontext/github-app",
-  "@archcontext/hardening",
-  "@archcontext/local-store-sqlite",
-  "@archcontext/mcp-cloud-metadata",
-  "@archcontext/mcp-local",
-  "@archcontext/model-store-yaml",
-  "@archcontext/notifications",
-  "@archcontext/renderer",
-  "@archcontext/runner",
-  "@archcontext/runtime-daemon"
+const REQUIRED_BOUNDARIES = new Set([
+  "@archcontext/contracts",
+  "@archcontext/core",
+  "@archcontext/local-runtime",
+  "@archcontext/surfaces",
+  "@archcontext/cloud"
 ]);
 
 const workspaces = discoverWorkspaces();
@@ -52,6 +20,7 @@ for (const file of listFiles(root)) {
   const owner = findWorkspace(file);
   if (!owner) continue;
   const source = readFileSync(file, "utf8");
+  checkProductionFallbacks(file, source);
   for (const specifier of importSpecifiers(source)) {
     if (specifier.startsWith(".")) {
       checkRelativeImport(owner, file, specifier);
@@ -72,15 +41,18 @@ if (findings.length > 0) {
 console.log(`Package boundary audit passed (${workspaces.length} workspaces).`);
 
 function discoverWorkspaces() {
-  const out = [];
-  for (const base of ["apps", "packages"]) {
-    const baseDir = resolve(root, base);
-    for (const entry of readdirSync(baseDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const dir = join(baseDir, entry.name);
-      const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-      out.push({ dir, manifest, name: manifest.name });
-    }
+  const rootManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const out = rootManifest.workspaces.map((workspacePath) => {
+    const dir = resolve(root, workspacePath);
+    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    return { dir, manifest, name: manifest.name };
+  });
+  const names = new Set(out.map((workspace) => workspace.name));
+  for (const boundary of REQUIRED_BOUNDARIES) {
+    if (!names.has(boundary)) findings.push(`root workspaces must include ${boundary}`);
+  }
+  if (out.length !== REQUIRED_BOUNDARIES.size) {
+    findings.push(`root workspaces must collapse to ${REQUIRED_BOUNDARIES.size} packages, got ${out.length}`);
   }
   return out.sort((a, b) => b.dir.length - a.dir.length);
 }
@@ -96,7 +68,7 @@ function listFiles(dir, out = []) {
 }
 
 function isWorkspaceSource(file) {
-  return /\.(ts|tsx|mts|cts)$/.test(file) && (file.includes(`${sep}apps${sep}`) || file.includes(`${sep}packages${sep}`));
+  return /\.(ts|tsx|mts|cts)$/.test(file) && file.includes(`${sep}packages${sep}`);
 }
 
 function importSpecifiers(source) {
@@ -115,6 +87,7 @@ function checkRelativeImport(owner, file, specifier) {
   const target = resolve(dirname(file), specifier);
   const targetWorkspace = findWorkspace(target);
   if (!targetWorkspace || targetWorkspace.name === owner.name) return;
+  if (isTestFile(file)) return;
   findings.push(`${display(file)} imports ${specifier}, crossing into ${targetWorkspace.name}; use the package entrypoint`);
 }
 
@@ -123,31 +96,41 @@ function checkWorkspaceImport(owner, file, specifier) {
   const imported = workspaceByName.get(importedName);
   if (!imported || imported.name === owner.name) return;
   const testImport = isTestFile(file);
+  const testFactoryImport = specifier.includes("/test/");
 
   const declared = {
     ...owner.manifest.dependencies,
     ...owner.manifest.devDependencies,
     ...owner.manifest.peerDependencies
   };
-  if (testImport) {
-    if (declared[imported.name] !== "workspace:*") {
-      findings.push(`${display(file)} imports ${imported.name}, but ${display(join(owner.dir, "package.json"))} does not declare workspace:*`);
-    }
-  } else if (owner.manifest.dependencies?.[imported.name] !== "workspace:*") {
-    findings.push(`${display(file)} imports ${imported.name}, but ${display(join(owner.dir, "package.json"))} does not declare it in dependencies`);
+  if (declared[imported.name] !== "workspace:*") {
+    findings.push(`${display(file)} imports ${imported.name}, but ${display(join(owner.dir, "package.json"))} does not declare workspace:*`);
+  }
+
+  if (!testImport && testFactoryImport) {
+    findings.push(`${display(file)} imports test-only factory ${specifier}`);
   }
 
   if (!testImport && owner.name === "@archcontext/contracts") {
     findings.push(`${display(file)} is in contracts and must not import ${imported.name}`);
   }
-
-  if (!testImport && !APP_PACKAGES.has(owner.name) && APP_PACKAGES.has(imported.name)) {
-    findings.push(`${display(file)} imports app package ${imported.name}; package code must not depend on deployable apps`);
+  if (!testImport && owner.name === "@archcontext/core" && !["@archcontext/contracts", "@archcontext/core"].includes(imported.name)) {
+    findings.push(`${display(file)} is core importing ${imported.name}; core must stay pure`);
   }
-
-  if (!testImport && CORE_PACKAGES.has(owner.name) && ADAPTER_AND_RUNTIME_PACKAGES.has(imported.name)) {
-    findings.push(`${display(file)} is core package ${owner.name} importing adapter/runtime package ${imported.name}`);
+  if (!testImport && owner.name === "@archcontext/local-runtime" && ["@archcontext/surfaces", "@archcontext/cloud"].includes(imported.name)) {
+    findings.push(`${display(file)} is local-runtime importing ${imported.name}; runtime must not depend on surfaces/cloud`);
   }
+  if (!testImport && owner.name === "@archcontext/cloud" && imported.name === "@archcontext/surfaces") {
+    findings.push(`${display(file)} is cloud importing surfaces; cloud must stay transport/UI independent`);
+  }
+}
+
+function checkProductionFallbacks(file, source) {
+  if (isTestFile(file)) return;
+  if (source.includes("MockCodeGraphProvider")) findings.push(`${display(file)} references MockCodeGraphProvider outside tests`);
+  if (source.includes("TestLocalStore") || source.includes("InMemoryLocalStore")) findings.push(`${display(file)} references test local store outside tests`);
+  if (source.includes("sha256:0000000000000000000000000000000000000000000000000000000000000000")) findings.push(`${display(file)} contains zero digest fallback`);
+  if (/\bheadSha:\s*["']local["']/.test(source)) findings.push(`${display(file)} contains local headSha fallback`);
 }
 
 function isTestFile(file) {

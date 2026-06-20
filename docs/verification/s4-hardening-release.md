@@ -11,7 +11,7 @@ This closes Sprint 4 as repo-local deterministic work only. It does not close Sp
 - Explorer runs as a local loopback, read-only, token-gated surface.
 - Explorer projection, search, and negative write attempts are covered by `docs/security/captures/sprint4-explorer-retrieval.har.json`.
 - Retrieval eval closed with `keep-lexical`; embedding remains default off.
-- `privacy-route-audit` scans `packages/explorer-ui` and `packages/retrieval`.
+- `privacy-route-audit` scans `packages/surfaces/explorer-ui` and `packages/core/retrieval`.
 - Capture manifest includes `fixture.sprint4-explorer-retrieval`.
 - Strict external readbacks still fail until real staging or production capture and security scan evidence are recorded.
 

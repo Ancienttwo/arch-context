@@ -113,7 +113,7 @@ async function withFixture(sprint2: string, run: (root: string) => Promise<void>
     }
     await write(
       root,
-      "packages/hardening/src/index.ts",
+      "packages/cloud/hardening/src/index.ts",
       `export function sprint2LaunchGateReport() {
   return {
     securityFindings: { productionScan: "pending" },

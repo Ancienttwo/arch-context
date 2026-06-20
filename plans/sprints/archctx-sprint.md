@@ -409,10 +409,10 @@
 | ID | St | Gate | 验证方式（目标） |
 |----|:--:|------|------------------|
 | M6-EG1 | ☑ | Source 不进 SaaS 技术验证完成 | `node scripts/privacy-route-audit.mjs` |
-| M6-EG2 | ☑ | ChangeSet 不可越权写文件 | `bun test packages/changeset-engine/test/changeset-engine.test.ts` |
-| M6-EG3 | ☑ | Review 与 HEAD/Worktree 绑定正确 | `bun test packages/review-engine/test/review-engine.test.ts packages/application/test/control-loop.test.ts` |
+| M6-EG2 | ☑ | ChangeSet 不可越权写文件 | `bun test packages/core/changeset-engine/test/changeset-engine.test.ts` |
+| M6-EG3 | ☑ | Review 与 HEAD/Worktree 绑定正确 | `bun test packages/core/review-engine/test/review-engine.test.ts packages/core/application/test/control-loop.test.ts` |
 | M6-EG4 | ☑ | CodeGraph 版本兼容测试完成 | `@colbymchenry/codegraph` 版本锁定 + adapter capability tests |
-| M6-EG5 | ☑ | ChatGPT Data Sharing 提示清晰 | `bun test apps/chatgpt-ui/test/chatgpt-ui.test.ts` |
+| M6-EG5 | ☑ | ChatGPT Data Sharing 提示清晰 | `bun test packages/surfaces/chatgpt-ui/test/chatgpt-ui.test.ts` |
 | M6-EG6 | ◐ | Critical/High 安全 Finding 为零 | MVP deterministic surface 无 Critical/High；生产安全扫描/外审待补 |
 | M6-EG7 | ☑ | 关键 Eval 达 PRD §25.3 目标 | `bun evals/run.ts` 四项 §25.3 统计目标全绿 + target/migration 不变量 20/20（报告 `docs/verification/m6-representative-eval-report.md`）|
 | M6-EG8 | ☑ | 崩溃恢复与数据迁移有可重复演练 | `docs/runbooks/crash-recovery.md` + `docs/runbooks/schema-upgrade-guide.md` |

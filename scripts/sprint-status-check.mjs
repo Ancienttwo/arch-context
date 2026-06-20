@@ -52,7 +52,7 @@ async function validateSprint2EvidenceClaims(root, failures) {
   const sprint = await readOptional(root, path);
   if (!sprint) return;
 
-  const hardening = await readOptional(root, "packages/hardening/src/index.ts");
+  const hardening = await readOptional(root, "packages/cloud/hardening/src/index.ts");
   const manifest = await readOptional(root, "docs/security/captures/manifest.json");
   const pendingCapture = !manifest || !hardening || captureManifestHasPending(manifest, ["production", "staging"], failures) || hardening.includes("pending-production-environment");
   const securityScanManifest = await readOptional(root, "docs/security/scans/manifest.json");

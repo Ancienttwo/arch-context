@@ -1,8 +1,8 @@
 // Queries for §25.3 context constraint recall (>=95%) + irrelevant ratio (<=20%) over the
 // constraint-tagged corpus in documents.jsonl, scored by retrieval.runRetrievalEval on the
-// shipping Fts5BaselineRetriever. A constraint counts as recalled if any retrieved doc within
+// shipping InMemoryLexicalRetriever. A constraint counts as recalled if any retrieved doc within
 // top-k carries it. prohibitedContextIds are decoys that must not be surfaced. The first 16 are
-// lexically aligned (FTS5 should hit); the last 6 are natural-voice paraphrases that stress the
+// lexically aligned (the lexical baseline should hit); the last 6 are natural-voice paraphrases that stress the
 // lexical baseline. note is audit metadata only.
 {"id":"q-cb-001","text":"does archcontext upload repository source code to a saas cloud endpoint","expectedContextIds":["adr.zero-egress","audit.privacy-route"],"expectedConstraintIds":["constraint.zero-egress"],"prohibitedContextIds":["anti.saas-source-upload"],"note":"easy: zero egress"}
 {"id":"q-cb-002","text":"is the architecture explorer read only and bound to the local loopback","expectedContextIds":["guardrail.explorer-loopback"],"expectedConstraintIds":["constraint.read-only-explorer","constraint.zero-egress"],"prohibitedContextIds":[],"note":"easy: explorer"}

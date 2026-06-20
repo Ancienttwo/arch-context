@@ -19,7 +19,7 @@ Reason: the candidate did not clearly beat the lexical baseline under the ADR-00
 
 ## Verification
 
-- `bun test packages/retrieval`
+- `bun test packages/core/retrieval`
 - `bun run typecheck`
 
 ## Boundary

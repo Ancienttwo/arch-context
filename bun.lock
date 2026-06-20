@@ -10,378 +10,59 @@
         "typescript": "^6.0.3",
       },
     },
-    "apps/chatgpt-ui": {
-      "name": "@archcontext/chatgpt-ui",
+    "packages/cloud": {
+      "name": "@archcontext/cloud",
       "version": "0.1.0",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "apps/control-plane": {
-      "name": "@archcontext/control-plane",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/attestation": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/notifications": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/control-plane-client": "workspace:*",
-      },
-    },
-    "packages/adapter-likec4": {
-      "name": "@archcontext/adapter-likec4",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/renderer": "workspace:*",
-      },
-    },
-    "packages/adapter-structurizr": {
-      "name": "@archcontext/adapter-structurizr",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/renderer": "workspace:*",
-      },
-    },
-    "packages/application": {
-      "name": "@archcontext/application",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/changeset-engine": "workspace:*",
-        "@archcontext/context-compiler": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/pressure-engine": "workspace:*",
-        "@archcontext/refactor-decision": "workspace:*",
-        "@archcontext/review-engine": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/codegraph-adapter": "workspace:*",
-        "@archcontext/model-store-yaml": "workspace:*",
-        "@archcontext/policy-engine": "workspace:*",
-        "@archcontext/reconcile-engine": "workspace:*",
-      },
-    },
-    "packages/architecture-domain": {
-      "name": "@archcontext/architecture-domain",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "packages/attestation": {
-      "name": "@archcontext/attestation",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "packages/changeset-engine": {
-      "name": "@archcontext/changeset-engine",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/policy-engine": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/model-store-yaml": "workspace:*",
-      },
-    },
-    "packages/cli": {
-      "name": "@archcontext/cli",
-      "version": "0.1.0",
-      "bin": {
-        "archctx": "./src/main.ts",
-      },
-      "dependencies": {
-        "@archcontext/adapter-likec4": "workspace:*",
-        "@archcontext/adapter-structurizr": "workspace:*",
-        "@archcontext/application": "workspace:*",
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/changeset-engine": "workspace:*",
-        "@archcontext/codegraph-adapter": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/hardening": "workspace:*",
-        "@archcontext/model-store-yaml": "workspace:*",
-        "@archcontext/renderer": "workspace:*",
-        "@archcontext/runtime-daemon": "workspace:*",
-      },
-    },
-    "packages/cloud-db": {
-      "name": "@archcontext/cloud-db",
-      "version": "0.1.0",
-    },
-    "packages/codegraph-adapter": {
-      "name": "@archcontext/codegraph-adapter",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@colbymchenry/codegraph": "1.0.1",
-      },
-    },
-    "packages/context-compiler": {
-      "name": "@archcontext/context-compiler",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/pressure-engine": "workspace:*",
-        "@archcontext/refactor-decision": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/core": "workspace:*",
+        "@archcontext/local-runtime": "workspace:*",
       },
     },
     "packages/contracts": {
       "name": "@archcontext/contracts",
       "version": "0.1.0",
     },
-    "packages/control-plane-client": {
-      "name": "@archcontext/control-plane-client",
-      "version": "0.1.0",
-    },
-    "packages/explorer-ui": {
-      "name": "@archcontext/explorer-ui",
+    "packages/core": {
+      "name": "@archcontext/core",
       "version": "0.1.0",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
+        "@node-rs/jieba": "^2.0.1",
       },
     },
-    "packages/git-adapter": {
-      "name": "@archcontext/git-adapter",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-      },
-    },
-    "packages/github-app": {
-      "name": "@archcontext/github-app",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/attestation": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "packages/hardening": {
-      "name": "@archcontext/hardening",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/attestation": "workspace:*",
-        "@archcontext/codegraph-adapter": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/control-plane-client": "workspace:*",
-      },
-    },
-    "packages/local-store-sqlite": {
-      "name": "@archcontext/local-store-sqlite",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "packages/mcp-cloud-metadata": {
-      "name": "@archcontext/mcp-cloud-metadata",
+    "packages/local-runtime": {
+      "name": "@archcontext/local-runtime",
       "version": "0.1.0",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
+        "@archcontext/core": "workspace:*",
       },
     },
-    "packages/mcp-local": {
-      "name": "@archcontext/mcp-local",
+    "packages/surfaces": {
+      "name": "@archcontext/surfaces",
       "version": "0.1.0",
+      "bin": {
+        "archctx": "./cli/src/main.ts",
+      },
       "dependencies": {
-        "@archcontext/application": "workspace:*",
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/changeset-engine": "workspace:*",
-        "@archcontext/codegraph-adapter": "workspace:*",
+        "@archcontext/cloud": "workspace:*",
         "@archcontext/contracts": "workspace:*",
-        "@archcontext/model-store-yaml": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/cli": "workspace:*",
-      },
-    },
-    "packages/model-store-yaml": {
-      "name": "@archcontext/model-store-yaml",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "packages/notifications": {
-      "name": "@archcontext/notifications",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-      },
-    },
-    "packages/policy-engine": {
-      "name": "@archcontext/policy-engine",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-      },
-    },
-    "packages/pressure-engine": {
-      "name": "@archcontext/pressure-engine",
-      "version": "0.1.0",
-    },
-    "packages/reconcile-engine": {
-      "name": "@archcontext/reconcile-engine",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/model-store-yaml": "workspace:*",
-      },
-    },
-    "packages/refactor-decision": {
-      "name": "@archcontext/refactor-decision",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/pressure-engine": "workspace:*",
-      },
-    },
-    "packages/renderer": {
-      "name": "@archcontext/renderer",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-      },
-      "devDependencies": {
-        "@archcontext/model-store-yaml": "workspace:*",
-      },
-    },
-    "packages/retrieval": {
-      "name": "@archcontext/retrieval",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/contracts": "workspace:*",
-        "@node-rs/jieba": "2.0.1",
-      },
-    },
-    "packages/review-engine": {
-      "name": "@archcontext/review-engine",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/policy-engine": "workspace:*",
-        "@archcontext/pressure-engine": "workspace:*",
-      },
-    },
-    "packages/runner": {
-      "name": "@archcontext/runner",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/attestation": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/review-engine": "workspace:*",
-      },
-    },
-    "packages/runtime-daemon": {
-      "name": "@archcontext/runtime-daemon",
-      "version": "0.1.0",
-      "dependencies": {
-        "@archcontext/architecture-domain": "workspace:*",
-        "@archcontext/codegraph-adapter": "workspace:*",
-        "@archcontext/context-compiler": "workspace:*",
-        "@archcontext/contracts": "workspace:*",
-        "@archcontext/explorer-ui": "workspace:*",
-        "@archcontext/git-adapter": "workspace:*",
-        "@archcontext/local-store-sqlite": "workspace:*",
-        "@archcontext/model-store-yaml": "workspace:*",
+        "@archcontext/core": "workspace:*",
+        "@archcontext/local-runtime": "workspace:*",
       },
     },
   },
   "packages": {
-    "@archcontext/adapter-likec4": ["@archcontext/adapter-likec4@workspace:packages/adapter-likec4"],
-
-    "@archcontext/adapter-structurizr": ["@archcontext/adapter-structurizr@workspace:packages/adapter-structurizr"],
-
-    "@archcontext/application": ["@archcontext/application@workspace:packages/application"],
-
-    "@archcontext/architecture-domain": ["@archcontext/architecture-domain@workspace:packages/architecture-domain"],
-
-    "@archcontext/attestation": ["@archcontext/attestation@workspace:packages/attestation"],
-
-    "@archcontext/changeset-engine": ["@archcontext/changeset-engine@workspace:packages/changeset-engine"],
-
-    "@archcontext/chatgpt-ui": ["@archcontext/chatgpt-ui@workspace:apps/chatgpt-ui"],
-
-    "@archcontext/cli": ["@archcontext/cli@workspace:packages/cli"],
-
-    "@archcontext/cloud-db": ["@archcontext/cloud-db@workspace:packages/cloud-db"],
-
-    "@archcontext/codegraph-adapter": ["@archcontext/codegraph-adapter@workspace:packages/codegraph-adapter"],
-
-    "@archcontext/context-compiler": ["@archcontext/context-compiler@workspace:packages/context-compiler"],
+    "@archcontext/cloud": ["@archcontext/cloud@workspace:packages/cloud"],
 
     "@archcontext/contracts": ["@archcontext/contracts@workspace:packages/contracts"],
 
-    "@archcontext/control-plane": ["@archcontext/control-plane@workspace:apps/control-plane"],
+    "@archcontext/core": ["@archcontext/core@workspace:packages/core"],
 
-    "@archcontext/control-plane-client": ["@archcontext/control-plane-client@workspace:packages/control-plane-client"],
+    "@archcontext/local-runtime": ["@archcontext/local-runtime@workspace:packages/local-runtime"],
 
-    "@archcontext/explorer-ui": ["@archcontext/explorer-ui@workspace:packages/explorer-ui"],
-
-    "@archcontext/git-adapter": ["@archcontext/git-adapter@workspace:packages/git-adapter"],
-
-    "@archcontext/github-app": ["@archcontext/github-app@workspace:packages/github-app"],
-
-    "@archcontext/hardening": ["@archcontext/hardening@workspace:packages/hardening"],
-
-    "@archcontext/local-store-sqlite": ["@archcontext/local-store-sqlite@workspace:packages/local-store-sqlite"],
-
-    "@archcontext/mcp-cloud-metadata": ["@archcontext/mcp-cloud-metadata@workspace:packages/mcp-cloud-metadata"],
-
-    "@archcontext/mcp-local": ["@archcontext/mcp-local@workspace:packages/mcp-local"],
-
-    "@archcontext/model-store-yaml": ["@archcontext/model-store-yaml@workspace:packages/model-store-yaml"],
-
-    "@archcontext/notifications": ["@archcontext/notifications@workspace:packages/notifications"],
-
-    "@archcontext/policy-engine": ["@archcontext/policy-engine@workspace:packages/policy-engine"],
-
-    "@archcontext/pressure-engine": ["@archcontext/pressure-engine@workspace:packages/pressure-engine"],
-
-    "@archcontext/reconcile-engine": ["@archcontext/reconcile-engine@workspace:packages/reconcile-engine"],
-
-    "@archcontext/refactor-decision": ["@archcontext/refactor-decision@workspace:packages/refactor-decision"],
-
-    "@archcontext/renderer": ["@archcontext/renderer@workspace:packages/renderer"],
-
-    "@archcontext/retrieval": ["@archcontext/retrieval@workspace:packages/retrieval"],
-
-    "@archcontext/review-engine": ["@archcontext/review-engine@workspace:packages/review-engine"],
-
-    "@archcontext/runner": ["@archcontext/runner@workspace:packages/runner"],
-
-    "@archcontext/runtime-daemon": ["@archcontext/runtime-daemon@workspace:packages/runtime-daemon"],
-
-    "@colbymchenry/codegraph": ["@colbymchenry/codegraph@1.0.1", "", { "optionalDependencies": { "@colbymchenry/codegraph-darwin-arm64": "1.0.1", "@colbymchenry/codegraph-darwin-x64": "1.0.1", "@colbymchenry/codegraph-linux-arm64": "1.0.1", "@colbymchenry/codegraph-linux-x64": "1.0.1", "@colbymchenry/codegraph-win32-arm64": "1.0.1", "@colbymchenry/codegraph-win32-x64": "1.0.1" }, "bin": { "codegraph": "npm-shim.js" } }, "sha512-Y4ZMk7wxSRI9g2wQTcW21TfLr+fw7td1Dadkll6Udl9Ll8wX3H6qtov7K/VGtHG2AFX2j1e5Lm48PTHi74mImg=="],
-
-    "@colbymchenry/codegraph-darwin-arm64": ["@colbymchenry/codegraph-darwin-arm64@1.0.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-4z3aNzR3Ml31MBVzAvFQm+bk83erdHkjnaJ0PoeM6I9T7xuTIcdAGV36i3qYwgBE4tdrghRdR0mP5MNM+OrGFA=="],
-
-    "@colbymchenry/codegraph-darwin-x64": ["@colbymchenry/codegraph-darwin-x64@1.0.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-KBSKl+tLCSIgV4iyi21SqYlpXL0P8DPqAnVHvvStdyYsCmkc2Heqf4oQIko+TYyFmuo65m4VpX989JkYZVGIVQ=="],
-
-    "@colbymchenry/codegraph-linux-arm64": ["@colbymchenry/codegraph-linux-arm64@1.0.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-2TOeL/Lx3kME+dmv2Q9hbIQFBvT6uKLdZONDRaYto+1Bcl3GrJuIu6bsu3jiJuifPhnYIL2xwUV6y+TZQ8MbTw=="],
-
-    "@colbymchenry/codegraph-linux-x64": ["@colbymchenry/codegraph-linux-x64@1.0.1", "", { "os": "linux", "cpu": "x64" }, "sha512-UENXSURJJUhcvdKoYsB5Wj6Z6O9C2afhYfG0LnL13KFWJhGXugqYKjF4KwkaeE8Po8TFul9k3f+8eXjmJwwwaQ=="],
-
-    "@colbymchenry/codegraph-win32-arm64": ["@colbymchenry/codegraph-win32-arm64@1.0.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-ZEG+HOakHiAe1AWMa2LgD52HyIEbWsY2FyNvDmon4Ss2889OghqUyA8BOLu5hNW+EI42JwwSXijVevn2Zn0hlg=="],
-
-    "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-qU6jjyma635qKJ0aaL8XU8QtYUGkWly0Mu4Wm2cSWRcNDL1v6sVoHMElgfUY7E9tK0gnU+/LbZW3MfmtqLG1GA=="],
+    "@archcontext/surfaces": ["@archcontext/surfaces@workspace:packages/surfaces"],
 
     "@emnapi/core": ["@emnapi/core@1.11.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ=="],
 

@@ -8,14 +8,14 @@ M2 proves ArchContext is not search-only. It implements the prepare/checkpoint/c
 
 ## Evidence
 
-- Context compiler: `packages/context-compiler/src/index.ts`.
-- Pressure engine: `packages/pressure-engine/src/index.ts`.
-- Refactor decision: `packages/refactor-decision/src/index.ts`.
-- Policy engine: `packages/policy-engine/src/index.ts`.
-- ChangeSet engine: `packages/changeset-engine/src/index.ts`.
-- Reconcile engine: `packages/reconcile-engine/src/index.ts`.
-- Review engine: `packages/review-engine/src/index.ts`.
-- Application orchestration: `packages/application/src/index.ts`.
+- Context compiler: `packages/core/context-compiler/src/index.ts`.
+- Pressure engine: `packages/core/pressure-engine/src/index.ts`.
+- Refactor decision: `packages/core/refactor-decision/src/index.ts`.
+- Policy engine: `packages/core/policy-engine/src/index.ts`.
+- ChangeSet engine: `packages/core/changeset-engine/src/index.ts`.
+- Reconcile engine: `packages/core/reconcile-engine/src/index.ts`.
+- Review engine: `packages/core/review-engine/src/index.ts`.
+- Application orchestration: `packages/core/application/src/index.ts`.
 
 ## Verified Path
 
@@ -67,4 +67,4 @@ Observed result:
 
 ## Boundary
 
-M2 is complete for the deterministic control-loop and ChangeSet safety surface. The `compatibility-debt` recall number comes from a small hand-built fixture in `packages/application/test/control-loop.test.ts`; it is not a representative product eval set and does not by itself close the PRD recall gate for production launch.
+M2 is complete for the deterministic control-loop and ChangeSet safety surface. The `compatibility-debt` recall number comes from a small hand-built fixture in `packages/core/application/test/control-loop.test.ts`; it is not a representative product eval set and does not by itself close the PRD recall gate for production launch.

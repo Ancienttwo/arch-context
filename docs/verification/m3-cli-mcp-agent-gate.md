@@ -8,10 +8,10 @@ M3 embeds the control loop into agent surfaces through CLI commands, local stdio
 
 ## Evidence
 
-- CLI commands: `packages/cli/src/main.ts`.
-- Local MCP server: `packages/mcp-local/src/index.ts`.
+- CLI commands: `packages/surfaces/cli/src/main.ts`.
+- Local MCP server: `packages/surfaces/mcp-local/src/index.ts`.
 - First-party skills: `skills/archcontext-bootstrap`, `skills/archcontext-develop`, `skills/archcontext-intervene`, `skills/archcontext-review`.
-- MCP tests: `packages/mcp-local/test/mcp-local.test.ts`.
+- MCP tests: `packages/surfaces/mcp-local/test/mcp-local.test.ts`.
 
 ## Verified Path
 
