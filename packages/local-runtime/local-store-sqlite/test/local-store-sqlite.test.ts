@@ -130,7 +130,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
-  test("sqlite store persists task state, landscape metadata, and committed snapshots across reopen", async () => {
+  test("sqlite store persists repository session, task state, landscape metadata, and committed snapshots across reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-sqlite-store-"));
     const dbPath = join(root, "runtime.sqlite");
     const snapshot = {
@@ -163,6 +163,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await first.migrate();
       const committed = await first.beginSnapshot(snapshot);
       await first.commitSnapshot(committed);
+      await first.saveRepositorySession({
+        repositoryId: snapshot.repositoryId,
+        root,
+        headSha: snapshot.headSha,
+        worktreeDigest: snapshot.worktreeDigest,
+        updatedAt: "2026-06-20T00:00:00.000Z"
+      });
       await first.saveTaskState("task_1", { posture: "normal" });
       await first.saveLandscape(landscape);
       await first.saveCrossRepoRelation(relation);
@@ -170,6 +177,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
 
       const second = new SqliteLocalStore(dbPath);
       await second.migrate();
+      expect(await second.listRepositorySessions()).toEqual([{
+        repositoryId: snapshot.repositoryId,
+        root,
+        headSha: snapshot.headSha,
+        worktreeDigest: snapshot.worktreeDigest,
+        updatedAt: "2026-06-20T00:00:00.000Z"
+      }]);
       expect(await second.readTaskState("task_1")).toEqual({ posture: "normal" });
       expect(await second.readLandscape("landscape.product")).toEqual(landscape);
       expect(await second.listCrossRepoRelations(landscape)).toEqual([relation]);

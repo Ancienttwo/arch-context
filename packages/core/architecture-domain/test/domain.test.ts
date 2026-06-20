@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,6 +7,7 @@ import {
   activeRepositoriesForTask,
   addCrossRepoRelation,
   addRepositoryToLandscape,
+  bindRepository,
   computeWorktreeDigest,
   createLandscape,
   createInterventionId,
@@ -29,6 +30,21 @@ describe("@archcontext/core/architecture-domain", () => {
   test("repository fingerprints are deterministic and path-derived", () => {
     expect(repositoryFingerprint("/tmp/example")).toBe(repositoryFingerprint("/tmp/example"));
     expect(repositoryFingerprint("/tmp/example")).not.toBe(repositoryFingerprint("/tmp/other"));
+  });
+
+  test("repository fingerprints use the canonical root for existing directories", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-domain-root-"));
+    const link = join(tmpdir(), `archctx-domain-link-${Date.now()}`);
+    try {
+      symlinkSync(root, link, "dir");
+      expect(repositoryFingerprint(link)).toBe(repositoryFingerprint(root));
+      expect(bindRepository(link, "abc123").root).toBe(realpathSync.native(root));
+    } catch (error) {
+      if (!["EPERM", "EACCES", "ENOTSUP"].includes((error as { code?: string }).code ?? "")) throw error;
+    } finally {
+      rmSync(link, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("worktree digest ignores configured generated state", () => {

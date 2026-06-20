@@ -108,6 +108,48 @@ describe("local runtime foundation", () => {
     expect(store.snapshots.get(committed)?.state).toBe("committed");
   });
 
+  test("daemon restart restores persisted repository sessions from the local store", async () => {
+    const root = tempRepo();
+    const dbPath = join(root, ".archcontext/.local/runtime.sqlite");
+    let first: Awaited<ReturnType<typeof createStartedDaemon>> | undefined;
+    let second: Awaited<ReturnType<typeof createStartedDaemon>> | undefined;
+    try {
+      first = await createStartedDaemon({
+        codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+        codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+        localStorePath: dbPath,
+        clock: () => "2026-06-20T00:00:00.000Z"
+      });
+      const init = await first.init(root, "Persistent Session");
+      expect(init.ok).toBe(true);
+      const before = await first.runtimeStatus(root);
+      expect((before.data as any).sessions).toBe(1);
+      await first.stop();
+      first = undefined;
+
+      second = await createStartedDaemon({
+        codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+        codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+        localStorePath: dbPath,
+        clock: () => "2026-06-20T00:01:00.000Z"
+      });
+      const after = await second.runtimeStatus(root);
+      expect(after.data).toMatchObject({
+        sessions: 1,
+        repositories: [repositoryFingerprint(root)],
+        repositoryId: repositoryFingerprint(root),
+        headSha: (before.data as any).headSha,
+        worktreeDigest: (before.data as any).worktreeDigest
+      });
+      await second.stop();
+      second = undefined;
+    } finally {
+      await second?.stop().catch(() => undefined);
+      await first?.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime RPC server is loopback, versioned, token-gated, and single-locked", async () => {
     const root = tempRepo();
     const daemon = await createStartedTestDaemon();

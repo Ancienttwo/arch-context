@@ -1,11 +1,12 @@
 import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
 import type { RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type RuntimeLocalStore } from "../src/index";
+import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
   readonly snapshots = new Map<string, { snapshot: RepositorySnapshot; state: "pending" | "committed" }>();
+  readonly repositorySessions = new Map<string, PersistedRepositorySession>();
   readonly taskStates = new Map<string, unknown>();
   readonly reviews = new Map<string, unknown>();
   readonly landscapes = new Map<string, Landscape>();
@@ -37,6 +38,16 @@ export class TestLocalStore implements RuntimeLocalStore {
       }
     }
     return recovered;
+  }
+
+  async saveRepositorySession(session: PersistedRepositorySession): Promise<void> {
+    this.repositorySessions.set(session.repositoryId, session);
+  }
+
+  async listRepositorySessions(): Promise<PersistedRepositorySession[]> {
+    return [...this.repositorySessions.values()].sort((a, b) =>
+      a.updatedAt.localeCompare(b.updatedAt) || a.repositoryId.localeCompare(b.repositoryId)
+    );
   }
 
   async beginChangeSet(root: string, draft: ChangeSetDraft): Promise<string> {

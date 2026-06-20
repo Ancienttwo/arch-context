@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 import { digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
 
@@ -144,8 +144,17 @@ const DEFAULT_IGNORES = new Set([
 ]);
 
 export function repositoryFingerprint(root: string): string {
-  const normalized = resolve(root);
+  const normalized = canonicalRepositoryRoot(root);
   return `repo.${createHash("sha256").update(normalized).digest("hex").slice(0, 16)}`;
+}
+
+export function canonicalRepositoryRoot(root: string): string {
+  const resolved = resolve(root);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 export function normalizeDottedId(value: string): string {
@@ -320,11 +329,12 @@ export function computeWorktreeDigest(root: string, options: WorktreeDigestOptio
 }
 
 export function bindRepository(root: string, headSha: string): RepositoryBinding {
+  const canonicalRoot = canonicalRepositoryRoot(root);
   return {
-    repositoryId: repositoryFingerprint(root),
-    root: resolve(root),
+    repositoryId: repositoryFingerprint(canonicalRoot),
+    root: canonicalRoot,
     headSha,
-    worktreeDigest: computeWorktreeDigest(root)
+    worktreeDigest: computeWorktreeDigest(canonicalRoot)
   };
 }
 

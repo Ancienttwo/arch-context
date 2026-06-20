@@ -150,6 +150,8 @@ export interface LandscapeRebuildResult {
 
 export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort {
   recoverPendingSnapshots(): number;
+  saveRepositorySession(session: PersistedRepositorySession): Promise<void>;
+  listRepositorySessions(): Promise<PersistedRepositorySession[]>;
   saveLandscape(landscape: Landscape): Promise<void>;
   readLandscape(landscapeId: string): Promise<Landscape | undefined>;
   saveCrossRepoRelation(relation: CrossRepoRelation): Promise<void>;
@@ -157,6 +159,14 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
+}
+
+export interface PersistedRepositorySession {
+  repositoryId: string;
+  root: string;
+  headSha: string;
+  worktreeDigest: string;
+  updatedAt: string;
 }
 
 type SqliteStatement = {
@@ -189,11 +199,6 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const db = await this.database();
     const snapshotId = `snapshot_${randomUUID()}`;
     db.prepare(
-      `INSERT OR REPLACE INTO repository_sessions
-        (repository_id, root, head_sha, worktree_digest, updated_at)
-        VALUES (?, ?, ?, ?, ?)`
-    ).run(snapshot.repositoryId, snapshot.repositoryId, snapshot.headSha, snapshot.worktreeDigest, nowIso());
-    db.prepare(
       `INSERT INTO snapshots
         (id, repository_id, head_sha, worktree_digest, state, created_at)
         VALUES (?, ?, ?, ?, ?, ?)`
@@ -213,6 +218,30 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const pending = db.prepare("SELECT id FROM snapshots WHERE state = ?").all("pending");
     db.prepare("DELETE FROM snapshots WHERE state = ?").run("pending");
     return pending.length;
+  }
+
+  async saveRepositorySession(session: PersistedRepositorySession): Promise<void> {
+    const db = await this.database();
+    db.prepare(
+      `INSERT OR REPLACE INTO repository_sessions
+        (repository_id, root, head_sha, worktree_digest, updated_at)
+        VALUES (?, ?, ?, ?, ?)`
+    ).run(session.repositoryId, session.root, session.headSha, session.worktreeDigest, session.updatedAt);
+  }
+
+  async listRepositorySessions(): Promise<PersistedRepositorySession[]> {
+    const db = await this.database();
+    return db.prepare(
+      `SELECT repository_id, root, head_sha, worktree_digest, updated_at
+        FROM repository_sessions
+        ORDER BY updated_at ASC, repository_id ASC`
+    ).all().map((row) => ({
+      repositoryId: String(row.repository_id),
+      root: String(row.root),
+      headSha: String(row.head_sha),
+      worktreeDigest: String(row.worktree_digest),
+      updatedAt: String(row.updated_at)
+    }));
   }
 
   async beginChangeSet(root: string, draft: ChangeSetDraft): Promise<string> {

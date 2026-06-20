@@ -226,6 +226,7 @@ export class ArchctxDaemon {
     this.localStore.recoverPendingSnapshots();
     this.localStore.recoverPendingChangeSets();
     this.running = true;
+    await this.restoreRepositorySessions();
   }
 
   async stop(): Promise<void> {
@@ -558,6 +559,13 @@ export class ArchctxDaemon {
     };
     const snapshotId = await this.localStore.beginSnapshot(snapshot);
     await this.localStore.commitSnapshot(snapshotId);
+    await this.localStore.saveRepositorySession({
+      repositoryId: binding.repositoryId,
+      root: binding.root,
+      headSha,
+      worktreeDigest: binding.worktreeDigest,
+      updatedAt: this.clock()
+    });
     const validation = await this.modelStore.validateModel(workspace).catch(() => undefined);
     const session: RepositorySession = {
       workspace,
@@ -568,6 +576,27 @@ export class ArchctxDaemon {
     this.sessions.set(binding.repositoryId, session);
     this.evictOldSessions();
     return session;
+  }
+
+  private async restoreRepositorySessions(): Promise<void> {
+    for (const record of await this.localStore.listRepositorySessions()) {
+      if (!record.root || !existsSync(record.root)) continue;
+      if (repositoryFingerprint(record.root) !== record.repositoryId) continue;
+      this.sessions.set(record.repositoryId, {
+        workspace: {
+          root: record.root,
+          repositoryId: record.repositoryId,
+          headSha: record.headSha
+        },
+        snapshot: {
+          repositoryId: record.repositoryId,
+          headSha: record.headSha,
+          worktreeDigest: record.worktreeDigest
+        },
+        startedAt: record.updatedAt
+      });
+      this.evictOldSessions();
+    }
   }
 
   private evictOldSessions(): void {

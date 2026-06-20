@@ -29,7 +29,7 @@
 
 ## Scope
 
-This evidence covers FG1-01 through FG1-18 and closes FG1-EG1 plus FG1-EG4.
+This evidence covers FG1-01 through FG1-18 and closes FG1-EG1, FG1-EG2, and FG1-EG4.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -48,6 +48,10 @@ This evidence covers FG1-01 through FG1-18 and closes FG1-EG1 plus FG1-EG4.
 - Runtime control-file recovery removes insecure/invalid/dead connection files and stale lock files before daemon restart while leaving live PID locks as the single-writer guard.
 - CLI daemon discovery now invokes the same recovery path for ordinary commands, `daemon status`, and `daemon start`.
 - CLI E2E kills a real background daemon, observes stale connection/lock files left behind, restarts a new daemon, and verifies `recoveredStaleControlFiles` plus a new PID.
+- Existing repository roots are canonicalized before repository fingerprinting, so a CLI cwd such as `/private/var/...` and an MCP root argument such as `/var/...` resolve to the same repository session.
+- SQLite `repository_sessions` now stores the canonical root, head SHA, worktree digest, and update time independently from snapshot rows.
+- `archctxd` restores persisted repository sessions from SQLite during daemon start before serving `status`.
+- `scripts/packaged-cli-smoke.mjs` now stops and restarts the daemon, verifies `status.sessions=1` before any post-restart MCP call, then creates a ChangeSet through an MCP stdio process and applies it through a separate CLI process.
 - `archctx mcp install/status/remove` now emits Codex, Claude, and generic Agent Host MCP stdio configuration without writing host-owned global files.
 - `archctx config` and `archctx mcp install/status/remove` share the same host config generator for the `archctx mcp` stdio entrypoint.
 - `archctx doctor` now aggregates product version manifest, daemon health if present, SQLite path/migration range, CodeGraph requirement, Git root/head, filesystem permissions, and existing hardening diagnostics.
@@ -105,6 +109,7 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - `bun install`: PASS, installed local TypeScript toolchain.
 - `bun run typecheck`: PASS.
 - Runtime/CLI/MCP focused tests: PASS, 24 tests across the focused files.
+- FG1-EG2 canonical root/local store/runtime restart focused tests: PASS, 26 tests across architecture-domain, local-store-sqlite, and runtime-daemon focused files.
 - FG1-07 Runtime/CLI focused tests: PASS, 16 tests.
 - FG1-08 Runtime/CLI focused tests: PASS, 17 tests.
 - FG1-09 CLI focused tests: PASS, 9 tests.
@@ -117,11 +122,11 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - FG1-18 quickstart/lifecycle doc focused tests: PASS, 2 tests.
 - Contract tests: PASS, 83 tests.
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
-- `bun test`: PASS, 276 tests.
-- `node scripts/packaged-cli-smoke.mjs`: PASS.
+- `bun test`: PASS, 278 tests.
+- `node scripts/packaged-cli-smoke.mjs`: PASS, including restart session restore plus post-restart MCP `plan_update` and CLI `apply` shared-state readback.
 - `node scripts/local-product-tarball-smoke.mjs --artifact-dir /tmp/archctx-fg1-eg1-tarball-artifacts`: PASS, generated `archcontext-0.1.0.tgz`, installed it into a fresh consumer, and verified installed CLI/daemon/MCP plus CodeGraph-backed `sync`.
 - `node scripts/platform-ipc-permission-readback.mjs`: PASS locally.
-- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 43-entry acceptance ledger, sprint-status, and representative eval.
+- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 44-entry acceptance ledger, sprint-status, and representative eval.
 - GitHub Actions Verify run `27870884813`: PASS on ubuntu-latest, macos-latest, and windows-latest for Node 24.x and 25.x.
 - Downloaded hosted IPC artifacts: PASS, six `platform-ipc-permission-readback.json` files verified for schema `archcontext.platform-ipc-permission-readback/v1`, `http-loopback`, `127.0.0.1`, `loopbackOnly=true`, `tokenRedactedFromStatus=true`, and daemon start/status/stop lifecycle.
 - Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
@@ -135,6 +140,8 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - CLI daemon status does not expose the bearer token and reports `rpcVersionCompatible=true` from health readback.
 - Insecure connection files are ignored and then removed by stale recovery.
 - Dead daemon PID connection files and stale lock files are removed before reconnect; the restarted daemon uses a different PID.
+- Canonical repository root tests would fail if symlinked or OS-normalized paths produced separate repository IDs for the same existing directory.
+- Restart session restore would fail if SQLite did not persist the canonical root or if `archctxd` did not hydrate sessions before `status`.
 - Invalid MCP host names are rejected instead of producing ambiguous config.
 - Doctor reports daemon stopped rather than auto-starting it, preserving read-only diagnostics behavior.
 - The fixture's internal test file is named `basic.fixture.js` so the root `bun test` suite does not accidentally count fixture-owned tests as product tests.
@@ -159,7 +166,7 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 ## Known Limitations
 
-FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, Production mock reachability graph proof, host-owned config file mutation/readback, or doctor auto-remediation. FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
+FG1 is not complete. This slice does not claim formal `e2e:local-no-cloud` script coverage, Production mock reachability graph proof, host-owned config file mutation/readback, or doctor auto-remediation. FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
 
 ## Linked CI / GitHub Run IDs
 
@@ -174,4 +181,4 @@ FG1 is not complete. This slice does not claim daemon-restart persistent session
 
 ## Decision
 
-PARTIAL PASS for FG1-01 through FG1-18 plus FG1-EG1 and FG1-EG4. Remaining FG1 exit gates stay open.
+PARTIAL PASS for FG1-01 through FG1-18 plus FG1-EG1, FG1-EG2, and FG1-EG4. Remaining FG1 exit gates stay open.
