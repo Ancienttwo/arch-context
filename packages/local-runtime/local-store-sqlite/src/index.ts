@@ -156,6 +156,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   listCrossRepoRelations(landscape?: Landscape): Promise<CrossRepoRelation[]>;
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
+  close(): void;
 }
 
 type SqliteStatement = {

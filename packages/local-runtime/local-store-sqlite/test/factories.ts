@@ -114,4 +114,6 @@ export class TestLocalStore implements RuntimeLocalStore {
   async rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult> {
     return rebuildDerivedLandscapeState(this, input);
   }
+
+  close(): void {}
 }

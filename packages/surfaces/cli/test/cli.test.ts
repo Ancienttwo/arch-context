@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -17,6 +17,19 @@ function runTestCli(command: string, args: string[], root: string) {
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
   });
+}
+
+function removeTempRoot(root: string): void {
+  rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+}
+
+function expectSameExistingPath(actual: string, expected: string): void {
+  expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
+}
+
+function normalizeExistingPath(path: string): string {
+  const normalized = realpathSync.native(resolve(path));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 describe("archctx CLI", () => {
@@ -62,7 +75,8 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).version.rpcSchemaVersion).toBe(RUNTIME_RPC_VERSION);
       expect((doctor.data as any).daemon.running).toBe(false);
       expect((doctor.data as any).sqlite.path).toContain("runtime.sqlite");
-      expect((doctor.data as any).git).toMatchObject({ ok: true, root, headSha: "unborn" });
+      expect((doctor.data as any).git).toMatchObject({ ok: true, headSha: "unborn" });
+      expectSameExistingPath((doctor.data as any).git.root, root);
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
       expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.0.1");
       expect((doctor.data as any).egress).toMatchObject({
@@ -81,7 +95,7 @@ describe("archctx CLI", () => {
       const privacyAudit = await runTestCli("privacy-audit", [], root);
       expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -114,7 +128,7 @@ describe("archctx CLI", () => {
       stopped = true;
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -150,7 +164,7 @@ describe("archctx CLI", () => {
       const invalid = await runCli("mcp", ["install", "--host", "unknown"], root);
       expect(invalid.ok).toBe(false);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -204,7 +218,7 @@ describe("archctx CLI", () => {
     } finally {
       if (daemon.exitCode === null && !daemon.killed) daemon.kill("SIGTERM");
       await expectProcessExit(daemon).catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -242,7 +256,7 @@ describe("archctx CLI", () => {
       await expectFileRemoved(lockPath);
     } finally {
       await runCliProcess(root, "daemon", "stop").catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -277,7 +291,7 @@ describe("archctx CLI", () => {
       expect(status.data.running).toBe(true);
     } finally {
       await runCliProcess(root, "daemon", "stop").catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -311,7 +325,7 @@ describe("archctx CLI", () => {
       expect((status.data as any).running).toBe(true);
     } finally {
       await runCliProcess(root, "daemon", "stop").catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -372,7 +386,7 @@ describe("archctx CLI", () => {
       expect(status.data.running).toBe(true);
     } finally {
       await runCliProcess(root, "daemon", "stop").catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -401,8 +415,8 @@ describe("archctx CLI", () => {
       expect((start.data as any).command).toBe("archctx explore start --foreground");
       expect((start.data as any).readOnly).toBe(true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(otherRoot, { recursive: true, force: true });
+      removeTempRoot(root);
+      removeTempRoot(otherRoot);
     }
   });
 
@@ -425,7 +439,7 @@ describe("archctx CLI", () => {
       expect((tunnel.data as any).bindHost).toBe("127.0.0.1");
       expect((tunnel.data as any).writes).toContain("disabled-by-default");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 });

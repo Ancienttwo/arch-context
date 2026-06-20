@@ -231,6 +231,7 @@ export class ArchctxDaemon {
   async stop(): Promise<void> {
     await this.closeExplorer();
     this.sessions.clear();
+    this.localStore.close();
     this.running = false;
   }
 

@@ -63,7 +63,7 @@ describe("local product first-experience E2E", () => {
       expect(daemonStatus.data.running).toBe(false);
     } finally {
       await runArchctx(repo, "daemon", "stop").catch(() => undefined);
-      rmSync(workspace, { recursive: true, force: true });
+      removeTempRoot(workspace);
     }
   });
 });
@@ -92,7 +92,8 @@ async function runFirstExperience(
 
     const doctor = await runArchctx(repo, "doctor");
     expect(doctor.ok).toBe(true);
-    expect(doctor.data.git).toMatchObject({ ok: true, root: realpathSync(resolve(repo)), headSha });
+    expect(doctor.data.git).toMatchObject({ ok: true, headSha });
+    expectSameExistingPath(doctor.data.git.root, repo);
     expect(doctor.data.codeGraph.requiredVersion).toBe("1.0.1");
     expect(doctor.data.egress).toMatchObject({
       ok: true,
@@ -152,7 +153,7 @@ async function runFirstExperience(
     expect(complete.data.schemaVersion).toBe("archcontext.review/v1");
   } finally {
     await runArchctx(repo, "daemon", "stop").catch(() => undefined);
-    rmSync(workspace, { recursive: true, force: true });
+    removeTempRoot(workspace);
   }
 }
 
@@ -216,4 +217,17 @@ function resolveArchctxBin(): string {
     ? [join(BIN_DIR, "archctx.cmd"), join(BIN_DIR, "archctx.exe"), join(BIN_DIR, "archctx")]
     : [join(BIN_DIR, "archctx")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function removeTempRoot(root: string): void {
+  rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+}
+
+function expectSameExistingPath(actual: string, expected: string): void {
+  expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
+}
+
+function normalizeExistingPath(path: string): string {
+  const normalized = realpathSync.native(resolve(path));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }

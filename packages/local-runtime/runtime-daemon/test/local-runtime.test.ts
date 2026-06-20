@@ -27,6 +27,10 @@ function tempRepo(): string {
   return root;
 }
 
+function removeTempRepo(root: string): void {
+  rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+}
+
 function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0] = {}) {
   return createStartedDaemon({
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -71,7 +75,7 @@ describe("local runtime foundation", () => {
       expect((status.data as any).worktreeDigest).toMatch(/^sha256:/);
       expect(daemon.status().sessions).toBe(1);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepo(root);
     }
   });
 
@@ -167,7 +171,7 @@ describe("local runtime foundation", () => {
       expect(existsSync(connection.lockPath)).toBe(false);
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepo(root);
     }
   });
 
@@ -194,7 +198,7 @@ describe("local runtime foundation", () => {
       expect(() => assertProductionRuntimeDeps({ localStore: new TestLocalStore() })).toThrow("localStore");
       expect(() => assertProductionRuntimeDeps({ clock: () => "2026-06-20T00:00:00.000Z" })).toThrow("clock");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepo(root);
     }
   });
 
@@ -247,7 +251,7 @@ describe("local runtime foundation", () => {
       stopped = true;
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepo(root);
     }
   });
 
@@ -293,9 +297,9 @@ describe("local runtime foundation", () => {
       expect((context.data as any).extensions.landscapeDigest).toMatch(/^sha256:/);
       expect(JSON.stringify(context.data)).not.toContain("archcontextSyncService\":\"allowed");
     } finally {
-      rmSync(first, { recursive: true, force: true });
-      rmSync(second, { recursive: true, force: true });
-      rmSync(third, { recursive: true, force: true });
+      removeTempRepo(first);
+      removeTempRepo(second);
+      removeTempRepo(third);
     }
   });
 
@@ -339,7 +343,7 @@ describe("local runtime foundation", () => {
       await daemon.stopExplorer();
       expect((daemon.explorerStatus().data as any).running).toBe(false);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepo(root);
     }
   });
 });
