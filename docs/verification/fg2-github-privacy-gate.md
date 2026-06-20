@@ -13,7 +13,7 @@
   - `a2e16fe01b932a698fe242411cbcc56566c99642` — FG2-11 forbidden GitHub diff/patch media type rejection
   - `722c0e8de38dfba85a0f0a74356303ad37d36b8c` — FG2-12 generic Octokit client lint boundary
   - `ef0ec3093fdbe57bfdc973902a0ea9d0cc489caa` — FG2-13 GitHub egress recorder
-  - `(pending FG2-14 implementation commit)` — FG2-14 Cloud privacy surface projection
+  - `449de452139052dc80f08c42f03b4853d325bcf4` — FG2-14 Cloud privacy surface projection
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, or FG2-14 local E1/E2 slice
 - Started At: 2026-06-20
