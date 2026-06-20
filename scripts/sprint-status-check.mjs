@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { readbackGovernanceApproval } from "./governance-approval-check.mjs";
 
 const sprintPath = "plans/sprints/archctx-sprint.md";
 const specPath = "docs/spec.md";
@@ -57,7 +58,8 @@ async function validateSprint2EvidenceClaims(root, failures) {
   const securityScanManifest = await readOptional(root, "docs/security/scans/manifest.json");
   const pendingProductionScan = !hardening || /productionScan:\s*"pending"/.test(hardening) || !securityScanManifest || securityScanManifestHasPending(securityScanManifest, ["production", "staging"], failures);
   const missingRepresentativeEval = !(await fileExists(root, "docs/verification/s2-representative-eval.md"));
-  const missingHumanApproval = !(await fileExists(root, "docs/approvals/archctx-sprint-2.md"));
+  const humanApproval = await readbackGovernanceApproval({ root });
+  const missingHumanApproval = !humanApproval.ok;
   const missingRebuildProof = !(await fileExists(root, "docs/verification/s2-multirepo-rebuild.md"));
 
   if (/\b81\s*\/\s*81\b/.test(sprint)) {
@@ -70,7 +72,7 @@ async function validateSprint2EvidenceClaims(root, failures) {
   }
 
   if (missingHumanApproval) {
-    assertNotGreen(sprint, path, "CD-EG3", "human approval artifact is missing", failures);
+    assertNotGreen(sprint, path, "CD-EG3", "human approval artifact is missing or invalid", failures);
   }
   if (missingRebuildProof) {
     assertNotGreen(sprint, path, "MR-16", "delete-local-store rebuild proof is missing", failures);

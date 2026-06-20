@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/changeset.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/changeset.schema.json",
   "title": "ChangeSet",
   "type": "object",
   "additionalProperties": false,

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { readbackManifest } from "../../scripts/privacy-capture-manifest.mjs";
+import { readbackSecurityScanManifest } from "../../scripts/security-scan-manifest.mjs";
 
 export const OFFICIAL_OPENAI_APP_REVIEW_DOCS = [
   "https://developers.openai.com/apps-sdk/deploy/submission",
@@ -30,7 +32,7 @@ if (import.meta.main) {
   const result = command === "run"
     ? await runExternalReadback(config)
     : command === "preflight"
-      ? preflightReadback(config)
+      ? await preflightExternalReadback(config)
       : usage(command);
   const text = config.json ? JSON.stringify(result, null, 2) : renderHuman(result);
   process.stdout.write(`${text}\n`);
@@ -57,12 +59,19 @@ export function buildReadbackConfig(env = process.env, args = []) {
     providerWebhookUrl: readArg(args, "--provider-webhook-url") ?? env.ARCHCONTEXT_READBACK_PROVIDER_WEBHOOK_URL,
     sendProviderProbe: args.includes("--send-provider-probe") || env.ARCHCONTEXT_READBACK_SEND_PROVIDER_PROBE === "1",
     capturePath: readArg(args, "--capture") ?? env.ARCHCONTEXT_READBACK_CAPTURE_PATH ?? `artifacts/readback/${environment}-redacted.har.json`,
+    captureManifestPath: readArg(args, "--capture-manifest") ?? env.ARCHCONTEXT_CAPTURE_MANIFEST_PATH ?? "docs/security/captures/manifest.json",
+    securityScanManifestPath: readArg(args, "--security-scan-manifest") ?? env.ARCHCONTEXT_SECURITY_SCAN_MANIFEST_PATH ?? "docs/security/scans/manifest.json",
+    root: readArg(args, "--root") ?? env.ARCHCONTEXT_READBACK_ROOT ?? process.cwd(),
     json: args.includes("--json"),
     requireProductionEvidence: environment === "production" && !args.includes("--allow-partial")
   };
 }
 
-export function preflightReadback(config) {
+export async function preflightExternalReadback(config) {
+  return preflightReadback(config, await collectExternalEvidence(config));
+}
+
+export function preflightReadback(config, externalEvidence = {}) {
   const blockers = [];
   if (!config.baseUrl) blockers.push("missing ARCHCONTEXT_PRODUCTION_BASE_URL or ARCHCONTEXT_READBACK_BASE_URL");
   if (config.requireProductionEvidence && !config.openaiDirectoryUrl && !config.openaiDirectoryEvidencePath) {
@@ -71,6 +80,10 @@ export function preflightReadback(config) {
   if (config.requireProductionEvidence && !config.providerWebhookUrl && !config.providerEvidencePath) {
     blockers.push("missing real provider delivery evidence: set ARCHCONTEXT_READBACK_PROVIDER_WEBHOOK_URL or ARCHCONTEXT_PROVIDER_DELIVERY_EVIDENCE_PATH");
   }
+  const captureEvidence = externalEvidence.capture ?? externalEvidenceStatus(config.requireProductionEvidence, "packet capture");
+  const securityScanEvidence = externalEvidence.securityScan ?? externalEvidenceStatus(config.requireProductionEvidence, "security scan");
+  if (config.requireProductionEvidence && !captureEvidence.ok) blockers.push(formatExternalEvidenceBlocker("packet capture", captureEvidence));
+  if (config.requireProductionEvidence && !securityScanEvidence.ok) blockers.push(formatExternalEvidenceBlocker("security scan", securityScanEvidence));
   return {
     schemaVersion: "archcontext.production-ga-readback/v1",
     environment: config.environment,
@@ -80,14 +93,32 @@ export function preflightReadback(config) {
       archcontextBaseUrl: Boolean(config.baseUrl),
       gptAppDirectoryEvidence: Boolean(config.openaiDirectoryUrl || config.openaiDirectoryEvidencePath),
       providerDeliveryEvidence: Boolean(config.providerWebhookUrl || config.providerEvidencePath),
+      packetCaptureExternalEvidence: projectExternalEvidence(captureEvidence),
+      securityScanExternalEvidence: projectExternalEvidence(securityScanEvidence),
+      captureManifestPath: config.captureManifestPath,
+      securityScanManifestPath: config.securityScanManifestPath,
       capturePath: config.capturePath
     },
     officialOpenAiDocs: OFFICIAL_OPENAI_APP_REVIEW_DOCS
   };
 }
 
+export async function collectExternalEvidence(config) {
+  if (!config.requireProductionEvidence) {
+    return {
+      capture: externalEvidenceStatus(false, "packet capture"),
+      securityScan: externalEvidenceStatus(false, "security scan")
+    };
+  }
+  const [capture, securityScan] = await Promise.all([
+    readStrictCaptureEvidence(config),
+    readStrictSecurityScanEvidence(config)
+  ]);
+  return { capture, securityScan };
+}
+
 export async function runExternalReadback(config, fetchImpl = fetch) {
-  const preflight = preflightReadback(config);
+  const preflight = await preflightExternalReadback(config);
   if (preflight.status === "blocked") return preflight;
 
   const entries = [];
@@ -107,11 +138,11 @@ export async function runExternalReadback(config, fetchImpl = fetch) {
     entries.push(result.harEntry);
     checks.push(projectEndpointCheck(result));
   }
-  if (config.providerEvidencePath) checks.push(await readEvidenceFile("provider-delivery-evidence", config.providerEvidencePath));
-  if (config.openaiDirectoryEvidencePath) checks.push(await readEvidenceFile("openai-directory-evidence", config.openaiDirectoryEvidencePath));
+  if (config.providerEvidencePath) checks.push(await readEvidenceFile("provider-delivery-evidence", config.providerEvidencePath, config.root));
+  if (config.openaiDirectoryEvidencePath) checks.push(await readEvidenceFile("openai-directory-evidence", config.openaiDirectoryEvidencePath, config.root));
 
   const capture = { log: { version: "1.2", creator: { name: "ArchContext production-ga-readback", version: "1.0.0" }, entries } };
-  await writeJson(config.capturePath, capture);
+  await writeJson(config.capturePath, capture, config.root);
   const failed = checks.filter((check) => check.status !== "pass");
   return {
     schemaVersion: "archcontext.production-ga-readback/v1",
@@ -172,9 +203,55 @@ function projectEndpointCheck(result) {
   return { id: result.id, status: failures.length === 0 ? "pass" : "fail", failures };
 }
 
-async function readEvidenceFile(id, path) {
-  const body = await readFile(resolve(process.cwd(), path), "utf8");
+async function readEvidenceFile(id, path, root) {
+  const body = await readFile(resolve(root, path), "utf8");
   return { id, status: body.trim().length > 0 ? "pass" : "fail", evidencePath: path, failures: body.trim().length > 0 ? [] : ["empty evidence file"] };
+}
+
+async function readStrictCaptureEvidence(config) {
+  try {
+    return await readbackManifest({
+      manifestPath: config.captureManifestPath,
+      root: config.root,
+      requireExternal: true
+    });
+  } catch (error) {
+    return { ok: false, verified: 0, pending: 0, externalVerified: 0, failures: [error.message] };
+  }
+}
+
+async function readStrictSecurityScanEvidence(config) {
+  try {
+    return await readbackSecurityScanManifest({
+      manifestPath: config.securityScanManifestPath,
+      root: config.root,
+      requireExternal: true
+    });
+  } catch (error) {
+    return { ok: false, verified: 0, pending: 0, externalVerified: 0, failures: [error.message] };
+  }
+}
+
+function externalEvidenceStatus(required, kind) {
+  return required
+    ? { ok: false, verified: 0, pending: 0, externalVerified: 0, failures: [`${kind} external readback was not checked`] }
+    : { ok: true, verified: 0, pending: 0, externalVerified: 0, failures: [], notRequired: true };
+}
+
+function projectExternalEvidence(evidence) {
+  return {
+    ok: evidence.ok,
+    verified: evidence.verified,
+    pending: evidence.pending,
+    externalVerified: evidence.externalVerified,
+    failures: evidence.failures ?? [],
+    notRequired: Boolean(evidence.notRequired)
+  };
+}
+
+function formatExternalEvidenceBlocker(kind, evidence) {
+  const suffix = evidence.failures?.length ? `: ${evidence.failures.join("; ")}` : "";
+  return `missing verified staging or production ${kind}${suffix}`;
 }
 
 function toHarEntry(input) {
@@ -193,8 +270,8 @@ function toHarEntry(input) {
   };
 }
 
-async function writeJson(path, value) {
-  const absolute = resolve(process.cwd(), path);
+async function writeJson(path, value, root) {
+  const absolute = resolve(root, path);
   await mkdir(dirname(absolute), { recursive: true });
   await writeFile(absolute, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }

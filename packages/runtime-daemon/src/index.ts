@@ -483,7 +483,7 @@ export class ArchctxDaemon {
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const projection = await this.buildExplorerProjection(session.root, url.searchParams.get("q") ?? undefined);
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      response.end(renderExplorerHtml(projection));
+      response.end(renderExplorerHtml(projection, { focusId: url.searchParams.get("focus") }));
       return;
     }
     if (url.pathname === "/projection" || url.pathname === "/search") {

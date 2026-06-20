@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/repo/landscape.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/repo/landscape.schema.json",
   "title": "Landscape",
   "type": "object",
   "additionalProperties": false,

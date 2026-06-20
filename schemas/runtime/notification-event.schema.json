@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/notification-event.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/notification-event.schema.json",
   "title": "NotificationEvent",
   "type": "object",
   "additionalProperties": false,

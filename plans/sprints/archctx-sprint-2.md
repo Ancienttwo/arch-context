@@ -3,7 +3,7 @@
 > **Status**: Complete（repo-local deterministic；production / governance evidence pending）
 > **Slug**: archctx-s2
 > **Created**: 2026-06-19
-> **Updated**: 2026-06-19
+> **Updated**: 2026-06-20
 > **Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Source Spec**: `docs/spec.md`
 > **Prior Sprint**: `plans/sprints/archctx-sprint.md`（MVP scaffold 已验收；生产 Launch Gate 仍有 proxy 验证待补）
@@ -48,7 +48,7 @@
 
 | 里程碑 | 范围 | 任务 | Exit Gate | 证据状态 |
 |---|---|--:|--:|--:|
-| CD | 契约增量 + 新 ADR | 11 | 4 | 14 deterministic / 15 tracked（CD-EG3 self-attested） |
+| CD | 契约增量 + 新 ADR | 11 | 4 | 14 deterministic / 15 tracked（CD-EG3 approval handoff exists; human completion pending） |
 | MR | 多仓架构上下文 | 16 | 5 | 20 deterministic / 21 tracked（MR-EG5 production capture pending/proxy） |
 | TR | 可信 Runner / 组织 Attestation | 12 | 5 | 16 deterministic / 17 tracked（TR-EG4 proxy） |
 | BL | 按人头计费 v2（年付） | 9 | 5 | 14 deterministic / 14 tracked |
@@ -56,6 +56,7 @@
 | **合计** | | **56** | **25** | **76 deterministic / 81 tracked** |
 
 > Sprint 2 代码与本地确定性验证已交付；上表不再把 production capture、安全扫描、Eval、人类签批、真实 rebuild 证明计为全绿。`bun run verify` 证明 repo-local deterministic surface，不证明 production launch readiness。
+> External/governance readback bundle: `docs/verification/s2-external-evidence-readback.md`; acquisition handoff: `docs/verification/s2-external-evidence-handoff.md`.
 
 ## Backlog（里程碑 waypoint 索引）
 
@@ -98,7 +99,7 @@
 |----|:--:|------|------------------|
 | CD-EG1 | ☑ | 新/扩展 Schema 正反边界 fixture 全绿 | `bun test packages/contracts` |
 | CD-EG2 | ☑ | 旧单仓模型在新 Schema 下无损读取 | 向后兼容 round-trip 测试 |
-| CD-EG3 | ◐ | ADR-0026/0027/0028 记录；Human Gate 批准记录待归档 | 签批记录存档 |
+| CD-EG3 | ◐ | ADR-0026/0027/0028 记录；Human Gate 批准记录待归档 | strict governance readback in `docs/verification/s2-governance-approval-readback.md`; approval handoff exists, human completion pending |
 | CD-EG4 | ☑ | contracts 包仍不依赖 cli/mcp/db/cloud | 依赖断言无越界 |
 
 ## MR · 多仓架构上下文
@@ -232,8 +233,11 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 
 | When | Task | Plan | Result |
 |------|------|------|--------|
-| 2026-06-19 | CD contracts delta | Add schema/fixtures for cross-repo relation, landscape, org runner identity, entitlement; extend ID and attestation trustLevel; add ADR-0026/27/28. | Repo-local implementation completed; `bun test packages/contracts` covered new and old fixtures. Human approval artifact pending. |
+| 2026-06-19 | CD contracts delta | Add schema/fixtures for cross-repo relation, landscape, org runner identity, entitlement; extend ID and attestation trustLevel; add ADR-0026/27/28. | Repo-local implementation completed; `bun test packages/contracts` covered new and old fixtures. Strict governance approval readback added in `docs/verification/s2-governance-approval-readback.md`; approval handoff added in `docs/approvals/archctx-sprint-2.md`, human completion pending. |
 | 2026-06-19 | MR multi-repo context | Implement landscape domain, repo-scoped IDs, multi-repo CodeGraph aggregation, bounded landscape context, local derived store, CLI repo/landscape commands, cross-repo reconcile/review/pressure. | Repo-local implementation completed; covered by architecture-domain/codegraph-adapter/context-compiler/runtime-daemon/cli/reconcile/review/pressure tests. Delete-local-store rebuild proof added in `docs/verification/s2-multirepo-rebuild.md`; production capture pending. |
 | 2026-06-19 | TR trusted runner | Implement organization trustLevel, org runner identity binding, runner package signing, SaaS verifier path, Check Run display and protected repo requirement, docs and threat model. | Repo-local implementation completed; covered by attestation/runner/control-plane/github-app tests. Production runner capture pending. |
 | 2026-06-19 | BL billing v2 | Add monthly/annual prices, billingInterval entitlement, Stripe event interval handling, switch proration, offline annual entitlement, D1 metadata. | Completed; covered by control-plane/control-plane-client/cloud-db tests. |
 | 2026-06-19 | HL hardening launch | Add Sprint 2 hardening report, schema upgrade notes, runner setup, multi-repo example, privacy route audit and full regression. | Repo-local deterministic verification completed: `bun test`, `node scripts/privacy-route-audit.mjs`, `node scripts/sprint-status-check.mjs`. Representative Eval added in `docs/verification/s2-representative-eval.md`; strict external capture readback added in `docs/verification/s2-production-capture-readback.md`; strict production security scan readback added in `docs/verification/s2-production-security-scan-readback.md`; production capture and production scan pending. |
+| 2026-06-20 | Sprint 2 external evidence bundle | Aggregate the remaining governance, packet capture, and security scan evidence gates into one readback command. | Added `docs/verification/s2-external-evidence-readback.md` and `bun run readback:s2:external`; current result remains blocked until human approval, external packet capture, and external security scan are recorded. |
+| 2026-06-20 | Sprint 2 external evidence handoff | Turn the remaining external evidence blockers into a bounded acquisition packet without recording placeholder evidence. | Added `docs/verification/s2-external-evidence-handoff.md` and `bun run handoff:s2:external`; current result remains blocked until the external artifacts pass strict readback. |
+| 2026-06-20 | Sprint 2 external evidence recorder | Add a single external evidence recorder for human-approved capture and scan artifacts. | Added `node scripts/sprint2-external-evidence-record.mjs record`; it preflights governance/capture/scan evidence, records the capture and scan manifests, and immediately runs strict Sprint 2 readback. Current repo state remains blocked because the real approval/capture/scan artifacts are not yet present. |

@@ -15,10 +15,14 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "test:contracts": "bun test packages/contracts/test/contracts.test.ts",
+    "handoff:s2:external": "node scripts/sprint2-external-evidence-handoff.mjs render",
+    "record:s2:external": "node scripts/sprint2-external-evidence-record.mjs record",
+    "readback:s2:external": "node scripts/sprint2-external-evidence-readback.mjs readback --json",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",
     "readback:ga": "node deploy/scripts/production-ga-readback.mjs run --environment production --json",
-    "verify": "bun run typecheck && bun test && node scripts/privacy-route-audit.mjs && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && node scripts/security-scan-manifest.mjs readback && node scripts/sprint-status-check.mjs",
-    "check:sprint": "node scripts/sprint-status-check.mjs"
+    "verify": "bun run typecheck && bun test && node scripts/privacy-route-audit.mjs && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && node scripts/security-scan-manifest.mjs readback && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
+    "check:sprint": "node scripts/sprint-status-check.mjs",
+    "eval": "bun evals/run.ts"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/repo/architecture-node.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/repo/architecture-node.schema.json",
   "title": "ArchitectureNode",
   "type": "object",
   "additionalProperties": false,

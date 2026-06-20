@@ -34,8 +34,11 @@ export function computeRefactorConfidence(input: {
 }
 
 export function decidePosture(pressure: ArchitecturePressure, confidence: RefactorConfidence): ArchitecturePosture {
-  if (pressure.level === "high" && confidence.level === "low") return "proof-required";
-  if (pressure.level === "high" && confidence.level === "high") return "intervention";
+  if (pressure.level === "high") {
+    // High pressure must never resolve to "normal". Direct intervention needs high
+    // confidence; with low or medium confidence, prove the smallest path first.
+    return confidence.level === "high" ? "intervention" : "proof-required";
+  }
   if (pressure.level === "medium") return "structural";
   return "normal";
 }

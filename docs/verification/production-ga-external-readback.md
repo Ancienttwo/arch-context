@@ -17,6 +17,7 @@ This readback did not produce a production-verified capture because the required
 - `https://archcontext.dev/chatgpt/directory` returned HTTP 404.
 - `https://archcontext.dev/.well-known/oauth-authorization-server` returned HTTP 404.
 - `docs/security/scans/manifest.json` contains deterministic review evidence only; `production.security-scan` remains pending.
+- `bun run readback:ga:preflight` now blocks on missing base URL, Directory evidence, provider delivery evidence, external capture evidence, and external security scan evidence.
 
 ## Readback Contract
 
@@ -27,13 +28,20 @@ node deploy/scripts/production-ga-readback.mjs preflight --environment productio
 node deploy/scripts/production-ga-readback.mjs run --environment production --json
 ```
 
+The production preflight reads both evidence manifests before reporting `ready`:
+
+```bash
+node scripts/privacy-capture-manifest.mjs readback --require-external
+node scripts/security-scan-manifest.mjs readback --require-external
+```
+
 Required production evidence:
 
 - Deployed ArchContext base URL.
 - GPT App Directory listing or non-secret evidence artifact.
 - Real provider delivery evidence or explicitly safe provider webhook probe.
-- Redacted production or staging HAR registered into `docs/security/captures/manifest.json` and verified with `node scripts/privacy-capture-manifest.mjs readback --require-external`.
-- Production or staging security scan registered into `docs/security/scans/manifest.json` and verified with `node scripts/security-scan-manifest.mjs readback --require-external`.
+- Redacted production or staging HAR registered into `docs/security/captures/manifest.json` and verified by production preflight.
+- Production or staging security scan registered into `docs/security/scans/manifest.json` and verified by production preflight.
 
 ## Boundary
 

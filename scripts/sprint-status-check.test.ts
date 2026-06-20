@@ -61,9 +61,29 @@ describe("sprint-status-check", () => {
       }
     );
   });
+
+  test("rejects green CD-EG3 when the approval artifact is automation self-attested", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+
+| ID | St | Gate | 验证方式（目标） |
+|----|:--:|------|------------------|
+| CD-EG3 | ☑ | ADR-0026/0027/0028 记录并 Human Gate 批准 | docs/approvals/archctx-sprint-2.md |
+`,
+      async (root) => {
+        const failures = await collectSprintStatusFailures(root);
+        expect(failures.some((failure) => failure.includes("CD-EG3") && failure.includes("missing or invalid"))).toBe(true);
+      },
+      {
+        approvalArtifact: approvalArtifact("Codex automation")
+      }
+    );
+  });
 });
 
-async function withFixture(sprint2: string, run: (root: string) => Promise<void>) {
+async function withFixture(sprint2: string, run: (root: string) => Promise<void>, options: { approvalArtifact?: string } = {}) {
   const root = await mkdtemp(join(tmpdir(), "archctx-sprint-status-"));
   try {
     await write(root, "docs/spec.md", "Full PRD: plans/prds/20260619-2039-archcontext.prd.md\n");
@@ -88,6 +108,9 @@ async function withFixture(sprint2: string, run: (root: string) => Promise<void>
       ].join("\n")
     );
     await write(root, "plans/sprints/archctx-sprint-2.md", sprint2);
+    if (options.approvalArtifact) {
+      await write(root, "docs/approvals/archctx-sprint-2.md", options.approvalArtifact);
+    }
     await write(
       root,
       "packages/hardening/src/index.ts",
@@ -118,6 +141,20 @@ async function withFixture(sprint2: string, run: (root: string) => Promise<void>
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function approvalArtifact(approvedBy: string) {
+  return `# ArchContext Sprint 2 Approval Record
+
+> **Status**: Approved
+> **Date**: 2026-06-20
+> **Approved By**: ${approvedBy}
+> **Scope**: archctx-s2 contract delta and ADR-0026/ADR-0027/ADR-0028
+
+## Approved Boundary
+
+- ADR-0026, ADR-0027, and ADR-0028 are accepted.
+`;
 }
 
 async function write(root: string, path: string, content: string) {

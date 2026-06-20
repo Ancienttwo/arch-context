@@ -152,6 +152,9 @@ describe("local runtime foundation", () => {
       const html = await fetch(`${data.url}?token=${data.token}`);
       expect(await html.text()).toContain("ArchContext Explorer");
 
+      const focusedHtml = await fetch(`${data.url}?token=${data.token}&focus=.archcontext/manifest.yaml`);
+      expect(await focusedHtml.text()).toContain("Architecture diagram focused on manifest.yaml");
+
       await daemon.revokeExplorerToken();
       const revoked = await fetch(`${data.url}projection`, {
         headers: { Authorization: `Bearer ${data.token}` }

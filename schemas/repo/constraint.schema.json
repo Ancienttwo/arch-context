@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/repo/constraint.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/repo/constraint.schema.json",
   "title": "Constraint",
   "type": "object",
   "additionalProperties": false,

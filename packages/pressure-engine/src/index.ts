@@ -37,7 +37,12 @@ export function detectArchitecturePressure(input: PressureInput): ArchitecturePr
   addIf(/duplicate|same responsibility|copy/.test(haystack), "duplicate-responsibility", "medium", ["task-text"]);
   addIf(/owner|lifecycle/.test(haystack) && /two|multiple|split/.test(haystack), "multiple-lifecycle-owner", "high", ["task-text"]);
   addIf(/wrapper|adapter|mapper|fallback/.test(haystack), "unjustified-wrapper-adapter", "high", ["task-text"]);
-  addIf(/v1|v2|legacy|old|new/.test(haystack), "dual-track-business-concept", "high", ["task-text"]);
+  // Strong version markers (v1/v2/legacy/deprecated) are genuine dual-track evidence; bare
+  // "old"/"new" are English-common and only weak heuristics on their own, so they score low
+  // and cannot, alone, push a benign task into medium/high pressure.
+  const strongDualTrack = /v1|v2|legacy|deprecated/.test(haystack);
+  const weakDualTrack = /\bold\b|\bnew\b/.test(haystack);
+  addIf(strongDualTrack || weakDualTrack, "dual-track-business-concept", strongDualTrack ? "high" : "low", ["task-text"]);
   addIf(/direct db|cross boundary|payment credential|forbidden data/.test(haystack), "cross-boundary-data-access", "high", ["task-text"]);
   addIf(/cycle|hotspot|too many callers/.test(haystack), "cycle-or-hotspot", "medium", ["task-text"]);
   if (input.migrationReviewDate && input.now && input.migrationReviewDate < input.now) {

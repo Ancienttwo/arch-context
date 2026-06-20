@@ -1,0 +1,24 @@
+// Deterministic invariant for §25.3 (supported-pattern correctness): an intervention's
+// target state must never contain a migration-only (temporary) relation, and must declare
+// removed concepts + temporary relations distinctly. Engine: refactor-decision.createInterventionProposal.
+// Inputs are varied to show the separation holds regardless of task/pressure/confidence.
+{"id":"tm-001","note":"legacy wrapper removal","task":"remove the legacy v1 wrapper owned by two lifecycle teams","confidence":{"callerCoverage":1,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-002","note":"low confidence variant","task":"rewrite the legacy fallback mapper with unknown external consumers","confidence":{"callerCoverage":0.1,"testsAvailable":false,"rollbackAvailable":false,"externalConsumers":["partner.x"]}}
+{"id":"tm-003","note":"duplicate adapters","task":"consolidate duplicate v1 and v2 adapters under one owner","confidence":{"callerCoverage":0.8,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-004","note":"payment cross-boundary","task":"untangle payment credential access across old and new wrappers","confidence":{"callerCoverage":0.3,"testsAvailable":false,"rollbackAvailable":true,"persistedData":["card-tokens"]}}
+{"id":"tm-005","note":"medium pressure structural","task":"introduce a new adapter for the legacy reporting module","confidence":{"callerCoverage":0.7,"testsAvailable":true,"rollbackAvailable":false}}
+{"id":"tm-006","note":"benign task still yields a separated skeleton","task":"add a unit test for the date parser","confidence":{"callerCoverage":0.9,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-007","note":"multiple owners","task":"unify old and new billing wrappers with multiple lifecycle owners","confidence":{"callerCoverage":1,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-008","note":"persisted data migration","task":"migrate the dual-written order rows to a single table","confidence":{"callerCoverage":0.5,"testsAvailable":true,"rollbackAvailable":true,"persistedData":["order-rows"]}}
+{"id":"tm-009","note":"external consumers present","task":"remove the v1 public endpoint still used by partners","confidence":{"callerCoverage":0.4,"testsAvailable":true,"rollbackAvailable":false,"externalConsumers":["partner.acme","partner.globex"]}}
+{"id":"tm-010","note":"hotspot dedup","task":"deduplicate the copied serialization hotspot","confidence":{"callerCoverage":0.6,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-011","note":"split versioned mapper","task":"split the v2 mapper into smaller mappers","confidence":{"callerCoverage":0.8,"testsAvailable":false,"rollbackAvailable":true}}
+{"id":"tm-012","note":"fallback path removal","task":"delete the fallback path split across multiple owners","confidence":{"callerCoverage":0.2,"testsAvailable":false,"rollbackAvailable":false,"externalConsumers":["svc.partner"]}}
+{"id":"tm-013","note":"no pressure signal","task":"increase the request timeout in the config","confidence":{"callerCoverage":0.9,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-014","note":"legacy + duplicate combined","task":"collapse the legacy wrapper and duplicate mapper maintained by two teams","confidence":{"callerCoverage":1,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-015","note":"cross boundary direct db","task":"stop the direct db access that crosses the billing boundary","confidence":{"callerCoverage":0.3,"testsAvailable":false,"rollbackAvailable":true}}
+{"id":"tm-016","note":"rolling deployment context","task":"remove the two API versions kept during the staged rollout","confidence":{"callerCoverage":0.7,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-017","note":"new wrapper introduction","task":"introduce a new wrapper around the billing client","confidence":{"callerCoverage":0.8,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-018","note":"unknown consumers + persisted","task":"replace the legacy mapper with unknown consumers and persisted status values","confidence":{"callerCoverage":0.1,"testsAvailable":false,"rollbackAvailable":false,"externalConsumers":["partner.unknown"],"persistedData":["status-values"]}}
+{"id":"tm-019","note":"docs task","task":"document the architecture decision for the new export format","confidence":{"callerCoverage":0.9,"testsAvailable":true,"rollbackAvailable":true}}
+{"id":"tm-020","note":"high pressure full confidence","task":"remove the legacy v1 wrapper and fallback mapper owned by multiple lifecycle teams","confidence":{"callerCoverage":1,"testsAvailable":true,"rollbackAvailable":true}}

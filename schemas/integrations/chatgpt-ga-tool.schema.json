@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/integrations/chatgpt-ga-tool.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/integrations/chatgpt-ga-tool.schema.json",
   "title": "ChatGptGaToolContract",
   "type": "object",
   "additionalProperties": false,

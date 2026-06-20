@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.archcontext.dev/runtime/task-context.schema.json",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/task-context.schema.json",
   "title": "TaskContext",
   "type": "object",
   "additionalProperties": false,
