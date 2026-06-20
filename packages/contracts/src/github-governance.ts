@@ -20,6 +20,7 @@ export const GITHUB_APP_PERMISSION_MANIFEST = {
     metadata: "read",
     pull_requests: "read",
     checks: "write",
+    statuses: "write",
     contents: "none"
   },
   forbiddenByDefault: [
@@ -34,8 +35,9 @@ export const GITHUB_APP_PERMISSION_MANIFEST = {
   conditionalPermissions: {
     commit_statuses: {
       default: "none",
-      maximumAfterStagingDecision: "write",
-      decisionGate: "FG2-02 / FG2-EG6"
+      implemented: "write",
+      decisionGate: "FG2-02 / FG2-EG6",
+      reason: "GitHub ruleset expected-source App binding requires statuses:write; runtime still publishes Checks, not commit statuses."
     }
   },
   subscribedEvents: [

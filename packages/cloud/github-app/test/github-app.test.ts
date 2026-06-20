@@ -26,6 +26,7 @@ describe("GitHub App", () => {
       metadata: "read",
       pull_requests: "read",
       checks: "write",
+      statuses: "write",
       contents: "none"
     });
     expect(GITHUB_APP_PERMISSIONS.contents).toBe("none");

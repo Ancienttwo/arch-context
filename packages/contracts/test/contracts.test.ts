@@ -273,6 +273,7 @@ describe("GitHub governance contracts", () => {
       metadata: "read",
       pull_requests: "read",
       checks: "write",
+      statuses: "write",
       contents: "none"
     });
     expect(GITHUB_APP_PERMISSION_MANIFEST.forbiddenByDefault).toEqual([
@@ -286,8 +287,9 @@ describe("GitHub governance contracts", () => {
     ]);
     expect(GITHUB_APP_PERMISSION_MANIFEST.conditionalPermissions.commit_statuses).toEqual({
       default: "none",
-      maximumAfterStagingDecision: "write",
-      decisionGate: "FG2-02 / FG2-EG6"
+      implemented: "write",
+      decisionGate: "FG2-02 / FG2-EG6",
+      reason: "GitHub ruleset expected-source App binding requires statuses:write; runtime still publishes Checks, not commit statuses."
     });
     expect(GITHUB_APP_PERMISSION_MANIFEST.subscribedEvents).toEqual([
       "installation",
