@@ -1,6 +1,6 @@
 # FG0 Verification
 
-- Commit SHA: pending final commit
+- Commit SHA: `1422bed feat: complete governance FG0 contracts`
 - Build/Artifact Digest: not applicable for contract slice
 - Environment: local checkout `/Users/ancienttwo/Projects/arch-context`
 - GitHub App Installation ID: not used in FG0
