@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T14:02:49Z",
+  "updatedAt": "2026-06-20T14:09:35Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -707,6 +707,18 @@
       "evidence": [
         "docs/security/fixtures/cloud-private-content-bait.json",
         "scripts/cloud-private-content-bait.test.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "scripts/github-api-contract-audit.mjs",
+        "scripts/github-api-contract-audit.test.ts",
+        "package.json",
         "docs/verification/fg2-github-privacy-gate.md"
       ]
     }

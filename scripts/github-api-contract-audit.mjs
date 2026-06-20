@@ -20,6 +20,25 @@ const blockedGenericClientIdentifiers = [
   { name: "GithubClient", pattern: /\bGithubClient\b/ },
   { name: "githubClient", pattern: /\bgithubClient\b/ }
 ];
+const allowedGitHubApiMethods = new Set(["GET", "POST", "PATCH"]);
+const httpMethodPattern = /^(GET|POST|PATCH|PUT|DELETE|HEAD|OPTIONS|TRACE|CONNECT)$/i;
+const forbiddenGitHubApiEndpointPatterns = [
+  { name: "github.pr-files", pattern: /^\/(?:repos\/[^/]+\/[^/]+|repositories\/[^/]+)\/pulls\/[^/?#]+\/files(?:[?#].*)?$/ },
+  { name: "github.contents", pattern: /^\/(?:repos\/[^/]+\/[^/]+|repositories\/[^/]+)\/contents(?:\/[^?#]*)?(?:[?#].*)?$/ },
+  { name: "github.blob", pattern: /^\/(?:repos\/[^/]+\/[^/]+|repositories\/[^/]+)\/git\/blobs\/[^/?#]+(?:[?#].*)?$/ },
+  { name: "github.tree", pattern: /^\/(?:repos\/[^/]+\/[^/]+|repositories\/[^/]+)\/git\/trees\/[^/?#]+(?:[?#].*)?$/ }
+];
+const allowedGitHubApiPathPatterns = [
+  /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/pulls\/(?:\{pull_number\}|\$\{[^}]+\}|[1-9]\d*)$/,
+  /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/check-runs$/,
+  /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/check-runs\/(?:\{check_run_id\}|\$\{[^}]+\}|[^/?#]+)$/
+];
+const forbiddenGitHubAcceptMediaTypes = [
+  "application/vnd.github.diff",
+  "application/vnd.github.patch",
+  "application/vnd.github.v3.diff",
+  "application/vnd.github.v3.patch"
+];
 
 export async function auditGitHubApiContract({ root = process.cwd(), scanRoots = DEFAULT_GITHUB_API_CONTRACT_SCAN_ROOTS } = {}) {
   const findings = [];
@@ -36,12 +55,13 @@ export async function auditGitHubApiContract({ root = process.cwd(), scanRoots =
           }
         }
       }
-      const productionSource = stripComments(source);
+      const productionSource = scrubAllowedPolicyDeclarations(stripComments(source));
       for (const identifier of blockedGenericClientIdentifiers) {
         if (identifier.pattern.test(productionSource)) {
           findings.push(`${display(root, file)} references generic GitHub client identifier ${identifier.name}`);
         }
       }
+      for (const finding of auditGitHubPrivacyContractSource(root, file, productionSource)) findings.push(finding);
     }
   }
   return {
@@ -49,6 +69,39 @@ export async function auditGitHubApiContract({ root = process.cwd(), scanRoots =
     scannedFiles,
     findings
   };
+}
+
+function auditGitHubPrivacyContractSource(root, file, source) {
+  const findings = [];
+  const path = display(root, file);
+
+  for (const literal of stringLiterals(source)) {
+    const value = literal.value.trim();
+    const lower = value.toLowerCase();
+    for (const endpoint of forbiddenGitHubApiEndpointPatterns) {
+      if (endpoint.pattern.test(value)) {
+        findings.push(`${path} references forbidden GitHub API endpoint ${endpoint.name}`);
+      }
+    }
+    for (const mediaType of forbiddenGitHubAcceptMediaTypes) {
+      if (acceptLiteralContainsMediaType(lower, mediaType)) {
+        findings.push(`${path} references forbidden GitHub API media type ${mediaType}`);
+      }
+    }
+    if (looksLikeGitHubApiPath(value) && !allowedGitHubApiPathPatterns.some((pattern) => pattern.test(value))) {
+      findings.push(`${path} references non-allowlisted GitHub API endpoint ${value}`);
+    }
+  }
+
+  if (isGitHubApiContractFile(path)) {
+    for (const method of githubMethodLiterals(source)) {
+      if (httpMethodPattern.test(method) && !allowedGitHubApiMethods.has(method.toUpperCase())) {
+        findings.push(`${path} references forbidden GitHub API method ${method.toUpperCase()}`);
+      }
+    }
+  }
+
+  return findings;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -92,6 +145,44 @@ function stripComments(source) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+function scrubAllowedPolicyDeclarations(source) {
+  return source
+    .replace(/\bexport\s+const\s+GITHUB_FORBIDDEN_ACCEPT_MEDIA_TYPES\s*=\s*\[[\s\S]*?\]\s+as\s+const\s*;/g, "")
+    .replace(/\bexport\s+const\s+GITHUB_FORBIDDEN_API_ENDPOINTS\s*=\s*\[[\s\S]*?\]\s+as\s+const\s*;/g, "");
+}
+
+function stringLiterals(source) {
+  const out = [];
+  const pattern = /(["'`])((?:\\.|(?!\1)[\s\S])*?)\1/g;
+  for (const match of source.matchAll(pattern)) out.push({ value: match[2] ?? "", index: match.index ?? 0 });
+  return out;
+}
+
+function acceptLiteralContainsMediaType(value, mediaType) {
+  return value
+    .split(",")
+    .map((part) => part.trim().split(";")[0])
+    .some((part) => part === mediaType);
+}
+
+function looksLikeGitHubApiPath(value) {
+  return /^\/(?:repositories|repos)\//.test(value);
+}
+
+function githubMethodLiterals(source) {
+  const out = [];
+  const pattern = /\bmethod\s*:\s*([^;\n,}]+)/g;
+  for (const match of source.matchAll(pattern)) {
+    const rhs = match[1] ?? "";
+    for (const quoted of rhs.matchAll(/["'`]([A-Za-z]+)["'`]/g)) out.push(quoted[1]);
+  }
+  return out;
+}
+
+function isGitHubApiContractFile(path) {
+  return path === "packages/cloud/github-app/src/index.ts" || path === "packages/contracts/src/github-governance.ts";
 }
 
 function isTestFile(file) {

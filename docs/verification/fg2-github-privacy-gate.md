@@ -15,13 +15,14 @@
   - `ef0ec3093fdbe57bfdc973902a0ea9d0cc489caa` — FG2-13 GitHub egress recorder
   - `449de452139052dc80f08c42f03b4853d325bcf4` — FG2-14 Cloud privacy surface projection
   - `82b7445def774c72623b3340d186dd8a160b83e1` — FG2-15 Cloud private content bait fixture
+  - `(pending FG2-16 implementation commit)` — FG2-16 static Privacy Contract scan
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, or FG2-15 local E1/E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, or FG2-16 local E1/E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, and FG2-15.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, and FG2-16.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -58,6 +59,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Diff and patch `Accept` values, including comma-separated and parameterized variants, fail closed with `github-api-forbidden-accept` before transport execution.
 - `scripts/github-api-contract-audit.mjs` provides the repo-local `bun run verify:github-api-contract` entrypoint.
 - The current audit rejects generic Octokit imports and generic GitHub client injection identifiers in production Cloud/Contracts sources.
+- The static Privacy Contract scan rejects forbidden GitHub endpoint literals, non-allowlisted GitHub endpoint literals, methods outside GET/POST/PATCH in GitHub API contract files, and diff/patch GitHub media types.
+- `bun run verify:privacy-contract` is an explicit alias for the same static Privacy Contract gate; `bun run verify:github-api-contract` remains the compatibility entrypoint used by FG2-EG3.
 - `RecordingGitHubGovernanceApiTransport` wraps a typed GitHub transport and records a `CloudEgressEnvelope` after allowed requests complete.
 - Recorded GitHub egress contains only request ID, endpoint category, method, host, path template, status, latency, and timestamp.
 - The recorder does not persist concrete GitHub paths, request bodies, response bodies, installation IDs, repository IDs, PR numbers, head/base SHAs, or private PR metadata.
@@ -80,6 +83,7 @@ bun test scripts/cloud-private-content-bait.test.ts
 bun run typecheck
 node scripts/privacy-route-audit.mjs
 bun run verify:github-api-contract
+bun run verify:privacy-contract
 bun run verify
 ```
 
@@ -89,12 +93,13 @@ bun run verify
 - `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 20 tests, 125 expects.
 - `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 21 tests, 135 expects.
 - `bun test packages/cloud/control-plane/test/control-plane.test.ts`: PASS, 7 tests, 51 expects.
-- `bun test scripts/github-api-contract-audit.test.ts`: PASS, 3 tests, 6 expects.
+- `bun test scripts/github-api-contract-audit.test.ts`: PASS, 7 tests, 14 expects.
 - `bun test scripts/cloud-private-content-bait.test.ts`: PASS, 1 test, 38 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
-- `bun run verify`: PASS, 303 tests, 1348 expects, 61-entry acceptance ledger.
+- `bun run verify:privacy-contract`: PASS, scanned 18 production files.
+- `bun run verify`: PASS, 307 tests, 1356 expects, 62-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -115,14 +120,15 @@ bun run verify
 - GitHub App tests prove PR Files, Repository Contents, Git Blob, and Git Tree endpoint variants are explicitly identified and rejected before transport.
 - GitHub App tests prove GitHub diff and patch media types are explicitly identified and rejected before transport.
 - GitHub API contract audit tests prove typed `GitHubGovernancePort` stays allowed while generic Octokit imports and `githubClient` injection are rejected.
+- GitHub API contract audit tests prove the explicit denylist declarations stay allowed while forbidden endpoint literals, non-allowlisted endpoint literals, forbidden methods, and diff/patch media types are rejected in production sources.
 - GitHub App tests prove the egress recorder emits only `CloudEgressEnvelope` metadata and excludes concrete paths, request/response bodies, repository identifiers, PR identifiers, and private PR fields.
 - Control-plane tests prove log, trace, queue, and error surfaces keep only projected fields and remove private content fields before storage.
 - Cloud private content bait tests prove source, Patch, Symbol, and Finding fixture values are removed from projected Cloud surfaces and rejected by notification/egress DTO schema.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim full static forbidden endpoint scanning, dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or full staging DLP export coverage.
+FG2 is not complete. This slice does not claim dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or full staging DLP export coverage.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, and FG2-15. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, and FG2-16. Remaining FG2 tasks and exit gates stay open.
