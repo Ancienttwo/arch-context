@@ -34,6 +34,7 @@ const sampleView: ControlPlaneView = buildControlPlaneView({
   displayName: "Ancient Two",
   githubLogin: "ancienttwo",
   billingPortalUrl: "https://billing.stripe.example/portal?client_reference_id=acct_42",
+  githubAppInstallUrl: "https://github.com/apps/archcontext/installations/new",
   offlineGraceDays: 7,
   devices,
   providers
@@ -53,6 +54,34 @@ describe("control-plane UI", () => {
 
   test("renders the zero-code privacy promise", () => {
     expect(html).toContain("Zero code leaves your machine.");
+  });
+
+  test("renders GitHub App install permissions retention and privacy copy", () => {
+    expect(html).toContain("GitHub App");
+    expect(html).toContain("href=\"https://github.com/apps/archcontext/installations/new\"");
+    expect(html).toContain("ArchContext does not read code to run Review");
+    expect(html).toContain("Metadata: Read");
+    expect(html).toContain("Pull Requests: Read");
+    expect(html).toContain("Checks: Write");
+    expect(html).toContain("Contents: None");
+    expect(html).toContain("Commit Statuses: None now");
+    expect(html).toContain("FG2-02 staging decision");
+    expect(html).toContain("Raw webhook body</dt><dd>0 days.");
+    expect(html).toContain("Webhook delivery projection</dt><dd>30 days.");
+    expect(html).toContain("Unfinished challenge</dt><dd>7 days.");
+    expect(html).toContain("Check delivery metadata</dt><dd>90 days.");
+    expect(html).toContain("Verified attestation metadata</dt><dd>1 year or account deletion.");
+  });
+
+  test("renders a disabled GitHub App install action when the URL is absent", () => {
+    const withoutUrl = renderControlPlaneHtml(
+      buildControlPlaneView({
+        account,
+        prices: BILLING_PRICES,
+        githubAppInstallUrl: null
+      })
+    );
+    expect(withoutUrl).toContain("Install URL unavailable");
   });
 
   test("contains no native confirm and no external assets", () => {
