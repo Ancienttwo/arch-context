@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
 import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
-import { GITHUB_APP_PERMISSIONS, GitHubAppState, InMemoryWebhookDeliveryLedger, verifyGitHubWebhookSignature } from "../src/index";
+import { GITHUB_APP_PERMISSIONS, GitHubAppState, InMemoryWebhookDeliveryLedger, projectVerifiedGitHubWebhook, verifyGitHubWebhookSignature } from "../src/index";
 
 describe("GitHub App", () => {
   test("uses no Contents permission and handles PR challenge/check lifecycle", () => {
@@ -62,6 +62,68 @@ describe("GitHub App", () => {
     expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody: reparsedBody, signature256 })).toBe(false);
     expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody, signature256: signature256.replace("sha256=", "sha1=") })).toBe(false);
     expect(verifyGitHubWebhookSignature({ secret: "secret", rawBody, signature256: "sha256=bad" })).toBe(false);
+  });
+
+  test("projects a verified pull request webhook to minimum fields only", () => {
+    const rawBody = Buffer.from(JSON.stringify({
+      action: "opened",
+      number: 42,
+      installation: { id: 123 },
+      repository: {
+        id: 987,
+        name: "arch-context",
+        private: true,
+        owner: { login: "ancienttwo" }
+      },
+      pull_request: {
+        number: 42,
+        title: "not retained",
+        body: "private-note",
+        diff_url: "https://example.invalid/pr.diff",
+        patch_url: "https://example.invalid/pr.patch",
+        files: [{ filename: "private.ts", patch: "private-patch" }],
+        head: {
+          sha: "abc123",
+          ref: "feature/private"
+        },
+        base: {
+          sha: "base123"
+        }
+      }
+    }), "utf8");
+    const projection = projectVerifiedGitHubWebhook({
+      secret: "secret",
+      rawBody,
+      signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+      deliveryId: "delivery-42",
+      eventName: "pull_request"
+    });
+
+    expect(projection).toEqual({
+      eventName: "pull_request",
+      rawBodyRetained: false,
+      event: {
+        deliveryId: "delivery-42",
+        action: "opened",
+        repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+        pullRequest: { number: 42, headSha: "abc123" }
+      }
+    });
+    expect("rawBody" in projection).toBe(false);
+    const serialized = JSON.stringify(projection);
+    for (const rejected of ["private-note", "diff_url", "patch_url", "files", "private-patch", "base123"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
+  test("rejects unsigned webhook payload before JSON projection", () => {
+    expect(() => projectVerifiedGitHubWebhook({
+      secret: "secret",
+      rawBody: "{",
+      signature256: `sha256=${"0".repeat(64)}`,
+      deliveryId: "delivery-bad",
+      eventName: "pull_request"
+    })).toThrow("github-webhook-signature-invalid");
   });
 
   test("check runs display trust level and can require organization attestation", () => {

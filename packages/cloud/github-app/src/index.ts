@@ -18,6 +18,20 @@ export interface PullRequestEvent {
   pullRequest: { number: number; headSha: string };
 }
 
+export interface ProjectVerifiedGitHubWebhookInput {
+  secret: string;
+  rawBody: string | Uint8Array;
+  signature256: string;
+  deliveryId: string;
+  eventName: "pull_request";
+}
+
+export interface ProjectedGitHubWebhookEvent {
+  eventName: "pull_request";
+  event: PullRequestEvent;
+  rawBodyRetained: false;
+}
+
 export interface WebhookDeliveryReceipt {
   provider: "github";
   deliveryId: string;
@@ -207,6 +221,66 @@ export function verifyGitHubWebhookSignature(input: { secret: string; rawBody: s
   const expected = Buffer.from(createHmac("sha256", input.secret).update(input.rawBody).digest("hex"), "hex");
   const received = Buffer.from(signatureHex, "hex");
   return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+export function projectVerifiedGitHubWebhook(input: ProjectVerifiedGitHubWebhookInput): ProjectedGitHubWebhookEvent {
+  if (!verifyGitHubWebhookSignature(input)) throw new Error("github-webhook-signature-invalid");
+  const payload = parseJsonObject(input.rawBody);
+  if (input.eventName !== "pull_request") throw new Error(`github-webhook-event-unsupported: ${input.eventName}`);
+  return {
+    eventName: "pull_request",
+    event: projectPullRequestWebhook(input.deliveryId, payload),
+    rawBodyRetained: false
+  };
+}
+
+function parseJsonObject(rawBody: string | Uint8Array): Record<string, unknown> {
+  const text = typeof rawBody === "string" ? rawBody : Buffer.from(rawBody).toString("utf8");
+  const parsed = JSON.parse(text) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("github-webhook-payload-invalid");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function projectPullRequestWebhook(deliveryId: string, payload: Record<string, unknown>): PullRequestEvent {
+  const pullRequest = requireRecord(payload.pull_request, "pull_request");
+  const repository = requireRecord(payload.repository, "repository");
+  const owner = requireRecord(repository.owner, "repository.owner");
+  const action = requirePullRequestAction(payload.action);
+  return {
+    deliveryId,
+    action,
+    repository: {
+      owner: requireString(owner.login, "repository.owner.login"),
+      name: requireString(repository.name, "repository.name"),
+      visibility: repository.private === true ? "private" : "public"
+    },
+    pullRequest: {
+      number: requireNumber(pullRequest.number ?? payload.number, "pull_request.number"),
+      headSha: requireString(requireRecord(pullRequest.head, "pull_request.head").sha, "pull_request.head.sha")
+    }
+  };
+}
+
+function requirePullRequestAction(value: unknown): PullRequestEvent["action"] {
+  if (value === "opened" || value === "synchronize" || value === "reopened") return value;
+  throw new Error(`github-webhook-action-unsupported: ${String(value)}`);
+}
+
+function requireRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return value as Record<string, unknown>;
+}
+
+function requireString(value: unknown, path: string): string {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return value;
+}
+
+function requireNumber(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return value;
 }
 
 // ---------------------------------------------------------------------------
