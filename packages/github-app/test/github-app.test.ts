@@ -56,7 +56,10 @@ describe("GitHub App", () => {
       privateKey,
       issuedAt: "2026-06-19T00:00:00Z"
     });
-    expect(state.updateCheckFromAttestation(checkRun.id, developer, true).conclusion).toBe("failure");
+    const developerUpdated = state.updateCheckFromAttestation(checkRun.id, developer, true);
+    expect(developerUpdated.conclusion).toBe("failure");
+    expect(developerUpdated.output?.summary).toContain("## ArchContext — Architecture Review");
+    expect(developerUpdated.output?.summary).toContain("Organization attestation required");
 
     const organizationChallenge = createReviewChallenge({ repository, headSha: "abc123", expiresAt: "2026-06-19T00:10:00Z" });
     const organization = signOrganizationAttestation({
@@ -78,5 +81,7 @@ describe("GitHub App", () => {
     const updated = state.updateCheckFromAttestation(checkRun.id, organization, true);
     expect(updated.conclusion).toBe("success");
     expect(updated.output?.title).toBe("Organization-attested");
+    expect(updated.output?.summary).toContain("**Result: PASS**");
+    expect(updated.output?.summary).toContain("No blocking findings.");
   });
 });

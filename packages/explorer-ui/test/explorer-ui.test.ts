@@ -54,6 +54,12 @@ describe("@archcontext/explorer-ui", () => {
     expect(html).not.toContain("changesets/apply");
   });
 
+  test("honors a server-provided focus id in the diagram view", () => {
+    const html = renderExplorerHtml(projection, { focusId: "module.runtime" });
+    expect(html).toContain("Architecture diagram focused on Runtime");
+    expect(html).toContain('<option value="module.runtime" selected>Runtime · module</option>');
+  });
+
   test("filters projections by node metadata while keeping matching relations", () => {
     const filtered = filterExplorerProjection(projection, "billing");
     expect(filtered.nodes.map((node) => node.id)).toEqual(["module.billing"]);
