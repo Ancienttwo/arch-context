@@ -87,6 +87,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - `docs/security/threat-model-v1.md` now names GitHub App permission expansion, SDK/API drift, webhook replay/forgery, and raw payload/log leakage as explicit FG2 threats.
 - The threat model traces webhook raw body/signature/delivery ID through projection, replay handling, selected-repository checks, challenge/check side effects, typed egress, and metadata-only recording.
 - The threat model preserves the current open gates: FG2-02 for any future Commit Statuses permission and FG2-17 for live staging egress recording.
+- `docs/verification/fg2-staging-evidence.json` is the combined pending packet for FG2-02, FG2-17, FG2-EG1, FG2-EG4, FG2-EG5, FG2-EG6, and FG2-EG7.
+- `scripts/fg2-staging-evidence-readback.mjs` verifies a future staging packet by requiring GitHub App event/check proof, strict egress/DLP readback, ruleset expected-source decision proof, and install revoke E2E proof.
 - `packages/cloud/github-app/test/github-webhook-security.integration.test.ts` is the FG2-EG2 security integration suite.
 - The integration suite rejects every invalid signature fixture before webhook projection.
 - The integration suite proves an old delivery ID replay, even with a newly signed different payload, creates no second challenge or check side effect.
@@ -104,6 +106,7 @@ bun test packages/cloud/control-plane/test/control-plane.test.ts
 bun test scripts/github-api-contract-audit.test.ts
 bun test scripts/cloud-private-content-bait.test.ts
 bun test scripts/github-egress-recording-readback.test.ts
+bun test scripts/fg2-staging-evidence-readback.test.ts
 bun test packages/cloud/control-plane/test/control-plane-ui.test.ts
 bun test packages/cloud/github-app/test/github-webhook-security.integration.test.ts
 bun run typecheck
@@ -111,6 +114,8 @@ node scripts/privacy-route-audit.mjs
 bun run verify:github-api-contract
 bun run verify:privacy-contract
 bun run readback:fg2:egress
+bun run readback:fg2:staging
+node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json
 bun run verify:acceptance-ledger
 bun run check:sprint
 bun run verify
@@ -125,6 +130,7 @@ bun run verify
 - `bun test scripts/github-api-contract-audit.test.ts`: PASS, 7 tests, 14 expects.
 - `bun test scripts/cloud-private-content-bait.test.ts`: PASS, 1 test, 38 expects.
 - `bun test scripts/github-egress-recording-readback.test.ts`: PASS, 4 tests, 5 expects.
+- `bun test scripts/fg2-staging-evidence-readback.test.ts`: PASS, 5 tests, 6 expects.
 - `bun test packages/cloud/control-plane/test/control-plane-ui.test.ts`: PASS, 10 tests, 33 expects.
 - `bun test packages/cloud/github-app/test/github-webhook-security.integration.test.ts`: PASS, 3 tests, 20 expects.
 - `bun run typecheck`: PASS.
@@ -132,9 +138,11 @@ bun run verify
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
 - `bun run verify:privacy-contract`: PASS, scanned 18 production files.
 - `bun run readback:fg2:egress`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging export exists.
+- `bun run readback:fg2:staging`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging App/check/egress/ruleset/revoke evidence exists.
+- `node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json`: PENDING, exits nonzero with the current blockers.
 - `bun run verify:acceptance-ledger`: PASS, 67 entries.
 - `bun run check:sprint`: PASS, structure and evidence claims OK.
-- `bun run verify`: PASS, 320 tests, 1419 expects, 67-entry acceptance ledger.
+- `bun run verify`: PASS, 325 tests, 1425 expects, 67-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -169,7 +177,7 @@ bun run verify
 
 ## Known Limitations
 
-FG2 is not complete. FG2-02 remains open for the Commit Statuses expected-source staging decision, and FG2-17 remains open because no deployed staging GitHub App, staging installation, sanitized GitHub egress recorder export, or staging log/trace/queue DLP export is available in this local environment. This slice does not claim dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, or full staging DLP export coverage.
+FG2 is not complete. FG2-02 remains open for the Commit Statuses expected-source staging decision, and FG2-17 remains open because no deployed staging GitHub App, staging installation, sanitized GitHub egress recorder export, or staging log/trace/queue DLP export is available in this local environment. `docs/verification/fg2-staging-evidence.json` records the combined pending packet for the remaining FG2 staging gates. This slice does not claim dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, or full staging DLP export coverage.
 
 ## Decision
 

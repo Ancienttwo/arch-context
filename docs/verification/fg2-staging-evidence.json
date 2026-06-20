@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "archcontext.fg2-staging-evidence/v1",
+  "environment": "staging",
+  "status": "pending",
+  "reason": "Awaiting deployed staging GitHub App, staging installation, PR event/check readback, sanitized GitHub egress and DLP export, ruleset expected-source decision, and install revoke E2E proof.",
+  "gates": {
+    "FG2-02": "blocked",
+    "FG2-17": "blocked",
+    "FG2-EG1": "blocked",
+    "FG2-EG4": "blocked",
+    "FG2-EG5": "blocked",
+    "FG2-EG6": "blocked",
+    "FG2-EG7": "blocked"
+  },
+  "blockers": [
+    "Deployed staging GitHub App and installation are unavailable.",
+    "Staging PR event readback and Check create/update readback are unavailable.",
+    "Sanitized staging GitHub egress recorder export and log/trace/queue DLP export are unavailable.",
+    "Ruleset expected-source decision record is unavailable.",
+    "Install revoke E2E readback is unavailable."
+  ],
+  "requiredEvidence": {
+    "githubApp": {
+      "webhookReceived": true,
+      "checkCreated": true,
+      "checkUpdated": true,
+      "deliveryIdsRedacted": true
+    },
+    "egressAndDlp": {
+      "recordingPath": "fg2-egress-recording.json"
+    },
+    "rulesetExpectedSource": {
+      "commitStatusesPermission": "not-required or required-and-implemented",
+      "decisionRecord": "docs/verification/<staging-ruleset-decision>.md",
+      "rulesetVerified": true,
+      "permissionManifestCommit": "required only when commitStatusesPermission is required-and-implemented",
+      "adrCommit": "required only when commitStatusesPermission is required-and-implemented",
+      "installDisclosureCommit": "required only when commitStatusesPermission is required-and-implemented"
+    },
+    "installRevoke": {
+      "installationRevoked": true,
+      "tokenRejectedAfterRevoke": true,
+      "challengeCreationStopped": true,
+      "checkUpdateStopped": true
+    }
+  },
+  "readback": {
+    "command": "node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json",
+    "allowPendingCommand": "node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json --allow-pending --json"
+  }
+}
