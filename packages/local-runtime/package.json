@@ -9,9 +9,7 @@
     "./git-adapter": "./git-adapter/src/index.ts",
     "./local-store-sqlite": "./local-store-sqlite/src/index.ts",
     "./model-store-yaml": "./model-store-yaml/src/index.ts",
-    "./runtime-daemon": "./runtime-daemon/src/index.ts",
-    "./test/codegraph-factories": "./codegraph-adapter/test/factories.ts",
-    "./test/local-store-factories": "./local-store-sqlite/test/factories.ts"
+    "./runtime-daemon": "./runtime-daemon/src/index.ts"
   },
   "dependencies": {
     "@archcontext/contracts": "workspace:*",

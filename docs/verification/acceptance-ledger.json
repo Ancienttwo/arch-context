@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T12:45:00Z",
+  "updatedAt": "2026-06-20T12:52:05Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -524,6 +524,18 @@
         "packages/surfaces/cli/test/fixtures/monorepo-basic",
         "packages/surfaces/cli/test/local-product-e2e.test.ts",
         "packages/surfaces/cli/test/cli.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
+      "id": "FG1-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/local-runtime/package.json",
+        "package.json",
+        "scripts/production-mock-reachability-audit.mjs",
         "docs/verification/fg1-local-product-gate.md"
       ]
     }
