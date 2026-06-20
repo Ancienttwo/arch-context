@@ -17,6 +17,7 @@
   - 598aa99defa343a2472cec89d0a571d281e58839 — FG1-16 local product install, upgrade, uninstall, and data retention lifecycle policy
   - 81a952326ee8ffc6d0dc61e75e63904b87d5b288 — FG1-17 hosted platform IPC permission readback workflow and script
   - 6ff7e9e7f62b7a7b1791992f8f52e47aedc78fad — FG1-17 final hosted matrix pass after Windows CI hardening
+  - b6b37cc4c9062cac69fff73ce96e1f18886c0d48 — FG1-18 Local Core quickstart publication and doc test
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
