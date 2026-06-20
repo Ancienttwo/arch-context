@@ -9,7 +9,7 @@
   - `f085b34846a57df83e896660ff826c10ef86e540` — FG1-08 stale daemon control-file recovery and crash reconnect
   - `8a5e75c7f7a77c6543cadd5c81c6d57610c7b2b4` — FG1-09 MCP host install/status/remove config output
   - `42cdf9c846013d8898ee1875b9d1ca40640db8b0` — FG1-10 doctor version, daemon, SQLite, CodeGraph, Git, and permission checks
-  - pending — FG1-11 ordinary single-repo fixture and first-experience E2E
+  - `1a98f1277d85ee5f6c292748166798845e5956fc` — FG1-11 ordinary single-repo fixture and first-experience E2E
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
