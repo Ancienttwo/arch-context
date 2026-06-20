@@ -14,7 +14,7 @@
   - 6876ef46aee8d47446711a1a34f28ce650f7fd61 — FG1-13 and FG1-EG4 multi-repo unsupported topology boundary
   - 5e397ef93d538375b8fa42b166d358783d607054 — FG1-14 local third-party telemetry default and doctor egress status
   - 153e5da3740c4937cf51e2de9bc2dd30258c5d8d — FG1-15 runtime RPC version mismatch action and daemon upgrade path
-  - pending — FG1-16 local product install, upgrade, uninstall, and data retention lifecycle policy
+  - 598aa99defa343a2472cec89d0a571d281e58839 — FG1-16 local product install, upgrade, uninstall, and data retention lifecycle policy
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
