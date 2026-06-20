@@ -2,16 +2,17 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
+const workspaceRoot = process.cwd();
 const root = mkdtempSync(join(tmpdir(), "archctx-platform-ipc-"));
-const cliEntry = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const bun = process.platform === "win32" ? "bun.exe" : "bun";
+const archctxCommand = resolveInstalledArchctxCommand();
 const connectionPath = join(root, ".archcontext", ".local", "archctxd.json");
 const lockPath = join(root, ".archcontext", ".local", "archctxd.lock");
 
 try {
   writeFileSync(join(root, "README.md"), "# platform ipc readback\n", "utf8");
+  const help = runArchctx();
   const started = runArchctx("daemon", "start");
   const connection = JSON.parse(readFileSync(connectionPath, "utf8"));
   const status = runArchctx("daemon", "status");
@@ -26,6 +27,14 @@ try {
     platform: process.platform,
     node: process.version,
     bun: bunVersion(),
+    install: {
+      binPath: redactPath(archctxCommand.path),
+      binKind: archctxCommand.kind,
+      helpOk: help.ok === true,
+      hasDaemonCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("daemon"),
+      hasMcpCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("mcp"),
+      hasDoctorCommand: Array.isArray(help.data?.commands) && help.data.commands.includes("doctor")
+    },
     transport: {
       protocol: started.data.protocol,
       bindHost: new URL(connection.url).hostname,
@@ -45,6 +54,10 @@ try {
     }
   };
 
+  assert(readback.install.helpOk, "installed archctx bin must render help");
+  assert(readback.install.hasDaemonCommand, "installed archctx bin must expose daemon command");
+  assert(readback.install.hasMcpCommand, "installed archctx bin must expose mcp command");
+  assert(readback.install.hasDoctorCommand, "installed archctx bin must expose doctor command");
   assert(readback.transport.protocol === "http-loopback", "daemon transport must be loopback HTTP for MVP");
   assert(readback.transport.loopbackOnly, "daemon must bind loopback");
   assert(readback.controlFiles.tokenRedactedFromStatus, "daemon status must redact bearer token");
@@ -62,10 +75,15 @@ try {
 
 function runArchctx(...args) {
   const options = typeof args.at(-1) === "object" ? args.pop() : {};
-  const result = spawnSync(bun, [cliEntry, ...args], {
+  const result = spawnSync(archctxCommand.command, [...archctxCommand.argsPrefix, ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, DO_NOT_TRACK: "1" },
+    env: {
+      ...process.env,
+      DO_NOT_TRACK: "1",
+      PATH: `${join(workspaceRoot, "node_modules", ".bin")}${delimiter}${process.env.PATH ?? ""}`
+    },
+    shell: archctxCommand.shell,
     stdio: ["ignore", "pipe", "pipe"]
   });
   if (result.status !== 0 && !options.allowFailure) {
@@ -76,8 +94,35 @@ function runArchctx(...args) {
 }
 
 function bunVersion() {
+  const bun = process.platform === "win32" ? "bun.exe" : "bun";
   const result = spawnSync(bun, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return result.stdout.trim();
+}
+
+function resolveInstalledArchctxCommand() {
+  const binDir = join(workspaceRoot, "node_modules", ".bin");
+  const candidates = process.platform === "win32"
+    ? [
+        { file: "archctx.cmd", kind: "cmd", shell: true, command: undefined, argsPrefix: [] },
+        { file: "archctx.exe", kind: "exe", shell: false, command: undefined, argsPrefix: [] },
+        { file: "archctx", kind: "shim", shell: false, command: undefined, argsPrefix: [] },
+        { file: "archctx.ps1", kind: "powershell", shell: false, command: "powershell.exe", argsPrefix: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"] }
+      ]
+    : [
+        { file: "archctx", kind: "posix-shim", shell: false, command: undefined, argsPrefix: [] }
+      ];
+  for (const candidate of candidates) {
+    const path = join(binDir, candidate.file);
+    if (!existsSync(path)) continue;
+    return {
+      path,
+      kind: candidate.kind,
+      shell: candidate.shell,
+      command: candidate.command ?? path,
+      argsPrefix: candidate.command ? [...candidate.argsPrefix, path] : candidate.argsPrefix
+    };
+  }
+  throw new Error(`installed archctx bin not found in ${binDir}; run bun install first`);
 }
 
 function posixMode(path) {
@@ -87,6 +132,10 @@ function posixMode(path) {
 
 function redactRoot(path) {
   return path.replace(root, "<repo>");
+}
+
+function redactPath(path) {
+  return redactRoot(path).replace(workspaceRoot, "<workspace>");
 }
 
 async function waitFor(predicate, timeoutMs) {
