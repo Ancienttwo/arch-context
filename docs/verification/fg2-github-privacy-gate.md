@@ -1,7 +1,7 @@
 # FG2 GitHub Privacy Verification
 
 - Commit SHAs:
-  - pending backfill — FG2-01 GitHub App permission manifest
+  - `0c81204833be188c095a0e3870882ce33dc6e559` — FG2-01 GitHub App permission manifest
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01
 - Started At: 2026-06-20
