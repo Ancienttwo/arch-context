@@ -20,13 +20,14 @@
   - `126b031e5048eac47f54fff323523ff72e20470b` — FG2-19 GitHub App install disclosure
   - `5b59c7b54384563e3cd2d1921146b56627bd785c` — FG2-20 GitHub governance threat model update
   - `2dd03549be1d29e016d13f155ee7d7b97fb34ad2` — FG2-EG2 webhook signature and delivery replay integration gate
+  - `(pending FG2-EG3 evidence commit)` — FG2-EG3 static GitHub API contract gate
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, or FG2-EG2 local E1/E2/E3 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, FG2-EG2, or FG2-EG3 local E1/E2/E3 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, and FG2-EG2. FG2-17 remains a pending staging readback artifact only.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, FG2-EG2, and FG2-EG3. FG2-17 remains a pending staging readback artifact only.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -90,6 +91,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - The integration suite rejects every invalid signature fixture before webhook projection.
 - The integration suite proves an old delivery ID replay, even with a newly signed different payload, creates no second challenge or check side effect.
 - The integration suite asserts the D1 `webhook_deliveries` primary key is `(provider, delivery_id)` and raw bodies are not stored.
+- FG2-EG3 is satisfied by `bun run verify:github-api-contract`, which delegates to the static Privacy Contract audit.
+- The static audit scanned 18 production files and passed with generic Octokit, generic client injection, forbidden endpoint, non-allowlisted endpoint, forbidden method, and diff/patch media type checks active.
 
 ## Commands
 
@@ -129,9 +132,9 @@ bun run verify
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
 - `bun run verify:privacy-contract`: PASS, scanned 18 production files.
 - `bun run readback:fg2:egress`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging export exists.
-- `bun run verify:acceptance-ledger`: PASS, 66 entries.
+- `bun run verify:acceptance-ledger`: PASS, 67 entries.
 - `bun run check:sprint`: PASS, structure and evidence claims OK.
-- `bun run verify`: PASS, 320 tests, 1419 expects, 66-entry acceptance ledger.
+- `bun run verify`: PASS, 320 tests, 1419 expects, 67-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -155,6 +158,7 @@ bun run verify
 - GitHub App tests prove GitHub diff and patch media types are explicitly identified and rejected before transport.
 - GitHub API contract audit tests prove typed `GitHubGovernancePort` stays allowed while generic Octokit imports and `githubClient` injection are rejected.
 - GitHub API contract audit tests prove the explicit denylist declarations stay allowed while forbidden endpoint literals, non-allowlisted endpoint literals, forbidden methods, and diff/patch media types are rejected in production sources.
+- Static GitHub API contract gate proves the production Cloud/Contracts surface currently contains no business-layer generic Octokit use or forbidden GitHub endpoint/media literals.
 - GitHub App tests prove the egress recorder emits only `CloudEgressEnvelope` metadata and excludes concrete paths, request/response bodies, repository identifiers, PR identifiers, and private PR fields.
 - Control-plane tests prove log, trace, queue, and error surfaces keep only projected fields and remove private content fields before storage.
 - Control-plane UI tests prove the public GitHub App install disclosure lists current permissions, permission uses, retention defaults, the local Review privacy promise, and the FG2-02 Commit Statuses pending decision.
@@ -169,4 +173,4 @@ FG2 is not complete. FG2-02 remains open for the Commit Statuses expected-source
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, and FG2-EG2. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, FG2-18, FG2-19, FG2-20, FG2-EG2, and FG2-EG3. Remaining FG2 tasks and exit gates stay open.
