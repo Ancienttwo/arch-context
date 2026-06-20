@@ -27,7 +27,7 @@
 
 ## Scope
 
-This evidence covers FG1-01 through FG1-17 and closes FG1-EG4.
+This evidence covers FG1-01 through FG1-18 and closes FG1-EG4.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -69,6 +69,9 @@ This evidence covers FG1-01 through FG1-17 and closes FG1-EG4.
 - `.github/workflows/verify.yml` runs `scripts/platform-ipc-permission-readback.mjs` after `bun run verify` on ubuntu, macOS, and Windows for Node 24.x and 25.x.
 - `scripts/platform-ipc-permission-readback.mjs` starts a real daemon in a temporary repository, reads the platform transport and control-file permissions, verifies token redaction, then stops the daemon.
 - Hosted Verify run `27870884813` completed all six matrix jobs and uploaded one `platform-ipc-permission-readback.json` artifact per OS/Node pair.
+- `docs/runbooks/local-core-quickstart.md` publishes the Local Core first-run path for one ordinary repository or one workspace repository without requiring GitHub App, Cloud, subscription, or LLM provider setup.
+- `scripts/local-core-quickstart-doc.test.ts` locks the quickstart sections, local commands, and no-cloud/no-LLM requirement wording.
+- `README.md` links the Local Core quickstart from the repository map.
 
 ## Commands
 
@@ -82,6 +85,7 @@ bun test scripts/sprint-status-check.test.ts
 bun test packages/cloud/hardening/test/hardening.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/surfaces/cli/test/cli.test.ts packages/surfaces/cli/test/local-product-e2e.test.ts
 bun test packages/contracts/test/contracts.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts
 bun test scripts/local-product-lifecycle-doc.test.ts
+bun test scripts/local-core-quickstart-doc.test.ts scripts/local-product-lifecycle-doc.test.ts
 bun test
 node scripts/packaged-cli-smoke.mjs
 node scripts/platform-ipc-permission-readback.mjs
@@ -104,12 +108,13 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - FG1-14 hardening/CodeGraph/CLI/local product focused tests: PASS, 22 tests.
 - FG1-15 contracts/runtime/CLI focused tests: PASS, 102 tests.
 - FG1-16 lifecycle runbook focused test: PASS, 1 test.
+- FG1-18 quickstart/lifecycle doc focused tests: PASS, 2 tests.
 - Contract tests: PASS, 83 tests.
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
-- `bun test`: PASS, 275 tests.
+- `bun test`: PASS, 276 tests.
 - `node scripts/packaged-cli-smoke.mjs`: PASS.
 - `node scripts/platform-ipc-permission-readback.mjs`: PASS locally.
-- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 41-entry acceptance ledger, sprint-status, and representative eval.
+- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 42-entry acceptance ledger, sprint-status, and representative eval.
 - GitHub Actions Verify run `27870884813`: PASS on ubuntu-latest, macos-latest, and windows-latest for Node 24.x and 25.x.
 - Downloaded hosted IPC artifacts: PASS, six `platform-ipc-permission-readback.json` files verified for schema `archcontext.platform-ipc-permission-readback/v1`, `http-loopback`, `127.0.0.1`, `loopbackOnly=true`, `tokenRedactedFromStatus=true`, and daemon start/status/stop lifecycle.
 - Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
@@ -138,6 +143,7 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - Packaged MCP stdio preserves JSON-RPC request id and exposes `archcontext_prepare_task`.
 - Packaged CLI `apply` fails unless it can read the MCP-created ChangeSet draft from the same daemon process; the smoke test covers this positive shared-state path.
 - Platform IPC readback would fail if the daemon exposed a non-loopback transport, leaked the bearer token through status, missed connection/lock files, failed to stop, or produced non-`600` POSIX control-file modes.
+- Quickstart doc test rejects omission of the no GitHub App/Cloud/subscription/LLM requirement wording, local first-run commands, MCP host commands, daemon stop, and provider-key non-requirement.
 
 ## Privacy Scan
 
@@ -145,7 +151,7 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 ## Known Limitations
 
-FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, host-owned config file mutation/readback, doctor auto-remediation, or Local Core quickstart publication. FG1-17 is complete, but FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
+FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, formal `e2e:local-no-cloud` script coverage, host-owned config file mutation/readback, or doctor auto-remediation. FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
 
 ## Linked CI / GitHub Run IDs
 
@@ -160,4 +166,4 @@ FG1 is not complete. This slice does not claim daemon-restart persistent session
 
 ## Decision
 
-PARTIAL PASS for FG1-01 through FG1-17 plus FG1-EG4. Remaining FG1 exit gates stay open.
+PARTIAL PASS for FG1-01 through FG1-18 plus FG1-EG4. Remaining FG1 exit gates stay open.
