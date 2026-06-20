@@ -70,7 +70,7 @@ export function renderTaskContextHtml(input: {
     .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
     .card-sunken{background:var(--panel-sunken);border-color:var(--line-soft)}
 
-    h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-0.01em;color:var(--ink)}
+    h1{margin:0;font-size:20px;font-weight:600;letter-spacing:0;color:var(--ink)}
     h2{margin:0 0 12px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted)}
     .eyebrow{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted)}
     p{margin:0}
@@ -79,8 +79,8 @@ export function renderTaskContextHtml(input: {
     .brand{display:inline-flex;align-items:center;gap:9px}
     .brand-glyph{display:inline-flex;align-items:center;justify-content:center;height:20px;padding:0 0.42em;
       border-radius:5px;background:var(--ink-green);color:#fff;font-family:var(--font-mono);font-size:12px;
-      font-weight:700;line-height:1;letter-spacing:-0.02em}
-    .brand-word{font-size:16px;font-weight:600;letter-spacing:-0.01em;color:var(--ink)}
+      font-weight:700;line-height:1;letter-spacing:0}
+    .brand-word{font-size:16px;font-weight:600;letter-spacing:0;color:var(--ink)}
 
     .header-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
     .ro-chip{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted)}

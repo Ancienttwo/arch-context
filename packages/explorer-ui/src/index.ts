@@ -579,8 +579,8 @@ const BASE_STYLE = `    :root{color-scheme:light;
     .eyebrow{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:26px 0 10px}
     .eyebrow-flush{margin:0}
     .brand-row{display:flex;align-items:baseline;gap:9px}
-    .brandmark{align-self:center;flex:none;padding:0 .42em;height:26px;border-radius:7px;background:var(--ink-green);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:15px;font-weight:700;line-height:1;letter-spacing:-.02em}
-    .wordmark{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+    .brandmark{align-self:center;flex:none;padding:0 .42em;height:26px;border-radius:7px;background:var(--ink-green);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:15px;font-weight:700;line-height:1;letter-spacing:0}
+    .wordmark{font-size:16px;font-weight:600;letter-spacing:0;color:var(--ink)}
     .brand-sub{font-size:13px;color:var(--muted);font-weight:500}
     .repo-meta{margin-top:8px;display:grid;gap:6px}
     .repo-id{font-size:12px;color:var(--muted);word-break:break-all}
