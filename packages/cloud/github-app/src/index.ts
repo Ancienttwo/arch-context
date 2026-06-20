@@ -2,18 +2,14 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { attestationLabel, createReviewChallenge, type LocalAttestation, type ReviewChallenge, type TrustLevel } from "@archcontext/cloud/attestation";
 import {
   DEVELOPER_REVIEW_CHECK_NAME,
+  GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
   type GovernanceCheckName,
   type NotificationResult,
   type NotificationRiskLevel
 } from "@archcontext/contracts";
 
-export const GITHUB_APP_PERMISSIONS = {
-  contents: "none",
-  checks: "write",
-  metadata: "read",
-  pull_requests: "read"
-} as const;
+export const GITHUB_APP_PERMISSIONS = GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions;
 
 export interface PullRequestEvent {
   deliveryId: string;

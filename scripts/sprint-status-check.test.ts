@@ -153,6 +153,35 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("accepts FG2 progress only after FG1 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG2 In Progress",
+          total: "| **合计** | | **141** | **51** | **48 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 1 / 27 |",
+            "| FG2-01 | ☑ | 固化 GitHub App permission manifest | github-app · infra | E1 | FG0-11 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...Array.from({ length: 18 }, (_, index) => `FG1-${String(index + 1).padStart(2, "0")}`),
+          ...Array.from({ length: 6 }, (_, index) => `FG1-EG${index + 1}`),
+          "FG2-01"
+        ]);
+        await write(root, "docs/verification/fg1-local-product-gate.md", "# FG1 Verification\n\n## Decision\n\nPASS for FG1-01 through FG1-18 plus FG1-EG1 through FG1-EG6.\n");
+        await write(root, "docs/verification/fg2-github-privacy-gate.md", "# FG2 Verification\n\n## Decision\n\nPARTIAL PASS for FG2-01.\n");
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
     await withFixture(
       `# Sprint 2
@@ -332,7 +361,13 @@ async function writeFg0Evidence(root: string, extraCompleted: string[] = []) {
           kind: id.includes("-EG") ? "exit-gate" : "task",
           status: "completed",
           target: id === "FG0-18" || id.startsWith("FG0-EG") || id.startsWith("FG1-") ? "E1" : "E0",
-          evidence: [id.startsWith("FG1-") ? "docs/verification/fg1-local-product-gate.md" : "docs/verification/fg0-contract-correction-gate.md"]
+          evidence: [
+            id.startsWith("FG1-")
+              ? "docs/verification/fg1-local-product-gate.md"
+              : id.startsWith("FG2-")
+                ? "docs/verification/fg2-github-privacy-gate.md"
+                : "docs/verification/fg0-contract-correction-gate.md"
+          ]
         }))
       },
       null,

@@ -12,6 +12,42 @@ export type RequiredTrust = GovernanceTrustLevel;
 export type ReviewChallengeStatus = "PENDING" | "LEASED" | "SUBMITTED" | "VERIFIED" | "REJECTED" | "SUPERSEDED" | "EXPIRED";
 export type CheckDeliveryStatus = "PENDING" | "PUBLISHED" | "RETRYING" | "DEAD_LETTER";
 export type AttestationResult = "pass" | "fail" | "error";
+export type GitHubAppPermissionLevel = "none" | "read" | "write";
+
+export const GITHUB_APP_PERMISSION_MANIFEST = {
+  schemaVersion: "archcontext.github-app-permission-manifest/v1",
+  repositoryPermissions: {
+    metadata: "read",
+    pull_requests: "read",
+    checks: "write",
+    contents: "none"
+  },
+  forbiddenByDefault: [
+    "actions",
+    "administration",
+    "deployments",
+    "issues",
+    "members",
+    "secrets",
+    "workflows"
+  ],
+  conditionalPermissions: {
+    commit_statuses: {
+      default: "none",
+      maximumAfterStagingDecision: "write",
+      decisionGate: "FG2-02 / FG2-EG6"
+    }
+  },
+  subscribedEvents: [
+    "installation",
+    "installation_repositories",
+    "pull_request.opened",
+    "pull_request.reopened",
+    "pull_request.synchronize",
+    "pull_request.closed",
+    "check_run.rerequested"
+  ]
+} as const;
 
 export const CHALLENGE_STATUS_TRANSITIONS: Record<ReviewChallengeStatus, readonly ReviewChallengeStatus[]> = {
   PENDING: ["LEASED", "SUPERSEDED", "EXPIRED"],

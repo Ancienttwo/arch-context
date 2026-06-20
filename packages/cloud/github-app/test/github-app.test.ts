@@ -1,11 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
-import { DEVELOPER_REVIEW_CHECK_NAME, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
+import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
 import { GITHUB_APP_PERMISSIONS, GitHubAppState, verifyGitHubWebhookSignature } from "../src/index";
 
 describe("GitHub App", () => {
   test("uses no Contents permission and handles PR challenge/check lifecycle", () => {
+    expect(GITHUB_APP_PERMISSIONS).toBe(GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions);
+    expect(GITHUB_APP_PERMISSIONS).toEqual({
+      metadata: "read",
+      pull_requests: "read",
+      checks: "write",
+      contents: "none"
+    });
     expect(GITHUB_APP_PERMISSIONS.contents).toBe("none");
     const state = new GitHubAppState();
     state.install(["ancienttwo/arch-context"]);

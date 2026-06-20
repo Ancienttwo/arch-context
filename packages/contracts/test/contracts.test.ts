@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEVELOPER_REVIEW_CHECK_NAME,
+  GITHUB_APP_PERMISSION_MANIFEST,
   GOVERNANCE_CHECK_NAMES,
   GOVERNANCE_REASON_CATALOG,
   ORGANIZATION_RUNNER_CHECK_NAME,
@@ -266,6 +267,39 @@ describe("contract utilities", () => {
 });
 
 describe("GitHub governance contracts", () => {
+  test("freezes the GitHub App permission manifest", () => {
+    expect(GITHUB_APP_PERMISSION_MANIFEST.schemaVersion).toBe("archcontext.github-app-permission-manifest/v1");
+    expect(GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions).toEqual({
+      metadata: "read",
+      pull_requests: "read",
+      checks: "write",
+      contents: "none"
+    });
+    expect(GITHUB_APP_PERMISSION_MANIFEST.forbiddenByDefault).toEqual([
+      "actions",
+      "administration",
+      "deployments",
+      "issues",
+      "members",
+      "secrets",
+      "workflows"
+    ]);
+    expect(GITHUB_APP_PERMISSION_MANIFEST.conditionalPermissions.commit_statuses).toEqual({
+      default: "none",
+      maximumAfterStagingDecision: "write",
+      decisionGate: "FG2-02 / FG2-EG6"
+    });
+    expect(GITHUB_APP_PERMISSION_MANIFEST.subscribedEvents).toEqual([
+      "installation",
+      "installation_repositories",
+      "pull_request.opened",
+      "pull_request.reopened",
+      "pull_request.synchronize",
+      "pull_request.closed",
+      "check_run.rerequested"
+    ]);
+  });
+
   test("freezes separate Developer and Organization check contexts", () => {
     expect(GOVERNANCE_CHECK_NAMES).toEqual([
       "ArchContext / Developer Review",
