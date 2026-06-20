@@ -191,6 +191,41 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-crash-recovery-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = defaultDaemonConnectionPath(root);
+    const lockPath = defaultDaemonLockPath(root);
+    try {
+      const started = await runCliProcess(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      expect(started.data.running).toBe(true);
+      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+
+      process.kill(firstConnection.pid, "SIGKILL");
+      await expectPidGone(firstConnection.pid);
+      expect(existsSync(connectionPath)).toBe(true);
+      expect(existsSync(lockPath)).toBe(true);
+
+      const restarted = await runCliProcess(root, "daemon", "start");
+      expect(restarted.ok).toBe(true);
+      expect(restarted.data.running).toBe(true);
+      expect(restarted.data.recoveredStaleControlFiles).toEqual(expect.arrayContaining([
+        "dead-connection-pid",
+        "stale-lock-file"
+      ]));
+      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      expect(secondConnection.pid).not.toBe(firstConnection.pid);
+
+      const status = await runCliProcess(root, "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.running).toBe(true);
+    } finally {
+      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -220,6 +255,7 @@ describe("archctx CLI", () => {
       expect(status.ok).toBe(true);
       expect((status.data as any).running).toBe(true);
     } finally {
+      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -351,4 +387,18 @@ async function expectFileRemoved(path: string): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out waiting for file removal: ${path}`);
+}
+
+async function expectPidGone(pid: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for process exit: ${pid}`);
 }

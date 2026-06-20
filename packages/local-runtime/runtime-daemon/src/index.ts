@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
@@ -102,6 +102,19 @@ export interface RuntimeRpcConnection {
   lockPath: string;
   connectionPath: string;
   startedAt: string;
+}
+
+export type DaemonControlRecoveryReason =
+  | "insecure-connection-file"
+  | "invalid-connection-file"
+  | "dead-connection-pid"
+  | "unhealthy-connection-file"
+  | "stale-lock-file";
+
+export interface DaemonControlRecovery {
+  connectionPath: string;
+  lockPath: string;
+  removed: DaemonControlRecoveryReason[];
 }
 
 export interface RuntimeRpcServerOptions {
@@ -992,6 +1005,25 @@ export function createRuntimeRpcClientFromConnectionFile(root = process.cwd()): 
   return connection ? new RuntimeRpcClient(connection) : undefined;
 }
 
+export function recoverStaleDaemonControlFiles(
+  root = process.cwd(),
+  options: { removeUnhealthyConnection?: boolean } = {}
+): DaemonControlRecovery {
+  const connectionPath = defaultDaemonConnectionPath(root);
+  const lockPath = defaultDaemonLockPath(root);
+  const removed: DaemonControlRecoveryReason[] = [];
+  const connectionReason = staleConnectionFileReason(connectionPath, options.removeUnhealthyConnection ?? false);
+  if (connectionReason) {
+    rmSync(connectionPath, { force: true });
+    removed.push(connectionReason);
+  }
+  if (existsSync(lockPath) && isStaleLock(lockPath)) {
+    rmSync(lockPath, { force: true });
+    removed.push("stale-lock-file");
+  }
+  return { connectionPath, lockPath, removed };
+}
+
 function numericRepositoryId(repositoryId: string): number {
   let hash = 0;
   for (const char of repositoryId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
@@ -1107,6 +1139,19 @@ function isValidRuntimeRpcConnection(value: RuntimeRpcConnection): value is Runt
     && typeof value.pid === "number"
     && typeof value.connectionPath === "string"
     && typeof value.lockPath === "string";
+}
+
+function staleConnectionFileReason(path: string, removeUnhealthyConnection: boolean): DaemonControlRecoveryReason | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    if (!isPrivateControlFile(path)) return "insecure-connection-file";
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as RuntimeRpcConnection;
+    if (!isValidRuntimeRpcConnection(parsed)) return "invalid-connection-file";
+    if (!isProcessAlive(parsed.pid)) return "dead-connection-pid";
+    return removeUnhealthyConnection ? "unhealthy-connection-file" : undefined;
+  } catch {
+    return "invalid-connection-file";
+  }
 }
 
 function isPrivateControlFile(path: string): boolean {

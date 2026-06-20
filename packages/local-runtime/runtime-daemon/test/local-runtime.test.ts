@@ -17,6 +17,7 @@ import {
   createStartedDaemon,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
+  recoverStaleDaemonControlFiles,
   readRuntimeRpcConnection
 } from "../src/index";
 
@@ -216,7 +217,16 @@ describe("local runtime foundation", () => {
     }, null, 2), { mode: 0o600 });
     if (process.platform !== "win32") chmodSync(connectionPath, 0o644);
     expect(readRuntimeRpcConnection(root)).toBeUndefined();
+    const insecureRecovery = recoverStaleDaemonControlFiles(root);
+    if (process.platform !== "win32") {
+      expect(insecureRecovery.removed).toContain("insecure-connection-file");
+      expect(existsSync(connectionPath)).toBe(false);
+    }
 
+    writeFileSync(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2), { mode: 0o600 });
+    const staleLockRecovery = recoverStaleDaemonControlFiles(root);
+    expect(staleLockRecovery.removed).toContain("stale-lock-file");
+    expect(existsSync(lockPath)).toBe(false);
     writeFileSync(lockPath, JSON.stringify({ pid: -1, root, startedAt: "2026-06-20T00:00:00.000Z" }, null, 2), { mode: 0o600 });
     const daemon = await createStartedTestDaemon();
     const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "stale-lock-token" });

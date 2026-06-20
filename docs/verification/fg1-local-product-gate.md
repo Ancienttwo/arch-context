@@ -6,6 +6,7 @@
   - `2e46bc066216f3840ee48c654e76b533f0b92679` — FG1-04 packaged CLI/daemon/MCP smoke
   - `d2194008d086d74b8f31c2ac28c9f81a8c576ce1` — FG1-05/06 CLI and MCP shared daemon RPC
   - `2fb84124dd077f2022d254b0fccc8fcbae8666f7` — FG1-07 daemon health, RPC version negotiation, and lifecycle readback
+  - pending — FG1-08 stale daemon control-file recovery and crash reconnect
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
@@ -16,7 +17,7 @@
 
 ## Scope
 
-This evidence covers FG1-01 through FG1-07.
+This evidence covers FG1-01 through FG1-08.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -32,6 +33,9 @@ This evidence covers FG1-01 through FG1-07.
 - Runtime RPC health accepts current/no version header, rejects mismatched `X-ArchContext-RPC-Version` with HTTP 426, and reports the expected local RPC schema version.
 - `archctx daemon status` reads the daemon health manifest back through the installed/started daemon and reports `rpcVersionCompatible=true`.
 - `scripts/packaged-cli-smoke.mjs` verifies installed daemon auto-start, idempotent start, status readback, MCP/CLI shared state, and graceful `daemon stop`; process timeouts are widened to tolerate real startup on this machine.
+- Runtime control-file recovery removes insecure/invalid/dead connection files and stale lock files before daemon restart while leaving live PID locks as the single-writer guard.
+- CLI daemon discovery now invokes the same recovery path for ordinary commands, `daemon status`, and `daemon start`.
+- CLI E2E kills a real background daemon, observes stale connection/lock files left behind, restarts a new daemon, and verifies `recoveredStaleControlFiles` plus a new PID.
 
 ## Commands
 
@@ -53,6 +57,7 @@ bun run verify
 - `bun run typecheck`: PASS.
 - Runtime/CLI/MCP focused tests: PASS, 24 tests across the focused files.
 - FG1-07 Runtime/CLI focused tests: PASS, 16 tests.
+- FG1-08 Runtime/CLI focused tests: PASS, 17 tests.
 - Contract tests: PASS, 83 tests.
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
 - `bun test`: PASS, 266 tests.
@@ -66,6 +71,8 @@ bun run verify
 - Runtime RPC with a mismatched `X-ArchContext-RPC-Version` is rejected with HTTP 426 before RPC method dispatch.
 - CLI daemon health readback reports `mode=production` and `productionSafe=true`.
 - CLI daemon status does not expose the bearer token and reports `rpcVersionCompatible=true` from health readback.
+- Insecure connection files are ignored and then removed by stale recovery.
+- Dead daemon PID connection files and stale lock files are removed before reconnect; the restarted daemon uses a different PID.
 - Product manifest schema rejects unknown top-level fields through the contract matrix.
 - Packaged MCP stdio preserves JSON-RPC request id and exposes `archcontext_prepare_task`.
 - Packaged CLI `apply` fails unless it can read the MCP-created ChangeSet draft from the same daemon process; the smoke test covers this positive shared-state path.
@@ -76,7 +83,7 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 ## Known Limitations
 
-FG1 is not complete. This slice does not claim stale socket/pipe recovery, daemon-restart persistent session E2E, local no-cloud review E2E, topology matrix, cross-OS IPC readback, version upgrade remediation, or Local Core quickstart completion.
+FG1 is not complete. This slice does not claim daemon-restart persistent session E2E, local no-cloud review E2E, topology matrix, cross-OS IPC matrix readback, version upgrade remediation, or Local Core quickstart completion.
 
 ## Linked CI / GitHub Run IDs
 
@@ -84,4 +91,4 @@ None for this local partial slice.
 
 ## Decision
 
-PARTIAL PASS for FG1-01 through FG1-07 only. FG1 exit gates remain open.
+PARTIAL PASS for FG1-01 through FG1-08 only. FG1 exit gates remain open.

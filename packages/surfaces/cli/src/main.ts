@@ -15,6 +15,8 @@ import {
   createStartedDaemon,
   createStartedProductionDaemon,
   defaultDaemonConnectionPath,
+  defaultDaemonLockPath,
+  recoverStaleDaemonControlFiles,
   type RuntimeDaemonClient,
   type RuntimeDeps
 } from "@archcontext/local-runtime/runtime-daemon";
@@ -275,6 +277,9 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<Runt
     if (client) {
       const health = await client.health().catch(() => undefined);
       if ((health as any)?.ok === true) return client;
+      recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
+    } else {
+      recoverStaleDaemonControlFiles(cwd);
     }
     const started = await startBackgroundDaemon([], cwd);
     if (!started.ok) throw new Error(started.error?.message ?? "archctxd did not start");
@@ -306,10 +311,12 @@ async function runDaemonCommand(args: string[], cwd: string) {
   if (subcommand === "status") {
     const client = createRuntimeRpcClientFromConnectionFile(cwd);
     if (!client) {
+      const recovery = recoverStaleDaemonControlFiles(cwd);
       return okEnvelope("daemon.status", {
         running: false,
         protocol: "http-loopback",
-        connectionPath: defaultDaemonConnectionPath(cwd)
+        connectionPath: defaultDaemonConnectionPath(cwd),
+        ...recoveryData(recovery)
       } as any);
     }
     const health = await client.health().catch(() => undefined);
@@ -322,10 +329,12 @@ async function runDaemonCommand(args: string[], cwd: string) {
         token: "stored-in-connection-file"
       } as any);
     }
+    const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
     return okEnvelope("daemon.status", {
       running: false,
       staleConnection: true,
-      connectionPath: client.connectionInfo().connectionPath
+      connectionPath: client.connectionInfo().connectionPath,
+      ...recoveryData(recovery)
     } as any);
   }
   if (subcommand === "start") {
@@ -349,15 +358,16 @@ async function runDaemonCommand(args: string[], cwd: string) {
 }
 
 async function startBackgroundDaemon(args: string[], cwd: string) {
-  const existing = await runningDaemonInfo(cwd);
-  if (existing) {
+  const discovered = await discoverRunningDaemonInfo(cwd, { recoverStale: true });
+  if (discovered.info) {
     return okEnvelope("daemon.start", {
       running: true,
       alreadyRunning: true,
-      ...existing,
+      ...discovered.info,
       token: "stored-in-connection-file"
     } as any);
   }
+  const recovery = discovered.recovery;
 
   const connectionPath = defaultDaemonConnectionPath(cwd);
   const controlDir = dirname(connectionPath);
@@ -389,7 +399,8 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
       childPid: child.pid,
       ...ready,
       logPath,
-      token: "stored-in-connection-file"
+      token: "stored-in-connection-file",
+      ...recoveryData(recovery)
     } as any);
   } finally {
     closeSync(logFd);
@@ -397,10 +408,37 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
 }
 
 async function runningDaemonInfo(cwd: string) {
+  return (await discoverRunningDaemonInfo(cwd)).info;
+}
+
+async function discoverRunningDaemonInfo(cwd: string, options: { recoverStale?: boolean } = {}) {
   const client = createRuntimeRpcClientFromConnectionFile(cwd);
-  if (!client) return undefined;
+  if (!client) {
+    return {
+      info: undefined,
+      recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd) : emptyRecovery(cwd)
+    };
+  }
   const health = await client.health().catch(() => undefined);
-  return (health as any)?.ok === true ? client.connectionInfo() : undefined;
+  if ((health as any)?.ok === true) {
+    return { info: client.connectionInfo(), recovery: emptyRecovery(cwd) };
+  }
+  return {
+    info: undefined,
+    recovery: options.recoverStale ? recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true }) : emptyRecovery(cwd)
+  };
+}
+
+function emptyRecovery(cwd: string) {
+  return {
+    connectionPath: defaultDaemonConnectionPath(cwd),
+    lockPath: defaultDaemonLockPath(cwd),
+    removed: []
+  };
+}
+
+function recoveryData(recovery: { removed: string[] }) {
+  return recovery.removed.length > 0 ? { recoveredStaleControlFiles: recovery.removed } : {};
 }
 
 async function waitForDaemonReady(cwd: string, timeoutMs: number) {
