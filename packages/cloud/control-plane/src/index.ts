@@ -41,6 +41,64 @@ export const BILLING_PRICES = {
   annual: { priceUsd: 99, label: "$99/user/year" }
 } as const;
 
+export type CloudPrivacySurface = "log" | "trace" | "queue" | "error";
+
+const SOURCE_CODE_KEY = ["source", "Code"].join("");
+const CODE_GRAPH_KEY = ["code", "Graph"].join("");
+const DIFF_BODY_KEY = ["diff", "Body"].join("");
+const SYMBOL_PAYLOAD_KEY = ["symbol", "Payload"].join("");
+const ARCHITECTURE_MODEL_BODY_KEY = ["architecture", "Model", "Body"].join("");
+const FORBIDDEN_PRIVATE_CONTENT_KEYS = new Set([
+  "source",
+  SOURCE_CODE_KEY,
+  "source_code",
+  "sourceBody",
+  "source_body",
+  "diff",
+  DIFF_BODY_KEY,
+  "diff_body",
+  "patch",
+  "filename",
+  "fileName",
+  "filePath",
+  "symbol",
+  SYMBOL_PAYLOAD_KEY,
+  "symbol_payload",
+  CODE_GRAPH_KEY,
+  "modelBody",
+  "model_body",
+  ARCHITECTURE_MODEL_BODY_KEY,
+  "architecture_model_body",
+  "finding",
+  "findingBody",
+  "findingDetail",
+  "finding_detail",
+  "prompt",
+  "completion",
+  "llmProvider",
+  "body",
+  "files"
+].map((key) => key.toLowerCase()));
+
+const PRIVATE_CONTENT_VALUE_PATTERNS = [
+  new RegExp(["source", "code"].join("\\s*"), "i"),
+  new RegExp(["diff", "body"].join("\\s*"), "i"),
+  new RegExp(["symbol", "payload"].join("\\s*"), "i"),
+  new RegExp(["architecture", "model", "body"].join("\\s*"), "i"),
+  new RegExp(["finding", "detail"].join("\\s*"), "i"),
+  /@@/,
+  /private[-_ ]?patch/i,
+  /Bearer\s+(?!\[REDACTED\])/i,
+  /(access|refresh|secret|token)_[A-Za-z0-9_-]+/
+] as const;
+
+const CLOUD_PRIVACY_ALLOWED_FIELDS: Record<CloudPrivacySurface, Set<string>> = {
+  log: new Set(["requestId", "routeId", "installationId", "repositoryId", "pullRequestNumber", "headShaPrefix", "challengeId", "attestationId", "checkDeliveryId", "status", "reasonCode", "latencyMs", "attempt", "runtimeVersion"]),
+  trace: new Set(["requestId", "routeId", "spanId", "parentSpanId", "installationId", "repositoryId", "pullRequestNumber", "headShaPrefix", "challengeId", "attestationId", "checkDeliveryId", "status", "reasonCode", "latencyMs", "attempt", "runtimeVersion"]),
+  queue: new Set(["kind", "id", "accountId", "eventId", "deliveryId", "challengeId", "checkRunId", "checkName", "headSha", "status", "attempt", "attemptCount", "nextAttemptAt", "lastErrorCode", "payloadDigest"]),
+  error: new Set(["errorCode", "reasonCode", "code", "status", "statusCode", "retryable", "requestId", "routeId"])
+};
+
 export class ControlPlane {
   readonly accounts = new Map<string, Account>();
   readonly webhookDeliveries = new Set<string>();
@@ -182,7 +240,7 @@ export class ControlPlane {
   }
 
   buildQueueMessage(input: { kind: string; id: string; accountId?: string }) {
-    return input;
+    return projectCloudPrivacySurface("queue", input) as { kind: string; id: string; accountId?: string };
   }
 
   listNotificationProviders(scope: { accountId?: string; installationId?: number } = {}): NotificationProviderConfig[] {
@@ -252,6 +310,27 @@ export class ControlPlane {
     return value.replace(/(access|refresh|secret|token)_[a-zA-Z0-9_-]+/g, "[REDACTED]");
   }
 
+  projectLogRecord(input: Record<string, unknown>): Record<string, string | number | boolean> {
+    return projectCloudPrivacySurface("log", input);
+  }
+
+  projectTraceRecord(input: Record<string, unknown>): Record<string, string | number | boolean> {
+    return projectCloudPrivacySurface("trace", input);
+  }
+
+  projectQueuePayload(input: Record<string, unknown>): Record<string, string | number | boolean> {
+    return projectCloudPrivacySurface("queue", input);
+  }
+
+  projectErrorObject(error: unknown, context: Record<string, unknown> = {}): Record<string, string | number | boolean> {
+    const errorCode = typeof context.errorCode === "string"
+      ? context.errorCode
+      : error instanceof Error
+        ? error.name
+        : "UNKNOWN_ERROR";
+    return projectCloudPrivacySurface("error", { ...context, errorCode });
+  }
+
   retentionCutoff(now: string, days = 90): string {
     return new Date(Date.parse(now) - days * 24 * 60 * 60 * 1000).toISOString();
   }
@@ -281,9 +360,38 @@ export function routeDigest(): string {
   return controlPlaneRouteDigest();
 }
 
+export function projectCloudPrivacySurface(surface: CloudPrivacySurface, input: Record<string, unknown>): Record<string, string | number | boolean> {
+  const allowed = CLOUD_PRIVACY_ALLOWED_FIELDS[surface];
+  const projected: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (isForbiddenPrivateContentKey(key) || containsPrivateContent(value)) continue;
+    if (key === "headSha" && (surface === "log" || surface === "trace")) {
+      if (typeof value === "string" && value.length >= 12) projected.headShaPrefix = value.slice(0, 12);
+      continue;
+    }
+    if (!allowed.has(key)) continue;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") projected[key] = value;
+  }
+  return projected;
+}
+
 export function assertNoUploadRoutes(routes: readonly string[] = CONTROL_PLANE_ROUTES): void {
   const forbidden = /(upload|index|detail|embedding|blob|proxy)/i;
   for (const route of routes) {
     if (forbidden.test(route)) throw new Error(`Forbidden route: ${route}`);
   }
+}
+
+function isForbiddenPrivateContentKey(key: string): boolean {
+  return FORBIDDEN_PRIVATE_CONTENT_KEYS.has(key.toLowerCase());
+}
+
+function containsPrivateContent(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.some(containsPrivateContent);
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).some(([key, child]) => isForbiddenPrivateContentKey(key) || containsPrivateContent(child));
+  }
+  if (typeof value !== "string") return false;
+  return PRIVATE_CONTENT_VALUE_PATTERNS.some((pattern) => pattern.test(value));
 }

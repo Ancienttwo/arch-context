@@ -13,13 +13,14 @@
   - `a2e16fe01b932a698fe242411cbcc56566c99642` — FG2-11 forbidden GitHub diff/patch media type rejection
   - `722c0e8de38dfba85a0f0a74356303ad37d36b8c` — FG2-12 generic Octokit client lint boundary
   - `ef0ec3093fdbe57bfdc973902a0ea9d0cc489caa` — FG2-13 GitHub egress recorder
+  - `(pending FG2-14 implementation commit)` — FG2-14 Cloud privacy surface projection
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, or FG2-13 local E1/E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, or FG2-14 local E1/E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, and FG2-13.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, and FG2-14.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -59,6 +60,10 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - `RecordingGitHubGovernanceApiTransport` wraps a typed GitHub transport and records a `CloudEgressEnvelope` after allowed requests complete.
 - Recorded GitHub egress contains only request ID, endpoint category, method, host, path template, status, latency, and timestamp.
 - The recorder does not persist concrete GitHub paths, request bodies, response bodies, installation IDs, repository IDs, PR numbers, head/base SHAs, or private PR metadata.
+- `projectCloudPrivacySurface` centralizes log, trace, queue, and error-object projection for Cloud privacy surfaces.
+- Control-plane queue messages now pass through the queue projection before storage.
+- Structured log/trace projection keeps only low-sensitivity identifiers and turns full `headSha` into `headShaPrefix`.
+- Error projection keeps low-sensitivity error codes/status/request context and drops message/private content fields.
 
 ## Commands
 
@@ -66,6 +71,7 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts
 bun test packages/cloud/github-app/test/github-app.test.ts
 bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts
+bun test packages/cloud/control-plane/test/control-plane.test.ts
 bun test scripts/github-api-contract-audit.test.ts
 bun run typecheck
 node scripts/privacy-route-audit.mjs
@@ -78,11 +84,12 @@ bun run verify
 - `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 104 tests, 394 expects.
 - `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 20 tests, 125 expects.
 - `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 21 tests, 135 expects.
+- `bun test packages/cloud/control-plane/test/control-plane.test.ts`: PASS, 7 tests, 51 expects.
 - `bun test scripts/github-api-contract-audit.test.ts`: PASS, 3 tests, 6 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
-- `bun run verify`: PASS, 301 tests, 1297 expects, 59-entry acceptance ledger.
+- `bun run verify`: PASS, 302 tests, 1310 expects, 60-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -104,11 +111,12 @@ bun run verify
 - GitHub App tests prove GitHub diff and patch media types are explicitly identified and rejected before transport.
 - GitHub API contract audit tests prove typed `GitHubGovernancePort` stays allowed while generic Octokit imports and `githubClient` injection are rejected.
 - GitHub App tests prove the egress recorder emits only `CloudEgressEnvelope` metadata and excludes concrete paths, request/response bodies, repository identifiers, PR identifiers, and private PR fields.
+- Control-plane tests prove log, trace, queue, and error surfaces keep only projected fields and remove private content fields before storage.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim full static forbidden endpoint scanning, dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
+FG2 is not complete. This slice does not claim full static forbidden endpoint scanning, dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or seeded DLP fixture coverage.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, and FG2-13. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, and FG2-14. Remaining FG2 tasks and exit gates stay open.

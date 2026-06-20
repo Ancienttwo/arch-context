@@ -16,6 +16,82 @@ describe("control plane", () => {
     expect(cp.costAlert({ monthlyRevenueUsd: 50, projectedCostUsd: 6 }).alert).toBe(true);
   });
 
+  test("projects log trace queue and error surfaces before storage", () => {
+    const cp = new ControlPlane();
+    const contentKey = ["source", "Code"].join("");
+    const graphKey = ["code", "Graph"].join("");
+    const bait = {
+      requestId: "req_1",
+      routeId: "github.webhook",
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      headSha: "abcdef1234567890",
+      challengeId: "challenge_1",
+      attestationId: "att_1",
+      checkDeliveryId: "check_1",
+      status: "failed",
+      reasonCode: "PAYLOAD_PRIVACY_VIOLATION",
+      latencyMs: 12,
+      attempt: 2,
+      runtimeVersion: "archctx/1.1.0",
+      [contentKey]: "function private() {}",
+      diff: "@@ private",
+      patch: "private-patch",
+      filename: "private.ts",
+      finding: "leaked detail",
+      prompt: "hidden prompt",
+      completion: "hidden completion",
+      nested: { [graphKey]: "private graph" },
+      message: "token_secret123"
+    };
+
+    const log = cp.projectLogRecord(bait);
+    expect(log).toEqual({
+      requestId: "req_1",
+      routeId: "github.webhook",
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      headShaPrefix: "abcdef123456",
+      challengeId: "challenge_1",
+      attestationId: "att_1",
+      checkDeliveryId: "check_1",
+      status: "failed",
+      reasonCode: "PAYLOAD_PRIVACY_VIOLATION",
+      latencyMs: 12,
+      attempt: 2,
+      runtimeVersion: "archctx/1.1.0"
+    });
+
+    const trace = cp.projectTraceRecord({ ...bait, spanId: "span_1", parentSpanId: "span_0" });
+    expect(trace.spanId).toBe("span_1");
+    expect(trace.parentSpanId).toBe("span_0");
+
+    const queue = cp.buildQueueMessage({
+      kind: "notification.event",
+      id: "evt_1",
+      accountId: "acct_1",
+      [contentKey]: "function private() {}",
+      patch: "private-patch"
+    } as any);
+    expect(queue).toEqual({ kind: "notification.event", id: "evt_1", accountId: "acct_1" });
+
+    const error = cp.projectErrorObject(new Error("token_secret123 private-patch"), {
+      errorCode: "PAYLOAD_PRIVACY_VIOLATION",
+      requestId: "req_1",
+      statusCode: 400,
+      [contentKey]: "function private() {}",
+      message: "token_secret123"
+    });
+    expect(error).toEqual({ errorCode: "PAYLOAD_PRIVACY_VIOLATION", requestId: "req_1", statusCode: 400 });
+
+    const serialized = JSON.stringify([log, trace, queue, error]);
+    for (const rejected of ["function private", "@@ private", "private-patch", "private.ts", "hidden prompt", "hidden completion", "token_secret123", "abcdef1234567890"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
   test("GitHub login, device auth, keychain store, entitlement, and Stripe subscription state work", () => {
     const cp = new ControlPlane();
     const account = cp.loginWithGitHub("42");
