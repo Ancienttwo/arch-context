@@ -57,6 +57,67 @@ describe("GitHub App", () => {
     expect(state.checks.get(first.checkRun!.id)?.conclusion).toBe("neutral");
   });
 
+  test("handles installation creation repository selection changes and revocation", () => {
+    const state = new GitHubAppState();
+    const repoA = installationRepository("ancienttwo/arch-context", 987);
+    const repoB = installationRepository("ancienttwo/other", 988);
+    const repoC = installationRepository("ancienttwo/third", 989);
+
+    const created = state.handleInstallation({
+      deliveryId: "install-created",
+      action: "created",
+      installationId: 123,
+      repositories: [repoA, repoB]
+    });
+    expect(created.selectedRepositories).toEqual(["ancienttwo/arch-context", "ancienttwo/other"]);
+    expect(state.installationId).toBe(123);
+
+    const replay = state.handleInstallation({
+      deliveryId: "install-created",
+      action: "created",
+      installationId: 123,
+      repositories: [repoC]
+    });
+    expect(replay.replayRejected).toBe(true);
+    expect(replay.selectedRepositories).toEqual(["ancienttwo/arch-context", "ancienttwo/other"]);
+
+    const changed = state.handleInstallationRepositories({
+      deliveryId: "install-repos",
+      action: "added",
+      installationId: 123,
+      repositoriesAdded: [repoC],
+      repositoriesRemoved: [repoB]
+    });
+    expect(changed.selectedRepositories).toEqual(["ancienttwo/arch-context", "ancienttwo/third"]);
+    state.requireOrganizationAttestation("ancienttwo/third");
+    expect(state.organizationAttestationRequired.has("ancienttwo/third")).toBe(true);
+
+    const removed = state.handleInstallationRepositories({
+      deliveryId: "install-repos-remove",
+      action: "removed",
+      installationId: 123,
+      repositoriesAdded: [],
+      repositoriesRemoved: [repoC]
+    });
+    expect(removed.selectedRepositories).toEqual(["ancienttwo/arch-context"]);
+    expect(state.organizationAttestationRequired.has("ancienttwo/third")).toBe(false);
+
+    const revoked = state.handleInstallation({
+      deliveryId: "install-deleted",
+      action: "deleted",
+      installationId: 123,
+      repositories: []
+    });
+    expect(revoked.selectedRepositories).toEqual([]);
+    expect(state.installationId).toBeUndefined();
+    expect(() => state.handlePullRequest({
+      deliveryId: "after-revoke",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 1, headSha: "abc123" }
+    })).toThrow("github-repository-not-selected");
+  });
+
   test("rerequest creates a fresh challenge without reusing the prior nonce", () => {
     const state = new GitHubAppState();
     state.install(["ancienttwo/arch-context"]);
@@ -577,6 +638,89 @@ describe("GitHub App", () => {
     }
   });
 
+  test("projects installation webhook to minimum fields only", () => {
+    const projection = signedProjection("installation", "delivery-install", {
+      action: "created",
+      installation: { id: 123, account: { login: "ancienttwo" }, permissions: { contents: "none" } },
+      repositories: [
+        {
+          id: 987,
+          name: "arch-context",
+          full_name: "ancienttwo/arch-context",
+          private: true,
+          description: "not retained",
+          default_branch: "private-main",
+          owner: { login: "ancienttwo" },
+          permissions: { admin: true }
+        }
+      ]
+    });
+
+    expect(projection).toEqual({
+      eventName: "installation",
+      rawBodyRetained: false,
+      event: {
+        deliveryId: "delivery-install",
+        action: "created",
+        installationId: 123,
+        repositories: [
+          { id: 987, fullName: "ancienttwo/arch-context", owner: "ancienttwo", name: "arch-context", visibility: "private" }
+        ]
+      }
+    });
+    const serialized = JSON.stringify(projection);
+    for (const rejected of ["description", "default_branch", "private-main", "permissions", "account"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
+  test("projects installation repository selection changes to minimum fields only", () => {
+    const projection = signedProjection("installation_repositories", "delivery-install-repos", {
+      action: "added",
+      installation: { id: 123 },
+      repositories_added: [
+        {
+          id: 989,
+          name: "third",
+          full_name: "ancienttwo/third",
+          private: false,
+          owner: { login: "ancienttwo" },
+          description: "not retained"
+        }
+      ],
+      repositories_removed: [
+        {
+          id: 988,
+          name: "other",
+          full_name: "ancienttwo/other",
+          private: true,
+          owner: { login: "ancienttwo" },
+          default_branch: "private-main"
+        }
+      ]
+    });
+
+    expect(projection).toEqual({
+      eventName: "installation_repositories",
+      rawBodyRetained: false,
+      event: {
+        deliveryId: "delivery-install-repos",
+        action: "added",
+        installationId: 123,
+        repositoriesAdded: [
+          { id: 989, fullName: "ancienttwo/third", owner: "ancienttwo", name: "third", visibility: "public" }
+        ],
+        repositoriesRemoved: [
+          { id: 988, fullName: "ancienttwo/other", owner: "ancienttwo", name: "other", visibility: "private" }
+        ]
+      }
+    });
+    const serialized = JSON.stringify(projection);
+    for (const rejected of ["description", "default_branch", "private-main"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
   test("rejects unsupported check run events", () => {
     const rawBody = Buffer.from(JSON.stringify({
       action: "created",
@@ -617,6 +761,21 @@ describe("GitHub App", () => {
       deliveryId: "delivery-unrelated-check",
       eventName: "check_run"
     })).toThrow("github-webhook-check-unsupported");
+  });
+
+  test("rejects unsupported installation events", () => {
+    expect(() => signedProjection("installation", "delivery-install-unsupported", {
+      action: "suspend",
+      installation: { id: 123 },
+      repositories: []
+    })).toThrow("github-webhook-action-unsupported");
+
+    expect(() => signedProjection("installation_repositories", "delivery-install-repos-unsupported", {
+      action: "unknown",
+      installation: { id: 123 },
+      repositories_added: [],
+      repositories_removed: []
+    })).toThrow("github-webhook-action-unsupported");
   });
 
   test("rejects unsigned webhook payload before JSON projection", () => {
@@ -681,3 +840,25 @@ describe("GitHub App", () => {
     expect(updated.output?.summary).toContain("No blocking findings.");
   });
 });
+
+function installationRepository(fullName: string, id: number) {
+  const [owner, name] = fullName.split("/");
+  return {
+    id,
+    fullName,
+    owner,
+    name,
+    visibility: "private" as const
+  };
+}
+
+function signedProjection(eventName: Parameters<typeof projectVerifiedGitHubWebhook>[0]["eventName"], deliveryId: string, payload: Record<string, unknown>) {
+  const rawBody = Buffer.from(JSON.stringify(payload), "utf8");
+  return projectVerifiedGitHubWebhook({
+    secret: "secret",
+    rawBody,
+    signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+    deliveryId,
+    eventName
+  });
+}

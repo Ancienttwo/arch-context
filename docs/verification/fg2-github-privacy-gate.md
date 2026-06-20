@@ -16,13 +16,14 @@
   - `449de452139052dc80f08c42f03b4853d325bcf4` — FG2-14 Cloud privacy surface projection
   - `82b7445def774c72623b3340d186dd8a160b83e1` — FG2-15 Cloud private content bait fixture
   - `39a8bf62b214f49fed8d6f4c471b658924ea8c34` — FG2-16 static Privacy Contract scan
+  - `(pending FG2-18 implementation commit)` — FG2-18 installation lifecycle handling
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, or FG2-16 local E1/E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, or FG2-18 local E1/E2/E3 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, and FG2-16.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, and FG2-18. FG2-17 remains a pending staging readback artifact only.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -43,6 +44,10 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Nonessential pull request payload fields are discarded before the event reaches `handlePullRequest`.
 - Pull request webhook projection supports `opened`, `synchronize`, and `reopened`.
 - Check run webhook projection supports only `rerequested` for ArchContext governance check names.
+- Installation webhook projection supports `created` and `deleted` with only installation ID and selected repository metadata.
+- Installation repository webhook projection supports `added` and `removed` with only added/removed repository IDs, full names, owner/name, and visibility.
+- `GitHubAppState` applies installation create/delete and repository selection changes idempotently through the delivery ledger.
+- Removing or revoking a repository clears selected repository state and organization attestation requirements; subsequent PR/rerequest handling rejects unselected repositories before challenge/check side effects.
 - `handleCheckRunRerequest` uses the delivery ledger, creates a fresh Review Challenge for the same head, and resets the addressed check to queued without reusing the earlier nonce.
 - `GitHubGovernanceRestPort.getPullHeadMetadata` implements the contracts-owned `GitHubGovernancePort` method through a typed transport.
 - Pull head metadata uses `GET /repositories/{repository_id}/pulls/{pull_number}` with GitHub's JSON accept header.
@@ -93,9 +98,9 @@ bun run verify
 
 ## Results
 
-- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 104 tests, 394 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 20 tests, 125 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 21 tests, 135 expects.
+- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 108 tests, 417 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 24 tests, 148 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 25 tests, 158 expects.
 - `bun test packages/cloud/control-plane/test/control-plane.test.ts`: PASS, 7 tests, 51 expects.
 - `bun test scripts/github-api-contract-audit.test.ts`: PASS, 7 tests, 14 expects.
 - `bun test scripts/cloud-private-content-bait.test.ts`: PASS, 1 test, 38 expects.
@@ -105,7 +110,7 @@ bun run verify
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
 - `bun run verify:privacy-contract`: PASS, scanned 18 production files.
 - `bun run readback:fg2:egress`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging export exists.
-- `bun run verify`: PASS, 311 tests, 1361 expects, 62-entry acceptance ledger.
+- `bun run verify`: PASS, 315 tests, 1384 expects, 63-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -117,6 +122,8 @@ bun run verify
 - GitHub App tests reject unsigned malformed JSON before payload projection.
 - GitHub App tests prove nonessential pull request fields from the webhook payload do not appear in the returned projection.
 - GitHub App tests reject unsupported Check Run actions and non-ArchContext check names.
+- GitHub App tests reject unsupported installation and installation repository actions.
+- GitHub App tests prove installation creation, repository selection changes, and revocation are idempotent and that PR handling fails after revocation.
 - GitHub App tests prove `rerequested` creates a fresh challenge and duplicate rerequest deliveries do not create another challenge.
 - GitHub App tests reject failed or malformed pull head metadata responses.
 - GitHub App tests prove PR title, body, branch names, and change counts are not returned by `getPullHeadMetadata`.
@@ -138,4 +145,4 @@ FG2 is not complete. FG2-17 remains open because no deployed staging GitHub App,
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, and FG2-16. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, and FG2-18. Remaining FG2 tasks and exit gates stay open.

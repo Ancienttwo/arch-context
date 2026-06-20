@@ -322,17 +322,42 @@ export interface CheckRunRerequestEvent {
   checkRun: { id: string; name: GovernanceCheckName; headSha: string };
 }
 
+export interface GitHubInstallationRepository {
+  id: number;
+  fullName: string;
+  owner: string;
+  name: string;
+  visibility: "public" | "private";
+}
+
+export interface InstallationEvent {
+  deliveryId: string;
+  action: "created" | "deleted";
+  installationId: number;
+  repositories: GitHubInstallationRepository[];
+}
+
+export interface InstallationRepositoriesEvent {
+  deliveryId: string;
+  action: "added" | "removed";
+  installationId: number;
+  repositoriesAdded: GitHubInstallationRepository[];
+  repositoriesRemoved: GitHubInstallationRepository[];
+}
+
 export interface ProjectVerifiedGitHubWebhookInput {
   secret: string;
   rawBody: string | Uint8Array;
   signature256: string;
   deliveryId: string;
-  eventName: "pull_request" | "check_run";
+  eventName: "pull_request" | "check_run" | "installation" | "installation_repositories";
 }
 
 export type ProjectedGitHubWebhookEvent =
   | { eventName: "pull_request"; event: PullRequestEvent; rawBodyRetained: false }
-  | { eventName: "check_run"; event: CheckRunRerequestEvent; rawBodyRetained: false };
+  | { eventName: "check_run"; event: CheckRunRerequestEvent; rawBodyRetained: false }
+  | { eventName: "installation"; event: InstallationEvent; rawBodyRetained: false }
+  | { eventName: "installation_repositories"; event: InstallationRepositoriesEvent; rawBodyRetained: false };
 
 export interface WebhookDeliveryReceipt {
   provider: "github";
@@ -379,6 +404,7 @@ export interface CheckRun {
 }
 
 export class GitHubAppState {
+  installationId?: number;
   readonly selectedRepositories = new Set<string>();
   readonly organizationAttestationRequired = new Set<string>();
   readonly challenges = new Map<string, ReviewChallenge>();
@@ -386,13 +412,40 @@ export class GitHubAppState {
 
   constructor(private readonly deliveryLedger: WebhookDeliveryLedger = new InMemoryWebhookDeliveryLedger()) {}
 
-  install(repositories: string[]): void {
+  install(repositories: string[], installationId?: number): void {
+    if (installationId !== undefined) this.installationId = installationId;
     for (const repository of repositories) this.selectedRepositories.add(repository);
   }
 
   uninstall(): void {
+    this.installationId = undefined;
     this.selectedRepositories.clear();
     this.organizationAttestationRequired.clear();
+  }
+
+  handleInstallation(event: InstallationEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; replayRejected: boolean; delivery: WebhookDeliveryReceipt; selectedRepositories: string[] } {
+    const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
+    if (delivery.replay) return { idempotent: true, replayRejected: true, delivery, selectedRepositories: this.repositoryList() };
+    if (event.action === "created") {
+      this.installationId = event.installationId;
+      this.selectedRepositories.clear();
+      for (const repository of event.repositories) this.selectedRepositories.add(repository.fullName);
+    } else {
+      this.uninstall();
+    }
+    return { idempotent: false, replayRejected: false, delivery, selectedRepositories: this.repositoryList() };
+  }
+
+  handleInstallationRepositories(event: InstallationRepositoriesEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; replayRejected: boolean; delivery: WebhookDeliveryReceipt; selectedRepositories: string[] } {
+    const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
+    if (delivery.replay) return { idempotent: true, replayRejected: true, delivery, selectedRepositories: this.repositoryList() };
+    this.installationId = event.installationId;
+    for (const repository of event.repositoriesAdded) this.selectedRepositories.add(repository.fullName);
+    for (const repository of event.repositoriesRemoved) {
+      this.selectedRepositories.delete(repository.fullName);
+      this.organizationAttestationRequired.delete(repository.fullName);
+    }
+    return { idempotent: false, replayRejected: false, delivery, selectedRepositories: this.repositoryList() };
   }
 
   requireOrganizationAttestation(repository: string, required = true): void {
@@ -401,10 +454,11 @@ export class GitHubAppState {
   }
 
   handlePullRequest(event: PullRequestEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; replayRejected: boolean; delivery: WebhookDeliveryReceipt; challenge?: ReviewChallenge; checkRun?: CheckRun } {
+    const repositoryKey = `${event.repository.owner}/${event.repository.name}`;
+    this.assertRepositorySelected(repositoryKey);
     const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
     if (delivery.replay) return { idempotent: true, replayRejected: true, delivery };
     this.invalidateHead(event.repository.owner, event.repository.name, event.pullRequest.number, event.pullRequest.headSha);
-    const repositoryKey = `${event.repository.owner}/${event.repository.name}`;
     const checkName = this.organizationAttestationRequired.has(repositoryKey)
       ? ORGANIZATION_RUNNER_CHECK_NAME
       : DEVELOPER_REVIEW_CHECK_NAME;
@@ -425,6 +479,7 @@ export class GitHubAppState {
   }
 
   handleCheckRunRerequest(event: CheckRunRerequestEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; replayRejected: boolean; delivery: WebhookDeliveryReceipt; challenge?: ReviewChallenge; checkRun?: CheckRun } {
+    this.assertRepositorySelected(`${event.repository.owner}/${event.repository.name}`);
     const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
     if (delivery.replay) return { idempotent: true, replayRejected: true, delivery };
     const challenge = createReviewChallenge({
@@ -484,6 +539,14 @@ export class GitHubAppState {
         this.challenges.set(id, { ...challenge, consumed: true });
       }
     }
+  }
+
+  private assertRepositorySelected(repository: string): void {
+    if (!this.selectedRepositories.has(repository)) throw new Error(`github-repository-not-selected: ${repository}`);
+  }
+
+  private repositoryList(): string[] {
+    return [...this.selectedRepositories].sort();
   }
 }
 
@@ -561,6 +624,20 @@ export function projectVerifiedGitHubWebhook(input: ProjectVerifiedGitHubWebhook
       rawBodyRetained: false
     };
   }
+  if (input.eventName === "installation") {
+    return {
+      eventName: "installation",
+      event: projectInstallationWebhook(input.deliveryId, payload),
+      rawBodyRetained: false
+    };
+  }
+  if (input.eventName === "installation_repositories") {
+    return {
+      eventName: "installation_repositories",
+      event: projectInstallationRepositoriesWebhook(input.deliveryId, payload),
+      rawBodyRetained: false
+    };
+  }
   throw new Error(`github-webhook-event-unsupported: ${String(input.eventName)}`);
 }
 
@@ -618,8 +695,41 @@ function projectCheckRunWebhook(deliveryId: string, payload: Record<string, unkn
   };
 }
 
+function projectInstallationWebhook(deliveryId: string, payload: Record<string, unknown>): InstallationEvent {
+  const action = requireInstallationAction(payload.action);
+  const installation = requireRecord(payload.installation, "installation");
+  return {
+    deliveryId,
+    action,
+    installationId: requireNumber(installation.id, "installation.id"),
+    repositories: projectInstallationRepositories(payload.repositories, "repositories")
+  };
+}
+
+function projectInstallationRepositoriesWebhook(deliveryId: string, payload: Record<string, unknown>): InstallationRepositoriesEvent {
+  const action = requireInstallationRepositoriesAction(payload.action);
+  const installation = requireRecord(payload.installation, "installation");
+  return {
+    deliveryId,
+    action,
+    installationId: requireNumber(installation.id, "installation.id"),
+    repositoriesAdded: projectInstallationRepositories(payload.repositories_added, "repositories_added"),
+    repositoriesRemoved: projectInstallationRepositories(payload.repositories_removed, "repositories_removed")
+  };
+}
+
 function requirePullRequestAction(value: unknown): PullRequestEvent["action"] {
   if (value === "opened" || value === "synchronize" || value === "reopened") return value;
+  throw new Error(`github-webhook-action-unsupported: ${String(value)}`);
+}
+
+function requireInstallationAction(value: unknown): InstallationEvent["action"] {
+  if (value === "created" || value === "deleted") return value;
+  throw new Error(`github-webhook-action-unsupported: ${String(value)}`);
+}
+
+function requireInstallationRepositoriesAction(value: unknown): InstallationRepositoriesEvent["action"] {
+  if (value === "added" || value === "removed") return value;
   throw new Error(`github-webhook-action-unsupported: ${String(value)}`);
 }
 
@@ -636,6 +746,25 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
 function requireFirstRecord(value: unknown, path: string): Record<string, unknown> {
   if (!Array.isArray(value) || value.length === 0) throw new Error(`github-webhook-field-invalid: ${path}`);
   return requireRecord(value[0], `${path}[0]`);
+}
+
+function projectInstallationRepositories(value: unknown, path: string): GitHubInstallationRepository[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return value.map((item, index) => projectInstallationRepository(item, `${path}[${index}]`));
+}
+
+function projectInstallationRepository(value: unknown, path: string): GitHubInstallationRepository {
+  const repository = requireRecord(value, path);
+  const owner = requireRecord(repository.owner, `${path}.owner`);
+  const fullName = requireString(repository.full_name, `${path}.full_name`);
+  return {
+    id: requireNumber(repository.id, `${path}.id`),
+    fullName,
+    owner: requireString(owner.login, `${path}.owner.login`),
+    name: requireString(repository.name, `${path}.name`),
+    visibility: repository.private === true ? "private" : "public"
+  };
 }
 
 function requireString(value: unknown, path: string): string {
