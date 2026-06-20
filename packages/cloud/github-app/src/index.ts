@@ -4,17 +4,27 @@ import {
   DEVELOPER_REVIEW_CHECK_NAME,
   GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
+  type CheckReference,
+  type CreateGovernanceCheckInput,
   type GitHubGovernancePort,
   type GovernanceCheckName,
   type NotificationResult,
   type NotificationRiskLevel,
-  type PullHeadMetadata
+  type PullHeadMetadata,
+  type UpdateGovernanceCheckInput
 } from "@archcontext/contracts";
 
 export const GITHUB_APP_PERMISSIONS = GITHUB_APP_PERMISSION_MANIFEST.repositoryPermissions;
 export const GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE = "/repositories/{repository_id}/pulls/{pull_number}" as const;
+export const GITHUB_CHECK_CREATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs" as const;
+export const GITHUB_CHECK_UPDATE_PATH_TEMPLATE = "/repositories/{repository_id}/check-runs/{check_run_id}" as const;
 
-export interface GitHubGovernanceApiRequest {
+export type GitHubGovernanceApiRequest =
+  | GitHubPullHeadApiRequest
+  | GitHubCheckCreateApiRequest
+  | GitHubCheckUpdateApiRequest;
+
+export interface GitHubPullHeadApiRequest {
   category: "github.pull-head";
   installationId: number;
   repositoryId: number;
@@ -23,6 +33,40 @@ export interface GitHubGovernanceApiRequest {
   pathTemplate: typeof GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE;
   path: string;
   accept: "application/vnd.github+json";
+}
+
+export interface GitHubCheckCreateApiRequest {
+  category: "github.check-create";
+  installationId: number;
+  repositoryId: number;
+  method: "POST";
+  pathTemplate: typeof GITHUB_CHECK_CREATE_PATH_TEMPLATE;
+  path: string;
+  accept: "application/vnd.github+json";
+  body: {
+    name: GovernanceCheckName;
+    head_sha: string;
+    status: CreateGovernanceCheckInput["status"];
+  };
+}
+
+export interface GitHubCheckUpdateApiRequest {
+  category: "github.check-update";
+  installationId: number;
+  repositoryId: number;
+  method: "PATCH";
+  pathTemplate: typeof GITHUB_CHECK_UPDATE_PATH_TEMPLATE;
+  path: string;
+  accept: "application/vnd.github+json";
+  body: {
+    name: GovernanceCheckName;
+    status: UpdateGovernanceCheckInput["status"];
+    conclusion?: NonNullable<UpdateGovernanceCheckInput["conclusion"]>;
+    output: {
+      title: string;
+      summary: string;
+    };
+  };
 }
 
 export interface GitHubGovernanceApiResponse {
@@ -35,7 +79,7 @@ export interface GitHubGovernanceApiTransport {
   request(input: GitHubGovernanceApiRequest): Promise<GitHubGovernanceApiResponse>;
 }
 
-export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "getPullHeadMetadata"> {
+export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "getPullHeadMetadata" | "createCheckRun" | "updateCheckRun"> {
   constructor(private readonly transport: GitHubGovernanceApiTransport) {}
 
   async getPullHeadMetadata(input: { installationId: number; repositoryId: number; pullRequestNumber: number }): Promise<PullHeadMetadata> {
@@ -63,6 +107,63 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
       headSha: requireApiString(requireApiRecord(body.head, "pull.head").sha, "pull.head.sha"),
       baseSha: requireApiString(requireApiRecord(body.base, "pull.base").sha, "pull.base.sha")
     };
+  }
+
+  async createCheckRun(input: CreateGovernanceCheckInput): Promise<CheckReference> {
+    const installationId = requirePositiveInteger(input.installationId, "installationId");
+    const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
+    requirePositiveInteger(input.pullRequestNumber, "pullRequestNumber");
+    const response = await this.transport.request({
+      category: "github.check-create",
+      installationId,
+      repositoryId,
+      method: "POST",
+      pathTemplate: GITHUB_CHECK_CREATE_PATH_TEMPLATE,
+      path: `/repositories/${repositoryId}/check-runs`,
+      accept: "application/vnd.github+json",
+      body: {
+        name: requireGovernanceCheckName(input.name),
+        head_sha: requireNonEmptyInputString(input.headSha, "headSha"),
+        status: requireCheckStatus(input.status)
+      }
+    });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`github-check-create-failed: ${response.statusCode}`);
+    }
+    const body = requireApiRecord(response.body, "check_run");
+    const htmlUrl = body.html_url === undefined ? undefined : requireApiString(body.html_url, "check_run.html_url");
+    return {
+      checkRunId: requireStringId(body.id, "check_run.id"),
+      ...(htmlUrl ? { htmlUrl } : {})
+    };
+  }
+
+  async updateCheckRun(input: UpdateGovernanceCheckInput): Promise<void> {
+    const installationId = requirePositiveInteger(input.installationId, "installationId");
+    const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
+    const checkRunId = requireNonEmptyInputString(input.checkRunId, "checkRunId");
+    const body: GitHubCheckUpdateApiRequest["body"] = {
+      name: requireGovernanceCheckName(input.name),
+      status: requireCheckStatus(input.status),
+      output: {
+        title: requireNonEmptyInputString(input.output.title, "output.title"),
+        summary: requireNonEmptyInputString(input.output.summary, "output.summary")
+      }
+    };
+    if (input.conclusion !== undefined) body.conclusion = requireCheckConclusion(input.conclusion);
+    const response = await this.transport.request({
+      category: "github.check-update",
+      installationId,
+      repositoryId,
+      method: "PATCH",
+      pathTemplate: GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
+      path: `/repositories/${repositoryId}/check-runs/${encodeURIComponent(checkRunId)}`,
+      accept: "application/vnd.github+json",
+      body
+    });
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`github-check-update-failed: ${response.statusCode}`);
+    }
   }
 }
 
@@ -416,6 +517,21 @@ function requireNumber(value: unknown, path: string): number {
 function requirePositiveInteger(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) throw new Error(`github-governance-input-invalid: ${path}`);
   return value;
+}
+
+function requireNonEmptyInputString(value: unknown, path: string): string {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`github-governance-input-invalid: ${path}`);
+  return value;
+}
+
+function requireCheckStatus(value: unknown): CreateGovernanceCheckInput["status"] {
+  if (value === "queued" || value === "in_progress" || value === "completed") return value;
+  throw new Error(`github-governance-input-invalid: status`);
+}
+
+function requireCheckConclusion(value: unknown): NonNullable<UpdateGovernanceCheckInput["conclusion"]> {
+  if (value === "success" || value === "failure" || value === "neutral" || value === "cancelled" || value === "timed_out" || value === "action_required") return value;
+  throw new Error(`github-governance-input-invalid: conclusion`);
 }
 
 function requireApiRecord(value: unknown, path: string): Record<string, unknown> {

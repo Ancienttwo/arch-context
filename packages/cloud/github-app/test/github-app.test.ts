@@ -4,6 +4,8 @@ import { createReviewChallenge, signLocalAttestation, signOrganizationAttestatio
 import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
 import {
   GITHUB_APP_PERMISSIONS,
+  GITHUB_CHECK_CREATE_PATH_TEMPLATE,
+  GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
   GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
   GitHubAppState,
   GitHubGovernanceRestPort,
@@ -142,6 +144,120 @@ describe("GitHub App", () => {
       }
     });
     await expect(malformed.getPullHeadMetadata({ installationId: 123, repositoryId: 987, pullRequestNumber: 42 })).rejects.toThrow("github-governance-response-invalid");
+  });
+
+  test("createCheckRun sends only the minimum GitHub Check create DTO", async () => {
+    const requests: GitHubGovernanceApiRequest[] = [];
+    const port = new GitHubGovernanceRestPort({
+      async request(input) {
+        requests.push(input);
+        return { statusCode: 201, body: { id: 456, html_url: "https://github.example/checks/456", output: { summary: "not returned" } } };
+      }
+    });
+
+    const result = await port.createCheckRun({
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      headSha: "abc123",
+      name: DEVELOPER_REVIEW_CHECK_NAME,
+      status: "queued"
+    });
+
+    expect(result).toEqual({ checkRunId: "456", htmlUrl: "https://github.example/checks/456" });
+    expect(requests).toEqual([{
+      category: "github.check-create",
+      installationId: 123,
+      repositoryId: 987,
+      method: "POST",
+      pathTemplate: GITHUB_CHECK_CREATE_PATH_TEMPLATE,
+      path: "/repositories/987/check-runs",
+      accept: "application/vnd.github+json",
+      body: {
+        name: DEVELOPER_REVIEW_CHECK_NAME,
+        head_sha: "abc123",
+        status: "queued"
+      }
+    }]);
+    const body = JSON.stringify((requests[0] as Extract<GitHubGovernanceApiRequest, { category: "github.check-create" }>).body);
+    for (const rejected of ["pullRequestNumber", "private-note", "output", "summary"]) {
+      expect(body).not.toContain(rejected);
+    }
+  });
+
+  test("updateCheckRun sends only the minimum GitHub Check update DTO", async () => {
+    const requests: GitHubGovernanceApiRequest[] = [];
+    const port = new GitHubGovernanceRestPort({
+      async request(input) {
+        requests.push(input);
+        return { statusCode: 200, body: {} };
+      }
+    });
+
+    await port.updateCheckRun({
+      installationId: 123,
+      repositoryId: 987,
+      checkRunId: "check/42",
+      name: ORGANIZATION_RUNNER_CHECK_NAME,
+      status: "completed",
+      conclusion: "neutral",
+      output: {
+        title: "Attestation required",
+        summary: "Minimal check summary"
+      }
+    });
+
+    expect(requests).toEqual([{
+      category: "github.check-update",
+      installationId: 123,
+      repositoryId: 987,
+      method: "PATCH",
+      pathTemplate: GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
+      path: "/repositories/987/check-runs/check%2F42",
+      accept: "application/vnd.github+json",
+      body: {
+        name: ORGANIZATION_RUNNER_CHECK_NAME,
+        status: "completed",
+        conclusion: "neutral",
+        output: {
+          title: "Attestation required",
+          summary: "Minimal check summary"
+        }
+      }
+    }]);
+    const body = JSON.stringify((requests[0] as Extract<GitHubGovernanceApiRequest, { category: "github.check-update" }>).body);
+    for (const rejected of ["installationId", "repositoryId", "checkRunId", "private-note"]) {
+      expect(body).not.toContain(rejected);
+    }
+  });
+
+  test("createCheckRun and updateCheckRun reject failed GitHub responses", async () => {
+    const failed = new GitHubGovernanceRestPort({
+      async request(input) {
+        return input.category === "github.check-create"
+          ? { statusCode: 422, body: { message: "invalid" } }
+          : { statusCode: 500, body: { message: "failed" } };
+      }
+    });
+
+    await expect(failed.createCheckRun({
+      installationId: 123,
+      repositoryId: 987,
+      pullRequestNumber: 42,
+      headSha: "abc123",
+      name: DEVELOPER_REVIEW_CHECK_NAME,
+      status: "queued"
+    })).rejects.toThrow("github-check-create-failed");
+
+    await expect(failed.updateCheckRun({
+      installationId: 123,
+      repositoryId: 987,
+      checkRunId: "check_42",
+      name: DEVELOPER_REVIEW_CHECK_NAME,
+      status: "completed",
+      conclusion: "failure",
+      output: { title: "Attestation required", summary: "Minimal check summary" }
+    })).rejects.toThrow("github-check-update-failed");
   });
 
   test("delivery ledger rejects replayed delivery ids by provider", () => {
