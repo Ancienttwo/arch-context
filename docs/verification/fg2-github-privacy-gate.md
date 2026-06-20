@@ -3,7 +3,7 @@
 - Commit SHAs:
   - `0c81204833be188c095a0e3870882ce33dc6e559` — FG2-01 GitHub App permission manifest
   - `6db79fc35f8ac8722aa6abd1bcc6e4e45a38b3a7` — FG2-03 raw-body GitHub webhook HMAC verification
-  - Pending first FG2-04 implementation commit — Webhook delivery replay rejection
+  - `635cc1c43f14727c13abf9a999c73eaff1a7400d` — FG2-04 Webhook delivery replay rejection
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01, FG2-03, or FG2-04 local E2 slice
 - Started At: 2026-06-20
@@ -34,14 +34,16 @@ bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/tes
 bun test packages/cloud/github-app/test/github-app.test.ts
 bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts
 bun run typecheck
+bun run verify
 ```
 
 ## Results
 
 - `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 87 tests.
-- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 3 tests.
+- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 4 tests.
 - `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 5 tests, 40 expects.
 - `bun run typecheck`: PASS.
+- `bun run verify`: PASS, 282 tests, 1196 expects, 50-entry acceptance ledger.
 
 ## Negative Tests
 
