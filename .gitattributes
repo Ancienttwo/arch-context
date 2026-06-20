@@ -1,0 +1,3 @@
+docs/security/captures/*.json text eol=lf
+docs/security/scans/*.json text eol=lf
+docs/security/reviews/*.md text eol=lf
