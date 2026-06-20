@@ -65,6 +65,18 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).git).toMatchObject({ ok: true, root, headSha: "unborn" });
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
       expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.0.1");
+      expect((doctor.data as any).egress).toMatchObject({
+        ok: true,
+        defaultOutbound: "local-only",
+        cloudContentUpload: "deny",
+        secureMcpTunnel: "disabled-by-default",
+        thirdPartyTelemetry: "disabled",
+        codeGraph: {
+          telemetry: "disabled",
+          envVar: "DO_NOT_TRACK",
+          effectiveValue: "1"
+        }
+      });
       expect((doctor.data as any).hardening.privacyRouteDigest).toMatch(/^sha256:/);
       const privacyAudit = await runTestCli("privacy-audit", [], root);
       expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);

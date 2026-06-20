@@ -94,6 +94,20 @@ async function runFirstExperience(
     expect(doctor.ok).toBe(true);
     expect(doctor.data.git).toMatchObject({ ok: true, root: realpathSync(resolve(repo)), headSha });
     expect(doctor.data.codeGraph.requiredVersion).toBe("1.0.1");
+    expect(doctor.data.egress).toMatchObject({
+      ok: true,
+      defaultOutbound: "local-only",
+      cloudContentUpload: "deny",
+      secureMcpTunnel: "disabled-by-default",
+      thirdPartyTelemetry: "disabled",
+      codeGraph: {
+        telemetry: "disabled",
+        envVar: "DO_NOT_TRACK",
+        configuredValue: "1",
+        effectiveValue: "1",
+        source: "environment"
+      }
+    });
 
     const mcpStatus = await runArchctx(repo, "mcp", "status", "--host", "codex");
     expect(mcpStatus.ok).toBe(true);

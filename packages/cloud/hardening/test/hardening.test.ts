@@ -9,6 +9,7 @@ import {
   installMarker,
   largeRepoPerfEstimate,
   launchGateReport,
+  localEgressStatus,
   secretScan,
   secureDefaults,
   sprint2LaunchGateReport,
@@ -22,9 +23,27 @@ describe("@archcontext/cloud/hardening", () => {
       tunnelEnabledByDefault: false,
       cloudContentUpload: "deny",
       githubContentsPermission: "none",
+      thirdPartyTelemetry: "disabled-by-default",
+      defaultEgress: "local-only",
       applyChangeSetRequiresApproval: true
     });
     expect(diagnostics().privacyRouteDigest).toMatch(/^sha256:/);
+    expect(diagnostics().egress.ok).toBe(true);
+    expect(localEgressStatus({}).codeGraph).toMatchObject({
+      telemetry: "disabled",
+      envVar: "DO_NOT_TRACK",
+      effectiveValue: "1",
+      source: "archcontext-default"
+    });
+    expect(localEgressStatus({ DO_NOT_TRACK: "0" })).toMatchObject({
+      ok: false,
+      thirdPartyTelemetry: "not-disabled-by-env",
+      codeGraph: {
+        telemetry: "not-disabled-by-env",
+        configuredValue: "0",
+        source: "environment"
+      }
+    });
   });
 
   test("installs and removes host markers without touching surrounding content", () => {

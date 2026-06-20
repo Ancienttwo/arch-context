@@ -6,6 +6,15 @@ import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuer
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
 export const REQUIRED_CODEGRAPH_VERSION = "1.0.1";
+export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
+export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
+
+type MutableEnv = Record<string, string | undefined>;
+
+export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env): string {
+  env[CODEGRAPH_TELEMETRY_ENV] ??= CODEGRAPH_TELEMETRY_DISABLED_VALUE;
+  return env[CODEGRAPH_TELEMETRY_ENV] ?? CODEGRAPH_TELEMETRY_DISABLED_VALUE;
+}
 
 export interface CodeGraphProvider {
   version: string;
@@ -96,7 +105,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
   #snapshot?: CodeFactsSnapshot;
 
   constructor(private readonly provider: CodeGraphProvider) {
-    process.env.DO_NOT_TRACK ??= "1";
+    disableCodeGraphTelemetryByDefault();
   }
 
   async ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot> {
@@ -181,7 +190,7 @@ export class MultiRepoCodeGraphAdapter {
   private readonly adapters = new Map<string, CodeGraphAdapter>();
 
   constructor(private readonly providers: Record<string, CodeGraphProvider>) {
-    process.env.DO_NOT_TRACK ??= "1";
+    disableCodeGraphTelemetryByDefault();
   }
 
   async syncRepositories(workspaces: WorkspaceRef[]): Promise<CodeFactsSnapshot[]> {

@@ -357,8 +357,9 @@ async function doctorReport(cwd: string) {
     codeGraph: product.runtime.codeGraph,
     git,
     permissions,
+    egress: hardening.egress,
     hardening,
-    ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable
+    ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && hardening.egress.ok
   };
 }
 

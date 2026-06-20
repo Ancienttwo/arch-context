@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { crossRepoImpact, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { attestationLabel, deviceIntegritySignals } from "@archcontext/cloud/attestation";
-import { REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { CODEGRAPH_TELEMETRY_DISABLED_VALUE, CODEGRAPH_TELEMETRY_ENV, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { controlPlaneRouteDigest } from "@archcontext/contracts";
 import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "@archcontext/cloud/control-plane-client";
 
@@ -18,12 +18,14 @@ export const PLATFORM_STATE_PATHS = {
 } as const;
 
 export function diagnostics() {
+  const egress = localEgressStatus();
   return {
     node: process.version,
     supportedNode: /^v(24|25)\./.test(process.version),
     codeGraphVersion: REQUIRED_CODEGRAPH_VERSION,
     privacyRouteDigest: controlPlaneRouteDigest(),
-    secureDefaults: secureDefaults()
+    secureDefaults: secureDefaults(),
+    egress
   };
 }
 
@@ -32,7 +34,32 @@ export function secureDefaults() {
     tunnelEnabledByDefault: false,
     cloudContentUpload: "deny",
     githubContentsPermission: "none",
+    thirdPartyTelemetry: "disabled-by-default",
+    defaultEgress: "local-only",
     applyChangeSetRequiresApproval: true
+  };
+}
+
+export function localEgressStatus(env: Record<string, string | undefined> = process.env) {
+  const configuredDoNotTrack = env[CODEGRAPH_TELEMETRY_ENV];
+  const effectiveDoNotTrack = configuredDoNotTrack ?? CODEGRAPH_TELEMETRY_DISABLED_VALUE;
+  const codeGraphTelemetry = effectiveDoNotTrack === CODEGRAPH_TELEMETRY_DISABLED_VALUE ? "disabled" : "not-disabled-by-env";
+  const warnings = codeGraphTelemetry === "disabled" ? [] : [`${CODEGRAPH_TELEMETRY_ENV} is ${effectiveDoNotTrack}; CodeGraph telemetry is not disabled by environment`];
+  return {
+    ok: warnings.length === 0,
+    defaultOutbound: "local-only",
+    cloudContentUpload: "deny",
+    secureMcpTunnel: "disabled-by-default",
+    thirdPartyTelemetry: codeGraphTelemetry === "disabled" ? "disabled" : "not-disabled-by-env",
+    codeGraph: {
+      provider: "codegraph",
+      telemetry: codeGraphTelemetry,
+      envVar: CODEGRAPH_TELEMETRY_ENV,
+      configuredValue: configuredDoNotTrack ?? null,
+      effectiveValue: effectiveDoNotTrack,
+      source: configuredDoNotTrack === undefined ? "archcontext-default" : "environment"
+    },
+    warnings
   };
 }
 

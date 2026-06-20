@@ -411,6 +411,22 @@
       ]
     },
     {
+      "id": "FG1-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/local-runtime/codegraph-adapter/src/index.ts",
+        "packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts",
+        "packages/cloud/hardening/src/index.ts",
+        "packages/cloud/hardening/test/hardening.test.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/surfaces/cli/test/local-product-e2e.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
       "id": "FG1-EG4",
       "kind": "exit-gate",
       "status": "completed",

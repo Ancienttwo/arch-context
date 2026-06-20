@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { MultiRepoCodeGraphAdapter } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
+  test("disables CodeGraph telemetry by default without overriding explicit env", () => {
+    const defaultEnv: Record<string, string | undefined> = {};
+    expect(disableCodeGraphTelemetryByDefault(defaultEnv)).toBe("1");
+    expect(defaultEnv[CODEGRAPH_TELEMETRY_ENV]).toBe("1");
+
+    const explicitEnv: Record<string, string | undefined> = { [CODEGRAPH_TELEMETRY_ENV]: "0" };
+    expect(disableCodeGraphTelemetryByDefault(explicitEnv)).toBe("0");
+    expect(explicitEnv[CODEGRAPH_TELEMETRY_ENV]).toBe("0");
+  });
+
   test("aggregates per-repo contexts with stable repo-scoped symbol ids", async () => {
     const web = new MockCodeGraphProvider();
     const api = new MockCodeGraphProvider();
