@@ -70,6 +70,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Error projection keeps low-sensitivity error codes/status/request context and drops message/private content fields.
 - `docs/security/fixtures/cloud-private-content-bait.json` carries source code, patch, symbol, and finding bait values.
 - `scripts/cloud-private-content-bait.test.ts` proves the bait cannot enter Cloud DTOs: control-plane log/trace/queue/error projections, notification event DTO/schema, and cloud-egress envelope schema.
+- `docs/verification/fg2-egress-recording.json` is the pending FG2-17 staging readback artifact for GitHub egress and bait-hit counts.
+- `scripts/github-egress-recording-readback.mjs` verifies a future staging recording by requiring allowlisted GitHub egress categories, zero forbidden endpoint/media counts, and zero log/trace/queue bait hits.
 
 ## Commands
 
@@ -80,10 +82,12 @@ bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-
 bun test packages/cloud/control-plane/test/control-plane.test.ts
 bun test scripts/github-api-contract-audit.test.ts
 bun test scripts/cloud-private-content-bait.test.ts
+bun test scripts/github-egress-recording-readback.test.ts
 bun run typecheck
 node scripts/privacy-route-audit.mjs
 bun run verify:github-api-contract
 bun run verify:privacy-contract
+bun run readback:fg2:egress
 bun run verify
 ```
 
@@ -95,11 +99,13 @@ bun run verify
 - `bun test packages/cloud/control-plane/test/control-plane.test.ts`: PASS, 7 tests, 51 expects.
 - `bun test scripts/github-api-contract-audit.test.ts`: PASS, 7 tests, 14 expects.
 - `bun test scripts/cloud-private-content-bait.test.ts`: PASS, 1 test, 38 expects.
+- `bun test scripts/github-egress-recording-readback.test.ts`: PASS, 4 tests, 5 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
 - `bun run verify:github-api-contract`: PASS, scanned 18 production files.
 - `bun run verify:privacy-contract`: PASS, scanned 18 production files.
-- `bun run verify`: PASS, 307 tests, 1356 expects, 62-entry acceptance ledger.
+- `bun run readback:fg2:egress`: PENDING, exits successfully only with `--allow-pending`; strict readback remains blocked until staging export exists.
+- `bun run verify`: PASS, 311 tests, 1361 expects, 62-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -124,10 +130,11 @@ bun run verify
 - GitHub App tests prove the egress recorder emits only `CloudEgressEnvelope` metadata and excludes concrete paths, request/response bodies, repository identifiers, PR identifiers, and private PR fields.
 - Control-plane tests prove log, trace, queue, and error surfaces keep only projected fields and remove private content fields before storage.
 - Cloud private content bait tests prove source, Patch, Symbol, and Finding fixture values are removed from projected Cloud surfaces and rejected by notification/egress DTO schema.
+- GitHub egress recording readback tests reject nonzero PR Files/Contents/Blob/Tree/Diff/Patch and log/trace/queue bait counts in a verified staging artifact.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or full staging DLP export coverage.
+FG2 is not complete. FG2-17 remains open because no deployed staging GitHub App, staging installation, sanitized GitHub egress recorder export, or staging log/trace/queue DLP export is available in this local environment. This slice does not claim dynamic staging egress recording, staging GitHub App readback, Commit Statuses expected-source proof, persistent Check Delivery retry queues, retention pruning, install/revoke lifecycle handling, or full staging DLP export coverage.
 
 ## Decision
 

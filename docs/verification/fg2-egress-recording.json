@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "archcontext.github-egress-recording/v1",
+  "environment": "staging",
+  "status": "pending",
+  "reason": "Awaiting deployed staging GitHub App, staging installation, sanitized GitHub egress recorder export, and staging log/trace/queue DLP export.",
+  "requiredRecording": {
+    "githubEgress": {
+      "categories": [
+        "github.pull-head",
+        "github.check-create",
+        "github.check-update"
+      ],
+      "forbiddenEndpointCounts": {
+        "prFiles": 0,
+        "contents": 0,
+        "blob": 0,
+        "tree": 0
+      },
+      "forbiddenMediaTypeCounts": {
+        "diff": 0,
+        "patch": 0
+      }
+    },
+    "baitHits": {
+      "log": 0,
+      "trace": 0,
+      "queue": 0
+    }
+  },
+  "readback": {
+    "command": "node scripts/github-egress-recording-readback.mjs readback --recording docs/verification/fg2-egress-recording.json",
+    "allowPendingCommand": "node scripts/github-egress-recording-readback.mjs readback --recording docs/verification/fg2-egress-recording.json --allow-pending"
+  }
+}
