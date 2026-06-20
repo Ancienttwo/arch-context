@@ -76,6 +76,15 @@ describe("archctx CLI", () => {
       expect(complete.ok).toBe(true);
       expect((complete.data as any).schemaVersion).toBe("archcontext.review/v1");
 
+      const review = await runTestCli("review", [
+        "--task-session-id", "task_cli_review",
+        "--head-sha", "abc123",
+        "--model-digest", `sha256:${"a".repeat(64)}`,
+        "--codefacts-digest", `sha256:${"b".repeat(64)}`
+      ], root);
+      expect(review.requestId).toBe("review");
+      expect((review.data as any).schemaVersion).toBe("archcontext.review/v1");
+
       const config = await runTestCli("config", [], root);
       expect((config.data as any).generic.transport).toBe("stdio");
 

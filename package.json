@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit",
     "test:contracts": "bun test packages/contracts/test/contracts.test.ts",
     "e2e:local-product-tarball": "node scripts/local-product-tarball-smoke.mjs",
+    "e2e:local-no-cloud": "node scripts/local-no-cloud-e2e.mjs",
     "handoff:s2:external": "node scripts/sprint2-external-evidence-handoff.mjs render",
     "record:s2:external": "node scripts/sprint2-external-evidence-record.mjs record",
     "readback:s2:external": "node scripts/sprint2-external-evidence-readback.mjs readback --json",

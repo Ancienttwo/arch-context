@@ -190,11 +190,12 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "checkpoint",
         data: checkpoint({ root: cwd, expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(cwd) })
       };
+    case "review":
     case "complete":
       return {
         schemaVersion: "archcontext.envelope/v1",
         ok: true,
-        requestId: "complete",
+        requestId: command,
         data: completeTask({
           taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
           posture: (readFlag(args, "--posture") as any) ?? "normal",
@@ -298,7 +299,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
           examples: ["archctx init --name MyApp", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };

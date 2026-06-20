@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T12:39:00Z",
+  "updatedAt": "2026-06-20T12:45:00Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -498,6 +498,19 @@
         "packages/local-runtime/local-store-sqlite/src/index.ts",
         "packages/local-runtime/runtime-daemon/src/index.ts",
         "scripts/packaged-cli-smoke.mjs",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
+      "id": "FG1-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "package.json",
+        "scripts/local-no-cloud-e2e.mjs",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
     },

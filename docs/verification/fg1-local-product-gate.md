@@ -30,7 +30,7 @@
 
 ## Scope
 
-This evidence covers FG1-01 through FG1-18 and closes FG1-EG1, FG1-EG2, and FG1-EG4.
+This evidence covers FG1-01 through FG1-18 and closes FG1-EG1, FG1-EG2, FG1-EG3, and FG1-EG4.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -82,6 +82,9 @@ This evidence covers FG1-01 through FG1-18 and closes FG1-EG1, FG1-EG2, and FG1-
 - `scripts/local-product-tarball-smoke.mjs` builds a one-package release tarball by bundling the CLI/daemon/MCP entrypoint to a Node ESM bin, writing a release manifest, and running `npm pack`.
 - The tarball smoke installs `archcontext-0.1.0.tgz` into a fresh consumer directory with `npm install <local-tarball>`, then runs the installed `archctx` bin against a separate Git fixture.
 - The installed tarball path verifies `doctor`, `daemon start`, `init`, `sync`, `prepare`, MCP stdio `tools/list`, and `daemon stop` without GitHub App, Cloud account, subscription, or LLM provider setup.
+- `archctx review` is now a user-facing alias for the deterministic local `complete` review gate and returns `archcontext.review/v1`.
+- `scripts/local-no-cloud-e2e.mjs` strips common GitHub, Cloud, and LLM provider environment variables before running the local fixture through `doctor`, `init`, `sync`, `context`, and `review`.
+- The no-cloud E2E asserts local-only egress, denied cloud content upload, disabled secure MCP tunnel by default, disabled third-party telemetry, local CodeGraph digest, and a passing deterministic review result.
 
 ## Commands
 
@@ -99,6 +102,7 @@ bun test scripts/local-core-quickstart-doc.test.ts scripts/local-product-lifecyc
 bun test
 node scripts/packaged-cli-smoke.mjs
 node scripts/local-product-tarball-smoke.mjs --artifact-dir /tmp/archctx-fg1-eg1-tarball-artifacts
+bun run e2e:local-no-cloud
 node scripts/platform-ipc-permission-readback.mjs
 bun run verify
 gh run watch 27870884813 --repo Ancienttwo/arch-context --exit-status
@@ -126,6 +130,7 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - `bun test`: PASS, 278 tests.
 - `node scripts/packaged-cli-smoke.mjs`: PASS, including restart session restore plus post-restart MCP `plan_update` and CLI `apply` shared-state readback.
 - `node scripts/local-product-tarball-smoke.mjs --artifact-dir /tmp/archctx-fg1-eg1-tarball-artifacts`: PASS, generated `archcontext-0.1.0.tgz`, installed it into a fresh consumer, and verified installed CLI/daemon/MCP plus CodeGraph-backed `sync`.
+- `bun run e2e:local-no-cloud`: PASS, with provider environment variables removed by name only, `doctor → init → sync → context → review`, local-only egress, and `review.data.result=pass`.
 - `node scripts/platform-ipc-permission-readback.mjs`: PASS locally.
 - `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 44-entry acceptance ledger, sprint-status, and representative eval.
 - GitHub Actions Verify run `27870884813`: PASS on ubuntu-latest, macos-latest, and windows-latest for Node 24.x and 25.x.
@@ -160,6 +165,7 @@ gh run download 27870884813 --repo Ancienttwo/arch-context --dir /tmp/archctx-fg
 - Platform IPC readback would fail if the daemon exposed a non-loopback transport, leaked the bearer token through status, missed connection/lock files, failed to stop, or produced non-`600` POSIX control-file modes.
 - Quickstart doc test rejects omission of the no GitHub App/Cloud/subscription/LLM requirement wording, local first-run commands, MCP host commands, daemon stop, and provider-key non-requirement.
 - The tarball smoke would fail if the release package still contained `workspace:*` dependencies, missed the `archctx` bin, required the source checkout's `node_modules`, failed to install CodeGraph, started a non-loopback daemon, or omitted the MCP stdio tool surface.
+- The no-cloud E2E would fail if `doctor` reports non-local egress, if `context` cannot build from local CodeGraph, if `archctx review` is missing, or if deterministic review returns any error finding.
 
 ## Privacy Scan
 
@@ -167,7 +173,7 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 ## Known Limitations
 
-FG1 is not complete. This slice does not claim formal `e2e:local-no-cloud` script coverage, Production mock reachability graph proof, host-owned config file mutation/readback, or doctor auto-remediation. FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
+FG1 is not complete. This slice does not claim Production mock reachability graph proof, host-owned config file mutation/readback, or doctor auto-remediation. FG1-EG6 remains open because the gate requires the broader install plus local IPC matrix, not only the IPC permission readback.
 
 ## Linked CI / GitHub Run IDs
 
@@ -182,4 +188,4 @@ FG1 is not complete. This slice does not claim formal `e2e:local-no-cloud` scrip
 
 ## Decision
 
-PARTIAL PASS for FG1-01 through FG1-18 plus FG1-EG1, FG1-EG2, and FG1-EG4. Remaining FG1 exit gates stay open.
+PARTIAL PASS for FG1-01 through FG1-18 plus FG1-EG1, FG1-EG2, FG1-EG3, and FG1-EG4. Remaining FG1 exit gates stay open.
