@@ -440,6 +440,19 @@
       ]
     },
     {
+      "id": "FG1-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/runbooks/local-product-lifecycle.md",
+        "scripts/local-product-lifecycle-doc.test.ts",
+        "scripts/packaged-cli-smoke.mjs",
+        "packages/surfaces/cli/src/main.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
       "id": "FG1-EG4",
       "kind": "exit-gate",
       "status": "completed",

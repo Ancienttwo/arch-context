@@ -14,6 +14,7 @@
   - 6876ef46aee8d47446711a1a34f28ce650f7fd61 — FG1-13 and FG1-EG4 multi-repo unsupported topology boundary
   - 5e397ef93d538375b8fa42b166d358783d607054 — FG1-14 local third-party telemetry default and doctor egress status
   - 153e5da3740c4937cf51e2de9bc2dd30258c5d8d — FG1-15 runtime RPC version mismatch action and daemon upgrade path
+  - pending — FG1-16 local product install, upgrade, uninstall, and data retention lifecycle policy
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
@@ -24,7 +25,7 @@
 
 ## Scope
 
-This evidence covers FG1-01 through FG1-15 and closes FG1-EG4.
+This evidence covers FG1-01 through FG1-16 and closes FG1-EG4.
 
 - `archctxd` now has an explicit production composition root through `createProductionDaemon` / `createStartedProductionDaemon`.
 - The production root rejects injected runtime doubles for CodeGraph, provider factory, model store, local store, ChangeSet engine, and clock.
@@ -60,6 +61,9 @@ This evidence covers FG1-01 through FG1-15 and closes FG1-EG4.
 - CLI daemon discovery reports incompatible live daemon control files as actionable version issues instead of treating them as generic stale state.
 - `archctx daemon status` displays `rpcVersionCompatible=false` plus the `archctx daemon upgrade` command when the local control file points to an incompatible live daemon.
 - `archctx daemon upgrade` terminates only the same-repository incompatible daemon PID from the private control file, waits for cleanup, and starts a compatible daemon.
+- `docs/runbooks/local-product-lifecycle.md` now defines the Local Core install, upgrade, uninstall, and data retention policy.
+- The lifecycle policy keeps MCP host config removal separate from repository data deletion, and makes destructive `.archcontext/` deletion an explicit user action rather than an uninstall side effect.
+- `scripts/local-product-lifecycle-doc.test.ts` locks the lifecycle runbook to the packaged CLI smoke, `archctx mcp install/remove`, `archctx daemon upgrade`, and retained `.archcontext/` state.
 
 ## Commands
 
@@ -72,6 +76,7 @@ bun test packages/contracts/test/contracts.test.ts
 bun test scripts/sprint-status-check.test.ts
 bun test packages/cloud/hardening/test/hardening.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/surfaces/cli/test/cli.test.ts packages/surfaces/cli/test/local-product-e2e.test.ts
 bun test packages/contracts/test/contracts.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts
+bun test scripts/local-product-lifecycle-doc.test.ts
 bun test
 node scripts/packaged-cli-smoke.mjs
 bun run verify
@@ -90,11 +95,12 @@ bun run verify
 - FG1-13 contracts/CLI focused tests: PASS, 95 tests across contracts, CLI, and local product E2E focused files.
 - FG1-14 hardening/CodeGraph/CLI/local product focused tests: PASS, 22 tests.
 - FG1-15 contracts/runtime/CLI focused tests: PASS, 102 tests.
+- FG1-16 lifecycle runbook focused test: PASS, 1 test.
 - Contract tests: PASS, 83 tests.
 - `scripts/sprint-status-check.test.ts`: PASS, 8 tests.
-- `bun test`: PASS, 273 tests.
+- `bun test`: PASS, 274 tests.
 - `node scripts/packaged-cli-smoke.mjs`: PASS.
-- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 39-entry acceptance ledger, sprint-status, and representative eval.
+- `bun run verify`: PASS, including typecheck, package-boundary audit, full test suite, packaged CLI smoke, privacy audits, 40-entry acceptance ledger, sprint-status, and representative eval.
 
 ## Negative Tests
 
@@ -115,6 +121,7 @@ bun run verify
 - An incompatible live daemon returns `AC_RUNTIME_VERSION_UNSUPPORTED` for ordinary runtime commands instead of timing out behind a live lock.
 - `archctx daemon start` refuses to start over an incompatible live daemon and directs the user to the explicit upgrade path.
 - `archctx daemon upgrade` verifies the old PID exits and the replacement connection file advertises the current RPC schema version.
+- Lifecycle doc test rejects omission of install, upgrade, uninstall, data retention, packaged smoke, daemon upgrade, or retained `.archcontext/` policy anchors.
 - Product manifest schema rejects unknown top-level fields through the contract matrix.
 - Packaged MCP stdio preserves JSON-RPC request id and exposes `archcontext_prepare_task`.
 - Packaged CLI `apply` fails unless it can read the MCP-created ChangeSet draft from the same daemon process; the smoke test covers this positive shared-state path.
@@ -133,4 +140,4 @@ None for this local partial slice.
 
 ## Decision
 
-PARTIAL PASS for FG1-01 through FG1-15 plus FG1-EG4. Remaining FG1 exit gates stay open.
+PARTIAL PASS for FG1-01 through FG1-16 plus FG1-EG4. Remaining FG1 exit gates stay open.
