@@ -291,6 +291,31 @@
         "scripts/packaged-cli-smoke.mjs",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/src/main.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "scripts/packaged-cli-smoke.mjs",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
+      "id": "FG1-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/mcp-local/src/index.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "scripts/packaged-cli-smoke.mjs",
+        "packages/surfaces/mcp-local/test/mcp-local.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }

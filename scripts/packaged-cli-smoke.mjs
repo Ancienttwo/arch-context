@@ -43,6 +43,49 @@ try {
   assert(Array.isArray(mcp.result?.tools), "mcp must list tools");
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
 
+  const planned = await runArchctxMcp({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "archcontext_plan_update",
+      arguments: {
+        root: repo,
+        id: "changeset.packaged-mcp",
+        operations: [
+          {
+            op: "create_entity",
+            path: ".archcontext/model/nodes/module.packaged-mcp.yaml",
+            expectedHash: "missing",
+            body: [
+              "schemaVersion: archcontext.node/v1",
+              "id: module.packaged-mcp",
+              "kind: module",
+              "name: Packaged MCP",
+              "status: active",
+              "summary: Packaged MCP smoke",
+              "responsibilities:",
+              "- prove cli and mcp share daemon state",
+              ""
+            ].join("\n")
+          }
+        ]
+      }
+    }
+  });
+  assert(planned.result?.content?.ok === true, "mcp plan_update must succeed through daemon RPC");
+
+  const applied = await runArchctx(
+    "apply",
+    "--id",
+    "changeset.packaged-mcp",
+    "--approved",
+    "--expected-worktree-digest",
+    status.data.worktreeDigest
+  );
+  assert(applied.ok === true, "cli apply must consume the MCP-created daemon ChangeSet draft");
+  assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp.yaml")), "cli apply must write the MCP-planned model file");
+
   const again = await runArchctx("daemon", "start");
   assert(again.ok === true, "second daemon start must succeed");
   assert(again.data?.alreadyRunning === true, "second daemon start must be idempotent");
