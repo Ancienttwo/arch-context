@@ -16,7 +16,7 @@
   - `449de452139052dc80f08c42f03b4853d325bcf4` — FG2-14 Cloud privacy surface projection
   - `82b7445def774c72623b3340d186dd8a160b83e1` — FG2-15 Cloud private content bait fixture
   - `39a8bf62b214f49fed8d6f4c471b658924ea8c34` — FG2-16 static Privacy Contract scan
-  - `(pending FG2-18 implementation commit)` — FG2-18 installation lifecycle handling
+  - `15f3b42c3e7c08fe2fb2f2e789be3e0d636f23d6` — FG2-18 installation lifecycle handling
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, FG2-12, FG2-13, FG2-14, FG2-15, FG2-16, or FG2-18 local E1/E2/E3 slice
 - Started At: 2026-06-20
