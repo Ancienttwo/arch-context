@@ -48,6 +48,32 @@ export interface RuntimeDeps {
   maxRepoSessions?: number;
 }
 
+export interface ProductionRuntimeOptions {
+  root?: string;
+  localStorePath?: string;
+  maxRepoSessions?: number;
+}
+
+export type RuntimeCompositionMode = "production" | "embedded";
+
+export interface RuntimeCompositionReport {
+  mode: RuntimeCompositionMode;
+  productionSafe: boolean;
+  adapters: {
+    codeFacts: "codegraph-cli" | "injected";
+    codeGraphProviderFactory: "codegraph-cli" | "injected";
+    modelStore: "yaml" | "injected";
+    localStore: "sqlite" | "injected";
+    changeSetEngine: "default" | "injected";
+  };
+  localStorePath?: string;
+  blockedProductionInjections: string[];
+}
+
+interface RuntimeConstructionOptions {
+  compositionMode?: RuntimeCompositionMode;
+}
+
 export interface ExplorerServerOptions {
   port?: number;
   tokenTtlSeconds?: number;
@@ -134,6 +160,7 @@ export class ArchctxDaemon {
   private readonly changeSetEngine: ChangeSetEngine;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
+  private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private landscape?: Landscape;
@@ -141,7 +168,8 @@ export class ArchctxDaemon {
   private running = false;
   private writerLocked = false;
 
-  constructor(deps: RuntimeDeps = {}) {
+  constructor(deps: RuntimeDeps = {}, options: RuntimeConstructionOptions = {}) {
+    if (options.compositionMode === "production") assertProductionRuntimeDeps(deps);
     this.codeFacts = deps.codeFacts ?? new CodeGraphAdapter(new CodeGraphCliProvider());
     this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphCliProvider(repository.root ?? repository.repositoryId));
     this.modelStore = deps.modelStore ?? new YamlModelStore();
@@ -153,6 +181,7 @@ export class ArchctxDaemon {
     });
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
+    this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
   }
 
   async start(): Promise<void> {
@@ -174,6 +203,10 @@ export class ArchctxDaemon {
       sessions: this.sessions.size,
       repositories: [...this.sessions.keys()].sort()
     };
+  }
+
+  compositionReport(): RuntimeCompositionReport {
+    return this.composition;
   }
 
   async init(root: string, productName?: string): Promise<JsonEnvelope> {
@@ -832,7 +865,8 @@ export class ArchctxRuntimeRpcServer {
         ok: true,
         pid: process.pid,
         protocol: "http-loopback",
-        version: 1
+        version: 1,
+        composition: this.daemon.compositionReport()
       });
       return;
     }
@@ -983,6 +1017,56 @@ export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<Archc
   const daemon = new ArchctxDaemon(deps);
   await daemon.start();
   return daemon;
+}
+
+export function createProductionDaemon(options: ProductionRuntimeOptions = {}): ArchctxDaemon {
+  const deps: RuntimeDeps = {
+    localStorePath: options.localStorePath ?? defaultLocalStorePath(options.root),
+    maxRepoSessions: options.maxRepoSessions
+  };
+  assertProductionRuntimeDeps(deps);
+  return new ArchctxDaemon(deps, { compositionMode: "production" });
+}
+
+export async function createStartedProductionDaemon(options: ProductionRuntimeOptions = {}): Promise<ArchctxDaemon> {
+  const daemon = createProductionDaemon(options);
+  await daemon.start();
+  return daemon;
+}
+
+export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
+  const blocked = blockedProductionInjections(deps);
+  if (blocked.length > 0) {
+    throw new Error(`Production archctxd cannot inject runtime test doubles: ${blocked.join(", ")}`);
+  }
+}
+
+function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMode): RuntimeCompositionReport {
+  const blocked = blockedProductionInjections(deps);
+  return {
+    mode,
+    productionSafe: blocked.length === 0,
+    adapters: {
+      codeFacts: deps.codeFacts ? "injected" : "codegraph-cli",
+      codeGraphProviderFactory: deps.codeGraphProviderFactory ? "injected" : "codegraph-cli",
+      modelStore: deps.modelStore ? "injected" : "yaml",
+      localStore: deps.localStore ? "injected" : "sqlite",
+      changeSetEngine: deps.changeSetEngine ? "injected" : "default"
+    },
+    localStorePath: deps.localStorePath,
+    blockedProductionInjections: blocked
+  };
+}
+
+function blockedProductionInjections(deps: RuntimeDeps): string[] {
+  return [
+    "codeFacts",
+    "codeGraphProviderFactory",
+    "modelStore",
+    "localStore",
+    "changeSetEngine",
+    "clock"
+  ].filter((key) => key in deps);
 }
 
 function acquireDaemonLock(lockPath: string, root: string): number {

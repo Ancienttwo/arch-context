@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "archcontext",
+      "dependencies": {
+        "@archcontext/surfaces": "workspace:*",
+      },
       "devDependencies": {
         "@types/node": "^26.0.0",
         "bun-types": "^1.3.14",

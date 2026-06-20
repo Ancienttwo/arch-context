@@ -12,6 +12,8 @@ import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
   RuntimeRpcClient,
+  assertProductionRuntimeDeps,
+  createStartedProductionDaemon,
   createStartedDaemon,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
@@ -144,6 +146,33 @@ describe("local runtime foundation", () => {
       expect(existsSync(connection.lockPath)).toBe(false);
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
+    const root = tempRepo();
+    try {
+      const daemon = await createStartedProductionDaemon({ root });
+      expect(daemon.compositionReport()).toMatchObject({
+        mode: "production",
+        productionSafe: true,
+        adapters: {
+          codeFacts: "codegraph-cli",
+          codeGraphProviderFactory: "codegraph-cli",
+          modelStore: "yaml",
+          localStore: "sqlite",
+          changeSetEngine: "default"
+        }
+      });
+      await daemon.stop();
+
+      const codeFacts = new CodeGraphAdapter(new MockCodeGraphProvider());
+      expect(() => assertProductionRuntimeDeps({ codeFacts })).toThrow("codeFacts");
+      expect(() => assertProductionRuntimeDeps({ codeGraphProviderFactory: () => new MockCodeGraphProvider() })).toThrow("codeGraphProviderFactory");
+      expect(() => assertProductionRuntimeDeps({ localStore: new TestLocalStore() })).toThrow("localStore");
+      expect(() => assertProductionRuntimeDeps({ clock: () => "2026-06-20T00:00:00.000Z" })).toThrow("clock");
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });

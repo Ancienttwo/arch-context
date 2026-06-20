@@ -128,6 +128,31 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("accepts local GitHub governance follow-up with FG1 partial ledger evidence", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG1 In Progress",
+          total: "| **合计** | | **141** | **51** | **25 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 2 / 24 |",
+            "| FG0-01 | ☑ | 评审并接受 Follow-up PRD | docs/product | E0 | — |",
+            "| FG1-01 | ☑ | 建立唯一 Production Composition Root | runtime-daemon | E1 | PRE-01..05 |",
+            "| FG1-02 | ☑ | Production 不可注入 Mock Store 或 Mock CodeGraph | runtime-daemon · build | E1 | FG1-01 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, ["FG1-01", "FG1-02"]);
+        await write(root, "docs/verification/fg1-local-product-gate.md", "# FG1 Verification\n\n## Decision\n\nPARTIAL\n");
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
     await withFixture(
       `# Sprint 2
@@ -167,8 +192,8 @@ describe("sprint-status-check", () => {
         });
         await writeFg0Evidence(root);
         const failures = await collectSprintStatusFailures(root);
-        expect(failures.some((failure) => failure.includes("23 / 192"))).toBe(true);
-        expect(failures.some((failure) => failure.includes("FG1-FG6"))).toBe(true);
+        expect(failures.some((failure) => failure.includes("FG1 progress must use status"))).toBe(true);
+        expect(failures.some((failure) => failure.includes("sprint marks FG1-01 complete without completed ledger evidence"))).toBe(true);
       }
     );
   });
@@ -289,11 +314,12 @@ async function writeGovernanceFollowup(root: string, options: { prdStatus?: stri
   );
 }
 
-async function writeFg0Evidence(root: string) {
+async function writeFg0Evidence(root: string, extraCompleted: string[] = []) {
   await write(root, "docs/verification/fg0-contract-correction-gate.md", "# FG0 Verification\n\n## Decision\n\nPASS\n");
   const completed = [
     ...Array.from({ length: 18 }, (_, index) => `FG0-${String(index + 1).padStart(2, "0")}`),
-    ...Array.from({ length: 5 }, (_, index) => `FG0-EG${index + 1}`)
+    ...Array.from({ length: 5 }, (_, index) => `FG0-EG${index + 1}`),
+    ...extraCompleted
   ];
   await write(
     root,
@@ -305,8 +331,8 @@ async function writeFg0Evidence(root: string) {
           id,
           kind: id.includes("-EG") ? "exit-gate" : "task",
           status: "completed",
-          target: id === "FG0-18" || id.startsWith("FG0-EG") ? "E1" : "E0",
-          evidence: ["docs/verification/fg0-contract-correction-gate.md"]
+          target: id === "FG0-18" || id.startsWith("FG0-EG") || id.startsWith("FG1-") ? "E1" : "E0",
+          evidence: [id.startsWith("FG1-") ? "docs/verification/fg1-local-product-gate.md" : "docs/verification/fg0-contract-correction-gate.md"]
         }))
       },
       null,

@@ -114,6 +114,15 @@ describe("archctx CLI", () => {
       expect(String(started.data.url)).toMatch(/^http:\/\/127\.0\.0\.1:/);
       expect(existsSync(join(root, ".archcontext/.local/archctxd.json"))).toBe(true);
       expect(existsSync(join(root, ".archcontext/.local/archctxd.lock"))).toBe(true);
+      const health = await fetch(`${started.data.url}health`);
+      expect((await health.json() as any).composition).toMatchObject({
+        mode: "production",
+        productionSafe: true,
+        adapters: {
+          codeFacts: "codegraph-cli",
+          localStore: "sqlite"
+        }
+      });
 
       const init = await runCliProcess(root, "init", "--name", "Foreground App");
       expect(init.ok).toBe(true);

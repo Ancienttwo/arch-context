@@ -110,16 +110,6 @@ async function validateGovernanceFollowupPlan(root, failures) {
 
 async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures) {
   const sprintPath = "plans/sprints/archctx-local-github-governance-sprint.md";
-  if (!statusLine || !/Executing\s+—\s+FG0 Complete/.test(statusLine)) {
-    failures.push(`${sprintPath}: accepted follow-up must be Executing — FG0 Complete until FG1 starts`);
-  }
-  if (!/\|\s*\*\*合计\*\*\s*\|[^|\n]*\|\s*\*\*141\*\*\s*\|\s*\*\*51\*\*\s*\|\s*\*\*23\s*\/\s*192\*\*\s*\|/.test(sprint)) {
-    failures.push(`${sprintPath}: accepted FG0 progress must be exactly 23 / 192`);
-  }
-  if (/^\|\s*FG[1-6](?:-\d+|-EG\d+)\s*\|\s*☑\s*\|/m.test(sprint)) {
-    failures.push(`${sprintPath}: FG1-FG6 tasks/gates must not be marked complete before their evidence gates exist`);
-  }
-
   const ledgerPath = "docs/verification/acceptance-ledger.json";
   const evidencePath = "docs/verification/fg0-contract-correction-gate.md";
   const [ledgerText, evidence] = await Promise.all([
@@ -139,12 +129,49 @@ async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures)
   }
   const entries = Array.isArray(ledger.entries) ? ledger.entries : [];
   const completed = entries.filter((entry) => entry.status === "completed");
-  if (completed.length !== 23) {
-    failures.push(`${ledgerPath}: FG0 complete state must have exactly 23 completed entries`);
+  const completedIds = new Set(completed.map((entry) => entry.id));
+  const sprintCompletedIds = governanceCompletedIds(sprint);
+  const hasFg1Progress = completed.some((entry) => /^FG1(?:-\d+|-EG\d+)$/.test(entry.id))
+    || sprintCompletedIds.some((id) => /^FG1(?:-\d+|-EG\d+)$/.test(id));
+  const hasPostFg1Progress = completed.some((entry) => /^FG[2-6](?:-\d+|-EG\d+)$/.test(entry.id))
+    || sprintCompletedIds.some((id) => /^FG[2-6](?:-\d+|-EG\d+)$/.test(id));
+
+  if (hasPostFg1Progress) {
+    failures.push(`${sprintPath}: FG2-FG6 completion is not accepted until FG1 exit evidence exists`);
   }
+
+  if (hasFg1Progress) {
+    if (!statusLine || !/Executing\s+—\s+FG1 In Progress/.test(statusLine)) {
+      failures.push(`${sprintPath}: FG1 progress must use status Executing — FG1 In Progress`);
+    }
+    const fg1Completed = completed.filter((entry) => /^FG1(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+    if (!progressRowMatches(sprint, "FG1", fg1Completed, 24)) {
+      failures.push(`${sprintPath}: FG1 progress must match ledger count ${fg1Completed} / 24`);
+    }
+    if (!totalProgressMatches(sprint, completed.length)) {
+      failures.push(`${sprintPath}: total progress must match ledger count ${completed.length} / 192`);
+    }
+    for (const id of sprintCompletedIds) {
+      if (!completedIds.has(id)) failures.push(`${ledgerPath}: sprint marks ${id} complete without completed ledger evidence`);
+    }
+  } else {
+    if (!statusLine || !/Executing\s+—\s+FG0 Complete/.test(statusLine)) {
+      failures.push(`${sprintPath}: accepted follow-up must be Executing — FG0 Complete until FG1 starts`);
+    }
+    if (completed.length !== 23) {
+      failures.push(`${ledgerPath}: FG0 complete state must have exactly 23 completed entries`);
+    }
+    if (!totalProgressMatches(sprint, 23)) {
+      failures.push(`${sprintPath}: accepted FG0 progress must be exactly 23 / 192`);
+    }
+    if (sprintCompletedIds.some((id) => /^FG[1-6](?:-\d+|-EG\d+)$/.test(id))) {
+      failures.push(`${sprintPath}: FG1-FG6 tasks/gates must not be marked complete before their evidence gates exist`);
+    }
+  }
+
   for (const entry of completed) {
-    if (!/^FG0(?:-\d+|-EG\d+)$/.test(entry.id)) {
-      failures.push(`${ledgerPath}: non-FG0 entry is completed before evidence gate: ${entry.id}`);
+    if (!/^FG[01](?:-\d+|-EG\d+)$/.test(entry.id)) {
+      failures.push(`${ledgerPath}: unsupported governance entry is completed before its evidence gate: ${entry.id}`);
     }
     if (!Array.isArray(entry.evidence) || entry.evidence.length === 0) {
       failures.push(`${ledgerPath}: completed entry lacks evidence: ${entry.id}`);
@@ -155,6 +182,18 @@ async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures)
       failures.push(`${ledgerPath}: missing completed FG0 entry ${required}`);
     }
   }
+}
+
+function governanceCompletedIds(sprint) {
+  return [...sprint.matchAll(/^\|\s*(FG[0-6](?:-\d+|-EG\d+))\s*\|\s*☑\s*\|/gm)].map((match) => match[1]);
+}
+
+function progressRowMatches(sprint, milestone, completed, total) {
+  return new RegExp(`\\|\\s*${milestone}\\s*\\|[^\\n]*\\|\\s*${completed}\\s*\\/\\s*${total}\\s*\\|`).test(sprint);
+}
+
+function totalProgressMatches(sprint, completed) {
+  return new RegExp(`\\|\\s*\\*\\*合计\\*\\*\\s*\\|[^\\n]*\\|\\s*\\*\\*${completed}\\s*\\/\\s*192\\*\\*\\s*\\|`).test(sprint);
 }
 
 async function validateSprint2EvidenceClaims(root, failures) {

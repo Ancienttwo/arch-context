@@ -12,6 +12,7 @@ import {
   ArchctxRuntimeRpcServer,
   createRuntimeRpcClientFromConnectionFile,
   createStartedDaemon,
+  createStartedProductionDaemon,
   defaultDaemonConnectionPath,
   type RuntimeDaemonClient,
   type RuntimeDeps
@@ -45,17 +46,18 @@ export interface CliRuntimeDeps extends RuntimeDeps {
 
 export async function runCli(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "daemon") return runDaemonCommand(args, cwd);
-  const daemon = await createCliRuntime(cwd, deps);
+  const runtime = () => createCliRuntime(cwd, deps);
   switch (command) {
     case "init":
-      return daemon.init(cwd, readFlag(args, "--name") ?? "ArchContext Project");
+      return (await runtime()).init(cwd, readFlag(args, "--name") ?? "ArchContext Project");
     case "sync":
-      return daemon.sync(cwd, readRepeatedFlag(args, "--changed"));
+      return (await runtime()).sync(cwd, readRepeatedFlag(args, "--changed"));
     case "validate":
-      return daemon.validate(cwd);
+      return (await runtime()).validate(cwd);
     case "context": {
       const task = readFlag(args, "--task") ?? args.join(" ").trim();
       if (!task) return errorEnvelope("context", "AC_SCHEMA_INVALID", "context requires --task or task text");
+      const daemon = await runtime();
       if (args.includes("--landscape")) {
         await daemon.repoAdd(cwd, readFlag(args, "--name") ?? "local");
         return daemon.contextLandscape(task, Number(readFlag(args, "--max-symbols") ?? 12));
@@ -63,9 +65,10 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
       return daemon.context(cwd, task, Number(readFlag(args, "--max-symbols") ?? 12));
     }
     case "status":
-      return daemon.runtimeStatus(cwd);
+      return (await runtime()).runtimeStatus(cwd);
     case "repo": {
       const subcommand = args[0] ?? "list";
+      const daemon = await runtime();
       if (subcommand === "add") return daemon.repoAdd(readFlag(args, "--root") ?? cwd, readFlag(args, "--name"));
       if (subcommand === "remove") {
         const repositoryId = readFlag(args, "--repository-id") ?? args[1];
@@ -75,9 +78,10 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
       return daemon.repoList();
     }
     case "landscape":
-      return daemon.landscapeStatus();
+      return (await runtime()).landscapeStatus();
     case "explore": {
       const subcommand = args[0] ?? "status";
+      const daemon = await runtime();
       if (subcommand === "projection") return daemon.explorerProjection(cwd, readFlag(args, "--query"));
       if (subcommand === "contract") return daemon.explorerServiceContract(Number(readFlag(args, "--token-ttl-seconds") ?? 900));
       if (subcommand === "status") return daemon.explorerStatus();
@@ -109,7 +113,7 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
     case "prepare": {
       const task = readFlag(args, "--task") ?? args.join(" ").trim();
       if (!task) return errorEnvelope("prepare", "AC_SCHEMA_INVALID", "prepare requires --task or task text");
-      const result = await daemon.prepare(
+      const result = await (await runtime()).prepare(
         cwd,
         task,
         Number(readFlag(args, "--max-bytes") ?? 12288),
@@ -142,13 +146,13 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
     case "plan": {
       const path = readFlag(args, "--path");
       if (!path) return errorEnvelope("plan", "AC_SCHEMA_INVALID", "plan requires --path");
-      return daemon.planUpdate(cwd, {
+      return (await runtime()).planUpdate(cwd, {
         id: readFlag(args, "--id") ?? "changeset.cli",
         operations: [{ op: "create_entity", path, expectedHash: readFlag(args, "--expected-hash") ?? "missing", body: readFlag(args, "--body") ?? "" }]
       });
     }
     case "apply": {
-      return daemon.applyUpdate(cwd, {
+      return (await runtime()).applyUpdate(cwd, {
         id: readFlag(args, "--id") ?? "changeset.cli",
         approved: args.includes("--approved"),
         expectedWorktreeDigest: requireFlag(args, "--expected-worktree-digest")
@@ -252,6 +256,14 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<Runt
       const health = await client.health().catch(() => undefined);
       if ((health as any)?.ok === true) return client;
     }
+    const started = await startBackgroundDaemon([], cwd);
+    if (!started.ok) throw new Error(started.error?.message ?? "archctxd did not start");
+    const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
+    if (startedClient) {
+      const health = await startedClient.health().catch(() => undefined);
+      if ((health as any)?.ok === true) return startedClient;
+    }
+    throw new Error("archctxd started but no healthy runtime RPC connection was available");
   }
   return createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd), ...deps });
 }
@@ -384,7 +396,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {
-  const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd) });
+  const daemon = await createStartedProductionDaemon({ root: cwd, localStorePath: defaultLocalStorePath(cwd) });
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => {
     resolveStopped = resolve;

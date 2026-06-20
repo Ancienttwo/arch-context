@@ -232,6 +232,35 @@
         "docs/verification/acceptance-ledger.json",
         "scripts/verify-acceptance-ledger.mjs"
       ]
+    },
+    {
+      "id": "FG1-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/mcp-local/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "package.json",
+        "bun.lock",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
+    },
+    {
+      "id": "FG1-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "scripts/sprint-status-check.mjs",
+        "scripts/sprint-status-check.test.ts",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }

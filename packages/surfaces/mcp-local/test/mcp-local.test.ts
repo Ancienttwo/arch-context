@@ -151,6 +151,24 @@ describe("local MCP server", () => {
     }
   });
 
+  test("MCP does not create an independent runtime when daemon RPC is unavailable", async () => {
+    const root = tempModel();
+    try {
+      const server = new McpLocalServer();
+      const result = await server.callTool("archcontext_prepare_task", {
+        root,
+        task: "remove legacy v1 wrapper",
+        maxItems: 2,
+        maxBytes: 12_288
+      });
+      expect((result.content as any).ok).toBe(false);
+      expect((result.content as any).error.code).toBe("AC_RUNTIME_UNAVAILABLE");
+      expect(JSON.stringify(result.content)).toContain("archctx daemon start");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("session recovery and first-party skills remain SOP-only", () => {
     const recovered = new McpLocalServer().recoverSession("task_123");
     expect((recovered as any).recovered).toBe(true);
