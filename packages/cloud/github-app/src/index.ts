@@ -18,19 +18,25 @@ export interface PullRequestEvent {
   pullRequest: { number: number; headSha: string };
 }
 
+export interface CheckRunRerequestEvent {
+  deliveryId: string;
+  action: "rerequested";
+  repository: { owner: string; name: string; visibility: "public" | "private" };
+  pullRequest: { number: number };
+  checkRun: { id: string; name: GovernanceCheckName; headSha: string };
+}
+
 export interface ProjectVerifiedGitHubWebhookInput {
   secret: string;
   rawBody: string | Uint8Array;
   signature256: string;
   deliveryId: string;
-  eventName: "pull_request";
+  eventName: "pull_request" | "check_run";
 }
 
-export interface ProjectedGitHubWebhookEvent {
-  eventName: "pull_request";
-  event: PullRequestEvent;
-  rawBodyRetained: false;
-}
+export type ProjectedGitHubWebhookEvent =
+  | { eventName: "pull_request"; event: PullRequestEvent; rawBodyRetained: false }
+  | { eventName: "check_run"; event: CheckRunRerequestEvent; rawBodyRetained: false };
 
 export interface WebhookDeliveryReceipt {
   provider: "github";
@@ -116,6 +122,25 @@ export class GitHubAppState {
       name: checkName,
       status: "queued",
       headSha: event.pullRequest.headSha
+    };
+    this.challenges.set(challenge.challengeId, challenge);
+    this.checks.set(checkRun.id, checkRun);
+    return { idempotent: false, replayRejected: false, delivery, challenge, checkRun };
+  }
+
+  handleCheckRunRerequest(event: CheckRunRerequestEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; replayRejected: boolean; delivery: WebhookDeliveryReceipt; challenge?: ReviewChallenge; checkRun?: CheckRun } {
+    const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
+    if (delivery.replay) return { idempotent: true, replayRejected: true, delivery };
+    const challenge = createReviewChallenge({
+      repository: { provider: "github", owner: event.repository.owner, name: event.repository.name, visibility: event.repository.visibility },
+      headSha: event.checkRun.headSha,
+      expiresAt: new Date(Date.parse(now) + 10 * 60 * 1000).toISOString()
+    });
+    const checkRun: CheckRun = {
+      id: event.checkRun.id,
+      name: event.checkRun.name,
+      status: "queued",
+      headSha: event.checkRun.headSha
     };
     this.challenges.set(challenge.challengeId, challenge);
     this.checks.set(checkRun.id, checkRun);
@@ -226,12 +251,21 @@ export function verifyGitHubWebhookSignature(input: { secret: string; rawBody: s
 export function projectVerifiedGitHubWebhook(input: ProjectVerifiedGitHubWebhookInput): ProjectedGitHubWebhookEvent {
   if (!verifyGitHubWebhookSignature(input)) throw new Error("github-webhook-signature-invalid");
   const payload = parseJsonObject(input.rawBody);
-  if (input.eventName !== "pull_request") throw new Error(`github-webhook-event-unsupported: ${input.eventName}`);
-  return {
-    eventName: "pull_request",
-    event: projectPullRequestWebhook(input.deliveryId, payload),
-    rawBodyRetained: false
-  };
+  if (input.eventName === "pull_request") {
+    return {
+      eventName: "pull_request",
+      event: projectPullRequestWebhook(input.deliveryId, payload),
+      rawBodyRetained: false
+    };
+  }
+  if (input.eventName === "check_run") {
+    return {
+      eventName: "check_run",
+      event: projectCheckRunWebhook(input.deliveryId, payload),
+      rawBodyRetained: false
+    };
+  }
+  throw new Error(`github-webhook-event-unsupported: ${String(input.eventName)}`);
 }
 
 function parseJsonObject(rawBody: string | Uint8Array): Record<string, unknown> {
@@ -263,9 +297,39 @@ function projectPullRequestWebhook(deliveryId: string, payload: Record<string, u
   };
 }
 
+function projectCheckRunWebhook(deliveryId: string, payload: Record<string, unknown>): CheckRunRerequestEvent {
+  if (payload.action !== "rerequested") throw new Error(`github-webhook-action-unsupported: ${String(payload.action)}`);
+  const checkRun = requireRecord(payload.check_run, "check_run");
+  const repository = requireRecord(payload.repository, "repository");
+  const owner = requireRecord(repository.owner, "repository.owner");
+  const pullRequest = requireFirstRecord(checkRun.pull_requests, "check_run.pull_requests");
+  return {
+    deliveryId,
+    action: "rerequested",
+    repository: {
+      owner: requireString(owner.login, "repository.owner.login"),
+      name: requireString(repository.name, "repository.name"),
+      visibility: repository.private === true ? "private" : "public"
+    },
+    pullRequest: {
+      number: requireNumber(pullRequest.number, "check_run.pull_requests[0].number")
+    },
+    checkRun: {
+      id: requireStringId(checkRun.external_id ?? checkRun.id, "check_run.id"),
+      name: requireGovernanceCheckName(checkRun.name),
+      headSha: requireString(checkRun.head_sha, "check_run.head_sha")
+    }
+  };
+}
+
 function requirePullRequestAction(value: unknown): PullRequestEvent["action"] {
   if (value === "opened" || value === "synchronize" || value === "reopened") return value;
   throw new Error(`github-webhook-action-unsupported: ${String(value)}`);
+}
+
+function requireGovernanceCheckName(value: unknown): GovernanceCheckName {
+  if (value === DEVELOPER_REVIEW_CHECK_NAME || value === ORGANIZATION_RUNNER_CHECK_NAME) return value;
+  throw new Error(`github-webhook-check-unsupported: ${String(value)}`);
 }
 
 function requireRecord(value: unknown, path: string): Record<string, unknown> {
@@ -273,9 +337,20 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function requireFirstRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!Array.isArray(value) || value.length === 0) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return requireRecord(value[0], `${path}[0]`);
+}
+
 function requireString(value: unknown, path: string): string {
   if (typeof value !== "string" || value.length === 0) throw new Error(`github-webhook-field-invalid: ${path}`);
   return value;
+}
+
+function requireStringId(value: unknown, path: string): string {
+  if ((typeof value !== "string" && typeof value !== "number") || String(value).length === 0) throw new Error(`github-webhook-field-invalid: ${path}`);
+  if (typeof value === "number" && !Number.isInteger(value)) throw new Error(`github-webhook-field-invalid: ${path}`);
+  return String(value);
 }
 
 function requireNumber(value: unknown, path: string): number {

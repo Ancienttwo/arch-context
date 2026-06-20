@@ -42,6 +42,39 @@ describe("GitHub App", () => {
     expect(state.checks.get(first.checkRun!.id)?.conclusion).toBe("neutral");
   });
 
+  test("rerequest creates a fresh challenge without reusing the prior nonce", () => {
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    const first = state.handlePullRequest({
+      deliveryId: "d1",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 1, headSha: "abc123" }
+    }, "2026-06-19T00:00:00Z");
+    const retry = state.handleCheckRunRerequest({
+      deliveryId: "d-rerun",
+      action: "rerequested",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 1 },
+      checkRun: { id: first.checkRun!.id, name: first.checkRun!.name, headSha: "abc123" }
+    }, "2026-06-19T00:02:00Z");
+
+    expect(retry.idempotent).toBe(false);
+    expect(retry.checkRun).toMatchObject({ id: first.checkRun!.id, status: "queued", headSha: "abc123" });
+    expect(retry.challenge?.nonce).not.toBe(first.challenge?.nonce);
+    expect(state.challenges.size).toBe(2);
+
+    const replay = state.handleCheckRunRerequest({
+      deliveryId: "d-rerun",
+      action: "rerequested",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 1 },
+      checkRun: { id: first.checkRun!.id, name: first.checkRun!.name, headSha: "abc123" }
+    }, "2026-06-19T00:03:00Z");
+    expect(replay.replayRejected).toBe(true);
+    expect(state.challenges.size).toBe(2);
+  });
+
   test("delivery ledger rejects replayed delivery ids by provider", () => {
     const ledger = new InMemoryWebhookDeliveryLedger();
     const first = ledger.recordDelivery({ provider: "github", deliveryId: "delivery-1", receivedAt: "2026-06-20T00:00:00Z" });
@@ -114,6 +147,113 @@ describe("GitHub App", () => {
     for (const rejected of ["private-note", "diff_url", "patch_url", "files", "private-patch", "base123"]) {
       expect(serialized).not.toContain(rejected);
     }
+  });
+
+  test("projects all supported pull request actions", () => {
+    for (const action of ["opened", "synchronize", "reopened"] as const) {
+      const rawBody = Buffer.from(JSON.stringify({
+        action,
+        repository: { name: "arch-context", private: false, owner: { login: "ancienttwo" } },
+        pull_request: { number: 7, head: { sha: `sha-${action}` } }
+      }), "utf8");
+      const projection = projectVerifiedGitHubWebhook({
+        secret: "secret",
+        rawBody,
+        signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+        deliveryId: `delivery-${action}`,
+        eventName: "pull_request"
+      });
+
+      expect(projection.eventName).toBe("pull_request");
+      if (projection.eventName !== "pull_request") throw new Error("expected pull request projection");
+      expect(projection.event.action).toBe(action);
+      expect(projection.event.pullRequest.headSha).toBe(`sha-${action}`);
+    }
+  });
+
+  test("projects a rerequested check run webhook to minimum fields only", () => {
+    const rawBody = Buffer.from(JSON.stringify({
+      action: "rerequested",
+      repository: {
+        id: 987,
+        name: "arch-context",
+        private: true,
+        owner: { login: "ancienttwo" }
+      },
+      check_run: {
+        id: 123456,
+        external_id: "check_42_abc123",
+        name: DEVELOPER_REVIEW_CHECK_NAME,
+        head_sha: "abc123",
+        output: { title: "not retained", summary: "private-note" },
+        pull_requests: [{ number: 42, head: { sha: "abc123" }, base: { sha: "base123" } }]
+      }
+    }), "utf8");
+    const projection = projectVerifiedGitHubWebhook({
+      secret: "secret",
+      rawBody,
+      signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+      deliveryId: "delivery-check-rerun",
+      eventName: "check_run"
+    });
+
+    expect(projection).toEqual({
+      eventName: "check_run",
+      rawBodyRetained: false,
+      event: {
+        deliveryId: "delivery-check-rerun",
+        action: "rerequested",
+        repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+        pullRequest: { number: 42 },
+        checkRun: { id: "check_42_abc123", name: DEVELOPER_REVIEW_CHECK_NAME, headSha: "abc123" }
+      }
+    });
+    const serialized = JSON.stringify(projection);
+    for (const rejected of ["private-note", "base123", "pull_requests", "output"]) {
+      expect(serialized).not.toContain(rejected);
+    }
+  });
+
+  test("rejects unsupported check run events", () => {
+    const rawBody = Buffer.from(JSON.stringify({
+      action: "created",
+      repository: { name: "arch-context", private: false, owner: { login: "ancienttwo" } },
+      check_run: {
+        id: 123456,
+        name: DEVELOPER_REVIEW_CHECK_NAME,
+        head_sha: "abc123",
+        pull_requests: [{ number: 42 }]
+      }
+    }), "utf8");
+
+    expect(() => projectVerifiedGitHubWebhook({
+      secret: "secret",
+      rawBody,
+      signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+      deliveryId: "delivery-created",
+      eventName: "check_run"
+    })).toThrow("github-webhook-action-unsupported");
+  });
+
+  test("rejects non-ArchContext check run names", () => {
+    const rawBody = Buffer.from(JSON.stringify({
+      action: "rerequested",
+      repository: { name: "arch-context", private: false, owner: { login: "ancienttwo" } },
+      check_run: {
+        id: 123456,
+        name: "Unrelated CI",
+        head_sha: "abc123",
+        pull_requests: [{ number: 42 }]
+      }
+    }), "utf8");
+
+    expect(() => projectVerifiedGitHubWebhook({
+      secret: "secret",
+      rawBody,
+      signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+      deliveryId: "delivery-unrelated-check",
+      eventName: "check_run"
+    })).toThrow("github-webhook-check-unsupported");
   });
 
   test("rejects unsigned webhook payload before JSON projection", () => {
