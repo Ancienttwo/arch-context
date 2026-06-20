@@ -10,6 +10,7 @@ M1 establishes the local-only runtime foundation: `archctxd`, repository session
 
 - Runtime daemon: `packages/local-runtime/runtime-daemon/src/index.ts`.
 - Runtime RPC: `ArchctxRuntimeRpcServer` / `RuntimeRpcClient` in `packages/local-runtime/runtime-daemon/src/index.ts`.
+- Packaged CLI smoke: `scripts/packaged-cli-smoke.mjs`.
 - Repository and Git binding: `packages/core/architecture-domain/src/index.ts`, `packages/local-runtime/git-adapter/src/index.ts`.
 - Local store: `packages/local-runtime/local-store-sqlite/src/index.ts`.
 - CodeGraph adapter: `packages/local-runtime/codegraph-adapter/src/index.ts`, pinned to `@colbymchenry/codegraph@1.0.1`.
@@ -37,6 +38,7 @@ Command:
 
 ```bash
 bun test packages/local-runtime/runtime-daemon packages/surfaces/cli packages/surfaces/mcp-local
+node scripts/packaged-cli-smoke.mjs
 ```
 
 Observed result:
@@ -44,6 +46,7 @@ Observed result:
 ```text
 38 pass
 0 fail
+[packaged-cli-smoke] OK
 ```
 
 ## Boundary Notes
@@ -58,3 +61,4 @@ Observed result:
 - CLI treats stale daemon connection files as unavailable and falls back to embedded runtime for normal commands.
 - A foreground daemon subprocess shares runtime state across independent CLI processes and releases the connection/lock files after `archctx daemon stop`.
 - Background `archctx daemon start` waits for a health-checked connection before returning, writes a repo-local log, and is idempotent when a daemon is already running.
+- The package-manager `node_modules/.bin/archctx` path is smoke-tested for `daemon start`, shared session reuse, idempotent start, and cleanup through `daemon stop`.

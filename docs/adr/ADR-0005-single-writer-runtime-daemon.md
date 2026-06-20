@@ -27,3 +27,4 @@ For MVP, the local RPC transport is protected loopback HTTP with a repo-local co
 - Embedded runtime remains only as a recovery/test fallback when no daemon connection is available.
 - Insecure connection files are ignored, and stale lock files are recovered before starting a new daemon.
 - `archctx daemon start` starts a background daemon process and returns only after the connection file passes health readback.
+- The package-manager `archctx` bin must preserve daemon self-spawn behavior, not only the source-file test entrypoint.
