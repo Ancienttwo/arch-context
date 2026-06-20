@@ -81,6 +81,51 @@ describe("sprint-status-check", () => {
       }
     );
   });
+
+  test("accepts local GitHub governance follow-up only as deferred draft intake", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root);
+        await write(
+          root,
+          "tasks/todos.md",
+          [
+            "# Deferred Goal Ledger",
+            "",
+            "| Goal | Why Deferred | Tradeoff | Revisit Trigger |",
+            "|------|--------------|----------|-----------------|",
+            "| Local GitHub governance follow-up | Draft intake only | not active | plans/sprints/archctx-local-github-governance-sprint.md |"
+          ].join("\n")
+        );
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
+  test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          sprintStatus: "> **Status**: Complete",
+          total: "| **合计** | | **141** | **51** | **192 / 192** |",
+          completedTask: "| FG0-01 | ☑ | 评审并接受 Follow-up PRD | docs/product | E0 | — |"
+        });
+        await write(root, "tasks/todos.md", "# Deferred Goal Ledger\n");
+        const failures = await collectSprintStatusFailures(root);
+        expect(failures.some((failure) => failure.includes("Draft — Not Started"))).toBe(true);
+        expect(failures.some((failure) => failure.includes("0 / 192"))).toBe(true);
+        expect(failures.some((failure) => failure.includes("must not be marked complete"))).toBe(true);
+      }
+    );
+  });
 });
 
 async function withFixture(sprint2: string, run: (root: string) => Promise<void>, options: { approvalArtifact?: string } = {}) {
@@ -161,4 +206,39 @@ async function write(root: string, path: string, content: string) {
   const absolutePath = join(root, path);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, content, "utf8");
+}
+
+async function writeGovernanceFollowup(root: string, options: { sprintStatus?: string; total?: string; completedTask?: string } = {}) {
+  const prdPath = "plans/prds/20260620-0236-archcontext-local-github-governance.prd.md";
+  const sprintPath = "plans/sprints/archctx-local-github-governance-sprint.md";
+  await write(
+    root,
+    prdPath,
+    [
+      "# ArchContext Follow-up PRD",
+      "> **Status**: Draft for Architecture Review",
+      "> **Slug**: archcontext-local-github-governance",
+      "> **Created**: 2026-06-20",
+      "> **Updated**: 2026-06-20",
+      "> **Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`",
+      "> **Source Spec**: `docs/spec.md`"
+    ].join("\n")
+  );
+  await write(
+    root,
+    sprintPath,
+    [
+      "# Sprint: ArchContext Local Product + GitHub Governance",
+      options.sprintStatus ?? "> **Status**: Draft — Not Started",
+      "> **Slug**: archctx-local-github-governance",
+      `> **Source PRD**: \`${prdPath}\``,
+      "> **Parent Sprint**: `plans/sprints/archctx-sprint.md`",
+      "",
+      options.total ?? "| **合计** | | **141** | **51** | **0 / 192** |",
+      "",
+      "| ID | St | 任务 | Owner | Target | Deps |",
+      "|---|:---:|---|---|:---:|---|",
+      options.completedTask ?? "| FG0-01 | ◻ | 评审并接受 Follow-up PRD | docs/product | E0 | — |"
+    ].join("\n")
+  );
 }

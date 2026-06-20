@@ -16,6 +16,7 @@ export async function collectSprintStatusFailures(root = process.cwd()) {
   if (sprint && spec) await validateMvpSprint(root, sprint, spec, failures);
   await validateSprint2EvidenceClaims(root, failures);
   await validateSprint3EvidenceClaims(root, failures);
+  await validateGovernanceFollowupPlan(root, failures);
 
   return failures;
 }
@@ -44,6 +45,57 @@ async function validateMvpSprint(root, sprint, spec, failures) {
 
   for (const marker of ["## M0", "## M1", "## M2", "## M3", "## M4", "## M5", "## M6"]) {
     if (!sprint.includes(marker)) failures.push(`${sprintPath}: missing ${marker}`);
+  }
+}
+
+async function validateGovernanceFollowupPlan(root, failures) {
+  const prdPath = "plans/prds/20260620-0236-archcontext-local-github-governance.prd.md";
+  const sprintPath = "plans/sprints/archctx-local-github-governance-sprint.md";
+  const [prd, sprint] = await Promise.all([
+    readOptional(root, prdPath),
+    readOptional(root, sprintPath)
+  ]);
+
+  if (!prd && !sprint) return;
+  if (!prd) {
+    failures.push(`${prdPath}: missing while ${sprintPath} exists`);
+    return;
+  }
+  if (!sprint) {
+    failures.push(`${sprintPath}: missing while ${prdPath} exists`);
+    return;
+  }
+
+  if (!prd.includes("**Status**: Draft for Architecture Review")) {
+    failures.push(`${prdPath}: follow-up PRD must remain Draft for Architecture Review until human acceptance is recorded`);
+  }
+  if (!prd.includes("**Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`")) {
+    failures.push(`${prdPath}: Source PRD must point at the canonical ArchContext PRD`);
+  }
+  if (!prd.includes("**Source Spec**: `docs/spec.md`")) {
+    failures.push(`${prdPath}: Source Spec must point at docs/spec.md`);
+  }
+
+  const statusLine = findStatusLine(sprint);
+  if (!statusLine || !/Draft\s+—\s+Not Started/.test(statusLine)) {
+    failures.push(`${sprintPath}: status must remain Draft — Not Started until FG0 acceptance starts`);
+  }
+  if (!sprint.includes(`**Source PRD**: \`${prdPath}\``)) {
+    failures.push(`${sprintPath}: Source PRD must point at ${prdPath}`);
+  }
+  if (!sprint.includes("**Parent Sprint**: `plans/sprints/archctx-sprint.md`")) {
+    failures.push(`${sprintPath}: Parent Sprint must point at the MVP sprint`);
+  }
+  if (!/\|\s*\*\*合计\*\*\s*\|[^|\n]*\|\s*\*\*141\*\*\s*\|\s*\*\*51\*\*\s*\|\s*\*\*0\s*\/\s*192\*\*\s*\|/.test(sprint)) {
+    failures.push(`${sprintPath}: progress total must stay 0 / 192 while draft intake is not accepted`);
+  }
+  if (/^\|\s*FG\d+(?:-\d+|-EG\d+)\s*\|\s*☑\s*\|/m.test(sprint)) {
+    failures.push(`${sprintPath}: follow-up FG tasks/gates must not be marked complete during draft intake`);
+  }
+
+  const todos = await readOptional(root, "tasks/todos.md");
+  if (!todos || !todos.includes(sprintPath)) {
+    failures.push(`tasks/todos.md: must reference ${sprintPath} as deferred follow-up work`);
   }
 }
 
