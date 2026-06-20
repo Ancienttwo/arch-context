@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
 import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME } from "@archcontext/contracts";
-import { GITHUB_APP_PERMISSIONS, GitHubAppState, verifyGitHubWebhookSignature } from "../src/index";
+import { GITHUB_APP_PERMISSIONS, GitHubAppState, InMemoryWebhookDeliveryLedger, verifyGitHubWebhookSignature } from "../src/index";
 
 describe("GitHub App", () => {
   test("uses no Contents permission and handles PR challenge/check lifecycle", () => {
@@ -25,7 +25,13 @@ describe("GitHub App", () => {
     });
     expect(first.checkRun?.status).toBe("queued");
     expect(first.checkRun?.name).toBe(DEVELOPER_REVIEW_CHECK_NAME);
-    expect(state.handlePullRequest({ deliveryId: "d1", action: "opened", repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" }, pullRequest: { number: 1, headSha: "abc123" } }).idempotent).toBe(true);
+    expect(first.delivery.action).toBe("process");
+    const duplicate = state.handlePullRequest({ deliveryId: "d1", action: "opened", repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" }, pullRequest: { number: 1, headSha: "abc123" } });
+    expect(duplicate.idempotent).toBe(true);
+    expect(duplicate.replayRejected).toBe(true);
+    expect(duplicate.delivery.action).toBe("ignore-duplicate");
+    expect(state.checks.size).toBe(1);
+    expect(state.challenges.size).toBe(1);
     const second = state.handlePullRequest({
       deliveryId: "d2",
       action: "synchronize",
@@ -34,6 +40,16 @@ describe("GitHub App", () => {
     });
     expect(second.checkRun?.status).toBe("queued");
     expect(state.checks.get(first.checkRun!.id)?.conclusion).toBe("neutral");
+  });
+
+  test("delivery ledger rejects replayed delivery ids by provider", () => {
+    const ledger = new InMemoryWebhookDeliveryLedger();
+    const first = ledger.recordDelivery({ provider: "github", deliveryId: "delivery-1", receivedAt: "2026-06-20T00:00:00Z" });
+    const replay = ledger.recordDelivery({ provider: "github", deliveryId: "delivery-1", receivedAt: "2026-06-20T00:01:00Z" });
+
+    expect(first).toMatchObject({ replay: false, action: "process" });
+    expect(replay).toMatchObject({ replay: true, action: "ignore-duplicate" });
+    expect(replay.receivedAt).toBe(first.receivedAt);
   });
 
   test("validates webhook signature", () => {

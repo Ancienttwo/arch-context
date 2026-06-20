@@ -18,6 +18,37 @@ export interface PullRequestEvent {
   pullRequest: { number: number; headSha: string };
 }
 
+export interface WebhookDeliveryReceipt {
+  provider: "github";
+  deliveryId: string;
+  receivedAt: string;
+  replay: boolean;
+  action: "process" | "ignore-duplicate";
+}
+
+export interface WebhookDeliveryLedger {
+  recordDelivery(input: { provider: "github"; deliveryId: string; receivedAt: string }): WebhookDeliveryReceipt;
+}
+
+export class InMemoryWebhookDeliveryLedger implements WebhookDeliveryLedger {
+  private readonly receipts = new Map<string, WebhookDeliveryReceipt>();
+
+  recordDelivery(input: { provider: "github"; deliveryId: string; receivedAt: string }): WebhookDeliveryReceipt {
+    const key = `${input.provider}:${input.deliveryId}`;
+    const existing = this.receipts.get(key);
+    if (existing) return { ...existing, replay: true, action: "ignore-duplicate" };
+    const receipt: WebhookDeliveryReceipt = {
+      provider: input.provider,
+      deliveryId: input.deliveryId,
+      receivedAt: input.receivedAt,
+      replay: false,
+      action: "process"
+    };
+    this.receipts.set(key, receipt);
+    return receipt;
+  }
+}
+
 export interface CheckRun {
   id: string;
   name: GovernanceCheckName;
@@ -32,11 +63,12 @@ export interface CheckRun {
 }
 
 export class GitHubAppState {
-  readonly deliveries = new Set<string>();
   readonly selectedRepositories = new Set<string>();
   readonly organizationAttestationRequired = new Set<string>();
   readonly challenges = new Map<string, ReviewChallenge>();
   readonly checks = new Map<string, CheckRun>();
+
+  constructor(private readonly deliveryLedger: WebhookDeliveryLedger = new InMemoryWebhookDeliveryLedger()) {}
 
   install(repositories: string[]): void {
     for (const repository of repositories) this.selectedRepositories.add(repository);
@@ -52,9 +84,9 @@ export class GitHubAppState {
     else this.organizationAttestationRequired.delete(repository);
   }
 
-  handlePullRequest(event: PullRequestEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; challenge?: ReviewChallenge; checkRun?: CheckRun } {
-    if (this.deliveries.has(event.deliveryId)) return { idempotent: true };
-    this.deliveries.add(event.deliveryId);
+  handlePullRequest(event: PullRequestEvent, now = "2026-06-19T00:00:00Z"): { idempotent: boolean; replayRejected: boolean; delivery: WebhookDeliveryReceipt; challenge?: ReviewChallenge; checkRun?: CheckRun } {
+    const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
+    if (delivery.replay) return { idempotent: true, replayRejected: true, delivery };
     this.invalidateHead(event.repository.owner, event.repository.name, event.pullRequest.number, event.pullRequest.headSha);
     const repositoryKey = `${event.repository.owner}/${event.repository.name}`;
     const checkName = this.organizationAttestationRequired.has(repositoryKey)
@@ -73,7 +105,7 @@ export class GitHubAppState {
     };
     this.challenges.set(challenge.challengeId, challenge);
     this.checks.set(checkRun.id, checkRun);
-    return { idempotent: false, challenge, checkRun };
+    return { idempotent: false, replayRejected: false, delivery, challenge, checkRun };
   }
 
   updateCheckFromAttestation(checkRunId: string, attestation: LocalAttestation, accepted: boolean): CheckRun {

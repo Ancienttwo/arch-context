@@ -9,5 +9,9 @@ describe("cloud D1 schema", () => {
     expect(d1MigrationSql()).toContain("review_challenges");
     expect(d1MigrationSql()).toContain("billing_interval");
     expect(d1MigrationSql()).toContain("org_runner_identities");
+    expect(d1MigrationSql()).toContain("webhook_deliveries");
+    expect(d1MigrationSql()).toContain("PRIMARY KEY(provider, delivery_id)");
+    expect(highFrequencyIndexes()).toContain("idx_deliveries_provider");
+    expect(d1MigrationSql().toLowerCase()).not.toContain("raw_body");
   });
 });
