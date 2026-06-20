@@ -1,4 +1,8 @@
 #!/usr/bin/env bun
+import { spawn } from "node:child_process";
+import { closeSync, mkdirSync, openSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { errorEnvelope, okEnvelope } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { checkpoint, completeTask } from "@archcontext/core/application";
@@ -17,6 +21,8 @@ import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@arch
 import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
+const CLI_ENTRY = fileURLToPath(import.meta.url);
+const DAEMON_START_TIMEOUT_MS = 5_000;
 
 if (import.meta.main) {
   if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
@@ -231,8 +237,8 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
   }
@@ -289,13 +295,16 @@ async function runDaemonCommand(args: string[], cwd: string) {
     } as any);
   }
   if (subcommand === "start") {
-    return okEnvelope("daemon.start", {
-      command: "archctx daemon start --foreground",
-      protocol: "http-loopback",
-      bindHost: "127.0.0.1",
-      connectionPath: defaultDaemonConnectionPath(cwd),
-      note: "foreground process writes the bearer token to the local connection file"
-    } as any);
+    if (args.includes("--foreground")) {
+      return okEnvelope("daemon.start", {
+        command: "archctx daemon start --foreground",
+        protocol: "http-loopback",
+        bindHost: "127.0.0.1",
+        connectionPath: defaultDaemonConnectionPath(cwd),
+        note: "foreground process writes the bearer token to the local connection file"
+      } as any);
+    }
+    return startBackgroundDaemon(args, cwd);
   }
   if (subcommand === "stop") {
     const client = createRuntimeRpcClientFromConnectionFile(cwd);
@@ -303,6 +312,75 @@ async function runDaemonCommand(args: string[], cwd: string) {
     return client.shutdown();
   }
   return errorEnvelope("daemon", "AC_SCHEMA_INVALID", "daemon requires start|status|stop");
+}
+
+async function startBackgroundDaemon(args: string[], cwd: string) {
+  const existing = await runningDaemonInfo(cwd);
+  if (existing) {
+    return okEnvelope("daemon.start", {
+      running: true,
+      alreadyRunning: true,
+      ...existing,
+      token: "stored-in-connection-file"
+    } as any);
+  }
+
+  const connectionPath = defaultDaemonConnectionPath(cwd);
+  const controlDir = dirname(connectionPath);
+  const logPath = join(controlDir, "archctxd.log");
+  mkdirSync(controlDir, { recursive: true });
+  const logFd = openSync(logPath, "a", 0o600);
+  try {
+    const child = spawn(process.execPath, [
+      CLI_ENTRY,
+      "daemon",
+      "start",
+      "--foreground",
+      "--port",
+      readFlag(args, "--port") ?? "0"
+    ], {
+      cwd,
+      detached: true,
+      env: process.env,
+      stdio: ["ignore", logFd, logFd]
+    });
+    child.unref();
+    const ready = await waitForDaemonReady(cwd, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
+    if (!ready) {
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}`);
+    }
+    return okEnvelope("daemon.start", {
+      running: true,
+      background: true,
+      childPid: child.pid,
+      ...ready,
+      logPath,
+      token: "stored-in-connection-file"
+    } as any);
+  } finally {
+    closeSync(logFd);
+  }
+}
+
+async function runningDaemonInfo(cwd: string) {
+  const client = createRuntimeRpcClientFromConnectionFile(cwd);
+  if (!client) return undefined;
+  const health = await client.health().catch(() => undefined);
+  return (health as any)?.ok === true ? client.connectionInfo() : undefined;
+}
+
+async function waitForDaemonReady(cwd: string, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const ready = await runningDaemonInfo(cwd);
+    if (ready) return ready;
+    await sleep(50);
+  }
+  return undefined;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {

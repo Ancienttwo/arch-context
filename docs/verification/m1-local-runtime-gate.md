@@ -26,7 +26,9 @@ archctx validate -> deterministic model digest
 archctx sync -> CodeGraph adapter snapshot
 archctx context -> TaskContext envelope
 archctx status -> repo/head/worktree binding
+archctx daemon start -> background archctxd health readback
 archctx daemon status -> loopback RPC connection readback
+archctx daemon stop -> connection/lock cleanup
 ```
 
 ## Verification
@@ -40,7 +42,7 @@ bun test packages/local-runtime/runtime-daemon packages/surfaces/cli packages/su
 Observed result:
 
 ```text
-37 pass
+38 pass
 0 fail
 ```
 
@@ -55,3 +57,4 @@ Observed result:
 - CLI and MCP discover the repo-local connection file and reuse the same daemon session before falling back to embedded runtime.
 - CLI treats stale daemon connection files as unavailable and falls back to embedded runtime for normal commands.
 - A foreground daemon subprocess shares runtime state across independent CLI processes and releases the connection/lock files after `archctx daemon stop`.
+- Background `archctx daemon start` waits for a health-checked connection before returning, writes a repo-local log, and is idempotent when a daemon is already running.

@@ -141,6 +141,44 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("background daemon start returns after ready and survives the starter process", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-background-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = join(root, ".archcontext/.local/archctxd.json");
+    const lockPath = join(root, ".archcontext/.local/archctxd.lock");
+    try {
+      const started = await runCliProcess(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      expect(started.data.running).toBe(true);
+      expect(started.data.background).toBe(true);
+      expect(String(started.data.url)).toMatch(/^http:\/\/127\.0\.0\.1:/);
+      expect(String(started.data.logPath)).toContain("archctxd.log");
+      expect(existsSync(connectionPath)).toBe(true);
+      expect(existsSync(lockPath)).toBe(true);
+
+      const init = await runCliProcess(root, "init", "--name", "Background App");
+      expect(init.ok).toBe(true);
+
+      const status = await runCliProcess(root, "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.sessions).toBe(1);
+      expect(status.data.running).toBe(true);
+
+      const again = await runCliProcess(root, "daemon", "start");
+      expect(again.ok).toBe(true);
+      expect(again.data.alreadyRunning).toBe(true);
+      expect(JSON.stringify(again.data)).toContain("stored-in-connection-file");
+
+      const stopped = await runCliProcess(root, "daemon", "stop");
+      expect(stopped.ok).toBe(true);
+      await expectFileRemoved(connectionPath);
+      await expectFileRemoved(lockPath);
+    } finally {
+      await runCliProcess(root, "daemon", "stop").catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -292,4 +330,13 @@ function expectProcessExit(child: ChildProcessWithoutNullStreams): Promise<void>
       resolve();
     });
   });
+}
+
+async function expectFileRemoved(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (!existsSync(path)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for file removal: ${path}`);
 }
