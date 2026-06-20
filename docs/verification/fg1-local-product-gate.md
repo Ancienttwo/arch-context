@@ -8,7 +8,7 @@
   - `2fb84124dd077f2022d254b0fccc8fcbae8666f7` — FG1-07 daemon health, RPC version negotiation, and lifecycle readback
   - `f085b34846a57df83e896660ff826c10ef86e540` — FG1-08 stale daemon control-file recovery and crash reconnect
   - `8a5e75c7f7a77c6543cadd5c81c6d57610c7b2b4` — FG1-09 MCP host install/status/remove config output
-  - pending — FG1-10 doctor version, daemon, SQLite, CodeGraph, Git, and permission checks
+  - `42cdf9c846013d8898ee1875b9d1ca40640db8b0` — FG1-10 doctor version, daemon, SQLite, CodeGraph, Git, and permission checks
 - Build/Artifact Digest: not built in this partial FG1 slice
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - GitHub App Installation ID: not used in FG1-01/02
