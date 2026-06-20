@@ -8,13 +8,14 @@
   - `6c0c22eec7e662e9090a4566c9af20a9ac8f3545` — FG2-06 GitHub webhook event family support
   - `c3db4ba63e4cd5532130846c23606b9fb7fd4506` — FG2-07 GitHub pull head metadata typed port
   - `4faf17c721b9b1f7692a7c3f04ef46196d8909c3` — FG2-08 GitHub Check create/update typed port
+  - Pending first FG2-09 implementation commit — GitHub API method/path allowlist
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, or FG2-08 local E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, or FG2-09 local E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, and FG2-08.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, and FG2-09.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -42,6 +43,9 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, a
 - `createCheckRun` uses `POST /repositories/{repository_id}/check-runs` and sends only check name, head SHA, and status.
 - `updateCheckRun` uses `PATCH /repositories/{repository_id}/check-runs/{check_run_id}` and sends only check name, status, optional conclusion, and output title/summary.
 - Check create/update return or consume only the contracts-owned Check DTOs; no generic REST client is exposed to the application layer.
+- `assertGitHubGovernanceApiRequestAllowed` enforces the runtime method/path allowlist before transport execution.
+- The current allowlist accepts only pull-head metadata GET, Check create POST, and Check update PATCH.
+- Unknown categories, methods, paths, path templates, or non-JSON accept headers fail closed with `github-api-request-denied`.
 
 ## Commands
 
@@ -56,12 +60,12 @@ bun run verify
 
 ## Results
 
-- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 100 tests, 351 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 16 tests, 82 expects.
-- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 17 tests, 92 expects.
+- `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 101 tests, 359 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 17 tests, 90 expects.
+- `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 18 tests, 100 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
-- `bun run verify`: PASS, 294 tests, 1248 expects, 54-entry acceptance ledger.
+- `bun run verify`: PASS, 295 tests, 1256 expects, 55-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -78,11 +82,12 @@ bun run verify
 - GitHub App tests prove PR title, body, branch names, and change counts are not returned by `getPullHeadMetadata`.
 - GitHub App tests reject failed Check create/update responses.
 - GitHub App tests prove Check create/update request bodies do not include installation IDs, repository IDs, check IDs, PR numbers, or private payload fields.
+- GitHub App tests prove unknown methods, paths, categories, and media types are denied by the API allowlist.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, full GitHub API allowlist, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
+FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, explicit PR Files/Contents/Blob/Tree/Diff/Patch deny tests, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, and FG2-08. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, and FG2-09. Remaining FG2 tasks and exit gates stay open.

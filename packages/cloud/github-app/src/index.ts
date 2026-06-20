@@ -54,6 +54,7 @@ export interface GitHubCheckUpdateApiRequest {
   category: "github.check-update";
   installationId: number;
   repositoryId: number;
+  checkRunId: string;
   method: "PATCH";
   pathTemplate: typeof GITHUB_CHECK_UPDATE_PATH_TEMPLATE;
   path: string;
@@ -79,6 +80,36 @@ export interface GitHubGovernanceApiTransport {
   request(input: GitHubGovernanceApiRequest): Promise<GitHubGovernanceApiResponse>;
 }
 
+export function assertGitHubGovernanceApiRequestAllowed(input: GitHubGovernanceApiRequest): GitHubGovernanceApiRequest {
+  const denied = () => new Error(`github-api-request-denied: ${String((input as { method?: unknown }).method)} ${String((input as { path?: unknown }).path)}`);
+  if (input.accept !== "application/vnd.github+json") throw denied();
+  if (input.category === "github.pull-head") {
+    if (
+      input.method === "GET" &&
+      input.pathTemplate === GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE &&
+      input.path === `/repositories/${input.repositoryId}/pulls/${input.pullRequestNumber}`
+    ) return input;
+    throw denied();
+  }
+  if (input.category === "github.check-create") {
+    if (
+      input.method === "POST" &&
+      input.pathTemplate === GITHUB_CHECK_CREATE_PATH_TEMPLATE &&
+      input.path === `/repositories/${input.repositoryId}/check-runs`
+    ) return input;
+    throw denied();
+  }
+  if (input.category === "github.check-update") {
+    if (
+      input.method === "PATCH" &&
+      input.pathTemplate === GITHUB_CHECK_UPDATE_PATH_TEMPLATE &&
+      input.path === `/repositories/${input.repositoryId}/check-runs/${encodeURIComponent(input.checkRunId)}`
+    ) return input;
+    throw denied();
+  }
+  throw denied();
+}
+
 export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "getPullHeadMetadata" | "createCheckRun" | "updateCheckRun"> {
   constructor(private readonly transport: GitHubGovernanceApiTransport) {}
 
@@ -86,7 +117,7 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
     const installationId = requirePositiveInteger(input.installationId, "installationId");
     const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
     const pullRequestNumber = requirePositiveInteger(input.pullRequestNumber, "pullRequestNumber");
-    const response = await this.transport.request({
+    const response = await this.transport.request(assertGitHubGovernanceApiRequestAllowed({
       category: "github.pull-head",
       installationId,
       repositoryId,
@@ -95,7 +126,7 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
       pathTemplate: GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
       path: `/repositories/${repositoryId}/pulls/${pullRequestNumber}`,
       accept: "application/vnd.github+json"
-    });
+    }));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`github-pull-head-metadata-fetch-failed: ${response.statusCode}`);
     }
@@ -113,7 +144,7 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
     const installationId = requirePositiveInteger(input.installationId, "installationId");
     const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
     requirePositiveInteger(input.pullRequestNumber, "pullRequestNumber");
-    const response = await this.transport.request({
+    const response = await this.transport.request(assertGitHubGovernanceApiRequestAllowed({
       category: "github.check-create",
       installationId,
       repositoryId,
@@ -126,7 +157,7 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
         head_sha: requireNonEmptyInputString(input.headSha, "headSha"),
         status: requireCheckStatus(input.status)
       }
-    });
+    }));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`github-check-create-failed: ${response.statusCode}`);
     }
@@ -151,16 +182,17 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
       }
     };
     if (input.conclusion !== undefined) body.conclusion = requireCheckConclusion(input.conclusion);
-    const response = await this.transport.request({
+    const response = await this.transport.request(assertGitHubGovernanceApiRequestAllowed({
       category: "github.check-update",
       installationId,
       repositoryId,
+      checkRunId,
       method: "PATCH",
       pathTemplate: GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
       path: `/repositories/${repositoryId}/check-runs/${encodeURIComponent(checkRunId)}`,
       accept: "application/vnd.github+json",
       body
-    });
+    }));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`github-check-update-failed: ${response.statusCode}`);
     }

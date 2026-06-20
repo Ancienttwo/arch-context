@@ -10,6 +10,7 @@ import {
   GitHubAppState,
   GitHubGovernanceRestPort,
   InMemoryWebhookDeliveryLedger,
+  assertGitHubGovernanceApiRequestAllowed,
   projectVerifiedGitHubWebhook,
   verifyGitHubWebhookSignature,
   type GitHubGovernanceApiRequest
@@ -211,6 +212,7 @@ describe("GitHub App", () => {
       category: "github.check-update",
       installationId: 123,
       repositoryId: 987,
+      checkRunId: "check/42",
       method: "PATCH",
       pathTemplate: GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
       path: "/repositories/987/check-runs/check%2F42",
@@ -228,6 +230,60 @@ describe("GitHub App", () => {
     const body = JSON.stringify((requests[0] as Extract<GitHubGovernanceApiRequest, { category: "github.check-update" }>).body);
     for (const rejected of ["installationId", "repositoryId", "checkRunId", "private-note"]) {
       expect(body).not.toContain(rejected);
+    }
+  });
+
+  test("GitHub API allowlist accepts only known method and path pairs", () => {
+    const allowed: GitHubGovernanceApiRequest[] = [
+      {
+        category: "github.pull-head",
+        installationId: 123,
+        repositoryId: 987,
+        pullRequestNumber: 42,
+        method: "GET",
+        pathTemplate: GITHUB_PULL_HEAD_METADATA_PATH_TEMPLATE,
+        path: "/repositories/987/pulls/42",
+        accept: "application/vnd.github+json"
+      },
+      {
+        category: "github.check-create",
+        installationId: 123,
+        repositoryId: 987,
+        method: "POST",
+        pathTemplate: GITHUB_CHECK_CREATE_PATH_TEMPLATE,
+        path: "/repositories/987/check-runs",
+        accept: "application/vnd.github+json",
+        body: { name: DEVELOPER_REVIEW_CHECK_NAME, head_sha: "abc123", status: "queued" }
+      },
+      {
+        category: "github.check-update",
+        installationId: 123,
+        repositoryId: 987,
+        checkRunId: "check/42",
+        method: "PATCH",
+        pathTemplate: GITHUB_CHECK_UPDATE_PATH_TEMPLATE,
+        path: "/repositories/987/check-runs/check%2F42",
+        accept: "application/vnd.github+json",
+        body: {
+          name: DEVELOPER_REVIEW_CHECK_NAME,
+          status: "completed",
+          conclusion: "neutral",
+          output: { title: "Attestation required", summary: "Minimal check summary" }
+        }
+      }
+    ];
+
+    for (const request of allowed) {
+      expect(assertGitHubGovernanceApiRequestAllowed(request)).toBe(request);
+    }
+    for (const denied of [
+      { ...allowed[0], method: "POST" },
+      { ...allowed[1], path: "/repositories/987/pulls/42/files" },
+      { ...allowed[2], path: "/repositories/987/check-runs/check/42" },
+      { ...allowed[2], accept: "application/vnd.github.diff" },
+      { ...allowed[0], category: "github.unknown" }
+    ]) {
+      expect(() => assertGitHubGovernanceApiRequestAllowed(denied as GitHubGovernanceApiRequest)).toThrow("github-api-request-denied");
     }
   });
 
