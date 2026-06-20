@@ -11,13 +11,14 @@
   - `669d8a8165d723b8ea77c30c8d9d3e35ed22f923` — FG2-09 GitHub API method/path allowlist
   - `340a75120f7e6df41575a654aca9df9e6f08c873` — FG2-10 forbidden GitHub code endpoint rejection
   - `a2e16fe01b932a698fe242411cbcc56566c99642` — FG2-11 forbidden GitHub diff/patch media type rejection
+  - `(pending FG2-12 implementation commit)` — FG2-12 generic Octokit client lint boundary
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, or FG2-11 local E2 slice
+- GitHub App Installation ID: not used for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, or FG2-12 local E1/E2 slice
 - Started At: 2026-06-20
 
 ## Scope
 
-This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, and FG2-11.
+This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, and FG2-12.
 
 - `GITHUB_APP_PERMISSION_MANIFEST` is contracts-owned in `packages/contracts/src/github-governance.ts`.
 - The default repository permissions are exactly Metadata read, Pull Requests read, Checks write, and Contents none.
@@ -52,6 +53,8 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 - Forbidden endpoint variants using owner/repo paths and repository-id paths fail closed with `github-api-forbidden-endpoint` before transport execution.
 - `identifyForbiddenGitHubGovernanceAcceptHeader` names GitHub diff and patch media types before the generic non-JSON fallback.
 - Diff and patch `Accept` values, including comma-separated and parameterized variants, fail closed with `github-api-forbidden-accept` before transport execution.
+- `scripts/github-api-contract-audit.mjs` provides the repo-local `bun run verify:github-api-contract` entrypoint.
+- The current audit rejects generic Octokit imports and generic GitHub client injection identifiers in production Cloud/Contracts sources.
 
 ## Commands
 
@@ -59,8 +62,10 @@ This evidence currently covers FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, F
 bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts
 bun test packages/cloud/github-app/test/github-app.test.ts
 bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts
+bun test scripts/github-api-contract-audit.test.ts
 bun run typecheck
 node scripts/privacy-route-audit.mjs
+bun run verify:github-api-contract
 bun run verify
 ```
 
@@ -69,9 +74,11 @@ bun run verify
 - `bun test packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts`: PASS, 103 tests, 383 expects.
 - `bun test packages/cloud/github-app/test/github-app.test.ts`: PASS, 19 tests, 114 expects.
 - `bun test packages/cloud/github-app/test/github-app.test.ts packages/cloud/cloud-db/test/cloud-db.test.ts`: PASS, 20 tests, 124 expects.
+- `bun test scripts/github-api-contract-audit.test.ts`: PASS, 3 tests, 6 expects.
 - `bun run typecheck`: PASS.
 - `node scripts/privacy-route-audit.mjs`: PASS.
-- `bun run verify`: PASS, 297 tests, 1280 expects, 57-entry acceptance ledger.
+- `bun run verify:github-api-contract`: PASS, scanned 18 production files.
+- `bun run verify`: PASS, 300 tests, 1286 expects, 58-entry acceptance ledger.
 
 ## Negative Tests
 
@@ -91,11 +98,12 @@ bun run verify
 - GitHub App tests prove unknown methods, paths, categories, and media types are denied by the API allowlist.
 - GitHub App tests prove PR Files, Repository Contents, Git Blob, and Git Tree endpoint variants are explicitly identified and rejected before transport.
 - GitHub App tests prove GitHub diff and patch media types are explicitly identified and rejected before transport.
+- GitHub API contract audit tests prove typed `GitHubGovernancePort` stays allowed while generic Octokit imports and `githubClient` injection are rejected.
 
 ## Known Limitations
 
-FG2 is not complete. This slice does not claim staging GitHub App readback, Commit Statuses expected-source proof, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
+FG2 is not complete. This slice does not claim full static forbidden endpoint scanning, staging GitHub App readback, Commit Statuses expected-source proof, egress recording, persistent Check Delivery retry queues, retention pruning, or install/revoke lifecycle handling.
 
 ## Decision
 
-PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, and FG2-11. Remaining FG2 tasks and exit gates stay open.
+PARTIAL PASS for FG2-01, FG2-03, FG2-04, FG2-05, FG2-06, FG2-07, FG2-08, FG2-09, FG2-10, FG2-11, and FG2-12. Remaining FG2 tasks and exit gates stay open.
