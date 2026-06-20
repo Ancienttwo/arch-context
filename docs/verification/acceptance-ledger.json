@@ -371,6 +371,19 @@
         "packages/cloud/hardening/src/index.ts",
         "docs/verification/fg1-local-product-gate.md"
       ]
+    },
+    {
+      "id": "FG1-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/test/fixtures/single-repo-basic",
+        "packages/surfaces/cli/test/local-product-e2e.test.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "scripts/packaged-cli-smoke.mjs",
+        "docs/verification/fg1-local-product-gate.md"
+      ]
     }
   ]
 }
