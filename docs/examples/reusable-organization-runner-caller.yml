@@ -1,0 +1,28 @@
+name: ArchContext Organization Runner
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+jobs:
+  archcontext:
+    name: Organization Runner
+    uses: <archcontext-workflows-owner>/<archcontext-workflows-repo>/.github/workflows/archcontext-organization-runner.yml@0123456789abcdef0123456789abcdef01234567
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    with:
+      expected_repository: ${{ github.repository }}
+      expected_head_sha: ${{ github.event.pull_request.head.sha }}
+      expected_head_tree_oid: <head tree OID from Challenge>
+      runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz
+      runtime_artifact_digest: sha256:<release-digest>
+      runtime_version: "0.1.0"
+      fail_on: blocking
+      fork_pr_mode: unsupported

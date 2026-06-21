@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "archcontext.fg4-developer-cannot-satisfy-organization-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T05:20:07.101Z",
+  "sourceEvidence": "docs/verification/fg4-organization-runner-ruleset-readback.json",
+  "config": {
+    "repository": "Ancienttwo/arch-context",
+    "repositoryId": 1274353501,
+    "pullRequestNumber": 2,
+    "appSlug": "archcontext-staging",
+    "appId": "4102781",
+    "installationId": 141544438
+  },
+  "evidence": {
+    "policy": {
+      "requiredTrust": "organization",
+      "developerTrustSatisfiesOrganization": false,
+      "developerAttestationAcceptedForOrganization": false,
+      "rejectionReasonCode": "TRUST_LEVEL_MISMATCH"
+    },
+    "developerReview": {
+      "checkName": "ArchContext / Developer Review",
+      "checkRunId": "82541945488",
+      "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82541945488",
+      "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "conclusion": "success",
+      "outputTitle": "Developer-attested"
+    },
+    "organizationRunner": {
+      "checkName": "ArchContext / Organization Runner",
+      "checkRunId": "82541946392",
+      "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82541946392",
+      "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "conclusion": "failure",
+      "outputTitle": "Attestation required",
+      "requiredSummary": true,
+      "trustMismatchSummary": true
+    },
+    "ruleset": {
+      "id": 17939058,
+      "enforcement": "active",
+      "target": "branch",
+      "requiredContext": "ArchContext / Organization Runner",
+      "integrationId": 4102781,
+      "deletedAfterReadback": true,
+      "absentAfterDelete": true
+    }
+  },
+  "failures": []
+}

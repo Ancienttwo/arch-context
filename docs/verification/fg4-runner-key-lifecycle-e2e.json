@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "archcontext.fg4-runner-key-lifecycle-e2e/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T05:28:06.836Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "lifecyclePolicy": {
+      "requiredCheckSubmitIdentityStatus": "active-only",
+      "rotatingPreviousKeyPreflightGrace": true,
+      "rotatingPreviousKeySubmitAllowed": false
+    },
+    "rotation": {
+      "previousRunnerId": "runner_fg4_lifecycle_old",
+      "nextRunnerId": "runner_fg4_lifecycle_new",
+      "previousStatus": "rotating",
+      "nextStatus": "active",
+      "rotatedAt": "2026-06-20T10:05:00Z",
+      "overlapUntil": "2026-06-20T10:20:00Z",
+      "previousPreflightAcceptedDuringOverlap": true,
+      "previousPreflightAcceptedAfterOverlap": false,
+      "previousSubmit": {
+        "accepted": false,
+        "expectedReasonCode": "RUNNER_REVOKED",
+        "observedReasonCode": "RUNNER_REVOKED",
+        "nonceHashConsumed": false,
+        "consumedSetPreserved": true
+      },
+      "nextPreflightAcceptedDuringOverlap": true,
+      "nextSubmit": {
+        "accepted": true,
+        "nonceHashConsumed": true,
+        "consumedSetPreserved": true
+      }
+    },
+    "revoke": {
+      "runnerId": "runner_fg4_lifecycle_revoked",
+      "status": "revoked",
+      "revokedAt": "2026-06-20T10:08:00Z",
+      "postRevokePreflightAccepted": false,
+      "postRevokeSubmit": {
+        "accepted": false,
+        "expectedReasonCode": "RUNNER_REVOKED",
+        "observedReasonCode": "RUNNER_REVOKED",
+        "nonceHashConsumed": false,
+        "consumedSetPreserved": true
+      },
+      "recoveryAction": "register-replacement-runner-key",
+      "replacementRequired": true
+    },
+    "audit": {
+      "actions": [
+        "runner_key.register",
+        "runner_key.rotate",
+        "runner_key.register",
+        "runner_key.revoke"
+      ],
+      "metadataOnly": true
+    },
+    "leakCounters": {
+      "plaintextNonceLeaks": 0,
+      "privateKeyLeaks": 0,
+      "tokenLeaks": 0
+    }
+  },
+  "failures": []
+}

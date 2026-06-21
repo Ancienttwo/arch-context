@@ -1,0 +1,38 @@
+# GitHub-hosted ArchContext Organization Runner workflow template.
+name: ArchContext Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+jobs:
+  archcontext:
+    name: Organization Runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run ArchContext Organization Runner
+        uses: archcontext/review-action@v1
+        with:
+          challenge: auto
+          trust-level: organization
+          fail-on: blocking
+          fork-pr-mode: unsupported
+          runtime-version: "0.1.0"
+          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz
+          runtime-artifact-digest: sha256:<release-digest>
+          expected-repository: <owner/name from Challenge>
+          expected-head-sha: ${{ github.event.pull_request.head.sha }}
+          expected-head-tree-oid: <head tree OID from Challenge>

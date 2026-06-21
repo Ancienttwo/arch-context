@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "archcontext.fg4-public-fork-adversarial-readback/v1",
+  "environment": "staging",
+  "status": "blocked",
+  "ok": false,
+  "generatedAt": "2026-06-21T05:55:14.321Z",
+  "repository": {
+    "fullName": "Ancienttwo/arch-context",
+    "visibility": "public",
+    "private": false,
+    "allowForking": true
+  },
+  "githubActions": {
+    "enabled": true,
+    "forkPullRequestContributorApproval": "unknown-readonly"
+  },
+  "authenticatedUser": {
+    "login": "Ancienttwo",
+    "id": 215803476,
+    "organizations": []
+  },
+  "forkAttempt": {
+    "attempted": false,
+    "reasonCode": "EXPLICIT_FORK_NAMESPACE_REQUIRED",
+    "message": "The readback did not create a fork or PR because the public fork adversarial test needs an explicit alternate namespace selected for cleanup ownership."
+  },
+  "blocker": {
+    "reasonCode": "FORK_NAMESPACE_UNAVAILABLE",
+    "message": "GitHub cannot create a same-owner fork for the authenticated user, and no alternate organization namespace is available.",
+    "requiredFollowUp": "Provide a second GitHub user or organization namespace that can fork Ancienttwo/arch-context, open a cross-repository PR, allow readback cleanup, and expose no secrets to fork code."
+  },
+  "secretScan": {
+    "containsToken": false,
+    "containsPrivateKey": false,
+    "containsWebhookSecret": false
+  }
+}

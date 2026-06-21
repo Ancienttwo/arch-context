@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "archcontext.fg4-self-hosted-runner-readback/v1",
+  "environment": "staging",
+  "status": "blocked",
+  "ok": false,
+  "generatedAt": "2026-06-21T05:55:36.630Z",
+  "repository": {
+    "fullName": "Ancienttwo/arch-context",
+    "visibility": "public",
+    "private": false,
+    "viewerPermission": "ADMIN"
+  },
+  "authenticatedUser": {
+    "login": "Ancienttwo",
+    "organizations": []
+  },
+  "selfHostedRunners": {
+    "scope": "repository",
+    "query": "gh api repos/Ancienttwo/arch-context/actions/runners",
+    "totalCount": 0,
+    "runners": []
+  },
+  "registration": {
+    "attempted": false,
+    "reasonCode": "USER_AUTHORIZATION_REQUIRED",
+    "message": "The readback did not register this workstation as a self-hosted runner because local runner registration changes the repository's Actions trust boundary and requires explicit user authorization."
+  },
+  "blocker": {
+    "reasonCode": "SELF_HOSTED_RUNNER_UNAVAILABLE",
+    "message": "FG4-EG2 requires a real self-hosted runner execution of the Organization Runner no-LLM gate, but the repository currently has zero self-hosted runners and no registration was authorized.",
+    "requiredFollowUp": "Authorize an ephemeral repository self-hosted runner registration, run the Organization Runner workflow with the dedicated label, collect artifact/log/CheckRun evidence, then unregister the runner."
+  },
+  "secretScan": {
+    "containsToken": false,
+    "containsRegistrationToken": false,
+    "containsPrivateKey": false,
+    "containsWebhookSecret": false
+  }
+}

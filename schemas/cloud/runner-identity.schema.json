@@ -9,7 +9,28 @@
     "schemaVersion": { "const": "archcontext.runner-identity/v1" },
     "runnerId": { "type": "string" },
     "installationId": { "type": "integer", "minimum": 1 },
-    "repositoryIds": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } },
+    "repositoryIds": { "type": "array", "minItems": 0, "items": { "type": "integer", "minimum": 1 } },
+    "scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "repositoryIds"],
+          "properties": {
+            "kind": { "const": "repository" },
+            "repositoryIds": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "organization" }
+          }
+        }
+      ]
+    },
     "workflowRef": { "type": "string" },
     "publicKeyId": { "type": "string" },
     "publicKeyFingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

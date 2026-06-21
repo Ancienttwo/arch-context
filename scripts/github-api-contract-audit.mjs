@@ -30,6 +30,7 @@ const forbiddenGitHubApiEndpointPatterns = [
 ];
 const allowedGitHubApiPathPatterns = [
   /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/pulls\/(?:\{pull_number\}|\$\{[^}]+\}|[1-9]\d*)$/,
+  /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/commits\/(?:\{ref\}|\$\{[^}]+\}|[^/?#]+)\/check-runs(?:\?check_name=(?:\$\{[^}]+\}|[^/?#]+))?$/,
   /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/check-runs$/,
   /^\/repositories\/(?:\{repository_id\}|\$\{[^}]+\}|[1-9]\d*)\/check-runs\/(?:\{check_run_id\}|\$\{[^}]+\}|[^/?#]+)$/
 ];

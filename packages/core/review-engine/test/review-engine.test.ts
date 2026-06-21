@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateJsonSchema } from "@archcontext/contracts";
-import { completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
+import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const sha = `sha256:${"a".repeat(64)}`;
@@ -49,6 +49,35 @@ describe("@archcontext/core/review-engine", () => {
     expect(result.findings.map((finding) => finding.id)).toEqual(
       expect.arrayContaining(["stale-context", "compatibility-reason", "cleanup-incomplete"])
     );
+  });
+
+  test("rejects caller-provided review conclusion and digest fields", () => {
+    expect(CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS).toEqual([
+      "result",
+      "reviewDigest",
+      "policyDigest",
+      "signature"
+    ]);
+    const base = {
+      taskSessionId: "task.test",
+      posture: "normal" as const,
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha
+    };
+
+    for (const [field, value] of Object.entries({
+      result: "pass",
+      reviewDigest: sha,
+      policyDigest: sha,
+      signature: { algorithm: "ed25519", value: "forged" }
+    })) {
+      expect(() => completeTaskGate({ ...base, [field]: value } as any), field).toThrow(`review-conclusion-field-forbidden: ${field}`);
+    }
+
+    expect(completeTaskGate(base).result).toBe("pass");
   });
 
   test("reviews cross-repo landscape drift and pressure", () => {

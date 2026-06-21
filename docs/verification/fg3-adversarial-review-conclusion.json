@@ -1,0 +1,190 @@
+{
+  "schemaVersion": "archcontext.fg3-adversarial-review-conclusion/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T21:09:36.471Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "deniedFields": [
+      "result",
+      "reviewDigest",
+      "policyDigest",
+      "modelDigest",
+      "signature"
+    ],
+    "contract": {
+      "denied": true,
+      "deniedFields": [
+        "result",
+        "reviewDigest",
+        "policyDigest",
+        "modelDigest",
+        "signature"
+      ],
+      "messageIncludesAllFields": true
+    },
+    "reviewEngine": {
+      "legalResult": "pass",
+      "deniedCases": [
+        {
+          "field": "result",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "reviewDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "policyDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "signature",
+          "denied": true,
+          "messageIncludesField": true
+        }
+      ]
+    },
+    "runtimeCompleteTask": {
+      "legalResult": "pass",
+      "persistedLegalResult": "pass",
+      "deniedCases": [
+        {
+          "field": "result",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "reviewDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "policyDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "modelDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "signature",
+          "denied": true,
+          "messageIncludesField": true
+        }
+      ]
+    },
+    "cli": {
+      "deniedCases": [
+        {
+          "field": "result",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "reviewDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "policyDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "modelDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "signature",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        }
+      ]
+    },
+    "mcp": {
+      "legalResult": "pass",
+      "deniedCases": [
+        {
+          "field": "result",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "reviewDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "policyDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "modelDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "signature",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        }
+      ]
+    },
+    "developerReviewAttestation": {
+      "deniedCases": [
+        {
+          "field": "result",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "reviewDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "policyDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "modelDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "signature",
+          "denied": true,
+          "messageIncludesField": true
+        }
+      ]
+    },
+    "allAdversarialInputsDenied": true,
+    "leakCounters": {
+      "forgedMarkerLeaks": 0,
+      "privateKeyLeaks": 0,
+      "keyRefLeaks": 0,
+      "nonceSecretLeaks": 0
+    }
+  },
+  "failures": []
+}

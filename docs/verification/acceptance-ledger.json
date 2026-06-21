@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T14:35:59Z",
+  "updatedAt": "2026-06-21T05:20:07Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -18,14 +18,18 @@
       "kind": "task",
       "status": "completed",
       "target": "E0",
-      "evidence": ["docs/spec.md"]
+      "evidence": [
+        "docs/spec.md"
+      ]
     },
     {
       "id": "FG0-03",
       "kind": "task",
       "status": "completed",
       "target": "E0",
-      "evidence": ["README.md"]
+      "evidence": [
+        "README.md"
+      ]
     },
     {
       "id": "FG0-04",
@@ -140,21 +144,27 @@
       "kind": "task",
       "status": "completed",
       "target": "E0",
-      "evidence": ["docs/adr/ADR-0034-one-package-local-product-distribution.md"]
+      "evidence": [
+        "docs/adr/ADR-0034-one-package-local-product-distribution.md"
+      ]
     },
     {
       "id": "FG0-15",
       "kind": "task",
       "status": "completed",
       "target": "E0",
-      "evidence": ["docs/adr/ADR-0035-github-governance-privacy-contract.md"]
+      "evidence": [
+        "docs/adr/ADR-0035-github-governance-privacy-contract.md"
+      ]
     },
     {
       "id": "FG0-16",
       "kind": "task",
       "status": "completed",
       "target": "E0",
-      "evidence": ["docs/adr/ADR-0036-deterministic-gate-llm-advisory.md"]
+      "evidence": [
+        "docs/adr/ADR-0036-deterministic-gate-llm-advisory.md"
+      ]
     },
     {
       "id": "FG0-17",
@@ -565,6 +575,20 @@
       ]
     },
     {
+      "id": "FG2-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-ruleset-expected-source.md",
+        "docs/verification/fg2-staging-evidence.json",
+        "packages/contracts/src/github-governance.ts",
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md",
+        "packages/cloud/control-plane/src/ui.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
       "id": "FG2-03",
       "kind": "task",
       "status": "completed",
@@ -723,6 +747,20 @@
       ]
     },
     {
+      "id": "FG2-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "deploy/cloudflare/fg2-staging-worker.ts",
+        "deploy/cloudflare/fg2-staging-worker.test.ts",
+        "docs/verification/fg2-egress-recording.json",
+        "docs/verification/fg2-staging-evidence.json",
+        "scripts/github-egress-recording-readback.mjs",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
       "id": "FG2-18",
       "kind": "task",
       "status": "completed",
@@ -757,6 +795,17 @@
       ]
     },
     {
+      "id": "FG2-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-staging-evidence.json",
+        "deploy/cloudflare/fg2-staging-worker.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
       "id": "FG2-EG2",
       "kind": "exit-gate",
       "status": "completed",
@@ -778,6 +827,850 @@
         "scripts/github-api-contract-audit.test.ts",
         "package.json",
         "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-egress-recording.json",
+        "scripts/github-egress-recording-readback.mjs",
+        "docs/verification/fg2-staging-evidence.json",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-egress-recording.json",
+        "docs/security/fixtures/cloud-private-content-bait.json",
+        "scripts/cloud-private-content-bait.test.ts",
+        "docs/verification/fg2-staging-evidence.json",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-ruleset-expected-source.md",
+        "docs/verification/fg2-staging-evidence.json",
+        "packages/contracts/src/github-governance.ts",
+        "docs/adr/ADR-0015-github-app-without-contents-permission.md",
+        "packages/cloud/control-plane/src/ui.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG2-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg2-install-revoke-readback.json",
+        "docs/verification/fg2-staging-evidence.json",
+        "scripts/fg2-install-revoke-readback.mjs",
+        "scripts/fg2-install-revoke-readback.test.ts",
+        "deploy/cloudflare/fg2-staging-worker.test.ts",
+        "docs/verification/fg2-github-privacy-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "docs/verification/fg3-developer-review-gate.md",
+        "scripts/sprint-status-check.mjs",
+        "scripts/sprint-status-check.test.ts"
+      ]
+    },
+    {
+      "id": "FG3-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "schemas/cloud/attestation-v2.schema.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/contracts/src/github-governance.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-08",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane-client/src/index.ts",
+        "packages/cloud/control-plane-client/test/oauth.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/cloud/control-plane-client/src/index.ts",
+        "packages/cloud/control-plane-client/test/oauth.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-12",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/surfaces/cli/bin/archctx",
+        "packages/surfaces/package.json",
+        "packages/local-runtime/codegraph-adapter/src/index.ts",
+        "packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts",
+        "packages/surfaces/cli/test/local-product-e2e.test.ts",
+        "scripts/local-no-cloud-e2e.mjs",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/local-runtime/git-adapter/src/index.ts",
+        "packages/local-runtime/git-adapter/test/git-adapter.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/core/architecture-domain/src/index.ts",
+        "packages/core/architecture-domain/test/domain.test.ts",
+        "packages/local-runtime/git-adapter/src/index.ts",
+        "packages/local-runtime/git-adapter/test/git-adapter.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/core/review-engine/src/index.ts",
+        "packages/core/review-engine/test/review-engine.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/core/review-engine/src/index.ts",
+        "packages/core/review-engine/test/review-engine.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/surfaces/mcp-local/src/index.ts",
+        "packages/surfaces/mcp-local/test/mcp-local.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "packages/cloud/control-plane-client/src/index.ts",
+        "packages/cloud/control-plane-client/test/oauth.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-18",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-19",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-20",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "schemas/cloud/check-delivery.schema.json",
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-21",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "packages/cloud/github-app/test/check-summary.test.ts",
+        "scripts/fg3-developer-review-check-readback.ts",
+        "scripts/fg3-developer-review-check-readback.test.ts",
+        "docs/verification/fg3-developer-review-check-readback.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-22",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "scripts/fg3-check-supersede-readback.ts",
+        "scripts/fg3-check-supersede-readback.test.ts",
+        "docs/verification/fg3-check-supersede-readback.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-23",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-24",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/surfaces/cli/src/main.ts",
+        "packages/surfaces/cli/test/cli.test.ts",
+        "packages/local-runtime/runtime-daemon/src/index.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "scripts/fg3-developer-review-process-e2e.ts",
+        "scripts/fg3-developer-review-process-e2e.test.ts",
+        "docs/verification/fg3-developer-review-process-e2e.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "scripts/fg3-negative-identity-matrix.ts",
+        "scripts/fg3-negative-identity-matrix.test.ts",
+        "docs/verification/fg3-negative-identity-matrix.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "scripts/fg3-adversarial-review-conclusion.ts",
+        "scripts/fg3-adversarial-review-conclusion.test.ts",
+        "docs/verification/fg3-adversarial-review-conclusion.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "scripts/fg3-attestation-security-suite.ts",
+        "scripts/fg3-attestation-security-suite.test.ts",
+        "docs/verification/fg3-attestation-security-suite.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "deploy/cloudflare/fg2-staging-worker.ts",
+        "deploy/cloudflare/fg2-staging-worker.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "scripts/fg3-real-pr-synchronize-e2e.ts",
+        "scripts/fg3-real-pr-synchronize-e2e.test.ts",
+        "docs/verification/fg3-real-pr-synchronize-e2e.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg3-developer-review-check-readback.ts",
+        "scripts/fg3-developer-review-check-readback.test.ts",
+        "docs/verification/fg3-developer-review-check-readback.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg3-required-trust-staging-readback.ts",
+        "scripts/fg3-required-trust-staging-readback.test.ts",
+        "docs/verification/fg3-required-trust-staging-readback.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG3-EG8",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg3-cloud-dlp-readback.ts",
+        "scripts/fg3-cloud-dlp-readback.test.ts",
+        "docs/verification/fg3-cloud-dlp-readback.json",
+        "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "schemas/cloud/runner-identity.schema.json",
+        "packages/contracts/fixtures/boundary/runner-identity-organization-scope.json",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "schemas/cloud/attestation-v2.schema.json",
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "packages/local-runtime/git-adapter/src/index.ts",
+        "packages/local-runtime/git-adapter/test/git-adapter.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-08",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/core/review-engine/src/index.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/adr/ADR-0036-deterministic-gate-llm-advisory.md",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-12",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md",
+        "docs/verification/fg3-required-trust-staging-readback.json"
+      ]
+    },
+    {
+      "id": "FG4-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/examples/github-hosted-runner-workflow.yml",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-18",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "docs/security/self-hosted-runner-hardening.md",
+        "packages/cloud/hardening/test/hardening.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-19",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        ".github/workflows/archcontext-organization-runner.yml",
+        "docs/examples/reusable-organization-runner-caller.yml",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-20",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-organization-runner-ruleset-readback.json",
+        "scripts/fg3-required-trust-staging-readback.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-21",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "scripts/fg4-github-hosted-runner-readback.ts",
+        "scripts/fg4-github-hosted-runner-readback.test.ts",
+        "scripts/fg4-github-hosted-runner-attestation.ts",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-developer-cannot-satisfy-organization-readback.json",
+        "docs/verification/fg4-organization-runner-ruleset-readback.json",
+        "scripts/fg4-developer-cannot-satisfy-organization-readback.ts",
+        "scripts/fg4-developer-cannot-satisfy-organization-readback.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-runner-key-lifecycle-e2e.json",
+        "scripts/fg4-runner-key-lifecycle-e2e.ts",
+        "scripts/fg4-runner-key-lifecycle-e2e.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/verification/fg4-supply-chain-negative-readback.json",
+        "scripts/fg4-supply-chain-negative-readback.ts",
+        "scripts/fg4-supply-chain-negative-readback.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/verification/fg4-deterministic-conclusion-readback.json",
+        "scripts/fg4-deterministic-conclusion-readback.ts",
+        "scripts/fg4-deterministic-conclusion-readback.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG8",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-runner-dlp-readback.json",
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "scripts/fg4-runner-dlp-readback.ts",
+        "scripts/fg4-runner-dlp-readback.test.ts",
+        "docs/security/fixtures/cloud-private-content-bait.json",
+        "docs/verification/fg4-organization-runner-gate.md"
       ]
     }
   ]

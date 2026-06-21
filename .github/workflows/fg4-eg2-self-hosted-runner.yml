@@ -1,0 +1,71 @@
+name: FG4 EG2 Self-hosted Organization Runner
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+jobs:
+  organization-runner:
+    name: Self-hosted Organization Runner
+    runs-on: ["self-hosted", "macOS", "ARM64", "archcontext-fg4-eg2"]
+    timeout-minutes: 15
+    env:
+      FG4_EG1_INSTALLATION_ID: "141544438"
+      FG4_EG1_REPOSITORY_ID: "1274353501"
+      FG4_EG1_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      FG4_EG1_RUNTIME_ARTIFACT_DIGEST: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      FG4_READBACK_ID: "fg4-eg2-self-hosted-runner"
+      FG4_ATTESTATION_SCHEMA_VERSION: "archcontext.fg4-self-hosted-runner-attestation/v1"
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compute Challenge metadata
+        shell: bash
+        run: |
+          echo "FG4_EG1_PULL_REQUEST_NUMBER=${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+          echo "FG4_EG1_HEAD_SHA=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_ENV"
+          echo "FG4_EG1_BASE_SHA=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_ENV"
+          echo "FG4_EG1_HEAD_TREE_OID=$(git rev-parse HEAD^{tree})" >> "$GITHUB_ENV"
+          echo "FG4_EG1_WORKFLOW_REF=${{ github.repository }}/.github/workflows/fg4-eg2-self-hosted-runner.yml@refs/heads/${{ github.head_ref }}" >> "$GITHUB_ENV"
+
+      - name: Run local review-action preflight
+        uses: ./actions/review-action
+        with:
+          challenge: auto
+          trust-level: organization
+          fail-on: blocking
+          fork-pr-mode: unsupported
+          runtime-version: "0.1.0"
+          runtime-artifact-url: ${{ env.FG4_EG1_RUNTIME_ARTIFACT_URL }}
+          runtime-artifact-digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          expected-repository: ${{ github.repository }}
+          expected-head-sha: ${{ env.FG4_EG1_HEAD_SHA }}
+          expected-head-tree-oid: ${{ env.FG4_EG1_HEAD_TREE_OID }}
+
+      - name: Install runtime dependencies
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install workspace
+        run: bun install --frozen-lockfile
+
+      - name: Create Organization Attestation
+        run: bun scripts/fg4-github-hosted-runner-attestation.ts create --out "$RUNNER_TEMP/fg4-eg2-organization-attestation.json"
+
+      - name: Upload metadata-only Organization Attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: archcontext-fg4-eg2-attestation
+          path: ${{ runner.temp }}/fg4-eg2-organization-attestation.json
+          if-no-files-found: error
