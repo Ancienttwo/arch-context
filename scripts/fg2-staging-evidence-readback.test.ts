@@ -120,6 +120,20 @@ async function writeVerifiedEgressRecording() {
       baitHits: { log: 0, trace: 0, queue: 0 }
     }
   }));
+  await writeFile(join(root, "fg2-install-revoke-readback.json"), JSON.stringify({
+    schemaVersion: "archcontext.fg2-install-revoke-readback/v1",
+    environment: "staging",
+    status: "verified",
+    evidence: {
+      installationRevoked: true,
+      tokenRejectedAfterRevoke: true,
+      challengeCreationStopped: true,
+      checkUpdateStopped: true,
+      restoredAfterReadback: true
+    },
+    secretValuesPersisted: false,
+    privateContentPersisted: false
+  }));
   return root;
 }
 
@@ -156,7 +170,8 @@ function verifiedPacket(overrides: Record<string, unknown> = {}) {
         installationRevoked: true,
         tokenRejectedAfterRevoke: true,
         challengeCreationStopped: true,
-        checkUpdateStopped: true
+        checkUpdateStopped: true,
+        recordingPath: "fg2-install-revoke-readback.json"
       }
     },
     ...overrides

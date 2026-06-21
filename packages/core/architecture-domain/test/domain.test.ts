@@ -8,6 +8,7 @@ import {
   addCrossRepoRelation,
   addRepositoryToLandscape,
   bindRepository,
+  computeReviewWorktreeDigest,
   computeWorktreeDigest,
   createLandscape,
   createInterventionId,
@@ -60,6 +61,27 @@ describe("@archcontext/core/architecture-domain", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("review worktree digest binds numeric repository head tree and tracked entries", () => {
+    const input = {
+      repositoryNumericId: 20002,
+      headSha: "a".repeat(40),
+      headTreeOid: "b".repeat(40),
+      trackedTree: [
+        { mode: "100644", type: "blob" as const, objectId: "c".repeat(40), path: "src/index.ts" },
+        { mode: "160000", type: "commit" as const, objectId: "d".repeat(40), path: "vendor/lib" }
+      ],
+      sparseScope: ["src"]
+    };
+    const digest = computeReviewWorktreeDigest(input);
+    expect(digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(computeReviewWorktreeDigest({ ...input, trackedTree: [...input.trackedTree].reverse() })).toBe(digest);
+    expect(computeReviewWorktreeDigest({ ...input, headTreeOid: "e".repeat(40) })).not.toBe(digest);
+    expect(computeReviewWorktreeDigest({
+      ...input,
+      trackedTree: [{ ...input.trackedTree[0], objectId: "f".repeat(40) }]
+    })).not.toBe(digest);
   });
 
   test("repo file listing and path assertion use POSIX repo-relative paths", () => {

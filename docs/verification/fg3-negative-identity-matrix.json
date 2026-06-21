@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "archcontext.fg3-negative-identity-matrix/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T21:03:13.210Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "challengeId": "chal_fg3_negative_identity",
+    "pullRequestNumber": 42,
+    "sourceRootDirty": true,
+    "cliClaimCases": [
+      {
+        "name": "wrong-repository",
+        "expectedReasonCode": "REPOSITORY_MISMATCH",
+        "observedReasonCode": "REPOSITORY_MISMATCH",
+        "rejected": true
+      },
+      {
+        "name": "wrong-head",
+        "expectedReasonCode": "HEAD_SHA_MISMATCH",
+        "observedReasonCode": "HEAD_SHA_MISMATCH",
+        "rejected": true
+      },
+      {
+        "name": "wrong-base",
+        "expectedReasonCode": "BASE_SHA_MISMATCH",
+        "observedReasonCode": "BASE_SHA_MISMATCH",
+        "rejected": true
+      }
+    ],
+    "cliClaimRuntimeNotStarted": true,
+    "wrongTree": {
+      "rejected": true,
+      "reasonCode": "TREE_OID_MISMATCH",
+      "runStarted": false,
+      "cleanupCleaned": true
+    },
+    "dirtyDetachedWorktree": {
+      "rejected": true,
+      "reasonCode": "WORKTREE_NOT_CLEAN",
+      "cleanupCleaned": true,
+      "worktreeRemovedAfterCleanup": true
+    },
+    "allRejected": true,
+    "outputNonceLeaks": 0,
+    "outputKeyRefLeaks": 0,
+    "outputVerifierLeaks": 0
+  },
+  "failures": []
+}

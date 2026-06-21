@@ -63,9 +63,9 @@ describe("control-plane UI", () => {
     expect(html).toContain("Metadata: Read");
     expect(html).toContain("Pull Requests: Read");
     expect(html).toContain("Checks: Write");
+    expect(html).toContain("Commit Statuses: Write");
+    expect(html).toContain("ruleset expected-source binding");
     expect(html).toContain("Contents: None");
-    expect(html).toContain("Commit Statuses: None now");
-    expect(html).toContain("FG2-02 staging decision");
     expect(html).toContain("Raw webhook body</dt><dd>0 days.");
     expect(html).toContain("Webhook delivery projection</dt><dd>30 days.");
     expect(html).toContain("Unfinished challenge</dt><dd>7 days.");

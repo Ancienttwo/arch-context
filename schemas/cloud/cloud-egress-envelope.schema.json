@@ -8,7 +8,7 @@
   "properties": {
     "schemaVersion": { "const": "archcontext.cloud-egress/v1" },
     "requestId": { "type": "string" },
-    "category": { "type": "string", "enum": ["github.metadata", "github.pull-head", "github.check-create", "github.check-update"] },
+    "category": { "type": "string", "enum": ["github.metadata", "github.pull-head", "github.check-list-for-ref", "github.check-create", "github.check-update"] },
     "method": { "type": "string", "enum": ["GET", "POST", "PATCH"] },
     "host": { "type": "string", "enum": ["api.github.com"] },
     "pathTemplate": { "type": "string" },

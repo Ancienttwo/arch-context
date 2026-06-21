@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, statSync } from "node:fs";
+import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import { CALLER_PROVIDED_ATTESTATION_FIELDS, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
-import { checkpoint, completeTask } from "@archcontext/core/application";
+import { checkpoint } from "@archcontext/core/application";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -73,6 +74,77 @@ async function* stdinLines(): AsyncIterable<string> {
 export interface CliRuntimeDeps extends RuntimeDeps {
   runtimeClient?: RuntimeDaemonClient;
   disableRpcDiscovery?: boolean;
+  devicePrivateKeyStore?: {
+    provisionDevicePrivateKey(input: { accountId: string; publicKeyId: string; createdAt?: string }): { reference: DeviceKeyCredentialReference };
+    signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string;
+    removeDevicePrivateKey(keyRef: string): void;
+  };
+  tokenStore?: {
+    saveRefreshToken(accountId: string, refreshToken: string): string;
+    clear(ref: string): void;
+  };
+  githubGovernancePort?: Pick<GitHubGovernancePort, "getPullHeadMetadata">;
+  githubReviewChallengePort?: {
+    fetchReviewChallenge(input: {
+      pullRequestNumber: number;
+      connection: ReturnType<typeof sanitizeGithubConnection>;
+    }): Promise<ReviewChallengeV2> | ReviewChallengeV2;
+  };
+  githubReviewSubmissionPort?: {
+    submitDeveloperReview(input: {
+      challenge: ReviewChallengeV2;
+      attestation: AttestationV2;
+      attestationDigest: string;
+    }): Promise<Json> | Json;
+  };
+}
+
+interface DeviceKeyCredentialReference {
+  schemaVersion: "archcontext.device-key-credential-ref/v1";
+  accountId: string;
+  publicKeyId: string;
+  publicKeyFingerprint: string;
+  keyRef: string;
+  createdAt: string;
+}
+
+interface GitHubConnectionRecord {
+  schemaVersion: "archcontext.github-connection/v1";
+  status: "connected";
+  accountId: string;
+  githubUserId: string;
+  issuer: string;
+  clientId: string;
+  scopes: string[];
+  authorizationUrl: string;
+  codeVerifierRef: string;
+  refreshTokenRef: string;
+  deviceKey: DeviceKeyCredentialReference;
+  connectedAt: string;
+}
+
+type GitHubDeveloperReviewStatus = "claimed" | "ran" | "ready_for_submit" | "submitted" | "cancelled" | "failed";
+
+interface GitHubDeveloperReviewState {
+  schemaVersion: "archcontext.github-developer-review-state/v1";
+  status: GitHubDeveloperReviewStatus;
+  challenge: ReviewChallengeV2;
+  challengeDigest: string;
+  lease?: Json;
+  review?: {
+    reviewId: string;
+    reviewDigest: string;
+    result: string;
+    attestationResult: string;
+    worktreeDigest: string;
+    modelDigest: string;
+    codeFactsDigest: string;
+  };
+  attestation?: AttestationV2;
+  attestationDigest?: string;
+  submission?: Json;
+  reasonCode?: string;
+  updatedAt: string;
 }
 
 interface CliRuntimeHandle {
@@ -95,6 +167,7 @@ export async function runCli(command = "help", args: string[] = [], cwd: string,
 
 async function runCliUnchecked(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
   if (command === "daemon") return runDaemonCommand(args, cwd);
+  if (command === "github") return runGithubCommand(args, cwd, deps);
   const runtimeHandles: CliRuntimeHandle[] = [];
   const runtime = async () => {
     const handle = await createCliRuntime(cwd, deps);
@@ -191,21 +264,18 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         data: checkpoint({ root: cwd, expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(cwd) })
       };
     case "review":
-    case "complete":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: command,
-        data: completeTask({
-          taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
-          posture: (readFlag(args, "--posture") as any) ?? "normal",
-          headSha: requireFlag(args, "--head-sha"),
-          currentHeadSha: readFlag(args, "--current-head-sha") ?? requireFlag(args, "--head-sha"),
-          worktreeDigest: readFlag(args, "--worktree-digest") ?? computeWorktreeDigest(cwd),
-          modelDigest: requireFlag(args, "--model-digest"),
-          codeFactsDigest: requireFlag(args, "--codefacts-digest")
-        } as any)
-      };
+    case "complete": {
+      const forbidden = readForbiddenAttestationFlags(args);
+      if (forbidden.length > 0) {
+        return errorEnvelope(command, "AC_SCHEMA_INVALID", `Review attestation fields are daemon-owned and cannot be provided by CLI flags: ${forbidden.join(",")}`);
+      }
+      const result = await (await runtime()).completeTask(cwd, {
+        taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
+        posture: (readFlag(args, "--posture") as any) ?? "normal",
+        headSha: readFlag(args, "--head-sha")
+      });
+      return { ...result, requestId: command };
+    }
     case "plan": {
       const path = readFlag(args, "--path");
       if (!path) return errorEnvelope("plan", "AC_SCHEMA_INVALID", "plan requires --path");
@@ -299,14 +369,532 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
   } finally {
     for (const handle of runtimeHandles.reverse()) await handle.close();
   }
+}
+
+async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
+  const subcommand = args[0] ?? "status";
+  const connectionPath = defaultGithubConnectionPath(cwd);
+  if (subcommand === "status") {
+    const record = readGithubConnection(connectionPath);
+    return okEnvelope("github.status", record ? sanitizeGithubConnection(record, connectionPath) : {
+      connected: false,
+      connectionPath,
+      ghCli: "not-used"
+    } as any);
+  }
+  if (subcommand === "connect") {
+    const accountId = readFlag(args, "--account-id") ?? "acct_local";
+    const githubUserId = readFlag(args, "--github-user-id") ?? "local";
+    const publicKeyId = readFlag(args, "--public-key-id") ?? `key_device_${githubUserId}`;
+    const issuer = readFlag(args, "--issuer") ?? "https://archcontext.repoharness.com";
+    const clientId = readFlag(args, "--client-id") ?? "archctx";
+    const redirectUri = readFlag(args, "--redirect-uri") ?? "http://127.0.0.1:8787/oauth/callback";
+    const scopes = readRepeatedFlag(args, "--scope");
+    const requestedScopes = scopes.length > 0 ? scopes : ["account:read", "device:write", "entitlement:read"];
+    const connectedAt = readFlag(args, "--now") ?? new Date().toISOString();
+    const {
+      DevicePrivateKeyStore,
+      KeychainTokenStore,
+      createPkceAuthorizationRequest
+    } = await import("@archcontext/cloud/control-plane-client");
+    const tokenStore = deps.tokenStore ?? new KeychainTokenStore();
+    const keyStore = deps.devicePrivateKeyStore ?? new DevicePrivateKeyStore();
+    const pkce = createPkceAuthorizationRequest({
+      issuer,
+      clientId,
+      redirectUri,
+      scopes: requestedScopes,
+      state: readFlag(args, "--state") ?? `archctx-${accountId}`,
+      verifier: readFlag(args, "--verifier")
+    });
+    const codeVerifierRef = tokenStore.saveRefreshToken(`${accountId}/github-pkce`, pkce.codeVerifier);
+    const refreshTokenRef = tokenStore.saveRefreshToken(`${accountId}/github-refresh`, `refresh_${accountId}_${Date.parse(connectedAt)}`);
+    const deviceKey = keyStore.provisionDevicePrivateKey({
+      accountId,
+      publicKeyId,
+      createdAt: connectedAt
+    });
+    const record: GitHubConnectionRecord = {
+      schemaVersion: "archcontext.github-connection/v1",
+      status: "connected",
+      accountId,
+      githubUserId,
+      issuer,
+      clientId,
+      scopes: requestedScopes,
+      authorizationUrl: pkce.authorizationUrl,
+      codeVerifierRef,
+      refreshTokenRef,
+      deviceKey: deviceKey.reference,
+      connectedAt
+    };
+    assertNoCliSecretMaterial(record);
+    writeGithubConnection(connectionPath, record);
+    return okEnvelope("github.connect", sanitizeGithubConnection(record, connectionPath) as any);
+  }
+  if (subcommand === "disconnect") {
+    const record = readGithubConnection(connectionPath);
+    if (!record) {
+      return okEnvelope("github.disconnect", {
+        disconnected: false,
+        connected: false,
+        connectionPath,
+        ghCli: "not-used"
+      } as any);
+    }
+    const { DevicePrivateKeyStore, KeychainTokenStore } = await import("@archcontext/cloud/control-plane-client");
+    const tokenStore = deps.tokenStore ?? new KeychainTokenStore();
+    const keyStore = deps.devicePrivateKeyStore ?? new DevicePrivateKeyStore();
+    tokenStore.clear(record.codeVerifierRef);
+    tokenStore.clear(record.refreshTokenRef);
+    keyStore.removeDevicePrivateKey(record.deviceKey.keyRef);
+    rmSync(connectionPath, { force: true });
+    return okEnvelope("github.disconnect", {
+      disconnected: true,
+      connected: false,
+      accountId: record.accountId,
+      githubUserId: record.githubUserId,
+      revokedDeviceKeyRef: record.deviceKey.keyRef,
+      connectionPath,
+      ghCli: "not-used"
+    } as any);
+  }
+  if (subcommand === "review") {
+    return runGithubReviewCommand(args.slice(1), cwd, deps, connectionPath);
+  }
+  if (subcommand === "verify-head") {
+    const challengeResult = await readReviewChallengeV2Arg(args, cwd, "github verify-head");
+    if (!challengeResult.ok) return errorEnvelope("github.verify-head", "AC_SCHEMA_INVALID", challengeResult.message);
+    if (!deps.githubGovernancePort) {
+      return errorEnvelope("github.verify-head", "AC_RUNTIME_UNAVAILABLE", "github verify-head requires a configured GitHub governance metadata port");
+    }
+    const { ControlPlane } = await import("@archcontext/cloud/control-plane");
+    const result = await new ControlPlane().fetchAndVerifyReviewChallengePullHead({
+      challenge: challengeResult.challenge,
+      github: deps.githubGovernancePort
+    });
+    const data = { ...result, ghCli: "not-used" };
+    assertNoCliSecretMaterial(data);
+    return okEnvelope("github.verify-head", data as unknown as Json);
+  }
+  return errorEnvelope("github", "AC_SCHEMA_INVALID", "github requires connect|status|disconnect|review|verify-head");
+}
+
+async function runGithubReviewCommand(args: string[], cwd: string, deps: CliRuntimeDeps, connectionPath: string) {
+  const actions = new Set(["claim", "run", "submit", "status", "retry", "cancel"]);
+  const explicitAction = actions.has(args[0] ?? "") ? args[0] : undefined;
+  const action = explicitAction ?? "submit";
+  const commandArgs = explicitAction ? args.slice(1) : args;
+  const pullRequestNumber = readPullRequestNumber(commandArgs);
+  const statePath = defaultGithubDeveloperReviewStatePath(cwd, pullRequestNumber);
+
+  if (action === "status") {
+    const state = readGithubDeveloperReviewState(statePath);
+    return okEnvelope("github.review.status", state
+      ? sanitizeGithubDeveloperReviewState(state, statePath)
+      : { status: "not_started", statePath, ghCli: "not-used" } as any);
+  }
+
+  if (action === "cancel") {
+    const state = readGithubDeveloperReviewState(statePath);
+    if (!state) return okEnvelope("github.review.cancel", { cancelled: false, status: "not_started", statePath, ghCli: "not-used" } as any);
+    const cancelled = await writeGithubDeveloperReviewState(cwd, {
+      ...state,
+      status: "cancelled",
+      updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
+    });
+    return okEnvelope("github.review.cancel", { ...sanitizeGithubDeveloperReviewState(cancelled.state, cancelled.path), cancelled: true } as any);
+  }
+
+  const connection = readGithubConnection(connectionPath);
+  if (!connection) {
+    return errorEnvelope("github.review", "AC_RUNTIME_UNAVAILABLE", "github review requires archctx github connect first");
+  }
+  const sanitizedConnection = sanitizeGithubConnection(connection, connectionPath);
+  const existing = readGithubDeveloperReviewState(statePath);
+  if (action === "retry" && existing?.status === "cancelled" && !commandArgs.includes("--force")) {
+    return errorEnvelope("github.review.retry", "AC_SCHEMA_INVALID", "github review retry requires --force after cancel");
+  }
+  const challengeResult = await resolveGithubReviewChallenge(commandArgs, cwd, deps, sanitizedConnection, action === "claim" ? undefined : existing?.challenge);
+  if (!challengeResult.ok) return errorEnvelope(`github.review.${action}`, "AC_SCHEMA_INVALID", challengeResult.message);
+
+  if (action === "claim") {
+    return claimGithubDeveloperReview({
+      args: commandArgs,
+      cwd,
+      deps,
+      challenge: challengeResult.challenge,
+      connection,
+      existing
+    });
+  }
+
+  const claimed = await claimGithubDeveloperReviewState({
+    args: commandArgs,
+    cwd,
+    deps,
+    challenge: challengeResult.challenge,
+    connection,
+    existing
+  });
+  if (!claimed.ok) return claimed.envelope;
+
+  const runtime = await createCliRuntime(cwd, deps);
+  let cleanup: Json | undefined;
+  try {
+    const prepared = await runtime.client.startDeveloperReviewRun({
+      repositoryRoot: cwd,
+      challenge: claimed.state.challenge,
+      expectedHeadTreeOid: readFlag(commandArgs, "--expected-head-tree-oid")
+    });
+    if (!prepared.accepted || !prepared.run) {
+      const failed = await writeGithubDeveloperReviewState(cwd, {
+        ...claimed.state,
+        status: "failed",
+        reasonCode: prepared.reasonCode ?? "WORKTREE_PREPARE_FAILED",
+        updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
+      });
+      return okEnvelope(`github.review.${action}`, sanitizeGithubDeveloperReviewState(failed.state, failed.path) as unknown as Json);
+    }
+
+    try {
+      const signed = await runtime.client.runSignedDeveloperReviewAttestation({
+        challenge: claimed.state.challenge,
+        worktree: prepared.run.worktree,
+        keyRef: connection.deviceKey.keyRef,
+        principalId: readFlag(commandArgs, "--principal-id") ?? connection.githubUserId,
+        publicKeyId: readFlag(commandArgs, "--public-key-id") ?? connection.deviceKey.publicKeyId,
+        taskSessionId: readFlag(commandArgs, "--task-session-id") ?? `github_pr_${claimed.state.challenge.pullRequestNumber}`,
+        mergeBaseSha: readFlag(commandArgs, "--merge-base-sha"),
+        startedAt: readFlag(commandArgs, "--started-at"),
+        completedAt: readFlag(commandArgs, "--completed-at") ?? readFlag(commandArgs, "--now")
+      });
+      cleanup = await runtime.client.cleanupDeveloperReviewRun(prepared.run) as unknown as Json;
+      const ran = await writeGithubDeveloperReviewState(cwd, {
+        ...claimed.state,
+        status: action === "run" ? "ran" : "ready_for_submit",
+        review: {
+          reviewId: signed.reviewSession.reviewId,
+          reviewDigest: signed.reviewSession.reviewDigest,
+          result: signed.reviewSession.reviewResult,
+          attestationResult: signed.reviewSession.attestationResult,
+          worktreeDigest: signed.reviewSession.digests.worktreeDigest,
+          modelDigest: signed.reviewSession.digests.modelDigest,
+          codeFactsDigest: signed.reviewSession.digests.codeFactsDigest
+        },
+        attestation: signed.attestation,
+        attestationDigest: signed.attestationDigest,
+        updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
+      });
+      if (action === "run") {
+        return okEnvelope("github.review.run", {
+          ...sanitizeGithubDeveloperReviewState(ran.state, ran.path),
+          cleanup
+        } as unknown as Json);
+      }
+      const submitted = await submitGithubDeveloperReview(commandArgs, cwd, deps, ran.state);
+      return okEnvelope("github.review.submit", {
+        ...sanitizeGithubDeveloperReviewState(submitted.state, submitted.path),
+        cleanup
+      } as unknown as Json);
+    } catch (error) {
+      if (!cleanup) cleanup = await Promise.resolve(runtime.client.cleanupDeveloperReviewRun(prepared.run)).catch((cleanupError: unknown) => ({
+        cleaned: false,
+        errors: [cleanupError instanceof Error ? cleanupError.message : String(cleanupError)]
+      })) as unknown as Json;
+      const failed = await writeGithubDeveloperReviewState(cwd, {
+        ...claimed.state,
+        status: "failed",
+        reasonCode: error instanceof Error ? error.message : String(error),
+        updatedAt: readFlag(commandArgs, "--now") ?? new Date().toISOString()
+      });
+      return okEnvelope(`github.review.${action}`, {
+        ...sanitizeGithubDeveloperReviewState(failed.state, failed.path),
+        cleanup
+      } as unknown as Json);
+    }
+  } finally {
+    await runtime.close();
+  }
+}
+
+async function claimGithubDeveloperReview(input: {
+  args: string[];
+  cwd: string;
+  deps: CliRuntimeDeps;
+  challenge: ReviewChallengeV2;
+  connection: GitHubConnectionRecord;
+  existing?: GitHubDeveloperReviewState;
+}) {
+  const claimed = await claimGithubDeveloperReviewState(input);
+  return claimed.ok ? okEnvelope("github.review.claim", sanitizeGithubDeveloperReviewState(claimed.state, claimed.path) as unknown as Json) : claimed.envelope;
+}
+
+async function claimGithubDeveloperReviewState(input: {
+  args: string[];
+  cwd: string;
+  deps: CliRuntimeDeps;
+  challenge: ReviewChallengeV2;
+  connection: GitHubConnectionRecord;
+  existing?: GitHubDeveloperReviewState;
+}): Promise<
+  | { ok: true; state: GitHubDeveloperReviewState; path: string }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> | ReturnType<typeof okEnvelope> }
+> {
+  if (!input.deps.githubGovernancePort) {
+    return { ok: false, envelope: errorEnvelope("github.review.claim", "AC_RUNTIME_UNAVAILABLE", "github review claim requires a configured GitHub governance metadata port") };
+  }
+  const { ControlPlane } = await import("@archcontext/cloud/control-plane");
+  const controlPlane = new ControlPlane();
+  const head = await controlPlane.fetchAndVerifyReviewChallengePullHead({
+    challenge: input.challenge,
+    github: input.deps.githubGovernancePort
+  });
+  const now = readFlag(input.args, "--now") ?? new Date().toISOString();
+  const digest = await digestReviewChallenge(input.challenge);
+  if (!head.accepted) {
+    const failed = await writeGithubDeveloperReviewState(input.cwd, {
+      schemaVersion: "archcontext.github-developer-review-state/v1",
+      status: "failed",
+      challenge: input.challenge,
+      challengeDigest: digest,
+      reasonCode: head.reasonCode ?? "HEAD_VERIFICATION_FAILED",
+      updatedAt: now
+    });
+    return { ok: false, envelope: okEnvelope("github.review.claim", sanitizeGithubDeveloperReviewState(failed.state, failed.path) as unknown as Json) };
+  }
+  const lease = controlPlane.claimReviewChallengeLease({
+    challenge: input.challenge,
+    claimantId: readFlag(input.args, "--claimant-id") ?? input.connection.deviceKey.publicKeyId,
+    now,
+    currentLease: input.existing?.lease as any
+  });
+  const state = await writeGithubDeveloperReviewState(input.cwd, {
+    schemaVersion: "archcontext.github-developer-review-state/v1",
+    status: lease.claimed ? "claimed" : "failed",
+    challenge: lease.challenge,
+    challengeDigest: await digestReviewChallenge(lease.challenge),
+    lease: lease.lease as unknown as Json,
+    reasonCode: lease.reasonCode,
+    updatedAt: now
+  });
+  if (!lease.claimed) {
+    return { ok: false, envelope: okEnvelope("github.review.claim", sanitizeGithubDeveloperReviewState(state.state, state.path) as unknown as Json) };
+  }
+  return { ok: true, state: state.state, path: state.path };
+}
+
+async function submitGithubDeveloperReview(args: string[], cwd: string, deps: CliRuntimeDeps, state: GitHubDeveloperReviewState): Promise<{ state: GitHubDeveloperReviewState; path: string }> {
+  if (!state.attestation || !state.attestationDigest) {
+    return writeGithubDeveloperReviewState(cwd, {
+      ...state,
+      status: "failed",
+      reasonCode: "ATTESTATION_UNAVAILABLE",
+      updatedAt: readFlag(args, "--now") ?? new Date().toISOString()
+    });
+  }
+  if (!deps.githubReviewSubmissionPort) {
+    return writeGithubDeveloperReviewState(cwd, {
+      ...state,
+      status: "ready_for_submit",
+      submission: {
+        submitted: false,
+        reasonCode: "SUBMISSION_TRANSPORT_UNAVAILABLE"
+      } as Json,
+      updatedAt: readFlag(args, "--now") ?? new Date().toISOString()
+    });
+  }
+  const submission = await deps.githubReviewSubmissionPort.submitDeveloperReview({
+    challenge: state.challenge,
+    attestation: state.attestation,
+    attestationDigest: state.attestationDigest
+  });
+  return writeGithubDeveloperReviewState(cwd, {
+    ...state,
+    status: "submitted",
+    submission,
+    updatedAt: readFlag(args, "--now") ?? new Date().toISOString()
+  });
+}
+
+async function resolveGithubReviewChallenge(
+  args: string[],
+  cwd: string,
+  deps: CliRuntimeDeps,
+  connection: ReturnType<typeof sanitizeGithubConnection>,
+  fallback?: ReviewChallengeV2
+): Promise<{ ok: true; challenge: ReviewChallengeV2 } | { ok: false; message: string }> {
+  const challengeInput = await readReviewChallengeV2Arg(args, cwd, "github review");
+  if (challengeInput.ok) return challengeInput;
+  const hasChallengeFlag = Boolean(readFlag(args, "--challenge-json") || readFlag(args, "--challenge-path"));
+  if (hasChallengeFlag) return challengeInput;
+  if (fallback) return { ok: true, challenge: fallback };
+  const pullRequestNumber = readPullRequestNumber(args);
+  if (pullRequestNumber && deps.githubReviewChallengePort) {
+    return {
+      ok: true,
+      challenge: await deps.githubReviewChallengePort.fetchReviewChallenge({
+        pullRequestNumber,
+        connection
+      })
+    };
+  }
+  return { ok: false, message: "github review requires --challenge-json, --challenge-path, or --pr with a configured Challenge fetch port" };
+}
+
+function readPullRequestNumber(args: string[]): number | undefined {
+  const raw = readFlag(args, "--pr") ?? readFlag(args, "--pull-request");
+  if (!raw) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) throw new Error("--pr must be a positive integer");
+  return value;
+}
+
+async function digestReviewChallenge(challenge: ReviewChallengeV2): Promise<string> {
+  const attestation = await import("@archcontext/cloud/attestation");
+  return attestation.reviewChallengeV2Digest(challenge);
+}
+
+function defaultGithubDeveloperReviewStatePath(cwd: string, pullRequestNumber?: number): string {
+  const suffix = pullRequestNumber ? `github-developer-review-pr-${pullRequestNumber}.json` : "github-developer-review.json";
+  return join(dirname(defaultDaemonConnectionPath(cwd)), suffix);
+}
+
+async function writeGithubDeveloperReviewState(cwd: string, state: GitHubDeveloperReviewState): Promise<{ state: GitHubDeveloperReviewState; path: string }> {
+  const path = defaultGithubDeveloperReviewStatePath(cwd, state.challenge.pullRequestNumber);
+  mkdirSync(dirname(path), { recursive: true });
+  const serialized = `${JSON.stringify(state, null, 2)}\n`;
+  assertNoCliSecretMaterial(serialized);
+  writeFileSync(path, serialized, { mode: 0o600 });
+  if (process.platform !== "win32") chmodSync(path, 0o600);
+  return { state, path };
+}
+
+function readGithubDeveloperReviewState(path: string): GitHubDeveloperReviewState | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as GitHubDeveloperReviewState;
+    if (parsed.schemaVersion !== "archcontext.github-developer-review-state/v1") return undefined;
+    if (!parsed.challenge || typeof parsed.challenge.pullRequestNumber !== "number") return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeGithubDeveloperReviewState(state: GitHubDeveloperReviewState, statePath: string) {
+  const data = {
+    schemaVersion: state.schemaVersion,
+    status: state.status,
+    statePath,
+    challenge: {
+      challengeId: state.challenge.challengeId,
+      installationId: state.challenge.installationId,
+      repositoryId: state.challenge.repositoryId,
+      pullRequestNumber: state.challenge.pullRequestNumber,
+      headSha: state.challenge.headSha,
+      baseSha: state.challenge.baseSha,
+      requiredTrust: state.challenge.requiredTrust,
+      policyProfileId: state.challenge.policyProfileId,
+      status: state.challenge.status,
+      createdAt: state.challenge.createdAt,
+      expiresAt: state.challenge.expiresAt
+    },
+    challengeDigest: state.challengeDigest,
+    lease: state.lease,
+    review: state.review,
+    attestationDigest: state.attestationDigest,
+    submission: state.submission,
+    reasonCode: state.reasonCode,
+    updatedAt: state.updatedAt,
+    ghCli: "not-used"
+  };
+  const serialized = JSON.stringify(data);
+  assertNoCliSecretMaterial(serialized);
+  if (serialized.includes(state.challenge.nonce)) throw new Error("github-review-nonce-output-forbidden");
+  if (state.attestation?.signature.value && serialized.includes(state.attestation.signature.value)) throw new Error("github-review-signature-output-forbidden");
+  return data;
+}
+
+function defaultGithubConnectionPath(cwd: string): string {
+  return join(dirname(defaultDaemonConnectionPath(cwd)), "github-connection.json");
+}
+
+function readGithubConnection(path: string): GitHubConnectionRecord | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as GitHubConnectionRecord;
+    if (parsed.schemaVersion !== "archcontext.github-connection/v1" || parsed.status !== "connected") return undefined;
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeGithubConnection(path: string, record: GitHubConnectionRecord): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const serialized = `${JSON.stringify(record, null, 2)}\n`;
+  assertNoCliSecretMaterial(serialized);
+  writeFileSync(path, serialized, { mode: 0o600 });
+  if (process.platform !== "win32") chmodSync(path, 0o600);
+}
+
+function sanitizeGithubConnection(record: GitHubConnectionRecord, connectionPath: string) {
+  return {
+    schemaVersion: record.schemaVersion,
+    connected: true,
+    status: record.status,
+    accountId: record.accountId,
+    githubUserId: record.githubUserId,
+    issuer: record.issuer,
+    clientId: record.clientId,
+    scopes: record.scopes,
+    authorizationUrl: record.authorizationUrl,
+    codeVerifierRef: record.codeVerifierRef,
+    refreshTokenRef: record.refreshTokenRef,
+    deviceKey: record.deviceKey,
+    connectedAt: record.connectedAt,
+    connectionPath,
+    ghCli: "not-used"
+  };
+}
+
+async function readReviewChallengeV2Arg(args: string[], cwd: string, commandName = "github verify-head"): Promise<
+  | { ok: true; challenge: ReviewChallengeV2 }
+  | { ok: false; message: string }
+> {
+  const inline = readFlag(args, "--challenge-json");
+  const challengePath = readFlag(args, "--challenge-path");
+  if (inline && challengePath) return { ok: false, message: `${commandName} accepts only one of --challenge-json or --challenge-path` };
+  if (!inline && !challengePath) return { ok: false, message: `${commandName} requires --challenge-json or --challenge-path` };
+  try {
+    const raw = inline ?? readFileSync(resolve(cwd, challengePath!), "utf8");
+    const parsed = JSON.parse(raw);
+    const attestation = await import("@archcontext/cloud/attestation");
+    const assertReviewChallengeV2: (value: unknown) => asserts value is ReviewChallengeV2 = attestation.assertReviewChallengeV2;
+    assertReviewChallengeV2(parsed);
+    return { ok: true, challenge: parsed };
+  } catch (error) {
+    return { ok: false, message: `invalid ReviewChallenge v2: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function assertNoCliSecretMaterial(value: unknown): void {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  if (!serialized) return;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(serialized)) throw new Error("device-private-key-material-forbidden");
+  if (/(^|["'\s])(?:file:\/\/|\/|\.\/|\.\.\/|~\/)[^"'\s]*(?:private|device|key)[^"'\s]*/i.test(serialized)) {
+    throw new Error("device-private-key-file-ref-forbidden");
+  }
+  if (/(access|refresh|token)_[A-Za-z0-9_-]+/.test(serialized)) throw new Error("github-token-material-forbidden");
 }
 
 function runMcpCommand(args: string[]) {
@@ -506,7 +1094,21 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
     }
     throw new Error("archctxd started but no healthy runtime RPC connection was available");
   }
-  const daemon = await createStartedDaemon({ localStorePath: defaultLocalStorePath(cwd), ...deps });
+  const {
+    runtimeClient: _runtimeClient,
+    disableRpcDiscovery: _disableRpcDiscovery,
+    devicePrivateKeyStore,
+    tokenStore: _tokenStore,
+    githubGovernancePort: _githubGovernancePort,
+    githubReviewChallengePort: _githubReviewChallengePort,
+    githubReviewSubmissionPort: _githubReviewSubmissionPort,
+    ...runtimeDeps
+  } = deps;
+  const daemon = await createStartedDaemon({
+    localStorePath: defaultLocalStorePath(cwd),
+    ...runtimeDeps,
+    devicePrivateKeySigner: runtimeDeps.devicePrivateKeySigner ?? devicePrivateKeyStore
+  });
   return { client: daemon, close: () => daemon.stop() };
 }
 
@@ -519,7 +1121,9 @@ function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
     "changeSetEngine",
     "localStorePath",
     "clock",
-    "maxRepoSessions"
+    "maxRepoSessions",
+    "devicePrivateKeySigner",
+    "devicePrivateKeyStore"
   ].some((key) => key in deps);
 }
 
@@ -843,6 +1447,12 @@ function requireFlag(args: string[], flag: string): string {
   const value = readFlag(args, flag);
   if (!value) throw new Error(`${flag} is required`);
   return value;
+}
+
+function readForbiddenAttestationFlags(args: string[]): string[] {
+  return CALLER_PROVIDED_ATTESTATION_FIELDS
+    .map((field) => `--${field.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`)}`)
+    .filter((flag) => args.includes(flag) || args.some((arg) => arg.startsWith(`${flag}=`)));
 }
 
 function readRepeatedFlag(args: string[], flag: string): string[] {

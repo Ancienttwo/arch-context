@@ -1,0 +1,77 @@
+name: ArchContext Organization Runner
+
+on:
+  workflow_call:
+    inputs:
+      expected_repository:
+        description: Repository in owner/name form from the Review Challenge.
+        required: true
+        type: string
+      expected_head_sha:
+        description: Exact pull request head SHA from the Review Challenge.
+        required: true
+        type: string
+      expected_head_tree_oid:
+        description: Exact pull request head tree OID from the Review Challenge.
+        required: true
+        type: string
+      runtime_artifact_url:
+        description: HTTPS URL for the pinned ArchContext runtime artifact.
+        required: true
+        type: string
+      runtime_artifact_digest:
+        description: sha256 digest for the pinned ArchContext runtime artifact.
+        required: true
+        type: string
+      runtime_version:
+        description: ArchContext runtime version expected by this workflow release.
+        required: false
+        type: string
+        default: "0.1.0"
+      fail_on:
+        description: Whether a failing deterministic gate should fail the job.
+        required: false
+        type: string
+        default: blocking
+      fork_pr_mode:
+        description: Fork pull request behavior.
+        required: false
+        type: string
+        default: unsupported
+      runs_on:
+        description: Runner label or GitHub-hosted runner image.
+        required: false
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+jobs:
+  organization-runner:
+    name: Organization Runner
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run ArchContext Organization Runner
+        uses: archcontext/review-action@v1
+        with:
+          challenge: auto
+          trust-level: organization
+          fail-on: ${{ inputs.fail_on }}
+          fork-pr-mode: ${{ inputs.fork_pr_mode }}
+          runtime-version: ${{ inputs.runtime_version }}
+          runtime-artifact-url: ${{ inputs.runtime_artifact_url }}
+          runtime-artifact-digest: ${{ inputs.runtime_artifact_digest }}
+          expected-repository: ${{ inputs.expected_repository }}
+          expected-head-sha: ${{ inputs.expected_head_sha }}
+          expected-head-tree-oid: ${{ inputs.expected_head_tree_oid }}
