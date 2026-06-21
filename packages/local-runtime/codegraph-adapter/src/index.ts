@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { basename, join } from "node:path";
+import { closeSync, existsSync, openSync, readSync, realpathSync } from "node:fs";
+import { basename, delimiter, isAbsolute, join } from "node:path";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
@@ -87,8 +87,9 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   }
 
   private run(args: string[]): string {
+    const invocation = codeGraphCliInvocation(this.binary, this.workspaceRoot);
     try {
-      return execFileSync(this.binary, args, {
+      return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
         cwd: this.workspaceRoot,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"]
@@ -98,6 +99,55 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
       const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
       throw new Error(`CodeGraph CLI failed: ${message}`);
     }
+  }
+}
+
+interface CodeGraphCliInvocation {
+  command: string;
+  argsPrefix: string[];
+}
+
+function codeGraphCliInvocation(binary: string, cwd: string): CodeGraphCliInvocation {
+  const resolved = resolveExecutable(binary, cwd);
+  if (resolved && isNodeRuntimeScript(resolved)) {
+    return { command: process.execPath, argsPrefix: [resolved] };
+  }
+  return { command: binary, argsPrefix: [] };
+}
+
+function resolveExecutable(binary: string, cwd: string): string | undefined {
+  if (binary.includes("/") || binary.includes("\\")) {
+    const path = isAbsolute(binary) ? binary : join(cwd, binary);
+    return existsSync(path) ? realpathSync.native(path) : undefined;
+  }
+  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+    if (!dir) continue;
+    const path = join(dir, binary);
+    if (existsSync(path)) return realpathSync.native(path);
+  }
+  return undefined;
+}
+
+function isNodeRuntimeScript(path: string): boolean {
+  if (/\.[cm]?js$/i.test(path)) return true;
+  const prefix = readFilePrefix(path, 256);
+  return prefix.startsWith("#!/usr/bin/env node")
+    || prefix.startsWith("#!/usr/bin/env bun")
+    || prefix.startsWith("#!/usr/bin/node")
+    || prefix.startsWith("#!/usr/local/bin/node");
+}
+
+function readFilePrefix(path: string, length: number): string {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    const buffer = Buffer.alloc(length);
+    const bytes = readSync(fd, buffer, 0, length, 0);
+    return buffer.subarray(0, bytes).toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 

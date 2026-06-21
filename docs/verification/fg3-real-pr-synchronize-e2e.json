@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "archcontext.fg3-real-pr-synchronize-e2e/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T21:27:00.000Z",
+  "deployment": {
+    "workerName": "archcontext-fg2-staging",
+    "workerUrl": "https://archcontext.repoharness.com",
+    "versionId": "46176692-5ed5-483d-8ae2-e6cbc82c4107",
+    "wranglerVersion": "4.74.0",
+    "dryRun": "passed",
+    "health": "passed"
+  },
+  "evidence": {
+    "workerUrl": "https://archcontext.repoharness.com",
+    "repository": "Ancienttwo/arch-context",
+    "pullRequest": {
+      "number": 4,
+      "url": "https://github.com/Ancienttwo/arch-context/pull/4",
+      "state": "closed",
+      "branch": "codex/fg3-sync-e2e-20260620212554",
+      "eventSequence": "opened->synchronize",
+      "openedHeadSha": "964f268d774b3b1df95dc5fd3b82e69af0d68ec9",
+      "synchronizeHeadSha": "71125da8a97299b7f1e352ee56efbbe0af7a7035",
+      "headsDiffer": true,
+      "baseRef": "main",
+      "baseSha": "e273a98ce640b1a8f52ddc0a14cd0140d112ee64",
+      "closedAt": "2026-06-20T21:26:52Z"
+    },
+    "checks": {
+      "oldHead": {
+        "checkRunId": "82517155939",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82517155939",
+        "checkName": "ArchContext / Developer Review",
+        "headSha": "964f268d774b3b1df95dc5fd3b82e69af0d68ec9",
+        "status": "completed",
+        "conclusion": "neutral",
+        "outputTitle": "Superseded",
+        "summarySuperseded": true,
+        "summaryPreview": "Superseded by a newer PR head. Previous 964f268d774b, current 71125da8a972.",
+        "detailsUrl": "https://archcontext.repoharness.com",
+        "completedAt": "2026-06-20T21:26:18Z"
+      },
+      "newHead": {
+        "checkRunId": "82517171581",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82517171581",
+        "checkName": "ArchContext / Developer Review",
+        "headSha": "71125da8a97299b7f1e352ee56efbbe0af7a7035",
+        "status": "completed",
+        "conclusion": "neutral",
+        "outputTitle": "ArchContext staging webhook verified",
+        "detailsUrl": "https://archcontext.repoharness.com",
+        "completedAt": "2026-06-20T21:26:33Z"
+      }
+    },
+    "cleanup": {
+      "pullRequestClosed": true,
+      "branchDeleted": true
+    },
+    "controlPlane": {
+      "oldActiveChallengesSuperseded": true,
+      "staleSubmitCannotUpdateCurrentHead": true,
+      "staleSubmitNonceConsumed": false,
+      "focusedTests": [
+        "packages/cloud/control-plane/test/control-plane.test.ts: supersedes old active Challenge v2 values when a new PR head arrives",
+        "packages/cloud/control-plane/test/control-plane.test.ts: rechecks current PR head at submit and rejects raced old-head results before consuming nonce"
+      ]
+    },
+    "egressContract": {
+      "allowedCategories": [
+        "github.pull-head",
+        "github.check-list-for-ref",
+        "github.check-create",
+        "github.check-update"
+      ],
+      "forbiddenCodeContentEndpointsStillDenied": true,
+      "noContentsPermission": true
+    }
+  },
+  "commands": [
+    "bun test packages/cloud/github-app/test/github-app.test.ts deploy/cloudflare/fg2-staging-worker.test.ts",
+    "bun run verify:github-api-contract",
+    "npx wrangler deploy --env staging --config wrangler.jsonc --dry-run",
+    "npx wrangler deploy --env staging --config wrangler.jsonc",
+    "curl -fsS https://archcontext.repoharness.com/health",
+    "gh api repos/Ancienttwo/arch-context/check-runs/82517155939",
+    "gh api repos/Ancienttwo/arch-context/check-runs/82517171581",
+    "gh api -X PATCH repos/Ancienttwo/arch-context/pulls/4 -f state=closed",
+    "gh api -X DELETE repos/Ancienttwo/arch-context/git/refs/heads/codex/fg3-sync-e2e-20260620212554"
+  ],
+  "failures": []
+}

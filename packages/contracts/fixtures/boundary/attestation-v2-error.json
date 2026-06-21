@@ -20,7 +20,11 @@
     "trustLevel": "organization",
     "source": "organization-runner-checkout",
     "principalId": "runner_0001",
-    "publicKeyId": "key_runner_0001"
+    "publicKeyId": "key_runner_0001",
+    "runnerId": "runner_0001",
+    "workflowRef": "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+    "runId": "1234567890",
+    "runAttempt": 1
   },
   "runtime": {
     "version": "0.2.0",

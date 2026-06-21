@@ -1,0 +1,23 @@
+#!/usr/bin/env bun
+import { spawn } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const entry = resolve(dirname(fileURLToPath(import.meta.url)), "../src/main.ts");
+const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
+  stdio: "inherit",
+  env: process.env
+});
+
+child.once("exit", (code, signal) => {
+  if (signal) {
+    process.kill(process.pid, signal);
+    return;
+  }
+  process.exit(code ?? 1);
+});
+
+child.once("error", (error) => {
+  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.exit(1);
+});

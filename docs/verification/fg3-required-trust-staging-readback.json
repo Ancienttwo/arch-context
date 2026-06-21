@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "archcontext.fg3-required-trust-staging-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T21:43:18.191Z",
+  "config": {
+    "envFile": "_ops/env/fg2-staging.env",
+    "packet": "docs/verification/fg2-staging-evidence.json",
+    "repository": "Ancienttwo/arch-context",
+    "repositoryId": 1274353501,
+    "pullRequestNumber": 2,
+    "appSlug": "archcontext-staging",
+    "appId": "4102781",
+    "installationId": 141544438
+  },
+  "evidence": {
+    "pullHead": {
+      "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "baseSha": "e273a98ce640b1a8f52ddc0a14cd0140d112ee64"
+    },
+    "policy": {
+      "requiredTrust": "organization",
+      "developerTrustSatisfiesOrganization": false,
+      "developerAttestationVerification": {
+        "accepted": false,
+        "reasonCode": "TRUST_LEVEL_MISMATCH"
+      }
+    },
+    "developerReview": {
+      "checkName": "ArchContext / Developer Review",
+      "checkRunId": "82518224944",
+      "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82518224944",
+      "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "conclusion": "success",
+      "outputTitle": "Developer-attested",
+      "developerAttestedSummary": true
+    },
+    "organizationRunner": {
+      "checkName": "ArchContext / Organization Runner",
+      "checkRunId": "82518225959",
+      "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82518225959",
+      "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "conclusion": "failure",
+      "outputTitle": "Attestation required",
+      "organizationRequiredSummary": true,
+      "trustMismatchSummary": true,
+      "forbiddenSourceCodePhraseMatches": 0
+    },
+    "ruleset": {
+      "id": 17933360,
+      "name": "archcontext-fg3-required-trust-smoke-mqmvwrbj",
+      "target": "branch",
+      "enforcement": "active",
+      "include": [
+        "refs/heads/fg3-required-trust-smoke/*"
+      ],
+      "requiredStatusCheck": {
+        "context": "ArchContext / Organization Runner",
+        "integrationId": 4102781
+      },
+      "deletedAfterReadback": true,
+      "absentAfterDelete": true
+    },
+    "egress": [
+      {
+        "category": "github.pull-head",
+        "method": "GET",
+        "pathTemplate": "/repositories/{repository_id}/pulls/{pull_number}",
+        "statusCode": 200,
+        "requestId": "AE4C:3CB43E:4E70E58:4FD02F1:6A370977"
+      },
+      {
+        "category": "github.check-create",
+        "method": "POST",
+        "pathTemplate": "/repositories/{repository_id}/check-runs",
+        "statusCode": 201,
+        "requestId": "AE4C:3CB43E:4E7116F:4FD0631:6A370978"
+      },
+      {
+        "category": "github.check-update",
+        "method": "PATCH",
+        "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+        "statusCode": 200,
+        "requestId": "AE4C:3CB43E:4E713EB:4FD08A8:6A370978"
+      },
+      {
+        "category": "github.check-create",
+        "method": "POST",
+        "pathTemplate": "/repositories/{repository_id}/check-runs",
+        "statusCode": 201,
+        "requestId": "AE4C:3CB43E:4E71663:4FD0B32:6A370979"
+      },
+      {
+        "category": "github.check-update",
+        "method": "PATCH",
+        "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+        "statusCode": 200,
+        "requestId": "AE4C:3CB43E:4E7189C:4FD0D69:6A37097A"
+      }
+    ],
+    "readbackRequests": {
+      "developerCheckStatus": 200,
+      "organizationCheckStatus": 200
+    }
+  },
+  "failures": []
+}

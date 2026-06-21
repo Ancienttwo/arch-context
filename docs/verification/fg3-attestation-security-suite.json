@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "archcontext.fg3-attestation-security-suite/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T21:14:33.804Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "baseline": {
+      "accepted": true,
+      "challengeStatus": "SUBMITTED",
+      "nonceHashRecorded": true,
+      "plaintextNonceInNonceHash": false
+    },
+    "cases": [
+      {
+        "name": "replay-nonce-reuse",
+        "expectedReasonCode": "CHALLENGE_ALREADY_CONSUMED",
+        "observedReasonCode": "CHALLENGE_ALREADY_CONSUMED",
+        "rejected": true,
+        "nonceHashConsumed": true,
+        "consumedSetPreserved": true
+      },
+      {
+        "name": "challenge-expired",
+        "expectedReasonCode": "CHALLENGE_EXPIRED",
+        "observedReasonCode": "CHALLENGE_EXPIRED",
+        "rejected": true,
+        "nonceHashConsumed": false,
+        "consumedSetPreserved": true
+      },
+      {
+        "name": "attestation-expired",
+        "expectedReasonCode": "CHALLENGE_EXPIRED",
+        "observedReasonCode": "CHALLENGE_EXPIRED",
+        "rejected": true,
+        "nonceHashConsumed": false,
+        "consumedSetPreserved": true
+      },
+      {
+        "name": "revoked-device-key",
+        "expectedReasonCode": "DEVICE_REVOKED",
+        "observedReasonCode": "DEVICE_REVOKED",
+        "rejected": true,
+        "nonceHashConsumed": false,
+        "consumedSetPreserved": true
+      },
+      {
+        "name": "nonce-mismatch",
+        "expectedReasonCode": "NONCE_MISMATCH",
+        "observedReasonCode": "NONCE_MISMATCH",
+        "rejected": true,
+        "nonceHashConsumed": false,
+        "consumedSetPreserved": true
+      }
+    ],
+    "allRejected": true,
+    "noUnexpectedNonceConsumption": true,
+    "leakCounters": {
+      "plaintextNonceLeaks": 0,
+      "privateKeyLeaks": 0,
+      "signatureLeaks": 0
+    }
+  },
+  "failures": []
+}

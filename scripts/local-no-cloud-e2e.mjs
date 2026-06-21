@@ -7,6 +7,7 @@ import { basename, delimiter, join, resolve } from "node:path";
 const ROOT = process.cwd();
 const BIN_DIR = join(ROOT, "node_modules", ".bin");
 const ARCHCTX_BIN = resolveArchctxBin(BIN_DIR);
+const CODEGRAPH_BIN = resolveCodeGraphBin(BIN_DIR);
 const FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/single-repo-basic");
 const PROCESS_TIMEOUT_MS = 20_000;
 const REMOVED_PROVIDER_ENV = providerEnvKeys(process.env);
@@ -25,7 +26,7 @@ try {
   git(repo, "add", ".");
   git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   const headSha = gitOut(repo, "rev-parse", "HEAD");
-  await run("codegraph", ["init", repo], { cwd: repo, env });
+  await run(process.execPath, [CODEGRAPH_BIN, "init", repo], { cwd: repo, env });
 
   const doctor = await runArchctx(repo, "doctor");
   assert(doctor.ok === true, "doctor must succeed without cloud or LLM provider env");
@@ -59,13 +60,7 @@ try {
     "--task-session-id",
     "task_local_no_cloud",
     "--head-sha",
-    headSha,
-    "--model-digest",
-    init.data.modelDigest,
-    "--codefacts-digest",
-    sync.data.codeFactsDigest,
-    "--worktree-digest",
-    status.data.worktreeDigest
+    headSha
   );
   assert(review.ok === true, "review must succeed without GitHub, Cloud, or LLM");
   assert(review.requestId === "review", "review command must identify its request");
@@ -166,6 +161,13 @@ function resolveArchctxBin(binDir) {
   const candidates = process.platform === "win32"
     ? [join(binDir, "archctx.cmd"), join(binDir, "archctx.exe"), join(binDir, "archctx")]
     : [join(binDir, "archctx")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function resolveCodeGraphBin(binDir) {
+  const candidates = process.platform === "win32"
+    ? [join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
+    : [join(binDir, "codegraph")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
