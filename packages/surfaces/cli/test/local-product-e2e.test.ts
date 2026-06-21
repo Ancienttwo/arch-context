@@ -9,8 +9,7 @@ const SINGLE_REPO_FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures
 const MONOREPO_FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/monorepo-basic");
 const BIN_DIR = join(ROOT, "node_modules", ".bin");
 const ARCHCTX_BIN = resolveArchctxBin();
-const DIGEST_A = `sha256:${"a".repeat(64)}`;
-const DIGEST_B = `sha256:${"b".repeat(64)}`;
+const CODEGRAPH_BIN = resolveCodeGraphBin();
 
 describe("local product first-experience E2E", () => {
   test("installed archctx works against an ordinary single Git repository", async () => {
@@ -88,7 +87,7 @@ async function runFirstExperience(
     git(repo, "add", ".");
     git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
     const headSha = gitOut(repo, "rev-parse", "HEAD");
-    execFileSync("codegraph", ["init", repo], { cwd: repo, env: testEnv(), stdio: ["ignore", "pipe", "pipe"] });
+    runCodeGraph(repo, "init", repo);
 
     const doctor = await runArchctx(repo, "doctor");
     expect(doctor.ok).toBe(true);
@@ -143,11 +142,7 @@ async function runFirstExperience(
       "--task-session-id",
       input.taskSessionId,
       "--head-sha",
-      headSha,
-      "--model-digest",
-      init.data.modelDigest ?? DIGEST_A,
-      "--codefacts-digest",
-      sync.data.codeFactsDigest ?? DIGEST_B
+      headSha
     );
     expect(complete.ok).toBe(true);
     expect(complete.data.schemaVersion).toBe("archcontext.review/v1");
@@ -163,6 +158,10 @@ function git(repo: string, ...args: string[]): void {
 
 function gitOut(repo: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: repo, env: testEnv(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function runCodeGraph(repo: string, ...args: string[]): void {
+  execFileSync(process.execPath, [CODEGRAPH_BIN, ...args], { cwd: repo, env: testEnv(), stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function runArchctx(cwd: string, ...args: string[]): Promise<any> {
@@ -216,6 +215,13 @@ function resolveArchctxBin(): string {
   const candidates = process.platform === "win32"
     ? [join(BIN_DIR, "archctx.cmd"), join(BIN_DIR, "archctx.exe"), join(BIN_DIR, "archctx")]
     : [join(BIN_DIR, "archctx")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function resolveCodeGraphBin(): string {
+  const candidates = process.platform === "win32"
+    ? [join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
+    : [join(BIN_DIR, "codegraph")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 

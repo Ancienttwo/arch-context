@@ -1,25 +1,26 @@
 {
   "schemaVersion": "archcontext.github-egress-recording/v1",
   "environment": "staging",
-  "status": "pending",
-  "reason": "Awaiting deployed staging GitHub App, staging installation, sanitized GitHub egress recorder export, and staging log/trace/queue DLP export.",
-  "requiredRecording": {
+  "status": "verified",
+  "recordedAt": "2026-06-20T15:45:41Z",
+  "recording": {
     "githubEgress": {
-      "categories": [
-        "github.pull-head",
-        "github.check-create",
-        "github.check-update"
-      ],
-      "forbiddenEndpointCounts": {
-        "prFiles": 0,
-        "contents": 0,
-        "blob": 0,
-        "tree": 0
-      },
-      "forbiddenMediaTypeCounts": {
-        "diff": 0,
-        "patch": 0
+      "totalRequests": 3,
+      "categories": {
+        "github.pull-head": 1,
+        "github.check-create": 1,
+        "github.check-update": 1
       }
+    },
+    "forbiddenEndpointCounts": {
+      "prFiles": 0,
+      "contents": 0,
+      "blob": 0,
+      "tree": 0
+    },
+    "forbiddenMediaTypeCounts": {
+      "diff": 0,
+      "patch": 0
     },
     "baitHits": {
       "log": 0,
@@ -27,8 +28,25 @@
       "queue": 0
     }
   },
+  "evidence": {
+    "pullRequestUrl": "https://github.com/Ancienttwo/arch-context/pull/2",
+    "headCommit": "6191f583737eed5c4f9acc5e1302ef6b7a220f7f",
+    "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82495490054",
+    "appSlug": "archcontext-staging",
+    "workerVersionId": "f0bab5af-1aa2-41c6-8862-89a9b424898d",
+    "tailCaptureLocal": "_ops/env/fg2-staging-tail-sync-20260620T154522Z.jsonl",
+    "tailScan": {
+      "egressEnvelopeMatches": 3,
+      "baitMarkerMatches": 0,
+      "forbiddenEndpointOrMediaMatches": 0
+    },
+    "notes": [
+      "The PR body contained bait marker ARCHCTX_DLP_BAIT_20260620_PR_BODY_SHOULD_NOT_APPEAR_IN_CLOUD_LOGS before the synchronize event.",
+      "Cloudflare tail captured one signed pull_request webhook with HTTP 200 and exactly three sanitized GitHub egress envelopes.",
+      "No PR files, Contents, Blob, Tree, Diff, Patch, raw payload, request payload, or response payload was logged."
+    ]
+  },
   "readback": {
-    "command": "node scripts/github-egress-recording-readback.mjs readback --recording docs/verification/fg2-egress-recording.json",
-    "allowPendingCommand": "node scripts/github-egress-recording-readback.mjs readback --recording docs/verification/fg2-egress-recording.json --allow-pending"
+    "command": "node scripts/github-egress-recording-readback.mjs readback --recording docs/verification/fg2-egress-recording.json"
   }
 }

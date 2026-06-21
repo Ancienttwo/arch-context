@@ -332,8 +332,8 @@ function githubAppPanel(view: ControlPlaneView): string {
         <div class="row"><dt>Metadata: Read</dt><dd>Identify selected repositories and installation state.</dd></div>
         <div class="row"><dt>Pull Requests: Read</dt><dd>Receive PR events and read head/base commit metadata.</dd></div>
         <div class="row"><dt>Checks: Write</dt><dd>Create and update ArchContext Review Checks.</dd></div>
+        <div class="row"><dt>Commit Statuses: Write</dt><dd>Required only for GitHub ruleset expected-source binding; ArchContext still publishes Review through Checks.</dd></div>
         <div class="row"><dt>Contents: None</dt><dd>Not requested.</dd></div>
-        <div class="row"><dt>Commit Statuses: None now</dt><dd>Conditional on FG2-02 staging decision.</dd></div>
       </dl>
     </div>
 

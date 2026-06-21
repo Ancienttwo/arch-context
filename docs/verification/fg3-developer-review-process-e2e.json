@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "archcontext.fg3-developer-review-process-e2e/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T20:55:15.446Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "challengeId": "chal_fg3_process_e2e",
+    "pullRequestNumber": 42,
+    "sourceRootDirty": true,
+    "observedHeadSha": "085b584471c3469bdf734cfde992094d0fb7c27b",
+    "observedHeadTreeOid": "d968a863e62b3d89795cc6ae89a49aa0fcfb5e91",
+    "attestationHeadMatches": true,
+    "attestationTreeMatches": true,
+    "reviewResult": "pass",
+    "attestationResult": "pass",
+    "reviewDigestPrefix": "sha256:80c1f63760b3",
+    "worktreeDigestPrefix": "sha256:369a9343b938",
+    "attestationDigestPrefix": "sha256:dd6bff0b1d51",
+    "codeGraphIndexedTemporaryWorktree": true,
+    "temporaryWorktreeRemovedAfterCleanup": true,
+    "cleanupCleaned": true,
+    "submissionAccepted": true,
+    "outputNonceLeaks": 0,
+    "outputSignatureLeaks": 0,
+    "outputKeyRefLeaks": 0,
+    "outputVerifierLeaks": 0,
+    "statePrivateMode": "600"
+  },
+  "failures": []
+}

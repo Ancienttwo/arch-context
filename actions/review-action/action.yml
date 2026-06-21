@@ -1,0 +1,60 @@
+name: ArchContext Review
+description: Run an ArchContext organization review with a pinned runtime artifact.
+inputs:
+  challenge:
+    description: Challenge id issued by ArchContext, or auto to let the action resolve it.
+    required: false
+    default: auto
+  trust-level:
+    description: Trust level produced by this action.
+    required: false
+    default: organization
+  fail-on:
+    description: Whether a failing deterministic gate should fail the job.
+    required: false
+    default: blocking
+  fork-pr-mode:
+    description: Fork pull request behavior; unsupported by default, or safe-no-secret for deterministic no-signing runs.
+    required: false
+    default: unsupported
+  runtime-version:
+    description: ArchContext runtime version expected by this action release.
+    required: false
+    default: "0.1.0"
+  runtime-artifact-url:
+    description: HTTPS URL for the pinned ArchContext runtime artifact.
+    required: true
+  runtime-artifact-digest:
+    description: sha256 digest for the pinned ArchContext runtime artifact.
+    required: true
+  api-endpoint:
+    description: ArchContext control-plane endpoint.
+    required: false
+    default: https://archcontext.repoharness.com
+  checkout-root:
+    description: Local checkout root to verify before review execution.
+    required: false
+    default: .
+  expected-repository:
+    description: Expected GitHub repository in owner/name form from the Challenge.
+    required: true
+  expected-head-sha:
+    description: Exact pull request head SHA from the Challenge.
+    required: true
+  expected-head-tree-oid:
+    description: Exact pull request head tree OID from the Challenge.
+    required: true
+outputs:
+  runtime-version:
+    description: Runtime version accepted by the action preflight.
+  runtime-artifact-digest:
+    description: Runtime artifact digest accepted by the action preflight.
+  checkout-verification:
+    description: Metadata-only checkout verification result.
+  fork-policy:
+    description: Metadata-only fork pull request policy decision.
+  action-plan:
+    description: Metadata-only preflight plan for later review execution steps.
+runs:
+  using: node20
+  main: dist/review-action.mjs

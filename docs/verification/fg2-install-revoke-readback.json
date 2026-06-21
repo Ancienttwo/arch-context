@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "archcontext.fg2-install-revoke-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-20T16:30:09.581Z",
+  "inputs": {
+    "envFile": "_ops/env/fg2-staging.env",
+    "packet": "docs/verification/fg2-staging-evidence.json",
+    "output": "docs/verification/fg2-install-revoke-readback.json"
+  },
+  "app": {
+    "appId": "4102781",
+    "appSlug": "archcontext-staging",
+    "installationId": 141544438,
+    "repository": "Ancienttwo/arch-context",
+    "pullRequestNumber": 2,
+    "mode": "suspend-unsuspend"
+  },
+  "evidence": {
+    "installationRevoked": true,
+    "tokenRejectedAfterRevoke": true,
+    "challengeCreationStopped": true,
+    "checkUpdateStopped": true,
+    "restoredAfterReadback": true
+  },
+  "operations": {
+    "preflight": {
+      "installationRead": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7CE:30EAE4:3819E55:390BE90:6A36C012"
+      },
+      "suspendedBeforeRevoke": false,
+      "installationAccessBeforeRevoke": {
+        "status": 201,
+        "created": true,
+        "requestId": "F7CE:30EAE4:381A066:390C09C:6A36C012",
+        "valuePersisted": false
+      },
+      "repositoriesBeforeRevoke": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7D6:39889F:3BA4A1E:3C9872D:6A36C013",
+        "repositoryCount": 1,
+        "selectedRepositoryVisible": true
+      },
+      "checkRunsBeforeRevoke": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7CE:30EAE4:381A68C:390C6D0:6A36C012",
+        "totalCount": 1,
+        "latest": {
+          "id": 82495490054,
+          "name": "ArchContext / Developer Review",
+          "status": "completed",
+          "conclusion": "neutral",
+          "headSha": "6191f583737eed5c4f9acc5e1302ef6b7a220f7f",
+          "htmlUrl": "https://github.com/Ancienttwo/arch-context/runs/82495490054"
+        }
+      }
+    },
+    "revoke": {
+      "suspend": {
+        "status": 204,
+        "ok": true,
+        "requestId": "F7CE:30EAE4:381A8AF:390C90C:6A36C014"
+      },
+      "installationAfterSuspend": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7D6:39889F:3BA50CD:3C98E23:6A36C013",
+        "suspendedAtObserved": true
+      },
+      "installationAccessAfterRevoke": {
+        "status": 403,
+        "created": false,
+        "requestId": "F7CE:30EAE4:381AC86:390CCF8:6A36C014",
+        "valuePersisted": false
+      },
+      "existingInstallationAccessProbe": {
+        "status": 403,
+        "ok": false,
+        "requestId": "F7CE:30EAE4:381B083:390D0E4:6A36C015"
+      }
+    },
+    "syntheticWebhook": {
+      "status": 500,
+      "ok": false,
+      "deliveryId": "fg2-revoke-mqmkq1c5",
+      "url": "https://archcontext.repoharness.com/v1/github/webhooks",
+      "event": "pull_request",
+      "payloadPersisted": false,
+      "expectedStopPoint": "github-installation-token-before-pull-head-or-check"
+    },
+    "restore": {
+      "unsuspend": {
+        "status": 204,
+        "ok": true,
+        "requestId": "F7CE:30EAE4:381B681:390D717:6A36C016"
+      },
+      "installationAfterRestore": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7D6:39889F:3BA5DCE:3C99B2A:6A36C014",
+        "suspendedAfterRestore": false
+      },
+      "installationAccessAfterRestore": {
+        "status": 201,
+        "created": true,
+        "requestId": "F7CE:30EAE4:381B9BF:390DA5D:6A36C017",
+        "valuePersisted": false
+      },
+      "repositoriesAfterRestore": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7D6:39889F:3BA60A8:3C99E42:6A36C017"
+      },
+      "checkRunsAfterRestore": {
+        "status": 200,
+        "ok": true,
+        "requestId": "F7CE:30EAE4:381BD47:390DDFD:6A36C017",
+        "totalCount": 1,
+        "latest": {
+          "id": 82495490054,
+          "name": "ArchContext / Developer Review",
+          "status": "completed",
+          "conclusion": "neutral",
+          "headSha": "6191f583737eed5c4f9acc5e1302ef6b7a220f7f",
+          "htmlUrl": "https://github.com/Ancienttwo/arch-context/runs/82495490054"
+        }
+      },
+      "checkRunsUnchanged": true
+    }
+  },
+  "secretValuesPersisted": false,
+  "privateContentPersisted": false,
+  "failures": []
+}

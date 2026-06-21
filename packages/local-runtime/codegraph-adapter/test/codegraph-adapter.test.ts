@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { CODEGRAPH_TELEMETRY_ENV, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
@@ -11,6 +14,34 @@ describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
     const explicitEnv: Record<string, string | undefined> = { [CODEGRAPH_TELEMETRY_ENV]: "0" };
     expect(disableCodeGraphTelemetryByDefault(explicitEnv)).toBe("0");
     expect(explicitEnv[CODEGRAPH_TELEMETRY_ENV]).toBe("0");
+  });
+
+  test("runs JavaScript CodeGraph shims through the current runtime", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-shim-"));
+    const logPath = join(root, "codegraph-log.json");
+    const shimPath = join(root, "fake-codegraph.js");
+    try {
+      mkdirSync(join(root, ".codegraph"));
+      writeFileSync(shimPath, `
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
+  argv: process.argv.slice(2),
+  cwd: process.cwd(),
+  execPath: process.execPath
+}));
+`);
+
+      const provider = new CodeGraphCliProvider(root, shimPath);
+      await provider.indexAll(root);
+
+      expect(existsSync(logPath)).toBe(true);
+      const log = JSON.parse(readFileSync(logPath, "utf8")) as { argv: string[]; cwd: string; execPath: string };
+      expect(log.argv).toEqual(["sync", root]);
+      expect(realpathSync.native(log.cwd)).toBe(realpathSync.native(root));
+      expect(log.execPath).toBe(process.execPath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("aggregates per-repo contexts with stable repo-scoped symbol ids", async () => {
