@@ -118,8 +118,8 @@ describe("local attestation", () => {
       execution: {
         publicKeyId: signedA.execution.publicKeyId,
         principalId: signedA.execution.principalId,
-        source: signedA.execution.source,
-        trustLevel: signedA.execution.trustLevel
+        source: "clean-commit-worktree" as const,
+        trustLevel: "developer" as const
       },
       result: signedA.result,
       reviewDigest: signedA.reviewDigest,
@@ -149,12 +149,7 @@ describe("local attestation", () => {
       ...attestationV2Input(),
       result: "error",
       errorCode: "CODEGRAPH_FAILED",
-      execution: {
-        trustLevel: "organization",
-        source: "organization-runner-checkout",
-        principalId: "runner_0001",
-        publicKeyId: "key_runner_0001"
-      },
+      execution: organizationAttestationExecution(),
       signature: { algorithm: "ed25519", value: "base64url_signature" }
     });
 
@@ -187,8 +182,56 @@ describe("local attestation", () => {
         source: "organization-runner-checkout",
         principalId: "device_0001",
         publicKeyId: "key_device_0001"
-      }
+      } as any
     })).toThrow("attestation-v2-execution-source-trust-mismatch");
+  });
+
+  test("requires Organization Attestation v2 workflow run metadata in the signed payload", () => {
+    const attestation = createAttestationV2({
+      ...attestationV2Input(),
+      execution: organizationAttestationExecution()
+    });
+
+    expect(attestation.execution).toMatchObject({
+      trustLevel: "organization",
+      source: "organization-runner-checkout",
+      principalId: "runner_0001",
+      publicKeyId: "key_runner_0001",
+      runnerId: "runner_0001",
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      runId: "1234567890",
+      runAttempt: 1
+    });
+    expect(canonicalAttestationV2(attestation)).toContain("\"workflowRef\":\"owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main\"");
+    const missingRunnerId = organizationAttestationExecution() as any;
+    delete missingRunnerId.runnerId;
+    expect(() => createAttestationV2({
+      ...attestationV2Input(),
+      execution: missingRunnerId
+    })).toThrow("attestation-v2-execution-missing-field: runnerId");
+    expect(() => createAttestationV2({
+      ...attestationV2Input(),
+      execution: organizationAttestationExecution({ principalId: "runner_other" })
+    })).toThrow("attestation-v2-execution-runnerId-principalId-mismatch");
+    expect(() => createAttestationV2({
+      ...attestationV2Input(),
+      execution: organizationAttestationExecution({ workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@main" })
+    })).toThrow("attestation-v2-execution-workflowRef-invalid");
+    expect(() => createAttestationV2({
+      ...attestationV2Input(),
+      execution: organizationAttestationExecution({ runId: "0" })
+    })).toThrow("attestation-v2-execution-runId-invalid");
+    expect(() => createAttestationV2({
+      ...attestationV2Input(),
+      execution: organizationAttestationExecution({ runAttempt: 0 })
+    })).toThrow("attestation-v2-execution-runAttempt-invalid");
+    expect(() => createAttestationV2({
+      ...attestationV2Input(),
+      execution: {
+        ...attestationV2Input().execution,
+        runnerId: "runner_0001"
+      } as any
+    })).toThrow("attestation-v2-execution-organization-field-unexpected: runnerId");
   });
 
   test("accepts valid developer attestation and rejects replay, wrong SHA, wrong repo, and expiry", () => {
@@ -353,12 +396,7 @@ describe("local attestation", () => {
       ...attestationV2Input(),
       challengeId: organizationChallenge.challengeId,
       nonce: organizationChallenge.nonce,
-      execution: {
-        trustLevel: "organization",
-        source: "organization-runner-checkout",
-        principalId: "runner_0001",
-        publicKeyId: "key_runner_0001"
-      }
+      execution: organizationAttestationExecution()
     });
     const developerAttestation = createAttestationV2({
       ...attestationV2Input(),
@@ -497,6 +535,99 @@ describe("local attestation", () => {
       }), field).toEqual({ accepted: false, reasonCode: "SIGNATURE_INVALID" });
     }
   });
+
+  test("verifies organization Attestation v2 only with active scoped RunnerIdentity and runner key", () => {
+    const keyPair = generateKeyPairSync("ed25519");
+    const challenge = createReviewChallengeV2({
+      ...reviewChallengeV2Input(),
+      challengeId: "chal_org_runner_verify",
+      nonce: "nonce_org_runner_verify",
+      requiredTrust: "organization",
+      status: "LEASED"
+    });
+    const runner = runnerIdentityForKey(keyPair.publicKey);
+    const signed = signedAttestationV2ForChallenge(challenge, keyPair.privateKey, {
+      execution: organizationAttestationExecution()
+    });
+    const runnerKeyStatus = {
+      schemaVersion: "archcontext.governance-key-status/v1" as const,
+      publicKeyId: runner.publicKeyId,
+      ownerKind: "runner" as const,
+      ownerId: runner.runnerId,
+      fingerprint: runner.publicKeyFingerprint,
+      status: "active" as const,
+      createdAt: runner.createdAt,
+      rotatedAt: null,
+      revokedAt: null
+    };
+
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge,
+      attestation: signed,
+      publicKey: keyPair.publicKey,
+      runnerIdentity: runner,
+      signingKeyStatus: runnerKeyStatus,
+      now: "2026-06-20T09:05:00Z",
+      expectedHeadTreeOid: signed.headTreeOid
+    }).accepted).toBe(true);
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge,
+      attestation: signed,
+      publicKey: keyPair.publicKey,
+      signingKeyStatus: runnerKeyStatus,
+      now: "2026-06-20T09:05:00Z"
+    })).toEqual({ accepted: false, reasonCode: "RUNNER_NOT_FOUND" });
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge,
+      attestation: signed,
+      publicKey: keyPair.publicKey,
+      runnerIdentity: { ...runner, status: "revoked", revokedAt: "2026-06-20T09:01:00Z" },
+      signingKeyStatus: runnerKeyStatus,
+      now: "2026-06-20T09:05:00Z"
+    })).toEqual({ accepted: false, reasonCode: "RUNNER_REVOKED" });
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge,
+      attestation: signed,
+      publicKey: keyPair.publicKey,
+      runnerIdentity: { ...runner, repositoryIds: [99999], scope: { kind: "repository", repositoryIds: [99999] } },
+      signingKeyStatus: runnerKeyStatus,
+      now: "2026-06-20T09:05:00Z"
+    })).toEqual({ accepted: false, reasonCode: "RUNNER_SCOPE_MISMATCH" });
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge,
+      attestation: signed,
+      publicKey: keyPair.publicKey,
+      runnerIdentity: runner,
+      signingKeyStatus: { ...runnerKeyStatus, ownerKind: "device", ownerId: "device_0001" },
+      now: "2026-06-20T09:05:00Z"
+    })).toEqual({ accepted: false, reasonCode: "SIGNATURE_INVALID" });
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge,
+      attestation: signed,
+      publicKey: keyPair.publicKey,
+      runnerIdentity: runner,
+      signingKeyStatus: { ...runnerKeyStatus, status: "revoked", revokedAt: "2026-06-20T09:01:00Z" },
+      now: "2026-06-20T09:05:00Z"
+    })).toEqual({ accepted: false, reasonCode: "RUNNER_REVOKED" });
+
+    const developerRequiredChallenge = createReviewChallengeV2({
+      ...reviewChallengeV2Input(),
+      challengeId: "chal_org_runner_developer_required",
+      nonce: "nonce_org_runner_developer_required",
+      requiredTrust: "developer",
+      status: "LEASED"
+    });
+    expect(verifyAttestationV2ForReviewChallenge({
+      challenge: developerRequiredChallenge,
+      attestation: signedAttestationV2ForChallenge(developerRequiredChallenge, keyPair.privateKey, {
+        execution: organizationAttestationExecution()
+      }),
+      publicKey: keyPair.publicKey,
+      runnerIdentity: runner,
+      signingKeyStatus: runnerKeyStatus,
+      now: "2026-06-20T09:05:00Z"
+    })).toEqual({ accepted: false, reasonCode: "TRUST_LEVEL_MISMATCH" });
+  });
 });
 
 function reviewChallengeV2Input() {
@@ -514,7 +645,7 @@ function reviewChallengeV2Input() {
   };
 }
 
-function attestationV2Input() {
+function attestationV2Input(): Parameters<typeof createAttestationV2>[0] {
   return {
     challengeId: "chal_20260620_0001",
     installationId: 10001,
@@ -546,6 +677,37 @@ function attestationV2Input() {
     startedAt: "2026-06-20T09:03:00Z",
     completedAt: "2026-06-20T09:04:00Z",
     expiresAt: "2026-06-20T09:15:00Z"
+  };
+}
+
+function organizationAttestationExecution(overrides: Record<string, unknown> = {}) {
+  return {
+    trustLevel: "organization" as const,
+    source: "organization-runner-checkout" as const,
+    principalId: "runner_0001",
+    publicKeyId: "key_runner_0001",
+    runnerId: "runner_0001",
+    workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+    runId: "1234567890",
+    runAttempt: 1,
+    ...overrides
+  };
+}
+
+function runnerIdentityForKey(publicKey: KeyObject) {
+  return {
+    schemaVersion: "archcontext.runner-identity/v1" as const,
+    runnerId: "runner_0001",
+    installationId: 10001,
+    repositoryIds: [20002],
+    scope: { kind: "repository" as const, repositoryIds: [20002] },
+    workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+    publicKeyId: "key_runner_0001",
+    publicKeyFingerprint: publicKeyFingerprint(publicKey),
+    status: "active" as const,
+    createdAt: "2026-06-20T09:00:00Z",
+    rotatedAt: null,
+    revokedAt: null
   };
 }
 

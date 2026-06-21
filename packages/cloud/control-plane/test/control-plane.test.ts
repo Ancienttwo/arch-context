@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { canonicalAttestationV2, createAttestationV2, createReviewChallenge, createReviewChallengeV2, publicKeyFingerprint, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
-import { assertNoUploadRoutes, BILLING_PRICES, ControlPlane, DEFAULT_REVIEW_CHALLENGE_LEASE_TTL_MS, DEFAULT_REVIEW_CHALLENGE_TTL_MS, reviewChallengeNonceHash, routeDigest, WORKER_LIMITS } from "../src/index";
+import { assertNoUploadRoutes, BILLING_PRICES, ControlPlane, DEFAULT_REVIEW_CHALLENGE_LEASE_TTL_MS, DEFAULT_REVIEW_CHALLENGE_TTL_MS, DEFAULT_RUNNER_KEY_ROTATION_OVERLAP_MS, reviewChallengeNonceHash, routeDigest, WORKER_LIMITS } from "../src/index";
 import { createShortAccessToken, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 
 const CONTROL_PLANE_ATTESTATION_KEYPAIR = generateKeyPairSync("ed25519");
@@ -186,6 +186,399 @@ describe("control plane", () => {
       deviceId: device.deviceId,
       createdAt: "2026-06-20T10:06:00Z"
     })).toThrow("device-revoked");
+  });
+
+  test("registers, rotates with overlap, and revokes Runner Keys as metadata-only governance status", () => {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const rotatedKeyPair = generateKeyPairSync("ed25519");
+    const duplicateKeyPair = generateKeyPairSync("ed25519");
+    const cp = new ControlPlane();
+    const repoAdminAuthorization = {
+      actorId: "github_user_100",
+      actorLogin: "octo-admin",
+      installationId: 10001,
+      repositoryAdminIds: [20002],
+      permissionSource: "test-fixture" as const,
+      verifiedAt: "2026-06-20T09:59:59Z",
+      reason: "runner-key-lifecycle-test"
+    };
+    const orgAdminAuthorization = {
+      actorId: "github_user_200",
+      actorLogin: "org-admin",
+      installationId: 10002,
+      organizationAdmin: true,
+      permissionSource: "test-fixture" as const,
+      verifiedAt: "2026-06-20T10:06:59Z",
+      reason: "org-runner-key-lifecycle-test"
+    };
+
+    expect(() => cp.registerRunnerKey({
+      installationId: 10001,
+      repositoryIds: [20002],
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_denied",
+      publicKey: generateKeyPairSync("ed25519").publicKey,
+      createdAt: "2026-06-20T09:59:00Z",
+      authorization: { ...repoAdminAuthorization, repositoryAdminIds: [99999] }
+    })).toThrow("runner-key-admin-repository-required");
+    expect(cp.listAuditEvents()).toEqual([]);
+
+    const runner = cp.registerRunnerKey({
+      installationId: 10001,
+      repositoryIds: [20002],
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_0001",
+      publicKey,
+      createdAt: "2026-06-20T10:00:00Z",
+      authorization: repoAdminAuthorization
+    });
+    const fingerprint = publicKeyFingerprint(publicKey);
+
+    expect(runner).toMatchObject({
+      schemaVersion: "archcontext.runner-identity/v1",
+      installationId: 10001,
+      repositoryIds: [20002],
+      scope: { kind: "repository", repositoryIds: [20002] },
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_0001",
+      publicKeyFingerprint: fingerprint,
+      status: "active",
+      createdAt: "2026-06-20T10:00:00Z",
+      rotatedAt: null,
+      revokedAt: null
+    });
+    expect(runner.runnerId).toMatch(/^runner_[a-f0-9]{16}$/);
+    expect(cp.displayRunnerKeyFingerprint(runner.runnerId)).toEqual({
+      runnerId: runner.runnerId,
+      installationId: 10001,
+      repositoryIds: [20002],
+      scope: { kind: "repository", repositoryIds: [20002] },
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_0001",
+      fingerprint,
+      status: "active",
+      createdAt: "2026-06-20T10:00:00Z",
+      rotatedAt: null,
+      revokedAt: null
+    });
+    expect(cp.getRunnerKeyStatus(runner.runnerId)).toEqual({
+      schemaVersion: "archcontext.governance-key-status/v1",
+      publicKeyId: "key_runner_0001",
+      ownerKind: "runner",
+      ownerId: runner.runnerId,
+      fingerprint,
+      status: "active",
+      createdAt: "2026-06-20T10:00:00Z",
+      rotatedAt: null,
+      revokedAt: null
+    });
+    expect(cp.listRunnerKeys(10001)).toEqual([runner]);
+    expect(cp.isRunnerKeyAccepted({
+      runnerId: runner.runnerId,
+      installationId: 10001,
+      repositoryId: 20002,
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      now: "2026-06-20T10:01:00Z"
+    })).toBe(true);
+    expect(cp.isRunnerKeyAccepted({ runnerId: runner.runnerId, installationId: 10001, repositoryId: 99999, now: "2026-06-20T10:01:00Z" })).toBe(false);
+    expect(JSON.stringify(runner)).not.toContain("PRIVATE KEY");
+    expect(JSON.stringify(runner)).not.toContain(privateKey.export({ format: "pem", type: "pkcs8" }).toString());
+    expect(() => cp.registerRunnerKey({
+      installationId: 10001,
+      repositoryIds: [20002],
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_0001",
+      publicKey: duplicateKeyPair.publicKey,
+      createdAt: "2026-06-20T10:02:00Z",
+      authorization: repoAdminAuthorization
+    })).toThrow("runner-key-already-active");
+
+    const rotation = cp.rotateRunnerKey({
+      runnerId: runner.runnerId,
+      publicKeyId: "key_runner_0002",
+      publicKey: rotatedKeyPair.publicKey,
+      rotatedAt: "2026-06-20T10:05:00Z",
+      overlapMs: DEFAULT_RUNNER_KEY_ROTATION_OVERLAP_MS,
+      authorization: repoAdminAuthorization
+    });
+    expect(rotation.previous.status).toBe("rotating");
+    expect(rotation.previous.rotatedAt).toBe("2026-06-20T10:05:00Z");
+    expect(rotation.next.status).toBe("active");
+    expect(rotation.next.publicKeyId).toBe("key_runner_0002");
+    expect(rotation.next.publicKeyFingerprint).toBe(publicKeyFingerprint(rotatedKeyPair.publicKey));
+    expect(rotation.rotationWindow).toEqual({
+      previousRunnerId: runner.runnerId,
+      nextRunnerId: rotation.next.runnerId,
+      rotatedAt: "2026-06-20T10:05:00Z",
+      overlapUntil: "2026-06-20T10:20:00.000Z"
+    });
+    expect(cp.getRunnerKeyRotationWindow(runner.runnerId)).toEqual(rotation.rotationWindow);
+    expect(cp.isRunnerKeyAccepted({ runnerId: runner.runnerId, installationId: 10001, repositoryId: 20002, now: "2026-06-20T10:10:00Z" })).toBe(true);
+    expect(cp.isRunnerKeyAccepted({ runnerId: runner.runnerId, installationId: 10001, repositoryId: 20002, now: "2026-06-20T10:21:00Z" })).toBe(false);
+    expect(cp.isRunnerKeyAccepted({ runnerId: rotation.next.runnerId, installationId: 10001, repositoryId: 20002, now: "2026-06-20T10:21:00Z" })).toBe(true);
+    expect(() => cp.rotateRunnerKey({
+      runnerId: runner.runnerId,
+      publicKeyId: "key_runner_0003",
+      publicKey: generateKeyPairSync("ed25519").publicKey,
+      rotatedAt: "2026-06-20T10:06:00Z",
+      authorization: repoAdminAuthorization
+    })).toThrow("runner-key-rotation-not-active");
+
+    expect(() => cp.registerRunnerKey({
+      installationId: 10002,
+      scope: { kind: "organization" },
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/tags/v1",
+      publicKeyId: "key_runner_org_denied",
+      publicKey: generateKeyPairSync("ed25519").publicKey,
+      createdAt: "2026-06-20T10:06:30Z",
+      authorization: { ...repoAdminAuthorization, installationId: 10002, repositoryAdminIds: [20002] }
+    })).toThrow("runner-key-admin-organization-required");
+
+    const orgRunner = cp.registerRunnerKey({
+      installationId: 10002,
+      scope: { kind: "organization" },
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/tags/v1",
+      publicKeyId: "key_runner_org_0001",
+      publicKey: generateKeyPairSync("ed25519").publicKey,
+      createdAt: "2026-06-20T10:07:00Z",
+      authorization: orgAdminAuthorization
+    });
+    expect(orgRunner.repositoryIds).toEqual([]);
+    expect(cp.isRunnerKeyAccepted({ runnerId: orgRunner.runnerId, installationId: 10002, repositoryId: 99999, now: "2026-06-20T10:08:00Z" })).toBe(true);
+
+    const revoked = cp.revokeRunnerKey({
+      runnerId: rotation.next.runnerId,
+      revokedAt: "2026-06-20T10:22:00Z",
+      authorization: repoAdminAuthorization
+    });
+    expect(revoked.status).toBe("revoked");
+    expect(revoked.revokedAt).toBe("2026-06-20T10:22:00Z");
+    expect(cp.isRunnerKeyAccepted({ runnerId: rotation.next.runnerId, installationId: 10001, repositoryId: 20002, now: "2026-06-20T10:22:01Z" })).toBe(false);
+    expect(cp.getRunnerKeyStatus(rotation.next.runnerId)).toMatchObject({
+      publicKeyId: "key_runner_0002",
+      ownerKind: "runner",
+      ownerId: rotation.next.runnerId,
+      status: "revoked",
+      revokedAt: "2026-06-20T10:22:00Z"
+    });
+    const auditEvents = cp.listAuditEvents();
+    expect(auditEvents.map((event) => event.action)).toEqual([
+      "runner_key.register",
+      "runner_key.rotate",
+      "runner_key.register",
+      "runner_key.revoke"
+    ]);
+    expect(cp.listAuditEvents({ actorId: "github_user_100", runnerId: runner.runnerId }).map((event) => event.action)).toEqual([
+      "runner_key.register",
+      "runner_key.rotate"
+    ]);
+    expect(auditEvents[0]).toMatchObject({
+      schemaVersion: "archcontext.audit-event/v1",
+      actorId: "github_user_100",
+      actorLogin: "octo-admin",
+      resource: {
+        kind: "runner-key",
+        runnerId: runner.runnerId,
+        installationId: 10001,
+        scopeKind: "repository",
+        repositoryIds: [20002],
+        publicKeyId: "key_runner_0001",
+        publicKeyFingerprint: fingerprint
+      },
+      reason: "runner-key-lifecycle-test"
+    });
+    expect(auditEvents[0].eventId).toMatch(/^audit_[a-f0-9]{16}$/);
+    expect(auditEvents[0].metadataDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(JSON.stringify(auditEvents)).not.toContain(privateKey.export({ format: "pem", type: "pkcs8" }).toString());
+  });
+
+  test("rejects revoked and unregistered Runner Keys immediately with recovery guidance", () => {
+    const cp = new ControlPlane();
+    const workflowRef = "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main";
+    const challenge = createReviewChallengeV2(reviewChallengeInput({
+      challengeId: "chal_runner_key_recovery",
+      nonce: "nonce_runner_key_recovery",
+      requiredTrust: "organization",
+      status: "LEASED"
+    }));
+    const authorization = {
+      actorId: "github_user_runner_recovery",
+      actorLogin: "runner-admin",
+      installationId: challenge.installationId,
+      repositoryAdminIds: [challenge.repositoryId],
+      permissionSource: "test-fixture" as const,
+      verifiedAt: "2026-06-20T08:59:59Z",
+      reason: "runner-key-recovery-test"
+    };
+    const missingRecovery = cp.describeRunnerKeyRecovery({
+      runnerId: "runner_missing",
+      installationId: challenge.installationId,
+      repositoryId: challenge.repositoryId,
+      workflowRef,
+      now: "2026-06-20T09:00:00Z"
+    });
+    expect(missingRecovery).toMatchObject({
+      schemaVersion: "archcontext.runner-key-recovery/v1",
+      lifecycleState: "not_found",
+      submitAllowed: false,
+      immediateRejection: true,
+      reasonCode: "RUNNER_NOT_FOUND",
+      action: "register-runner-identity",
+      replacementRequired: true
+    });
+
+    const revokedKeyPair = generateKeyPairSync("ed25519");
+    const revokedRunner = cp.registerRunnerKey({
+      runnerId: "runner_revoked_recovery",
+      installationId: challenge.installationId,
+      repositoryIds: [challenge.repositoryId],
+      workflowRef,
+      publicKeyId: "key_runner_revoked_recovery",
+      publicKey: revokedKeyPair.publicKey,
+      createdAt: "2026-06-20T09:01:00Z",
+      authorization
+    });
+    const revokedAttestation = signedAttestationForChallenge(challenge, revokedKeyPair.privateKey, {
+      execution: organizationExecutionForRunner(revokedRunner)
+    });
+    const revoked = cp.revokeRunnerKey({
+      runnerId: revokedRunner.runnerId,
+      revokedAt: "2026-06-20T09:02:00Z",
+      authorization
+    });
+    const revokedRecovery = cp.describeRunnerKeyRecovery({
+      runnerId: revoked.runnerId,
+      installationId: challenge.installationId,
+      repositoryId: challenge.repositoryId,
+      workflowRef,
+      now: "2026-06-20T09:02:01Z"
+    });
+    expect(revokedRecovery).toMatchObject({
+      lifecycleState: "revoked",
+      submitAllowed: false,
+      immediateRejection: true,
+      retryCurrentKey: false,
+      replacementRequired: true,
+      reasonCode: "RUNNER_REVOKED",
+      action: "register-replacement-runner-key",
+      publicKeyId: "key_runner_revoked_recovery",
+      revokedAt: "2026-06-20T09:02:00Z"
+    });
+    expect(JSON.stringify(revokedRecovery)).not.toContain("PRIVATE KEY");
+    const revokedSubmit = cp.submitReviewChallengeAttestation({
+      challenge,
+      attestation: revokedAttestation,
+      currentPullHead: pullHeadForChallenge(challenge),
+      publicKey: revokedKeyPair.publicKey,
+      runnerIdentity: revoked,
+      signingKeyStatus: cp.getRunnerKeyStatus(revoked.runnerId),
+      now: "2026-06-20T09:02:02Z",
+      consumedNonceHashes: new Set<string>(),
+      expectedHeadTreeOid: revokedAttestation.headTreeOid
+    });
+    expect(revokedSubmit).toMatchObject({ accepted: false, reasonCode: "RUNNER_REVOKED" });
+    expect(revokedSubmit.consumedNonceHashes.has(revokedSubmit.nonceHash)).toBe(false);
+
+    const unregisterChallenge = createReviewChallengeV2(reviewChallengeInput({
+      challengeId: "chal_runner_key_unregister",
+      nonce: "nonce_runner_key_unregister",
+      requiredTrust: "organization",
+      status: "LEASED"
+    }));
+    const unregisteredKeyPair = generateKeyPairSync("ed25519");
+    const unregisteredRunner = cp.registerRunnerKey({
+      runnerId: "runner_unregistered_recovery",
+      installationId: unregisterChallenge.installationId,
+      repositoryIds: [unregisterChallenge.repositoryId],
+      workflowRef,
+      publicKeyId: "key_runner_unregistered_recovery",
+      publicKey: unregisteredKeyPair.publicKey,
+      createdAt: "2026-06-20T09:03:00Z",
+      authorization
+    });
+    const unregisteredAttestation = signedAttestationForChallenge(unregisterChallenge, unregisteredKeyPair.privateKey, {
+      execution: organizationExecutionForRunner(unregisteredRunner)
+    });
+    const unregistered = cp.unregisterRunnerKey({
+      runnerId: unregisteredRunner.runnerId,
+      revokedAt: "2026-06-20T09:04:00Z",
+      authorization
+    });
+    const unregisteredRecovery = cp.describeRunnerKeyRecovery({
+      runnerId: unregistered.runnerId,
+      installationId: unregisterChallenge.installationId,
+      repositoryId: unregisterChallenge.repositoryId,
+      workflowRef,
+      now: "2026-06-20T09:04:01Z"
+    });
+    expect(unregisteredRecovery).toMatchObject({
+      lifecycleState: "unregistered",
+      submitAllowed: false,
+      immediateRejection: true,
+      reasonCode: "RUNNER_REVOKED",
+      action: "register-replacement-runner-key",
+      replacementRequired: true
+    });
+    const unregisteredSubmit = cp.submitReviewChallengeAttestation({
+      challenge: unregisterChallenge,
+      attestation: unregisteredAttestation,
+      currentPullHead: pullHeadForChallenge(unregisterChallenge),
+      publicKey: unregisteredKeyPair.publicKey,
+      runnerIdentity: unregistered,
+      signingKeyStatus: cp.getRunnerKeyStatus(unregistered.runnerId),
+      now: "2026-06-20T09:04:02Z",
+      consumedNonceHashes: new Set<string>(),
+      expectedHeadTreeOid: unregisteredAttestation.headTreeOid
+    });
+    expect(unregisteredSubmit).toMatchObject({ accepted: false, reasonCode: "RUNNER_REVOKED" });
+    expect(unregisteredSubmit.consumedNonceHashes.has(unregisteredSubmit.nonceHash)).toBe(false);
+
+    const replacementKeyPair = generateKeyPairSync("ed25519");
+    const replacementRunner = cp.registerRunnerKey({
+      runnerId: "runner_replacement_recovery",
+      installationId: unregisterChallenge.installationId,
+      repositoryIds: [unregisterChallenge.repositoryId],
+      workflowRef,
+      publicKeyId: "key_runner_replacement_recovery",
+      publicKey: replacementKeyPair.publicKey,
+      createdAt: "2026-06-20T09:05:00Z",
+      authorization
+    });
+    const replacementRecovery = cp.describeRunnerKeyRecovery({
+      runnerId: replacementRunner.runnerId,
+      installationId: unregisterChallenge.installationId,
+      repositoryId: unregisterChallenge.repositoryId,
+      workflowRef,
+      now: "2026-06-20T09:05:01Z"
+    });
+    expect(replacementRecovery).toMatchObject({
+      lifecycleState: "active",
+      submitAllowed: true,
+      immediateRejection: false,
+      retryCurrentKey: true,
+      replacementRequired: false,
+      action: "none"
+    });
+    const replacementAttestation = signedAttestationForChallenge(unregisterChallenge, replacementKeyPair.privateKey, {
+      execution: organizationExecutionForRunner(replacementRunner)
+    });
+    const accepted = cp.submitReviewChallengeAttestation({
+      challenge: unregisterChallenge,
+      attestation: replacementAttestation,
+      currentPullHead: pullHeadForChallenge(unregisterChallenge),
+      publicKey: replacementKeyPair.publicKey,
+      runnerIdentity: replacementRunner,
+      signingKeyStatus: cp.getRunnerKeyStatus(replacementRunner.runnerId),
+      now: "2026-06-20T09:05:02Z",
+      consumedNonceHashes: unregisteredSubmit.consumedNonceHashes,
+      expectedHeadTreeOid: replacementAttestation.headTreeOid
+    });
+    expect(accepted).toMatchObject({ accepted: true });
+    expect(accepted.consumedNonceHashes.has(accepted.nonceHash)).toBe(true);
+    expect(cp.listAuditEvents({ runnerId: unregistered.runnerId }).map((event) => event.action)).toEqual([
+      "runner_key.register",
+      "runner_key.unregister"
+    ]);
   });
 
   test("annual billing remains per-person and covers all private repositories", () => {
@@ -495,6 +888,95 @@ describe("control plane", () => {
     });
   });
 
+  test("heartbeats Challenge leases and safely retries after lease timeout", () => {
+    const cp = new ControlPlane();
+    const leasedChallenge = createReviewChallengeV2(reviewChallengeInput({
+      challengeId: "chal_lease_heartbeat",
+      nonce: "nonce_lease_heartbeat",
+      status: "LEASED"
+    }));
+    const activeLease = {
+      challengeId: leasedChallenge.challengeId,
+      ownerId: "runner_0001",
+      leasedAt: "2026-06-20T09:01:00.000Z",
+      expiresAt: "2026-06-20T09:06:00.000Z"
+    };
+
+    const heartbeat = cp.heartbeatReviewChallengeLease({
+      challenge: leasedChallenge,
+      lease: activeLease,
+      ownerId: "runner_0001",
+      now: "2026-06-20T09:04:00Z"
+    });
+    expect(heartbeat.claimed).toBe(true);
+    expect(heartbeat.challenge.status).toBe("LEASED");
+    expect(heartbeat.lease).toEqual({
+      ...activeLease,
+      lastHeartbeatAt: "2026-06-20T09:04:00.000Z",
+      expiresAt: "2026-06-20T09:09:00.000Z"
+    });
+
+    const wrongOwnerHeartbeat = cp.heartbeatReviewChallengeLease({
+      challenge: leasedChallenge,
+      lease: activeLease,
+      ownerId: "runner_0002",
+      now: "2026-06-20T09:04:00Z"
+    });
+    expect(wrongOwnerHeartbeat).toMatchObject({ claimed: false, reasonCode: "LEASE_ACTIVE" });
+    expect(wrongOwnerHeartbeat.lease).toEqual(activeLease);
+
+    const timedOutHeartbeat = cp.heartbeatReviewChallengeLease({
+      challenge: leasedChallenge,
+      lease: activeLease,
+      ownerId: "runner_0001",
+      now: "2026-06-20T09:06:00Z"
+    });
+    expect(timedOutHeartbeat).toMatchObject({ claimed: false, reasonCode: "LEASE_EXPIRED" });
+    expect(timedOutHeartbeat.lease).toEqual(activeLease);
+
+    const sameOwnerRetry = cp.retryReviewChallengeLease({
+      challenge: leasedChallenge,
+      claimantId: "runner_0001",
+      now: "2026-06-20T09:04:00Z",
+      currentLease: activeLease
+    });
+    expect(sameOwnerRetry.lease).toMatchObject({
+      ownerId: "runner_0001",
+      leasedAt: "2026-06-20T09:01:00.000Z",
+      lastHeartbeatAt: "2026-06-20T09:04:00.000Z",
+      expiresAt: "2026-06-20T09:09:00.000Z"
+    });
+
+    const activeOtherOwnerRetry = cp.retryReviewChallengeLease({
+      challenge: leasedChallenge,
+      claimantId: "runner_0002",
+      now: "2026-06-20T09:04:00Z",
+      currentLease: activeLease
+    });
+    expect(activeOtherOwnerRetry).toMatchObject({ claimed: false, reasonCode: "LEASE_ACTIVE" });
+
+    const timeoutRetry = cp.retryReviewChallengeLease({
+      challenge: leasedChallenge,
+      claimantId: "runner_0002",
+      now: "2026-06-20T09:06:00Z",
+      currentLease: activeLease
+    });
+    expect(timeoutRetry.claimed).toBe(true);
+    expect(timeoutRetry.lease).toMatchObject({
+      ownerId: "runner_0002",
+      leasedAt: "2026-06-20T09:06:00.000Z",
+      expiresAt: "2026-06-20T09:11:00.000Z"
+    });
+
+    const nearChallengeExpiry = cp.retryReviewChallengeLease({
+      challenge: leasedChallenge,
+      claimantId: "runner_0002",
+      now: "2026-06-20T09:13:00Z",
+      currentLease: activeLease
+    });
+    expect(nearChallengeExpiry.lease?.expiresAt).toBe("2026-06-20T09:15:00.000Z");
+  });
+
   test("rejects Challenge lease claims for terminal or expired Challenges", () => {
     const cp = new ControlPlane();
     const expiredPending = createReviewChallengeV2(reviewChallengeInput({
@@ -735,6 +1217,114 @@ describe("control plane", () => {
     expect(replay.consumedNonceHashes).toEqual(accepted.consumedNonceHashes);
   });
 
+  test("submits organization Attestation v2 only for active scoped RunnerIdentity and runner key", () => {
+    const cp = new ControlPlane();
+    const challenge = createReviewChallengeV2(reviewChallengeInput({
+      challengeId: "chal_org_runner_submit",
+      nonce: "nonce_org_runner_submit",
+      requiredTrust: "organization",
+      status: "LEASED"
+    }));
+    const runner = cp.registerRunnerKey({
+      runnerId: "runner_0001",
+      installationId: challenge.installationId,
+      repositoryIds: [challenge.repositoryId],
+      workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+      publicKeyId: "key_runner_0001",
+      publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
+      createdAt: "2026-06-20T09:00:00Z",
+      authorization: {
+        actorId: "github_user_runner_submit",
+        actorLogin: "runner-admin",
+        installationId: challenge.installationId,
+        repositoryAdminIds: [challenge.repositoryId],
+        permissionSource: "test-fixture",
+        verifiedAt: "2026-06-20T08:59:59Z",
+        reason: "organization-attestation-submit-test"
+      }
+    });
+    const attestation = signedAttestationForChallenge(challenge, CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey);
+    const baseSubmit = {
+      challenge,
+      attestation,
+      currentPullHead: pullHeadForChallenge(challenge),
+      publicKey: CONTROL_PLANE_ATTESTATION_KEYPAIR.publicKey,
+      signingKeyStatus: cp.getRunnerKeyStatus(runner.runnerId),
+      now: "2026-06-20T09:05:00Z",
+      consumedNonceHashes: new Set<string>(),
+      expectedHeadTreeOid: attestation.headTreeOid
+    };
+
+    const missingRunner = cp.submitReviewChallengeAttestation(baseSubmit);
+    expect(missingRunner).toMatchObject({ accepted: false, reasonCode: "RUNNER_NOT_FOUND" });
+    expect(missingRunner.consumedNonceHashes.has(missingRunner.nonceHash)).toBe(false);
+
+    const revokedRunner = cp.submitReviewChallengeAttestation({
+      ...baseSubmit,
+      runnerIdentity: { ...runner, status: "revoked" as const, revokedAt: "2026-06-20T09:01:00Z" }
+    });
+    expect(revokedRunner).toMatchObject({ accepted: false, reasonCode: "RUNNER_REVOKED" });
+    expect(revokedRunner.consumedNonceHashes.has(revokedRunner.nonceHash)).toBe(false);
+
+    const scopeMismatch = cp.submitReviewChallengeAttestation({
+      ...baseSubmit,
+      runnerIdentity: { ...runner, repositoryIds: [99999], scope: { kind: "repository" as const, repositoryIds: [99999] } }
+    });
+    expect(scopeMismatch).toMatchObject({ accepted: false, reasonCode: "RUNNER_SCOPE_MISMATCH" });
+    expect(scopeMismatch.consumedNonceHashes.has(scopeMismatch.nonceHash)).toBe(false);
+
+    const developerRequiredChallenge = createReviewChallengeV2(reviewChallengeInput({
+      challengeId: "chal_org_runner_developer_required",
+      nonce: "nonce_org_runner_developer_required",
+      requiredTrust: "developer",
+      status: "LEASED"
+    }));
+    const organizationOnDeveloperUnsigned = createAttestationV2({
+      ...attestationInput(developerRequiredChallenge),
+      execution: {
+        trustLevel: "organization",
+        source: "organization-runner-checkout",
+        principalId: runner.runnerId,
+        publicKeyId: runner.publicKeyId,
+        runnerId: runner.runnerId,
+        workflowRef: runner.workflowRef,
+        runId: "1234567890",
+        runAttempt: 1
+      }
+    });
+    const organizationOnDeveloperAttestation = createAttestationV2({
+      ...organizationOnDeveloperUnsigned,
+      signature: {
+        algorithm: "ed25519",
+        value: sign(null, Buffer.from(canonicalAttestationV2(organizationOnDeveloperUnsigned), "utf8"), CONTROL_PLANE_ATTESTATION_KEYPAIR.privateKey).toString("base64")
+      }
+    });
+    const wrongTrust = cp.submitReviewChallengeAttestation({
+      ...baseSubmit,
+      challenge: developerRequiredChallenge,
+      currentPullHead: pullHeadForChallenge(developerRequiredChallenge),
+      attestation: organizationOnDeveloperAttestation,
+      runnerIdentity: runner
+    });
+    expect(wrongTrust).toMatchObject({ accepted: false, reasonCode: "TRUST_LEVEL_MISMATCH" });
+    expect(wrongTrust.consumedNonceHashes.has(wrongTrust.nonceHash)).toBe(false);
+
+    const revokedRunnerKey = cp.submitReviewChallengeAttestation({
+      ...baseSubmit,
+      runnerIdentity: runner,
+      signingKeyStatus: { ...baseSubmit.signingKeyStatus, status: "revoked" as const, revokedAt: "2026-06-20T09:02:00Z" }
+    });
+    expect(revokedRunnerKey).toMatchObject({ accepted: false, reasonCode: "RUNNER_REVOKED" });
+    expect(revokedRunnerKey.consumedNonceHashes.has(revokedRunnerKey.nonceHash)).toBe(false);
+
+    const accepted = cp.submitReviewChallengeAttestation({
+      ...baseSubmit,
+      runnerIdentity: runner
+    });
+    expect(accepted).toMatchObject({ accepted: true });
+    expect(accepted.consumedNonceHashes.has(accepted.nonceHash)).toBe(true);
+  });
+
   test("rechecks current PR head at submit and rejects raced old-head results before consuming nonce", async () => {
     const cp = new ControlPlane();
     const challenge = createReviewChallengeV2(reviewChallengeInput({
@@ -890,6 +1480,23 @@ function attestationInput(
   challenge: ReturnType<typeof createReviewChallengeV2>,
   overrides: Partial<Parameters<typeof createAttestationV2>[0]> = {}
 ): Parameters<typeof createAttestationV2>[0] {
+  const execution: Parameters<typeof createAttestationV2>[0]["execution"] = challenge.requiredTrust === "organization"
+    ? {
+        trustLevel: "organization",
+        source: "organization-runner-checkout",
+        principalId: "runner_0001",
+        publicKeyId: "key_runner_0001",
+        runnerId: "runner_0001",
+        workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+        runId: "1234567890",
+        runAttempt: 1
+      }
+    : {
+        trustLevel: "developer",
+        source: "clean-commit-worktree",
+        principalId: "device_0001",
+        publicKeyId: "key_device_0001"
+      };
   return {
     challengeId: challenge.challengeId,
     installationId: challenge.installationId,
@@ -905,12 +1512,7 @@ function attestationInput(
     codeFactsDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
     reviewDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
     result: "pass",
-    execution: {
-      trustLevel: challenge.requiredTrust,
-      source: challenge.requiredTrust === "organization" ? "organization-runner-checkout" : "clean-commit-worktree",
-      principalId: challenge.requiredTrust === "organization" ? "runner_0001" : "device_0001",
-      publicKeyId: challenge.requiredTrust === "organization" ? "key_runner_0001" : "key_device_0001"
-    },
+    execution,
     runtime: {
       version: "0.2.0",
       buildDigest: "sha256:5555555555555555555555555555555555555555555555555555555555555555",
@@ -947,6 +1549,19 @@ function pullHeadForChallenge(challenge: ReturnType<typeof createReviewChallenge
     pullRequestNumber: challenge.pullRequestNumber,
     headSha: challenge.headSha,
     baseSha: challenge.baseSha
+  };
+}
+
+function organizationExecutionForRunner(runner: { runnerId: string; publicKeyId: string; workflowRef: string }): Parameters<typeof createAttestationV2>[0]["execution"] {
+  return {
+    trustLevel: "organization",
+    source: "organization-runner-checkout",
+    principalId: runner.runnerId,
+    publicKeyId: runner.publicKeyId,
+    runnerId: runner.runnerId,
+    workflowRef: runner.workflowRef,
+    runId: "1234567890",
+    runAttempt: 1
   };
 }
 

@@ -681,6 +681,53 @@ describe("GitHub App", () => {
     }
   });
 
+  test("projects fork pull request repository identity without retaining private payload", () => {
+    const rawBody = Buffer.from(JSON.stringify({
+      action: "opened",
+      repository: {
+        name: "arch-context",
+        private: false,
+        owner: { login: "ancienttwo" }
+      },
+      pull_request: {
+        number: 9,
+        title: "not retained",
+        body: "private-note",
+        head: {
+          sha: "abc123fork",
+          repo: {
+            full_name: "forker/arch-context",
+            fork: true
+          }
+        }
+      }
+    }), "utf8");
+    const projection = projectVerifiedGitHubWebhook({
+      secret: "secret",
+      rawBody,
+      signature256: `sha256=${createHmac("sha256", "secret").update(rawBody).digest("hex")}`,
+      deliveryId: "delivery-fork",
+      eventName: "pull_request"
+    });
+
+    expect(projection).toEqual({
+      eventName: "pull_request",
+      rawBodyRetained: false,
+      event: {
+        deliveryId: "delivery-fork",
+        action: "opened",
+        repository: { owner: "ancienttwo", name: "arch-context", visibility: "public" },
+        pullRequest: {
+          number: 9,
+          headSha: "abc123fork",
+          headRepositoryFork: true,
+          headRepositoryFullName: "forker/arch-context"
+        }
+      }
+    });
+    expect(JSON.stringify(projection)).not.toContain("private-note");
+  });
+
   test("projects a rerequested check run webhook to minimum fields only", () => {
     const rawBody = Buffer.from(JSON.stringify({
       action: "rerequested",
@@ -926,6 +973,40 @@ describe("GitHub App", () => {
     expect(updated.output?.summary).toContain("No blocking findings.");
   });
 
+  test("organization runner fork pull requests publish neutral unsupported without issuing a challenge", () => {
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    state.requireOrganizationAttestation("ancienttwo/arch-context");
+
+    const result = state.handlePullRequest({
+      deliveryId: "fork-pr",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "public" },
+      pullRequest: {
+        number: 9,
+        headSha: "abc123fork",
+        headRepositoryFork: true,
+        headRepositoryFullName: "forker/arch-context"
+      }
+    });
+
+    expect(result.challenge).toBeUndefined();
+    expect(state.challenges.size).toBe(0);
+    expect(result.checkRun).toMatchObject({
+      name: ORGANIZATION_RUNNER_CHECK_NAME,
+      status: "completed",
+      conclusion: "neutral",
+      headSha: "abc123fork",
+      output: {
+        title: "Unsupported"
+      }
+    });
+    expect(result.checkRun?.output?.summary).toContain("Fork pull request detected");
+    expect(result.checkRun?.output?.summary).toContain("No signing secret");
+    expect(result.checkRun?.output?.summary).toContain("safe no-secret");
+    expect(result.checkRun?.output?.summary).not.toContain("Organization-attested");
+  });
+
   test("publishes Developer Review Check summary from accepted Attestation v2", () => {
     const state = new GitHubAppState();
     state.install(["ancienttwo/arch-context"]);
@@ -984,6 +1065,120 @@ describe("GitHub App", () => {
     expect(updated.output?.summary).not.toContain("source" + " code");
   });
 
+  test("publishes Organization Runner Check summary from accepted Attestation v2", () => {
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    state.requireOrganizationAttestation("ancienttwo/arch-context");
+    const checkRun = state.handlePullRequest({
+      deliveryId: "organization-v2-pr",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 44, headSha: "aaa456aaa456aaa456aaa456aaa456aaa456aaa4" }
+    }).checkRun!;
+    const attestation = createAttestationV2({
+      challengeId: "chal_organization_runner_review",
+      installationId: 141544438,
+      repositoryId: 987,
+      pullRequestNumber: 44,
+      headSha: "aaa456aaa456aaa456aaa456aaa456aaa456aaa4",
+      baseSha: "abc123abc123abc123abc123abc123abc123abcd",
+      mergeBaseSha: "ccc123ccc123ccc123ccc123ccc123ccc123cccc",
+      headTreeOid: "ddd123ddd123ddd123ddd123ddd123ddd123dddd",
+      worktreeDigest: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      modelDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      policyDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      codeFactsDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      reviewDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      result: "pass",
+      execution: {
+        trustLevel: "organization",
+        source: "organization-runner-checkout",
+        principalId: "runner_0001",
+        publicKeyId: "key_runner_0001",
+        runnerId: "runner_0001",
+        workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+        runId: "1234567890",
+        runAttempt: 1
+      },
+      runtime: attestationRuntime(),
+      nonce: "nonce_organization_runner_review",
+      startedAt: "2026-06-20T09:03:00Z",
+      completedAt: "2026-06-20T09:04:00Z",
+      expiresAt: "2026-06-20T09:15:00Z"
+    });
+
+    const updated = state.updateOrganizationRunnerCheckFromAttestation({
+      checkRunId: checkRun.id,
+      attestation,
+      accepted: true,
+      attestationDigest: attestationV2Digest(attestation)
+    });
+
+    expect(updated.name).toBe(ORGANIZATION_RUNNER_CHECK_NAME);
+    expect(updated.conclusion).toBe("success");
+    expect(updated.output?.title).toBe("Organization-attested");
+    expect(updated.output?.trustLevel).toBe("organization");
+    expect(updated.output?.summary).toContain("## ArchContext / Organization Runner");
+    expect(updated.output?.summary).toContain("**Result: PASS**");
+    expect(updated.output?.summary).toContain("Organization-attested");
+    expect(updated.output?.summary).toContain("organization-runner-checkout");
+    expect(updated.output?.summary).toContain("Attestation digest");
+    expect(updated.output?.summary).not.toContain("## ArchContext / Developer Review");
+    expect(updated.output?.summary).not.toContain("source" + " code");
+  });
+
+  test("Organization Runner Check rejects developer Attestation v2 provenance", () => {
+    const state = new GitHubAppState();
+    state.install(["ancienttwo/arch-context"]);
+    state.requireOrganizationAttestation("ancienttwo/arch-context");
+    const checkRun = state.handlePullRequest({
+      deliveryId: "organization-v2-developer-pr",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 45, headSha: "bbb456bbb456bbb456bbb456bbb456bbb456bbb4" }
+    }).checkRun!;
+    const attestation = createAttestationV2({
+      challengeId: "chal_organization_runner_developer_review",
+      installationId: 141544438,
+      repositoryId: 987,
+      pullRequestNumber: 45,
+      headSha: "bbb456bbb456bbb456bbb456bbb456bbb456bbb4",
+      baseSha: "abc123abc123abc123abc123abc123abc123abcd",
+      mergeBaseSha: "ccc123ccc123ccc123ccc123ccc123ccc123cccc",
+      headTreeOid: "ddd123ddd123ddd123ddd123ddd123dddd",
+      worktreeDigest: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+      modelDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      policyDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      codeFactsDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      reviewDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      result: "pass",
+      execution: {
+        trustLevel: "developer",
+        source: "clean-commit-worktree",
+        principalId: "device_0001",
+        publicKeyId: "key_device_0001"
+      },
+      runtime: attestationRuntime(),
+      nonce: "nonce_organization_runner_developer_review",
+      startedAt: "2026-06-20T09:03:00Z",
+      completedAt: "2026-06-20T09:04:00Z",
+      expiresAt: "2026-06-20T09:15:00Z"
+    });
+
+    const updated = state.updateOrganizationRunnerCheckFromAttestation({
+      checkRunId: checkRun.id,
+      attestation,
+      accepted: true,
+      attestationDigest: attestationV2Digest(attestation)
+    });
+
+    expect(updated.name).toBe(ORGANIZATION_RUNNER_CHECK_NAME);
+    expect(updated.conclusion).toBe("failure");
+    expect(updated.output?.title).toBe("Attestation required");
+    expect(updated.output?.summary).toContain("Organization attestation required for this check run");
+    expect(updated.output?.summary).not.toContain("## ArchContext / Developer Review");
+  });
+
   test("Developer Review Check rejects non-developer Attestation v2 provenance", () => {
     const state = new GitHubAppState();
     state.install(["ancienttwo/arch-context"]);
@@ -1012,7 +1207,11 @@ describe("GitHub App", () => {
         trustLevel: "organization",
         source: "organization-runner-checkout",
         principalId: "runner_0001",
-        publicKeyId: "key_runner_0001"
+        publicKeyId: "key_runner_0001",
+        runnerId: "runner_0001",
+        workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+        runId: "1234567890",
+        runAttempt: 1
       },
       runtime: attestationRuntime(),
       nonce: "nonce_organization_review",

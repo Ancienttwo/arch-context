@@ -25,14 +25,37 @@
     "errorCode": { "type": "string", "enum": ["RUNTIME_VERSION_UNSUPPORTED", "HEAD_UNAVAILABLE", "WORKTREE_NOT_CLEAN", "CODEGRAPH_FAILED", "POLICY_INVALID", "REVIEW_INCOMPLETE"] },
     "execution": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["trustLevel", "source", "principalId", "publicKeyId"],
-      "properties": {
-        "trustLevel": { "type": "string", "enum": ["developer", "organization"] },
-        "source": { "type": "string", "enum": ["clean-commit-worktree", "organization-runner-checkout"] },
-        "principalId": { "type": "string" },
-        "publicKeyId": { "type": "string" }
-      }
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trustLevel", "source", "principalId", "publicKeyId"],
+          "properties": {
+            "trustLevel": { "const": "developer" },
+            "source": { "const": "clean-commit-worktree" },
+            "principalId": { "type": "string" },
+            "publicKeyId": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trustLevel", "source", "principalId", "publicKeyId", "runnerId", "workflowRef", "runId", "runAttempt"],
+          "properties": {
+            "trustLevel": { "const": "organization" },
+            "source": { "const": "organization-runner-checkout" },
+            "principalId": { "type": "string" },
+            "publicKeyId": { "type": "string" },
+            "runnerId": { "type": "string", "pattern": "^runner_[A-Za-z0-9_.-]+$" },
+            "workflowRef": {
+              "type": "string",
+              "pattern": "^[^/\\s]+/[^/\\s]+/\\.github/workflows/[^@\\s]+@(refs/(heads|tags)/[^@\\s]+|[a-fA-F0-9]{40})$"
+            },
+            "runId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+            "runAttempt": { "type": "integer", "minimum": 1 }
+          }
+        }
+      ]
     },
     "runtime": {
       "type": "object",

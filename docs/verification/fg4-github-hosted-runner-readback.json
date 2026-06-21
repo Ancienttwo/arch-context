@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "archcontext.fg4-github-hosted-runner-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T05:12:35.174Z",
+  "config": {
+    "envFile": "_ops/env/fg2-staging.env",
+    "packet": "docs/verification/fg2-staging-evidence.json",
+    "repository": "Ancienttwo/arch-context",
+    "repositoryId": 1274353501,
+    "appSlug": "archcontext-staging",
+    "appId": "4102781",
+    "installationId": 141544438
+  },
+  "evidence": {
+    "temporaryBranch": {
+      "name": "codex/fg4-eg1-github-hosted-readback-mqnbyfl1",
+      "commit": "690811ee827ce4ee2a8d96d0d981c3da0bc62f30",
+      "deletedAfterReadback": true
+    },
+    "pullRequest": {
+      "number": 9,
+      "url": "https://github.com/Ancienttwo/arch-context/pull/9",
+      "closedAfterReadback": true
+    },
+    "workflow": {
+      "name": "FG4 EG1 GitHub-hosted Organization Runner",
+      "runId": 27894392126,
+      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27894392126",
+      "event": "pull_request",
+      "status": "completed",
+      "conclusion": "success",
+      "headSha": "690811ee827ce4ee2a8d96d0d981c3da0bc62f30"
+    },
+    "artifact": {
+      "schemaVersion": "archcontext.fg4-github-hosted-runner-attestation/v1",
+      "ok": true,
+      "environment": "github-actions",
+      "runnerOs": "Linux",
+      "llmProviderConfigured": false,
+      "attestationTrustLevel": "organization",
+      "attestationResult": "pass",
+      "attestationDigest": "sha256:207a9beb98d7ab5a6b36004c487e07c1e88dbf9a1e945cd63fdd3bb0abf748b3",
+      "privacyAuditOk": true,
+      "verificationAccepted": true
+    },
+    "organizationRunner": {
+      "checkName": "ArchContext / Organization Runner",
+      "checkRunId": "82543364407",
+      "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82543364407",
+      "conclusion": "success",
+      "outputTitle": "Organization-attested"
+    },
+    "egress": [
+      {
+        "category": "github.pull-head",
+        "method": "GET",
+        "pathTemplate": "/repositories/{repository_id}/pulls/{pull_number}",
+        "statusCode": 200,
+        "requestId": "A420:199FCF:688340D:6A82AB1:6A3772E7"
+      },
+      {
+        "category": "github.check-create",
+        "method": "POST",
+        "pathTemplate": "/repositories/{repository_id}/check-runs",
+        "statusCode": 201,
+        "requestId": "A420:199FCF:6883750:6A82E19:6A3772E8"
+      },
+      {
+        "category": "github.check-update",
+        "method": "PATCH",
+        "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+        "statusCode": 200,
+        "requestId": "A420:199FCF:68839B1:6A83089:6A3772E8"
+      }
+    ]
+  },
+  "failures": []
+}

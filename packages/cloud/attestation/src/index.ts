@@ -2,12 +2,14 @@ import { createHash, sign, verify, type KeyObject } from "node:crypto";
 import {
   canonicalize,
   digestJson,
+  runnerIdentityMatchesScope,
   satisfiesRequiredTrust,
   type AttestationResult,
   type AttestationV2,
   type GovernanceReasonCode,
   type GovernanceKeyStatus,
   type Json,
+  type RunnerIdentity,
   type RequiredTrust,
   type ReviewChallengeStatus,
   type ReviewChallengeV2
@@ -347,6 +349,7 @@ export function verifyAttestationV2ForReviewChallenge(input: {
   challenge: ReviewChallengeV2;
   publicKey: KeyObject;
   now: string;
+  runnerIdentity?: RunnerIdentity;
   signingKeyStatus?: GovernanceKeyStatus;
   expectedHeadTreeOid?: string;
 }): AttestationV2ServerVerification {
@@ -372,6 +375,13 @@ export function verifyAttestationV2ForReviewChallenge(input: {
   if (input.expectedHeadTreeOid && attestation.headTreeOid !== input.expectedHeadTreeOid) {
     return { accepted: false, reasonCode: "TREE_OID_MISMATCH" };
   }
+  const runnerVerification = verifyOrganizationRunnerIdentityForAttestation({
+    attestation,
+    challenge: input.challenge,
+    runnerIdentity: input.runnerIdentity,
+    signingKeyStatus: input.signingKeyStatus
+  });
+  if (!runnerVerification.accepted) return runnerVerification;
   if (input.signingKeyStatus) {
     if (input.signingKeyStatus.status === "revoked") {
       return { accepted: false, reasonCode: input.signingKeyStatus.ownerKind === "runner" ? "RUNNER_REVOKED" : "DEVICE_REVOKED" };
@@ -399,6 +409,33 @@ export function verifyAttestationV2ForReviewChallenge(input: {
     attestation,
     attestationDigest: attestationV2Digest(attestation)
   };
+}
+
+function verifyOrganizationRunnerIdentityForAttestation(input: {
+  attestation: AttestationV2;
+  challenge: ReviewChallengeV2;
+  runnerIdentity?: RunnerIdentity;
+  signingKeyStatus?: GovernanceKeyStatus;
+}): { accepted: true } | { accepted: false; reasonCode: GovernanceReasonCode } {
+  if (input.attestation.execution.trustLevel !== "organization") return { accepted: true };
+  if (input.challenge.requiredTrust !== "organization") return { accepted: false, reasonCode: "TRUST_LEVEL_MISMATCH" };
+  if (!input.runnerIdentity) return { accepted: false, reasonCode: "RUNNER_NOT_FOUND" };
+  const execution = input.attestation.execution;
+  if (input.runnerIdentity.runnerId !== execution.runnerId) return { accepted: false, reasonCode: "RUNNER_NOT_FOUND" };
+  if (input.runnerIdentity.publicKeyId !== execution.publicKeyId) return { accepted: false, reasonCode: "SIGNATURE_INVALID" };
+  if (input.runnerIdentity.status !== "active") return { accepted: false, reasonCode: "RUNNER_REVOKED" };
+  if (!runnerIdentityMatchesScope(input.runnerIdentity, {
+    installationId: input.challenge.installationId,
+    repositoryId: input.challenge.repositoryId,
+    workflowRef: execution.workflowRef
+  })) {
+    return { accepted: false, reasonCode: "RUNNER_SCOPE_MISMATCH" };
+  }
+  if (!input.signingKeyStatus) return { accepted: false, reasonCode: "RUNNER_NOT_FOUND" };
+  if (input.signingKeyStatus.ownerKind !== "runner" || input.signingKeyStatus.ownerId !== execution.runnerId) {
+    return { accepted: false, reasonCode: "SIGNATURE_INVALID" };
+  }
+  return { accepted: true };
 }
 
 export function signLocalAttestation(input: {
@@ -444,6 +481,68 @@ export function signOrganizationAttestation(input: {
       runnerId: input.runner.runnerId,
       installationId: input.runner.installationId,
       repositoryNumericId: input.repositoryNumericId ?? null
+    }
+  });
+}
+
+export function signOrganizationAttestationV2(input: {
+  challenge: ReviewChallengeV2;
+  runner: RunnerIdentity;
+  privateKey: KeyObject;
+  mergeBaseSha: string;
+  headTreeOid: string;
+  worktreeDigest: string;
+  modelDigest: string;
+  policyDigest: string;
+  codeFactsDigest: string;
+  reviewDigest: string;
+  result: AttestationResult;
+  runtime: AttestationV2["runtime"];
+  workflowRef: string;
+  runId: string;
+  runAttempt: number;
+  startedAt: string;
+  completedAt: string;
+}): AttestationV2 {
+  if (input.challenge.requiredTrust !== "organization") throw new Error("organization-attestation-v2-requiredTrust-required");
+  if (input.runner.installationId !== input.challenge.installationId) throw new Error("organization-attestation-v2-installation-mismatch");
+  if (input.runner.workflowRef !== input.workflowRef) throw new Error("organization-attestation-v2-workflowRef-mismatch");
+  const unsigned = createAttestationV2({
+    challengeId: input.challenge.challengeId,
+    installationId: input.challenge.installationId,
+    repositoryId: input.challenge.repositoryId,
+    pullRequestNumber: input.challenge.pullRequestNumber,
+    headSha: input.challenge.headSha,
+    baseSha: input.challenge.baseSha,
+    mergeBaseSha: input.mergeBaseSha,
+    headTreeOid: input.headTreeOid,
+    worktreeDigest: input.worktreeDigest,
+    modelDigest: input.modelDigest,
+    policyDigest: input.policyDigest,
+    codeFactsDigest: input.codeFactsDigest,
+    reviewDigest: input.reviewDigest,
+    result: input.result,
+    execution: {
+      trustLevel: "organization",
+      source: "organization-runner-checkout",
+      principalId: input.runner.runnerId,
+      publicKeyId: input.runner.publicKeyId,
+      runnerId: input.runner.runnerId,
+      workflowRef: input.workflowRef,
+      runId: input.runId,
+      runAttempt: input.runAttempt
+    },
+    runtime: input.runtime,
+    nonce: input.challenge.nonce,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    expiresAt: input.challenge.expiresAt
+  });
+  return createAttestationV2({
+    ...unsigned,
+    signature: {
+      algorithm: "ed25519",
+      value: sign(null, Buffer.from(canonicalAttestationV2(unsigned), "utf8"), input.privateKey).toString("base64")
     }
   });
 }
@@ -640,11 +739,23 @@ const ATTESTATION_ERROR_CODES = new Set([
   "REVIEW_INCOMPLETE"
 ]);
 
-const ATTESTATION_EXECUTION_KEYS = new Set([
+const ATTESTATION_EXECUTION_REQUIRED_KEYS = new Set([
   "trustLevel",
   "source",
   "principalId",
   "publicKeyId"
+]);
+
+const ATTESTATION_ORGANIZATION_EXECUTION_KEYS = new Set([
+  "runnerId",
+  "workflowRef",
+  "runId",
+  "runAttempt"
+]);
+
+const ATTESTATION_EXECUTION_KEYS = new Set([
+  ...ATTESTATION_EXECUTION_REQUIRED_KEYS,
+  ...ATTESTATION_ORGANIZATION_EXECUTION_KEYS
 ]);
 
 const ATTESTATION_EXECUTION_SOURCES = new Set([
@@ -777,6 +888,26 @@ function requireTrust(value: unknown, label = "requiredTrust", prefix = "review-
   return text as RequiredTrust;
 }
 
+function requireRunnerId(value: unknown): string {
+  const text = requireString(value, "runnerId", "attestation-v2-execution");
+  if (!/^runner_[A-Za-z0-9_.-]+$/.test(text)) throw new Error("attestation-v2-execution-runnerId-invalid");
+  return text;
+}
+
+function requireWorkflowRef(value: unknown): string {
+  const text = requireString(value, "workflowRef", "attestation-v2-execution");
+  if (!/^[^/\s]+\/[^/\s]+\/\.github\/workflows\/[^@\s]+@refs\/(heads|tags)\/[^@\s]+$/.test(text) && !/^[^/\s]+\/[^/\s]+\/\.github\/workflows\/[^@\s]+@[a-f0-9]{40}$/i.test(text)) {
+    throw new Error("attestation-v2-execution-workflowRef-invalid");
+  }
+  return text;
+}
+
+function requireRunId(value: unknown): string {
+  const text = requireString(value, "runId", "attestation-v2-execution");
+  if (!/^[1-9][0-9]*$/.test(text)) throw new Error("attestation-v2-execution-runId-invalid");
+  return text;
+}
+
 function requireStatus(value: unknown): ReviewChallengeStatus {
   const text = requireString(value, "status");
   if (!REVIEW_CHALLENGE_STATUSES.has(text as ReviewChallengeStatus)) throw new Error("review-challenge-v2-status-invalid");
@@ -817,17 +948,41 @@ function requireAttestationErrorCode(value: unknown): string {
 function requireAttestationV2Execution(value: unknown): AttestationV2["execution"] {
   const record = requireRecord(value, "attestation-v2-execution");
   assertKnownKeys(record, ATTESTATION_EXECUTION_KEYS, "attestation-v2-execution");
-  for (const key of ATTESTATION_EXECUTION_KEYS) {
+  for (const key of ATTESTATION_EXECUTION_REQUIRED_KEYS) {
     if (!(key in record)) throw new Error(`attestation-v2-execution-missing-field: ${key}`);
   }
   const trustLevel = requireTrust(record.trustLevel, "trustLevel", "attestation-v2-execution");
   const source = requireString(record.source, "source", "attestation-v2-execution");
   if (!ATTESTATION_EXECUTION_SOURCES.has(source)) throw new Error("attestation-v2-execution-source-invalid");
+  const principalId = requireString(record.principalId, "principalId", "attestation-v2-execution");
+  const publicKeyId = requireString(record.publicKeyId, "publicKeyId", "attestation-v2-execution");
+
+  if (trustLevel === "organization") {
+    for (const key of ATTESTATION_ORGANIZATION_EXECUTION_KEYS) {
+      if (!(key in record)) throw new Error(`attestation-v2-execution-missing-field: ${key}`);
+    }
+    const runnerId = requireRunnerId(record.runnerId);
+    if (principalId !== runnerId) throw new Error("attestation-v2-execution-runnerId-principalId-mismatch");
+    return {
+      trustLevel,
+      source: source as "organization-runner-checkout",
+      principalId,
+      publicKeyId,
+      runnerId,
+      workflowRef: requireWorkflowRef(record.workflowRef),
+      runId: requireRunId(record.runId),
+      runAttempt: requirePositiveInteger(record.runAttempt, "runAttempt", "attestation-v2-execution")
+    };
+  }
+
+  for (const key of ATTESTATION_ORGANIZATION_EXECUTION_KEYS) {
+    if (key in record) throw new Error(`attestation-v2-execution-organization-field-unexpected: ${key}`);
+  }
   return {
     trustLevel,
-    source: source as AttestationV2["execution"]["source"],
-    principalId: requireString(record.principalId, "principalId", "attestation-v2-execution"),
-    publicKeyId: requireString(record.publicKeyId, "publicKeyId", "attestation-v2-execution")
+    source: source as "clean-commit-worktree",
+    principalId,
+    publicKeyId
   };
 }
 

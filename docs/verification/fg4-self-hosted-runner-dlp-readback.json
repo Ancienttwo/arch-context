@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "archcontext.fg4-runner-dlp-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T13:18:23.142Z",
+  "evidence": {
+    "sourceEvidence": "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+    "repository": "Ancienttwo/arch-context",
+    "runId": 27905483126,
+    "run": {
+      "databaseId": 27905483126,
+      "status": "completed",
+      "conclusion": "success",
+      "event": "pull_request",
+      "headBranch": "codex/fg4-eg2-self-hosted-readback-mqnt5agp",
+      "headSha": "545f9adf982413f0b74bc80168d1657ec4b67bce",
+      "workflowName": "FG4 EG2 Self-hosted Organization Runner",
+      "jobCount": 1
+    },
+    "artifactScan": {
+      "fileCount": 1,
+      "totalBytes": 10303,
+      "fileNames": [
+        "archcontext-fg4-eg2-attestation/fg4-eg2-organization-attestation.json"
+      ],
+      "codeContentMatches": 0,
+      "baitValueMatches": 0,
+      "forbiddenEndpointOrMediaMatches": 0,
+      "secretMatches": 0
+    },
+    "logScan": {
+      "lineCount": 283,
+      "codeContentMatches": 0,
+      "baitValueMatches": 0,
+      "forbiddenEndpointOrMediaMatches": 0,
+      "secretMatches": 0,
+      "maskedTokenMentions": 2
+    },
+    "cacheScan": {
+      "cacheLineCount": 1,
+      "codeContentMatches": 0,
+      "baitValueMatches": 0,
+      "forbiddenEndpointOrMediaMatches": 0,
+      "secretMatches": 0
+    },
+    "cloudDtoScan": {
+      "codeContentMatches": 0,
+      "baitValueMatches": 0,
+      "forbiddenEndpointOrMediaMatches": 0,
+      "secretMatches": 0,
+      "egressCategories": [
+        "github.pull-head",
+        "github.check-create",
+        "github.check-update"
+      ]
+    }
+  },
+  "failures": []
+}

@@ -12,8 +12,14 @@ import {
 import {
   CONTROL_PLANE_ROUTES,
   controlPlaneRouteDigest,
+  createRunnerIdentity,
   digestJson,
+  runnerIdentityEffectiveScope,
+  runnerIdentityKeyStatus,
+  runnerIdentityMatchesScope,
+  transitionRunnerIdentityStatus,
   transitionReviewChallengeStatus,
+  type CreateRunnerIdentityInput,
   type DeviceIdentity,
   type GovernanceKeyStatus,
   type GitHubGovernancePort,
@@ -23,6 +29,8 @@ import {
   type PullHeadMetadata,
   type ReviewChallengePullHeadVerification,
   type ReviewChallengeStatus,
+  type RunnerIdentity,
+  type RunnerIdentityScope,
   type ReviewChallengeV2
 } from "@archcontext/contracts";
 import {
@@ -67,6 +75,128 @@ export interface DeviceKeyFingerprintDisplay {
   revokedAt?: string | null;
 }
 
+export type RegisterRunnerKeyInput = Omit<CreateRunnerIdentityInput, "runnerId" | "publicKeyFingerprint" | "status" | "createdAt"> & {
+  runnerId?: string;
+  publicKey?: KeyObject;
+  publicKeyFingerprint?: string;
+  createdAt?: string;
+  authorization: RunnerKeyAdminAuthorization;
+};
+
+export interface RunnerKeyFingerprintDisplay {
+  runnerId: string;
+  installationId: number;
+  repositoryIds: number[];
+  scope: RunnerIdentityScope;
+  workflowRef: string;
+  publicKeyId: string;
+  fingerprint: string;
+  status: RunnerIdentity["status"];
+  createdAt: string;
+  rotatedAt?: string | null;
+  revokedAt?: string | null;
+}
+
+export interface RunnerKeyRotationWindow {
+  previousRunnerId: string;
+  nextRunnerId: string;
+  rotatedAt: string;
+  overlapUntil: string;
+}
+
+export interface RotateRunnerKeyInput {
+  runnerId: string;
+  publicKeyId: string;
+  publicKey?: KeyObject;
+  publicKeyFingerprint?: string;
+  nextRunnerId?: string;
+  rotatedAt?: string;
+  overlapUntil?: string;
+  overlapMs?: number;
+  authorization: RunnerKeyAdminAuthorization;
+}
+
+export interface RevokeRunnerKeyInput {
+  runnerId: string;
+  revokedAt: string;
+  authorization: RunnerKeyAdminAuthorization;
+}
+
+export interface DescribeRunnerKeyRecoveryInput {
+  runnerId: string;
+  installationId: number;
+  repositoryId: number;
+  workflowRef?: string;
+  now: string;
+}
+
+export type RunnerKeyTerminationKind = "revoked" | "unregistered";
+export type RunnerKeyRecoveryReasonCode = Extract<
+  GovernanceReasonCode,
+  "RUNNER_NOT_FOUND" | "RUNNER_REVOKED" | "RUNNER_SCOPE_MISMATCH" | "WORKFLOW_REF_MISMATCH"
+>;
+export type RunnerKeyRecoveryAction =
+  | "none"
+  | "register-runner-identity"
+  | "register-replacement-runner-key"
+  | "register-runner-for-repository"
+  | "use-approved-runner-workflow";
+
+export interface RunnerKeyRecoveryStatus {
+  schemaVersion: "archcontext.runner-key-recovery/v1";
+  runnerId: string;
+  lifecycleState: RunnerIdentity["status"] | "not_found" | "unregistered";
+  submitAllowed: boolean;
+  immediateRejection: boolean;
+  retryCurrentKey: boolean;
+  replacementRequired: boolean;
+  action: RunnerKeyRecoveryAction;
+  nextActions: string[];
+  reasonCode?: RunnerKeyRecoveryReasonCode;
+  installationId?: number;
+  repositoryIds?: number[];
+  scope?: RunnerIdentityScope;
+  workflowRef?: string;
+  publicKeyId?: string;
+  fingerprint?: string;
+  revokedAt?: string | null;
+}
+
+export interface RunnerKeyAdminAuthorization {
+  actorId: string;
+  actorLogin?: string;
+  installationId: number;
+  organizationAdmin?: boolean;
+  repositoryAdminIds?: number[];
+  permissionSource: "github-app" | "github-oauth" | "manual-ops" | "test-fixture";
+  verifiedAt: string;
+  reason?: string;
+}
+
+export type RunnerKeyAuditAction = "runner_key.register" | "runner_key.rotate" | "runner_key.revoke" | "runner_key.unregister";
+
+export interface ControlPlaneAuditEvent {
+  schemaVersion: "archcontext.audit-event/v1";
+  eventId: string;
+  action: RunnerKeyAuditAction;
+  actorId: string;
+  actorLogin?: string;
+  occurredAt: string;
+  resource: {
+    kind: "runner-key";
+    runnerId: string;
+    installationId: number;
+    scopeKind: RunnerIdentityScope["kind"];
+    repositoryIds: number[];
+    workflowRef: string;
+    publicKeyId: string;
+    publicKeyFingerprint: string;
+    relatedRunnerId?: string;
+  };
+  reason: string;
+  metadataDigest: string;
+}
+
 export const BILLING_PRICES = {
   monthly: { priceUsd: 5, label: "$5/user/month" },
   annual: { priceUsd: 99, label: "$99/user/year" }
@@ -74,9 +204,20 @@ export const BILLING_PRICES = {
 
 export const DEFAULT_REVIEW_CHALLENGE_TTL_MS = 15 * 60 * 1000;
 export const DEFAULT_REVIEW_CHALLENGE_LEASE_TTL_MS = 5 * 60 * 1000;
+export const DEFAULT_RUNNER_KEY_ROTATION_OVERLAP_MS = 15 * 60 * 1000;
 
 const ACTIVE_REVIEW_CHALLENGE_STATUSES = new Set<ReviewChallengeStatus>(["PENDING", "LEASED", "SUBMITTED"]);
 const CONSUMED_REVIEW_CHALLENGE_STATUSES = new Set<ReviewChallengeStatus>(["SUBMITTED", "VERIFIED", "REJECTED"]);
+const RUNNER_KEY_NOT_FOUND_RECOVERY_ACTIONS = [
+  "Register a Runner Key for the same installation, repository or organization scope, and workflow ref.",
+  "Store the replacement private key in the customer Secret Store before retrying the Organization Runner job.",
+  "Lease a fresh Challenge or retry the current leased Challenge with the replacement Runner Key."
+];
+const RUNNER_KEY_REVOKED_RECOVERY_ACTIONS = [
+  "Stop using the current runner private key and Secret Store reference.",
+  "Register a replacement Runner Key with a new publicKeyId for the same installation, scope, and workflow ref.",
+  "Update the customer Secret Store reference and rerun the Organization Runner job."
+];
 
 export type CloudPrivacySurface = "log" | "trace" | "queue" | "error";
 export type ClaimReviewChallengeLeaseReason = GovernanceReasonCode | "LEASE_ACTIVE";
@@ -92,12 +233,13 @@ export interface ReviewChallengeLease {
   challengeId: string;
   ownerId: string;
   leasedAt: string;
+  lastHeartbeatAt?: string;
   expiresAt: string;
 }
 
 export interface ClaimReviewChallengeLeaseResult {
   claimed: boolean;
-  reasonCode?: ClaimReviewChallengeLeaseReason;
+  reasonCode?: ClaimReviewChallengeLeaseReason | "LEASE_EXPIRED";
   challenge: ReviewChallengeV2;
   lease?: ReviewChallengeLease;
 }
@@ -210,6 +352,10 @@ export class ControlPlane {
   readonly webhookDeliveries = new Set<string>();
   readonly revokedDevices = new Set<string>();
   readonly deviceIdentities = new Map<string, DeviceIdentity>();
+  readonly runnerIdentities = new Map<string, RunnerIdentity>();
+  readonly runnerKeyRotationWindows = new Map<string, RunnerKeyRotationWindow>();
+  readonly runnerKeyTerminationKinds = new Map<string, RunnerKeyTerminationKind>();
+  readonly auditEvents: ControlPlaneAuditEvent[] = [];
   readonly orgRunners = new Map<string, OrgRunnerIdentity>();
   readonly notificationProviders = new Map<string, NotificationProviderConfig>();
   readonly notificationProviderScopes = new Map<string, { accountId?: string; installationId?: number }>();
@@ -376,6 +522,217 @@ export class ControlPlane {
     return revoked;
   }
 
+  registerRunnerKey(input: RegisterRunnerKeyInput): RunnerIdentity {
+    const identity = this.createRunnerIdentityFromKeyInput(input);
+    const authorization = requireRunnerKeyAdminAuthorization(input.authorization, identity);
+    const stored = this.storeRunnerIdentity(identity);
+    this.recordRunnerKeyAudit("runner_key.register", authorization, stored, stored.createdAt);
+    return stored;
+  }
+
+  listRunnerKeys(installationId: number): RunnerIdentity[] {
+    const normalizedInstallationId = requirePositiveInteger(installationId, "runner.installationId");
+    return [...this.runnerIdentities.values()]
+      .filter((runner) => runner.installationId === normalizedInstallationId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.runnerId.localeCompare(b.runnerId));
+  }
+
+  getRunnerKeyStatus(runnerId: string): GovernanceKeyStatus {
+    return runnerIdentityKeyStatus(this.requireRunnerIdentity(runnerId));
+  }
+
+  displayRunnerKeyFingerprint(runnerId: string): RunnerKeyFingerprintDisplay {
+    const runner = this.requireRunnerIdentity(runnerId);
+    return {
+      runnerId: runner.runnerId,
+      installationId: runner.installationId,
+      repositoryIds: runner.repositoryIds,
+      scope: runnerIdentityEffectiveScope(runner),
+      workflowRef: runner.workflowRef,
+      publicKeyId: runner.publicKeyId,
+      fingerprint: runner.publicKeyFingerprint,
+      status: runner.status,
+      createdAt: runner.createdAt,
+      ...(runner.rotatedAt === undefined ? {} : { rotatedAt: runner.rotatedAt }),
+      ...(runner.revokedAt === undefined ? {} : { revokedAt: runner.revokedAt })
+    };
+  }
+
+  rotateRunnerKey(input: RotateRunnerKeyInput): { previous: RunnerIdentity; next: RunnerIdentity; rotationWindow: RunnerKeyRotationWindow } {
+    const current = this.requireRunnerIdentity(input.runnerId);
+    if (current.status === "revoked") throw new Error("runner-key-revoked");
+    if (current.status !== "active") throw new Error("runner-key-rotation-not-active");
+    const authorization = requireRunnerKeyAdminAuthorization(input.authorization, current);
+    const rotatedAt = input.rotatedAt ?? new Date().toISOString();
+    const rotatedAtMs = requireFiniteTime(rotatedAt, "runner.rotatedAt");
+    const overlapUntil = input.overlapUntil ?? new Date(rotatedAtMs + (input.overlapMs ?? DEFAULT_RUNNER_KEY_ROTATION_OVERLAP_MS)).toISOString();
+    const overlapUntilMs = requireFiniteTime(overlapUntil, "runner.overlapUntil");
+    if (overlapUntilMs <= rotatedAtMs) throw new Error("runner-key-overlap-window-invalid");
+
+    const next = this.storeRunnerIdentity(this.createRunnerIdentityFromKeyInput({
+      runnerId: input.nextRunnerId,
+      installationId: current.installationId,
+      repositoryIds: current.repositoryIds,
+      scope: runnerIdentityEffectiveScope(current),
+      workflowRef: current.workflowRef,
+      publicKeyId: input.publicKeyId,
+      publicKey: input.publicKey,
+      publicKeyFingerprint: input.publicKeyFingerprint,
+      createdAt: rotatedAt,
+      authorization: input.authorization
+    }));
+    const previous = transitionRunnerIdentityStatus(current, "rotating", rotatedAt);
+    this.runnerIdentities.set(previous.runnerId, previous);
+    const rotationWindow: RunnerKeyRotationWindow = {
+      previousRunnerId: previous.runnerId,
+      nextRunnerId: next.runnerId,
+      rotatedAt,
+      overlapUntil
+    };
+    this.runnerKeyRotationWindows.set(previous.runnerId, rotationWindow);
+    this.recordRunnerKeyAudit("runner_key.rotate", authorization, previous, rotatedAt, next.runnerId);
+    return { previous, next, rotationWindow };
+  }
+
+  revokeRunnerKey(input: RevokeRunnerKeyInput): RunnerIdentity {
+    return this.terminateRunnerKey(input, "runner_key.revoke", "revoked");
+  }
+
+  unregisterRunnerKey(input: RevokeRunnerKeyInput): RunnerIdentity {
+    return this.terminateRunnerKey(input, "runner_key.unregister", "unregistered");
+  }
+
+  describeRunnerKeyRecovery(input: DescribeRunnerKeyRecoveryInput): RunnerKeyRecoveryStatus {
+    const runnerId = requireNonEmptyString(input.runnerId, "runner.runnerId");
+    const installationId = requirePositiveInteger(input.installationId, "runner.installationId");
+    const repositoryId = requirePositiveInteger(input.repositoryId, "runner.repositoryId");
+    requireFiniteTime(input.now, "runner.now");
+
+    const runner = this.runnerIdentities.get(runnerId);
+    if (!runner) {
+      return {
+        schemaVersion: "archcontext.runner-key-recovery/v1",
+        runnerId,
+        lifecycleState: "not_found",
+        submitAllowed: false,
+        immediateRejection: true,
+        retryCurrentKey: false,
+        replacementRequired: true,
+        reasonCode: "RUNNER_NOT_FOUND",
+        action: "register-runner-identity",
+        nextActions: [...RUNNER_KEY_NOT_FOUND_RECOVERY_ACTIONS]
+      };
+    }
+
+    const base = runnerKeyRecoveryBase(runner);
+    if (runner.status === "revoked") {
+      return {
+        ...base,
+        lifecycleState: this.runnerKeyTerminationKinds.get(runnerId) === "unregistered" ? "unregistered" : "revoked",
+        submitAllowed: false,
+        immediateRejection: true,
+        retryCurrentKey: false,
+        replacementRequired: true,
+        reasonCode: "RUNNER_REVOKED",
+        action: "register-replacement-runner-key",
+        nextActions: [...RUNNER_KEY_REVOKED_RECOVERY_ACTIONS]
+      };
+    }
+    if (input.workflowRef !== undefined && runner.workflowRef !== input.workflowRef) {
+      return {
+        ...base,
+        submitAllowed: false,
+        immediateRejection: true,
+        retryCurrentKey: false,
+        replacementRequired: true,
+        reasonCode: "WORKFLOW_REF_MISMATCH",
+        action: "use-approved-runner-workflow",
+        nextActions: ["Use the workflow ref registered for this Runner Key or register a new Runner Key for the approved workflow."]
+      };
+    }
+    if (!runnerIdentityMatchesScope(runner, { installationId, repositoryId, workflowRef: input.workflowRef })) {
+      return {
+        ...base,
+        submitAllowed: false,
+        immediateRejection: true,
+        retryCurrentKey: false,
+        replacementRequired: true,
+        reasonCode: "RUNNER_SCOPE_MISMATCH",
+        action: "register-runner-for-repository",
+        nextActions: ["Register a Runner Key whose installation and repository or organization scope covers this pull request."]
+      };
+    }
+    if (runner.status !== "active") {
+      return {
+        ...base,
+        submitAllowed: false,
+        immediateRejection: true,
+        retryCurrentKey: false,
+        replacementRequired: true,
+        reasonCode: "RUNNER_REVOKED",
+        action: "register-replacement-runner-key",
+        nextActions: ["Use the active rotated Runner Key for Organization Attestation submission."]
+      };
+    }
+
+    return {
+      ...base,
+      submitAllowed: true,
+      immediateRejection: false,
+      retryCurrentKey: true,
+      replacementRequired: false,
+      action: "none",
+      nextActions: ["Retry the Organization Runner submission with the current active Runner Key."]
+    };
+  }
+
+  private terminateRunnerKey(
+    input: RevokeRunnerKeyInput,
+    action: Extract<RunnerKeyAuditAction, "runner_key.revoke" | "runner_key.unregister">,
+    terminationKind: RunnerKeyTerminationKind
+  ): RunnerIdentity {
+    const current = this.requireRunnerIdentity(input.runnerId);
+    if (current.status === "revoked") throw new Error("runner-key-revoked");
+    const authorization = requireRunnerKeyAdminAuthorization(input.authorization, current);
+    const revokedAt = input.revokedAt;
+    requireFiniteTime(revokedAt, "runner.revokedAt");
+    const revoked = transitionRunnerIdentityStatus(current, "revoked", revokedAt);
+    this.runnerIdentities.set(revoked.runnerId, revoked);
+    for (const [windowRunnerId, window] of this.runnerKeyRotationWindows.entries()) {
+      if (window.previousRunnerId === input.runnerId || window.nextRunnerId === input.runnerId) {
+        this.runnerKeyRotationWindows.delete(windowRunnerId);
+      }
+    }
+    this.runnerKeyTerminationKinds.set(revoked.runnerId, terminationKind);
+    this.recordRunnerKeyAudit(action, authorization, revoked, revokedAt);
+    return revoked;
+  }
+
+  listAuditEvents(filter: { action?: RunnerKeyAuditAction; actorId?: string; runnerId?: string } = {}): ControlPlaneAuditEvent[] {
+    return this.auditEvents.filter((event) => {
+      if (filter.action && event.action !== filter.action) return false;
+      if (filter.actorId && event.actorId !== filter.actorId) return false;
+      if (filter.runnerId && event.resource.runnerId !== filter.runnerId && event.resource.relatedRunnerId !== filter.runnerId) return false;
+      return true;
+    });
+  }
+
+  getRunnerKeyRotationWindow(runnerId: string): RunnerKeyRotationWindow | undefined {
+    const normalizedRunnerId = requireNonEmptyString(runnerId, "runner.runnerId");
+    return this.runnerKeyRotationWindows.get(normalizedRunnerId);
+  }
+
+  isRunnerKeyAccepted(input: { runnerId: string; installationId: number; repositoryId: number; workflowRef?: string; now: string }): boolean {
+    const runner = this.runnerIdentities.get(requireNonEmptyString(input.runnerId, "runner.runnerId"));
+    if (!runner) return false;
+    requireFiniteTime(input.now, "runner.now");
+    if (!runnerIdentityMatchesScope(runner, input)) return false;
+    if (runner.status === "active") return true;
+    if (runner.status !== "rotating") return false;
+    const window = this.runnerKeyRotationWindows.get(runner.runnerId);
+    return Boolean(window && Date.parse(input.now) <= Date.parse(window.overlapUntil));
+  }
+
   registerOrgRunner(identity: OrgRunnerIdentity): OrgRunnerIdentity {
     if (identity.installationId < 1) throw new Error("installation-required");
     this.orgRunners.set(identity.runnerId, identity);
@@ -476,6 +833,75 @@ export class ControlPlane {
     };
   }
 
+  heartbeatReviewChallengeLease(input: {
+    challenge: ReviewChallengeV2;
+    lease: ReviewChallengeLease;
+    ownerId: string;
+    now: string;
+    ttlMs?: number;
+  }): ClaimReviewChallengeLeaseResult {
+    const ownerId = input.ownerId.trim();
+    if (!ownerId) throw new Error("review-challenge-lease-owner-required");
+    const nowMs = requireFiniteTime(input.now, "now");
+    const challengeExpiresAtMs = requireFiniteTime(input.challenge.expiresAt, "challenge.expiresAt");
+    const reject = (reasonCode: ClaimReviewChallengeLeaseResult["reasonCode"], challenge = input.challenge): ClaimReviewChallengeLeaseResult => ({
+      claimed: false,
+      reasonCode,
+      challenge,
+      lease: input.lease
+    });
+
+    if (input.lease.challengeId !== input.challenge.challengeId) return reject("CHALLENGE_NOT_FOUND");
+    if (CONSUMED_REVIEW_CHALLENGE_STATUSES.has(input.challenge.status)) return reject("CHALLENGE_ALREADY_CONSUMED");
+    if (input.challenge.status === "SUPERSEDED") return reject("CHALLENGE_SUPERSEDED");
+    if (input.challenge.status === "EXPIRED" || challengeExpiresAtMs <= nowMs) {
+      const expiredChallenge = input.challenge.status === "PENDING" || input.challenge.status === "LEASED"
+        ? transitionReviewChallengeStatus(input.challenge, "EXPIRED")
+        : input.challenge;
+      return reject("CHALLENGE_EXPIRED", expiredChallenge);
+    }
+    if (input.challenge.status !== "PENDING" && input.challenge.status !== "LEASED") return reject("CHALLENGE_ALREADY_CONSUMED");
+    if (input.lease.ownerId !== ownerId) return reject("LEASE_ACTIVE", input.challenge.status === "PENDING" ? transitionReviewChallengeStatus(input.challenge, "LEASED") : input.challenge);
+    if (requireFiniteTime(input.lease.expiresAt, "lease.expiresAt") <= nowMs) return reject("LEASE_EXPIRED");
+
+    const ttlMs = input.ttlMs ?? DEFAULT_REVIEW_CHALLENGE_LEASE_TTL_MS;
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) throw new Error("review-challenge-lease-ttl-invalid");
+    return {
+      claimed: true,
+      challenge: input.challenge.status === "PENDING" ? transitionReviewChallengeStatus(input.challenge, "LEASED") : input.challenge,
+      lease: {
+        ...input.lease,
+        lastHeartbeatAt: new Date(nowMs).toISOString(),
+        expiresAt: new Date(Math.min(nowMs + ttlMs, challengeExpiresAtMs)).toISOString()
+      }
+    };
+  }
+
+  retryReviewChallengeLease(input: {
+    challenge: ReviewChallengeV2;
+    claimantId: string;
+    now: string;
+    currentLease?: ReviewChallengeLease | null;
+    ttlMs?: number;
+  }): ClaimReviewChallengeLeaseResult {
+    const claimantId = input.claimantId.trim();
+    if (!claimantId) throw new Error("review-challenge-lease-owner-required");
+    const currentLease = input.currentLease?.challengeId === input.challenge.challengeId ? input.currentLease : undefined;
+    if (!currentLease) return this.claimReviewChallengeLease(input);
+    const nowMs = requireFiniteTime(input.now, "now");
+    const currentLeaseExpiresAtMs = requireFiniteTime(currentLease.expiresAt, "currentLease.expiresAt");
+    if (currentLease.ownerId === claimantId && currentLeaseExpiresAtMs > nowMs) {
+      return this.heartbeatReviewChallengeLease({
+        challenge: input.challenge,
+        lease: currentLease,
+        ownerId: claimantId,
+        now: input.now,
+        ttlMs: input.ttlMs
+      });
+    }
+    return this.claimReviewChallengeLease(input);
+  }
+
   supersedeActiveReviewChallenges(input: {
     challenges: readonly ReviewChallengeV2[];
     nextChallenge: ReviewChallengeV2;
@@ -514,6 +940,7 @@ export class ControlPlane {
     attestation: unknown;
     currentPullHead: PullHeadMetadata;
     publicKey: KeyObject;
+    runnerIdentity?: RunnerIdentity;
     signingKeyStatus?: GovernanceKeyStatus;
     now: string;
     consumedNonceHashes: ReadonlySet<string>;
@@ -547,6 +974,7 @@ export class ControlPlane {
       challenge: input.challenge,
       attestation: input.attestation,
       publicKey: input.publicKey,
+      runnerIdentity: input.runnerIdentity,
       signingKeyStatus: input.signingKeyStatus,
       now: input.now,
       expectedHeadTreeOid: input.expectedHeadTreeOid
@@ -569,6 +997,7 @@ export class ControlPlane {
     attestation: unknown;
     github: Pick<GitHubGovernancePort, "getPullHeadMetadata">;
     publicKey: KeyObject;
+    runnerIdentity?: RunnerIdentity;
     signingKeyStatus?: GovernanceKeyStatus;
     now: string;
     consumedNonceHashes: ReadonlySet<string>;
@@ -584,6 +1013,7 @@ export class ControlPlane {
       attestation: input.attestation,
       currentPullHead,
       publicKey: input.publicKey,
+      runnerIdentity: input.runnerIdentity,
       signingKeyStatus: input.signingKeyStatus,
       now: input.now,
       consumedNonceHashes: input.consumedNonceHashes,
@@ -723,11 +1153,92 @@ export class ControlPlane {
     }
   }
 
+  private createRunnerIdentityFromKeyInput(input: RegisterRunnerKeyInput): RunnerIdentity {
+    const fingerprint = input.publicKeyFingerprint ?? (input.publicKey ? publicKeyFingerprint(input.publicKey) : undefined);
+    if (!fingerprint) throw new Error("runner-public-key-required");
+    requireKeyFingerprint(fingerprint, "runner.publicKeyFingerprint");
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    requireFiniteTime(createdAt, "runner.createdAt");
+    const runnerId = input.runnerId ?? runnerIdentityId({
+      installationId: input.installationId,
+      publicKeyId: input.publicKeyId,
+      fingerprint
+    });
+    return createRunnerIdentity({
+      ...input,
+      runnerId,
+      publicKeyFingerprint: fingerprint,
+      status: "active",
+      createdAt,
+      rotatedAt: null,
+      revokedAt: null
+    });
+  }
+
+  private storeRunnerIdentity(identity: RunnerIdentity): RunnerIdentity {
+    const current = this.runnerIdentities.get(identity.runnerId);
+    if (current) {
+      if (
+        current.installationId === identity.installationId
+        && current.publicKeyId === identity.publicKeyId
+        && current.publicKeyFingerprint === identity.publicKeyFingerprint
+        && current.status === "active"
+      ) {
+        return current;
+      }
+      throw new Error(current.status === "revoked" ? "runner-key-revoked" : "runner-identity-conflict");
+    }
+
+    for (const runner of this.runnerIdentities.values()) {
+      if (runner.status === "revoked") continue;
+      if (runner.publicKeyId === identity.publicKeyId) throw new Error("runner-key-already-active");
+      if (runner.publicKeyFingerprint === identity.publicKeyFingerprint) throw new Error("runner-key-fingerprint-already-active");
+    }
+
+    this.runnerIdentities.set(identity.runnerId, identity);
+    return identity;
+  }
+
+  private recordRunnerKeyAudit(
+    action: RunnerKeyAuditAction,
+    authorization: RunnerKeyAdminAuthorization,
+    runner: RunnerIdentity,
+    occurredAt: string,
+    relatedRunnerId?: string
+  ): ControlPlaneAuditEvent {
+    const resource = runnerKeyAuditResource(runner, relatedRunnerId);
+    const eventCore = {
+      schemaVersion: "archcontext.audit-event/v1",
+      action,
+      actorId: authorization.actorId,
+      actorLogin: authorization.actorLogin,
+      occurredAt,
+      resource,
+      reason: authorization.reason ?? "github-admin-authorized"
+    };
+    const metadataDigest = digestJson(eventCore as any);
+    const event: ControlPlaneAuditEvent = {
+      ...eventCore,
+      schemaVersion: "archcontext.audit-event/v1",
+      eventId: `audit_${metadataDigest.slice("sha256:".length, "sha256:".length + 16)}`,
+      metadataDigest
+    };
+    this.auditEvents.push(event);
+    return event;
+  }
+
   private requireDeviceIdentity(deviceId: string): DeviceIdentity {
     const normalizedDeviceId = requireNonEmptyString(deviceId, "device.deviceId");
     const device = this.deviceIdentities.get(normalizedDeviceId);
     if (!device) throw new Error("device-not-found");
     return device;
+  }
+
+  private requireRunnerIdentity(runnerId: string): RunnerIdentity {
+    const normalizedRunnerId = requireNonEmptyString(runnerId, "runner.runnerId");
+    const runner = this.runnerIdentities.get(normalizedRunnerId);
+    if (!runner) throw new Error("runner-not-found");
+    return runner;
   }
 }
 
@@ -796,6 +1307,89 @@ function requireKeyFingerprint(value: string, field: string): void {
   if (!/^sha256:[a-f0-9]{64}$/.test(value)) throw new Error(`${field}-invalid`);
 }
 
+function requirePositiveInteger(value: number, field: string): number {
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`${field}-invalid`);
+  return value;
+}
+
+function requireRunnerKeyAdminAuthorization(authorization: RunnerKeyAdminAuthorization | undefined, runner: RunnerIdentity): RunnerKeyAdminAuthorization {
+  if (!authorization) throw new Error("runner-key-admin-authorization-required");
+  const actorId = requireNonEmptyString(authorization.actorId, "runner.actorId");
+  const actorLogin = authorization.actorLogin === undefined ? undefined : requireNonEmptyString(authorization.actorLogin, "runner.actorLogin");
+  const installationId = requirePositiveInteger(authorization.installationId, "runner.authorization.installationId");
+  if (installationId !== runner.installationId) throw new Error("runner-key-admin-installation-mismatch");
+  const verifiedAt = authorization.verifiedAt;
+  requireFiniteTime(verifiedAt, "runner.authorization.verifiedAt");
+  const permissionSource = requirePermissionSource(authorization.permissionSource);
+  const organizationAdmin = authorization.organizationAdmin === true;
+  const repositoryAdminIds = normalizeRepositoryAdminIds(authorization.repositoryAdminIds ?? []);
+  const scope = runnerIdentityEffectiveScope(runner);
+  if (scope.kind === "organization" && !organizationAdmin) {
+    throw new Error("runner-key-admin-organization-required");
+  }
+  if (scope.kind === "repository" && !organizationAdmin) {
+    const authorizedRepositoryIds = new Set(repositoryAdminIds);
+    const missingRepositoryId = scope.repositoryIds.find((repositoryId) => !authorizedRepositoryIds.has(repositoryId));
+    if (missingRepositoryId !== undefined) throw new Error("runner-key-admin-repository-required");
+  }
+  const reason = authorization.reason === undefined ? undefined : requireNonEmptyString(authorization.reason, "runner.authorization.reason");
+  return {
+    actorId,
+    ...(actorLogin === undefined ? {} : { actorLogin }),
+    installationId,
+    organizationAdmin,
+    repositoryAdminIds,
+    permissionSource,
+    verifiedAt,
+    ...(reason === undefined ? {} : { reason })
+  };
+}
+
+function requirePermissionSource(value: RunnerKeyAdminAuthorization["permissionSource"]): RunnerKeyAdminAuthorization["permissionSource"] {
+  if (value === "github-app" || value === "github-oauth" || value === "manual-ops" || value === "test-fixture") return value;
+  throw new Error("runner-key-admin-permission-source-invalid");
+}
+
+function normalizeRepositoryAdminIds(value: number[]): number[] {
+  if (!Array.isArray(value)) throw new Error("runner-key-admin-repository-ids-invalid");
+  return [...new Set(value.map((repositoryId, index) => requirePositiveInteger(repositoryId, `runner.authorization.repositoryAdminIds[${index}]`)))]
+    .sort((a, b) => a - b);
+}
+
+function runnerKeyRecoveryBase(runner: RunnerIdentity): Omit<
+  RunnerKeyRecoveryStatus,
+  "submitAllowed" | "immediateRejection" | "retryCurrentKey" | "replacementRequired" | "action" | "nextActions" | "reasonCode"
+> {
+  const scope = runnerIdentityEffectiveScope(runner);
+  return {
+    schemaVersion: "archcontext.runner-key-recovery/v1",
+    runnerId: runner.runnerId,
+    lifecycleState: runner.status,
+    installationId: runner.installationId,
+    repositoryIds: runner.repositoryIds,
+    scope,
+    workflowRef: runner.workflowRef,
+    publicKeyId: runner.publicKeyId,
+    fingerprint: runner.publicKeyFingerprint,
+    revokedAt: runner.revokedAt ?? null
+  };
+}
+
+function runnerKeyAuditResource(runner: RunnerIdentity, relatedRunnerId?: string): ControlPlaneAuditEvent["resource"] {
+  const scope = runnerIdentityEffectiveScope(runner);
+  return {
+    kind: "runner-key",
+    runnerId: runner.runnerId,
+    installationId: runner.installationId,
+    scopeKind: scope.kind,
+    repositoryIds: scope.kind === "repository" ? scope.repositoryIds : [],
+    workflowRef: runner.workflowRef,
+    publicKeyId: runner.publicKeyId,
+    publicKeyFingerprint: runner.publicKeyFingerprint,
+    ...(relatedRunnerId === undefined ? {} : { relatedRunnerId })
+  };
+}
+
 function deviceIdentityId(input: { accountId: string; publicKeyId: string; fingerprint: string }): string {
   const digest = digestJson({
     schemaVersion: "archcontext.device-identity-id/v1",
@@ -804,6 +1398,16 @@ function deviceIdentityId(input: { accountId: string; publicKeyId: string; finge
     fingerprint: input.fingerprint
   });
   return `device_${digest.slice("sha256:".length, "sha256:".length + 16)}`;
+}
+
+function runnerIdentityId(input: { installationId: number; publicKeyId: string; fingerprint: string }): string {
+  const digest = digestJson({
+    schemaVersion: "archcontext.runner-identity-id/v1",
+    installationId: input.installationId,
+    publicKeyId: input.publicKeyId,
+    fingerprint: input.fingerprint
+  });
+  return `runner_${digest.slice("sha256:".length, "sha256:".length + 16)}`;
 }
 
 function deviceIdentityKeyStatus(device: DeviceIdentity): GovernanceKeyStatus {

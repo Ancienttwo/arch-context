@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-20T21:54:42Z",
+  "updatedAt": "2026-06-21T14:40:09Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -1310,6 +1310,400 @@
         "scripts/fg3-cloud-dlp-readback.test.ts",
         "docs/verification/fg3-cloud-dlp-readback.json",
         "docs/verification/fg3-developer-review-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "schemas/cloud/runner-identity.schema.json",
+        "packages/contracts/fixtures/boundary/runner-identity-organization-scope.json",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "schemas/cloud/attestation-v2.schema.json",
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "packages/local-runtime/git-adapter/src/index.ts",
+        "packages/local-runtime/git-adapter/test/git-adapter.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-08",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "actions/review-action/action.yml",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/core/review-engine/src/index.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/adr/ADR-0036-deterministic-gate-llm-advisory.md",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-12",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/attestation/src/index.ts",
+        "packages/cloud/attestation/test/attestation.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md",
+        "docs/verification/fg3-required-trust-staging-readback.json"
+      ]
+    },
+    {
+      "id": "FG4-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/examples/github-hosted-runner-workflow.yml",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-18",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "docs/security/self-hosted-runner-hardening.md",
+        "packages/cloud/hardening/test/hardening.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-19",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        ".github/workflows/archcontext-organization-runner.yml",
+        "docs/examples/reusable-organization-runner-caller.yml",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-20",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-organization-runner-ruleset-readback.json",
+        "scripts/fg3-required-trust-staging-readback.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-21",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "docs/runbooks/trusted-runner.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "scripts/fg4-github-hosted-runner-readback.ts",
+        "scripts/fg4-github-hosted-runner-readback.test.ts",
+        "scripts/fg4-github-hosted-runner-attestation.ts",
+        "actions/review-action/dist/review-action.mjs",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+        "docs/verification/fg4-self-hosted-runner-dlp-readback.json",
+        "scripts/fg4-github-hosted-runner-readback.ts",
+        "scripts/fg4-github-hosted-runner-readback.test.ts",
+        "scripts/fg4-runner-dlp-readback.ts",
+        "scripts/fg4-github-hosted-runner-attestation.ts",
+        "actions/review-action/dist/review-action.mjs",
+        "docs/security/self-hosted-runner-hardening.md",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-developer-cannot-satisfy-organization-readback.json",
+        "docs/verification/fg4-organization-runner-ruleset-readback.json",
+        "scripts/fg4-developer-cannot-satisfy-organization-readback.ts",
+        "scripts/fg4-developer-cannot-satisfy-organization-readback.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-runner-key-lifecycle-e2e.json",
+        "scripts/fg4-runner-key-lifecycle-e2e.ts",
+        "scripts/fg4-runner-key-lifecycle-e2e.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-public-fork-adversarial-readback.json",
+        "scripts/fg4-public-fork-adversarial-readback.ts",
+        "scripts/fg4-public-fork-adversarial-readback.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/verification/fg4-supply-chain-negative-readback.json",
+        "scripts/fg4-supply-chain-negative-readback.ts",
+        "scripts/fg4-supply-chain-negative-readback.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "packages/cloud/attestation/src/index.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "docs/verification/fg4-deterministic-conclusion-readback.json",
+        "scripts/fg4-deterministic-conclusion-readback.ts",
+        "scripts/fg4-deterministic-conclusion-readback.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG4-EG8",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg4-runner-dlp-readback.json",
+        "docs/verification/fg4-self-hosted-runner-dlp-readback.json",
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+        "scripts/fg4-runner-dlp-readback.ts",
+        "scripts/fg4-runner-dlp-readback.test.ts",
+        "docs/security/fixtures/cloud-private-content-bait.json",
+        "docs/verification/fg4-organization-runner-gate.md"
       ]
     }
   ]

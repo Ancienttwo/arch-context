@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "archcontext.fg4-deterministic-conclusion-readback/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T05:39:52.719Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "providerEnvCleared": {
+      "OPENAI_API_KEY": true,
+      "ANTHROPIC_API_KEY": true,
+      "GOOGLE_API_KEY": true,
+      "MISTRAL_API_KEY": true
+    },
+    "deterministicGate": {
+      "llmProviderConfigured": false,
+      "modelDigest": "sha256:1c9994d793941d5ee0d4d2e6d7f9d911e45ef973f841149ca35b544ab5bf56e3",
+      "result": "pass",
+      "reviewDigestMatchesAttestation": true
+    },
+    "attestation": {
+      "accepted": true,
+      "result": "pass",
+      "runtimeBuildDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "conclusionSource": "deterministic-gate"
+    },
+    "advisory": {
+      "allowedAdvisoryCreated": true,
+      "deterministicReviewDigestMatches": true,
+      "injectedAdvisoryRejected": true,
+      "injectedAdvisoryReason": "llm-advisory-conclusion-field-forbidden: result,signature,checkConclusion"
+    },
+    "upload": {
+      "privacyAuditOk": true,
+      "containsAdvisory": false,
+      "containsProviderCredential": false
+    },
+    "leakCounters": {
+      "plaintextNonceLeaks": 0,
+      "privateKeyLeaks": 0,
+      "tokenLeaks": 0
+    }
+  },
+  "failures": []
+}
