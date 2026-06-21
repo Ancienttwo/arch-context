@@ -1,0 +1,14 @@
+name: FG4 EG5 Dangerous pull_request_target Canary
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  should-not-run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "FG4_EG5_DANGEROUS_PULL_REQUEST_TARGET_SHOULD_NOT_RUN"

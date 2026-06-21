@@ -1,0 +1,2 @@
+FG4-EG5 public fork adversarial marker
+branch=codex/fg4-eg5-public-fork-readback-mqnw6l00
