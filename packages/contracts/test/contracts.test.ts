@@ -584,7 +584,10 @@ describe("GitHub governance contracts", () => {
 
     expect(canTransitionCheckDelivery("PENDING", "RETRYING")).toBe(true);
     expect(canTransitionCheckDelivery("RETRYING", "PUBLISHED")).toBe(true);
+    expect(canTransitionCheckDelivery("RETRYING", "DEAD_LETTER")).toBe(true);
+    expect(canTransitionCheckDelivery("DEAD_LETTER", "PENDING")).toBe(true);
     expect(canTransitionCheckDelivery("PUBLISHED", "RETRYING")).toBe(false);
+    expect(canTransitionCheckDelivery("PUBLISHED", "DEAD_LETTER")).toBe(false);
   });
 
   test("ReviewChallenge v2 transition returns a new value only for legal moves", () => {

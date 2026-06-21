@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "archcontext.fg5-retention-staging-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T17:52:35.792Z",
+  "config": {
+    "database": "archcontext-control-plane-staging",
+    "wranglerConfig": "wrangler.jsonc",
+    "output": "docs/verification/fg5-retention-staging-readback.json",
+    "now": "2026-06-21T14:00:00.000Z",
+    "prefix": "fg5eg5_20260621T175235792Z"
+  },
+  "policy": {
+    "days": {
+      "webhookDelivery": 30,
+      "unfinishedChallenge": 7,
+      "verifiedAttestation": 365,
+      "rejectedAttestation": 30,
+      "legacyAttestationAudit": 30,
+      "checkDelivery": 90,
+      "revokedRunnerKey": 365,
+      "rawWebhookBody": 0,
+      "privateContent": 0
+    },
+    "cutoffs": {
+      "now": "2026-06-21T14:00:00.000Z",
+      "webhookDeliveryBefore": "2026-05-22T14:00:00.000Z",
+      "unfinishedChallengeCreatedBefore": "2026-06-14T14:00:00.000Z",
+      "verifiedAttestationAcceptedBefore": "2025-06-21T14:00:00.000Z",
+      "rejectedAttestationAcceptedBefore": "2026-05-22T14:00:00.000Z",
+      "legacyAttestationAuditBefore": "2026-05-22T14:00:00.000Z",
+      "checkDeliveryUpdatedBefore": "2026-03-23T14:00:00.000Z",
+      "revokedRunnerKeyBefore": "2025-06-21T14:00:00.000Z"
+    }
+  },
+  "evidence": {
+    "database": "archcontext-control-plane-staging",
+    "migration": {
+      "success": true,
+      "rowsRead": 0,
+      "rowsWritten": 0,
+      "changedDb": true,
+      "finalBookmark": "00000003-00000004-00005091-96b0b0e742fb03dac7ed82699b9c446f"
+    },
+    "seed": {
+      "success": true,
+      "rowsRead": 12,
+      "rowsWritten": 100,
+      "changedDb": true,
+      "finalBookmark": "00000003-00000010-00005091-9e4970992f0c89c548c8742daa61e655"
+    },
+    "ordinaryDeleteRejected": true,
+    "purge": {
+      "success": true,
+      "rowsRead": 53,
+      "rowsWritten": 12,
+      "changedDb": true,
+      "finalBookmark": "00000003-00000015-00005091-22b5fde1cfef6757295612d9292a7283"
+    },
+    "counts": {
+      "webhookExpired": 0,
+      "webhookRecent": 1,
+      "unfinishedChallengeExpired": 0,
+      "unfinishedChallengeRecent": 1,
+      "terminalChallengeOld": 1,
+      "verifiedAttestationExpired": 0,
+      "verifiedAttestationRecent": 1,
+      "rejectedAttestationExpired": 0,
+      "rejectedAttestationRecent": 1,
+      "legacyExpired": 0,
+      "legacyRecent": 1,
+      "checkExpired": 0,
+      "checkRecent": 1,
+      "revokedRunnerExpired": 0,
+      "revokedRunnerExpiredRepositories": 0,
+      "revokedRunnerExpiredRotationWindows": 0,
+      "revokedRunnerRecent": 1,
+      "retentionPurgeAuthorizations": 0
+    }
+  },
+  "privacy": {
+    "privateContentHits": 0,
+    "secretMarkerHits": 0,
+    "codeContentMarkerHits": 0
+  },
+  "failures": []
+}

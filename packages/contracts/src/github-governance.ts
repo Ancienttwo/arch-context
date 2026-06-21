@@ -101,7 +101,7 @@ export const CHECK_DELIVERY_STATUS_TRANSITIONS: Record<CheckDeliveryStatus, read
   PENDING: ["PUBLISHED", "RETRYING", "DEAD_LETTER"],
   RETRYING: ["PUBLISHED", "RETRYING", "DEAD_LETTER"],
   PUBLISHED: [],
-  DEAD_LETTER: []
+  DEAD_LETTER: ["PENDING"]
 } as const;
 
 export const RUNNER_IDENTITY_STATUS_TRANSITIONS: Record<RunnerIdentityStatus, readonly RunnerIdentityStatus[]> = {
@@ -247,7 +247,9 @@ export type GovernanceReasonCode =
   | "DEVICE_REVOKED"
   | "RUNTIME_VERSION_UNSUPPORTED"
   | "SIGNATURE_INVALID"
-  | "PAYLOAD_PRIVACY_VIOLATION";
+  | "PAYLOAD_PRIVACY_VIOLATION"
+  | "CHECK_DELIVERY_FAILED"
+  | "CHECK_DELIVERY_MAX_ATTEMPTS";
 
 export const GOVERNANCE_REASON_CATALOG: Record<GovernanceReasonCode, { retryable: boolean; action: string }> = {
   ATTESTATION_SCHEMA_UNSUPPORTED: { retryable: true, action: "rerun-with-attestation-v2" },
@@ -270,7 +272,9 @@ export const GOVERNANCE_REASON_CATALOG: Record<GovernanceReasonCode, { retryable
   DEVICE_REVOKED: { retryable: false, action: "register-new-device-key" },
   RUNTIME_VERSION_UNSUPPORTED: { retryable: true, action: "upgrade-archctx-runtime" },
   SIGNATURE_INVALID: { retryable: false, action: "restart-review-session" },
-  PAYLOAD_PRIVACY_VIOLATION: { retryable: false, action: "remove-private-content-from-payload" }
+  PAYLOAD_PRIVACY_VIOLATION: { retryable: false, action: "remove-private-content-from-payload" },
+  CHECK_DELIVERY_FAILED: { retryable: true, action: "retry-check-delivery" },
+  CHECK_DELIVERY_MAX_ATTEMPTS: { retryable: false, action: "manual-replay-or-rerequest-check" }
 } as const;
 
 export interface ReviewChallengeV2 {
@@ -445,6 +449,7 @@ export interface CreateGovernanceCheckInput {
   headSha: string;
   name: GovernanceCheckName;
   status: "queued" | "in_progress" | "completed";
+  externalId?: string;
 }
 
 export interface UpdateGovernanceCheckInput {

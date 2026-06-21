@@ -1,0 +1,434 @@
+openapi: 3.1.0
+info:
+  title: ArchContext Control Plane API
+  version: 0.1.0-fg5
+  summary: Metadata-only GitHub governance control-plane API.
+  description: >
+    This API surface stores and returns control-plane metadata, digests,
+    statuses, and reason codes. It does not accept repository content,
+    diffs, patches, detailed findings, prompts, completions, raw webhook
+    bodies, bearer tokens, or private key material.
+servers:
+  - url: https://archcontext.repoharness.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Challenges
+  - name: Device Keys
+  - name: Runner Keys
+  - name: Webhooks
+paths:
+  /github/webhook:
+    post:
+      tags: [Webhooks]
+      summary: Receive a signed GitHub webhook and project it before storage.
+      description: Raw bytes are verified before JSON projection and are not retained.
+      security: []
+      responses:
+        "202":
+          description: Webhook accepted or idempotently replayed.
+        "401":
+          description: Signature rejected before JSON projection.
+  /v1/challenges:
+    get:
+      tags: [Challenges]
+      summary: List ReviewChallenge v2 metadata by repository, pull request, head SHA, and trust.
+      x-archcontext-schemaVersion: archcontext.challenge-list-request/v1
+      parameters:
+        - $ref: "#/components/parameters/repositoryId"
+        - $ref: "#/components/parameters/pullRequestNumber"
+        - $ref: "#/components/parameters/headSha"
+        - $ref: "#/components/parameters/requiredTrust"
+      responses:
+        "200":
+          description: Metadata-only Challenge list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReviewChallengeV2"
+    post:
+      tags: [Challenges]
+      summary: Create or idempotently replay a ReviewChallenge v2.
+      x-archcontext-schemaVersion: archcontext.challenge-create-request/v1
+      parameters:
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChallengeCreateRequest"
+      responses:
+        "201":
+          description: Challenge created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewChallengeV2"
+        "409":
+          description: Active identity or idempotency conflict.
+  /v1/challenges/{challenge}:
+    get:
+      tags: [Challenges]
+      summary: Get one ReviewChallenge v2 by ID.
+      x-archcontext-schemaVersion: archcontext.challenge-get-request/v1
+      parameters:
+        - $ref: "#/components/parameters/challenge"
+      responses:
+        "200":
+          description: Challenge metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewChallengeV2"
+        "404":
+          description: Challenge not found.
+  /v1/challenges/{challenge}/lease:
+    post:
+      tags: [Challenges]
+      summary: Claim or renew a Challenge lease.
+      x-archcontext-schemaVersion: archcontext.challenge-lease-request/v1
+      parameters:
+        - $ref: "#/components/parameters/challenge"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChallengeLeaseRequest"
+      responses:
+        "200":
+          description: Lease claim result.
+  /v1/challenges/{challenge}/attestations:
+    post:
+      tags: [Challenges]
+      summary: Submit Attestation v2 for the current Challenge head.
+      x-archcontext-schemaVersion: archcontext.challenge-submit-request/v1
+      parameters:
+        - $ref: "#/components/parameters/challenge"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChallengeSubmitRequest"
+      responses:
+        "200":
+          description: Submit result with accepted status or reason code.
+        "409":
+          description: Challenge already consumed, expired, or superseded.
+  /v1/challenges/{challenge}/cancel:
+    post:
+      tags: [Challenges]
+      summary: Cancel an active Challenge through the transition guard.
+      x-archcontext-schemaVersion: archcontext.challenge-cancel-request/v1
+      parameters:
+        - $ref: "#/components/parameters/challenge"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChallengeCancelRequest"
+      responses:
+        "200":
+          description: Challenge cancelled to terminal state.
+  /v1/device-keys:
+    post:
+      tags: [Device Keys]
+      summary: Register a Device public key for a user account.
+      x-archcontext-schemaVersion: archcontext.device-key-register-request/v1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceKeyRegisterRequest"
+      responses:
+        "201":
+          description: Device identity metadata stored.
+  /v1/device-keys/{device}/revoke:
+    post:
+      tags: [Device Keys]
+      summary: Revoke a Device public key.
+      x-archcontext-schemaVersion: archcontext.device-key-revoke-request/v1
+      parameters:
+        - $ref: "#/components/parameters/device"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceKeyRevokeRequest"
+      responses:
+        "200":
+          description: Device identity moved to revoked state.
+  /v1/runner-keys:
+    post:
+      tags: [Runner Keys]
+      summary: Register a Runner public key for repository or organization scope.
+      x-archcontext-schemaVersion: archcontext.runner-key-register-request/v1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunnerKeyRegisterRequest"
+      responses:
+        "201":
+          description: Runner identity metadata stored and audit event recorded.
+  /v1/runner-keys/{runner}/rotate:
+    post:
+      tags: [Runner Keys]
+      summary: Rotate an active Runner public key with an overlap window.
+      x-archcontext-schemaVersion: archcontext.runner-key-rotate-request/v1
+      parameters:
+        - $ref: "#/components/parameters/runner"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunnerKeyRotateRequest"
+      responses:
+        "200":
+          description: Previous and replacement Runner identity metadata returned.
+  /v1/runner-keys/{runner}/revoke:
+    post:
+      tags: [Runner Keys]
+      summary: Revoke or unregister a Runner public key.
+      x-archcontext-schemaVersion: archcontext.runner-key-revoke-request/v1
+      parameters:
+        - $ref: "#/components/parameters/runner"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunnerKeyRevokeRequest"
+      responses:
+        "200":
+          description: Runner identity moved to revoked state and audit event recorded.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    challenge:
+      name: challenge
+      in: path
+      required: true
+      schema:
+        type: string
+    device:
+      name: device
+      in: path
+      required: true
+      schema:
+        type: string
+    runner:
+      name: runner
+      in: path
+      required: true
+      schema:
+        type: string
+    repositoryId:
+      name: repositoryId
+      in: query
+      required: false
+      schema:
+        type: integer
+    pullRequestNumber:
+      name: pullRequestNumber
+      in: query
+      required: false
+      schema:
+        type: integer
+    headSha:
+      name: headSha
+      in: query
+      required: false
+      schema:
+        type: string
+        pattern: "^[a-f0-9]{40}$"
+    requiredTrust:
+      name: requiredTrust
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [developer, organization]
+  schemas:
+    ChallengeCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, installationId, repositoryId, pullRequestNumber, headSha, baseSha, requiredTrust, policyProfileId, createdAt]
+      properties:
+        schemaVersion:
+          const: archcontext.challenge-create-request/v1
+        installationId:
+          type: integer
+        repositoryId:
+          type: integer
+        pullRequestNumber:
+          type: integer
+        headSha:
+          type: string
+          pattern: "^[a-f0-9]{40}$"
+        baseSha:
+          type: string
+          pattern: "^[a-f0-9]{40}$"
+        requiredTrust:
+          type: string
+          enum: [developer, organization]
+        policyProfileId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+    ChallengeLeaseRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, claimantId, now]
+      properties:
+        schemaVersion:
+          const: archcontext.challenge-lease-request/v1
+        claimantId:
+          type: string
+        now:
+          type: string
+          format: date-time
+        ttlMs:
+          type: integer
+    ChallengeSubmitRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, challengeId, attestation, currentPullHead, resourceAuthorization, now]
+      properties:
+        schemaVersion:
+          const: archcontext.challenge-submit-request/v1
+        challengeId:
+          type: string
+        attestation:
+          $ref: "./../../schemas/cloud/attestation-v2.schema.json"
+        currentPullHead:
+          type: object
+          additionalProperties: false
+        resourceAuthorization:
+          type: object
+          additionalProperties: false
+        now:
+          type: string
+          format: date-time
+    ChallengeCancelRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, challengeId, reason, now]
+      properties:
+        schemaVersion:
+          const: archcontext.challenge-cancel-request/v1
+        challengeId:
+          type: string
+        reason:
+          type: string
+        now:
+          type: string
+          format: date-time
+    DeviceKeyRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, accountId, publicKeyId, authorization]
+      properties:
+        schemaVersion:
+          const: archcontext.device-key-register-request/v1
+        accountId:
+          type: string
+        publicKeyId:
+          type: string
+        authorization:
+          type: object
+          additionalProperties: false
+    DeviceKeyRevokeRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, deviceId, revokedAt, authorization]
+      properties:
+        schemaVersion:
+          const: archcontext.device-key-revoke-request/v1
+        deviceId:
+          type: string
+        revokedAt:
+          type: string
+          format: date-time
+        authorization:
+          type: object
+          additionalProperties: false
+    RunnerKeyRegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, installationId, scope, workflowRef, publicKeyId, authorization]
+      properties:
+        schemaVersion:
+          const: archcontext.runner-key-register-request/v1
+        installationId:
+          type: integer
+        scope:
+          type: object
+          additionalProperties: false
+        workflowRef:
+          type: string
+        publicKeyId:
+          type: string
+        authorization:
+          type: object
+          additionalProperties: false
+    RunnerKeyRotateRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, runnerId, publicKeyId, authorization]
+      properties:
+        schemaVersion:
+          const: archcontext.runner-key-rotate-request/v1
+        runnerId:
+          type: string
+        publicKeyId:
+          type: string
+        rotatedAt:
+          type: string
+          format: date-time
+        overlapUntil:
+          type: string
+          format: date-time
+        authorization:
+          type: object
+          additionalProperties: false
+    RunnerKeyRevokeRequest:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, runnerId, revokedAt, authorization]
+      properties:
+        schemaVersion:
+          const: archcontext.runner-key-revoke-request/v1
+        runnerId:
+          type: string
+        revokedAt:
+          type: string
+          format: date-time
+        authorization:
+          type: object
+          additionalProperties: false
+    ReviewChallengeV2:
+      $ref: "./../../schemas/cloud/review-challenge-v2.schema.json"

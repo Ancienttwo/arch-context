@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "archcontext.fg5-full-plane-dlp-readback/v1",
+  "environment": "local-full-plane",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:07:43.283Z",
+  "config": {
+    "output": "docs/verification/fg5-full-plane-dlp-readback.json",
+    "now": "2026-06-21T19:00:00.000Z",
+    "baitFixture": "docs/security/fixtures/cloud-private-content-bait.json",
+    "baitNeedleCount": 4
+  },
+  "evidence": {
+    "database": {
+      "schemaPrivacyOk": true,
+      "tableCount": 13,
+      "rowCount": 11,
+      "tables": [
+        {
+          "name": "accounts",
+          "rowCount": 1
+        },
+        {
+          "name": "attestations",
+          "rowCount": 1
+        },
+        {
+          "name": "check_deliveries",
+          "rowCount": 1
+        },
+        {
+          "name": "device_identities",
+          "rowCount": 1
+        },
+        {
+          "name": "github_installations",
+          "rowCount": 1
+        },
+        {
+          "name": "legacy_attestation_migrations",
+          "rowCount": 1
+        },
+        {
+          "name": "retention_purge_authorizations",
+          "rowCount": 0
+        },
+        {
+          "name": "review_challenges",
+          "rowCount": 1
+        },
+        {
+          "name": "runner_identities",
+          "rowCount": 1
+        },
+        {
+          "name": "runner_identity_repositories",
+          "rowCount": 1
+        },
+        {
+          "name": "runner_key_rotation_windows",
+          "rowCount": 0
+        },
+        {
+          "name": "subscriptions",
+          "rowCount": 1
+        },
+        {
+          "name": "webhook_deliveries",
+          "rowCount": 1
+        }
+      ]
+    },
+    "exports": {
+      "logRecordCount": 1,
+      "traceRecordCount": 1,
+      "queueRecordCount": 2,
+      "errorRecordCount": 1,
+      "queueHasCheckDeliveryMessage": true
+    },
+    "scans": {
+      "database": {
+        "surface": "database",
+        "exportedRecordCount": 11,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenKeyMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "log": {
+        "surface": "log",
+        "exportedRecordCount": 1,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenKeyMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "trace": {
+        "surface": "trace",
+        "exportedRecordCount": 1,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenKeyMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "queue": {
+        "surface": "queue",
+        "exportedRecordCount": 2,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenKeyMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "error": {
+        "surface": "error",
+        "exportedRecordCount": 1,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenKeyMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      }
+    }
+  },
+  "failures": []
+}

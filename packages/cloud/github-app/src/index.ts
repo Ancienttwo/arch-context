@@ -4,6 +4,7 @@ import {
   DEVELOPER_REVIEW_CHECK_NAME,
   GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
+  digestJson,
   type AttestationV2,
   type CheckReference,
   type CheckRunReference,
@@ -112,6 +113,7 @@ export interface GitHubCheckCreateApiRequest {
     name: GovernanceCheckName;
     head_sha: string;
     status: CreateGovernanceCheckInput["status"];
+    external_id?: string;
   };
 }
 
@@ -276,6 +278,12 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
     const installationId = requirePositiveInteger(input.installationId, "installationId");
     const repositoryId = requirePositiveInteger(input.repositoryId, "repositoryId");
     requirePositiveInteger(input.pullRequestNumber, "pullRequestNumber");
+    const requestBody: GitHubCheckCreateApiRequest["body"] = {
+      name: requireGovernanceCheckName(input.name),
+      head_sha: requireNonEmptyInputString(input.headSha, "headSha"),
+      status: requireCheckStatus(input.status)
+    };
+    if (input.externalId !== undefined) requestBody.external_id = requireNonEmptyInputString(input.externalId, "externalId");
     const response = await this.transport.request(assertGitHubGovernanceApiRequestAllowed({
       category: "github.check-create",
       installationId,
@@ -284,11 +292,7 @@ export class GitHubGovernanceRestPort implements Pick<GitHubGovernancePort, "get
       pathTemplate: GITHUB_CHECK_CREATE_PATH_TEMPLATE,
       path: `/repositories/${repositoryId}/check-runs`,
       accept: "application/vnd.github+json",
-      body: {
-        name: requireGovernanceCheckName(input.name),
-        head_sha: requireNonEmptyInputString(input.headSha, "headSha"),
-        status: requireCheckStatus(input.status)
-      }
+      body: requestBody
     }));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw new Error(`github-check-create-failed: ${response.statusCode}`);
@@ -446,11 +450,19 @@ export interface WebhookDeliveryLedger {
   recordDelivery(input: { provider: "github"; deliveryId: string; receivedAt: string }): WebhookDeliveryReceipt;
 }
 
+export function webhookDeliveryIdempotencyKey(input: { provider: "github"; deliveryId: string }): string {
+  return digestJson({
+    schemaVersion: "archcontext.webhook-delivery-idempotency-key/v1",
+    provider: input.provider,
+    deliveryId: requireNonEmptyInputString(input.deliveryId, "deliveryId")
+  });
+}
+
 export class InMemoryWebhookDeliveryLedger implements WebhookDeliveryLedger {
   private readonly receipts = new Map<string, WebhookDeliveryReceipt>();
 
   recordDelivery(input: { provider: "github"; deliveryId: string; receivedAt: string }): WebhookDeliveryReceipt {
-    const key = `${input.provider}:${input.deliveryId}`;
+    const key = webhookDeliveryIdempotencyKey(input);
     const existing = this.receipts.get(key);
     if (existing) return { ...existing, replay: true, action: "ignore-duplicate" };
     const receipt: WebhookDeliveryReceipt = {

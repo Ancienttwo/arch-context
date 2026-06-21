@@ -28,6 +28,88 @@ describe("fg2 staging Cloudflare Worker", () => {
     expect(JSON.stringify(body)).not.toContain(webhookSecret);
   });
 
+  test("protects FG5 Check failure injection readback with a staging HMAC", async () => {
+    const response = await worker.fetch(new Request("https://worker.example/v1/fg5/check-delivery/failure-injection", {
+      method: "POST"
+    }), env);
+
+    expect(response.status).toBe(401);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ ok: false, error: "readback_unauthorized" });
+    expect(JSON.stringify(body)).not.toContain(webhookSecret);
+  });
+
+  test("exercises FG5 Check API failure retry DLQ and replay through staging readback", async () => {
+    const timestamp = "2026-06-22T01:02:03.000Z";
+    const path = "/v1/fg5/check-delivery/failure-injection";
+    const response = await worker.fetch(new Request(`https://worker.example${path}`, {
+      method: "POST",
+      headers: {
+        "x-archcontext-readback-timestamp": timestamp,
+        "x-archcontext-readback-signature": signReadback({ method: "POST", path, timestamp })
+      }
+    }), env);
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, any>;
+    expect(body).toMatchObject({
+      schemaVersion: "archcontext.fg5-check-failure-readback/v1",
+      environment: "staging",
+      status: "verified",
+      ok: true,
+      route: path,
+      evidence: {
+        checkApiFailureInjected: true,
+        retry: {
+          maxAttemptsReached: true,
+          maxAttemptDecision: {
+            retry: false,
+            reason: "check-delivery-max-attempts-reached"
+          }
+        },
+        deadLetter: {
+          status: "DEAD_LETTER",
+          lastErrorCode: "CHECK_DELIVERY_MAX_ATTEMPTS"
+        },
+        replay: {
+          replayed: true,
+          source: "manual-ops",
+          statusAfterReplay: "PENDING",
+          attemptCountAfterReplay: 0,
+          lastErrorCodeAfterReplay: null
+        },
+        queue: {
+          retryEnqueueCount: 2,
+          replayEnqueued: true
+        }
+      },
+      privacy: {
+        privateContentHits: 0,
+        secretMarkerHits: 0,
+        forbiddenEndpointOrMediaHits: 0,
+        forbiddenKeys: []
+      },
+      failures: []
+    });
+    expect(body.evidence.retry.scheduled).toHaveLength(2);
+    expect(body.evidence.retry.scheduled[0]).toMatchObject({
+      retry: true,
+      delaySeconds: 2,
+      retryAfterDelaySeconds: 2
+    });
+    expect(body.evidence.queue.sentMessages).toHaveLength(3);
+    expect(body.evidence.queue.sentMessages[2].message).toMatchObject({
+      schemaVersion: "archcontext.check-delivery-queue-message/v1",
+      status: "PENDING",
+      attempt: 0
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(webhookSecret);
+    expect(serialized).not.toContain("Bearer ");
+    expect(serialized).not.toContain("diff --git");
+    expect(serialized).not.toContain("nonce_");
+  });
+
   test("rejects invalid GitHub webhook signatures before projection", async () => {
     const response = await worker.fetch(new Request("https://worker.example/v1/github/webhooks", {
       method: "POST",
@@ -300,4 +382,10 @@ describe("fg2 staging Cloudflare Worker", () => {
 
 function sign(rawBody: string): string {
   return `sha256=${createHmac("sha256", webhookSecret).update(rawBody).digest("hex")}`;
+}
+
+function signReadback(input: { method: string; path: string; timestamp: string }): string {
+  return `sha256=${createHmac("sha256", webhookSecret)
+    .update(`${input.method}\n${input.path}\n${input.timestamp}`)
+    .digest("hex")}`;
 }

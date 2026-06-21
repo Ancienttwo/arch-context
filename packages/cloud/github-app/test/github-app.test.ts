@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 import { attestationV2Digest, createAttestationV2, createReviewChallenge, signLocalAttestation, signOrganizationAttestation } from "@archcontext/cloud/attestation";
+import { checkDeliveryIdempotencyKey } from "@archcontext/cloud/cloud-db";
 import { DEVELOPER_REVIEW_CHECK_NAME, GITHUB_APP_PERMISSION_MANIFEST, ORGANIZATION_RUNNER_CHECK_NAME, type AttestationV2, type CloudEgressEnvelope } from "@archcontext/contracts";
 import {
   GITHUB_APP_PERMISSIONS,
@@ -17,6 +18,7 @@ import {
   identifyForbiddenGitHubGovernanceApiEndpoint,
   projectVerifiedGitHubWebhook,
   verifyGitHubWebhookSignature,
+  webhookDeliveryIdempotencyKey,
   type GitHubGovernanceApiRequest
 } from "../src/index";
 
@@ -287,13 +289,19 @@ describe("GitHub App", () => {
       }
     });
 
+    const externalId = checkDeliveryIdempotencyKey({
+      challengeId: "chal_create_check",
+      checkName: DEVELOPER_REVIEW_CHECK_NAME,
+      headSha: "abc123"
+    });
     const result = await port.createCheckRun({
       installationId: 123,
       repositoryId: 987,
       pullRequestNumber: 42,
       headSha: "abc123",
       name: DEVELOPER_REVIEW_CHECK_NAME,
-      status: "queued"
+      status: "queued",
+      externalId
     });
 
     expect(result).toEqual({ checkRunId: "456", htmlUrl: "https://github.example/checks/456" });
@@ -308,10 +316,13 @@ describe("GitHub App", () => {
       body: {
         name: DEVELOPER_REVIEW_CHECK_NAME,
         head_sha: "abc123",
-        status: "queued"
+        status: "queued",
+        external_id: externalId
       }
     }]);
     const body = JSON.stringify((requests[0] as Extract<GitHubGovernanceApiRequest, { category: "github.check-create" }>).body);
+    expect(externalId).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(body).not.toContain("chal_create_check");
     for (const rejected of ["pullRequestNumber", "private-note", "output", "summary"]) {
       expect(body).not.toContain(rejected);
     }
@@ -589,7 +600,10 @@ describe("GitHub App", () => {
     const ledger = new InMemoryWebhookDeliveryLedger();
     const first = ledger.recordDelivery({ provider: "github", deliveryId: "delivery-1", receivedAt: "2026-06-20T00:00:00Z" });
     const replay = ledger.recordDelivery({ provider: "github", deliveryId: "delivery-1", receivedAt: "2026-06-20T00:01:00Z" });
+    const key = webhookDeliveryIdempotencyKey({ provider: "github", deliveryId: "delivery-1" });
 
+    expect(key).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(key).not.toContain("delivery-1");
     expect(first).toMatchObject({ replay: false, action: "process" });
     expect(replay).toMatchObject({ replay: true, action: "ignore-duplicate" });
     expect(replay.receivedAt).toBe(first.receivedAt);

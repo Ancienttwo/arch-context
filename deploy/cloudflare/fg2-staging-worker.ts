@@ -1,5 +1,18 @@
-import { createSign } from "node:crypto";
-import { DEVELOPER_REVIEW_CHECK_NAME, type CloudEgressEnvelope } from "../../packages/contracts/src/index.ts";
+import { createHmac, createSign, timingSafeEqual } from "node:crypto";
+import { checkDeliveryIdempotencyKey } from "../../packages/cloud/cloud-db/src/index.ts";
+import {
+  CHECK_DELIVERY_QUEUE_MESSAGE_SCHEMA_VERSION,
+  ControlPlane,
+  DEFAULT_CHECK_DELIVERY_RETRY_POLICY,
+  type CheckDeliveryQueueMessage,
+  type CheckDeliveryQueueSendOptions
+} from "../../packages/cloud/control-plane/src/index.ts";
+import {
+  DEVELOPER_REVIEW_CHECK_NAME,
+  digestJson,
+  type CheckDelivery,
+  type CloudEgressEnvelope
+} from "../../packages/contracts/src/index.ts";
 import {
   GitHubGovernanceRestPort,
   RecordingGitHubGovernanceApiTransport,
@@ -28,14 +41,267 @@ const supportedGitHubEvents = new Set<ProjectVerifiedGitHubWebhookInput["eventNa
   "installation_repositories"
 ]);
 
+const FG5_CHECK_FAILURE_READBACK_PATH = "/v1/fg5/check-delivery/failure-injection";
+const READBACK_SIGNATURE_HEADER = "x-archcontext-readback-signature";
+const READBACK_TIMESTAMP_HEADER = "x-archcontext-readback-timestamp";
+const FG5_READBACK_SECRET_PATTERNS = [
+  /gh[opsu]_[A-Za-z0-9_]+/,
+  /Bearer\s+[A-Za-z0-9._-]+/i,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /GITHUB_WEBHOOK_SECRET/i,
+  /installation[_-]?token/i,
+  /jwt/i,
+  /x-hub-signature/i,
+  /signature256/i,
+  /webhookSecret/i
+] as const;
+const FG5_READBACK_CODE_CONTENT_PATTERNS = [
+  /diff\s+--git/i,
+  /^@@\s/m,
+  /"patch"\s*:/i,
+  /"fileBody"\s*:/i,
+  /"sourceBody"\s*:/i,
+  /"diffBody"\s*:/i,
+  /\/contents(?:\/|\b)/i,
+  /\/git\/blobs(?:\/|\b)/i,
+  /\/git\/trees(?:\/|\b)/i,
+  /\/pulls\/\d+\/files/i,
+  /application\/vnd\.github\.(?:v3\.)?(?:diff|patch)/i
+] as const;
+const FG5_READBACK_FORBIDDEN_KEYS = new Set([
+  "rawbody",
+  "body",
+  "content",
+  "diff",
+  "patch",
+  "files",
+  "blob",
+  "tree",
+  "token",
+  "authorization",
+  "privatekey",
+  "webhooksecret",
+  "signature256",
+  "nonce"
+]);
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/health") return healthResponse(env);
     if (url.pathname === "/v1/github/webhooks") return handleGitHubWebhook(request, env);
+    if (url.pathname === FG5_CHECK_FAILURE_READBACK_PATH) {
+      return handleFg5CheckFailureInjectionReadback(request, env, url.pathname);
+    }
     return jsonResponse({ ok: false, error: "not_found" }, { status: 404 });
   }
 };
+
+async function handleFg5CheckFailureInjectionReadback(request: Request, env: Env, path: string): Promise<Response> {
+  if (request.method !== "POST") {
+    return jsonResponse({ ok: false, error: "method_not_allowed" }, { status: 405 });
+  }
+  if ((env.ARCHCONTEXT_ENV ?? "staging") !== "staging") {
+    return jsonResponse({ ok: false, error: "not_found" }, { status: 404 });
+  }
+  try {
+    verifyReadbackSignature({ request, env, path });
+  } catch {
+    return jsonResponse({ ok: false, error: "readback_unauthorized" }, { status: 401 });
+  }
+
+  return jsonResponse(await buildFg5CheckFailureInjectionReadback({
+    environment: env.ARCHCONTEXT_ENV ?? "staging",
+    generatedAt: new Date().toISOString()
+  }));
+}
+
+async function buildFg5CheckFailureInjectionReadback(input: { environment: string; generatedAt: string }) {
+  const cp = new ControlPlane();
+  const timestamp = createTimestampFactory(input.generatedAt);
+  const challengeId = "chal_fg5_eg3_check_failure";
+  const headSha = "f".repeat(40);
+  const checkDelivery: CheckDelivery = {
+    schemaVersion: "archcontext.check-delivery/v1",
+    deliveryId: checkDeliveryIdempotencyKey({
+      challengeId,
+      checkName: DEVELOPER_REVIEW_CHECK_NAME,
+      headSha
+    }),
+    challengeId,
+    checkRunId: null,
+    checkName: DEVELOPER_REVIEW_CHECK_NAME,
+    headSha,
+    status: "PENDING",
+    attemptCount: 0,
+    nextAttemptAt: null,
+    lastErrorCode: null,
+    createdAt: timestamp(0),
+    updatedAt: timestamp(0)
+  };
+  const policy = {
+    ...DEFAULT_CHECK_DELIVERY_RETRY_POLICY,
+    maxAttempts: 3,
+    baseDelaySeconds: 1,
+    maxDelaySeconds: 5,
+    jitterRatio: 0
+  };
+  const sentMessages: { message: CheckDeliveryQueueMessage; options?: CheckDeliveryQueueSendOptions }[] = [];
+  const queue = {
+    send(message: CheckDeliveryQueueMessage, options?: CheckDeliveryQueueSendOptions) {
+      sentMessages.push({ message, ...(options === undefined ? {} : { options }) });
+    }
+  };
+  const payloadDigest = digestJson({
+    schemaVersion: "archcontext.fg5-check-delivery-payload/v1",
+    deliveryId: checkDelivery.deliveryId,
+    challengeId,
+    checkName: DEVELOPER_REVIEW_CHECK_NAME,
+    headSha
+  });
+
+  const firstRetry = cp.planCheckDeliveryRetry({
+    checkDelivery,
+    now: timestamp(1),
+    errorCode: "github-503",
+    retryAfter: "2",
+    policy
+  });
+  if (!firstRetry.retry || firstRetry.delaySeconds === undefined) throw new Error("fg5-readback-first-retry-not-scheduled");
+  const firstQueue = await cp.enqueueCheckDelivery({
+    queue,
+    checkDelivery: firstRetry.checkDelivery,
+    payloadDigest,
+    delaySeconds: firstRetry.delaySeconds
+  });
+
+  const secondRetry = cp.planCheckDeliveryRetry({
+    checkDelivery: firstRetry.checkDelivery,
+    now: timestamp(3),
+    errorCode: "github-503",
+    policy
+  });
+  if (!secondRetry.retry || secondRetry.delaySeconds === undefined) throw new Error("fg5-readback-second-retry-not-scheduled");
+  const secondQueue = await cp.enqueueCheckDelivery({
+    queue,
+    checkDelivery: secondRetry.checkDelivery,
+    payloadDigest,
+    delaySeconds: secondRetry.delaySeconds
+  });
+
+  const maxed = cp.planCheckDeliveryRetry({
+    checkDelivery: secondRetry.checkDelivery,
+    now: timestamp(6),
+    errorCode: "github-503",
+    policy
+  });
+  if (maxed.retry || maxed.reason !== "check-delivery-max-attempts-reached") {
+    throw new Error("fg5-readback-max-attempts-not-reached");
+  }
+
+  const deadLetter = cp.deadLetterCheckDelivery({
+    checkDelivery: secondRetry.checkDelivery,
+    now: timestamp(7),
+    errorCode: "CHECK_DELIVERY_MAX_ATTEMPTS"
+  });
+  const replay = cp.replayDeadLetterCheckDelivery({
+    checkDelivery: deadLetter,
+    now: timestamp(8),
+    authorization: {
+      actorId: "ops:fg5-eg3-readback",
+      permissionSource: "manual-ops",
+      verifiedAt: timestamp(8),
+      reason: "fg5-eg3-injected-github-check-api-failure"
+    }
+  });
+  const replayQueue = await cp.enqueueCheckDelivery({
+    queue,
+    checkDelivery: replay.checkDelivery,
+    payloadDigest
+  });
+
+  const evidence = {
+    checkApiFailureInjected: true,
+    checkDeliveryId: checkDelivery.deliveryId,
+    challengeId,
+    checkName: DEVELOPER_REVIEW_CHECK_NAME,
+    headSha,
+    injectedGitHubApiFailures: [
+      {
+        operation: "github.check-update",
+        pathTemplate: "/repositories/{repository_id}/check-runs/{check_run_id}",
+        statusCode: 503,
+        retryAfterSeconds: 2
+      },
+      {
+        operation: "github.check-update",
+        pathTemplate: "/repositories/{repository_id}/check-runs/{check_run_id}",
+        statusCode: 503,
+        retryAfterSeconds: null
+      }
+    ],
+    retry: {
+      policy,
+      scheduled: [
+        summarizeRetry(firstRetry, firstQueue.messageDigest),
+        summarizeRetry(secondRetry, secondQueue.messageDigest)
+      ],
+      maxAttemptsReached: true,
+      maxAttemptDecision: {
+        retry: maxed.retry,
+        reason: maxed.reason,
+        attemptCount: maxed.attemptCount,
+        maxAttempts: maxed.maxAttempts
+      }
+    },
+    deadLetter: {
+      status: deadLetter.status,
+      attemptCount: deadLetter.attemptCount,
+      lastErrorCode: deadLetter.lastErrorCode,
+      nextAttemptAt: deadLetter.nextAttemptAt,
+      updatedAt: deadLetter.updatedAt
+    },
+    replay: {
+      replayed: replay.replayed,
+      source: replay.source,
+      replayDigest: replay.replayDigest,
+      statusAfterReplay: replay.checkDelivery.status,
+      attemptCountAfterReplay: replay.checkDelivery.attemptCount,
+      lastErrorCodeAfterReplay: replay.checkDelivery.lastErrorCode
+    },
+    queue: {
+      schemaVersion: CHECK_DELIVERY_QUEUE_MESSAGE_SCHEMA_VERSION,
+      retryEnqueueCount: 2,
+      replayEnqueued: true,
+      replayMessageDigest: replayQueue.messageDigest,
+      sentMessages: sentMessages.map(({ message, options }) => ({
+        message,
+        options: options ?? null
+      }))
+    }
+  };
+  const record = {
+    schemaVersion: "archcontext.fg5-check-failure-readback/v1",
+    environment: input.environment,
+    status: "verified",
+    ok: true,
+    generatedAt: input.generatedAt,
+    route: FG5_CHECK_FAILURE_READBACK_PATH,
+    evidence,
+    privacy: scanFg5ReadbackPrivacy(evidence),
+    failures: [] as string[]
+  };
+  record.privacy = scanFg5ReadbackPrivacy(record);
+  if (record.privacy.privateContentHits !== 0 || record.privacy.secretMarkerHits !== 0 || record.privacy.forbiddenEndpointOrMediaHits !== 0) {
+    return {
+      ...record,
+      status: "failed",
+      ok: false,
+      failures: ["fg5 check failure readback contained forbidden private content markers"]
+    };
+  }
+  return record;
+}
 
 async function handleGitHubWebhook(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") {
@@ -352,6 +618,83 @@ function ignoredWebhookResponse(eventName: string, deliveryId: string): Response
     deliveryId,
     rawBodyRetained: false
   }, { status: 202 });
+}
+
+function verifyReadbackSignature(input: { request: Request; env: Env; path: string }): void {
+  const secret = requireEnv(input.env.GITHUB_WEBHOOK_SECRET, "GITHUB_WEBHOOK_SECRET");
+  const timestamp = input.request.headers.get(READBACK_TIMESTAMP_HEADER);
+  const signature = input.request.headers.get(READBACK_SIGNATURE_HEADER);
+  if (!timestamp || !signature) throw new Error("readback-signature-missing");
+  const expected = signReadbackPayload({
+    secret,
+    method: input.request.method,
+    path: input.path,
+    timestamp
+  });
+  if (!constantTimeEqual(signature, expected)) throw new Error("readback-signature-invalid");
+}
+
+function signReadbackPayload(input: { secret: string; method: string; path: string; timestamp: string }): string {
+  return `sha256=${createHmac("sha256", input.secret)
+    .update(`${input.method.toUpperCase()}\n${input.path}\n${input.timestamp}`)
+    .digest("hex")}`;
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function createTimestampFactory(generatedAt: string): (offsetSeconds: number) => string {
+  const baseMs = Date.parse(generatedAt);
+  if (!Number.isFinite(baseMs)) throw new Error("fg5-readback-generatedAt-invalid");
+  return (offsetSeconds: number) => new Date(baseMs + offsetSeconds * 1000).toISOString();
+}
+
+function summarizeRetry(plan: ReturnType<ControlPlane["planCheckDeliveryRetry"]>, messageDigest: string) {
+  return {
+    retry: plan.retry,
+    reason: plan.reason,
+    status: plan.checkDelivery.status,
+    attemptCount: plan.attemptCount,
+    maxAttempts: plan.maxAttempts,
+    delaySeconds: plan.delaySeconds,
+    retryAfterDelaySeconds: plan.retryAfterDelaySeconds ?? null,
+    nextAttemptAt: plan.nextAttemptAt ?? null,
+    lastErrorCode: plan.checkDelivery.lastErrorCode,
+    queueMessageDigest: messageDigest
+  };
+}
+
+function scanFg5ReadbackPrivacy(value: unknown) {
+  const serialized = JSON.stringify(value);
+  return {
+    privateContentHits: countPatterns(serialized, FG5_READBACK_SECRET_PATTERNS)
+      + countPatterns(serialized, FG5_READBACK_CODE_CONTENT_PATTERNS)
+      + collectForbiddenKeys(value).length,
+    secretMarkerHits: countPatterns(serialized, FG5_READBACK_SECRET_PATTERNS),
+    forbiddenEndpointOrMediaHits: countPatterns(serialized, FG5_READBACK_CODE_CONTENT_PATTERNS),
+    forbiddenKeys: collectForbiddenKeys(value)
+  };
+}
+
+function countPatterns(text: string, patterns: readonly RegExp[]): number {
+  return patterns.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
+}
+
+function collectForbiddenKeys(value: unknown, path = "$", found: string[] = []): string[] {
+  if (!value || typeof value !== "object") return found;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectForbiddenKeys(item, `${path}[${index}]`, found));
+    return found;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const childPath = `${path}.${key}`;
+    if (FG5_READBACK_FORBIDDEN_KEYS.has(key.toLowerCase())) found.push(childPath);
+    collectForbiddenKeys(child, childPath, found);
+  }
+  return found;
 }
 
 function healthResponse(env: Env): Response {

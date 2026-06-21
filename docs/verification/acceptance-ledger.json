@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-21T14:40:09Z",
+  "updatedAt": "2026-06-21T15:35:32Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -1704,6 +1704,334 @@
         "scripts/fg4-runner-dlp-readback.test.ts",
         "docs/security/fixtures/cloud-private-content-bait.json",
         "docs/verification/fg4-organization-runner-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/control-plane-routes.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/control-plane-routes.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-08",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "packages/contracts/src/github-governance.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-12",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/cloud-db/src/index.ts",
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-18",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-19",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/runbooks/control-plane-incidents.md",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-20",
+      "kind": "task",
+      "status": "completed",
+      "target": "E1",
+      "evidence": [
+        "docs/api/control-plane-openapi.yaml",
+        "docs/api/control-plane-compatibility-policy.md",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "deploy/cloudflare/fg2-staging-worker.ts",
+        "deploy/cloudflare/fg2-staging-worker.test.ts",
+        "scripts/fg5-check-failure-readback.ts",
+        "docs/verification/fg5-check-failure-readback.json",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/cloud/cloud-db/test/cloud-db.test.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "wrangler.jsonc",
+        "deploy/sql/0001_archcontext_control_plane.sql",
+        "scripts/fg5-retention-staging-readback.ts",
+        "docs/verification/fg5-retention-staging-readback.json",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/runbooks/control-plane-incidents.md",
+        "scripts/fg5-control-plane-incident-drill.ts",
+        "docs/verification/fg5-control-plane-incident-drill.json",
+        "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG5-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg5-full-plane-dlp-readback.ts",
+        "scripts/fg5-full-plane-dlp-readback.test.ts",
+        "docs/verification/fg5-full-plane-dlp-readback.json",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/cloud-db/src/index.ts",
+        "docs/verification/fg5-control-plane-gate.md"
       ]
     }
   ]
