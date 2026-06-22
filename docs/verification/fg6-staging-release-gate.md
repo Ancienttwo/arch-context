@@ -159,6 +159,8 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `scripts/fg6-npm-release-dry-run.ts` builds and dry-runs the publishable `archctx@0.1.0` package without publishing to npm.
 - `scripts/fg6-release-distribution-readback.ts` writes and inspects the release distribution precondition; npm registry state now verifies `archctx@0.1.0` as publicly installable.
 - `docs/runbooks/personal-user-install.md` documents the current individual-user install and no-cloud first-run path.
+- `docs/verification/fg6-personal-beta-launch-review.md` records the personal-user Beta launch review and support boundary.
+- `docs/approvals/fg6-personal-beta-launch.md` is the pending human approval artifact for FG6-EG10 and FG6-20.
 - `scripts/fg6-rollout-readback.ts` writes and inspects deferred collaboration rollout intake; the generated `_ops/env/fg6-rollout-evidence.json` draft is fail-closed and not current acceptance evidence.
 - `docs/verification/fg6-acceptance-evidence.md` records the AC-01 through AC-06 evidence manifest rows plus the adversarial governance, chaos/fault, security release, external security review, representative benchmark, SLO, retention/deletion, ops runbook, and feature flag matrices.
 
@@ -228,6 +230,8 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `npm install --prefix <tmp> archctx@0.1.0 && <tmp>/node_modules/.bin/archctx --help`: PASS, public registry install produces the CLI help envelope.
 - `bun test scripts/fg6-rollout-readback.test.ts`: PASS, 4 tests / 32 expects.
 - `docs/runbooks/personal-user-install.md`: records the current individual-user install path using Bun and `npm install -g archctx@0.1.0`.
+- `docs/verification/fg6-personal-beta-launch-review.md`: records the personal-user Beta launch review, support matrix, known limitations, and deferred collaboration scope.
+- `docs/approvals/fg6-personal-beta-launch.md`: remains `Pending`; this is not a human approval yet.
 - `bun run readback:fg6:rollout`: BLOCKED as expected for deferred collaboration DRAFT intake, wrote `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md` from `_ops/env/fg6-rollout-evidence.json`.
 
 ## Negative Tests
@@ -283,4 +287,4 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 
 ## Decision
 
-PASS for FG6-01 through FG6-19 and FG6-EG1 through FG6-EG9 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. FG6-EG10 and FG6-20 Launch Review remain open because they require an explicit human launch decision for the personal-user Beta.
+PASS for FG6-01 through FG6-19 and FG6-EG1 through FG6-EG9 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. FG6-EG10 and FG6-20 Launch Review remain open because `docs/approvals/fg6-personal-beta-launch.md` is still pending explicit human approval.

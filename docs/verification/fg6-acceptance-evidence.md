@@ -37,7 +37,7 @@
 | FG6-EG7 performance budget | Verified | `docs/verification/fg6-representative-benchmark-readback.json` and `docs/verification/fg6-slo-readback.json` |
 | FG6-EG8 rollback compatibility | Verified | `docs/verification/fg6-rollback-compat-readback.json` |
 | FG6-EG9 personal-user install | Verified | `docs/runbooks/personal-user-install.md`, `docs/verification/fg6-release-distribution-readback.json`, and `docs/verification/fg6-local-no-cloud-readback.json` |
-| FG6-EG10 human launch gate | Blocked | Requires signed personal-user Beta launch decision; design partner, opt-in beta, and collaboration rollout are deferred |
+| FG6-EG10 human launch gate | Blocked | Requires approved `docs/approvals/fg6-personal-beta-launch.md`; design partner, opt-in beta, and collaboration rollout are deferred |
 
 ## AC-01 Trace
 
