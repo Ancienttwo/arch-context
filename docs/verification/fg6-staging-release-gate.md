@@ -42,9 +42,9 @@ For FG6-17, the feature flag boundary is the shared governance contract in `pack
 
 For FG6-19, the rollback compatibility boundary is `scripts/fg6-rollback-compat-readback.ts`, the shared governance contract, Control Plane schema guards, GitHub App Check Context update paths, Review Action runtime preflight, OpenAPI schema inventory, compatibility policy, and reusable Organization Runner workflow templates. The release evidence verifies schema-version strictness, legacy Attestation v1 audit-only migration, Check Context separation, Action runtime-version pinning, and reusable workflow SHA pinning without staging mutation.
 
-Before FG6-18 can run, the release distribution boundary is `scripts/fg6-npm-release-dry-run.ts`, `scripts/fg6-release-distribution-readback.ts`, root/workspace package manifests, `_ops/npm/archctx-placeholder/package.json`, and npm registry state. This boundary distinguishes a local tarball smoke or Cloudflare staging deploy from a public npm release artifact that an external design partner can install without the source checkout.
+For FG6-18, the personal-user install boundary is `docs/runbooks/personal-user-install.md`, `scripts/fg6-npm-release-dry-run.ts`, `scripts/fg6-release-distribution-readback.ts`, `docs/verification/fg6-release-distribution-readback.json`, and `docs/verification/fg6-local-no-cloud-readback.json`. This boundary distinguishes a local tarball smoke or Cloudflare staging deploy from a public npm release artifact that an individual user can install without the source checkout.
 
-For FG6-18, the rollout evidence boundary is `scripts/fg6-rollout-readback.ts` and the local operator packet at `_ops/env/fg6-rollout-evidence.json`. The operator packet is ignored local operations state and may be used to paste real internal, design-partner, and opt-in beta rollout telemetry. The checked-in artifacts `docs/verification/fg6-rollout-evidence-intake.md` and `docs/verification/fg6-rollout-readback.json` currently record only fail-closed DRAFT intake, not production rollout acceptance evidence.
+Design partner rollout, opt-in beta cohorts, and team collaboration installation telemetry are no longer part of the current FG6 slice. The deferred rollout boundary remains `scripts/fg6-rollout-readback.ts` and `_ops/env/fg6-rollout-evidence.json`; the checked-in artifacts `docs/verification/fg6-rollout-evidence-intake.md` and `docs/verification/fg6-rollout-readback.json` record only fail-closed DRAFT intake for that deferred work.
 
 ## P2 Trace
 
@@ -86,7 +86,7 @@ The traced path for FG6-19 starts with `bun run readback:fg6:rollback-compat`. T
 
 The traced path for release distribution starts with `bun run readback:fg6:npm-release-dry-run`. The wrapper builds the bundled Bun-backed ESM CLI, stages a publishable `archctx@0.1.0` package with homepage `https://archcontext.repoharness.com`, declares the Bun runtime contract, runs `npm pack`, runs `npm publish --dry-run --json`, and writes `docs/verification/fg6-npm-release-dry-run.json`. The package was then published to npm as `archctx@0.1.0` using the local ignored `_ops/env/archctx.npm.env` token through a temporary `.npmrc`. `bun run readback:fg6:release-distribution` now reads the dry-run evidence, root/workspace manifests, local `archctx` placeholder manifest, and npm registry state, and verifies the public install command `npm install -g archctx`.
 
-The traced path for FG6-18 draft intake starts with `bun scripts/fg6-rollout-readback.ts template`, which emits a DRAFT production-rollout packet with pending phases, zero installations, over-budget latency sentinels, and disabled controls. `bun run readback:fg6:rollout` reads `_ops/env/fg6-rollout-evidence.json`, writes `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md`, then exits nonzero until the packet contains real verified rollout data for internal, design-partner, and opt-in beta cohorts.
+The traced path for FG6-18 personal-user install starts with the published `archctx@0.1.0` npm artifact. `bun run readback:fg6:release-distribution` verifies the public registry package and install command, `docs/runbooks/personal-user-install.md` freezes the user-facing install path, and `docs/verification/fg6-local-no-cloud-readback.json` proves the installed product can complete the no-cloud first-run path without GitHub App, Cloudflare, ArchContext Cloud, or LLM provider credentials. The older `bun run readback:fg6:rollout` path remains a blocked deferred intake for future collaboration rollout telemetry.
 
 ## P3 Decision
 
@@ -122,13 +122,13 @@ FG6-15 fixes account deletion at the existing Control Plane state boundary rathe
 
 FG6-16 composes runbook readiness from existing incident evidence instead of forcing another live GitHub outage, key revoke, or queue backlog during release-gate verification. The invariant is that operators need concrete, evidence-backed steps while the repeatable governance gate remains token-free and non-mutating. The tradeoff is that this slice validates runbook coverage and source evidence alignment, not a new production incident exercise; that is sufficient for the E3 task because the underlying Device/Runner revoke, GitHub API failure, DLQ/replay, and alert evidence already exists and is re-inspected.
 
-FG6-17 keeps rollout switches in one shared contract and applies them at every side-effect boundary instead of scattering boolean checks in only the GitHub App. The invariant is that disabling a flag must stop new Check/Challenge/queue/publication side effects before state is written, while `requiredTrust:false` should degrade organization-required webhook handling to the already-safe Developer Check rather than silently publishing Organization Runner evidence. The tradeoff is that this E2 release slice verifies local gate behavior and immutable source coverage, not design-partner rollout telemetry; that is sufficient because staged rollout execution is the next E4 task, FG6-18.
+FG6-17 keeps rollout switches in one shared contract and applies them at every side-effect boundary instead of scattering boolean checks in only the GitHub App. The invariant is that disabling a flag must stop new Check/Challenge/queue/publication side effects before state is written, while `requiredTrust:false` should degrade organization-required webhook handling to the already-safe Developer Check rather than silently publishing Organization Runner evidence. The tradeoff is that this E2 release slice verifies local gate behavior and immutable source coverage, not design-partner rollout telemetry; that is sufficient because the current release target is a personal-user Beta.
 
 FG6-19 composes rollback compatibility into one release readback instead of relying on separate unit tests. The invariant is that rollback must preserve old Attestation readability as audit-only data while never upgrading low-trust or legacy evidence into a required Check pass. The tradeoff is that this is a local E3 drill, not a production rollback exercise; it is sufficient because it executes the schema rejection, legacy migration, Check Context mismatch, and Action runtime-version pinning paths that would fail first during a rollback.
 
-The release distribution readback intentionally separates npm publication from rollout evidence. The invariant is that design partner and opt-in beta evidence must be based on a public release artifact, not a source checkout, local tarball, or staging-only Worker deploy. The tradeoff is that publication can now unblock FG6-18 intake, but E4 rollout remains incomplete until real installs and telemetry are recorded.
+The release distribution readback intentionally separates npm publication from collaboration rollout evidence. The invariant is that a personal user must be able to install a public release artifact, not rely on a source checkout, local tarball, or staging-only Worker deploy. The tradeoff is that team/cohort rollout telemetry moves to TODO, while the current slice stays focused on the individual install and no-cloud first-run.
 
-FG6-18 draft intake keeps the generated operator packet deliberately failing instead of manufacturing a green rollout artifact. The invariant is that E4 acceptance must come from real production rollout telemetry, with ordered phases, non-empty cohorts, security controls, and SLO metrics. The tradeoff is that the repository now has a convenient local packet shape, but the sprint row remains unchecked until `readback:fg6:rollout` passes on real no-secret production evidence.
+The deferred rollout intake keeps the generated operator packet deliberately failing instead of manufacturing a green collaboration artifact. The invariant is that future design-partner or opt-in beta acceptance must come from real telemetry, with ordered phases, non-empty cohorts, security controls, and SLO metrics. The tradeoff is that current FG6 can close personal-user usability without claiming collaboration rollout health.
 
 ## Scope
 
@@ -158,13 +158,14 @@ FG6-18 draft intake keeps the generated operator packet deliberately failing ins
 - `scripts/fg6-rollback-compat-readback.ts` writes and inspects immutable FG6-19 rollback compatibility evidence for schema versions, Check Contexts, Action runtime pinning, and legacy Attestation audit-only migration.
 - `scripts/fg6-npm-release-dry-run.ts` builds and dry-runs the publishable `archctx@0.1.0` package without publishing to npm.
 - `scripts/fg6-release-distribution-readback.ts` writes and inspects the release distribution precondition; npm registry state now verifies `archctx@0.1.0` as publicly installable.
-- `scripts/fg6-rollout-readback.ts` writes and inspects FG6-18 rollout intake; the generated `_ops/env/fg6-rollout-evidence.json` draft is fail-closed and not acceptance evidence.
+- `docs/runbooks/personal-user-install.md` documents the current individual-user install and no-cloud first-run path.
+- `scripts/fg6-rollout-readback.ts` writes and inspects deferred collaboration rollout intake; the generated `_ops/env/fg6-rollout-evidence.json` draft is fail-closed and not current acceptance evidence.
 - `docs/verification/fg6-acceptance-evidence.md` records the AC-01 through AC-06 evidence manifest rows plus the adversarial governance, chaos/fault, security release, external security review, representative benchmark, SLO, retention/deletion, ops runbook, and feature flag matrices.
 
 ## Results
 
 - `bun test scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts scripts/platform-ipc-permission-workflow.test.ts`: PASS, 20 tests / 54 expects.
-- `bun run verify:governance`: PASS, full `bun run verify` returned 535 tests / 3240 expects and 188-entry acceptance ledger, then 23 committed evidence inspectors plus the root verify command returned `ok: true` with `commandCount: 24`.
+- `bun run verify:governance`: PASS, full `bun run verify` returned 535 tests / 3240 expects and 190-entry acceptance ledger, then 23 committed evidence inspectors plus the root verify command returned `ok: true` with `commandCount: 24`.
 - `bun test scripts/fg6-local-no-cloud-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 20 expects.
 - `bun run readback:fg6:local-no-cloud`: PASS, wrote `docs/verification/fg6-local-no-cloud-readback.json` with local-only egress, local MCP stdio config, fresh checkpoint, passing complete, and passing review.
 - `bun test scripts/fg6-developer-review-provenance-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 22 expects.
@@ -226,8 +227,8 @@ FG6-18 draft intake keeps the generated operator packet deliberately failing ins
 - `npm view archctx@0.1.0 version dist.tarball homepage license --json`: PASS, returns version `0.1.0`, npm tarball URL, homepage `https://archcontext.repoharness.com`, and license `UNLICENSED`.
 - `npm install --prefix <tmp> archctx@0.1.0 && <tmp>/node_modules/.bin/archctx --help`: PASS, public registry install produces the CLI help envelope.
 - `bun test scripts/fg6-rollout-readback.test.ts`: PASS, 4 tests / 32 expects.
-- `bun run readback:fg6:rollout`: BLOCKED as expected for DRAFT intake, wrote `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md` from `_ops/env/fg6-rollout-evidence.json`.
-- `bun scripts/fg6-rollout-readback.ts inspect --evidence docs/verification/fg6-rollout-readback.json --json`: BLOCKED as expected; rejects DRAFT status, pending phases, empty cohorts, missing design-partner/opt-in beta evidence, failed controls, and over-budget sentinels.
+- `docs/runbooks/personal-user-install.md`: records the current individual-user install path using Bun and `npm install -g archctx@0.1.0`.
+- `bun run readback:fg6:rollout`: BLOCKED as expected for deferred collaboration DRAFT intake, wrote `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md` from `_ops/env/fg6-rollout-evidence.json`.
 
 ## Negative Tests
 
@@ -254,7 +255,7 @@ FG6-18 draft intake keeps the generated operator packet deliberately failing ins
 - FG6 rollback compatibility inspector rejects unversioned/old schema acceptance, legacy Attestation required-check eligibility, nonce consumption during legacy rejection, Developer/Organization Check Context drift, low-trust upgrade, Check delivery context mismatch acceptance, old Review Action runtime acceptance, missing workflow SHA pinning, source coverage gaps, and private-content or secret markers.
 - FG6 npm release dry-run rejects wrong package names, GitHub source repository URLs, incorrect homepage, missing `archctx` bin, incorrect registry, unbounded package contents, or failed `npm publish --dry-run`.
 - FG6 release distribution readback rejects a green rollout precondition when dry-run evidence is missing, the npm release package is not published, or no public install command exists.
-- FG6 rollout inspector rejects DRAFT status, missing or unordered rollout phases, pending cohorts, zero installations, missing design-partner or opt-in beta evidence, below-target success rate, over-budget p95 metrics, missing security controls, false rollout assertions, source-content markers, and secret markers.
+- Deferred collaboration rollout inspector rejects DRAFT status, missing or unordered rollout phases, pending cohorts, zero installations, missing design-partner or opt-in beta evidence, below-target success rate, over-budget p95 metrics, missing security controls, false rollout assertions, source-content markers, and secret markers.
 
 ## Known Limitations
 
@@ -274,12 +275,12 @@ FG6-18 draft intake keeps the generated operator packet deliberately failing ins
 - FG6-14 defines and verifies release SLO samples and source coverage. It does not replace production rolling-window SLO monitoring, paging integration, or rollout health reporting.
 - FG6-15 composes existing remote retention and installation revoke E3 evidence with an in-memory account-delete probe. Production account deletion workflow orchestration remains outside this E3 drill.
 - FG6-16 proves operator runbook coverage against existing incident evidence. It does not replace a live production incident exercise or pager integration test.
-- FG6-17 proves local release feature flag behavior and source coverage. It does not execute the design partner rollout or live feature-flag telemetry; that remains FG6-18.
+- FG6-17 proves local release feature flag behavior and source coverage. It does not execute design partner rollout or live feature-flag telemetry; that collaboration scope is deferred.
 - FG6-19 proves local rollback compatibility for schemas, Check Contexts, legacy Attestation handling, and Action version pinning. It does not execute a production rollback or publish a new Action release.
 - FG6-EG1 through FG6-EG8 are closed from committed immutable E3 evidence covering AC-01..06, platform support, Privacy Contract/DLP, adversarial interception, fault recovery/SLO, release security, representative performance, and rollback compatibility.
-- Release distribution is now verified: `archctx@0.1.0` is published, registry-visible, and installable through npm. This does not prove design partner rollout health.
-- FG6-18 currently has only fail-closed DRAFT intake. It does not prove internal, design-partner, or opt-in beta rollout completion.
+- Release distribution is now verified: `archctx@0.1.0` is published, registry-visible, and installable through npm. This proves the personal-user install precondition, not collaboration rollout health.
+- FG6-18 now covers individual-user public install and no-cloud first-run. It does not prove design-partner, opt-in beta, or team collaboration rollout completion.
 
 ## Decision
 
-PASS for FG6-01 through FG6-17, FG6-19, FG6-EG1 through FG6-EG8, and the release distribution precondition for FG6-18. FG6-18 itself remains open because real internal, design-partner, and opt-in beta rollout telemetry has not been recorded. FG6-EG9, FG6-EG10, and FG6-20 Launch Review remain open because they depend on real rollout telemetry and an explicit launch decision.
+PASS for FG6-01 through FG6-19 and FG6-EG1 through FG6-EG9 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. FG6-EG10 and FG6-20 Launch Review remain open because they require an explicit human launch decision for the personal-user Beta.

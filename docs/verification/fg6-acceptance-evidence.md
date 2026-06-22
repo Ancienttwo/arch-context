@@ -1,7 +1,7 @@
 # FG6 Acceptance Evidence
 
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- Scope: AC-01 through AC-06 release evidence manifest plus adversarial governance, chaos/fault, security release, retention/deletion, ops runbook, feature flag, rollback compatibility, and FG6-EG1 through FG6-EG8 closure
+- Scope: AC-01 through AC-06 release evidence manifest plus adversarial governance, chaos/fault, security release, retention/deletion, ops runbook, feature flag, rollback compatibility, personal-user install, and FG6-EG1 through FG6-EG9 closure
 - Started At: 2026-06-22
 
 | Acceptance | Sprint task | Status | Evidence | Verification |
@@ -21,6 +21,7 @@
 | Retention deletion drill | FG6-15 | Verified | `docs/verification/fg6-retention-deletion-readback.json`; `docs/verification/fg6-retention-deletion.md`; `docs/verification/fg5-retention-staging-readback.json`; `docs/verification/fg2-install-revoke-readback.json`; `scripts/fg6-retention-deletion-readback.ts` | `bun run readback:fg6:retention-deletion`; `bun scripts/fg6-retention-deletion-readback.ts inspect --evidence docs/verification/fg6-retention-deletion-readback.json --json` |
 | Ops runbook drill | FG6-16 | Verified | `docs/runbooks/control-plane-incidents.md`; `docs/verification/fg6-ops-runbook-readback.json`; `docs/verification/fg6-ops-runbook.md`; `docs/verification/fg3-attestation-security-suite.json`; `docs/verification/fg4-runner-key-lifecycle-e2e.json`; `docs/verification/fg5-control-plane-incident-drill.json`; `docs/verification/fg6-chaos-fault-matrix-readback.json`; `scripts/fg6-ops-runbook-readback.ts` | `bun run readback:fg6:ops-runbook`; `bun scripts/fg6-ops-runbook-readback.ts inspect --evidence docs/verification/fg6-ops-runbook-readback.json --json` |
 | Feature flag rollout gate | FG6-17 | Verified | `packages/contracts/src/github-governance.ts`; `packages/cloud/github-app/src/index.ts`; `packages/cloud/control-plane/src/index.ts`; `docs/verification/fg6-feature-flag-readback.json`; `docs/verification/fg6-feature-flag.md`; `scripts/fg6-feature-flag-readback.ts` | `bun run readback:fg6:feature-flags`; `bun scripts/fg6-feature-flag-readback.ts inspect --evidence docs/verification/fg6-feature-flag-readback.json --json` |
+| Personal-user public install | FG6-18 | Verified | `docs/runbooks/personal-user-install.md`; `docs/verification/fg6-release-distribution-readback.json`; `docs/verification/fg6-release-distribution.md`; `docs/verification/fg6-local-no-cloud-readback.json` | `bun run readback:fg6:release-distribution`; `bun run readback:fg6:local-no-cloud`; public install smoke |
 | Rollback compatibility drill | FG6-19 | Verified | `docs/verification/fg6-rollback-compat-readback.json`; `docs/verification/fg6-rollback-compat.md`; `docs/api/control-plane-openapi.yaml`; `docs/api/control-plane-compatibility-policy.md`; `packages/contracts/src/github-governance.ts`; `packages/cloud/control-plane/src/index.ts`; `packages/cloud/github-app/src/index.ts`; `packages/cloud/runner/src/index.ts`; `scripts/fg6-rollback-compat-readback.ts` | `bun run readback:fg6:rollback-compat`; `bun scripts/fg6-rollback-compat-readback.ts inspect --evidence docs/verification/fg6-rollback-compat-readback.json --json` |
 
 ## Exit Gate Closure
@@ -35,8 +36,8 @@
 | FG6-EG6 release security | Verified | `docs/verification/fg6-security-release-readback.json` and `docs/verification/fg6-external-security-review-readback.json` |
 | FG6-EG7 performance budget | Verified | `docs/verification/fg6-representative-benchmark-readback.json` and `docs/verification/fg6-slo-readback.json` |
 | FG6-EG8 rollback compatibility | Verified | `docs/verification/fg6-rollback-compat-readback.json` |
-| FG6-EG9 design partner gray period | Blocked | Requires real rollout telemetry using the published `archctx@0.1.0`; current rollout intake is DRAFT only |
-| FG6-EG10 human launch gate | Blocked | Requires signed launch decision after FG6-18 rollout readback |
+| FG6-EG9 personal-user install | Verified | `docs/runbooks/personal-user-install.md`, `docs/verification/fg6-release-distribution-readback.json`, and `docs/verification/fg6-local-no-cloud-readback.json` |
+| FG6-EG10 human launch gate | Blocked | Requires signed personal-user Beta launch decision; design partner, opt-in beta, and collaboration rollout are deferred |
 
 ## AC-01 Trace
 
