@@ -2361,6 +2361,20 @@
       ]
     },
     {
+      "id": "FG6-20",
+      "kind": "task",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/fg6-personal-beta-launch-review.md",
+        "docs/approvals/fg6-personal-beta-launch.md",
+        "docs/runbooks/personal-user-install.md",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md",
+        "tasks/todos.md"
+      ]
+    },
+    {
       "id": "FG6-EG1",
       "kind": "exit-gate",
       "status": "completed",
@@ -2492,6 +2506,19 @@
         "docs/verification/fg6-local-no-cloud-readback.json",
         "docs/verification/fg6-acceptance-evidence.md",
         "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG10",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/approvals/fg6-personal-beta-launch.md",
+        "docs/verification/fg6-personal-beta-launch-review.md",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md",
+        "tasks/todos.md"
       ]
     }
   ]

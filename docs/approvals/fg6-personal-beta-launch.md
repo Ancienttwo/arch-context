@@ -1,8 +1,8 @@
 # ArchContext FG6 Personal-User Beta Launch Approval
 
-> **Status**: Pending
+> **Status**: Approved
 > **Date**: 2026-06-22
-> **Approved By**: <human approver required>
+> **Approved By**: Chris
 > **Scope**: archctx-local-github-governance FG6 personal-user Beta launch; FG6-EG10; FG6-20
 
 ## Source
@@ -30,6 +30,6 @@
 - `tasks/todos.md`
 - `bun run verify:governance`
 
-## Completion Instructions
+## Approval Record
 
-Replace `Pending` with `Approved` and replace `<human approver required>` with the human approver's name only after the launch boundary above has been reviewed and accepted.
+The repository owner approved the personal-user Beta launch in the active execution thread on 2026-06-22 with the response `approved`.

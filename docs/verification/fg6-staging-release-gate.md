@@ -160,14 +160,14 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `scripts/fg6-release-distribution-readback.ts` writes and inspects the release distribution precondition; npm registry state now verifies `archctx@0.1.0` as publicly installable.
 - `docs/runbooks/personal-user-install.md` documents the current individual-user install and no-cloud first-run path.
 - `docs/verification/fg6-personal-beta-launch-review.md` records the personal-user Beta launch review and support boundary.
-- `docs/approvals/fg6-personal-beta-launch.md` is the pending human approval artifact for FG6-EG10 and FG6-20.
+- `docs/approvals/fg6-personal-beta-launch.md` is the approved human launch artifact for FG6-EG10 and FG6-20.
 - `scripts/fg6-rollout-readback.ts` writes and inspects deferred collaboration rollout intake; the generated `_ops/env/fg6-rollout-evidence.json` draft is fail-closed and not current acceptance evidence.
 - `docs/verification/fg6-acceptance-evidence.md` records the AC-01 through AC-06 evidence manifest rows plus the adversarial governance, chaos/fault, security release, external security review, representative benchmark, SLO, retention/deletion, ops runbook, and feature flag matrices.
 
 ## Results
 
-- `bun test scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts scripts/platform-ipc-permission-workflow.test.ts`: PASS, 20 tests / 54 expects.
-- `bun run verify:governance`: PASS, full `bun run verify` returned 535 tests / 3240 expects and 190-entry acceptance ledger, then 23 committed evidence inspectors plus the root verify command returned `ok: true` with `commandCount: 24`.
+- `bun test scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts scripts/platform-ipc-permission-workflow.test.ts`: PASS, 22 tests / 73 expects.
+- `bun run verify:governance`: PASS, full `bun run verify` returned 537 tests / 3242 expects and 192-entry acceptance ledger, then 23 committed evidence inspectors plus the root verify command returned `ok: true` with `commandCount: 24`.
 - `bun test scripts/fg6-local-no-cloud-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 20 expects.
 - `bun run readback:fg6:local-no-cloud`: PASS, wrote `docs/verification/fg6-local-no-cloud-readback.json` with local-only egress, local MCP stdio config, fresh checkpoint, passing complete, and passing review.
 - `bun test scripts/fg6-developer-review-provenance-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 22 expects.
@@ -209,7 +209,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `bun run typecheck`: PASS.
 - `bun scripts/fg6-retention-deletion-readback.ts run --out docs/verification/fg6-retention-deletion-readback.json --json`: PASS, wrote `docs/verification/fg6-retention-deletion-readback.json` and `docs/verification/fg6-retention-deletion.md`; expiredRowsRemaining=0, recentRowsPreserved=8, retentionPurgeAuthorizations=0, installation revoke stopped token/challenge/check, and account delete cleared scoped state.
 - `bun scripts/fg6-retention-deletion-readback.ts inspect --evidence docs/verification/fg6-retention-deletion-readback.json --json`: PASS.
-- `bun test scripts/fg6-ops-runbook-readback.test.ts scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts`: PASS, 20 tests / 69 expects.
+- `bun test scripts/fg6-ops-runbook-readback.test.ts scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts`: PASS, 22 tests / 73 expects.
 - `bun run readback:fg6:ops-runbook`: PASS, wrote `docs/verification/fg6-ops-runbook-readback.json` and `docs/verification/fg6-ops-runbook.md`; Device/Runner compromise, GitHub outage, and queue backlog sections are complete with zero secret/code-content marker hits.
 - `bun scripts/fg6-ops-runbook-readback.ts inspect --evidence docs/verification/fg6-ops-runbook-readback.json --json`: PASS.
 - `bun test scripts/fg6-feature-flag-readback.test.ts packages/contracts/test/contracts.test.ts packages/cloud/github-app/test/github-app.test.ts packages/cloud/control-plane/test/control-plane.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 165 tests / 1071 expects.
@@ -231,7 +231,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `bun test scripts/fg6-rollout-readback.test.ts`: PASS, 4 tests / 32 expects.
 - `docs/runbooks/personal-user-install.md`: records the current individual-user install path using Bun and `npm install -g archctx@0.1.0`.
 - `docs/verification/fg6-personal-beta-launch-review.md`: records the personal-user Beta launch review, support matrix, known limitations, and deferred collaboration scope.
-- `docs/approvals/fg6-personal-beta-launch.md`: remains `Pending`; this is not a human approval yet.
+- `docs/approvals/fg6-personal-beta-launch.md`: PASS, records human approval by Chris for the personal-user Beta boundary.
 - `bun run readback:fg6:rollout`: BLOCKED as expected for deferred collaboration DRAFT intake, wrote `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md` from `_ops/env/fg6-rollout-evidence.json`.
 
 ## Negative Tests
@@ -287,4 +287,4 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 
 ## Decision
 
-PASS for FG6-01 through FG6-19 and FG6-EG1 through FG6-EG9 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. FG6-EG10 and FG6-20 Launch Review remain open because `docs/approvals/fg6-personal-beta-launch.md` is still pending explicit human approval.
+PASS for FG6-01 through FG6-20 and FG6-EG1 through FG6-EG10 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. Personal-user Beta is approved for `archctx@0.1.0`.

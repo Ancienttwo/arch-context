@@ -1,6 +1,6 @@
 # FG6 Personal-User Beta Launch Review
 
-> **Status**: Pending Human Approval
+> **Status**: Approved
 > **Date**: 2026-06-22
 > **Scope**: archctx-local-github-governance FG6 personal-user Beta
 
@@ -56,7 +56,7 @@ At 10x personal-user adoption, the first likely failures are install/runtime com
 | Fault and SLO evidence | PASS | `docs/verification/fg6-chaos-fault-matrix-readback.json`; `docs/verification/fg6-slo-readback.json` |
 | Rollback compatibility | PASS | `docs/verification/fg6-rollback-compat-readback.json` |
 | Collaboration rollout | DEFERRED | `tasks/todos.md` |
-| Human launch approval | PENDING | `docs/approvals/fg6-personal-beta-launch.md` |
+| Human launch approval | PASS | `docs/approvals/fg6-personal-beta-launch.md` |
 
 ## Support Matrix
 
@@ -78,4 +78,4 @@ Personal-user Beta support is constrained to the verified local runtime matrix:
 
 ## Launch Decision
 
-Pending explicit human approval in `docs/approvals/fg6-personal-beta-launch.md`.
+Approved for personal-user Beta in `docs/approvals/fg6-personal-beta-launch.md`.

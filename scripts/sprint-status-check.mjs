@@ -181,8 +181,17 @@ async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures)
   }
 
   if (hasFg6Progress && fg5Complete) {
-    if (!statusLine || !/Executing\s+—\s+FG6 In Progress/.test(statusLine)) {
-      failures.push(`${sprintPath}: FG6 progress must use status Executing — FG6 In Progress`);
+    const fg6Completed = completed.filter((entry) => /^FG6(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+    const fg6Complete = fg6Completed === 30 && completed.length === 192;
+    const statusMatchesFg6State = fg6Complete
+      ? /Complete\s+—\s+Personal-User Beta Approved/.test(statusLine ?? "")
+      : /Executing\s+—\s+FG6 In Progress/.test(statusLine ?? "");
+    if (!statusMatchesFg6State) {
+      failures.push(
+        fg6Complete
+          ? `${sprintPath}: FG6 complete state must use status Complete — Personal-User Beta Approved`
+          : `${sprintPath}: FG6 progress must use status Executing — FG6 In Progress`
+      );
     }
     if (!progressRowMatches(sprint, "FG1", 24, 24)) {
       failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG6 progress is accepted`);
@@ -199,7 +208,6 @@ async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures)
     if (!progressRowMatches(sprint, "FG5", 27, 27)) {
       failures.push(`${sprintPath}: FG5 progress must remain 27 / 27 before FG6 progress is accepted`);
     }
-    const fg6Completed = completed.filter((entry) => /^FG6(?:-\d+|-EG\d+)$/.test(entry.id)).length;
     if (!progressRowMatches(sprint, "FG6", fg6Completed, 30)) {
       failures.push(`${sprintPath}: FG6 progress must match ledger count ${fg6Completed} / 30`);
     }

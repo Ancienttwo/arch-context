@@ -453,6 +453,97 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("rejects FG6 complete status before the final ledger count is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Complete — Personal-User Beta Approved",
+          total: "| **合计** | | **141** | **51** | **163 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |",
+            "| FG6 | Staging、加固与发布 | 20 | 10 | 1 / 30 |",
+            "| FG6-01 | ☑ | 建立 `bun run verify:governance` 聚合命令和 CI job | tooling · CI | E2 | FG0..FG5 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          ...fgTaskIds("FG5", 20),
+          ...fgExitGateIds("FG5", 7),
+          "FG6-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await writeFg5Evidence(root);
+        const failures = await collectSprintStatusFailures(root);
+        expect(failures.some((failure) => failure.includes("FG6 progress must use status Executing — FG6 In Progress"))).toBe(true);
+      }
+    );
+  });
+
+  test("accepts FG6 complete status only when the personal beta ledger is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Complete — Personal-User Beta Approved",
+          total: "| **合计** | | **141** | **51** | **192 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |",
+            "| FG6 | Staging、加固与发布 | 20 | 10 | 30 / 30 |",
+            "| FG6-20 | ☑ | 汇总 FG6 release readiness，形成 Human Gate launch review | docs/release | E4 | FG6-01..19 |",
+            "| FG6-EG10 | ☑ | Human Gate approval 记录存在，且未以自动化自证替代 | E4 | launch review approval |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          ...fgTaskIds("FG5", 20),
+          ...fgExitGateIds("FG5", 7),
+          ...fgTaskIds("FG6", 20),
+          ...fgExitGateIds("FG6", 10)
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await writeFg5Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
     await withFixture(
       `# Sprint 2
