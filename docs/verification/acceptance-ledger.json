@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-22T11:04:40Z",
+  "updatedAt": "2026-06-22T16:26:55Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -2363,7 +2363,7 @@
     {
       "id": "FG6-20",
       "kind": "task",
-      "status": "in_progress",
+      "status": "completed",
       "target": "E4",
       "evidence": [
         "docs/verification/fg6-personal-beta-launch-review.md",
@@ -2393,7 +2393,7 @@
     {
       "id": "FG6-EG2",
       "kind": "exit-gate",
-      "status": "in_progress",
+      "status": "completed",
       "target": "E3",
       "evidence": [
         "docs/verification/fg6-platform-workflow-matrix-readback.json",

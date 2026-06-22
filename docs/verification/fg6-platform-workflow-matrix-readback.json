@@ -2,9 +2,9 @@
   "schemaVersion": "archcontext.fg6-platform-workflow-matrix-readback/v1",
   "taskId": "FG6-08",
   "environment": "staging-release-readback",
-  "status": "failed",
-  "ok": false,
-  "generatedAt": "2026-06-22T11:06:50.428Z",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-22T16:26:45.862Z",
   "sources": {
     "workflowPath": ".github/workflows/verify.yml",
     "platformReadbackScript": "scripts/platform-ipc-permission-readback.mjs",
@@ -42,9 +42,9 @@
       "checksLifecycle": true
     },
     "hostedCi": {
-      "runId": 27871833633,
-      "headSha": "596366329a709be48d52fc58b5b2542cdc8ae1aa",
-      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27871833633",
+      "runId": 27967560199,
+      "headSha": "05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6",
+      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27967560199",
       "runConclusion": "PASS",
       "downloadedArtifactsVerified": true,
       "artifactNames": [
@@ -59,7 +59,7 @@
       "posixModeVerified": true,
       "windowsAclVerified": true
     },
-    "currentHeadSha": "99562df9d558ebc1884fb689287523560bb28908",
+    "currentHeadSha": "05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6",
     "githubWorkflowRuns": {
       "githubHosted": {
         "workflow": {
@@ -135,14 +135,11 @@
       "localRuntimeMatrixSixTargets": true,
       "installedBinIpcReadbackUploaded": true,
       "hostedCiArtifactsVerified": true,
-      "hostedCiMatchesCurrentHead": false,
+      "hostedCiMatchesCurrentHead": true,
       "githubHostedRunnerWorkflowPass": true,
       "selfHostedRunnerWorkflowPass": true,
       "runnerArtifactsNoLlmProvider": true
     }
   },
-  "failures": [
-    "hostedCi.headSha must match currentHeadSha",
-    "assertion hostedCiMatchesCurrentHead must be true"
-  ]
+  "failures": []
 }
