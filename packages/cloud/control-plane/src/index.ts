@@ -11,24 +11,30 @@ import {
 } from "@archcontext/cloud/attestation";
 import {
   CONTROL_PLANE_ROUTES,
-  DEVELOPER_REVIEW_CHECK_NAME,
+  DEFAULT_GOVERNANCE_FEATURE_FLAGS,
   GOVERNANCE_REASON_CATALOG,
-  ORGANIZATION_RUNNER_CHECK_NAME,
+  assertGovernanceFeatureFlagsAllow,
   controlPlaneRouteDigest,
   canTransitionCheckDelivery,
   createRunnerIdentity,
   digestJson,
+  evaluateGovernanceFeatureFlags as evaluateGovernanceFeatureFlagsContract,
+  normalizeGovernanceFeatureFlags,
+  requiredTrustForCheckName,
   runnerIdentityEffectiveScope,
   runnerIdentityKeyStatus,
   runnerIdentityMatchesScope,
   transitionRunnerIdentityStatus,
   transitionReviewChallengeStatus,
+  checkNameForRequiredTrust,
   type AttestationV2,
   type CheckDelivery,
   type CheckDeliveryStatus,
   type CreateRunnerIdentityInput,
   type DeviceIdentity,
   type GovernanceCheckName,
+  type GovernanceFeatureFlagDecision,
+  type GovernanceFeatureFlags,
   type GovernanceKeyStatus,
   type GitHubGovernancePort,
   type GovernanceReasonCode,
@@ -264,6 +270,7 @@ export interface ApiRateLimitWindow {
 }
 
 export type ControlPlaneMetricName =
+  | "challenge_create_latency_ms"
   | "challenge_age_ms"
   | "verify_latency_ms"
   | "check_delivery_lag_ms"
@@ -872,6 +879,23 @@ export class ControlPlane {
   readonly notificationProviderScopes = new Map<string, { accountId?: string; installationId?: number }>();
   readonly notificationQueue: ReturnType<typeof serializeNotificationEvent>[] = [];
   readonly releaseRollbacks: string[] = [];
+  private governanceFeatureFlags: GovernanceFeatureFlags = DEFAULT_GOVERNANCE_FEATURE_FLAGS;
+
+  getGovernanceFeatureFlags(): GovernanceFeatureFlags {
+    return { ...this.governanceFeatureFlags };
+  }
+
+  setGovernanceFeatureFlags(flags: Partial<GovernanceFeatureFlags>): GovernanceFeatureFlags {
+    this.governanceFeatureFlags = normalizeGovernanceFeatureFlags(flags);
+    return this.getGovernanceFeatureFlags();
+  }
+
+  evaluateGovernanceFeatureFlags(input: { requiredTrust: ReviewChallengeV2["requiredTrust"] }): GovernanceFeatureFlagDecision {
+    return evaluateGovernanceFeatureFlagsContract({
+      requiredTrust: input.requiredTrust,
+      flags: this.governanceFeatureFlags
+    });
+  }
 
   loginWithGitHub(githubUserId: string): Account {
     const id = `acct_${githubUserId}`;
@@ -1536,6 +1560,7 @@ export class ControlPlane {
   }
 
   createReviewChallengeApi(request: CreateReviewChallengeApiRequest): ReviewChallengeV2 {
+    const startedAtMs = performance.now();
     assertChallengeApiRequestSchema(request, CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create);
     requireNonEmptyString(request.idempotencyKey, "challenge.idempotencyKey");
     const keyDigest = apiIdempotencyKeyDigest("POST /v1/challenges", request.idempotencyKey);
@@ -1549,6 +1574,7 @@ export class ControlPlane {
       if (!existingChallenge) throw new Error("api-idempotency-resource-missing");
       return existingChallenge;
     }
+    this.assertGovernanceFeatureEnabled(request.requiredTrust);
     for (const existing of this.reviewChallenges.values()) {
       const sameIdentity = existing.installationId === request.installationId
         && existing.repositoryId === request.repositoryId
@@ -1570,6 +1596,7 @@ export class ControlPlane {
       resourceId: challenge.challengeId,
       createdAt: challenge.createdAt
     });
+    this.recordChallengeCreateLatencyMetric(challenge, Math.max(0, performance.now() - startedAtMs));
     return challenge;
   }
 
@@ -1725,6 +1752,7 @@ export class ControlPlane {
     if (input.checkDelivery.status !== "PENDING" && input.checkDelivery.status !== "RETRYING") {
       throw new Error("check-delivery-not-queueable");
     }
+    this.assertGovernanceFeatureEnabled(requiredTrustForCheckName(input.checkDelivery.checkName));
     const payloadDigest = requireDigest(input.payloadDigest, "checkDelivery.payloadDigest");
     const message = {
       schemaVersion: CHECK_DELIVERY_QUEUE_MESSAGE_SCHEMA_VERSION,
@@ -1905,6 +1933,7 @@ export class ControlPlane {
   }): CheckDeliveryPublicationResult {
     const checkRunId = requireNonEmptyString(input.checkRunId, "checkDelivery.checkRunId");
     requireFiniteTime(input.publishedAt, "checkDelivery.publishedAt");
+    this.assertGovernanceFeatureEnabled(input.challenge.requiredTrust);
     const base = {
       schemaVersion: "archcontext.check-delivery-publication/v1" as const,
       checkDelivery: input.checkDelivery,
@@ -2029,6 +2058,13 @@ export class ControlPlane {
       status: checkDelivery.status
     });
     return result;
+  }
+
+  private assertGovernanceFeatureEnabled(requiredTrust: ReviewChallengeV2["requiredTrust"]): GovernanceFeatureFlagDecision {
+    return assertGovernanceFeatureFlagsAllow({
+      requiredTrust,
+      flags: this.governanceFeatureFlags
+    });
   }
 
   cancelReviewChallengeApi(request: CancelReviewChallengeApiRequest): ReviewChallengeV2 {
@@ -2421,12 +2457,19 @@ export class ControlPlane {
   }
 
   deleteAccount(accountId: string): void {
+    const deviceIds = [...this.deviceIdentities.values()]
+      .filter((device) => device.accountId === accountId)
+      .map((device) => device.deviceId);
     this.accounts.delete(accountId);
-    for (const device of [...this.deviceIdentities.values()]) {
-      if (device.accountId === accountId) this.deviceIdentities.delete(device.deviceId);
+    for (const deviceId of deviceIds) {
+      this.deviceIdentities.delete(deviceId);
+      this.revokedDevices.delete(deviceId);
     }
-    for (const device of [...this.revokedDevices]) {
-      if (device.includes(accountId)) this.revokedDevices.delete(device);
+    for (const [providerId, scope] of [...this.notificationProviderScopes.entries()]) {
+      if (scope.accountId === accountId) {
+        this.notificationProviderScopes.delete(providerId);
+        this.notificationProviders.delete(providerId);
+      }
     }
   }
 
@@ -2507,6 +2550,20 @@ export class ControlPlane {
       value: Math.max(0, recordedAtMs - createdAtMs),
       unit: "milliseconds",
       recordedAt,
+      labels: {
+        challengeId: challenge.challengeId,
+        requiredTrust: challenge.requiredTrust,
+        status: challenge.status
+      }
+    });
+  }
+
+  private recordChallengeCreateLatencyMetric(challenge: ReviewChallengeV2, latencyMs: number): ControlPlaneMetricSample {
+    return this.recordControlPlaneMetric({
+      name: "challenge_create_latency_ms",
+      value: Math.round(latencyMs),
+      unit: "milliseconds",
+      recordedAt: challenge.createdAt,
       labels: {
         challengeId: challenge.challengeId,
         requiredTrust: challenge.requiredTrust,
@@ -2907,10 +2964,6 @@ function pendingCheckDeliveryPersistenceRow(checkDelivery: CheckDelivery): Pendi
     createdAt: checkDelivery.createdAt,
     updatedAt: checkDelivery.updatedAt
   };
-}
-
-function checkNameForRequiredTrust(requiredTrust: ReviewChallengeV2["requiredTrust"]): GovernanceCheckName {
-  return requiredTrust === "organization" ? ORGANIZATION_RUNNER_CHECK_NAME : DEVELOPER_REVIEW_CHECK_NAME;
 }
 
 function normalizeCheckDeliveryRetryPolicy(policy: Partial<CheckDeliveryRetryPolicy> | undefined): CheckDeliveryRetryPolicy {

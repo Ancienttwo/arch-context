@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.acceptance-ledger/v1",
   "sprint": "archctx-local-github-governance",
-  "updatedAt": "2026-06-21T15:35:32Z",
+  "updatedAt": "2026-06-21T18:58:00Z",
   "entries": [
     {
       "id": "FG0-01",
@@ -2032,6 +2032,438 @@
         "packages/cloud/control-plane/src/index.ts",
         "packages/cloud/cloud-db/src/index.ts",
         "docs/verification/fg5-control-plane-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-01",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "package.json",
+        "scripts/verify-governance.mjs",
+        ".github/workflows/verify.yml",
+        "scripts/governance-verify-workflow.test.ts",
+        "scripts/sprint-status-check.mjs",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-02",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/local-no-cloud-e2e.mjs",
+        "scripts/fg6-local-no-cloud-readback.ts",
+        "scripts/fg6-local-no-cloud-readback.test.ts",
+        "docs/verification/fg6-local-no-cloud-readback.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-03",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-developer-review-provenance-readback.ts",
+        "scripts/fg6-developer-review-provenance-readback.test.ts",
+        "docs/verification/fg6-developer-review-provenance-readback.json",
+        "docs/verification/fg3-developer-review-check-readback.json",
+        "docs/verification/fg3-developer-review-process-e2e.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-04",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-new-commit-invalidation-readback.ts",
+        "scripts/fg6-new-commit-invalidation-readback.test.ts",
+        "docs/verification/fg6-new-commit-invalidation-readback.json",
+        "docs/verification/fg3-check-supersede-readback.json",
+        "docs/verification/fg3-real-pr-synchronize-e2e.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-05",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-organization-runner-no-llm-readback.ts",
+        "scripts/fg6-organization-runner-no-llm-readback.test.ts",
+        "docs/verification/fg6-organization-runner-no-llm-readback.json",
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "docs/verification/fg4-organization-runner-ruleset-readback.json",
+        "docs/verification/fg4-deterministic-conclusion-readback.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-06",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-privacy-dlp-readback.ts",
+        "scripts/fg6-privacy-dlp-readback.test.ts",
+        "docs/verification/fg6-privacy-dlp-readback.json",
+        "docs/verification/fg3-cloud-dlp-readback.json",
+        "docs/verification/fg4-runner-dlp-readback.json",
+        "docs/verification/fg5-full-plane-dlp-readback.json",
+        "scripts/github-api-contract-audit.mjs",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-07",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-no-provider-deterministic-readback.ts",
+        "scripts/fg6-no-provider-deterministic-readback.test.ts",
+        "docs/verification/fg6-no-provider-deterministic-readback.json",
+        "docs/verification/fg6-local-no-cloud-readback.json",
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "docs/verification/fg4-deterministic-conclusion-readback.json",
+        "docs/verification/fg6-organization-runner-no-llm-readback.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-08",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-platform-workflow-matrix-readback.ts",
+        "scripts/fg6-platform-workflow-matrix-readback.test.ts",
+        "docs/verification/fg6-platform-workflow-matrix-readback.json",
+        ".github/workflows/verify.yml",
+        "scripts/platform-ipc-permission-readback.mjs",
+        "docs/verification/fg1-local-product-gate.md",
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-09",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-adversarial-governance-matrix-readback.ts",
+        "scripts/fg6-adversarial-governance-matrix-readback.test.ts",
+        "docs/verification/fg6-adversarial-governance-matrix-readback.json",
+        "docs/verification/fg2-staging-evidence.json",
+        "docs/verification/fg4-public-fork-adversarial-readback.json",
+        "docs/verification/fg2-install-revoke-readback.json",
+        "docs/verification/fg4-organization-runner-ruleset-readback.json",
+        "docs/verification/fg4-developer-cannot-satisfy-organization-readback.json",
+        "docs/verification/fg4-runner-key-lifecycle-e2e.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-10",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-chaos-fault-matrix-readback.ts",
+        "scripts/fg6-chaos-fault-matrix-readback.test.ts",
+        "docs/verification/fg6-chaos-fault-matrix-readback.json",
+        "docs/verification/fg5-check-failure-readback.json",
+        "docs/verification/fg5-control-plane-incident-drill.json",
+        "docs/verification/fg5-control-plane-gate.md",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-11",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-security-release-readback.ts",
+        "scripts/fg6-security-release-readback.test.ts",
+        "docs/verification/fg6-security-release-readback.json",
+        "docs/security/reviews/fg6-release-security-scan.md",
+        "docs/security/scans/fg6-release-sbom.cdx.json",
+        "docs/security/scans/manifest.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-12",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-external-security-review-readback.ts",
+        "scripts/fg6-external-security-review-readback.test.ts",
+        "docs/verification/fg6-external-security-review-readback.json",
+        "docs/security/reviews/fg6-external-security-review.md",
+        "docs/verification/fg6-privacy-dlp-readback.json",
+        "docs/verification/fg6-adversarial-governance-matrix-readback.json",
+        "docs/verification/fg6-security-release-readback.json",
+        "docs/verification/fg3-attestation-security-suite.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-13",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "scripts/fg6-representative-benchmark-readback.ts",
+        "scripts/fg6-representative-benchmark-readback.test.ts",
+        "docs/verification/fg6-representative-benchmark-readback.json",
+        "docs/verification/fg6-representative-benchmark.md",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-14",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "scripts/fg6-slo-readback.ts",
+        "scripts/fg6-slo-readback.test.ts",
+        "docs/verification/fg6-slo-readback.json",
+        "docs/verification/fg6-slo.md",
+        "docs/verification/fg5-control-plane-gate.md",
+        "docs/verification/fg5-control-plane-incident-drill.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-15",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "scripts/fg6-retention-deletion-readback.ts",
+        "scripts/fg6-retention-deletion-readback.test.ts",
+        "docs/verification/fg6-retention-deletion-readback.json",
+        "docs/verification/fg6-retention-deletion.md",
+        "docs/verification/fg5-retention-staging-readback.json",
+        "docs/verification/fg2-install-revoke-readback.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-16",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/runbooks/control-plane-incidents.md",
+        "scripts/fg6-ops-runbook-readback.ts",
+        "scripts/fg6-ops-runbook-readback.test.ts",
+        "docs/verification/fg6-ops-runbook-readback.json",
+        "docs/verification/fg6-ops-runbook.md",
+        "docs/verification/fg3-attestation-security-suite.json",
+        "docs/verification/fg4-runner-key-lifecycle-e2e.json",
+        "docs/verification/fg5-control-plane-incident-drill.json",
+        "docs/verification/fg6-chaos-fault-matrix-readback.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-17",
+      "kind": "task",
+      "status": "completed",
+      "target": "E2",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "scripts/fg6-feature-flag-readback.ts",
+        "scripts/fg6-feature-flag-readback.test.ts",
+        "docs/verification/fg6-feature-flag-readback.json",
+        "docs/verification/fg6-feature-flag.md",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-19",
+      "kind": "task",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "packages/contracts/src/github-governance.ts",
+        "packages/contracts/test/contracts.test.ts",
+        "packages/cloud/control-plane/src/index.ts",
+        "packages/cloud/control-plane/test/control-plane.test.ts",
+        "packages/cloud/github-app/src/index.ts",
+        "packages/cloud/github-app/test/github-app.test.ts",
+        "packages/cloud/runner/src/index.ts",
+        "packages/cloud/runner/test/runner.test.ts",
+        "docs/api/control-plane-openapi.yaml",
+        "docs/api/control-plane-compatibility-policy.md",
+        "actions/review-action/action.yml",
+        ".github/workflows/archcontext-organization-runner.yml",
+        "docs/examples/reusable-organization-runner-caller.yml",
+        "scripts/fg6-rollback-compat-readback.ts",
+        "scripts/fg6-rollback-compat-readback.test.ts",
+        "docs/verification/fg6-rollback-compat-readback.json",
+        "docs/verification/fg6-rollback-compat.md",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-local-no-cloud-readback.json",
+        "docs/verification/fg6-developer-review-provenance-readback.json",
+        "docs/verification/fg6-new-commit-invalidation-readback.json",
+        "docs/verification/fg6-organization-runner-no-llm-readback.json",
+        "docs/verification/fg6-privacy-dlp-readback.json",
+        "docs/verification/fg6-no-provider-deterministic-readback.json",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-platform-workflow-matrix-readback.json",
+        ".github/workflows/verify.yml",
+        "scripts/platform-ipc-permission-readback.mjs",
+        "docs/verification/fg1-local-product-gate.md",
+        "docs/verification/fg4-github-hosted-runner-readback.json",
+        "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-privacy-dlp-readback.json",
+        "scripts/github-api-contract-audit.mjs",
+        "docs/verification/fg3-cloud-dlp-readback.json",
+        "docs/verification/fg4-runner-dlp-readback.json",
+        "docs/verification/fg5-full-plane-dlp-readback.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-adversarial-governance-matrix-readback.json",
+        "docs/verification/fg3-attestation-security-suite.json",
+        "docs/verification/fg3-check-supersede-readback.json",
+        "docs/verification/fg4-public-fork-adversarial-readback.json",
+        "docs/verification/fg4-developer-cannot-satisfy-organization-readback.json",
+        "docs/verification/fg4-runner-key-lifecycle-e2e.json",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-chaos-fault-matrix-readback.json",
+        "docs/verification/fg6-slo-readback.json",
+        "docs/verification/fg5-check-failure-readback.json",
+        "docs/verification/fg5-control-plane-incident-drill.json",
+        "docs/verification/fg5-control-plane-gate.md",
+        "docs/verification/fg6-acceptance-evidence.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-security-release-readback.json",
+        "docs/verification/fg6-external-security-review-readback.json",
+        "docs/security/reviews/fg6-release-security-scan.md",
+        "docs/security/reviews/fg6-external-security-review.md",
+        "docs/security/scans/fg6-release-sbom.cdx.json",
+        "docs/security/scans/manifest.json",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-representative-benchmark-readback.json",
+        "docs/verification/fg6-representative-benchmark.md",
+        "docs/verification/fg6-slo-readback.json",
+        "docs/verification/fg6-slo.md",
+        "docs/verification/fg6-staging-release-gate.md"
+      ]
+    },
+    {
+      "id": "FG6-EG8",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E3",
+      "evidence": [
+        "docs/verification/fg6-rollback-compat-readback.json",
+        "docs/verification/fg6-rollback-compat.md",
+        "docs/api/control-plane-openapi.yaml",
+        "docs/api/control-plane-compatibility-policy.md",
+        "actions/review-action/action.yml",
+        ".github/workflows/archcontext-organization-runner.yml",
+        "docs/examples/reusable-organization-runner-caller.yml",
+        "docs/verification/fg6-staging-release-gate.md"
       ]
     }
   ]

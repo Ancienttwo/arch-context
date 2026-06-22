@@ -11,6 +11,12 @@ export const GOVERNANCE_CHECK_NAMES = [
 export type GovernanceCheckName = (typeof GOVERNANCE_CHECK_NAMES)[number];
 export type GovernanceTrustLevel = "developer" | "organization";
 export type RequiredTrust = GovernanceTrustLevel;
+export type GovernanceFeatureFlagName = "developerCheck" | "organizationCheck" | "requiredTrust";
+export type GovernanceFeatureFlagDecisionReason =
+  | "enabled"
+  | "developer-check-disabled"
+  | "organization-check-disabled"
+  | "required-trust-disabled";
 export type ReviewChallengeStatus = "PENDING" | "LEASED" | "SUBMITTED" | "VERIFIED" | "REJECTED" | "SUPERSEDED" | "EXPIRED";
 export type CheckDeliveryStatus = "PENDING" | "PUBLISHED" | "RETRYING" | "DEAD_LETTER";
 export type AttestationResult = "pass" | "fail" | "error";
@@ -31,6 +37,31 @@ export type CreateRunnerIdentityInput = Omit<RunnerIdentity, "schemaVersion" | "
   rotatedAt?: string | null;
   revokedAt?: string | null;
 };
+
+export interface GovernanceFeatureFlags {
+  schemaVersion: "archcontext.governance-feature-flags/v1";
+  developerCheck: boolean;
+  organizationCheck: boolean;
+  requiredTrust: boolean;
+}
+
+export interface GovernanceFeatureFlagDecision {
+  schemaVersion: "archcontext.governance-feature-flag-decision/v1";
+  allowed: boolean;
+  reason: GovernanceFeatureFlagDecisionReason;
+  requiredTrust: RequiredTrust;
+  checkName: GovernanceCheckName;
+  flags: GovernanceFeatureFlags;
+  disabledFlag?: GovernanceFeatureFlagName;
+  metadataDigest: string;
+}
+
+export const DEFAULT_GOVERNANCE_FEATURE_FLAGS: GovernanceFeatureFlags = {
+  schemaVersion: "archcontext.governance-feature-flags/v1",
+  developerCheck: true,
+  organizationCheck: true,
+  requiredTrust: true
+} as const;
 
 export interface DevicePrivateKeySignerPort {
   signWithDevicePrivateKey(input: { keyRef: string; payload: string | Uint8Array }): string;
@@ -626,8 +657,79 @@ export function satisfiesRequiredTrust(attestationTrustLevel: GovernanceTrustLev
   return attestationTrustLevel === "developer" || attestationTrustLevel === "organization";
 }
 
+export function checkNameForRequiredTrust(requiredTrust: RequiredTrust): GovernanceCheckName {
+  return requiredTrust === "organization" ? ORGANIZATION_RUNNER_CHECK_NAME : DEVELOPER_REVIEW_CHECK_NAME;
+}
+
+export function requiredTrustForCheckName(checkName: GovernanceCheckName): RequiredTrust {
+  return checkName === ORGANIZATION_RUNNER_CHECK_NAME ? "organization" : "developer";
+}
+
+export function normalizeGovernanceFeatureFlags(flags: Partial<GovernanceFeatureFlags> | undefined): GovernanceFeatureFlags {
+  if (flags?.schemaVersion !== undefined && flags.schemaVersion !== DEFAULT_GOVERNANCE_FEATURE_FLAGS.schemaVersion) {
+    throw new Error("governance-feature-flags-schemaVersion-invalid");
+  }
+  return {
+    schemaVersion: DEFAULT_GOVERNANCE_FEATURE_FLAGS.schemaVersion,
+    developerCheck: readGovernanceFeatureFlag(flags?.developerCheck, DEFAULT_GOVERNANCE_FEATURE_FLAGS.developerCheck, "developerCheck"),
+    organizationCheck: readGovernanceFeatureFlag(flags?.organizationCheck, DEFAULT_GOVERNANCE_FEATURE_FLAGS.organizationCheck, "organizationCheck"),
+    requiredTrust: readGovernanceFeatureFlag(flags?.requiredTrust, DEFAULT_GOVERNANCE_FEATURE_FLAGS.requiredTrust, "requiredTrust")
+  };
+}
+
+export function evaluateGovernanceFeatureFlags(input: {
+  requiredTrust: RequiredTrust;
+  flags?: Partial<GovernanceFeatureFlags>;
+}): GovernanceFeatureFlagDecision {
+  const requiredTrust = requireRequiredTrust(input.requiredTrust);
+  const flags = normalizeGovernanceFeatureFlags(input.flags);
+  const checkName = checkNameForRequiredTrust(requiredTrust);
+  const disabled =
+    requiredTrust === "organization" && !flags.requiredTrust
+      ? { disabledFlag: "requiredTrust" as const, reason: "required-trust-disabled" as const }
+      : checkName === DEVELOPER_REVIEW_CHECK_NAME && !flags.developerCheck
+        ? { disabledFlag: "developerCheck" as const, reason: "developer-check-disabled" as const }
+        : checkName === ORGANIZATION_RUNNER_CHECK_NAME && !flags.organizationCheck
+          ? { disabledFlag: "organizationCheck" as const, reason: "organization-check-disabled" as const }
+          : undefined;
+  const reason: GovernanceFeatureFlagDecisionReason = disabled?.reason ?? "enabled";
+  const base = {
+    schemaVersion: "archcontext.governance-feature-flag-decision/v1" as const,
+    allowed: disabled === undefined,
+    reason,
+    requiredTrust,
+    checkName,
+    flags,
+    ...(disabled === undefined ? {} : { disabledFlag: disabled.disabledFlag })
+  };
+  return {
+    ...base,
+    metadataDigest: digestJson(base as unknown as Json)
+  };
+}
+
+export function assertGovernanceFeatureFlagsAllow(input: {
+  requiredTrust: RequiredTrust;
+  flags?: Partial<GovernanceFeatureFlags>;
+}): GovernanceFeatureFlagDecision {
+  const decision = evaluateGovernanceFeatureFlags(input);
+  if (!decision.allowed) throw new Error(`governance-feature-disabled: ${decision.reason}`);
+  return decision;
+}
+
 function isReviewChallengeStatus(value: unknown): value is ReviewChallengeStatus {
   return typeof value === "string" && value in CHALLENGE_STATUS_TRANSITIONS;
+}
+
+function requireRequiredTrust(value: unknown): RequiredTrust {
+  if (value === "developer" || value === "organization") return value;
+  throw new Error("governance-requiredTrust-invalid");
+}
+
+function readGovernanceFeatureFlag(value: unknown, fallback: boolean, label: GovernanceFeatureFlagName): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") throw new Error(`governance-feature-flag-${label}-invalid`);
+  return value;
 }
 
 function isRunnerIdentityStatus(value: unknown): value is RunnerIdentityStatus {

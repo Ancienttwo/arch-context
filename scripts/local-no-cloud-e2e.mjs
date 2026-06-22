@@ -11,6 +11,7 @@ const CODEGRAPH_BIN = resolveCodeGraphBin(BIN_DIR);
 const FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/single-repo-basic");
 const PROCESS_TIMEOUT_MS = 20_000;
 const REMOVED_PROVIDER_ENV = providerEnvKeys(process.env);
+const MCP_HOST = "codex";
 
 if (!existsSync(ARCHCTX_BIN)) {
   fail(`missing installed archctx bin at ${ARCHCTX_BIN}; run bun install first`);
@@ -35,6 +36,13 @@ try {
   assert(doctor.data?.egress?.secureMcpTunnel === "disabled-by-default", "doctor must keep secure MCP tunnel disabled by default");
   assert(doctor.data?.egress?.thirdPartyTelemetry === "disabled", "doctor must report third-party telemetry disabled");
 
+  const mcpInstall = await runArchctx(repo, "mcp", "install", "--host", MCP_HOST);
+  assert(mcpInstall.ok === true, "mcp install must succeed without GitHub, Cloud, or LLM");
+  assert(mcpInstall.data?.host === MCP_HOST, "mcp install must report the requested host");
+  assert(mcpInstall.data?.config?.mcpServers?.archcontext?.command === "archctx", "mcp install must use installed archctx command");
+  assert(Array.isArray(mcpInstall.data?.config?.mcpServers?.archcontext?.args), "mcp install must return MCP args");
+  assert(mcpInstall.data.config.mcpServers.archcontext.args.join(" ") === "mcp", "mcp install must use local MCP stdio entrypoint");
+
   const init = await runArchctx(repo, "init", "--name", "Local No Cloud");
   assert(init.ok === true, "init must succeed without GitHub, Cloud, or LLM");
   assert(/^sha256:/.test(String(init.data?.modelDigest)), "init must return model digest");
@@ -49,10 +57,30 @@ try {
   assert(context.data?.resources?.some((resource) => resource.type === "codefacts"), "context must include local codefacts resource");
   assert(context.data?.resources?.some((resource) => resource.type === "model"), "context must include local model resource");
 
+  const prepared = await runArchctx(repo, "prepare", "--task", "inspect greeting module", "--max-items", "2");
+  assert(prepared.ok === true, "prepare must succeed without GitHub, Cloud, or LLM");
+  assert(Boolean(prepared.data?.posture), "prepare must return local posture");
+
   const status = await runArchctx(repo, "status");
   assert(status.ok === true, "status must succeed after local context");
   assert(status.data?.running === true, "status must report daemon running");
   assert(/^sha256:/.test(String(status.data?.worktreeDigest)), "status must return worktree digest");
+
+  const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest);
+  assert(checkpoint.ok === true, "checkpoint must succeed without GitHub, Cloud, or LLM");
+  assert(checkpoint.data?.fresh === true, "checkpoint must report a fresh worktree");
+
+  const complete = await runArchctx(
+    repo,
+    "complete",
+    "--task-session-id",
+    "task_local_no_cloud_complete",
+    "--head-sha",
+    headSha
+  );
+  assert(complete.ok === true, "complete must succeed without GitHub, Cloud, or LLM");
+  assert(complete.data?.schemaVersion === "archcontext.review/v1", "complete must return review schema");
+  assert(complete.data?.result === "pass", "complete must pass for the clean local fixture");
 
   const review = await runArchctx(
     repo,
@@ -73,12 +101,23 @@ try {
 
   console.log(JSON.stringify({
     schemaVersion: "archcontext.local-no-cloud-e2e/v1",
-    commands: ["doctor", "init", "sync", "context", "review"],
+    commands: ["doctor", "mcp install", "init", "sync", "context", "prepare", "status", "checkpoint", "complete", "review"],
     providerEnvRemoved: REMOVED_PROVIDER_ENV,
     git: {
       headSha
     },
     egress: doctor.data.egress,
+    mcp: {
+      host: mcpInstall.data.host,
+      command: mcpInstall.data.config.mcpServers.archcontext.command,
+      args: mcpInstall.data.config.mcpServers.archcontext.args
+    },
+    taskLifecycle: {
+      preparePosture: String(prepared.data.posture),
+      checkpointFresh: checkpoint.data.fresh,
+      completeSchemaVersion: complete.data.schemaVersion,
+      completeResult: complete.data.result
+    },
     review: {
       schemaVersion: review.data.schemaVersion,
       result: review.data.result,
@@ -172,7 +211,9 @@ function resolveCodeGraphBin(binDir) {
 }
 
 function displayPath(path) {
-  return path.startsWith(tmpdir()) ? join("$TMPDIR", path.slice(tmpdir().length + 1)) : path;
+  const tempRoots = [tmpdir(), realpathSync.native(tmpdir())];
+  const tempRoot = tempRoots.find((root) => path === root || path.startsWith(`${root}/`));
+  return tempRoot ? join("$TMPDIR", path.slice(tempRoot.length + 1)) : path;
 }
 
 function assert(condition, message) {

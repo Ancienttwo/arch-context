@@ -2,15 +2,22 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { attestationLabel, createReviewChallenge, type LocalAttestation, type ReviewChallenge, type TrustLevel } from "@archcontext/cloud/attestation";
 import {
   DEVELOPER_REVIEW_CHECK_NAME,
+  DEFAULT_GOVERNANCE_FEATURE_FLAGS,
   GITHUB_APP_PERMISSION_MANIFEST,
   ORGANIZATION_RUNNER_CHECK_NAME,
+  assertGovernanceFeatureFlagsAllow,
   digestJson,
+  evaluateGovernanceFeatureFlags,
+  normalizeGovernanceFeatureFlags,
+  requiredTrustForCheckName,
   type AttestationV2,
   type CheckReference,
   type CheckRunReference,
   type CloudEgressEnvelope,
   type CreateGovernanceCheckInput,
   type GitHubGovernancePort,
+  type GovernanceFeatureFlagDecision,
+  type GovernanceFeatureFlags,
   type GovernanceCheckName,
   type NotificationResult,
   type NotificationRiskLevel,
@@ -496,8 +503,30 @@ export class GitHubAppState {
   readonly organizationAttestationRequired = new Set<string>();
   readonly challenges = new Map<string, ReviewChallenge>();
   readonly checks = new Map<string, CheckRun>();
+  private featureFlags: GovernanceFeatureFlags = DEFAULT_GOVERNANCE_FEATURE_FLAGS;
 
-  constructor(private readonly deliveryLedger: WebhookDeliveryLedger = new InMemoryWebhookDeliveryLedger()) {}
+  constructor(
+    private readonly deliveryLedger: WebhookDeliveryLedger = new InMemoryWebhookDeliveryLedger(),
+    featureFlags?: Partial<GovernanceFeatureFlags>
+  ) {
+    this.featureFlags = normalizeGovernanceFeatureFlags(featureFlags);
+  }
+
+  getGovernanceFeatureFlags(): GovernanceFeatureFlags {
+    return { ...this.featureFlags };
+  }
+
+  setGovernanceFeatureFlags(flags: Partial<GovernanceFeatureFlags>): GovernanceFeatureFlags {
+    this.featureFlags = normalizeGovernanceFeatureFlags(flags);
+    return this.getGovernanceFeatureFlags();
+  }
+
+  evaluateGovernanceFeatureFlags(input: { requiredTrust: "developer" | "organization" }): GovernanceFeatureFlagDecision {
+    return evaluateGovernanceFeatureFlags({
+      requiredTrust: input.requiredTrust,
+      flags: this.featureFlags
+    });
+  }
 
   install(repositories: string[], installationId?: number): void {
     if (installationId !== undefined) this.installationId = installationId;
@@ -546,9 +575,10 @@ export class GitHubAppState {
     const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
     if (delivery.replay) return { idempotent: true, replayRejected: true, delivery };
     this.invalidateHead(event.repository.owner, event.repository.name, event.pullRequest.number, event.pullRequest.headSha);
-    const checkName = this.organizationAttestationRequired.has(repositoryKey)
-      ? ORGANIZATION_RUNNER_CHECK_NAME
-      : DEVELOPER_REVIEW_CHECK_NAME;
+    const requiredTrust = this.requiredTrustForRepository(repositoryKey);
+    const decision = this.evaluateGovernanceFeatureFlags({ requiredTrust });
+    if (!decision.allowed) return { idempotent: false, replayRejected: false, delivery };
+    const checkName = decision.checkName;
     if (checkName === ORGANIZATION_RUNNER_CHECK_NAME && isForkPullRequest(event, repositoryKey)) {
       const checkRun: CheckRun = {
         id: `check_${event.pullRequest.number}_${event.pullRequest.headSha.slice(0, 8)}`,
@@ -589,6 +619,8 @@ export class GitHubAppState {
     this.assertRepositorySelected(`${event.repository.owner}/${event.repository.name}`);
     const delivery = this.deliveryLedger.recordDelivery({ provider: "github", deliveryId: event.deliveryId, receivedAt: now });
     if (delivery.replay) return { idempotent: true, replayRejected: true, delivery };
+    const decision = this.evaluateGovernanceFeatureFlags({ requiredTrust: requiredTrustForCheckName(event.checkRun.name) });
+    if (!decision.allowed) return { idempotent: false, replayRejected: false, delivery };
     const challenge = createReviewChallenge({
       repository: { provider: "github", owner: event.repository.owner, name: event.repository.name, visibility: event.repository.visibility },
       headSha: event.checkRun.headSha,
@@ -608,6 +640,7 @@ export class GitHubAppState {
   updateCheckFromAttestation(checkRunId: string, attestation: LocalAttestation, accepted: boolean): CheckRun {
     const check = this.checks.get(checkRunId);
     if (!check) throw new Error(`Check run not found: ${checkRunId}`);
+    this.assertGovernanceFeatureEnabled(requiredTrustForCheckName(check.name));
     const repositoryKey = `${attestation.repository.owner}/${attestation.repository.name}`;
     const requiresOrganization = check.name === ORGANIZATION_RUNNER_CHECK_NAME || this.organizationAttestationRequired.has(repositoryKey);
     const trustAllowed = !requiresOrganization || attestation.trustLevel === "organization";
@@ -643,6 +676,7 @@ export class GitHubAppState {
   }): CheckRun {
     const check = this.checks.get(input.checkRunId);
     if (!check) throw new Error(`Check run not found: ${input.checkRunId}`);
+    this.assertGovernanceFeatureEnabled("developer");
     const isDeveloperReview = check.name === DEVELOPER_REVIEW_CHECK_NAME;
     const developerAttested = input.attestation.execution.trustLevel === "developer";
     const bound = input.attestation.headSha === check.headSha;
@@ -678,6 +712,7 @@ export class GitHubAppState {
   }): CheckRun {
     const check = this.checks.get(input.checkRunId);
     if (!check) throw new Error(`Check run not found: ${input.checkRunId}`);
+    this.assertGovernanceFeatureEnabled("organization");
     const isOrganizationRunner = check.name === ORGANIZATION_RUNNER_CHECK_NAME;
     const organizationAttested = input.attestation.execution.trustLevel === "organization";
     const bound = input.attestation.headSha === check.headSha;
@@ -732,6 +767,17 @@ export class GitHubAppState {
 
   private assertRepositorySelected(repository: string): void {
     if (!this.selectedRepositories.has(repository)) throw new Error(`github-repository-not-selected: ${repository}`);
+  }
+
+  private requiredTrustForRepository(repository: string): "developer" | "organization" {
+    return this.organizationAttestationRequired.has(repository) && this.featureFlags.requiredTrust ? "organization" : "developer";
+  }
+
+  private assertGovernanceFeatureEnabled(requiredTrust: "developer" | "organization"): GovernanceFeatureFlagDecision {
+    return assertGovernanceFeatureFlagsAllow({
+      requiredTrust,
+      flags: this.featureFlags
+    });
   }
 
   private repositoryList(): string[] {

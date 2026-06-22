@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "archcontext.fg6-local-no-cloud-readback/v1",
+  "acceptanceId": "AC-01",
+  "environment": "local-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:22:55.345Z",
+  "command": "node scripts/local-no-cloud-e2e.mjs",
+  "evidence": {
+    "localEvidence": {
+      "schemaVersion": "archcontext.local-no-cloud-e2e/v1",
+      "commands": [
+        "doctor",
+        "mcp install",
+        "init",
+        "sync",
+        "context",
+        "prepare",
+        "status",
+        "checkpoint",
+        "complete",
+        "review"
+      ],
+      "providerEnvRemoved": [
+        "GH_PAGER",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL"
+      ],
+      "git": {
+        "headSha": "66a7baa18b1c49cf4bb14ea2ff04780ce70295e7"
+      },
+      "egress": {
+        "ok": true,
+        "defaultOutbound": "local-only",
+        "cloudContentUpload": "deny",
+        "secureMcpTunnel": "disabled-by-default",
+        "thirdPartyTelemetry": "disabled",
+        "codeGraph": {
+          "provider": "codegraph",
+          "telemetry": "disabled",
+          "envVar": "DO_NOT_TRACK",
+          "configuredValue": "1",
+          "effectiveValue": "1",
+          "source": "environment"
+        },
+        "warnings": []
+      },
+      "mcp": {
+        "host": "codex",
+        "command": "archctx",
+        "args": [
+          "mcp"
+        ]
+      },
+      "taskLifecycle": {
+        "preparePosture": "normal",
+        "checkpointFresh": true,
+        "completeSchemaVersion": "archcontext.review/v1",
+        "completeResult": "pass"
+      },
+      "review": {
+        "schemaVersion": "archcontext.review/v1",
+        "result": "pass",
+        "errors": 0,
+        "warnings": 0
+      },
+      "paths": {
+        "repo": "$TMPDIR/archctx-local-no-cloud-cWz6MB/single-repo-basic",
+        "bin": "/Users/chris/Projects/arch-context/packages/surfaces/cli/bin/archctx"
+      }
+    },
+    "assertions": {
+      "noGitHubAppRequired": true,
+      "noArchContextCloudTokenRequired": true,
+      "noLlmProviderRequired": true,
+      "localMcpConfigured": true,
+      "agentTaskLifecycleComplete": true,
+      "localReviewComplete": true
+    }
+  },
+  "failures": []
+}

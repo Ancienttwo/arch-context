@@ -32,6 +32,18 @@
       "artifactPath": "docs/security/reviews/production-security-scan.md",
       "reason": "Awaiting production or external security scan artifact with zero Critical and High findings.",
       "scanner": "external-security-scan"
+    },
+    {
+      "id": "staging.fg6-release-security-scan",
+      "environment": "staging",
+      "status": "verified",
+      "artifactPath": "docs/security/reviews/fg6-release-security-scan.md",
+      "artifactDigest": "sha256:24a68e5c0d3ddb0d698bdee4d3b55a796bcd539e239f2d8297a7d98ffeed276d",
+      "auditedAt": "2026-06-21T19:25:34.536Z",
+      "scanner": "fg6-release-security-bundle",
+      "scope": "dependency-vulnerability-sbom-sast-secret-scan",
+      "critical": 0,
+      "high": 0
     }
   ]
 }

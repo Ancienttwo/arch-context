@@ -68,6 +68,95 @@ describe("GitHub App", () => {
     expect(superseded?.conclusion).not.toBe("stale");
   });
 
+  test("feature flags gate Developer Check Organization Check and requiredTrust rollout", () => {
+    const developerOff = new GitHubAppState(undefined, { developerCheck: false });
+    developerOff.install(["ancienttwo/arch-context"]);
+    const developerResult = developerOff.handlePullRequest({
+      deliveryId: "feature-dev-off",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 10, headSha: "a".repeat(40) }
+    });
+    expect(developerResult.checkRun).toBeUndefined();
+    expect(developerOff.checks.size).toBe(0);
+    expect(developerOff.challenges.size).toBe(0);
+
+    const organizationOff = new GitHubAppState(undefined, { organizationCheck: false });
+    organizationOff.install(["ancienttwo/arch-context"]);
+    organizationOff.requireOrganizationAttestation("ancienttwo/arch-context");
+    const organizationResult = organizationOff.handlePullRequest({
+      deliveryId: "feature-org-off",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 11, headSha: "b".repeat(40) }
+    });
+    expect(organizationResult.checkRun).toBeUndefined();
+    expect(organizationOff.checks.size).toBe(0);
+    expect(organizationOff.challenges.size).toBe(0);
+
+    const requiredTrustOff = new GitHubAppState(undefined, { requiredTrust: false });
+    requiredTrustOff.install(["ancienttwo/arch-context"]);
+    requiredTrustOff.requireOrganizationAttestation("ancienttwo/arch-context");
+    const fallback = requiredTrustOff.handlePullRequest({
+      deliveryId: "feature-required-trust-off",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 12, headSha: "c".repeat(40) }
+    });
+    expect(fallback.checkRun?.name).toBe(DEVELOPER_REVIEW_CHECK_NAME);
+    expect(requiredTrustOff.evaluateGovernanceFeatureFlags({ requiredTrust: "organization" })).toMatchObject({
+      allowed: false,
+      reason: "required-trust-disabled"
+    });
+
+    const publicationOff = new GitHubAppState(undefined, { organizationCheck: false });
+    publicationOff.install(["ancienttwo/arch-context"]);
+    publicationOff.requireOrganizationAttestation("ancienttwo/arch-context");
+    publicationOff.setGovernanceFeatureFlags({ organizationCheck: true });
+    const organizationCheck = publicationOff.handlePullRequest({
+      deliveryId: "feature-org-publication",
+      action: "opened",
+      repository: { owner: "ancienttwo", name: "arch-context", visibility: "private" },
+      pullRequest: { number: 13, headSha: "d".repeat(40) }
+    }).checkRun!;
+    publicationOff.setGovernanceFeatureFlags({ organizationCheck: false });
+    expect(() => publicationOff.updateOrganizationRunnerCheckFromAttestation({
+      checkRunId: organizationCheck.id,
+      accepted: false,
+      attestation: createAttestationV2({
+        challengeId: "chal_feature_org_publication",
+        installationId: 141544438,
+        repositoryId: 987,
+        pullRequestNumber: 13,
+        headSha: "d".repeat(40),
+        baseSha: "abc123abc123abc123abc123abc123abc123abcd",
+        mergeBaseSha: "ccc123ccc123ccc123ccc123ccc123ccc123cccc",
+        headTreeOid: "ddd123ddd123ddd123ddd123ddd123ddd123dddd",
+        worktreeDigest: "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        modelDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        policyDigest: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        codeFactsDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        reviewDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+        result: "pass",
+        execution: {
+          trustLevel: "organization",
+          source: "organization-runner-checkout",
+          principalId: "runner_0001",
+          publicKeyId: "key_runner_0001",
+          runnerId: "runner_0001",
+          workflowRef: "owner/repo/.github/workflows/archcontext-review.yml@refs/heads/main",
+          runId: "1234567890",
+          runAttempt: 1
+        },
+        runtime: attestationRuntime(),
+        nonce: "nonce_feature_org_publication",
+        startedAt: "2026-06-20T09:03:00Z",
+        completedAt: "2026-06-20T09:04:00Z",
+        expiresAt: "2026-06-20T09:15:00Z"
+      })
+    })).toThrow("governance-feature-disabled: organization-check-disabled");
+  });
+
   test("handles installation creation repository selection changes and revocation", () => {
     const state = new GitHubAppState();
     const repoA = installationRepository("ancienttwo/arch-context", 987);

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "archcontext.fg6-npm-release-dry-run/v1",
+  "taskId": "FG6-release-distribution-dry-run",
+  "environment": "npm-release-dry-run",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-22T03:56:35.329Z",
+  "package": {
+    "name": "archctx",
+    "version": "0.1.0",
+    "private": false,
+    "homepage": "https://archcontext.repoharness.com",
+    "license": "UNLICENSED",
+    "packageManager": "bun@1.3.10",
+    "engines": {
+      "node": ">=24 <26",
+      "bun": ">=1.3.10"
+    },
+    "bin": {
+      "archctx": "./bin/archctx.mjs"
+    },
+    "publishConfig": {
+      "registry": "https://registry.npmjs.org/"
+    }
+  },
+  "artifact": {
+    "artifactDir": "_ops/npm/fg6-release-dry-run",
+    "tarball": "archctx-0.1.0.tgz",
+    "publishDryRunId": "archctx@0.1.0",
+    "integrity": "sha512-B5lE1ojVq2gBoj2n+E4BjksFuLmffUEOiCvtwxVfcqm8YGfjm3aYGIOH7gcM7BEU9GfdjGINtT9BH32Cz2rGQQ==",
+    "shasum": "daf0fa26f9ba7d331d4a12fb73808e0405426bf1",
+    "size": 96923,
+    "unpackedSize": 470604,
+    "entryCount": 3,
+    "files": [
+      "README.md",
+      "bin/archctx.mjs",
+      "package.json"
+    ]
+  },
+  "rollout": {
+    "postPublishInstallCommand": "npm install -g archctx@0.1.0",
+    "homeUrl": "https://archcontext.repoharness.com"
+  },
+  "assertions": {
+    "packageNameResolved": true,
+    "packageVersionMatchesRoot": true,
+    "packagePublishable": true,
+    "bunRuntimeDeclared": true,
+    "homeUrlCorrect": true,
+    "noSourceRepositoryUrl": true,
+    "binExposesArchctx": true,
+    "publishRegistryCorrect": true,
+    "npmPackProducedTarball": true,
+    "publishDryRunSucceeded": true,
+    "packageContentsBounded": true
+  },
+  "failures": []
+}

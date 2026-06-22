@@ -408,6 +408,51 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("accepts FG6 progress after FG5 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG6 In Progress",
+          total: "| **合计** | | **141** | **51** | **163 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |",
+            "| FG6 | Staging、加固与发布 | 20 | 10 | 1 / 30 |",
+            "| FG5-EG7 | ☑ | Database、log、trace、queue export 的代码内容命中数为 0 | E3 | full-plane DLP scan |",
+            "| FG6-01 | ☑ | 建立 `bun run verify:governance` 聚合命令和 CI job | tooling · CI | E2 | FG0..FG5 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          ...fgTaskIds("FG5", 20),
+          ...fgExitGateIds("FG5", 7),
+          "FG6-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await writeFg5Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
     await withFixture(
       `# Sprint 2
@@ -628,4 +673,8 @@ async function writeFg3Evidence(root: string) {
 
 async function writeFg4Evidence(root: string) {
   await write(root, "docs/verification/fg4-organization-runner-gate.md", "# FG4 Verification\n\n## Decision\n\nPASS for FG4-01 through FG4-21 and FG4-EG1 through FG4-EG8.\n");
+}
+
+async function writeFg5Evidence(root: string) {
+  await write(root, "docs/verification/fg5-control-plane-gate.md", "# FG5 Verification\n\n## Decision\n\nPASS for FG5-01 through FG5-EG7.\n");
 }

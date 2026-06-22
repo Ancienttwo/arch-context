@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "archcontext.fg6-developer-review-provenance-readback/v1",
+  "acceptanceId": "AC-02",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:27:43.958Z",
+  "sources": {
+    "checkSource": "docs/verification/fg3-developer-review-check-readback.json",
+    "processSource": "docs/verification/fg3-developer-review-process-e2e.json"
+  },
+  "evidence": {
+    "check": {
+      "checkName": "ArchContext / Developer Review",
+      "checkRunId": "82517562192",
+      "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82517562192",
+      "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "baseSha": "e273a98ce640b1a8f52ddc0a14cd0140d112ee64",
+      "conclusion": "success",
+      "outputTitle": "Developer-attested",
+      "attestationV2Verified": true,
+      "developerAttestedSummary": true,
+      "executionProvenanceSummary": true,
+      "attestationDigestSummary": true,
+      "forbiddenSourceCodePhraseMatches": 0,
+      "attestationDigestPrefix": "sha256:222a448b99bc",
+      "egress": [
+        {
+          "category": "github.pull-head",
+          "method": "GET",
+          "pathTemplate": "/repositories/{repository_id}/pulls/{pull_number}",
+          "statusCode": 200,
+          "requestId": "5C52:7CAB9:4971D68:4ACD239:6A3706F9"
+        },
+        {
+          "category": "github.check-create",
+          "method": "POST",
+          "pathTemplate": "/repositories/{repository_id}/check-runs",
+          "statusCode": 201,
+          "requestId": "5C52:7CAB9:4971FC0:4ACD4B9:6A3706FA"
+        },
+        {
+          "category": "github.check-update",
+          "method": "PATCH",
+          "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+          "statusCode": 200,
+          "requestId": "5C52:7CAB9:49721FB:4ACD6EC:6A3706FA"
+        }
+      ]
+    },
+    "process": {
+      "processLevelFixture": true,
+      "sourceRootDirty": true,
+      "attestationHeadMatches": true,
+      "attestationTreeMatches": true,
+      "reviewResult": "pass",
+      "attestationResult": "pass",
+      "codeGraphIndexedTemporaryWorktree": true,
+      "temporaryWorktreeRemovedAfterCleanup": true,
+      "cleanupCleaned": true,
+      "submissionAccepted": true,
+      "outputNonceLeaks": 0,
+      "outputSignatureLeaks": 0,
+      "outputKeyRefLeaks": 0,
+      "outputVerifierLeaks": 0
+    },
+    "sourceInspections": {
+      "check": {
+        "ok": true,
+        "failures": []
+      },
+      "process": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "realPrDeveloperReviewCheckPublished": true,
+      "developerAttestedProvenanceVisible": true,
+      "exactHeadCleanWorktreeReviewProven": true,
+      "stagingGitHubEgressAllowlisted": true,
+      "noCodeContentInCheckEvidence": true
+    }
+  },
+  "failures": []
+}

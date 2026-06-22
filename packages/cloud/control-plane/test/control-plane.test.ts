@@ -354,6 +354,92 @@ describe("control plane", () => {
     })).toThrow("review-challenge-expiry-invalid");
   });
 
+  test("gates governance feature flags across Challenge and Check delivery side effects", () => {
+    const cp = new ControlPlane();
+    expect(cp.getGovernanceFeatureFlags()).toEqual({
+      schemaVersion: "archcontext.governance-feature-flags/v1",
+      developerCheck: true,
+      organizationCheck: true,
+      requiredTrust: true
+    });
+    expect(cp.evaluateGovernanceFeatureFlags({ requiredTrust: "organization" })).toMatchObject({
+      allowed: true,
+      reason: "enabled",
+      checkName: "ArchContext / Organization Runner"
+    });
+
+    cp.setGovernanceFeatureFlags({ requiredTrust: false });
+    expect(() => cp.createReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create,
+      idempotencyKey: "feature-required-trust-off",
+      ...reviewChallengeInput({
+        challengeId: "chal_feature_required_trust_off",
+        nonce: "nonce_feature_required_trust_off",
+        requiredTrust: "organization"
+      })
+    })).toThrow("governance-feature-disabled: required-trust-disabled");
+
+    cp.setGovernanceFeatureFlags({ organizationCheck: false });
+    expect(() => cp.createReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create,
+      idempotencyKey: "feature-organization-check-off",
+      ...reviewChallengeInput({
+        challengeId: "chal_feature_organization_check_off",
+        nonce: "nonce_feature_organization_check_off",
+        requiredTrust: "organization"
+      })
+    })).toThrow("governance-feature-disabled: organization-check-disabled");
+
+    cp.setGovernanceFeatureFlags({ developerCheck: false });
+    expect(() => cp.createReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create,
+      idempotencyKey: "feature-developer-check-off",
+      ...reviewChallengeInput({
+        challengeId: "chal_feature_developer_check_off",
+        nonce: "nonce_feature_developer_check_off",
+        requiredTrust: "developer"
+      })
+    })).toThrow("governance-feature-disabled: developer-check-disabled");
+
+    cp.setGovernanceFeatureFlags({ developerCheck: true, organizationCheck: true, requiredTrust: true });
+    const challenge = cp.createReviewChallengeApi({
+      schemaVersion: CHALLENGE_API_REQUEST_SCHEMA_VERSIONS.create,
+      idempotencyKey: "feature-developer-check-on",
+      ...reviewChallengeInput({
+        challengeId: "chal_feature_developer_check_on",
+        nonce: "nonce_feature_developer_check_on",
+        requiredTrust: "developer"
+      })
+    });
+    const checkDelivery: CheckDelivery = {
+      schemaVersion: "archcontext.check-delivery/v1",
+      deliveryId: checkDeliveryIdempotencyKey({
+        challengeId: challenge.challengeId,
+        checkName: "ArchContext / Developer Review",
+        headSha: challenge.headSha
+      }),
+      challengeId: challenge.challengeId,
+      checkRunId: null,
+      checkName: "ArchContext / Developer Review",
+      headSha: challenge.headSha,
+      status: "PENDING",
+      attemptCount: 0,
+      nextAttemptAt: null,
+      lastErrorCode: null,
+      createdAt: "2026-06-20T09:05:00.000Z",
+      updatedAt: "2026-06-20T09:05:00.000Z"
+    };
+    expect(cp.buildCheckDeliveryQueueMessage({
+      checkDelivery,
+      payloadDigest: "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    }).checkName).toBe("ArchContext / Developer Review");
+    cp.setGovernanceFeatureFlags({ developerCheck: false });
+    expect(() => cp.buildCheckDeliveryQueueMessage({
+      checkDelivery,
+      payloadDigest: "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    })).toThrow("governance-feature-disabled: developer-check-disabled");
+  });
+
   test("GitHub login, device auth, keychain store, entitlement, and Stripe subscription state work", () => {
     const cp = new ControlPlane();
     const account = cp.loginWithGitHub("42");
@@ -446,6 +532,22 @@ describe("control plane", () => {
       deviceId: device.deviceId,
       createdAt: "2026-06-20T10:06:00Z"
     })).toThrow("device-revoked");
+
+    cp.setNotificationProvider({
+      schemaVersion: "archcontext.notification-provider/v1",
+      id: "notification-provider.account-delete",
+      provider: "webhook",
+      enabled: true,
+      target: "https://notify.example",
+      secretRef: "secret://account-delete",
+      retry: { maxAttempts: 3, backoffSeconds: 30 }
+    }, { accountId: account.id });
+    expect(cp.listNotificationProviders({ accountId: account.id }).map((config) => config.id)).toContain("notification-provider.account-delete");
+    cp.deleteAccount(account.id);
+    expect(cp.exportAccount(account.id).account).toBeUndefined();
+    expect(cp.exportAccount(account.id).devices).toEqual([]);
+    expect(cp.revokedDevices.has(device.deviceId)).toBe(false);
+    expect(cp.listNotificationProviders({ accountId: account.id }).map((config) => config.id)).not.toContain("notification-provider.account-delete");
   });
 
   test("registers, rotates with overlap, and revokes Runner Keys as metadata-only governance status", () => {
@@ -1248,6 +1350,17 @@ describe("control plane", () => {
 
     expect(challenge.status).toBe("PENDING");
     expect(replayedChallenge).toEqual(challenge);
+    expect(cp.listMetricSamples({ name: "challenge_create_latency_ms", challengeId: challenge.challengeId })).toHaveLength(1);
+    expect(cp.listMetricSamples({ name: "challenge_create_latency_ms", challengeId: challenge.challengeId })[0]).toMatchObject({
+      unit: "milliseconds",
+      labels: {
+        challengeId: challenge.challengeId,
+        requiredTrust: "developer",
+        status: "PENDING"
+      }
+    });
+    expect(cp.listMetricSamples({ name: "challenge_create_latency_ms", challengeId: challenge.challengeId })[0].value).toBeGreaterThanOrEqual(0);
+    expect(JSON.stringify(cp.listMetricSamples({ name: "challenge_create_latency_ms", challengeId: challenge.challengeId }))).not.toContain("idem_challenge_api_create");
     expect(cp.apiIdempotencyRecords.get(apiIdempotencyKeyDigest("POST /v1/challenges", "idem_challenge_api_create"))).toMatchObject({
       schemaVersion: "archcontext.api-idempotency-record/v1",
       routeId: "POST /v1/challenges",

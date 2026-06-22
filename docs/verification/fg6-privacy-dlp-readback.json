@@ -1,0 +1,233 @@
+{
+  "schemaVersion": "archcontext.fg6-privacy-dlp-readback/v1",
+  "acceptanceId": "AC-05",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:45:29.907Z",
+  "sources": {
+    "fg3CloudDlpSource": "docs/verification/fg3-cloud-dlp-readback.json",
+    "fg4RunnerDlpSource": "docs/verification/fg4-runner-dlp-readback.json",
+    "fg5FullPlaneDlpSource": "docs/verification/fg5-full-plane-dlp-readback.json"
+  },
+  "evidence": {
+    "staticPrivacyContract": {
+      "command": "bun run verify:privacy-contract",
+      "scanRoots": [
+        "packages/cloud",
+        "packages/contracts/src"
+      ],
+      "scannedFiles": 18,
+      "ok": true,
+      "findingCount": 0
+    },
+    "dynamicCloud": {
+      "dtoScan": {
+        "surfaces": [
+          "log",
+          "trace",
+          "queue",
+          "error",
+          "notification",
+          "egress"
+        ],
+        "baitValueMatches": 0,
+        "forbiddenKeyRetained": 0,
+        "notificationMinimalRejectedBait": true,
+        "egressSchemaRejectedBait": true
+      },
+      "egress": {
+        "totalRecordedRequests": 13,
+        "categories": {
+          "github.pull-head": 3,
+          "github.check-create": 5,
+          "github.check-update": 5
+        },
+        "unexpectedCategories": [],
+        "forbiddenEndpointOrMediaMatches": 0
+      },
+      "tail": {
+        "egressEnvelopeMatches": 8,
+        "acceptedWebhookLogMatches": 0,
+        "baitValueMatches": 0,
+        "baitMarkerMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0
+      }
+    },
+    "runnerDynamic": {
+      "artifact": {
+        "fileCount": 1,
+        "totalBytes": 9987,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "log": {
+        "lineCount": 301,
+        "maskedTokenMentions": 2,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "cache": {
+        "cacheLineCount": 6,
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      },
+      "cloudDto": {
+        "egressCategories": [
+          "github.pull-head",
+          "github.check-create",
+          "github.check-update"
+        ],
+        "codeContentMatches": 0,
+        "baitValueMatches": 0,
+        "forbiddenEndpointOrMediaMatches": 0,
+        "secretMatches": 0
+      }
+    },
+    "storageAndControlPlane": {
+      "database": {
+        "schemaPrivacyOk": true,
+        "tableCount": 13,
+        "rowCount": 11,
+        "tables": [
+          {
+            "name": "accounts",
+            "rowCount": 1
+          },
+          {
+            "name": "attestations",
+            "rowCount": 1
+          },
+          {
+            "name": "check_deliveries",
+            "rowCount": 1
+          },
+          {
+            "name": "device_identities",
+            "rowCount": 1
+          },
+          {
+            "name": "github_installations",
+            "rowCount": 1
+          },
+          {
+            "name": "legacy_attestation_migrations",
+            "rowCount": 1
+          },
+          {
+            "name": "retention_purge_authorizations",
+            "rowCount": 0
+          },
+          {
+            "name": "review_challenges",
+            "rowCount": 1
+          },
+          {
+            "name": "runner_identities",
+            "rowCount": 1
+          },
+          {
+            "name": "runner_identity_repositories",
+            "rowCount": 1
+          },
+          {
+            "name": "runner_key_rotation_windows",
+            "rowCount": 0
+          },
+          {
+            "name": "subscriptions",
+            "rowCount": 1
+          },
+          {
+            "name": "webhook_deliveries",
+            "rowCount": 1
+          }
+        ]
+      },
+      "exports": {
+        "logRecordCount": 1,
+        "traceRecordCount": 1,
+        "queueRecordCount": 2,
+        "errorRecordCount": 1,
+        "queueHasCheckDeliveryMessage": true
+      },
+      "scans": {
+        "database": {
+          "surface": "database",
+          "exportedRecordCount": 11,
+          "codeContentMatches": 0,
+          "baitValueMatches": 0,
+          "forbiddenKeyMatches": 0,
+          "forbiddenEndpointOrMediaMatches": 0,
+          "secretMatches": 0
+        },
+        "log": {
+          "surface": "log",
+          "exportedRecordCount": 1,
+          "codeContentMatches": 0,
+          "baitValueMatches": 0,
+          "forbiddenKeyMatches": 0,
+          "forbiddenEndpointOrMediaMatches": 0,
+          "secretMatches": 0
+        },
+        "trace": {
+          "surface": "trace",
+          "exportedRecordCount": 1,
+          "codeContentMatches": 0,
+          "baitValueMatches": 0,
+          "forbiddenKeyMatches": 0,
+          "forbiddenEndpointOrMediaMatches": 0,
+          "secretMatches": 0
+        },
+        "queue": {
+          "surface": "queue",
+          "exportedRecordCount": 2,
+          "codeContentMatches": 0,
+          "baitValueMatches": 0,
+          "forbiddenKeyMatches": 0,
+          "forbiddenEndpointOrMediaMatches": 0,
+          "secretMatches": 0
+        },
+        "error": {
+          "surface": "error",
+          "exportedRecordCount": 1,
+          "codeContentMatches": 0,
+          "baitValueMatches": 0,
+          "forbiddenKeyMatches": 0,
+          "forbiddenEndpointOrMediaMatches": 0,
+          "secretMatches": 0
+        }
+      }
+    },
+    "sourceInspections": {
+      "fg3CloudDlp": {
+        "ok": true,
+        "failures": []
+      },
+      "fg4RunnerDlp": {
+        "ok": true,
+        "failures": []
+      },
+      "fg5FullPlaneDlp": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "staticGitHubApiAllowlistPassed": true,
+      "dynamicGitHubClientNoCodeEndpointCalls": true,
+      "runnerArtifactLogCacheDlpZero": true,
+      "workerQueueD1LogStorageDlpZero": true,
+      "databaseSchemaPrivacyOk": true,
+      "queueSerializationDlpZero": true,
+      "allCodeContentRoutesZero": true
+    }
+  },
+  "failures": []
+}

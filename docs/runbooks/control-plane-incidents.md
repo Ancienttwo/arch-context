@@ -136,3 +136,91 @@ Verification:
 - Replacement Runner Key is active and scoped to the repository or organization.
 - Revoked key submissions continue to fail before nonce consumption.
 - Replacement key submission can satisfy the current Organization-required Challenge.
+
+## device-key-compromise
+
+Signal: a user reports a lost or exposed local Device Key, or verify failures include `DEVICE_REVOKED` after an operator-initiated revoke.
+
+Triage:
+
+- Identify the affected account ID, Device ID, public key ID, and fingerprint from metadata-only Device Key records.
+- Check recent Developer Review submissions for the affected Device ID and group rejected attempts by `reasonCode`.
+- Confirm whether any active Challenge for the same account and PR head is still unsubmitted.
+
+Remediation:
+
+- Revoke the Device Key through the owner-authorized Device Key revoke API.
+- Ask the user to register a replacement Device Key from a trusted local machine.
+- Supersede or let expire any active Challenge that was issued before the replacement key was registered.
+
+Verification:
+
+- Submissions signed by the revoked Device Key return `DEVICE_REVOKED` before nonce consumption.
+- The replacement Device Key is active and can satisfy a fresh current-head Developer Challenge.
+- Incident notes contain only account ID, Device ID, public key ID, fingerprint, reason code, Challenge ID, and timestamps.
+
+## runner-key-compromise
+
+Signal: a customer reports a leaked Runner signing key, or `key-revoke` fires for `runner_key.revoke` / `runner_key.unregister`.
+
+Triage:
+
+- Identify the affected installation, runner ID, scope kind, repository IDs, workflow ref, and public key fingerprint from metadata-only Runner Key records.
+- Check whether Organization Runner submissions are returning `RUNNER_REVOKED` before nonce consumption.
+- Compare the revoke time with any GitHub Actions runs still using the old runner key reference.
+
+Remediation:
+
+- Revoke or unregister the compromised Runner Key and keep it terminal.
+- Ask the customer to register a replacement Runner Key and update their Secret Store reference.
+- Re-run Organization Runner only on a fresh current-head Challenge using the replacement active key.
+
+Verification:
+
+- Revoked Runner Key preflight fails and submit returns `RUNNER_REVOKED` without nonce consumption.
+- Replacement Runner Key is active, scoped to the repository or organization, and can satisfy the Organization-required Challenge.
+- Audit events remain metadata-only and do not include private key material, Secret Store values, or Attestation bodies.
+
+## github-outage
+
+Signal: `github-api-failure` fires for retryable 429 or 5xx Check API responses, or Check delivery rows move to `DEAD_LETTER` during a GitHub incident.
+
+Triage:
+
+- Confirm failing GitHub egress category is `github.check-create`, `github.check-update`, or metadata pull-head only.
+- Record status code, retryability, request ID, failure count, and window age without copying response bodies.
+- Compare Check delivery retry attempts, DLQ count, and replay eligibility for the current PR head.
+
+Remediation:
+
+- Allow retry/backoff to proceed for retryable failures until the configured DLQ boundary.
+- Pause manual replay while GitHub status is degraded unless the customer explicitly needs a current-head retry.
+- After GitHub recovers, replay only current-head Check deliveries through the manual ops path.
+
+Verification:
+
+- GitHub API failure count drops below threshold.
+- Replayed current-head deliveries return to `PENDING` and then publish `PUBLISHED` success.
+- No stale-head or superseded delivery publishes a success Check.
+
+## queue-backlog
+
+Signal: `webhook-backlog` fires for pending webhook age/count, or `check-dlq` fires because Check delivery retries are no longer draining.
+
+Triage:
+
+- Group pending webhook projections by provider, event type, received time, and processed status.
+- Group Check delivery rows by Check context, status, attempt count, next attempt time, and last error code.
+- Confirm queue consumers are running and recent deploy version matches the expected Worker version.
+
+Remediation:
+
+- Restart or roll forward queue consumers if processing is stalled.
+- Reduce batch size or pause nonessential replay jobs if D1 writes are timing out.
+- Replay DLQ rows only after verifying the PR head is still current.
+
+Verification:
+
+- Pending webhook count and oldest age fall below threshold.
+- Check delivery retry queue drains or DLQ rows are replayed to `PENDING`.
+- Queue, trace, and incident records contain only IDs, counts, timestamps, status, reason codes, attempts, and digests.

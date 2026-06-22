@@ -1,0 +1,156 @@
+{
+  "schemaVersion": "archcontext.fg6-ops-runbook-readback/v1",
+  "taskId": "FG6-16",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T20:11:23.057Z",
+  "sources": {
+    "runbookPath": "docs/runbooks/control-plane-incidents.md",
+    "deviceSource": "docs/verification/fg3-attestation-security-suite.json",
+    "runnerSource": "docs/verification/fg4-runner-key-lifecycle-e2e.json",
+    "incidentSource": "docs/verification/fg5-control-plane-incident-drill.json",
+    "chaosSource": "docs/verification/fg6-chaos-fault-matrix-readback.json",
+    "reportPath": "docs/verification/fg6-ops-runbook.md"
+  },
+  "evidence": {
+    "sourceInspections": {
+      "device": {
+        "ok": true,
+        "failures": []
+      },
+      "runner": {
+        "ok": true,
+        "failures": []
+      },
+      "incident": {
+        "ok": true,
+        "failures": []
+      },
+      "chaos": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "runbookCoverage": {
+      "sections": {
+        "device-key-compromise": {
+          "present": true,
+          "hasSignal": true,
+          "hasTriage": true,
+          "hasRemediation": true,
+          "hasVerification": true,
+          "requiredTerms": [
+            "Device Key",
+            "DEVICE_REVOKED",
+            "nonce consumption",
+            "replacement Device Key"
+          ],
+          "hasRequiredTerms": true,
+          "complete": true
+        },
+        "runner-key-compromise": {
+          "present": true,
+          "hasSignal": true,
+          "hasTriage": true,
+          "hasRemediation": true,
+          "hasVerification": true,
+          "requiredTerms": [
+            "Runner Key",
+            "RUNNER_REVOKED",
+            "Secret Store",
+            "Organization-required Challenge"
+          ],
+          "hasRequiredTerms": true,
+          "complete": true
+        },
+        "github-outage": {
+          "present": true,
+          "hasSignal": true,
+          "hasTriage": true,
+          "hasRemediation": true,
+          "hasVerification": true,
+          "requiredTerms": [
+            "github-api-failure",
+            "retry/backoff",
+            "DEAD_LETTER",
+            "PENDING"
+          ],
+          "hasRequiredTerms": true,
+          "complete": true
+        },
+        "queue-backlog": {
+          "present": true,
+          "hasSignal": true,
+          "hasTriage": true,
+          "hasRemediation": true,
+          "hasVerification": true,
+          "requiredTerms": [
+            "webhook-backlog",
+            "check-dlq",
+            "pending webhook",
+            "DLQ"
+          ],
+          "hasRequiredTerms": true,
+          "complete": true
+        }
+      },
+      "secretMarkerHits": 0,
+      "codeContentMarkerHits": 0
+    },
+    "operationalEvidence": {
+      "deviceKeyCompromise": {
+        "revokedDeviceRejected": true,
+        "reasonCode": "DEVICE_REVOKED",
+        "nonceConsumed": false,
+        "consumedSetPreserved": true
+      },
+      "runnerKeyCompromise": {
+        "revokedRunnerRejected": true,
+        "reasonCode": "RUNNER_REVOKED",
+        "nonceConsumed": false,
+        "consumedSetPreserved": true,
+        "recoveryAction": "register-replacement-runner-key",
+        "replacementRequired": true,
+        "auditMetadataOnly": true,
+        "leakCounters": {
+          "plaintextNonceLeaks": 0,
+          "privateKeyLeaks": 0,
+          "tokenLeaks": 0
+        }
+      },
+      "githubOutage": {
+        "injectedGitHubApiFailureCount": 2,
+        "injectedStatusCodes": [
+          503,
+          503
+        ],
+        "deadLetterStatus": "DEAD_LETTER",
+        "deadLetterErrorCode": "CHECK_DELIVERY_MAX_ATTEMPTS",
+        "replayStatusAfterReplay": "PENDING",
+        "replayAttemptCountAfterReplay": 0
+      },
+      "queueBacklog": {
+        "webhookBacklogAlert": true,
+        "checkDlqAlert": true,
+        "queueRetryEnqueueCount": 2,
+        "queueReplayEnqueued": true,
+        "queueMessageStatuses": [
+          "RETRYING",
+          "RETRYING",
+          "PENDING"
+        ]
+      }
+    },
+    "assertions": {
+      "runbookSectionsComplete": true,
+      "deviceCompromiseEvidenceCovered": true,
+      "runnerCompromiseEvidenceCovered": true,
+      "githubOutageEvidenceCovered": true,
+      "queueBacklogEvidenceCovered": true,
+      "allSourceInspectionsPassed": true,
+      "noPrivateContent": true
+    }
+  },
+  "failures": []
+}

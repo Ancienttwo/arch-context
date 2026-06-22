@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "archcontext.fg6-representative-benchmark-readback/v1",
+  "taskId": "FG6-13",
+  "environment": "local-representative-benchmark",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T19:40:34.425Z",
+  "sources": {
+    "sourceRepo": "~/Projects/aiphabee",
+    "reportPath": "docs/verification/fg6-representative-benchmark.md"
+  },
+  "budgets": {
+    "minRepresentativeFiles": 1000,
+    "initialIndexBudgetMs": 300000,
+    "representativeE2eBudgetMs": 300000,
+    "memoryBudgetBytes": null
+  },
+  "evidence": {
+    "targetRepository": {
+      "name": "aiphabee",
+      "sourceClean": true,
+      "sourceHeadSha": "6b4bef688a7e3e8aea45a9c4fd5a9f69322c1548",
+      "sourceTrackedFiles": 1073,
+      "benchmarkCloneClean": true,
+      "cloneHeadSha": "6b4bef688a7e3e8aea45a9c4fd5a9f69322c1548",
+      "trackedFiles": 1073,
+      "changedPath": ".ai/context/capabilities.json"
+    },
+    "cleanWorktree": {
+      "cloneDurationMs": 1750,
+      "dirtyLines": 0,
+      "headMatchesSource": true,
+      "checkpointFresh": true
+    },
+    "codeGraph": {
+      "initDurationMs": 2410,
+      "initPeakRssBytes": 244563968,
+      "syncDurationMs": 410,
+      "syncPeakRssBytes": 45776896,
+      "codeFactsDigestPrefix": "sha256:9163802e7a14"
+    },
+    "review": {
+      "prepareDurationMs": 280,
+      "completeDurationMs": 390,
+      "reviewDurationMs": 380,
+      "completeResult": "pass",
+      "reviewResult": "pass",
+      "reviewErrors": 0,
+      "reviewWarnings": 0
+    },
+    "latencyAndMemory": {
+      "e2eLatencyMs": 5910,
+      "peakRssBytes": 244563968,
+      "measurements": [
+        {
+          "phase": "clean-worktree-clone",
+          "durationMs": 1750,
+          "peakRssBytes": 21626880
+        },
+        {
+          "phase": "codegraph-init",
+          "durationMs": 2410,
+          "peakRssBytes": 244563968
+        },
+        {
+          "phase": "doctor",
+          "durationMs": 70,
+          "peakRssBytes": 43057152
+        },
+        {
+          "phase": "archctx-init",
+          "durationMs": 190,
+          "peakRssBytes": 46907392
+        },
+        {
+          "phase": "archctx-sync",
+          "durationMs": 410,
+          "peakRssBytes": 45776896
+        },
+        {
+          "phase": "archctx-prepare",
+          "durationMs": 280,
+          "peakRssBytes": 46006272
+        },
+        {
+          "phase": "archctx-status",
+          "durationMs": 50,
+          "peakRssBytes": 45907968
+        },
+        {
+          "phase": "archctx-checkpoint",
+          "durationMs": 100,
+          "peakRssBytes": 93224960
+        },
+        {
+          "phase": "archctx-complete",
+          "durationMs": 390,
+          "peakRssBytes": 45957120
+        },
+        {
+          "phase": "archctx-review",
+          "durationMs": 380,
+          "peakRssBytes": 45940736
+        }
+      ]
+    },
+    "doctor": {
+      "ok": true,
+      "defaultOutbound": "local-only",
+      "codeGraphRequiredVersion": "1.0.1"
+    },
+    "assertions": {
+      "representativeRepoLargeEnough": true,
+      "sourceAndCloneClean": true,
+      "cleanWorktreeMeasured": true,
+      "codeGraphMeasured": true,
+      "reviewMeasured": true,
+      "e2eLatencyMeasured": true,
+      "memoryMeasured": true,
+      "withinPrdInitialIndexBudget": true,
+      "noProviderRequired": true
+    }
+  },
+  "failures": []
+}

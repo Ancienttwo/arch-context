@@ -1,0 +1,277 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:archcontext-fg6-2026-06-21T19-25-34-536Z",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-06-21T19:25:34.536Z",
+    "tools": [
+      {
+        "vendor": "Bun",
+        "name": "bun pm ls",
+        "version": "1.3.10"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "name": "archcontext",
+      "version": "0.1.0"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "@archcontext/cloud",
+      "version": "workspace",
+      "scope": "workspace"
+    },
+    {
+      "type": "library",
+      "name": "@archcontext/contracts",
+      "version": "workspace",
+      "scope": "workspace"
+    },
+    {
+      "type": "library",
+      "name": "@archcontext/core",
+      "version": "workspace",
+      "scope": "workspace"
+    },
+    {
+      "type": "library",
+      "name": "@archcontext/local-runtime",
+      "version": "workspace",
+      "scope": "workspace"
+    },
+    {
+      "type": "library",
+      "name": "@archcontext/surfaces",
+      "version": "workspace",
+      "scope": "workspace"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph-darwin-arm64",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph-darwin-arm64@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph-darwin-x64",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph-darwin-x64@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph-linux-arm64",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph-linux-arm64@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph-linux-x64",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph-linux-x64@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph-win32-arm64",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph-win32-arm64@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@colbymchenry/codegraph-win32-x64",
+      "version": "1.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40colbymchenry%2Fcodegraph-win32-x64@1.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@emnapi/core",
+      "version": "1.11.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40emnapi%2Fcore@1.11.1"
+    },
+    {
+      "type": "library",
+      "name": "@emnapi/runtime",
+      "version": "1.11.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40emnapi%2Fruntime@1.11.1"
+    },
+    {
+      "type": "library",
+      "name": "@emnapi/wasi-threads",
+      "version": "1.2.2",
+      "scope": "required",
+      "purl": "pkg:npm/%40emnapi%2Fwasi-threads@1.2.2"
+    },
+    {
+      "type": "library",
+      "name": "@napi-rs/wasm-runtime",
+      "version": "0.2.12",
+      "scope": "required",
+      "purl": "pkg:npm/%40napi-rs%2Fwasm-runtime@0.2.12"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-android-arm-eabi",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-android-arm-eabi@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-android-arm64",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-android-arm64@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-darwin-arm64",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-darwin-arm64@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-darwin-x64",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-darwin-x64@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-freebsd-x64",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-freebsd-x64@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-linux-arm-gnueabihf",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-linux-arm-gnueabihf@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-linux-arm64-gnu",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-linux-arm64-gnu@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-linux-arm64-musl",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-linux-arm64-musl@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-linux-x64-gnu",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-linux-x64-gnu@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-linux-x64-musl",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-linux-x64-musl@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-wasm32-wasi",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-wasm32-wasi@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-win32-arm64-msvc",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-win32-arm64-msvc@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-win32-ia32-msvc",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-win32-ia32-msvc@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@node-rs/jieba-win32-x64-msvc",
+      "version": "2.0.1",
+      "scope": "required",
+      "purl": "pkg:npm/%40node-rs%2Fjieba-win32-x64-msvc@2.0.1"
+    },
+    {
+      "type": "library",
+      "name": "@tybys/wasm-util",
+      "version": "0.10.2",
+      "scope": "required",
+      "purl": "pkg:npm/%40tybys%2Fwasm-util@0.10.2"
+    },
+    {
+      "type": "library",
+      "name": "@types/node",
+      "version": "26.0.0",
+      "scope": "required",
+      "purl": "pkg:npm/%40types%2Fnode@26.0.0"
+    },
+    {
+      "type": "library",
+      "name": "bun-types",
+      "version": "1.3.14",
+      "scope": "required",
+      "purl": "pkg:npm/bun-types@1.3.14"
+    },
+    {
+      "type": "library",
+      "name": "tslib",
+      "version": "2.8.1",
+      "scope": "required",
+      "purl": "pkg:npm/tslib@2.8.1"
+    },
+    {
+      "type": "library",
+      "name": "typescript",
+      "version": "6.0.3",
+      "scope": "required",
+      "purl": "pkg:npm/typescript@6.0.3"
+    },
+    {
+      "type": "library",
+      "name": "undici-types",
+      "version": "8.3.0",
+      "scope": "required",
+      "purl": "pkg:npm/undici-types@8.3.0"
+    }
+  ]
+}

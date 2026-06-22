@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "archcontext.fg6-no-provider-deterministic-readback/v1",
+  "acceptanceId": "AC-06",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:51:48.581Z",
+  "sources": {
+    "localNoCloudSource": "docs/verification/fg6-local-no-cloud-readback.json",
+    "runnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
+    "deterministicSource": "docs/verification/fg4-deterministic-conclusion-readback.json",
+    "orgNoLlmSource": "docs/verification/fg6-organization-runner-no-llm-readback.json"
+  },
+  "evidence": {
+    "localCore": {
+      "commandCount": 10,
+      "providerEnvRemoved": [
+        "GH_PAGER",
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL"
+      ],
+      "noLlmProviderRequired": true,
+      "localReviewComplete": true,
+      "completeResult": "pass",
+      "reviewResult": "pass",
+      "reviewErrors": 0
+    },
+    "officialReviewAction": {
+      "workflow": {
+        "event": "pull_request",
+        "conclusion": "success",
+        "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27894392126"
+      },
+      "artifact": {
+        "ok": true,
+        "environment": "github-actions",
+        "llmProviderConfigured": false,
+        "attestationTrustLevel": "organization",
+        "attestationResult": "pass",
+        "privacyAuditOk": true,
+        "verificationAccepted": true
+      },
+      "organizationRunner": {
+        "checkName": "ArchContext / Organization Runner",
+        "conclusion": "success",
+        "outputTitle": "Organization-attested"
+      }
+    },
+    "deterministicGate": {
+      "providerEnvCleared": {
+        "OPENAI_API_KEY": true,
+        "ANTHROPIC_API_KEY": true,
+        "GOOGLE_API_KEY": true,
+        "MISTRAL_API_KEY": true
+      },
+      "deterministicGate": {
+        "llmProviderConfigured": false,
+        "modelDigest": "sha256:1c9994d793941d5ee0d4d2e6d7f9d911e45ef973f841149ca35b544ab5bf56e3",
+        "result": "pass",
+        "reviewDigestMatchesAttestation": true
+      },
+      "attestation": {
+        "accepted": true,
+        "result": "pass",
+        "runtimeBuildDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "conclusionSource": "deterministic-gate"
+      },
+      "advisory": {
+        "allowedAdvisoryCreated": true,
+        "deterministicReviewDigestMatches": true,
+        "injectedAdvisoryRejected": true,
+        "injectedAdvisoryReason": "llm-advisory-conclusion-field-forbidden: result,signature,checkConclusion"
+      },
+      "upload": {
+        "privacyAuditOk": true,
+        "containsAdvisory": false,
+        "containsProviderCredential": false
+      },
+      "leakCounters": {
+        "plaintextNonceLeaks": 0,
+        "privateKeyLeaks": 0,
+        "tokenLeaks": 0
+      }
+    },
+    "releaseAssertions": {
+      "organizationRunnerRequiredCheckPassed": true,
+      "noLlmProviderConfigured": true,
+      "organizationAttestationAccepted": true,
+      "developerAttestationCannotSatisfyOrganization": true,
+      "requiredContextBoundToArchContextApp": true
+    },
+    "sourceInspections": {
+      "localNoCloud": {
+        "ok": true,
+        "failures": []
+      },
+      "runner": {
+        "ok": true,
+        "failures": []
+      },
+      "deterministic": {
+        "ok": true,
+        "failures": []
+      },
+      "orgNoLlm": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "localGateNoProviderRequired": true,
+      "officialReviewActionNoProviderRequired": true,
+      "deterministicConclusionUnchangedWithoutProvider": true,
+      "organizationRunnerNoProviderReleasePathVerified": true,
+      "attestationSubmittedFromDeterministicGate": true,
+      "advisoryCannotInfluenceConclusion": true,
+      "uploadPayloadProviderFree": true
+    }
+  },
+  "failures": []
+}

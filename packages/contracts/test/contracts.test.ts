@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEVELOPER_REVIEW_CHECK_NAME,
+  DEFAULT_GOVERNANCE_FEATURE_FLAGS,
   GITHUB_APP_PERMISSION_MANIFEST,
   GOVERNANCE_CHECK_NAMES,
   GOVERNANCE_REASON_CATALOG,
@@ -14,6 +15,7 @@ import {
   attestationV2Digest,
   assertCanTransitionChallenge,
   assertCanTransitionRunnerIdentityStatus,
+  assertGovernanceFeatureFlagsAllow,
   assertNoLlmAdvisoryConclusionFields,
   assertRunnerIdentity,
   assertNoCallerProvidedAttestationFields,
@@ -21,10 +23,14 @@ import {
   canTransitionCheckDelivery,
   canTransitionRunnerIdentityStatus,
   canonicalAttestationV2,
+  checkNameForRequiredTrust,
   createAttestationV2,
   createRunnerIdentity,
+  evaluateGovernanceFeatureFlags,
   findCallerProvidedAttestationFields,
   findLlmAdvisoryForbiddenFields,
+  normalizeGovernanceFeatureFlags,
+  requiredTrustForCheckName,
   runnerIdentityEffectiveScope,
   runnerIdentityKeyStatus,
   runnerIdentityMatchesScope,
@@ -434,6 +440,57 @@ describe("GitHub governance contracts", () => {
     expect(satisfiesRequiredTrust("organization", "developer")).toBe(true);
     expect(satisfiesRequiredTrust("organization", "organization")).toBe(true);
     expect(satisfiesRequiredTrust("developer", "organization")).toBe(false);
+  });
+
+  test("feature flags gate Developer Check Organization Check and requiredTrust separately", () => {
+    expect(DEFAULT_GOVERNANCE_FEATURE_FLAGS).toEqual({
+      schemaVersion: "archcontext.governance-feature-flags/v1",
+      developerCheck: true,
+      organizationCheck: true,
+      requiredTrust: true
+    });
+    expect(checkNameForRequiredTrust("developer")).toBe(DEVELOPER_REVIEW_CHECK_NAME);
+    expect(checkNameForRequiredTrust("organization")).toBe(ORGANIZATION_RUNNER_CHECK_NAME);
+    expect(requiredTrustForCheckName(DEVELOPER_REVIEW_CHECK_NAME)).toBe("developer");
+    expect(requiredTrustForCheckName(ORGANIZATION_RUNNER_CHECK_NAME)).toBe("organization");
+
+    const enabled = evaluateGovernanceFeatureFlags({ requiredTrust: "organization" });
+    expect(enabled).toMatchObject({
+      allowed: true,
+      reason: "enabled",
+      checkName: ORGANIZATION_RUNNER_CHECK_NAME
+    });
+    expect(enabled.metadataDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(evaluateGovernanceFeatureFlags({
+      requiredTrust: "developer",
+      flags: { developerCheck: false }
+    })).toMatchObject({
+      allowed: false,
+      reason: "developer-check-disabled",
+      disabledFlag: "developerCheck"
+    });
+    expect(evaluateGovernanceFeatureFlags({
+      requiredTrust: "organization",
+      flags: { organizationCheck: false }
+    })).toMatchObject({
+      allowed: false,
+      reason: "organization-check-disabled",
+      disabledFlag: "organizationCheck"
+    });
+    expect(evaluateGovernanceFeatureFlags({
+      requiredTrust: "organization",
+      flags: { requiredTrust: false }
+    })).toMatchObject({
+      allowed: false,
+      reason: "required-trust-disabled",
+      disabledFlag: "requiredTrust"
+    });
+    expect(normalizeGovernanceFeatureFlags({ developerCheck: false }).organizationCheck).toBe(true);
+    expect(() => normalizeGovernanceFeatureFlags({ developerCheck: "false" as unknown as boolean })).toThrow("governance-feature-flag-developerCheck-invalid");
+    expect(() => assertGovernanceFeatureFlagsAllow({
+      requiredTrust: "organization",
+      flags: { requiredTrust: false }
+    })).toThrow("governance-feature-disabled: required-trust-disabled");
   });
 
   test("RunnerIdentity domain normalizes repository scope and enforces workflow binding", () => {
