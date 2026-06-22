@@ -1,0 +1,241 @@
+{
+  "schemaVersion": "archcontext.fg6-slo-readback/v1",
+  "taskId": "FG6-14",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T19:53:29.227Z",
+  "sources": {
+    "controlPlaneSource": "packages/cloud/control-plane/src/index.ts",
+    "controlPlaneTest": "packages/cloud/control-plane/test/control-plane.test.ts",
+    "prdSource": "plans/prds/20260620-0236-archcontext-local-github-governance.prd.md",
+    "fg5GateSource": "docs/verification/fg5-control-plane-gate.md",
+    "incidentDrillSource": "docs/verification/fg5-control-plane-incident-drill.json",
+    "runbookSource": "docs/runbooks/control-plane-incidents.md",
+    "developerCheckSource": "docs/verification/fg3-developer-review-check-readback.json",
+    "githubHostedRunnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
+    "selfHostedRunnerSource": "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+    "reportPath": "docs/verification/fg6-slo.md"
+  },
+  "sloDefinitions": [
+    {
+      "id": "challenge-create-p95",
+      "description": "Challenge create path must stay inside the normal GitHub webhook request budget.",
+      "metric": "challenge_create_latency_ms",
+      "aggregation": "p95 over successful Challenge creates",
+      "target": {
+        "operator": "<=",
+        "value": 2000,
+        "unit": "milliseconds"
+      },
+      "source": "PRD S-09 GitHub webhook normal request p95"
+    },
+    {
+      "id": "attestation-verify-p95",
+      "description": "Attestation verification must stay fast enough to leave the async Check delivery budget intact.",
+      "metric": "verify_latency_ms",
+      "aggregation": "p95 over Challenge submit verification attempts",
+      "target": {
+        "operator": "<=",
+        "value": 2000,
+        "unit": "milliseconds"
+      },
+      "source": "FG6 release SLO derived from FG5 verifier metric and PRD S-08 end-to-end Check budget"
+    },
+    {
+      "id": "check-delivery-p95",
+      "description": "Accepted Attestation submit to successful current-head Check publication must meet the PRD Check update budget.",
+      "metric": "check_delivery_lag_ms",
+      "aggregation": "p95 over successful PUBLISHED Check deliveries",
+      "target": {
+        "operator": "<=",
+        "value": 60000,
+        "unit": "milliseconds"
+      },
+      "source": "PRD S-08 Attestation submit to Check update p95"
+    },
+    {
+      "id": "eligible-required-check-success-rate",
+      "description": "Eligible Developer Review and Organization Runner required checks must publish success in release evidence.",
+      "metric": "derived_required_check_success_rate",
+      "aggregation": "successful required Checks / eligible required Checks",
+      "target": {
+        "operator": ">=",
+        "value": 0.995,
+        "unit": "ratio"
+      },
+      "source": "FG3 Developer Review and FG4 Organization Runner staging readbacks"
+    }
+  ],
+  "evidence": {
+    "observations": {
+      "challengeCreateLatencyP95Ms": 1,
+      "verifyLatencyP95Ms": 500,
+      "checkDeliveryLagP95Ms": 40000,
+      "eligibleRequiredCheckSuccessRate": 1
+    },
+    "controlPlaneProbe": {
+      "challengeId": "chal_fg6_slo_create",
+      "deliveryId": "delivery_fg6_slo_success",
+      "publicationPublished": true,
+      "challengeCreateLatencyMs": 1,
+      "checkDeliveryLagMs": 40000,
+      "samples": [
+        {
+          "name": "challenge_create_latency_ms",
+          "unit": "milliseconds",
+          "value": 1,
+          "labels": {
+            "challengeId": "chal_fg6_slo_create",
+            "requiredTrust": "developer",
+            "status": "PENDING"
+          },
+          "metadataDigest": "sha256:e63117d3fa7b5f3cec6648c05f6292fdd7e974558872ff90315f39c521f5aa94"
+        },
+        {
+          "name": "check_delivery_lag_ms",
+          "unit": "milliseconds",
+          "value": 40000,
+          "labels": {
+            "attempt": "0",
+            "challengeId": "chal_fg6_slo_create",
+            "checkName": "ArchContext / Developer Review",
+            "deliveryId": "delivery_fg6_slo_success",
+            "status": "PUBLISHED"
+          },
+          "metadataDigest": "sha256:363a54b29c02fcb304be43e1f27327bd912311956cac00ce9dfc208c06a242a5"
+        }
+      ]
+    },
+    "successEvidence": {
+      "eligibleChecks": 3,
+      "successfulChecks": 3,
+      "successRate": 1,
+      "checks": [
+        {
+          "source": "docs/verification/fg3-developer-review-check-readback.json",
+          "checkName": "ArchContext / Developer Review",
+          "conclusion": "success",
+          "successful": true
+        },
+        {
+          "source": "docs/verification/fg4-github-hosted-runner-readback.json",
+          "checkName": "ArchContext / Organization Runner",
+          "conclusion": "success",
+          "successful": true
+        },
+        {
+          "source": "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+          "checkName": "ArchContext / Organization Runner",
+          "conclusion": "success",
+          "successful": true
+        }
+      ],
+      "secretMarkerHits": 0
+    },
+    "sourceCoverage": {
+      "metricNames": [
+        "challenge_create_latency_ms",
+        "challenge_age_ms",
+        "verify_latency_ms",
+        "check_delivery_lag_ms",
+        "check_delivery_retry_total",
+        "reject_reason_total"
+      ],
+      "controlPlaneTestAssertions": {
+        "challengeCreateLatency": true,
+        "challengeCreateReplayNotDoubleCounted": true,
+        "challengeAge": true,
+        "verifyLatency": true,
+        "verifyLatencyFixtureMs": 500,
+        "checkDeliveryLag": true,
+        "checkDeliveryRetryTotal": true,
+        "rejectReason": true,
+        "successPublication": true
+      },
+      "fg5MetricContracts": {
+        "submitMetrics": true,
+        "retryMetrics": true,
+        "publishMetrics": true,
+        "alerts": true
+      },
+      "prdBudgets": {
+        "s08CheckUpdateP95Ms": 60000,
+        "s09WebhookP95Ms": 2000
+      },
+      "incidentDashboard": {
+        "alertKinds": [
+          "webhook-backlog",
+          "verify-failure",
+          "check-dlq",
+          "github-api-failure"
+        ],
+        "rows": [
+          {
+            "alertKind": "webhook-backlog",
+            "surface": "webhook",
+            "runbookSection": "webhook-backlog",
+            "metricKeys": [
+              "oldestAgeMs",
+              "pendingCount",
+              "thresholdAgeMs",
+              "thresholdCount"
+            ]
+          },
+          {
+            "alertKind": "verify-failure",
+            "surface": "verify",
+            "runbookSection": "verify-failure",
+            "metricKeys": [
+              "failureCount",
+              "thresholdCount"
+            ]
+          },
+          {
+            "alertKind": "check-dlq",
+            "surface": "queue",
+            "runbookSection": "check-dlq",
+            "metricKeys": [
+              "deadLetterCount",
+              "oldestLagMs",
+              "thresholdCount"
+            ]
+          },
+          {
+            "alertKind": "github-api-failure",
+            "surface": "github-api",
+            "runbookSection": "github-api-failure",
+            "metricKeys": [
+              "failureCount",
+              "retryable",
+              "statusCode",
+              "thresholdCount",
+              "thresholdWindowMs",
+              "windowAgeMs"
+            ]
+          }
+        ]
+      },
+      "runbookSections": [
+        "webhook-backlog",
+        "verify-failure",
+        "check-dlq",
+        "github-api-failure"
+      ],
+      "metricSamplesMetadataOnly": true
+    },
+    "assertions": {
+      "sloDefinitionsComplete": true,
+      "challengeCreateTargetSatisfied": true,
+      "verifyTargetSatisfied": true,
+      "checkDeliveryTargetSatisfied": true,
+      "successRateTargetSatisfied": true,
+      "sourceMetricCoverageComplete": true,
+      "controlPlaneRegressionCoverageComplete": true,
+      "incidentCoverageComplete": true,
+      "prdBudgetsCovered": true,
+      "metadataOnly": true
+    }
+  },
+  "failures": []
+}

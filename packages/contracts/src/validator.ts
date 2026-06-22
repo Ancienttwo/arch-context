@@ -18,6 +18,7 @@ type JsonSchema = {
   required?: string[];
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
+  oneOf?: JsonSchema[];
   additionalProperties?: boolean | JsonSchema;
   minItems?: number;
   minimum?: number;
@@ -31,6 +32,17 @@ export function validateJsonSchema(schema: JsonSchema, value: Json): ValidationR
 }
 
 function visit(schema: JsonSchema, value: Json, path: string, issues: ValidationIssue[]): void {
+  if (schema.oneOf) {
+    const matched = schema.oneOf.filter((candidate) => {
+      const candidateIssues: ValidationIssue[] = [];
+      visit(candidate, value, path, candidateIssues);
+      return candidateIssues.length === 0;
+    }).length;
+    if (matched !== 1) {
+      issues.push({ path, message: `expected exactly one matching schema, got ${matched}` });
+      return;
+    }
+  }
   if (schema.const !== undefined && JSON.stringify(value) !== JSON.stringify(schema.const)) {
     issues.push({ path, message: `expected const ${JSON.stringify(schema.const)}` });
     return;

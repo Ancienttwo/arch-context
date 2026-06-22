@@ -1,0 +1,169 @@
+{
+  "schemaVersion": "archcontext.fg6-chaos-fault-matrix-readback/v1",
+  "taskId": "FG6-10",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T19:15:55.724Z",
+  "sources": {
+    "checkFailureSource": "docs/verification/fg5-check-failure-readback.json",
+    "incidentDrillSource": "docs/verification/fg5-control-plane-incident-drill.json",
+    "controlPlaneGate": "docs/verification/fg5-control-plane-gate.md",
+    "controlPlaneTest": "packages/cloud/control-plane/test/control-plane.test.ts"
+  },
+  "evidence": {
+    "checkFailure": {
+      "checkApiFailureInjected": true,
+      "checkName": "ArchContext / Developer Review",
+      "injectedGitHubApiFailureCount": 2,
+      "injectedStatusCodes": [
+        503,
+        503
+      ],
+      "retryScheduledCount": 2,
+      "maxAttemptsReached": true,
+      "maxAttemptRetry": false,
+      "maxAttemptReason": "check-delivery-max-attempts-reached",
+      "deadLetterStatus": "DEAD_LETTER",
+      "deadLetterErrorCode": "CHECK_DELIVERY_MAX_ATTEMPTS",
+      "replayed": true,
+      "replaySource": "manual-ops",
+      "replayStatusAfterReplay": "PENDING",
+      "replayAttemptCountAfterReplay": 0,
+      "replayLastErrorCodeAfterReplay": null,
+      "queueSchemaVersion": "archcontext.check-delivery-queue-message/v1",
+      "queueRetryEnqueueCount": 2,
+      "queueReplayEnqueued": true,
+      "queueMessageStatuses": [
+        "RETRYING",
+        "RETRYING",
+        "PENDING"
+      ],
+      "queueSentMessageCount": 3
+    },
+    "incidents": {
+      "alertKinds": [
+        "check-dlq",
+        "github-api-failure",
+        "verify-failure",
+        "webhook-backlog"
+      ],
+      "failureClasses": [
+        "github-api",
+        "queue",
+        "verify",
+        "webhook"
+      ],
+      "rows": [
+        {
+          "failureClass": "webhook",
+          "alertKind": "webhook-backlog",
+          "severity": "critical",
+          "surface": "webhook",
+          "status": "backlog",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "webhook-backlog",
+          "metricKeys": [
+            "oldestAgeMs",
+            "pendingCount",
+            "thresholdAgeMs",
+            "thresholdCount"
+          ]
+        },
+        {
+          "failureClass": "verify",
+          "alertKind": "verify-failure",
+          "severity": "critical",
+          "surface": "verify",
+          "status": "failed",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "verify-failure",
+          "metricKeys": [
+            "failureCount",
+            "thresholdCount"
+          ]
+        },
+        {
+          "failureClass": "queue",
+          "alertKind": "check-dlq",
+          "severity": "warning",
+          "surface": "queue",
+          "status": "DEAD_LETTER",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "check-dlq",
+          "metricKeys": [
+            "deadLetterCount",
+            "oldestLagMs",
+            "thresholdCount"
+          ]
+        },
+        {
+          "failureClass": "github-api",
+          "alertKind": "github-api-failure",
+          "severity": "critical",
+          "surface": "github-api",
+          "status": "failed",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "github-api-failure",
+          "metricKeys": [
+            "failureCount",
+            "retryable",
+            "statusCode",
+            "thresholdCount",
+            "thresholdWindowMs",
+            "windowAgeMs"
+          ]
+        }
+      ]
+    },
+    "controlPlaneFaultContracts": {
+      "webhookIdempotency": {
+        "duplicateDeliveryLeavesOneRow": true,
+        "durablePrimaryKeyMentioned": true
+      },
+      "databaseTransactionRollback": {
+        "statementLevelFaultInjection": true,
+        "checkDeliveryInsertRollback": true,
+        "challengeUpdateRollback": true,
+        "challengeLeftLeased": true,
+        "leasePreserved": true
+      },
+      "queueAfterCommitFailure": {
+        "doesNotRollbackAcceptedPersistence": true,
+        "acceptedSubmitCreatesPendingDelivery": true
+      },
+      "clockSkewLimits": {
+        "testRejectsClockSkew": true,
+        "gateRejectsClockSkew": true,
+        "bodyLimitGuard": true,
+        "rateLimitGuard": true
+      },
+      "currentHeadCheckGuards": {
+        "supersededHeadDeadLetters": true,
+        "headShaMismatchDeadLetters": true,
+        "trustMismatchDeadLetters": true,
+        "noStaleConclusion": true
+      }
+    },
+    "sourceInspections": {
+      "checkFailure": {
+        "ok": true,
+        "failures": []
+      },
+      "incidentDrill": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "webhookChaosCovered": true,
+      "databaseChaosCovered": true,
+      "queueChaosCovered": true,
+      "githubApiChaosCovered": true,
+      "clockSkewChaosCovered": true,
+      "noDuplicateCheckConclusionGuarded": true,
+      "replayRestoresPendingWithoutAttempts": true
+    }
+  },
+  "failures": []
+}

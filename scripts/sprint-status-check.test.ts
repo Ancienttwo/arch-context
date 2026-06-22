@@ -182,6 +182,368 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("accepts FG3 progress only after FG2 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG3 In Progress",
+          total: "| **合计** | | **141** | **51** | **75 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 1 / 32 |",
+            "| FG3-01 | ☑ | 实现 ReviewChallenge v2 Domain 和 canonical serialization | contracts · attestation | E1 | FG0-06 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...Array.from({ length: 18 }, (_, index) => `FG1-${String(index + 1).padStart(2, "0")}`),
+          ...Array.from({ length: 6 }, (_, index) => `FG1-EG${index + 1}`),
+          ...Array.from({ length: 20 }, (_, index) => `FG2-${String(index + 1).padStart(2, "0")}`),
+          ...Array.from({ length: 7 }, (_, index) => `FG2-EG${index + 1}`),
+          "FG3-01"
+        ]);
+        await write(root, "docs/verification/fg1-local-product-gate.md", "# FG1 Verification\n\n## Decision\n\nPASS for FG1-01 through FG1-18 plus FG1-EG1 through FG1-EG6.\n");
+        await write(root, "docs/verification/fg2-github-privacy-gate.md", "# FG2 Verification\n\n## Decision\n\nPASS for all FG2 tasks and for FG2-EG1 through FG2-EG7.\n");
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
+  test("rejects FG4 progress before FG3 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG4 In Progress",
+          total: "| **合计** | | **141** | **51** | **106 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 31 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 1 / 29 |",
+            "| FG4-01 | ☑ | 实现 RunnerIdentity Domain、状态和 repository/org scope | contracts · runner | E1 | FG0-08 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 7),
+          "FG4-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await write(root, "docs/verification/fg3-developer-review-gate.md", "# FG3 Verification\n\n## Decision\n\nPARTIAL\n");
+        const failures = await collectSprintStatusFailures(root);
+        expect(failures.some((failure) => failure.includes("FG4-FG6 completion is not accepted until FG3 exit evidence exists"))).toBe(true);
+      }
+    );
+  });
+
+  test("accepts FG4 progress only after FG3 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG4 In Progress",
+          total: "| **合计** | | **141** | **51** | **107 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 1 / 29 |",
+            "| FG4-01 | ☑ | 实现 RunnerIdentity Domain、状态和 repository/org scope | contracts · runner | E1 | FG0-08 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          "FG4-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
+  test("keeps FG5 progress blocked before FG4 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG5 In Progress",
+          total: "| **合计** | | **141** | **51** | **108 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 1 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 1 / 27 |",
+            "| FG4-01 | ☑ | 实现 RunnerIdentity Domain、状态和 repository/org scope | contracts · runner | E1 | FG0-08 |",
+            "| FG5-01 | ☑ | 为 `review_challenges` 建立真实 migration、索引和唯一约束 | cloud-db | E2 | FG3-01,04 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          "FG4-01",
+          "FG5-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        const failures = await collectSprintStatusFailures(root);
+        expect(failures.some((failure) => failure.includes("FG5-FG6 completion is not accepted until FG4 exit evidence exists"))).toBe(true);
+        expect(failures.some((failure) => failure.includes("unsupported governance entry is completed before its evidence gate: FG5-01"))).toBe(true);
+      }
+    );
+  });
+
+  test("accepts FG4 complete before FG5 starts", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG4 Complete",
+          total: "| **合计** | | **141** | **51** | **135 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG4-01 | ☑ | 实现 RunnerIdentity Domain、状态和 repository/org scope | contracts · runner | E1 | FG0-08 |",
+            "| FG4-EG5 | ☑ | Fork PR 不泄露 Secret，也不执行危险 `pull_request_target` 路径 | E3 | public fork adversarial test |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8)
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
+  test("accepts FG5 progress after FG4 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG5 In Progress",
+          total: "| **合计** | | **141** | **51** | **136 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 1 / 27 |",
+            "| FG4-EG5 | ☑ | Fork PR 不泄露 Secret，也不执行危险 `pull_request_target` 路径 | E3 | public fork adversarial test |",
+            "| FG5-01 | ☑ | 为 `review_challenges` 建立真实 migration、索引和唯一约束 | cloud-db | E2 | FG3-01,04 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          "FG5-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
+  test("accepts FG6 progress after FG5 exit evidence is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Executing — FG6 In Progress",
+          total: "| **合计** | | **141** | **51** | **163 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |",
+            "| FG6 | Staging、加固与发布 | 20 | 10 | 1 / 30 |",
+            "| FG5-EG7 | ☑ | Database、log、trace、queue export 的代码内容命中数为 0 | E3 | full-plane DLP scan |",
+            "| FG6-01 | ☑ | 建立 `bun run verify:governance` 聚合命令和 CI job | tooling · CI | E2 | FG0..FG5 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          ...fgTaskIds("FG5", 20),
+          ...fgExitGateIds("FG5", 7),
+          "FG6-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await writeFg5Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
+  test("rejects FG6 complete status before the final ledger count is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Complete — Personal-User Beta Approved",
+          total: "| **合计** | | **141** | **51** | **163 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |",
+            "| FG6 | Staging、加固与发布 | 20 | 10 | 1 / 30 |",
+            "| FG6-01 | ☑ | 建立 `bun run verify:governance` 聚合命令和 CI job | tooling · CI | E2 | FG0..FG5 |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          ...fgTaskIds("FG5", 20),
+          ...fgExitGateIds("FG5", 7),
+          "FG6-01"
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await writeFg5Evidence(root);
+        const failures = await collectSprintStatusFailures(root);
+        expect(failures.some((failure) => failure.includes("FG6 progress must use status Executing — FG6 In Progress"))).toBe(true);
+      }
+    );
+  });
+
+  test("accepts FG6 complete status only when the personal beta ledger is complete", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: "> **Status**: Accepted for FG0 Contract Execution",
+          sprintStatus: "> **Status**: Complete — Personal-User Beta Approved",
+          total: "| **合计** | | **141** | **51** | **192 / 192** |",
+          completedTask: [
+            "| FG1 | 单一安装与本地 Surface | 18 | 6 | 24 / 24 |",
+            "| FG2 | GitHub 隐私治理平面 | 20 | 7 | 27 / 27 |",
+            "| FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |",
+            "| FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |",
+            "| FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |",
+            "| FG6 | Staging、加固与发布 | 20 | 10 | 30 / 30 |",
+            "| FG6-20 | ☑ | 汇总 FG6 release readiness，形成 Human Gate launch review | docs/release | E4 | FG6-01..19 |",
+            "| FG6-EG10 | ☑ | Human Gate approval 记录存在，且未以自动化自证替代 | E4 | launch review approval |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root, [
+          ...fgTaskIds("FG1", 18),
+          ...fgExitGateIds("FG1", 6),
+          ...fgTaskIds("FG2", 20),
+          ...fgExitGateIds("FG2", 7),
+          ...fgTaskIds("FG3", 24),
+          ...fgExitGateIds("FG3", 8),
+          ...fgTaskIds("FG4", 21),
+          ...fgExitGateIds("FG4", 8),
+          ...fgTaskIds("FG5", 20),
+          ...fgExitGateIds("FG5", 7),
+          ...fgTaskIds("FG6", 20),
+          ...fgExitGateIds("FG6", 10)
+        ]);
+        await writeFg1Evidence(root);
+        await writeFg2Evidence(root);
+        await writeFg3Evidence(root);
+        await writeFg4Evidence(root);
+        await writeFg5Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("rejects local GitHub governance follow-up completion claims during draft intake", async () => {
     await withFixture(
       `# Sprint 2
@@ -361,17 +723,49 @@ async function writeFg0Evidence(root: string, extraCompleted: string[] = []) {
           kind: id.includes("-EG") ? "exit-gate" : "task",
           status: "completed",
           target: id === "FG0-18" || id.startsWith("FG0-EG") || id.startsWith("FG1-") ? "E1" : "E0",
-          evidence: [
-            id.startsWith("FG1-")
-              ? "docs/verification/fg1-local-product-gate.md"
-              : id.startsWith("FG2-")
-                ? "docs/verification/fg2-github-privacy-gate.md"
-                : "docs/verification/fg0-contract-correction-gate.md"
-          ]
+          evidence: [governanceEvidenceForId(id)]
         }))
       },
       null,
       2
     )
   );
+}
+
+function fgTaskIds(fg: string, count: number) {
+  return Array.from({ length: count }, (_, index) => `${fg}-${String(index + 1).padStart(2, "0")}`);
+}
+
+function fgExitGateIds(fg: string, count: number) {
+  return Array.from({ length: count }, (_, index) => `${fg}-EG${index + 1}`);
+}
+
+function governanceEvidenceForId(id: string) {
+  if (id.startsWith("FG1-")) return "docs/verification/fg1-local-product-gate.md";
+  if (id.startsWith("FG2-")) return "docs/verification/fg2-github-privacy-gate.md";
+  if (id.startsWith("FG3-")) return "docs/verification/fg3-developer-review-gate.md";
+  if (id.startsWith("FG4-")) return "docs/verification/fg4-organization-runner-gate.md";
+  if (id.startsWith("FG5-")) return "docs/verification/fg5-control-plane-gate.md";
+  if (id.startsWith("FG6-")) return "docs/verification/fg6-production-gate.md";
+  return "docs/verification/fg0-contract-correction-gate.md";
+}
+
+async function writeFg1Evidence(root: string) {
+  await write(root, "docs/verification/fg1-local-product-gate.md", "# FG1 Verification\n\n## Decision\n\nPASS for FG1-01 through FG1-18 plus FG1-EG1 through FG1-EG6.\n");
+}
+
+async function writeFg2Evidence(root: string) {
+  await write(root, "docs/verification/fg2-github-privacy-gate.md", "# FG2 Verification\n\n## Decision\n\nPASS for all FG2 tasks and for FG2-EG1 through FG2-EG7.\n");
+}
+
+async function writeFg3Evidence(root: string) {
+  await write(root, "docs/verification/fg3-developer-review-gate.md", "# FG3 Verification\n\n## Decision\n\nPASS for FG3-01 through FG3-24 and FG3-EG1 through FG3-EG8.\n");
+}
+
+async function writeFg4Evidence(root: string) {
+  await write(root, "docs/verification/fg4-organization-runner-gate.md", "# FG4 Verification\n\n## Decision\n\nPASS for FG4-01 through FG4-21 and FG4-EG1 through FG4-EG8.\n");
+}
+
+async function writeFg5Evidence(root: string) {
+  await write(root, "docs/verification/fg5-control-plane-gate.md", "# FG5 Verification\n\n## Decision\n\nPASS for FG5-01 through FG5-EG7.\n");
 }

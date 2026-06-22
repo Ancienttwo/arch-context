@@ -1,0 +1,182 @@
+{
+  "schemaVersion": "archcontext.fg6-organization-runner-no-llm-readback/v1",
+  "acceptanceId": "AC-04",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:37:20.988Z",
+  "sources": {
+    "runnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
+    "rulesetSource": "docs/verification/fg4-organization-runner-ruleset-readback.json",
+    "deterministicSource": "docs/verification/fg4-deterministic-conclusion-readback.json"
+  },
+  "evidence": {
+    "runner": {
+      "temporaryBranch": {
+        "name": "codex/fg4-eg1-github-hosted-readback-mqnbyfl1",
+        "commit": "690811ee827ce4ee2a8d96d0d981c3da0bc62f30",
+        "deletedAfterReadback": true
+      },
+      "pullRequest": {
+        "number": 9,
+        "url": "https://github.com/Ancienttwo/arch-context/pull/9",
+        "closedAfterReadback": true
+      },
+      "workflow": {
+        "name": "FG4 EG1 GitHub-hosted Organization Runner",
+        "runId": 27894392126,
+        "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27894392126",
+        "event": "pull_request",
+        "status": "completed",
+        "conclusion": "success",
+        "headSha": "690811ee827ce4ee2a8d96d0d981c3da0bc62f30"
+      },
+      "artifact": {
+        "schemaVersion": "archcontext.fg4-github-hosted-runner-attestation/v1",
+        "ok": true,
+        "environment": "github-actions",
+        "runnerOs": "Linux",
+        "llmProviderConfigured": false,
+        "attestationTrustLevel": "organization",
+        "attestationResult": "pass",
+        "attestationDigest": "sha256:207a9beb98d7ab5a6b36004c487e07c1e88dbf9a1e945cd63fdd3bb0abf748b3",
+        "privacyAuditOk": true,
+        "verificationAccepted": true
+      },
+      "organizationRunner": {
+        "checkName": "ArchContext / Organization Runner",
+        "checkRunId": "82543364407",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82543364407",
+        "conclusion": "success",
+        "outputTitle": "Organization-attested"
+      },
+      "egress": [
+        {
+          "category": "github.pull-head",
+          "method": "GET",
+          "pathTemplate": "/repositories/{repository_id}/pulls/{pull_number}",
+          "statusCode": 200,
+          "requestId": "A420:199FCF:688340D:6A82AB1:6A3772E7"
+        },
+        {
+          "category": "github.check-create",
+          "method": "POST",
+          "pathTemplate": "/repositories/{repository_id}/check-runs",
+          "statusCode": 201,
+          "requestId": "A420:199FCF:6883750:6A82E19:6A3772E8"
+        },
+        {
+          "category": "github.check-update",
+          "method": "PATCH",
+          "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+          "statusCode": 200,
+          "requestId": "A420:199FCF:68839B1:6A83089:6A3772E8"
+        }
+      ]
+    },
+    "ruleset": {
+      "policy": {
+        "requiredTrust": "organization",
+        "developerTrustSatisfiesOrganization": false,
+        "developerAttestationVerification": {
+          "accepted": false,
+          "reasonCode": "TRUST_LEVEL_MISMATCH"
+        }
+      },
+      "developerReview": {
+        "checkName": "ArchContext / Developer Review",
+        "checkRunId": "82541945488",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82541945488",
+        "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+        "conclusion": "success",
+        "outputTitle": "Developer-attested",
+        "developerAttestedSummary": true
+      },
+      "organizationRunner": {
+        "checkName": "ArchContext / Organization Runner",
+        "checkRunId": "82541946392",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82541946392",
+        "headSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+        "conclusion": "failure",
+        "outputTitle": "Attestation required",
+        "organizationRequiredSummary": true,
+        "trustMismatchSummary": true,
+        "forbiddenSourceCodePhraseMatches": 0
+      },
+      "ruleset": {
+        "id": 17939058,
+        "name": "archcontext-fg3-required-trust-smoke-mqnb16sw",
+        "target": "branch",
+        "enforcement": "active",
+        "include": [
+          "refs/heads/fg3-required-trust-smoke/*"
+        ],
+        "requiredStatusCheck": {
+          "context": "ArchContext / Organization Runner",
+          "integrationId": 4102781
+        },
+        "deletedAfterReadback": true,
+        "absentAfterDelete": true
+      }
+    },
+    "deterministic": {
+      "providerEnvCleared": {
+        "OPENAI_API_KEY": true,
+        "ANTHROPIC_API_KEY": true,
+        "GOOGLE_API_KEY": true,
+        "MISTRAL_API_KEY": true
+      },
+      "deterministicGate": {
+        "llmProviderConfigured": false,
+        "modelDigest": "sha256:1c9994d793941d5ee0d4d2e6d7f9d911e45ef973f841149ca35b544ab5bf56e3",
+        "result": "pass",
+        "reviewDigestMatchesAttestation": true
+      },
+      "attestation": {
+        "accepted": true,
+        "result": "pass",
+        "runtimeBuildDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+        "conclusionSource": "deterministic-gate"
+      },
+      "advisory": {
+        "allowedAdvisoryCreated": true,
+        "deterministicReviewDigestMatches": true,
+        "injectedAdvisoryRejected": true,
+        "injectedAdvisoryReason": "llm-advisory-conclusion-field-forbidden: result,signature,checkConclusion"
+      },
+      "upload": {
+        "privacyAuditOk": true,
+        "containsAdvisory": false,
+        "containsProviderCredential": false
+      },
+      "leakCounters": {
+        "plaintextNonceLeaks": 0,
+        "privateKeyLeaks": 0,
+        "tokenLeaks": 0
+      }
+    },
+    "sourceInspections": {
+      "runner": {
+        "ok": true,
+        "failures": []
+      },
+      "ruleset": {
+        "ok": true,
+        "failures": []
+      },
+      "deterministic": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "organizationRunnerRequiredCheckPassed": true,
+      "noLlmProviderConfigured": true,
+      "organizationAttestationAccepted": true,
+      "developerAttestationCannotSatisfyOrganization": true,
+      "requiredContextBoundToArchContextApp": true,
+      "temporaryRunnerReadbackCleanedUp": true
+    }
+  },
+  "failures": []
+}

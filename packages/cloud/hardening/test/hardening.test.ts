@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -62,6 +62,44 @@ describe("@archcontext/cloud/hardening", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("documents self-hosted runner hardening minimum network and filesystem permissions", () => {
+    const guide = readFileSync("docs/security/self-hosted-runner-hardening.md", "utf8");
+
+    expect(guide).toContain("# Self-Hosted Organization Runner Hardening");
+    expect(guide).toContain("config.sh --ephemeral");
+    expect(guide).toContain("archcontext-organization-runners");
+    expect(guide).toContain("archcontext-org-runner");
+    expect(guide).toContain("no inbound listener");
+    expect(guide).toContain("outbound TCP 443 only");
+    for (const destination of [
+      "github.com",
+      "api.github.com",
+      "*.actions.githubusercontent.com",
+      "codeload.github.com",
+      "results-receiver.actions.githubusercontent.com",
+      "*.blob.core.windows.net",
+      "objects.githubusercontent.com",
+      "github-releases.githubusercontent.com",
+      "release-assets.githubusercontent.com",
+      "archcontext.repoharness.com"
+    ]) {
+      expect(guide).toContain(destination);
+    }
+    expect(guide).toContain("archctx-runner");
+    expect(guide).toContain("0750");
+    expect(guide).toContain("0700");
+    expect(guide).toContain("keychain://archcontext/runner/<installation-id>/<public-key-id>");
+    expect(guide).toContain("persist-credentials: false");
+    expect(guide).toContain("trust-level: organization");
+    expect(guide).toContain("fork-pr-mode: unsupported");
+    expect(guide).toContain("expected-head-tree-oid");
+    expect(guide).toContain("The job must not add:");
+    expect(guide).toContain("contents: write");
+    expect(guide).toContain("write-all");
+    expect(guide).not.toContain("GITHUB_TOKEN: write");
+    expect(guide).not.toContain("BEGIN PRIVATE KEY");
   });
 
   test("summarizes launch gate evidence without claiming release completion", () => {

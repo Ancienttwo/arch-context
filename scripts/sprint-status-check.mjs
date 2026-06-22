@@ -132,31 +132,186 @@ async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures)
   const completedIds = new Set(completed.map((entry) => entry.id));
   const sprintCompletedIds = governanceCompletedIds(sprint);
   const fg1Evidence = await readOptional(root, "docs/verification/fg1-local-product-gate.md");
+  const fg2Evidence = await readOptional(root, "docs/verification/fg2-github-privacy-gate.md");
+  const fg3Evidence = await readOptional(root, "docs/verification/fg3-developer-review-gate.md");
+  const fg4Evidence = await readOptional(root, "docs/verification/fg4-organization-runner-gate.md");
+  const fg5Evidence = await readOptional(root, "docs/verification/fg5-control-plane-gate.md");
   const fg1Completed = completed.filter((entry) => /^FG1(?:-\d+|-EG\d+)$/.test(entry.id)).length;
   const fg1Complete = fg1Completed === 24
     && fg1Evidence?.includes("PASS for FG1-01 through FG1-18 plus FG1-EG1 through FG1-EG6");
+  const fg2Completed = completed.filter((entry) => /^FG2(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+  const fg2Complete = fg2Completed === 27
+    && fg2Evidence?.includes("PASS for all FG2 tasks and for FG2-EG1 through FG2-EG7");
+  const fg3Completed = completed.filter((entry) => /^FG3(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+  const fg3Complete = fg3Completed === 32
+    && fg3Evidence?.includes("PASS for FG3-01 through FG3-24 and FG3-EG1 through FG3-EG8");
+  const fg4Completed = completed.filter((entry) => /^FG4(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+  const fg4Complete = fg4Completed === 29
+    && fg4Evidence?.includes("PASS for FG4-01 through FG4-21 and FG4-EG1 through FG4-EG8");
+  const fg5Completed = completed.filter((entry) => /^FG5(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+  const fg5Complete = fg5Completed === 27
+    && fg5Evidence?.includes("PASS for FG5-01 through FG5-EG7");
   const hasFg1Progress = completed.some((entry) => /^FG1(?:-\d+|-EG\d+)$/.test(entry.id))
     || sprintCompletedIds.some((id) => /^FG1(?:-\d+|-EG\d+)$/.test(id));
   const hasFg2Progress = completed.some((entry) => /^FG2(?:-\d+|-EG\d+)$/.test(entry.id))
     || sprintCompletedIds.some((id) => /^FG2(?:-\d+|-EG\d+)$/.test(id));
-  const hasPostFg2Progress = completed.some((entry) => /^FG[3-6](?:-\d+|-EG\d+)$/.test(entry.id))
-    || sprintCompletedIds.some((id) => /^FG[3-6](?:-\d+|-EG\d+)$/.test(id));
+  const hasFg3Progress = completed.some((entry) => /^FG3(?:-\d+|-EG\d+)$/.test(entry.id))
+    || sprintCompletedIds.some((id) => /^FG3(?:-\d+|-EG\d+)$/.test(id));
+  const hasFg4Progress = completed.some((entry) => /^FG4(?:-\d+|-EG\d+)$/.test(entry.id))
+    || sprintCompletedIds.some((id) => /^FG4(?:-\d+|-EG\d+)$/.test(id));
+  const hasFg5Progress = completed.some((entry) => /^FG5(?:-\d+|-EG\d+)$/.test(entry.id))
+    || sprintCompletedIds.some((id) => /^FG5(?:-\d+|-EG\d+)$/.test(id));
+  const hasFg6Progress = completed.some((entry) => /^FG6(?:-\d+|-EG\d+)$/.test(entry.id))
+    || sprintCompletedIds.some((id) => /^FG6(?:-\d+|-EG\d+)$/.test(id));
 
   if (hasFg2Progress && !fg1Complete) {
     failures.push(`${sprintPath}: FG2-FG6 completion is not accepted until FG1 exit evidence exists`);
   }
-  if (hasPostFg2Progress) {
+  if (hasFg3Progress && !fg2Complete) {
     failures.push(`${sprintPath}: FG3-FG6 completion is not accepted until FG2 exit evidence exists`);
   }
+  if ((hasFg4Progress || hasFg5Progress || hasFg6Progress) && !fg3Complete) {
+    failures.push(`${sprintPath}: FG4-FG6 completion is not accepted until FG3 exit evidence exists`);
+  }
+  if ((hasFg5Progress || hasFg6Progress) && !fg4Complete) {
+    failures.push(`${sprintPath}: FG5-FG6 completion is not accepted until FG4 exit evidence exists`);
+  }
+  if (hasFg6Progress && !fg5Complete) {
+    failures.push(`${sprintPath}: FG6 completion is not accepted until FG5 exit evidence exists`);
+  }
 
-  if (hasFg2Progress && fg1Complete) {
+  if (hasFg6Progress && fg5Complete) {
+    const fg6Completed = completed.filter((entry) => /^FG6(?:-\d+|-EG\d+)$/.test(entry.id)).length;
+    const fg6Complete = fg6Completed === 30 && completed.length === 192;
+    const statusMatchesFg6State = fg6Complete
+      ? /Complete\s+—\s+Personal-User Beta Approved/.test(statusLine ?? "")
+      : /Executing\s+—\s+FG6 In Progress/.test(statusLine ?? "");
+    if (!statusMatchesFg6State) {
+      failures.push(
+        fg6Complete
+          ? `${sprintPath}: FG6 complete state must use status Complete — Personal-User Beta Approved`
+          : `${sprintPath}: FG6 progress must use status Executing — FG6 In Progress`
+      );
+    }
+    if (!progressRowMatches(sprint, "FG1", 24, 24)) {
+      failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG6 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG2", 27, 27)) {
+      failures.push(`${sprintPath}: FG2 progress must remain 27 / 27 before FG6 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG3", 32, 32)) {
+      failures.push(`${sprintPath}: FG3 progress must remain 32 / 32 before FG6 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG4", 29, 29)) {
+      failures.push(`${sprintPath}: FG4 progress must remain 29 / 29 before FG6 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG5", 27, 27)) {
+      failures.push(`${sprintPath}: FG5 progress must remain 27 / 27 before FG6 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG6", fg6Completed, 30)) {
+      failures.push(`${sprintPath}: FG6 progress must match ledger count ${fg6Completed} / 30`);
+    }
+    if (!totalProgressMatches(sprint, completed.length)) {
+      failures.push(`${sprintPath}: total progress must match ledger count ${completed.length} / 192`);
+    }
+    for (const id of sprintCompletedIds) {
+      if (!completedIds.has(id)) failures.push(`${ledgerPath}: sprint marks ${id} complete without completed ledger evidence`);
+    }
+  } else if (hasFg5Progress && fg4Complete) {
+    if (!statusLine || !/Executing\s+—\s+FG5 In Progress/.test(statusLine)) {
+      failures.push(`${sprintPath}: FG5 progress must use status Executing — FG5 In Progress`);
+    }
+    if (!progressRowMatches(sprint, "FG1", 24, 24)) {
+      failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG5 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG2", 27, 27)) {
+      failures.push(`${sprintPath}: FG2 progress must remain 27 / 27 before FG5 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG3", 32, 32)) {
+      failures.push(`${sprintPath}: FG3 progress must remain 32 / 32 before FG5 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG4", 29, 29)) {
+      failures.push(`${sprintPath}: FG4 progress must remain 29 / 29 before FG5 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG5", fg5Completed, 27)) {
+      failures.push(`${sprintPath}: FG5 progress must match ledger count ${fg5Completed} / 27`);
+    }
+    if (!totalProgressMatches(sprint, completed.length)) {
+      failures.push(`${sprintPath}: total progress must match ledger count ${completed.length} / 192`);
+    }
+    for (const id of sprintCompletedIds) {
+      if (!completedIds.has(id)) failures.push(`${ledgerPath}: sprint marks ${id} complete without completed ledger evidence`);
+    }
+  } else if (hasFg4Progress && fg4Complete) {
+    if (!statusLine || !/Executing\s+—\s+FG4 Complete/.test(statusLine)) {
+      failures.push(`${sprintPath}: FG4 completion must use status Executing — FG4 Complete until FG5 starts`);
+    }
+    if (!progressRowMatches(sprint, "FG1", 24, 24)) {
+      failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG4 completion is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG2", 27, 27)) {
+      failures.push(`${sprintPath}: FG2 progress must remain 27 / 27 before FG4 completion is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG3", 32, 32)) {
+      failures.push(`${sprintPath}: FG3 progress must remain 32 / 32 before FG4 completion is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG4", 29, 29)) {
+      failures.push(`${sprintPath}: FG4 progress must be 29 / 29 when FG4 is complete`);
+    }
+    if (!totalProgressMatches(sprint, completed.length)) {
+      failures.push(`${sprintPath}: total progress must match ledger count ${completed.length} / 192`);
+    }
+    for (const id of sprintCompletedIds) {
+      if (!completedIds.has(id)) failures.push(`${ledgerPath}: sprint marks ${id} complete without completed ledger evidence`);
+    }
+  } else if (hasFg4Progress && fg3Complete) {
+    if (!statusLine || !/Executing\s+—\s+FG4 In Progress/.test(statusLine)) {
+      failures.push(`${sprintPath}: FG4 progress must use status Executing — FG4 In Progress`);
+    }
+    if (!progressRowMatches(sprint, "FG1", 24, 24)) {
+      failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG4 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG2", 27, 27)) {
+      failures.push(`${sprintPath}: FG2 progress must remain 27 / 27 before FG4 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG3", 32, 32)) {
+      failures.push(`${sprintPath}: FG3 progress must remain 32 / 32 before FG4 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG4", fg4Completed, 29)) {
+      failures.push(`${sprintPath}: FG4 progress must match ledger count ${fg4Completed} / 29`);
+    }
+    if (!totalProgressMatches(sprint, completed.length)) {
+      failures.push(`${sprintPath}: total progress must match ledger count ${completed.length} / 192`);
+    }
+    for (const id of sprintCompletedIds) {
+      if (!completedIds.has(id)) failures.push(`${ledgerPath}: sprint marks ${id} complete without completed ledger evidence`);
+    }
+  } else if (hasFg3Progress && fg2Complete) {
+    if (!statusLine || !/Executing\s+—\s+FG3 In Progress/.test(statusLine)) {
+      failures.push(`${sprintPath}: FG3 progress must use status Executing — FG3 In Progress`);
+    }
+    if (!progressRowMatches(sprint, "FG1", 24, 24)) {
+      failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG3 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG2", 27, 27)) {
+      failures.push(`${sprintPath}: FG2 progress must remain 27 / 27 before FG3 progress is accepted`);
+    }
+    if (!progressRowMatches(sprint, "FG3", fg3Completed, 32)) {
+      failures.push(`${sprintPath}: FG3 progress must match ledger count ${fg3Completed} / 32`);
+    }
+    if (!totalProgressMatches(sprint, completed.length)) {
+      failures.push(`${sprintPath}: total progress must match ledger count ${completed.length} / 192`);
+    }
+    for (const id of sprintCompletedIds) {
+      if (!completedIds.has(id)) failures.push(`${ledgerPath}: sprint marks ${id} complete without completed ledger evidence`);
+    }
+  } else if (hasFg2Progress && fg1Complete) {
     if (!statusLine || !/Executing\s+—\s+FG2 In Progress/.test(statusLine)) {
       failures.push(`${sprintPath}: FG2 progress must use status Executing — FG2 In Progress`);
     }
     if (!progressRowMatches(sprint, "FG1", 24, 24)) {
       failures.push(`${sprintPath}: FG1 progress must remain 24 / 24 before FG2 progress is accepted`);
     }
-    const fg2Completed = completed.filter((entry) => /^FG2(?:-\d+|-EG\d+)$/.test(entry.id)).length;
     if (!progressRowMatches(sprint, "FG2", fg2Completed, 27)) {
       failures.push(`${sprintPath}: FG2 progress must match ledger count ${fg2Completed} / 27`);
     }
@@ -195,9 +350,17 @@ async function validateGovernanceFollowupFg0(root, sprint, statusLine, failures)
   }
 
   for (const entry of completed) {
-    const supportedEntry = fg1Complete
-      ? /^FG[0-2](?:-\d+|-EG\d+)$/.test(entry.id)
-      : /^FG[01](?:-\d+|-EG\d+)$/.test(entry.id);
+    const supportedEntry = fg5Complete
+      ? /^FG[0-6](?:-\d+|-EG\d+)$/.test(entry.id)
+      : fg4Complete
+      ? /^FG[0-5](?:-\d+|-EG\d+)$/.test(entry.id)
+      : fg3Complete
+      ? /^FG[0-4](?:-\d+|-EG\d+)$/.test(entry.id)
+      : fg2Complete
+        ? /^FG[0-3](?:-\d+|-EG\d+)$/.test(entry.id)
+      : fg1Complete
+        ? /^FG[0-2](?:-\d+|-EG\d+)$/.test(entry.id)
+        : /^FG[01](?:-\d+|-EG\d+)$/.test(entry.id);
     if (!supportedEntry) {
       failures.push(`${ledgerPath}: unsupported governance entry is completed before its evidence gate: ${entry.id}`);
     }

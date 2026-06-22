@@ -1,0 +1,246 @@
+{
+  "schemaVersion": "archcontext.fg6-adversarial-governance-matrix-readback/v1",
+  "taskId": "FG6-09",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T19:08:24.547Z",
+  "sources": {
+    "fg2StagingSource": "docs/verification/fg2-staging-evidence.json",
+    "publicForkSource": "docs/verification/fg4-public-fork-adversarial-readback.json",
+    "installRevokeSource": "docs/verification/fg2-install-revoke-readback.json",
+    "rulesetSource": "docs/verification/fg4-organization-runner-ruleset-readback.json",
+    "developerDowngradeSource": "docs/verification/fg4-developer-cannot-satisfy-organization-readback.json",
+    "runnerKeyLifecycleSource": "docs/verification/fg4-runner-key-lifecycle-e2e.json"
+  },
+  "evidence": {
+    "appPermissions": {
+      "appId": "4102781",
+      "appSlug": "archcontext-staging",
+      "repositorySelection": "selected",
+      "repositoryCount": 1,
+      "permissions": {
+        "checks": "write",
+        "metadata": "read",
+        "pull_requests": "read",
+        "statuses": "write"
+      },
+      "permissionKeys": [
+        "checks",
+        "metadata",
+        "pull_requests",
+        "statuses"
+      ],
+      "expectedKeys": [
+        "checks",
+        "metadata",
+        "pull_requests",
+        "statuses"
+      ],
+      "contentsPermission": "absent",
+      "forbiddenPermissionKeys": [],
+      "noExtraPermissionKeys": true,
+      "permissionValuesMatch": true,
+      "events": [
+        "check_run",
+        "pull_request"
+      ],
+      "rulesetExpectedSource": {
+        "commitStatusesPermission": "required-and-implemented",
+        "rulesetVerified": true,
+        "permissionManifestCommit": "0f39b06d1c89ae5f77d128ba22a005aa8e12aefc",
+        "adrCommit": "0f39b06d1c89ae5f77d128ba22a005aa8e12aefc",
+        "installDisclosureCommit": "0f39b06d1c89ae5f77d128ba22a005aa8e12aefc"
+      }
+    },
+    "publicFork": {
+      "baseRepository": "Ancienttwo/arch-context",
+      "repositoryPrivate": false,
+      "repositoryAllowForking": true,
+      "forkAttempted": true,
+      "selectedForkOwner": "aimpact-inc",
+      "forkRepository": "aimpact-inc/arch-context",
+      "forkCreatedByReadback": true,
+      "pullRequestNumber": 11,
+      "pullRequestUrl": "https://github.com/Ancienttwo/arch-context/pull/11",
+      "crossRepositoryPr": true,
+      "headRepository": "aimpact-inc/arch-context",
+      "headRepositoryDiffers": true,
+      "headSha": "2e0cad564b0ce6ed7a21b3e69eddda5a864960d5",
+      "temporaryPrClosed": true,
+      "temporaryBranchDeleted": true,
+      "adversarialWorkflowPresent": true,
+      "dangerousWorkflowRunCount": 0,
+      "dangerousMarkerLogMatches": 0,
+      "defaultPolicy": {
+        "run": false,
+        "mode": "unsupported",
+        "outputConclusion": "neutral",
+        "reasonCode": "FORK_PR_UNSUPPORTED",
+        "requiresSigningSecret": false
+      },
+      "signingSecretPolicy": {
+        "run": false,
+        "mode": "unsupported",
+        "outputConclusion": "neutral",
+        "reasonCode": "FORK_PR_SECRET_EXPOSURE_FORBIDDEN",
+        "signingSecretConfigured": true,
+        "requiresSigningSecret": false
+      },
+      "githubAppProjection": {
+        "challengeIssued": false,
+        "challengeCount": 0,
+        "checkName": "ArchContext / Organization Runner",
+        "conclusion": "neutral",
+        "outputTitle": "Unsupported",
+        "unsupportedSummary": true
+      },
+      "organizationRunner": {
+        "checkName": "ArchContext / Organization Runner",
+        "checkRunId": "82579129841",
+        "conclusion": "neutral",
+        "outputTitle": "Unsupported"
+      },
+      "secretScan": {
+        "containsToken": false,
+        "containsPrivateKey": false,
+        "containsWebhookSecret": false
+      }
+    },
+    "installationRevoke": {
+      "appId": "4102781",
+      "appSlug": "archcontext-staging",
+      "installationId": 141544438,
+      "repository": "Ancienttwo/arch-context",
+      "mode": "suspend-unsuspend",
+      "installationRevoked": true,
+      "tokenRejectedAfterRevoke": true,
+      "challengeCreationStopped": true,
+      "checkUpdateStopped": true,
+      "restoredAfterReadback": true,
+      "suspendStatus": 204,
+      "installationAccessAfterRevokeStatus": 403,
+      "existingInstallationAccessProbeStatus": 403,
+      "syntheticWebhookStatus": 500,
+      "syntheticWebhookStopPoint": "github-installation-token-before-pull-head-or-check",
+      "installationAccessAfterRestoreStatus": 201,
+      "checkRunsUnchanged": true,
+      "secretValuesPersisted": false,
+      "privateContentPersisted": false
+    },
+    "rulesetExpectedSource": {
+      "appId": "4102781",
+      "repository": "Ancienttwo/arch-context",
+      "requiredTrust": "organization",
+      "developerTrustSatisfiesOrganization": false,
+      "developerAttestationAcceptedForOrganization": false,
+      "rejectionReasonCode": "TRUST_LEVEL_MISMATCH",
+      "developerCheckConclusion": "success",
+      "organizationCheckConclusion": "failure",
+      "requiredContext": "ArchContext / Organization Runner",
+      "integrationId": 4102781,
+      "integrationIdMatchesApp": true,
+      "enforcement": "active",
+      "target": "branch",
+      "deletedAfterReadback": true,
+      "absentAfterDelete": true
+    },
+    "developerPermissionDowngrade": {
+      "appId": "4102781",
+      "requiredTrust": "organization",
+      "developerTrustSatisfiesOrganization": false,
+      "developerAttestationAcceptedForOrganization": false,
+      "rejectionReasonCode": "TRUST_LEVEL_MISMATCH",
+      "developerCheckName": "ArchContext / Developer Review",
+      "developerCheckRunId": "82541945488",
+      "developerCheckConclusion": "success",
+      "developerCheckTitle": "Developer-attested",
+      "organizationCheckName": "ArchContext / Organization Runner",
+      "organizationCheckRunId": "82541946392",
+      "organizationCheckConclusion": "failure",
+      "organizationCheckTitle": "Attestation required",
+      "sameHead": true,
+      "distinctCheckRuns": true,
+      "requiredContext": "ArchContext / Organization Runner",
+      "integrationId": 4102781,
+      "integrationIdMatchesApp": true,
+      "deletedAfterReadback": true,
+      "absentAfterDelete": true
+    },
+    "runnerKeyLifecycle": {
+      "requiredCheckSubmitIdentityStatus": "active-only",
+      "rotatingPreviousKeyPreflightGrace": true,
+      "rotatingPreviousKeySubmitAllowed": false,
+      "previousStatus": "rotating",
+      "nextStatus": "active",
+      "previousPreflightAcceptedDuringOverlap": true,
+      "previousPreflightAcceptedAfterOverlap": false,
+      "previousSubmit": {
+        "accepted": false,
+        "observedReasonCode": "RUNNER_REVOKED",
+        "nonceHashConsumed": false
+      },
+      "nextSubmit": {
+        "accepted": true,
+        "nonceHashConsumed": true
+      },
+      "revokedStatus": "revoked",
+      "postRevokePreflightAccepted": false,
+      "postRevokeSubmit": {
+        "accepted": false,
+        "observedReasonCode": "RUNNER_REVOKED",
+        "nonceHashConsumed": false
+      },
+      "recoveryAction": "register-replacement-runner-key",
+      "replacementRequired": true,
+      "auditActions": [
+        "runner_key.register",
+        "runner_key.rotate",
+        "runner_key.register",
+        "runner_key.revoke"
+      ],
+      "auditMetadataOnly": true,
+      "leakCounters": {
+        "plaintextNonceLeaks": 0,
+        "privateKeyLeaks": 0,
+        "tokenLeaks": 0
+      }
+    },
+    "sourceInspections": {
+      "fg2Staging": {
+        "ok": true,
+        "failures": []
+      },
+      "publicFork": {
+        "ok": true,
+        "failures": []
+      },
+      "installRevoke": {
+        "ok": true,
+        "failures": []
+      },
+      "ruleset": {
+        "ok": true,
+        "failures": []
+      },
+      "developerDowngrade": {
+        "ok": true,
+        "failures": []
+      },
+      "runnerKeyLifecycle": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "minimalGithubAppPermissions": true,
+      "forkSecretBlocked": true,
+      "pullRequestTargetBlocked": true,
+      "installationRevokeStopsTokenChallengeAndCheck": true,
+      "rulesetExpectedSourceBoundToApp": true,
+      "developerCheckCannotSatisfyOrganizationGate": true,
+      "revokedRunnerKeyRejectedWithoutNonceConsumption": true
+    }
+  },
+  "failures": []
+}

@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "archcontext.fg6-feature-flag-readback/v1",
+  "taskId": "FG6-17",
+  "environment": "local-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T20:22:49.660Z",
+  "sources": {
+    "contractSource": "packages/contracts/src/github-governance.ts",
+    "controlPlaneSource": "packages/cloud/control-plane/src/index.ts",
+    "githubAppSource": "packages/cloud/github-app/src/index.ts",
+    "contractTest": "packages/contracts/test/contracts.test.ts",
+    "controlPlaneTest": "packages/cloud/control-plane/test/control-plane.test.ts",
+    "githubAppTest": "packages/cloud/github-app/test/github-app.test.ts",
+    "reportPath": "docs/verification/fg6-feature-flag.md"
+  },
+  "evidence": {
+    "contractDecisions": {
+      "defaultDeveloperCheck": true,
+      "defaultOrganizationCheck": true,
+      "defaultRequiredTrust": true,
+      "developerDisabledReason": "developer-check-disabled",
+      "organizationDisabledReason": "organization-check-disabled",
+      "requiredTrustDisabledReason": "required-trust-disabled",
+      "developerCheckName": "ArchContext / Developer Review",
+      "organizationCheckName": "ArchContext / Organization Runner",
+      "developerRequiredTrust": "developer",
+      "organizationRequiredTrust": "organization",
+      "metadataDigests": [
+        "sha256:77a214b8b23130244c0e7f0c11de69c2b06dc6081e9ef3880d946cfa8e37655e",
+        "sha256:3f9aa8a53f88aeeee068f86ee412b727d7ebe897f4d962a9334f419790d9786e",
+        "sha256:3740952c16011c34a14fcb738bb8d9d4f707eb3c2d1eb8fff928ef64372aa6c2",
+        "sha256:07bc5a00a4b7808448f67b91358569a0f91181cf631419f8c5bb3168422b16d8",
+        "sha256:e43028a9fb601d094cda0d313561687ef1d188476dba0b3c5ba6c0fd4f22a0e5"
+      ]
+    },
+    "githubAppProbe": {
+      "developerCheckDisabled": {
+        "checkCreated": false,
+        "challengeCreated": false,
+        "checkCount": 0,
+        "challengeCount": 0
+      },
+      "organizationCheckDisabled": {
+        "checkCreated": false,
+        "challengeCreated": false,
+        "checkCount": 0,
+        "challengeCount": 0
+      },
+      "requiredTrustDisabled": {
+        "checkName": "ArchContext / Developer Review",
+        "challengeCreated": true,
+        "checkCount": 1,
+        "challengeCount": 1,
+        "organizationDecisionAllowed": false,
+        "organizationDecisionReason": "required-trust-disabled"
+      }
+    },
+    "controlPlaneProbe": {
+      "developerCreateError": "governance-feature-disabled: developer-check-disabled",
+      "organizationCreateError": "governance-feature-disabled: organization-check-disabled",
+      "requiredTrustCreateError": "governance-feature-disabled: required-trust-disabled",
+      "queueAllowedCheckName": "ArchContext / Developer Review",
+      "queueRejectError": "governance-feature-disabled: developer-check-disabled"
+    },
+    "sourceCoverage": {
+      "contractsDefaultFlags": true,
+      "contractsDecisionHelper": true,
+      "contractsRequiredTrustMapping": true,
+      "controlPlaneCreateGate": true,
+      "controlPlaneQueueGate": true,
+      "controlPlanePublishGate": true,
+      "githubAppPrDecision": true,
+      "githubAppPublicationGate": true,
+      "contractFocusedTest": true,
+      "controlPlaneFocusedTest": true,
+      "githubAppFocusedTest": true
+    },
+    "assertions": {
+      "contractFlagsComplete": true,
+      "githubAppDeveloperCheckFlagBlocksSideEffects": true,
+      "githubAppOrganizationCheckFlagBlocksSideEffects": true,
+      "githubAppRequiredTrustFlagFallsBackToDeveloperCheck": true,
+      "controlPlaneFeatureFlagsRejectNewSideEffects": true,
+      "checkNameMappingStable": true,
+      "sourceCoverageComplete": true,
+      "noPrivateContent": true
+    }
+  },
+  "failures": []
+}

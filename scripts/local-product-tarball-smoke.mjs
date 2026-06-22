@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const rootManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const releasePackageName = "archctx";
+const releaseHomeUrl = "https://archcontext.repoharness.com";
 const args = parseArgs(process.argv.slice(2));
 const PROCESS_TIMEOUT_MS = Number(args["timeout-ms"] ?? 30_000);
 const cleanupRoots = [];
@@ -77,7 +79,7 @@ try {
   const evidence = {
     schemaVersion: "archcontext.local-product-tarball-smoke/v1",
     package: {
-      name: "archcontext",
+      name: releasePackageName,
       version: rootManifest.version,
       tarball: basename(tarballPath),
       stageDir: displayPath(stageDir)
@@ -135,24 +137,38 @@ async function buildLocalProductTarball(artifactDir) {
     "--outfile",
     binPath
   ], { cwd: root, env: process.env });
-  rewriteShebang(binPath, "#!/usr/bin/env node");
+  rewriteShebang(binPath, "#!/usr/bin/env bun");
   chmodSync(binPath, 0o755);
 
   writeFileSync(join(stageDir, "README.md"), [
-    "# ArchContext Local Product",
+    "# archctx",
     "",
-    "This package contains the one-package Local Core distribution for archctx.",
+    "ArchContext local runtime and CLI for agentic coding workflows.",
+    "",
+    `Product home: ${releaseHomeUrl}`,
+    "",
+    "This package contains the one-package Local Core distribution.",
     "It does not require a GitHub App, Cloud account, subscription, or LLM provider for Local Core."
   ].join("\n"), "utf8");
   writeFileSync(join(stageDir, "package.json"), JSON.stringify({
-    name: "archcontext",
+    name: releasePackageName,
     version: rootManifest.version,
+    description: "Local architecture context CLI for agentic coding workflows.",
     private: false,
     type: "module",
     bin: {
       archctx: "./bin/archctx.mjs"
     },
-    engines: rootManifest.engines,
+    homepage: releaseHomeUrl,
+    license: "UNLICENSED",
+    publishConfig: {
+      registry: "https://registry.npmjs.org/"
+    },
+    packageManager: rootManifest.packageManager,
+    engines: {
+      ...rootManifest.engines,
+      bun: ">=1.3.10"
+    },
     files: [
       "bin",
       "README.md"

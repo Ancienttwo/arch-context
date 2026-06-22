@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "archcontext.fg6-external-security-review-readback/v1",
+  "taskId": "FG6-12",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T19:33:30.823Z",
+  "sources": {
+    "privacySource": "docs/verification/fg6-privacy-dlp-readback.json",
+    "adversarialSource": "docs/verification/fg6-adversarial-governance-matrix-readback.json",
+    "securitySource": "docs/verification/fg6-security-release-readback.json",
+    "replaySource": "docs/verification/fg3-attestation-security-suite.json",
+    "reportPath": "docs/security/reviews/fg6-external-security-review.md"
+  },
+  "evidence": {
+    "sourceInspections": {
+      "privacyDlp": {
+        "ok": true,
+        "failures": []
+      },
+      "adversarialGovernance": {
+        "ok": true,
+        "failures": []
+      },
+      "securityRelease": {
+        "ok": true,
+        "failures": []
+      },
+      "attestationReplay": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "apiAllowlist": {
+      "staticPassed": true,
+      "scannedFiles": 18,
+      "scanRoots": [
+        "packages/cloud",
+        "packages/contracts/src"
+      ],
+      "allowedCategories": [
+        "github.check-create",
+        "github.check-update",
+        "github.pull-head"
+      ],
+      "unexpectedCategories": [],
+      "forbiddenEndpointOrMediaMatches": 0,
+      "noContentsPermission": true,
+      "appPermissionKeys": [
+        "checks",
+        "metadata",
+        "pull_requests",
+        "statuses"
+      ]
+    },
+    "keyLifecycle": {
+      "installationRevokeStopsTokenChallengeAndCheck": true,
+      "runnerPostRevokeRejectedWithoutNonce": true,
+      "deviceRevokedRejectedWithoutNonce": true,
+      "auditMetadataOnly": true,
+      "leakCountersAllZero": true
+    },
+    "replay": {
+      "baselineAccepted": true,
+      "replayRejected": true,
+      "replayReasonCode": "CHALLENGE_ALREADY_CONSUMED",
+      "replayNonceHashConsumed": true,
+      "replayConsumedSetPreserved": true,
+      "noUnexpectedNonceConsumption": true
+    },
+    "fork": {
+      "crossRepositoryPr": true,
+      "challengeIssued": false,
+      "dangerousWorkflowRunCount": 0,
+      "signingSecretRun": false,
+      "signingSecretReasonCode": "FORK_PR_SECRET_EXPOSURE_FORBIDDEN",
+      "secretScanClean": true,
+      "cleanupComplete": true
+    },
+    "logs": {
+      "dynamicSurfacesCovered": true,
+      "cloudTailClean": true,
+      "runnerSurfacesClean": true,
+      "storageSurfacesClean": true,
+      "releaseSecretScanClean": true
+    },
+    "releaseScan": {
+      "dependencyCriticalHighZero": true,
+      "sbomGenerated": true,
+      "sastCriticalHighZero": true,
+      "secretScanClean": true,
+      "securityManifestVerified": true
+    },
+    "reviewDecision": {
+      "reviewer": "fg6-independent-release-security-review",
+      "scope": [
+        "api-allowlist",
+        "key-lifecycle",
+        "attestation-replay",
+        "fork-secret-safety",
+        "logs-and-artifacts",
+        "release-security-scan"
+      ],
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "disposition": "pass"
+    },
+    "assertions": {
+      "apiAllowlistReviewed": true,
+      "keyLifecycleReviewed": true,
+      "replayReviewed": true,
+      "forkSafetyReviewed": true,
+      "logsReviewed": true,
+      "releaseScanReviewed": true,
+      "noCriticalHighOpen": true,
+      "allSourceInspectionsPassed": true
+    }
+  },
+  "failures": []
+}

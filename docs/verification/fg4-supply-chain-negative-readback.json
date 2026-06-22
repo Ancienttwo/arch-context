@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "archcontext.fg4-supply-chain-negative-readback/v1",
+  "environment": "process-fixture",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T05:37:18.113Z",
+  "evidence": {
+    "processLevelFixture": true,
+    "baseline": {
+      "preflightOk": true,
+      "attestationAccepted": true,
+      "runtimeBuildDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+      "payloadDigestMatchesAttestation": true,
+      "payloadPrivacyOk": true
+    },
+    "preflightCases": [
+      {
+        "name": "runtime-version-mismatch",
+        "expectedReason": "runtime-version-mismatch",
+        "observedReason": "runtime-version-mismatch",
+        "rejected": true
+      },
+      {
+        "name": "runtime-artifact-digest-invalid",
+        "expectedReason": "runtime-artifact-digest-invalid",
+        "observedReason": "runtime-artifact-digest-invalid",
+        "rejected": true
+      },
+      {
+        "name": "runtime-artifact-url-invalid",
+        "expectedReason": "runtime-artifact-url-invalid",
+        "observedReason": "runtime-artifact-url-invalid",
+        "rejected": true
+      }
+    ],
+    "tamperCases": [
+      {
+        "name": "runtime-build-digest-mismatch",
+        "expectedReasonCode": "SIGNATURE_INVALID",
+        "observedReasonCode": "SIGNATURE_INVALID",
+        "rejected": true
+      },
+      {
+        "name": "run-attempt-mismatch",
+        "expectedReasonCode": "SIGNATURE_INVALID",
+        "observedReasonCode": "SIGNATURE_INVALID",
+        "rejected": true
+      }
+    ],
+    "allPreflightRejectionsObserved": true,
+    "allTamperRejectionsObserved": true,
+    "leakCounters": {
+      "plaintextNonceLeaks": 0,
+      "privateKeyLeaks": 0,
+      "tokenLeaks": 0
+    }
+  },
+  "failures": []
+}

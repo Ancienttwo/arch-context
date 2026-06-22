@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { generateKeyPairSync, sign, verify } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { canonicalAttestationV2 } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
@@ -15,6 +19,7 @@ import {
   assertProductionRuntimeDeps,
   createStartedProductionDaemon,
   createStartedDaemon,
+  defaultDeveloperReviewRunStateDir,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
   recoverStaleDaemonControlFiles,
@@ -39,6 +44,19 @@ function removeTempRepo(root: string): void {
 function isIgnorableWindowsCleanupError(error: unknown): boolean {
   const code = (error as { code?: string }).code;
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
+}
+
+function expectSameExistingPath(actual: string, expected: string): void {
+  expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
+}
+
+function normalizeExistingPath(path: string): string {
+  const real = realpathSync.native(path);
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
+function readText(path: string): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
 function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0] = {}) {
@@ -146,6 +164,487 @@ describe("local runtime foundation", () => {
     } finally {
       await second?.stop().catch(() => undefined);
       await first?.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  });
+
+  test("prepares Developer Review from Challenge head in a detached clean worktree", async () => {
+    const root = createGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-worktrees-"));
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let worktree: NonNullable<ReturnType<Awaited<ReturnType<typeof createStartedTestDaemon>>["prepareDeveloperReviewWorktree"]>["worktree"]> | undefined;
+    try {
+      daemon = await createStartedTestDaemon();
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const headTreeOid = gitOut(root, "rev-parse", "HEAD^{tree}");
+      writeFileSync(join(root, "README.md"), "# dirty source checkout\n", "utf8");
+
+      const prepared = daemon.prepareDeveloperReviewWorktree({
+        repositoryRoot: root,
+        challenge: {
+          schemaVersion: "archcontext.review-challenge/v2",
+          challengeId: "chal_runtime_worktree",
+          installationId: 123,
+          repositoryId: 456,
+          pullRequestNumber: 7,
+          headSha,
+          baseSha: headSha,
+          nonce: "nonce_runtime_worktree",
+          requiredTrust: "developer",
+          policyProfileId: "policy.default",
+          createdAt: "2026-06-20T00:00:00.000Z",
+          expiresAt: "2026-06-20T00:15:00.000Z",
+          status: "LEASED"
+        },
+        expectedHeadTreeOid: headTreeOid,
+        tempRoot
+      });
+
+      expect(prepared.accepted).toBe(true);
+      worktree = prepared.worktree;
+      expect(worktree?.headSha).toBe(headSha);
+      expect(worktree?.headTreeOid).toBe(headTreeOid);
+      expect(worktree?.detached).toBe(true);
+      expect(worktree?.clean).toBe(true);
+      expect(readText(join(worktree!.worktreeRoot, "README.md"))).toBe("# fixture\n");
+      expect(gitOut(worktree!.worktreeRoot, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
+
+      const mismatch = daemon.prepareDeveloperReviewWorktree({
+        repositoryRoot: root,
+        challenge: {
+          ...preparedChallenge(headSha),
+          headSha: "d".repeat(40)
+        },
+        tempRoot
+      });
+      expect(mismatch).toMatchObject({ accepted: false, reasonCode: "HEAD_UNAVAILABLE" });
+    } finally {
+      if (worktree) removeDetachedReviewWorktree(worktree);
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  });
+
+  test("computes Developer Review digest bundle from detached worktree model policy codefacts and runtime", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-digests-"));
+    const provider = new MockCodeGraphProvider();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let worktree: NonNullable<ReturnType<Awaited<ReturnType<typeof createStartedTestDaemon>>["prepareDeveloperReviewWorktree"]>["worktree"]> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(provider) });
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = daemon.prepareDeveloperReviewWorktree({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}"),
+        tempRoot
+      });
+      expect(prepared.accepted).toBe(true);
+      worktree = prepared.worktree;
+
+      const bundle = await daemon.computeDeveloperReviewDigestBundle({ challenge, worktree: worktree! });
+
+      expect(bundle).toMatchObject({
+        schemaVersion: "archcontext.developer-review-digest-bundle/v1",
+        challengeId: challenge.challengeId,
+        repositoryId: challenge.repositoryId,
+        headSha,
+        headTreeOid: worktree!.headTreeOid,
+        runtime: {
+          version: "0.1.0",
+          codeGraphVersion: REQUIRED_CODEGRAPH_VERSION
+        }
+      });
+      expect(bundle.worktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(bundle.modelDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(bundle.policyDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(bundle.codeFactsDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(bundle.runtime.buildDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(bundle.runtime.capabilitiesDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(provider.indexedRoots).toEqual([worktree!.worktreeRoot]);
+      expect(JSON.stringify(bundle)).not.toContain("policy.review");
+      expect(JSON.stringify(bundle)).not.toContain("Digest App");
+
+      writeFileSync(join(worktree!.worktreeRoot, "README.md"), "# dirty detached worktree\n", "utf8");
+      await expect(daemon.computeDeveloperReviewDigestBundle({ challenge, worktree: worktree! })).rejects.toThrow("WORKTREE_NOT_CLEAN");
+    } finally {
+      if (worktree) removeDetachedReviewWorktree(worktree);
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  });
+
+  test("runs deterministic Developer Review inside detached worktree and persists the local result", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-review-"));
+    const provider = new MockCodeGraphProvider();
+    const store = new TestLocalStore();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let worktree: NonNullable<ReturnType<Awaited<ReturnType<typeof createStartedTestDaemon>>["prepareDeveloperReviewWorktree"]>["worktree"]> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(provider), localStore: store });
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = daemon.prepareDeveloperReviewWorktree({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}"),
+        tempRoot
+      });
+      expect(prepared.accepted).toBe(true);
+      worktree = prepared.worktree;
+
+      const passed = await daemon.runDeveloperReviewSession({
+        challenge,
+        worktree: worktree!,
+        taskSessionId: "task_developer_review_detached"
+      });
+
+      expect(passed).toMatchObject({
+        schemaVersion: "archcontext.developer-review-session/v1",
+        challengeId: challenge.challengeId,
+        taskSessionId: "task_developer_review_detached",
+        reviewResult: "pass",
+        attestationResult: "pass",
+        summary: { errors: 0, warnings: 0, notices: 0 }
+      });
+      expect(passed.reviewDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(passed.digests.worktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(provider.indexedRoots).toEqual([worktree!.worktreeRoot]);
+      expect(store.reviews.get(passed.reviewId)).toMatchObject({
+        schemaVersion: "archcontext.review/v1",
+        reviewId: passed.reviewId,
+        taskSessionId: "task_developer_review_detached",
+        result: "pass"
+      });
+
+      const failed = await daemon.runDeveloperReviewSession({
+        challenge,
+        worktree: worktree!,
+        taskSessionId: "task_developer_review_cleanup",
+        cleanupRequired: 1,
+        cleanupCompleted: 0
+      });
+      expect(failed.reviewResult).toBe("fail_action_required");
+      expect(failed.attestationResult).toBe("fail");
+      expect(store.reviews.get(failed.reviewId)).toMatchObject({ result: "fail_action_required" });
+    } finally {
+      if (worktree) removeDetachedReviewWorktree(worktree);
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  });
+
+  test("developer review run lifecycle cleans temporary worktrees locks and CodeGraph state on success and failure", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-review-lifecycle-"));
+    const provider = new MockCodeGraphProvider();
+    const store = new TestLocalStore();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    const successPaths: Record<string, string> = {};
+    const failurePaths: Record<string, string> = {};
+    try {
+      daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(provider), localStore: store });
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const expectedHeadTreeOid = gitOut(root, "rev-parse", "HEAD^{tree}");
+      const challenge = preparedChallenge(headSha);
+
+      const passed = await daemon.withDeveloperReviewRun({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid,
+        tempRoot
+      }, async (run) => {
+        const codeGraphStateDir = join(run.runRoot, "codegraph-state");
+        Object.assign(successPaths, {
+          runRoot: run.runRoot,
+          worktreeRoot: run.worktree.worktreeRoot,
+          manifestPath: run.manifestPath,
+          lockPath: run.lockPath,
+          codeGraphStateFile: join(codeGraphStateDir, "state.db")
+        });
+        mkdirSync(codeGraphStateDir, { recursive: true });
+        writeFileSync(successPaths.codeGraphStateFile, "temporary CodeGraph state\n", "utf8");
+        return daemon!.runDeveloperReviewSession({
+          challenge,
+          worktree: run.worktree,
+          taskSessionId: "task_developer_review_lifecycle"
+        });
+      });
+
+      expect(passed.reviewResult).toBe("pass");
+      expect(provider.indexedRoots).toEqual([successPaths.worktreeRoot]);
+      for (const path of Object.values(successPaths)) expect(existsSync(path)).toBe(false);
+
+      await expect(daemon.withDeveloperReviewRun({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid,
+        tempRoot
+      }, async (run) => {
+        Object.assign(failurePaths, {
+          runRoot: run.runRoot,
+          worktreeRoot: run.worktree.worktreeRoot,
+          manifestPath: run.manifestPath,
+          lockPath: run.lockPath
+        });
+        writeFileSync(join(run.worktree.worktreeRoot, "README.md"), "# dirty detached worktree\n", "utf8");
+        return daemon!.runDeveloperReviewSession({
+          challenge,
+          worktree: run.worktree,
+          taskSessionId: "task_developer_review_failure_cleanup"
+        });
+      })).rejects.toThrow("WORKTREE_NOT_CLEAN");
+
+      for (const path of Object.values(failurePaths)) expect(existsSync(path)).toBe(false);
+    } finally {
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  });
+
+  test("developer review run recovery removes stale manifests and keeps active runs unless forced", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-review-recovery-"));
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon();
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = daemon.startDeveloperReviewRun({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}"),
+        tempRoot
+      });
+      expect(prepared.accepted).toBe(true);
+      const run = prepared.run!;
+      expect(existsSync(run.worktree.worktreeRoot)).toBe(true);
+      expect(existsSync(run.manifestPath)).toBe(true);
+      expect(existsSync(run.lockPath)).toBe(true);
+
+      const skipped = daemon.recoverDeveloperReviewRuns({ repositoryRoot: root });
+      expect(skipped.skippedActive).toContain(run.runId);
+      expect(skipped.recovered).toEqual([]);
+      expect(existsSync(run.worktree.worktreeRoot)).toBe(true);
+
+      const recovered = daemon.recoverDeveloperReviewRuns({ repositoryRoot: root, force: true });
+      expectSameExistingPath(recovered.stateDir, defaultDeveloperReviewRunStateDir(realpathSync.native(root)));
+      expect(recovered.recovered).toHaveLength(1);
+      expect(recovered.recovered[0]).toMatchObject({
+        runId: run.runId,
+        challengeId: challenge.challengeId,
+        cleaned: true
+      });
+      expect(recovered.recovered[0].removed).toEqual(expect.arrayContaining(["worktree", "run-root", "manifest", "lock"]));
+      expect(existsSync(run.worktree.worktreeRoot)).toBe(false);
+      expect(existsSync(run.runRoot)).toBe(false);
+      expect(existsSync(run.manifestPath)).toBe(false);
+      expect(existsSync(run.lockPath)).toBe(false);
+    } finally {
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime RPC exposes Developer Review run start sign cleanup and recovery methods", async () => {
+    const root = createInitializedGitRepo();
+    const keyPair = generateKeyPairSync("ed25519");
+    const keyRef = "keychain://archcontext/device/acct_rpc/key_rpc";
+    const daemon = await createStartedTestDaemon({
+      devicePrivateKeySigner: {
+        signWithDevicePrivateKey(input) {
+          expect(input.keyRef).toBe(keyRef);
+          const payload = typeof input.payload === "string" ? input.payload : Buffer.from(input.payload).toString("utf8");
+          return sign(null, Buffer.from(payload, "utf8"), keyPair.privateKey).toString("base64");
+        }
+      }
+    });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "developer-review-rpc-token" });
+    let stopped = false;
+    try {
+      const connection = await rpc.start();
+      const client = new RuntimeRpcClient(connection);
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = await client.startDeveloperReviewRun({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}")
+      });
+      expect(prepared.accepted).toBe(true);
+      expect(prepared.run?.worktree.headSha).toBe(headSha);
+
+      const signed = await client.runSignedDeveloperReviewAttestation({
+        challenge,
+        worktree: prepared.run!.worktree,
+        keyRef,
+        principalId: "device_rpc",
+        publicKeyId: "key_rpc",
+        taskSessionId: "task_developer_review_rpc",
+        startedAt: "2026-06-20T00:04:00.000Z",
+        completedAt: "2026-06-20T00:05:00.000Z"
+      });
+      expect(signed.attestation.signature.value).not.toBe("");
+      expect(signed.reviewSession.reviewResult).toBe("pass");
+
+      const cleanup = await client.cleanupDeveloperReviewRun(prepared.run!);
+      expect(cleanup.cleaned).toBe(true);
+      expect(existsSync(prepared.run!.worktree.worktreeRoot)).toBe(false);
+
+      const recovery = await client.recoverDeveloperReviewRuns({ repositoryRoot: root, force: true });
+      expect(recovery.recovered).toEqual([]);
+
+      await rpc.stop();
+      stopped = true;
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  });
+
+  test("daemon signs canonical Attestation v2 without exposing Device private key material", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-signed-attestation-"));
+    const provider = new MockCodeGraphProvider();
+    const store = new TestLocalStore();
+    const keyPair = generateKeyPairSync("ed25519");
+    const signedPayloads: string[] = [];
+    const keyRef = "keychain://archcontext/device/acct_1/key_device_1";
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let worktree: NonNullable<ReturnType<Awaited<ReturnType<typeof createStartedTestDaemon>>["prepareDeveloperReviewWorktree"]>["worktree"]> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({
+        codeFacts: new CodeGraphAdapter(provider),
+        localStore: store,
+        devicePrivateKeySigner: {
+          signWithDevicePrivateKey(input) {
+            expect(input.keyRef).toBe(keyRef);
+            const payload = typeof input.payload === "string" ? input.payload : Buffer.from(input.payload).toString("utf8");
+            signedPayloads.push(payload);
+            return sign(null, Buffer.from(payload, "utf8"), keyPair.privateKey).toString("base64");
+          }
+        },
+        clock: () => "2026-06-20T00:05:00.000Z"
+      });
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = daemon.prepareDeveloperReviewWorktree({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}"),
+        tempRoot
+      });
+      expect(prepared.accepted).toBe(true);
+      worktree = prepared.worktree;
+
+      const signed = await daemon.runSignedDeveloperReviewAttestation({
+        challenge,
+        worktree: worktree!,
+        keyRef,
+        principalId: "device_1",
+        publicKeyId: "key_device_1",
+        taskSessionId: "task_signed_developer_review",
+        startedAt: "2026-06-20T00:04:00.000Z",
+        completedAt: "2026-06-20T00:05:00.000Z"
+      });
+
+      expect(signed).toMatchObject({
+        schemaVersion: "archcontext.developer-review-attestation/v1",
+        challengeId: challenge.challengeId,
+        attestation: {
+          schemaVersion: "archcontext.attestation/v2",
+          challengeId: challenge.challengeId,
+          installationId: challenge.installationId,
+          repositoryId: challenge.repositoryId,
+          pullRequestNumber: challenge.pullRequestNumber,
+          headSha,
+          baseSha: challenge.baseSha,
+          mergeBaseSha: challenge.baseSha,
+          result: "pass",
+          execution: {
+            trustLevel: "developer",
+            source: "clean-commit-worktree",
+            principalId: "device_1",
+            publicKeyId: "key_device_1"
+          },
+          nonce: challenge.nonce,
+          startedAt: "2026-06-20T00:04:00.000Z",
+          completedAt: "2026-06-20T00:05:00.000Z",
+          expiresAt: challenge.expiresAt
+        }
+      });
+      expect(signed.reviewSession.reviewDigest).toBe(signed.attestation.reviewDigest);
+      expect(signed.attestation.worktreeDigest).toBe(signed.reviewSession.digests.worktreeDigest);
+      expect(signed.attestation.modelDigest).toBe(signed.reviewSession.digests.modelDigest);
+      expect(signed.attestation.policyDigest).toBe(signed.reviewSession.digests.policyDigest);
+      expect(signed.attestation.codeFactsDigest).toBe(signed.reviewSession.digests.codeFactsDigest);
+      expect(signed.attestation.signature).toMatchObject({ algorithm: "ed25519" });
+      expect(signed.attestation.signature.value).not.toBe("");
+      expect(signed.attestationDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(signed.signingPayloadDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(signedPayloads).toEqual([canonicalAttestationV2(signed.attestation)]);
+      expect(verify(null, Buffer.from(canonicalAttestationV2(signed.attestation), "utf8"), keyPair.publicKey, Buffer.from(signed.attestation.signature.value, "base64"))).toBe(true);
+      expect(JSON.stringify(signed)).not.toContain(keyRef);
+      expect(JSON.stringify(signed)).not.toContain("PRIVATE KEY");
+      expect(store.reviews.get(signed.reviewSession.reviewId)).toMatchObject({ result: "pass" });
+
+      await expect(daemon.runSignedDeveloperReviewAttestation({
+        challenge,
+        worktree: worktree!,
+        keyRef,
+        principalId: "device_1",
+        publicKeyId: "key_device_1",
+        signature: { algorithm: "ed25519", value: "forged" }
+      } as any)).rejects.toThrow("developer-review-attestation-caller-provided-attestation-field-forbidden: signature");
+    } finally {
+      if (worktree) removeDetachedReviewWorktree(worktree);
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime-owned complete task computes digests and rejects caller-provided attestation fields", async () => {
+    const root = createInitializedGitRepo();
+    const provider = new MockCodeGraphProvider();
+    const store = new TestLocalStore();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ codeFacts: new CodeGraphAdapter(provider), localStore: store });
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const passed = await daemon.completeTask(root, {
+        taskSessionId: "task_runtime_complete",
+        headSha
+      });
+      expect(passed.ok).toBe(true);
+      expect((passed.data as any)).toMatchObject({
+        schemaVersion: "archcontext.review/v1",
+        taskSessionId: "task_runtime_complete",
+        result: "pass"
+      });
+      expect(provider.indexedRoots.map((indexedRoot) => normalizeExistingPath(indexedRoot))).toEqual([normalizeExistingPath(root)]);
+      expect(store.reviews.get((passed.data as any).reviewId)).toMatchObject({ result: "pass" });
+
+      await expect(daemon.completeTask(root, {
+        taskSessionId: "task_runtime_forged",
+        headSha,
+        result: "pass"
+      } as any)).rejects.toThrow("complete-task-caller-provided-attestation-field-forbidden: result");
+      await expect(daemon.completeTask(root, {
+        taskSessionId: "task_runtime_forged_model",
+        headSha,
+        modelDigest: `sha256:${"a".repeat(64)}`
+      } as any)).rejects.toThrow("complete-task-caller-provided-attestation-field-forbidden: modelDigest");
+    } finally {
+      await daemon?.stop().catch(() => undefined);
       removeTempRepo(root);
     }
   });
@@ -399,3 +898,44 @@ describe("local runtime foundation", () => {
     }
   });
 });
+
+function createGitRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "archctx-runtime-git-"));
+  writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
+  execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  return root;
+}
+
+function createInitializedGitRepo(): string {
+  const root = mkdtempSync(join(tmpdir(), "archctx-runtime-initialized-git-"));
+  writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
+  initializeArchContextModel(root, "Digest App");
+  execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  return root;
+}
+
+function gitOut(root: string, ...args: string[]): string {
+  return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function preparedChallenge(headSha: string) {
+  return {
+    schemaVersion: "archcontext.review-challenge/v2" as const,
+    challengeId: "chal_runtime_worktree",
+    installationId: 123,
+    repositoryId: 456,
+    pullRequestNumber: 7,
+    headSha,
+    baseSha: headSha,
+    nonce: "nonce_runtime_worktree",
+    requiredTrust: "developer" as const,
+    policyProfileId: "policy.default",
+    createdAt: "2026-06-20T00:00:00.000Z",
+    expiresAt: "2026-06-20T00:15:00.000Z",
+    status: "LEASED" as const
+  };
+}

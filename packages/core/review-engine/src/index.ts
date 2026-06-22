@@ -1,4 +1,10 @@
-import { digestJson, type Json } from "@archcontext/contracts";
+import {
+  CALLER_PROVIDED_ATTESTATION_FIELDS,
+  digestJson,
+  findCallerProvidedAttestationFields,
+  type CallerProvidedAttestationField,
+  type Json
+} from "@archcontext/contracts";
 import { validateLandscape, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import { detectCrossRepoPressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract, type CompatibilityContractInput, type PolicyFinding } from "@archcontext/core/policy-engine";
@@ -18,7 +24,19 @@ export interface CompleteTaskInput {
   cleanupCompleted?: number;
 }
 
+export type CallerProvidedReviewConclusionField = Exclude<CallerProvidedAttestationField, "modelDigest">;
+
+export const CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS = CALLER_PROVIDED_ATTESTATION_FIELDS
+  .filter((field): field is CallerProvidedReviewConclusionField => field !== "modelDigest");
+
+export function assertNoCallerProvidedReviewConclusionFields(value: unknown): void {
+  const fields = findCallerProvidedAttestationFields(value)
+    .filter((field): field is CallerProvidedReviewConclusionField => field !== "modelDigest");
+  if (fields.length > 0) throw new Error(`review-conclusion-field-forbidden: ${fields.join(",")}`);
+}
+
 export function completeTaskGate(input: CompleteTaskInput) {
+  assertNoCallerProvidedReviewConclusionFields(input);
   const findings: PolicyFinding[] = [];
   if (input.headSha !== input.currentHeadSha) {
     findings.push({ id: "stale-context", type: "stale-context", severity: "error", message: "Task snapshot HEAD does not match current HEAD." });
@@ -31,6 +49,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
   }
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
+  const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
   const result = {
     schemaVersion: "archcontext.review/v1",
     reviewId: `review_${digestJson(input as unknown as Json).slice(-12)}`,
@@ -42,7 +61,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
       codeFactsDigest: input.codeFactsDigest
     },
     posture: input.posture,
-    result: errors > 0 ? "fail_action_required" : warnings > 0 ? "pass_with_warnings" : "pass",
+    result: outcome,
     summary: { errors, warnings, notices: 0 },
     findings,
     cleanup: {

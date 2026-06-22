@@ -1,0 +1,194 @@
+{
+  "schemaVersion": "archcontext.fg5-control-plane-incident-drill/v1",
+  "environment": "staging-drill",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:00:58.220Z",
+  "config": {
+    "output": "docs/verification/fg5-control-plane-incident-drill.json",
+    "now": "2026-06-21T18:00:00.000Z"
+  },
+  "evidence": {
+    "alertKinds": [
+      "webhook-backlog",
+      "verify-failure",
+      "check-dlq",
+      "github-api-failure"
+    ],
+    "alerts": [
+      {
+        "schemaVersion": "archcontext.control-plane-alert/v1",
+        "kind": "webhook-backlog",
+        "severity": "critical",
+        "status": "firing",
+        "firedAt": "2026-06-21T18:00:00.000Z",
+        "summary": "Webhook backlog exceeds control-plane processing threshold",
+        "labels": {
+          "kind": "webhook-backlog",
+          "status": "backlog",
+          "surface": "webhook"
+        },
+        "metrics": {
+          "oldestAgeMs": 600000,
+          "pendingCount": 24,
+          "thresholdAgeMs": 300000,
+          "thresholdCount": 10
+        },
+        "runbook": {
+          "path": "docs/runbooks/control-plane-incidents.md",
+          "section": "webhook-backlog"
+        },
+        "alertId": "alert_421cb9004b93d53e",
+        "metadataDigest": "sha256:421cb9004b93d53ea47d8a39b595f0895607d50b143a83efe87b601489dbe68f"
+      },
+      {
+        "schemaVersion": "archcontext.control-plane-alert/v1",
+        "kind": "verify-failure",
+        "severity": "critical",
+        "status": "firing",
+        "firedAt": "2026-06-21T18:00:00.000Z",
+        "summary": "Attestation verification failures require policy or identity triage",
+        "labels": {
+          "kind": "verify-failure",
+          "reasonCode": "TRUST_LEVEL_MISMATCH",
+          "status": "failed",
+          "surface": "verify"
+        },
+        "metrics": {
+          "failureCount": 3,
+          "thresholdCount": 1
+        },
+        "runbook": {
+          "path": "docs/runbooks/control-plane-incidents.md",
+          "section": "verify-failure"
+        },
+        "alertId": "alert_cbe2ac55a3ad7923",
+        "metadataDigest": "sha256:cbe2ac55a3ad7923b4c19d58afad39458b3fd5876cf73256dbf7549974c43155"
+      },
+      {
+        "schemaVersion": "archcontext.control-plane-alert/v1",
+        "kind": "check-dlq",
+        "severity": "warning",
+        "status": "firing",
+        "firedAt": "2026-06-21T18:00:00.000Z",
+        "summary": "Check delivery dead-letter queue requires replay or operator review",
+        "labels": {
+          "checkName": "ArchContext / Developer Review",
+          "kind": "check-dlq",
+          "reasonCode": "CHECK_DELIVERY_MAX_ATTEMPTS",
+          "status": "DEAD_LETTER",
+          "surface": "queue"
+        },
+        "metrics": {
+          "deadLetterCount": 1,
+          "oldestLagMs": 600000,
+          "thresholdCount": 1
+        },
+        "runbook": {
+          "path": "docs/runbooks/control-plane-incidents.md",
+          "section": "check-dlq"
+        },
+        "alertId": "alert_adfcbf42f3d1963d",
+        "metadataDigest": "sha256:adfcbf42f3d1963df6cd8b86f99372ccbb51b50900220e484db726d0f09cdc6f"
+      },
+      {
+        "schemaVersion": "archcontext.control-plane-alert/v1",
+        "kind": "github-api-failure",
+        "severity": "critical",
+        "status": "firing",
+        "firedAt": "2026-06-21T18:00:00.000Z",
+        "summary": "GitHub Check API failures exceed control-plane retry threshold",
+        "labels": {
+          "kind": "github-api-failure",
+          "retryable": "true",
+          "status": "failed",
+          "surface": "github-api"
+        },
+        "metrics": {
+          "failureCount": 4,
+          "retryable": 1,
+          "statusCode": 503,
+          "thresholdCount": 2,
+          "thresholdWindowMs": 300000,
+          "windowAgeMs": 180000
+        },
+        "runbook": {
+          "path": "docs/runbooks/control-plane-incidents.md",
+          "section": "github-api-failure"
+        },
+        "alertId": "alert_3fa3747a804c1f95",
+        "metadataDigest": "sha256:3fa3747a804c1f9577643467d049bd4de81abedddd78acb5ba05d23bc07b21a3"
+      }
+    ],
+    "dashboard": {
+      "schemaVersion": "archcontext.control-plane-incident-dashboard/v1",
+      "rows": [
+        {
+          "failureClass": "webhook",
+          "alertKind": "webhook-backlog",
+          "severity": "critical",
+          "surface": "webhook",
+          "status": "backlog",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "webhook-backlog",
+          "metricKeys": [
+            "oldestAgeMs",
+            "pendingCount",
+            "thresholdAgeMs",
+            "thresholdCount"
+          ]
+        },
+        {
+          "failureClass": "verify",
+          "alertKind": "verify-failure",
+          "severity": "critical",
+          "surface": "verify",
+          "status": "failed",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "verify-failure",
+          "metricKeys": [
+            "failureCount",
+            "thresholdCount"
+          ]
+        },
+        {
+          "failureClass": "queue",
+          "alertKind": "check-dlq",
+          "severity": "warning",
+          "surface": "queue",
+          "status": "DEAD_LETTER",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "check-dlq",
+          "metricKeys": [
+            "deadLetterCount",
+            "oldestLagMs",
+            "thresholdCount"
+          ]
+        },
+        {
+          "failureClass": "github-api",
+          "alertKind": "github-api-failure",
+          "severity": "critical",
+          "surface": "github-api",
+          "status": "failed",
+          "runbookPath": "docs/runbooks/control-plane-incidents.md",
+          "runbookSection": "github-api-failure",
+          "metricKeys": [
+            "failureCount",
+            "retryable",
+            "statusCode",
+            "thresholdCount",
+            "thresholdWindowMs",
+            "windowAgeMs"
+          ]
+        }
+      ]
+    }
+  },
+  "privacy": {
+    "privateContentHits": 0,
+    "secretMarkerHits": 0,
+    "codeContentMarkerHits": 0
+  },
+  "failures": []
+}

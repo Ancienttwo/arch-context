@@ -1,0 +1,65 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "archcontext-fg2-staging",
+  "main": "deploy/cloudflare/fg2-staging-worker.ts",
+  "compatibility_date": "2026-06-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "ab66185011440a6f8a698d61ad58703a",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "ARCHCONTEXT_ENV": "staging",
+    "GITHUB_API_BASE_URL": "https://api.github.com",
+    "FG2_STAGING_REPOSITORY": "Ancienttwo/arch-context"
+  },
+  "d1_databases": [
+    {
+      "binding": "CONTROL_PLANE_DB",
+      "database_name": "archcontext-control-plane-staging",
+      "database_id": "27f60a8d-e93a-4e7a-b7cc-035f4f842b26",
+      "migrations_dir": "deploy/sql"
+    }
+  ],
+  "secrets": {
+    "required": [
+      "GITHUB_APP_ID",
+      "GITHUB_APP_PRIVATE_KEY_PEM",
+      "GITHUB_WEBHOOK_SECRET"
+    ]
+  },
+  "env": {
+    "staging": {
+      "name": "archcontext-fg2-staging",
+      "account_id": "ab66185011440a6f8a698d61ad58703a",
+      "workers_dev": true,
+      "routes": [
+        {
+          "pattern": "archcontext.repoharness.com",
+          "custom_domain": true
+        }
+      ],
+      "vars": {
+        "ARCHCONTEXT_ENV": "staging",
+        "GITHUB_API_BASE_URL": "https://api.github.com",
+        "FG2_STAGING_REPOSITORY": "Ancienttwo/arch-context"
+      },
+      "d1_databases": [
+        {
+          "binding": "CONTROL_PLANE_DB",
+          "database_name": "archcontext-control-plane-staging",
+          "database_id": "27f60a8d-e93a-4e7a-b7cc-035f4f842b26",
+          "migrations_dir": "deploy/sql"
+        }
+      ],
+      "secrets": {
+        "required": [
+          "GITHUB_APP_ID",
+          "GITHUB_APP_PRIVATE_KEY_PEM",
+          "GITHUB_WEBHOOK_SECRET"
+        ]
+      }
+    }
+  }
+}

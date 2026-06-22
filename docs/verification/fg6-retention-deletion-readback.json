@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "archcontext.fg6-retention-deletion-readback/v1",
+  "taskId": "FG6-15",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T20:00:24.850Z",
+  "sources": {
+    "retentionSource": "docs/verification/fg5-retention-staging-readback.json",
+    "installRevokeSource": "docs/verification/fg2-install-revoke-readback.json",
+    "controlPlaneSource": "packages/cloud/control-plane/src/index.ts",
+    "controlPlaneTest": "packages/cloud/control-plane/test/control-plane.test.ts",
+    "fg5Gate": "docs/verification/fg5-control-plane-gate.md",
+    "reportPath": "docs/verification/fg6-retention-deletion.md"
+  },
+  "evidence": {
+    "sourceInspections": {
+      "retention": {
+        "ok": true,
+        "failures": []
+      },
+      "installRevoke": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "retention": {
+      "database": "archcontext-control-plane-staging",
+      "ordinaryDeleteRejected": true,
+      "policyDays": {
+        "webhookDelivery": 30,
+        "unfinishedChallenge": 7,
+        "verifiedAttestation": 365,
+        "rejectedAttestation": 30,
+        "legacyAttestationAudit": 30,
+        "checkDelivery": 90,
+        "revokedRunnerKey": 365,
+        "rawWebhookBody": 0,
+        "privateContent": 0
+      },
+      "expiredRowsRemaining": 0,
+      "recentRowsPreserved": 8,
+      "retentionPurgeAuthorizations": 0,
+      "counts": {
+        "webhookExpired": 0,
+        "webhookRecent": 1,
+        "unfinishedChallengeExpired": 0,
+        "unfinishedChallengeRecent": 1,
+        "terminalChallengeOld": 1,
+        "verifiedAttestationExpired": 0,
+        "verifiedAttestationRecent": 1,
+        "rejectedAttestationExpired": 0,
+        "rejectedAttestationRecent": 1,
+        "legacyExpired": 0,
+        "legacyRecent": 1,
+        "checkExpired": 0,
+        "checkRecent": 1,
+        "revokedRunnerExpired": 0,
+        "revokedRunnerExpiredRepositories": 0,
+        "revokedRunnerExpiredRotationWindows": 0,
+        "revokedRunnerRecent": 1,
+        "retentionPurgeAuthorizations": 0
+      },
+      "privacy": {
+        "privateContentHits": 0,
+        "secretMarkerHits": 0,
+        "codeContentMarkerHits": 0
+      }
+    },
+    "installRevoke": {
+      "appSlug": "archcontext-staging",
+      "mode": "suspend-unsuspend",
+      "installationRevoked": true,
+      "tokenRejectedAfterRevoke": true,
+      "challengeCreationStopped": true,
+      "checkUpdateStopped": true,
+      "restoredAfterReadback": true,
+      "installationAccessAfterRevokeStatus": 403,
+      "existingInstallationAccessProbeStatus": 403,
+      "syntheticWebhookStatus": 500,
+      "expectedStopPoint": "github-installation-token-before-pull-head-or-check",
+      "installationAccessAfterRestoreStatus": 201,
+      "checkRunsUnchanged": true,
+      "secretValuesPersisted": false,
+      "privateContentPersisted": false
+    },
+    "accountDelete": {
+      "accountId": "acct_fg6_delete",
+      "deviceId": "device_1eda3fc13ee11362",
+      "accountBeforeDelete": true,
+      "devicesBeforeDelete": 1,
+      "revokedDeviceMarkerBeforeDelete": true,
+      "accountScopedNotificationProviderBeforeDelete": true,
+      "accountDeleted": true,
+      "devicesAfterDelete": 0,
+      "revokedDeviceMarkerAfterDelete": false,
+      "accountScopedNotificationProviderAfterDelete": false
+    },
+    "sourceCoverage": {
+      "deleteAccountCollectsDeviceIds": true,
+      "deleteAccountClearsNotificationProviders": true,
+      "controlPlaneTestCoversAccountDelete": true,
+      "fg5RetentionGateCovered": true
+    },
+    "assertions": {
+      "retentionSourceInspectionPassed": true,
+      "installRevokeSourceInspectionPassed": true,
+      "retentionDeletesExpiredRows": true,
+      "installRevokeStopsTokenChallengeCheck": true,
+      "accountDeleteClearsScopedState": true,
+      "accountDeleteSourceCovered": true,
+      "noPrivateContent": true
+    }
+  },
+  "failures": []
+}

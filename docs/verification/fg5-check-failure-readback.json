@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "archcontext.fg5-check-failure-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:10:40.351Z",
+  "route": "/v1/fg5/check-delivery/failure-injection",
+  "evidence": {
+    "checkApiFailureInjected": true,
+    "checkDeliveryId": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+    "challengeId": "chal_fg5_eg3_check_failure",
+    "checkName": "ArchContext / Developer Review",
+    "headSha": "ffffffffffffffffffffffffffffffffffffffff",
+    "injectedGitHubApiFailures": [
+      {
+        "operation": "github.check-update",
+        "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+        "statusCode": 503,
+        "retryAfterSeconds": 2
+      },
+      {
+        "operation": "github.check-update",
+        "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+        "statusCode": 503,
+        "retryAfterSeconds": null
+      }
+    ],
+    "retry": {
+      "policy": {
+        "maxAttempts": 3,
+        "baseDelaySeconds": 1,
+        "maxDelaySeconds": 5,
+        "jitterRatio": 0
+      },
+      "scheduled": [
+        {
+          "retry": true,
+          "reason": "retry-scheduled",
+          "status": "RETRYING",
+          "attemptCount": 1,
+          "maxAttempts": 3,
+          "delaySeconds": 2,
+          "retryAfterDelaySeconds": 2,
+          "nextAttemptAt": "2026-06-21T18:10:43.351Z",
+          "lastErrorCode": null,
+          "queueMessageDigest": "sha256:33a099697cc069bde9aaea457d59ae7843223f945cdfb05b2561044d76eb3a96"
+        },
+        {
+          "retry": true,
+          "reason": "retry-scheduled",
+          "status": "RETRYING",
+          "attemptCount": 2,
+          "maxAttempts": 3,
+          "delaySeconds": 2,
+          "retryAfterDelaySeconds": null,
+          "nextAttemptAt": "2026-06-21T18:10:45.351Z",
+          "lastErrorCode": null,
+          "queueMessageDigest": "sha256:e6b98ad86ed8c0e7b14bb71218c6a32265988ee91ac6c4a8ab2c23dd06539d71"
+        }
+      ],
+      "maxAttemptsReached": true,
+      "maxAttemptDecision": {
+        "retry": false,
+        "reason": "check-delivery-max-attempts-reached",
+        "attemptCount": 3,
+        "maxAttempts": 3
+      }
+    },
+    "deadLetter": {
+      "status": "DEAD_LETTER",
+      "attemptCount": 2,
+      "lastErrorCode": "CHECK_DELIVERY_MAX_ATTEMPTS",
+      "nextAttemptAt": null,
+      "updatedAt": "2026-06-21T18:10:47.351Z"
+    },
+    "replay": {
+      "replayed": true,
+      "source": "manual-ops",
+      "replayDigest": "sha256:52a98ea73530a0635ffc8cbdc078eccadded7ac8a45ceff3c0836ddd1e25f648",
+      "statusAfterReplay": "PENDING",
+      "attemptCountAfterReplay": 0,
+      "lastErrorCodeAfterReplay": null
+    },
+    "queue": {
+      "schemaVersion": "archcontext.check-delivery-queue-message/v1",
+      "retryEnqueueCount": 2,
+      "replayEnqueued": true,
+      "replayMessageDigest": "sha256:60855ad27f851fbc9f1ddcb5492e04fa38559ed3df656b351db2bf8a7719511a",
+      "sentMessages": [
+        {
+          "message": {
+            "schemaVersion": "archcontext.check-delivery-queue-message/v1",
+            "kind": "github.check-delivery",
+            "id": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+            "deliveryId": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+            "challengeId": "chal_fg5_eg3_check_failure",
+            "checkName": "ArchContext / Developer Review",
+            "headSha": "ffffffffffffffffffffffffffffffffffffffff",
+            "status": "RETRYING",
+            "attempt": 1,
+            "payloadDigest": "sha256:526a477ae190240990da5fd73efc160da8639b092fda8386a06509a7e7203813"
+          },
+          "options": {
+            "delaySeconds": 2
+          }
+        },
+        {
+          "message": {
+            "schemaVersion": "archcontext.check-delivery-queue-message/v1",
+            "kind": "github.check-delivery",
+            "id": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+            "deliveryId": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+            "challengeId": "chal_fg5_eg3_check_failure",
+            "checkName": "ArchContext / Developer Review",
+            "headSha": "ffffffffffffffffffffffffffffffffffffffff",
+            "status": "RETRYING",
+            "attempt": 2,
+            "payloadDigest": "sha256:526a477ae190240990da5fd73efc160da8639b092fda8386a06509a7e7203813"
+          },
+          "options": {
+            "delaySeconds": 2
+          }
+        },
+        {
+          "message": {
+            "schemaVersion": "archcontext.check-delivery-queue-message/v1",
+            "kind": "github.check-delivery",
+            "id": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+            "deliveryId": "sha256:b0ff7c0ced547fbd7d1f172e82e4e6dc2bcc3dc9b5aa680d82bc6d0846b916d5",
+            "challengeId": "chal_fg5_eg3_check_failure",
+            "checkName": "ArchContext / Developer Review",
+            "headSha": "ffffffffffffffffffffffffffffffffffffffff",
+            "status": "PENDING",
+            "attempt": 0,
+            "payloadDigest": "sha256:526a477ae190240990da5fd73efc160da8639b092fda8386a06509a7e7203813"
+          },
+          "options": null
+        }
+      ]
+    }
+  },
+  "privacy": {
+    "privateContentHits": 0,
+    "secretMarkerHits": 0,
+    "forbiddenEndpointOrMediaHits": 0,
+    "forbiddenKeys": []
+  },
+  "failures": [],
+  "config": {
+    "envFile": "_ops/env/fg2-staging.env",
+    "output": "docs/verification/fg5-check-failure-readback.json",
+    "stagingUrl": "https://archcontext.repoharness.com"
+  }
+}

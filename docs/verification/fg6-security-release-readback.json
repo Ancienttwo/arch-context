@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "archcontext.fg6-security-release-readback/v1",
+  "taskId": "FG6-11",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T19:25:34.536Z",
+  "sources": {
+    "packageJson": "package.json",
+    "lockfile": "bun.lock",
+    "reportPath": "docs/security/reviews/fg6-release-security-scan.md",
+    "sbomPath": "docs/security/scans/fg6-release-sbom.cdx.json",
+    "manifestPath": "docs/security/scans/manifest.json"
+  },
+  "evidence": {
+    "dependencyAudit": {
+      "tool": "bun audit",
+      "exitCode": 0,
+      "ok": true,
+      "stdoutDigest": "sha256:ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "stderrDigest": "sha256:374fc65a7cfc344755ecb390c37e659e4feca08ab18f323903f7c3b8fbe08425",
+      "totalAdvisories": 0,
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 0
+    },
+    "sbom": {
+      "path": "docs/security/scans/fg6-release-sbom.cdx.json",
+      "digest": "sha256:6448e03c9887b1f6b80fa18d21a85010cc885afc2a00a2f9ed291c27e8a8e062",
+      "componentCount": 37,
+      "workspaceComponentCount": 5,
+      "packageManager": "bun"
+    },
+    "sast": {
+      "roots": [
+        "actions",
+        "deploy",
+        "packages",
+        "scripts"
+      ],
+      "scannedFiles": 108,
+      "findingCount": 0,
+      "critical": 0,
+      "high": 0,
+      "findings": []
+    },
+    "secretScan": {
+      "roots": [
+        ".github",
+        "actions",
+        "deploy",
+        "docs",
+        "evals",
+        "packages",
+        "plans",
+        "schemas",
+        "scripts",
+        "skills",
+        "tasks"
+      ],
+      "scannedFiles": 375,
+      "findingCount": 0,
+      "critical": 0,
+      "high": 0,
+      "findings": [],
+      "excludedDirs": [
+        ".git",
+        ".wrangler",
+        "_ops",
+        "artifacts",
+        "node_modules"
+      ]
+    },
+    "report": {
+      "path": "docs/security/reviews/fg6-release-security-scan.md",
+      "digest": "sha256:24a68e5c0d3ddb0d698bdee4d3b55a796bcd539e239f2d8297a7d98ffeed276d"
+    },
+    "manifestEntry": {
+      "id": "staging.fg6-release-security-scan",
+      "environment": "staging",
+      "status": "verified",
+      "artifactPath": "docs/security/reviews/fg6-release-security-scan.md",
+      "artifactDigest": "sha256:24a68e5c0d3ddb0d698bdee4d3b55a796bcd539e239f2d8297a7d98ffeed276d",
+      "auditedAt": "2026-06-21T19:25:34.536Z",
+      "scanner": "fg6-release-security-bundle",
+      "scope": "dependency-vulnerability-sbom-sast-secret-scan",
+      "critical": 0,
+      "high": 0
+    },
+    "manifestReadback": {
+      "ok": true,
+      "verified": 3,
+      "pending": 1,
+      "externalVerified": 1,
+      "failures": []
+    },
+    "assertions": {
+      "dependencyVulnerabilityScanClean": true,
+      "sbomGenerated": true,
+      "sastCriticalHighClean": true,
+      "secretScanClean": true,
+      "securityManifestVerified": true,
+      "noCriticalHighReleaseFindings": true
+    }
+  },
+  "failures": []
+}

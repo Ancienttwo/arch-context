@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "archcontext.fg4-public-fork-adversarial-readback/v1",
+  "environment": "staging",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T14:38:50.802Z",
+  "repository": {
+    "fullName": "Ancienttwo/arch-context",
+    "visibility": "public",
+    "private": false,
+    "allowForking": true
+  },
+  "githubActions": {
+    "enabled": true,
+    "dangerousPullRequestTargetWorkflowName": "FG4 EG5 Dangerous pull_request_target Canary"
+  },
+  "authenticatedUser": {
+    "login": "Ancienttwo",
+    "id": 215803476,
+    "organizations": [
+      "aimpact-inc"
+    ]
+  },
+  "forkAttempt": {
+    "attempted": true,
+    "requestedForkOwner": "aimpact-inc",
+    "selectedForkOwner": "aimpact-inc",
+    "forkRepository": "aimpact-inc/arch-context",
+    "forkCreatedByReadback": true
+  },
+  "pullRequest": {
+    "number": 11,
+    "url": "https://github.com/Ancienttwo/arch-context/pull/11",
+    "isCrossRepository": true,
+    "headRepository": "aimpact-inc/arch-context",
+    "headSha": "2e0cad564b0ce6ed7a21b3e69eddda5a864960d5",
+    "closedAfterReadback": true
+  },
+  "adversarialBranch": {
+    "name": "codex/fg4-eg5-public-fork-readback-mqnw6l00",
+    "commit": "2e0cad564b0ce6ed7a21b3e69eddda5a864960d5",
+    "deletedAfterReadback": true,
+    "pullRequestTargetWorkflowPresentInForkCommit": true
+  },
+  "dangerousWorkflow": {
+    "workflowName": "FG4 EG5 Dangerous pull_request_target Canary",
+    "marker": "FG4_EG5_DANGEROUS_PULL_REQUEST_TARGET_SHOULD_NOT_RUN",
+    "runCount": 0,
+    "runs": [],
+    "markerLogMatches": 0
+  },
+  "localPolicy": {
+    "defaultPolicy": {
+      "run": false,
+      "schemaVersion": "archcontext.review-action-fork-policy/v1",
+      "mode": "unsupported",
+      "fork": true,
+      "repository": "ancienttwo/arch-context",
+      "pullRequestHeadRepository": "aimpact-inc/arch-context",
+      "outputConclusion": "neutral",
+      "reasonCode": "FORK_PR_UNSUPPORTED",
+      "requiresSigningSecret": false,
+      "signingSecretConfigured": false
+    },
+    "signingSecretPolicy": {
+      "run": false,
+      "schemaVersion": "archcontext.review-action-fork-policy/v1",
+      "mode": "unsupported",
+      "fork": true,
+      "repository": "ancienttwo/arch-context",
+      "pullRequestHeadRepository": "aimpact-inc/arch-context",
+      "outputConclusion": "neutral",
+      "reasonCode": "FORK_PR_SECRET_EXPOSURE_FORBIDDEN",
+      "requiresSigningSecret": false,
+      "signingSecretConfigured": true
+    },
+    "githubAppProjection": {
+      "challengeIssued": false,
+      "challengeCount": 0,
+      "checkName": "ArchContext / Organization Runner",
+      "status": "completed",
+      "conclusion": "neutral",
+      "outputTitle": "Unsupported",
+      "unsupportedSummary": true
+    },
+    "privacyAudit": {
+      "ok": true,
+      "forbiddenKeys": []
+    }
+  },
+  "organizationRunner": {
+    "checkName": "ArchContext / Organization Runner",
+    "checkRunId": "82579129841",
+    "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82579129841",
+    "conclusion": "neutral",
+    "outputTitle": "Unsupported"
+  },
+  "egress": [
+    {
+      "category": "github.check-create",
+      "method": "POST",
+      "pathTemplate": "/repositories/{repository_id}/check-runs",
+      "statusCode": 201,
+      "requestId": "8DEE:7CAB9:838DA3B:8651B6D:6A37F78C"
+    }
+  ],
+  "secretScan": {
+    "containsToken": false,
+    "containsPrivateKey": false,
+    "containsWebhookSecret": false
+  },
+  "failures": []
+}

@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "archcontext.fg6-new-commit-invalidation-readback/v1",
+  "acceptanceId": "AC-03",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-21T18:32:34.905Z",
+  "sources": {
+    "supersedeSource": "docs/verification/fg3-check-supersede-readback.json",
+    "synchronizeSource": "docs/verification/fg3-real-pr-synchronize-e2e.json"
+  },
+  "evidence": {
+    "synchronize": {
+      "workerUrl": "https://archcontext.repoharness.com",
+      "repository": "Ancienttwo/arch-context",
+      "pullRequest": {
+        "number": 4,
+        "url": "https://github.com/Ancienttwo/arch-context/pull/4",
+        "eventSequence": "opened->synchronize",
+        "openedHeadSha": "964f268d774b3b1df95dc5fd3b82e69af0d68ec9",
+        "synchronizeHeadSha": "71125da8a97299b7f1e352ee56efbbe0af7a7035",
+        "headsDiffer": true,
+        "state": "closed",
+        "branch": "codex/fg3-sync-e2e-20260620212554"
+      },
+      "oldCheck": {
+        "checkRunId": "82517155939",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82517155939",
+        "checkName": "ArchContext / Developer Review",
+        "headSha": "964f268d774b3b1df95dc5fd3b82e69af0d68ec9",
+        "status": "completed",
+        "conclusion": "neutral",
+        "outputTitle": "Superseded",
+        "summarySuperseded": true,
+        "detailsUrl": "https://archcontext.repoharness.com"
+      },
+      "newCheck": {
+        "checkRunId": "82517171581",
+        "checkRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82517171581",
+        "checkName": "ArchContext / Developer Review",
+        "headSha": "71125da8a97299b7f1e352ee56efbbe0af7a7035",
+        "status": "completed",
+        "conclusion": "neutral",
+        "outputTitle": "ArchContext staging webhook verified",
+        "detailsUrl": "https://archcontext.repoharness.com"
+      },
+      "cleanup": {
+        "pullRequestClosed": true,
+        "branchDeleted": true
+      },
+      "controlPlane": {
+        "oldActiveChallengesSuperseded": true,
+        "staleSubmitCannotUpdateCurrentHead": true,
+        "staleSubmitNonceConsumed": false,
+        "focusedTests": [
+          "packages/cloud/control-plane/test/control-plane.test.ts: supersedes old active Challenge v2 values when a new PR head arrives",
+          "packages/cloud/control-plane/test/control-plane.test.ts: rechecks current PR head at submit and rejects raced old-head results before consuming nonce"
+        ]
+      },
+      "egressContract": {
+        "allowedCategories": [
+          "github.pull-head",
+          "github.check-list-for-ref",
+          "github.check-create",
+          "github.check-update"
+        ],
+        "forbiddenCodeContentEndpointsStillDenied": true,
+        "noContentsPermission": true
+      }
+    },
+    "supersede": {
+      "checkName": "ArchContext / Developer Review",
+      "oldHeadSha": "6191f583737eed5c4f9acc5e1302ef6b7a220f7f",
+      "newHeadSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "headsDiffer": true,
+      "oldCheckRunId": "82513246713",
+      "oldCheckRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82513246713",
+      "oldConclusion": "neutral",
+      "oldOutputTitle": "Superseded",
+      "oldSummarySuperseded": true,
+      "staleConclusionAttempted": false,
+      "newCheckRunId": "82513247938",
+      "newCheckRunUrl": "https://github.com/Ancienttwo/arch-context/runs/82513247938",
+      "newCheckStatus": "queued",
+      "newCheckHeadSha": "87d036e06c7c0e2b179ed3c3a5169331c0cc4547",
+      "egress": [
+        {
+          "category": "github.pull-head",
+          "method": "GET",
+          "pathTemplate": "/repositories/{repository_id}/pulls/{pull_number}",
+          "statusCode": 200,
+          "requestId": "DBEA:251ED8:473A764:48806AC:6A36F6BB"
+        },
+        {
+          "category": "github.check-create",
+          "method": "POST",
+          "pathTemplate": "/repositories/{repository_id}/check-runs",
+          "statusCode": 201,
+          "requestId": "DBEA:251ED8:473A9C9:4880929:6A36F6BB"
+        },
+        {
+          "category": "github.check-update",
+          "method": "PATCH",
+          "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+          "statusCode": 200,
+          "requestId": "DBEA:251ED8:473ABDC:4880B69:6A36F6BC"
+        },
+        {
+          "category": "github.check-create",
+          "method": "POST",
+          "pathTemplate": "/repositories/{repository_id}/check-runs",
+          "statusCode": 201,
+          "requestId": "DBEA:251ED8:473AE02:4880D9F:6A36F6BC"
+        },
+        {
+          "category": "github.check-update",
+          "method": "PATCH",
+          "pathTemplate": "/repositories/{repository_id}/check-runs/{check_run_id}",
+          "statusCode": 200,
+          "requestId": "DBEA:251ED8:473B1BA:4881180:6A36F6BD"
+        }
+      ]
+    },
+    "sourceInspections": {
+      "supersede": {
+        "ok": true,
+        "failures": []
+      },
+      "synchronize": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "pushNewCommitCreatesNewCheck": true,
+      "oldHeadCheckSuperseded": true,
+      "oldChallengeOrResultInvalidated": true,
+      "staleSubmitRejectedBeforeNonceConsumption": true,
+      "unsupportedStaleConclusionNotUsed": true,
+      "stagingGitHubEgressAllowlisted": true
+    }
+  },
+  "failures": []
+}

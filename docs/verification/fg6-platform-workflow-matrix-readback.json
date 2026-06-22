@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "archcontext.fg6-platform-workflow-matrix-readback/v1",
+  "taskId": "FG6-08",
+  "environment": "staging-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-22T16:26:45.862Z",
+  "sources": {
+    "workflowPath": ".github/workflows/verify.yml",
+    "platformReadbackScript": "scripts/platform-ipc-permission-readback.mjs",
+    "fg1Gate": "docs/verification/fg1-local-product-gate.md",
+    "githubHostedRunnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
+    "selfHostedRunnerSource": "docs/verification/fg4-self-hosted-runner-execution-readback.json"
+  },
+  "evidence": {
+    "workflowMatrix": {
+      "os": [
+        "ubuntu-latest",
+        "macos-latest",
+        "windows-latest"
+      ],
+      "nodeVersions": [
+        "24.x",
+        "25.x"
+      ],
+      "targetCount": 6,
+      "failFastFalse": true,
+      "verifyCommand": true,
+      "platformReadbackCommand": true,
+      "uploadArtifact": true,
+      "artifactNamePattern": true,
+      "governanceVerifySeparateJob": true
+    },
+    "platformIpcContract": {
+      "schemaVersion": true,
+      "usesInstalledBin": true,
+      "avoidsSourceEntrypoint": true,
+      "checksHelp": true,
+      "checksLoopback": true,
+      "checksTokenRedaction": true,
+      "checksPosixPermissions": true,
+      "checksLifecycle": true
+    },
+    "hostedCi": {
+      "runId": 27967560199,
+      "headSha": "05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6",
+      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27967560199",
+      "runConclusion": "PASS",
+      "downloadedArtifactsVerified": true,
+      "artifactNames": [
+        "platform-ipc-permission-ubuntu-latest-node-24.x",
+        "platform-ipc-permission-ubuntu-latest-node-25.x",
+        "platform-ipc-permission-macos-latest-node-24.x",
+        "platform-ipc-permission-macos-latest-node-25.x",
+        "platform-ipc-permission-windows-latest-node-24.x",
+        "platform-ipc-permission-windows-latest-node-25.x"
+      ],
+      "artifactCount": 6,
+      "posixModeVerified": true,
+      "windowsAclVerified": true
+    },
+    "currentHeadSha": "05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6",
+    "githubWorkflowRuns": {
+      "githubHosted": {
+        "workflow": {
+          "name": "FG4 EG1 GitHub-hosted Organization Runner",
+          "kind": "github-hosted",
+          "runnerLabels": [],
+          "runId": 27894392126,
+          "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27894392126",
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        "artifact": {
+          "environment": "github-actions",
+          "runnerOs": "Linux",
+          "runnerNamePresent": false,
+          "llmProviderConfigured": false,
+          "attestationTrustLevel": "organization",
+          "attestationResult": "pass",
+          "privacyAuditOk": true,
+          "verificationAccepted": true
+        },
+        "organizationRunner": {
+          "checkName": "ArchContext / Organization Runner",
+          "conclusion": "success",
+          "outputTitle": "Organization-attested"
+        }
+      },
+      "selfHosted": {
+        "workflow": {
+          "name": "FG4 EG2 Self-hosted Organization Runner",
+          "kind": "self-hosted",
+          "runnerLabels": [
+            "self-hosted",
+            "macOS",
+            "ARM64",
+            "archcontext-fg4-eg2"
+          ],
+          "runId": 27905483126,
+          "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27905483126",
+          "event": "pull_request",
+          "status": "completed",
+          "conclusion": "success"
+        },
+        "artifact": {
+          "environment": "github-actions",
+          "runnerOs": "macOS",
+          "runnerNamePresent": true,
+          "llmProviderConfigured": false,
+          "attestationTrustLevel": "organization",
+          "attestationResult": "pass",
+          "privacyAuditOk": true,
+          "verificationAccepted": true
+        },
+        "organizationRunner": {
+          "checkName": "ArchContext / Organization Runner",
+          "conclusion": "success",
+          "outputTitle": "Organization-attested"
+        }
+      }
+    },
+    "sourceInspections": {
+      "githubHosted": {
+        "ok": true,
+        "failures": []
+      },
+      "selfHosted": {
+        "ok": true,
+        "failures": []
+      }
+    },
+    "assertions": {
+      "localRuntimeMatrixSixTargets": true,
+      "installedBinIpcReadbackUploaded": true,
+      "hostedCiArtifactsVerified": true,
+      "hostedCiMatchesCurrentHead": true,
+      "githubHostedRunnerWorkflowPass": true,
+      "selfHostedRunnerWorkflowPass": true,
+      "runnerArtifactsNoLlmProvider": true
+    }
+  },
+  "failures": []
+}

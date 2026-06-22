@@ -131,6 +131,21 @@ export interface WorktreeDigestOptions {
   ignore?: string[];
 }
 
+export interface GitTrackedTreeEntry {
+  mode: string;
+  type: "blob" | "tree" | "commit";
+  objectId: string;
+  path: string;
+}
+
+export interface ReviewWorktreeDigestInput {
+  repositoryNumericId: number;
+  headSha: string;
+  headTreeOid: string;
+  trackedTree: GitTrackedTreeEntry[];
+  sparseScope?: string[];
+}
+
 const DEFAULT_IGNORES = new Set([
   ".git",
   ".codegraph",
@@ -326,6 +341,25 @@ export function computeWorktreeDigest(root: string, options: WorktreeDigestOptio
     };
   });
   return digestJson(payload);
+}
+
+export function computeReviewWorktreeDigest(input: ReviewWorktreeDigestInput): string {
+  const trackedTree = input.trackedTree
+    .map((entry) => ({
+      mode: entry.mode,
+      type: entry.type,
+      objectId: entry.objectId,
+      path: entry.path
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  return digestJson({
+    schemaVersion: "archcontext.review-worktree-digest/v1",
+    repositoryNumericId: input.repositoryNumericId,
+    headSha: input.headSha,
+    headTreeOid: input.headTreeOid,
+    sparseScope: [...(input.sparseScope ?? [])].sort(),
+    trackedTree
+  } as unknown as Json);
 }
 
 export function bindRepository(root: string, headSha: string): RepositoryBinding {

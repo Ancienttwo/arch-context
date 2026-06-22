@@ -1,11 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
   bindRepository,
+  computeReviewWorktreeDigest,
   computeWorktreeDigest,
   createLandscape,
   landscapeDigest,
@@ -16,10 +18,11 @@ import {
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { prepareTask } from "@archcontext/core/application";
+import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
-import { LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type CodeFactsPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type WorkspaceRef } from "@archcontext/contracts";
-import { readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 
@@ -37,12 +40,111 @@ export interface RepositorySession {
   startedAt: string;
 }
 
+export interface DeveloperReviewDigestBundle {
+  schemaVersion: "archcontext.developer-review-digest-bundle/v1";
+  challengeId: string;
+  repositoryId: number;
+  headSha: string;
+  headTreeOid: string;
+  worktreeDigest: string;
+  modelDigest: string;
+  policyDigest: string;
+  codeFactsDigest: string;
+  runtime: AttestationV2["runtime"];
+}
+
+export interface DeveloperReviewSession {
+  schemaVersion: "archcontext.developer-review-session/v1";
+  challengeId: string;
+  taskSessionId: string;
+  reviewId: string;
+  reviewDigest: string;
+  reviewResult: "pass" | "pass_with_warnings" | "fail_action_required";
+  attestationResult: AttestationResult;
+  summary: {
+    errors: number;
+    warnings: number;
+    notices: number;
+  };
+  digests: DeveloperReviewDigestBundle;
+}
+
+export interface RuntimeCompleteTaskInput {
+  taskSessionId?: string;
+  posture?: CompleteTaskInput["posture"];
+  headSha?: string;
+  compatibilityContract?: CompleteTaskInput["compatibilityContract"];
+  compatibilityPathIntroduced?: boolean;
+  cleanupRequired?: number;
+  cleanupCompleted?: number;
+}
+
+export interface DeveloperReviewAttestation {
+  schemaVersion: "archcontext.developer-review-attestation/v1";
+  challengeId: string;
+  reviewSession: DeveloperReviewSession;
+  attestation: AttestationV2;
+  attestationDigest: string;
+  signingPayloadDigest: string;
+}
+
+export type DeveloperReviewRunStatus = "preparing" | "running";
+
+export interface DeveloperReviewRunManifest {
+  schemaVersion: "archcontext.developer-review-run/v1";
+  runId: string;
+  challengeId: string;
+  repositoryId: number;
+  sourceRoot: string;
+  runRoot: string;
+  worktreeTempRoot: string;
+  manifestPath: string;
+  lockPath: string;
+  pid: number;
+  createdAt: string;
+  status: DeveloperReviewRunStatus;
+  codeGraphTemporaryState: {
+    root: string;
+    cleanup: "remove-run-root";
+  };
+  worktree?: DetachedReviewWorktree;
+}
+
+export interface DeveloperReviewRun extends DeveloperReviewRunManifest {
+  status: "running";
+  worktree: DetachedReviewWorktree;
+}
+
+export interface DeveloperReviewRunPreparation extends DetachedReviewWorktreePreparation {
+  run?: DeveloperReviewRun;
+  cleanup?: DeveloperReviewRunCleanup;
+}
+
+export interface DeveloperReviewRunCleanup {
+  schemaVersion: "archcontext.developer-review-run-cleanup/v1";
+  runId: string;
+  challengeId: string;
+  cleaned: boolean;
+  removed: Array<"worktree" | "run-root" | "manifest" | "lock">;
+  errors: string[];
+}
+
+export interface DeveloperReviewRunRecovery {
+  schemaVersion: "archcontext.developer-review-run-recovery/v1";
+  sourceRoot: string;
+  stateDir: string;
+  recovered: DeveloperReviewRunCleanup[];
+  removedLocks: string[];
+  skippedActive: string[];
+}
+
 export interface RuntimeDeps {
   codeFacts?: CodeFactsPort;
   codeGraphProviderFactory?: (repository: RepositoryRegistration) => CodeGraphProvider;
   modelStore?: ModelStorePort;
   localStore?: RuntimeLocalStore;
   changeSetEngine?: ChangeSetEngine;
+  devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   localStorePath?: string;
   clock?: () => string;
   maxRepoSessions?: number;
@@ -158,6 +260,7 @@ export interface RuntimeDaemonClient {
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number): Promise<JsonEnvelope> | JsonEnvelope;
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
+  completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
@@ -171,6 +274,30 @@ export interface RuntimeDaemonClient {
   explorerStatus(): Promise<JsonEnvelope> | JsonEnvelope;
   contextLandscape(task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
   runtimeStatus(root?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  startDeveloperReviewRun(input: {
+    repositoryRoot: string;
+    challenge: ReviewChallengeV2;
+    expectedHeadTreeOid?: string;
+    tempRoot?: string;
+    stateDir?: string;
+  }): Promise<DeveloperReviewRunPreparation> | DeveloperReviewRunPreparation;
+  runSignedDeveloperReviewAttestation(input: {
+    challenge: ReviewChallengeV2;
+    worktree: DetachedReviewWorktree;
+    keyRef: string;
+    principalId: string;
+    publicKeyId: string;
+    taskSessionId?: string;
+    mergeBaseSha?: string;
+    startedAt?: string;
+    completedAt?: string;
+  }): Promise<DeveloperReviewAttestation> | DeveloperReviewAttestation;
+  cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): Promise<DeveloperReviewRunCleanup> | DeveloperReviewRunCleanup;
+  recoverDeveloperReviewRuns(input: {
+    repositoryRoot: string;
+    stateDir?: string;
+    force?: boolean;
+  }): Promise<DeveloperReviewRunRecovery> | DeveloperReviewRunRecovery;
 }
 
 interface ExplorerServerSession {
@@ -195,6 +322,7 @@ export class ArchctxDaemon {
   private readonly modelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
+  private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -216,6 +344,7 @@ export class ArchctxDaemon {
       projection: { rebuildGeneratedProjection },
       journal: this.localStore
     });
+    this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
@@ -340,6 +469,36 @@ export class ArchctxDaemon {
     } as unknown as Json);
   }
 
+  async completeTask(root: string, input: RuntimeCompleteTaskInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    assertNoCallerProvidedAttestationFields(input, "complete-task");
+    const session = await this.openSession(root);
+    let currentHeadSha = input.headSha;
+    try {
+      currentHeadSha = readHeadSha(session.workspace.root);
+    } catch (error) {
+      if (!currentHeadSha) throw error;
+    }
+    const model = await this.modelStore.validateModel(session.workspace);
+    const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
+    const reviewInput: CompleteTaskInput = {
+      taskSessionId: input.taskSessionId ?? "task_runtime",
+      posture: input.posture ?? "normal",
+      headSha: input.headSha ?? currentHeadSha!,
+      currentHeadSha: currentHeadSha!,
+      worktreeDigest: computeWorktreeDigest(session.workspace.root),
+      modelDigest: model.modelDigest,
+      codeFactsDigest: codeFactsDigest(codeFacts),
+      ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
+      ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
+      ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
+      ...(input.cleanupCompleted === undefined ? {} : { cleanupCompleted: input.cleanupCompleted })
+    };
+    const review = completeTaskGate(reviewInput);
+    await this.localStore.saveReviewResult(review.reviewId, review);
+    return okEnvelope("complete_task", review as unknown as Json);
+  }
+
   async applyUpdate(root: string, input: {
     id: string;
     approved: boolean;
@@ -354,6 +513,352 @@ export class ArchctxDaemon {
     const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
     const result = await this.changeSetEngine.apply(root, approved, { approved: input.approved });
     return okEnvelope("apply_update", result as unknown as Json);
+  }
+
+  prepareDeveloperReviewWorktree(input: {
+    repositoryRoot: string;
+    challenge: ReviewChallengeV2;
+    expectedHeadTreeOid?: string;
+    tempRoot?: string;
+  }): DetachedReviewWorktreePreparation {
+    this.assertRunning();
+    return prepareDetachedReviewWorktree({
+      sourceRoot: input.repositoryRoot,
+      headSha: input.challenge.headSha,
+      expectedHeadTreeOid: input.expectedHeadTreeOid,
+      tempRoot: input.tempRoot
+    });
+  }
+
+  startDeveloperReviewRun(input: {
+    repositoryRoot: string;
+    challenge: ReviewChallengeV2;
+    expectedHeadTreeOid?: string;
+    tempRoot?: string;
+    stateDir?: string;
+  }): DeveloperReviewRunPreparation {
+    this.assertRunning();
+    const sourceRoot = findRepositoryRoot(input.repositoryRoot);
+    const paths = createDeveloperReviewRunPaths({
+      sourceRoot,
+      challengeId: input.challenge.challengeId,
+      tempRoot: input.tempRoot,
+      stateDir: input.stateDir
+    });
+    mkdirSync(paths.stateDir, { recursive: true });
+    mkdirSync(paths.runRoot, { recursive: true });
+    mkdirSync(paths.worktreeTempRoot, { recursive: true });
+    const preparing: DeveloperReviewRunManifest = {
+      schemaVersion: "archcontext.developer-review-run/v1",
+      runId: paths.runId,
+      challengeId: input.challenge.challengeId,
+      repositoryId: input.challenge.repositoryId,
+      sourceRoot,
+      runRoot: paths.runRoot,
+      worktreeTempRoot: paths.worktreeTempRoot,
+      manifestPath: paths.manifestPath,
+      lockPath: paths.lockPath,
+      pid: process.pid,
+      createdAt: this.clock(),
+      status: "preparing",
+      codeGraphTemporaryState: {
+        root: paths.runRoot,
+        cleanup: "remove-run-root"
+      }
+    };
+    if (existsSync(paths.lockPath) || existsSync(paths.manifestPath)) {
+      rmSync(paths.runRoot, { recursive: true, force: true });
+      throw new Error(`developer-review-run-already-active: ${input.challenge.challengeId}`);
+    }
+    let lockAcquired = false;
+    try {
+      writePrivateJson(paths.lockPath, {
+        schemaVersion: "archcontext.developer-review-run-lock/v1",
+        runId: paths.runId,
+        challengeId: input.challenge.challengeId,
+        pid: process.pid,
+        createdAt: preparing.createdAt
+      }, "wx");
+      lockAcquired = true;
+      writeDeveloperReviewRunManifest(preparing);
+      const prepared = prepareDetachedReviewWorktree({
+        sourceRoot,
+        headSha: input.challenge.headSha,
+        expectedHeadTreeOid: input.expectedHeadTreeOid,
+        tempRoot: paths.worktreeTempRoot
+      });
+      if (!prepared.accepted || !prepared.worktree) {
+        const cleanup = this.cleanupDeveloperReviewRun(preparing);
+        return { ...prepared, cleanup };
+      }
+      const run: DeveloperReviewRun = {
+        ...preparing,
+        status: "running",
+        worktree: prepared.worktree
+      };
+      writeDeveloperReviewRunManifest(run);
+      return { ...prepared, run };
+    } catch (error) {
+      if (lockAcquired) {
+        this.cleanupDeveloperReviewRun(preparing);
+      } else {
+        rmSync(paths.runRoot, { recursive: true, force: true });
+      }
+      throw error;
+    }
+  }
+
+  async withDeveloperReviewRun<T>(input: {
+    repositoryRoot: string;
+    challenge: ReviewChallengeV2;
+    expectedHeadTreeOid?: string;
+    tempRoot?: string;
+    stateDir?: string;
+  }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
+    const prepared = this.startDeveloperReviewRun(input);
+    if (!prepared.accepted || !prepared.run) {
+      throw new Error(`developer-review-run-prepare-failed: ${prepared.reasonCode ?? "UNKNOWN"}`);
+    }
+    try {
+      return await run(prepared.run);
+    } finally {
+      this.cleanupDeveloperReviewRun(prepared.run);
+    }
+  }
+
+  cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
+    const removed: DeveloperReviewRunCleanup["removed"] = [];
+    const errors: string[] = [];
+    if (run.worktree) {
+      try {
+        const hadWorktree = existsSync(run.worktree.worktreeRoot);
+        removeDetachedReviewWorktree(run.worktree);
+        if (hadWorktree) removed.push("worktree");
+      } catch (error) {
+        errors.push(cleanupErrorMessage("worktree", error));
+      }
+    }
+    for (const [kind, path] of [
+      ["run-root", run.runRoot],
+      ["manifest", run.manifestPath],
+      ["lock", run.lockPath]
+    ] as const) {
+      try {
+        const existed = existsSync(path);
+        rmSync(path, { recursive: true, force: true });
+        if (existed) removed.push(kind);
+      } catch (error) {
+        errors.push(cleanupErrorMessage(kind, error));
+      }
+    }
+    return {
+      schemaVersion: "archcontext.developer-review-run-cleanup/v1",
+      runId: run.runId,
+      challengeId: run.challengeId,
+      cleaned: errors.length === 0,
+      removed,
+      errors
+    };
+  }
+
+  recoverDeveloperReviewRuns(input: {
+    repositoryRoot: string;
+    stateDir?: string;
+    force?: boolean;
+  }): DeveloperReviewRunRecovery {
+    this.assertRunning();
+    const sourceRoot = findRepositoryRoot(input.repositoryRoot);
+    const stateDir = input.stateDir ? resolve(input.stateDir) : defaultDeveloperReviewRunStateDir(sourceRoot);
+    const recovery: DeveloperReviewRunRecovery = {
+      schemaVersion: "archcontext.developer-review-run-recovery/v1",
+      sourceRoot,
+      stateDir,
+      recovered: [],
+      removedLocks: [],
+      skippedActive: []
+    };
+    if (!existsSync(stateDir)) return recovery;
+
+    for (const entry of readdirSync(stateDir).sort()) {
+      if (!entry.endsWith(".json")) continue;
+      const manifestPath = join(stateDir, entry);
+      const manifest = readDeveloperReviewRunManifest(manifestPath);
+      if (!manifest) {
+        rmSync(manifestPath, { force: true });
+        continue;
+      }
+      if (!input.force && isDeveloperReviewPidAlive(manifest.pid)) {
+        recovery.skippedActive.push(manifest.runId);
+        continue;
+      }
+      recovery.recovered.push(this.cleanupDeveloperReviewRun(manifest));
+    }
+
+    for (const entry of readdirSync(stateDir).sort()) {
+      if (!entry.endsWith(".lock")) continue;
+      const lockPath = join(stateDir, entry);
+      const lock = readJsonObject(lockPath);
+      const pid = typeof lock?.pid === "number" ? lock.pid : undefined;
+      const runId = typeof lock?.runId === "string" ? lock.runId : entry;
+      if (!input.force && pid !== undefined && isDeveloperReviewPidAlive(pid)) {
+        recovery.skippedActive.push(runId);
+        continue;
+      }
+      rmSync(lockPath, { force: true });
+      recovery.removedLocks.push(lockPath);
+    }
+    return recovery;
+  }
+
+  async computeDeveloperReviewDigestBundle(input: {
+    challenge: ReviewChallengeV2;
+    worktree: DetachedReviewWorktree;
+    codeFactsSnapshot?: CodeFactsSnapshot;
+    sparseScope?: string[];
+  }): Promise<DeveloperReviewDigestBundle> {
+    this.assertRunning();
+    const verification = verifyDetachedReviewWorktree({
+      worktreeRoot: input.worktree.worktreeRoot,
+      expectedHeadSha: input.challenge.headSha,
+      expectedHeadTreeOid: input.worktree.headTreeOid
+    });
+    if (!verification.accepted) throw new Error(`developer-review-worktree-invalid: ${verification.reasonCode ?? "UNKNOWN"}`);
+
+    const workspace: WorkspaceRef = {
+      root: input.worktree.worktreeRoot,
+      repositoryId: `github.repository.${input.challenge.repositoryId}`,
+      headSha: input.challenge.headSha
+    };
+    const model = await this.modelStore.validateModel(workspace);
+    const modelFiles = await this.modelStore.loadModel(workspace);
+    const codeFacts = input.codeFactsSnapshot ?? await this.codeFacts.sync({ workspace });
+    return {
+      schemaVersion: "archcontext.developer-review-digest-bundle/v1",
+      challengeId: input.challenge.challengeId,
+      repositoryId: input.challenge.repositoryId,
+      headSha: input.challenge.headSha,
+      headTreeOid: input.worktree.headTreeOid,
+      worktreeDigest: computeReviewWorktreeDigest({
+        repositoryNumericId: input.challenge.repositoryId,
+        headSha: input.challenge.headSha,
+        headTreeOid: input.worktree.headTreeOid,
+        trackedTree: readTrackedTreeEntries(input.worktree.worktreeRoot),
+        sparseScope: input.sparseScope
+      }),
+      modelDigest: model.modelDigest,
+      policyDigest: policyDigestForModelFiles(modelFiles, input.challenge.policyProfileId),
+      codeFactsDigest: codeFactsDigest(codeFacts),
+      runtime: runtimeAttestationIdentity(codeFacts, this.composition)
+    };
+  }
+
+  async runDeveloperReviewSession(input: {
+    challenge: ReviewChallengeV2;
+    worktree: DetachedReviewWorktree;
+    taskSessionId?: string;
+    posture?: CompleteTaskInput["posture"];
+    compatibilityContract?: CompleteTaskInput["compatibilityContract"];
+    compatibilityPathIntroduced?: boolean;
+    cleanupRequired?: number;
+    cleanupCompleted?: number;
+  }): Promise<DeveloperReviewSession> {
+    this.assertRunning();
+    const digests = await this.computeDeveloperReviewDigestBundle({
+      challenge: input.challenge,
+      worktree: input.worktree
+    });
+    const review = completeTaskGate({
+      taskSessionId: input.taskSessionId ?? `developer_review_${input.challenge.challengeId}`,
+      posture: input.posture ?? "normal",
+      headSha: input.challenge.headSha,
+      currentHeadSha: input.challenge.headSha,
+      worktreeDigest: digests.worktreeDigest,
+      modelDigest: digests.modelDigest,
+      codeFactsDigest: digests.codeFactsDigest,
+      compatibilityContract: input.compatibilityContract,
+      compatibilityPathIntroduced: input.compatibilityPathIntroduced,
+      cleanupRequired: input.cleanupRequired,
+      cleanupCompleted: input.cleanupCompleted
+    });
+    await this.localStore.saveReviewResult(review.reviewId, review);
+    return {
+      schemaVersion: "archcontext.developer-review-session/v1",
+      challengeId: input.challenge.challengeId,
+      taskSessionId: review.taskSessionId,
+      reviewId: review.reviewId,
+      reviewDigest: review.extensions.digest,
+      reviewResult: review.result,
+      attestationResult: review.result === "fail_action_required" ? "fail" : "pass",
+      summary: review.summary,
+      digests
+    };
+  }
+
+  async runSignedDeveloperReviewAttestation(input: {
+    challenge: ReviewChallengeV2;
+    worktree: DetachedReviewWorktree;
+    keyRef: string;
+    principalId: string;
+    publicKeyId: string;
+    taskSessionId?: string;
+    mergeBaseSha?: string;
+    startedAt?: string;
+    completedAt?: string;
+  }): Promise<DeveloperReviewAttestation> {
+    this.assertRunning();
+    assertNoCallerProvidedAttestationFields(input, "developer-review-attestation");
+    if (!this.devicePrivateKeySigner) throw new Error("device-private-key-signer-unavailable");
+    const startedAt = input.startedAt ?? this.clock();
+    const reviewSession = await this.runDeveloperReviewSession({
+      challenge: input.challenge,
+      worktree: input.worktree,
+      taskSessionId: input.taskSessionId
+    });
+    const completedAt = input.completedAt ?? this.clock();
+    const unsigned = createAttestationV2({
+      challengeId: input.challenge.challengeId,
+      installationId: input.challenge.installationId,
+      repositoryId: input.challenge.repositoryId,
+      pullRequestNumber: input.challenge.pullRequestNumber,
+      headSha: input.challenge.headSha,
+      baseSha: input.challenge.baseSha,
+      mergeBaseSha: input.mergeBaseSha ?? input.challenge.baseSha,
+      headTreeOid: reviewSession.digests.headTreeOid,
+      worktreeDigest: reviewSession.digests.worktreeDigest,
+      modelDigest: reviewSession.digests.modelDigest,
+      policyDigest: reviewSession.digests.policyDigest,
+      codeFactsDigest: reviewSession.digests.codeFactsDigest,
+      reviewDigest: reviewSession.reviewDigest,
+      result: reviewSession.attestationResult,
+      execution: {
+        trustLevel: "developer",
+        source: "clean-commit-worktree",
+        principalId: input.principalId,
+        publicKeyId: input.publicKeyId
+      },
+      runtime: reviewSession.digests.runtime,
+      nonce: input.challenge.nonce,
+      startedAt,
+      completedAt,
+      expiresAt: input.challenge.expiresAt
+    });
+    const signingPayload = canonicalAttestationV2(unsigned);
+    const signature = this.devicePrivateKeySigner.signWithDevicePrivateKey({
+      keyRef: input.keyRef,
+      payload: signingPayload
+    });
+    const attestation = createAttestationV2({
+      ...unsigned,
+      signature: { algorithm: "ed25519", value: signature }
+    });
+    return {
+      schemaVersion: "archcontext.developer-review-attestation/v1",
+      challengeId: input.challenge.challengeId,
+      reviewSession,
+      attestation,
+      attestationDigest: attestationV2Digest(attestation),
+      signingPayloadDigest: digestJson(signingPayload)
+    };
   }
 
   async repoAdd(root: string, name?: string): Promise<JsonEnvelope> {
@@ -793,6 +1298,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("planUpdate", [root, input]);
   }
 
+  completeTask(root: string, input: RuntimeCompleteTaskInput = {}) {
+    return this.call("completeTask", [root, input]);
+  }
+
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }) {
     return this.call("applyUpdate", [root, input]);
   }
@@ -843,6 +1352,42 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
 
   runtimeStatus(root?: string) {
     return this.call("runtimeStatus", [root]);
+  }
+
+  async startDeveloperReviewRun(input: {
+    repositoryRoot: string;
+    challenge: ReviewChallengeV2;
+    expectedHeadTreeOid?: string;
+    tempRoot?: string;
+    stateDir?: string;
+  }): Promise<DeveloperReviewRunPreparation> {
+    return unwrapRpcData(await this.call("startDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunPreparation;
+  }
+
+  async runSignedDeveloperReviewAttestation(input: {
+    challenge: ReviewChallengeV2;
+    worktree: DetachedReviewWorktree;
+    keyRef: string;
+    principalId: string;
+    publicKeyId: string;
+    taskSessionId?: string;
+    mergeBaseSha?: string;
+    startedAt?: string;
+    completedAt?: string;
+  }): Promise<DeveloperReviewAttestation> {
+    return unwrapRpcData(await this.call("runSignedDeveloperReviewAttestation", [input])) as unknown as DeveloperReviewAttestation;
+  }
+
+  async cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): Promise<DeveloperReviewRunCleanup> {
+    return unwrapRpcData(await this.call("cleanupDeveloperReviewRun", [run])) as unknown as DeveloperReviewRunCleanup;
+  }
+
+  async recoverDeveloperReviewRuns(input: {
+    repositoryRoot: string;
+    stateDir?: string;
+    force?: boolean;
+  }): Promise<DeveloperReviewRunRecovery> {
+    return unwrapRpcData(await this.call("recoverDeveloperReviewRuns", [input])) as unknown as DeveloperReviewRunRecovery;
   }
 
   private async call(method: string, params: unknown[]): Promise<JsonEnvelope> {
@@ -986,6 +1531,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined);
       case "planUpdate":
         return this.daemon.planUpdate(params[0] as string, params[1] as any);
+      case "completeTask":
+        return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
       case "applyUpdate":
         return this.daemon.applyUpdate(params[0] as string, params[1] as any);
       case "repoAdd":
@@ -1012,6 +1559,14 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.contextLandscape(params[0] as string, params[1] as number | undefined);
       case "runtimeStatus":
         return this.daemon.runtimeStatus(params[0] as string | undefined);
+      case "startDeveloperReviewRun":
+        return okEnvelope("developerReview.startRun", this.daemon.startDeveloperReviewRun(params[0] as any) as unknown as Json);
+      case "runSignedDeveloperReviewAttestation":
+        return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(params[0] as any) as unknown as Json);
+      case "cleanupDeveloperReviewRun":
+        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(params[0] as DeveloperReviewRunManifest) as unknown as Json);
+      case "recoverDeveloperReviewRuns":
+        return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(params[0] as any) as unknown as Json);
       case "shutdown":
         return okEnvelope("daemon.stop", { stopping: true } as Json);
       default:
@@ -1033,6 +1588,10 @@ export class ArchctxRuntimeRpcServer {
 
 export function defaultDaemonControlDir(root = process.cwd()): string {
   return join(root, ".archcontext", ".local");
+}
+
+export function defaultDeveloperReviewRunStateDir(root = process.cwd()): string {
+  return join(defaultDaemonControlDir(root), "developer-review-runs");
 }
 
 export function defaultDaemonConnectionPath(root = process.cwd()): string {
@@ -1057,6 +1616,11 @@ export function readRuntimeRpcConnectionFile(root = process.cwd()): RuntimeRpcCo
   } catch {
     return undefined;
   }
+}
+
+function unwrapRpcData(result: JsonEnvelope): Json {
+  if (!result.ok) throw new Error(result.error?.message ?? "runtime-rpc-call-failed");
+  return result.data as Json;
 }
 
 export function runtimeRpcCompatibilityIssue(root = process.cwd()): RuntimeRpcCompatibilityIssue | undefined {
@@ -1118,6 +1682,72 @@ function numericRepositoryId(repositoryId: string): number {
   return Math.max(1, hash);
 }
 
+function policyDigestForModelFiles(modelFiles: unknown[], policyProfileId: string): string {
+  const policyFiles = modelFiles
+    .map(modelFileDigestSummary)
+    .filter((file): file is { path: string; digest: string } => Boolean(file?.path.startsWith(".archcontext/policies/")))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const payload: Record<string, Json> = {
+    schemaVersion: "archcontext.policy-digest/v1",
+    policyProfileId
+  };
+  if (policyFiles.length > 0) {
+    payload.files = policyFiles;
+  } else {
+    payload.fallbackDigest = digestJson(modelFiles as unknown as Json);
+  }
+  return digestJson(payload);
+}
+
+function modelFileDigestSummary(value: unknown): { path: string; digest: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as { path?: unknown; digest?: unknown };
+  if (typeof record.path !== "string" || typeof record.digest !== "string") return undefined;
+  return { path: record.path, digest: record.digest };
+}
+
+function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
+  return digestJson({
+    schemaVersion: "archcontext.code-facts-digest/v1",
+    provider: snapshot.provider,
+    version: snapshot.version,
+    schemaDigest: snapshot.schemaDigest,
+    workspaceDigest: snapshot.workspaceDigest
+  } as unknown as Json);
+}
+
+function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: RuntimeCompositionReport): AttestationV2["runtime"] {
+  const product = productVersionManifest();
+  return {
+    version: product.product.version,
+    buildDigest: digestJson({
+      schemaVersion: "archcontext.runtime-build/v1",
+      product: product.product,
+      packageManager: product.packageManager,
+      engines: product.engines,
+      schemas: product.schemas,
+      runtime: product.runtime
+    } as unknown as Json),
+    codeGraphVersion: snapshot.version,
+    capabilitiesDigest: digestJson({
+      schemaVersion: "archcontext.runtime-capabilities/v1",
+      adapters: composition.adapters,
+      codeFacts: {
+        provider: snapshot.provider,
+        version: snapshot.version
+      },
+      capabilities: [
+        "detached-review-worktree",
+        "tracked-worktree-digest",
+        "model-digest",
+        "policy-digest",
+        "code-facts-digest",
+        "deterministic-review-session"
+      ]
+    } as unknown as Json)
+  };
+}
+
 function dedupeExplorerNodes(nodes: ExplorerProjection["nodes"]): ExplorerProjection["nodes"] {
   return [...new Map(nodes.map((node) => [node.id, node])).values()].sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -1142,6 +1772,80 @@ function filterExplorerProjection(projection: ExplorerProjection, query = ""): E
 function schemaVersionKind(schemaVersion: string): string {
   const match = schemaVersion.match(/^archcontext\.([a-z-]+)\/v\d+$/);
   return match?.[1] ?? "architecture-file";
+}
+
+function createDeveloperReviewRunPaths(input: {
+  sourceRoot: string;
+  challengeId: string;
+  tempRoot?: string;
+  stateDir?: string;
+}): {
+  runId: string;
+  stateDir: string;
+  runRoot: string;
+  worktreeTempRoot: string;
+  manifestPath: string;
+  lockPath: string;
+} {
+  const safeChallengeId = safeControlFileSegment(input.challengeId);
+  const runId = `${safeChallengeId}-${randomBytes(6).toString("hex")}`;
+  const stateDir = input.stateDir ? resolve(input.stateDir) : defaultDeveloperReviewRunStateDir(input.sourceRoot);
+  const tempParent = input.tempRoot ? resolve(input.tempRoot) : tmpdir();
+  mkdirSync(tempParent, { recursive: true });
+  const runRoot = mkdtempSync(join(tempParent, `archctx-developer-review-${safeChallengeId.slice(0, 32)}-`));
+  return {
+    runId,
+    stateDir,
+    runRoot,
+    worktreeTempRoot: join(runRoot, "worktrees"),
+    manifestPath: join(stateDir, `${safeChallengeId}.json`),
+    lockPath: join(stateDir, `${safeChallengeId}.lock`)
+  };
+}
+
+function safeControlFileSegment(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
+  return sanitized.length > 0 ? sanitized : "developer-review";
+}
+
+function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {
+  writePrivateJson(manifest.manifestPath, manifest);
+}
+
+function writePrivateJson(path: string, value: unknown, flag: "w" | "wx" = "w"): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(value, null, 2), { mode: 0o600, flag });
+  chmodSync(path, 0o600);
+}
+
+function readDeveloperReviewRunManifest(path: string): DeveloperReviewRunManifest | undefined {
+  const parsed = readJsonObject(path);
+  if (!parsed || parsed.schemaVersion !== "archcontext.developer-review-run/v1") return undefined;
+  if (typeof parsed.runId !== "string" || typeof parsed.challengeId !== "string") return undefined;
+  if (typeof parsed.repositoryId !== "number" || typeof parsed.sourceRoot !== "string") return undefined;
+  if (typeof parsed.runRoot !== "string" || typeof parsed.worktreeTempRoot !== "string") return undefined;
+  if (typeof parsed.manifestPath !== "string" || typeof parsed.lockPath !== "string") return undefined;
+  if (typeof parsed.pid !== "number" || typeof parsed.createdAt !== "string") return undefined;
+  if (parsed.status !== "preparing" && parsed.status !== "running") return undefined;
+  return parsed as unknown as DeveloperReviewRunManifest;
+}
+
+function readJsonObject(path: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isDeveloperReviewPidAlive(pid: number | undefined): boolean {
+  if (!pid || pid <= 0) return false;
+  return isProcessAlive(pid);
+}
+
+function cleanupErrorMessage(kind: string, error: unknown): string {
+  return `${kind}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
 export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<ArchctxDaemon> {

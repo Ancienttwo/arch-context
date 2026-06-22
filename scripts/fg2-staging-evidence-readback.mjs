@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { inspectFg2InstallRevokeReadback } from "./fg2-install-revoke-readback.mjs";
 import { readbackGitHubEgressRecording } from "./github-egress-recording-readback.mjs";
 
 const DEFAULT_PACKET = "docs/verification/fg2-staging-evidence.json";
@@ -123,6 +124,17 @@ export async function inspectFg2StagingEvidence(packet, {
   requireTrue(evidence.installRevoke?.tokenRejectedAfterRevoke, "installRevoke.tokenRejectedAfterRevoke", failures);
   requireTrue(evidence.installRevoke?.challengeCreationStopped, "installRevoke.challengeCreationStopped", failures);
   requireTrue(evidence.installRevoke?.checkUpdateStopped, "installRevoke.checkUpdateStopped", failures);
+  const installRevokeRecordingPath = requireString(evidence.installRevoke?.recordingPath, "installRevoke.recordingPath", failures);
+  if (installRevokeRecordingPath) {
+    const resolvedRecordingPath = installRevokeRecordingPath.startsWith("/")
+      ? installRevokeRecordingPath
+      : resolve(root, packetDir, installRevokeRecordingPath);
+    const recording = JSON.parse(await readFile(resolvedRecordingPath, "utf8"));
+    const revoke = inspectFg2InstallRevokeReadback(recording);
+    if (!revoke.ok) {
+      for (const failure of revoke.failures) failures.push(`installRevoke.${failure}`);
+    }
+  }
 
   return {
     ok: failures.length === 0,
