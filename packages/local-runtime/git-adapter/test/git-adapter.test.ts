@@ -48,7 +48,7 @@ describe("@archcontext/local-runtime/git-adapter", () => {
       expect(prepared.worktree?.clean).toBe(true);
       expect(prepared.worktree?.worktreeRoot).not.toBe(root);
       expect(gitOut(prepared.worktree!.worktreeRoot, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
-      expect(readFileSync(join(prepared.worktree!.worktreeRoot, "tracked.txt"), "utf8")).toBe("committed\n");
+      expect(readText(join(prepared.worktree!.worktreeRoot, "tracked.txt"))).toBe("committed\n");
       expect(isTrackedWorktreeClean(prepared.worktree!.worktreeRoot)).toBe(true);
       expect(readTrackedTreeEntries(prepared.worktree!.worktreeRoot)).toEqual([
         {
@@ -133,6 +133,10 @@ function git(root: string, ...args: string[]): void {
 
 function gitOut(root: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function readText(path: string): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
 function removeTempRoot(root: string): void {

@@ -167,7 +167,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 ## Results
 
 - `bun test scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts scripts/platform-ipc-permission-workflow.test.ts`: PASS, 22 tests / 73 expects.
-- Historical `bun run verify:governance`: superseded for the current HEAD; the ledger is reopened to 190 / 192 until FG6-EG2 and FG6-20 are refreshed.
+- `bun run verify:governance`: PASS in blocked-state mode; full `bun run verify` passes, committed completed evidence inspectors pass, and the FG6 platform matrix inspector is skipped because `FG6-EG2` is explicitly in progress at 190 / 192.
 - `bun test scripts/fg6-local-no-cloud-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 20 expects.
 - `bun run readback:fg6:local-no-cloud`: PASS, wrote `docs/verification/fg6-local-no-cloud-readback.json` with local-only egress, local MCP stdio config, fresh checkpoint, passing complete, and passing review.
 - `bun test scripts/fg6-developer-review-provenance-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 22 expects.

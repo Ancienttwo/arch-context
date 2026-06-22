@@ -55,6 +55,10 @@ function normalizeExistingPath(path: string): string {
   return process.platform === "win32" ? real.toLowerCase() : real;
 }
 
+function readText(path: string): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
 function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0] = {}) {
   return createStartedDaemon({
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -202,7 +206,7 @@ describe("local runtime foundation", () => {
       expect(worktree?.headTreeOid).toBe(headTreeOid);
       expect(worktree?.detached).toBe(true);
       expect(worktree?.clean).toBe(true);
-      expect(readFileSync(join(worktree!.worktreeRoot, "README.md"), "utf8")).toBe("# fixture\n");
+      expect(readText(join(worktree!.worktreeRoot, "README.md"))).toBe("# fixture\n");
       expect(gitOut(worktree!.worktreeRoot, "rev-parse", "--abbrev-ref", "HEAD")).toBe("HEAD");
 
       const mismatch = daemon.prepareDeveloperReviewWorktree({

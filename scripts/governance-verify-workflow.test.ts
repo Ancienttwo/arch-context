@@ -16,6 +16,9 @@ describe("governance verify workflow", () => {
 
   test("keeps governance verify local and evidence-inspection only after full verify", () => {
     expect(VERIFY_GOVERNANCE).toContain('"run", "verify"');
+    expect(VERIFY_GOVERNANCE).toContain("requiresCompletedLedgerIds");
+    expect(VERIFY_GOVERNANCE).toContain("FG6-EG2");
+    expect(VERIFY_GOVERNANCE).toContain("skipped pending evidence");
     for (const evidence of [
       "docs/verification/fg3-real-pr-synchronize-e2e.json",
       "docs/verification/fg4-public-fork-adversarial-readback.json",

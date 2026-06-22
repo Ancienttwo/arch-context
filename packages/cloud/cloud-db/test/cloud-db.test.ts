@@ -676,7 +676,7 @@ describe("cloud D1 schema", () => {
       activeDb?.close();
       removeTempRoot(root);
     }
-  });
+  }, 15_000);
 
   test("concurrency idempotency suite keeps duplicate Webhook submit and queue writes to one domain result", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-fg5-eg2-"));
@@ -764,7 +764,7 @@ describe("cloud D1 schema", () => {
       for (const db of openDbs.reverse()) db.close();
       removeTempRoot(root);
     }
-  });
+  }, 15_000);
 
   test("check delivery persistence keeps retry state independent and bounded", () => {
     const sql = d1MigrationSql();

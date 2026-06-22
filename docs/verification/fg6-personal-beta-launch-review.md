@@ -18,7 +18,7 @@ The personal-user launch boundary is:
 - Install runbook: `docs/runbooks/personal-user-install.md`.
 - Local no-cloud workflow: `doctor -> init -> sync -> context -> prepare -> status`.
 - Verification ledger: `docs/verification/acceptance-ledger.json`.
-- Aggregate verifier: `bun run verify:governance`.
+- Aggregate verifier: `bun run verify:governance`; while FG6-EG2 is marked in progress this proves blocked-state consistency, not launch approval.
 - Current-head support matrix guard: `bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json`.
 
 Out of scope for this launch:
