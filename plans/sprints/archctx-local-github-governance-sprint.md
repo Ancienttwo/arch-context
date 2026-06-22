@@ -1,6 +1,6 @@
 # Sprint: ArchContext Local Product + GitHub Governance
 
-> **Status**: Complete — Personal-User Beta Approved
+> **Status**: Executing — FG6 In Progress
 > **Slug**: archctx-local-github-governance  
 > **Created**: 2026-06-20  
 > **Updated**: 2026-06-22
@@ -190,8 +190,8 @@ Challenge Service ──> Developer Runtime or Customer Runner
 | FG3 | Challenge/Attestation v2 与 Developer Review | 24 | 8 | 32 / 32 |
 | FG4 | 客户控制 Organization Runner | 21 | 8 | 29 / 29 |
 | FG5 | Control Plane 持久化与 Check Delivery | 20 | 7 | 27 / 27 |
-| FG6 | Staging、加固与发布 | 20 | 10 | 30 / 30 |
-| **合计** | | **141** | **51** | **192 / 192** |
+| FG6 | Staging、加固与发布 | 20 | 10 | 28 / 30 |
+| **合计** | | **141** | **51** | **190 / 192** |
 
 > 进度必须按 `Tasks + Exit Gates` 同时统计。Milestone Tasks 全部完成但 Exit Gate 未通过时，里程碑仍为未完成。
 
@@ -207,7 +207,7 @@ Challenge Service ──> Developer Runtime or Customer Runner
 | 4 | [x] | `archctx-fg3-developer-attestation-v2` | integration | exact clean worktree 生成 Developer Attestation 和独立 Check | `docs/verification/fg3-developer-review-gate.md` |
 | 5 | [x] | `archctx-fg4-organization-runner` | integration | 客户 Runner 无 LLM 完成确定性 required check | `docs/verification/fg4-organization-runner-gate.md` |
 | 6 | [x] | `archctx-fg5-control-plane-delivery` | integration | Challenge、Attestation、Key、Queue、重试和审计真实持久化 | `docs/verification/fg5-control-plane-gate.md` |
-| 7 | [ ] | `archctx-fg6-production-gate` | launch | 真实 staging、安全、故障、跨平台和灰度证据完成 | `docs/verification/fg6-production-gate.md` |
+| 7 | [deferred] | `archctx-fg6-production-ga-gate` | post-mvp | 生产/GA 外部 readback、灰度 cohort 和团队 rollout 证据完成；不属于当前 personal-user Beta 192/192 | `docs/verification/fg6-production-gate.md` |
 
 ---
 
@@ -500,14 +500,14 @@ Challenge Service ──> Developer Runtime or Customer Runner
 | FG6-17 | ☑ | 实现 feature flag：Developer Check、Organization Check、requiredTrust | control-plane · release | E2 | FG3,FG4 |
 | FG6-18 | ☑ | 个人用户通过 public npm release 完成安装与 no-cloud first-run | product · release | E3 | FG6-02, release distribution |
 | FG6-19 | ☑ | 验证 Schema/Check Context/Action 版本的 rollback 和向前兼容 | release · QA | E3 | FG3-08,FG4-05,FG5-20 |
-| FG6-20 | ☑ | 完成个人用户 Launch Review，冻结已知限制、支持矩阵和 Post-MVP 清单 | product · architecture | E4 | FG6-01..19 |
+| FG6-20 | ◐ | 完成个人用户 Launch Review，冻结已知限制、支持矩阵和 Post-MVP 清单 | product · architecture | E4 | FG6-01..19 |
 
 **Exit Gate**
 
 | ID | St | Gate | Target | 验证方式 |
 |---|:---:|---|:---:|---|
 | FG6-EG1 | ☑ | AC-01..AC-06 全部有不可变 commit/build/run 证据 | E3 | `docs/verification/fg6-acceptance-evidence.md` |
-| FG6-EG2 | ☑ | 支持平台矩阵全绿，无安装或 IPC 回归 | E3 | hosted CI readback |
+| FG6-EG2 | ◐ | 支持平台矩阵全绿，无安装或 IPC 回归 | E3 | hosted CI readback |
 | FG6-EG3 | ☑ | Privacy Contract 静态、动态、数据库、日志、artifact 全绿 | E3 | privacy evidence bundle |
 | FG6-EG4 | ☑ | Replay、stale head、wrong trust、revoked key、fork secret 拦截率 100% | E3 | adversarial suite |
 | FG6-EG5 | ☑ | Queue/GitHub/DB 故障恢复满足 SLO，且无重复 Check 结论 | E3 | chaos report |
@@ -686,6 +686,7 @@ PASS | CONDITIONAL | FAIL
 以下内容不进入当前个人用户 Beta slice；只有个人用户 Launch Gate 通过并重新批准 scope 后才进入下一阶段：
 
 - Design partner 灰度、opt-in beta cohort、跨账号/跨组织 rollout telemetry；
+- Production/GA gate：外部 production readback、灰度 cohort、团队 rollout 和当前 HEAD 托管矩阵重新验收；
 - 团队协作安装、共享组织策略和多人 seat 管理；
 - Managed Runner；
 - OIDC/硬件支持的短期 Runner Identity；

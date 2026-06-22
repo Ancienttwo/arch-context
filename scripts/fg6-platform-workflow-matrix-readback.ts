@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { inspectFg4GithubHostedRunnerReadback } from "./fg4-github-hosted-runner-readback";
@@ -64,6 +65,7 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
   const hostedInspection = inspectFg4GithubHostedRunnerReadback(githubHostedRunnerSource);
   const selfHostedInspection = inspectFg4GithubHostedRunnerReadback(selfHostedRunnerSource);
   const hostedCi = extractHostedCiEvidence(fg1Gate);
+  const currentHeadSha = currentGitHead(config.root);
   const workflowMatrix = inspectWorkflowText(workflowText);
   const platformIpcContract = inspectPlatformReadbackScript(platformReadbackScript);
   const recording = {
@@ -84,6 +86,7 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
       workflowMatrix,
       platformIpcContract,
       hostedCi,
+      currentHeadSha,
       githubWorkflowRuns: {
         githubHosted: summarizeRunner(githubHostedRunnerSource),
         selfHosted: summarizeRunner(selfHostedRunnerSource)
@@ -96,6 +99,7 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
         localRuntimeMatrixSixTargets: workflowMatrix.targetCount === 6 && hostedCi.artifactNames.length === 6,
         installedBinIpcReadbackUploaded: workflowMatrix.uploadArtifact === true && platformIpcContract.usesInstalledBin === true,
         hostedCiArtifactsVerified: hostedCi.runConclusion === "PASS" && hostedCi.downloadedArtifactsVerified === true,
+        hostedCiMatchesCurrentHead: hostedCi.headSha === currentHeadSha,
         githubHostedRunnerWorkflowPass: hostedInspection.ok === true,
         selfHostedRunnerWorkflowPass: selfHostedInspection.ok === true,
         runnerArtifactsNoLlmProvider: summarizeRunner(githubHostedRunnerSource).artifact.llmProviderConfigured === false
@@ -120,6 +124,7 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
   const workflowMatrix = readRecord(evidence.workflowMatrix);
   const platformIpcContract = readRecord(evidence.platformIpcContract);
   const hostedCi = readRecord(evidence.hostedCi);
+  const currentHeadSha = String(evidence.currentHeadSha ?? "");
   const githubWorkflowRuns = readRecord(evidence.githubWorkflowRuns);
   const sourceInspections = readRecord(evidence.sourceInspections);
   const assertions = readRecord(evidence.assertions);
@@ -131,7 +136,8 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
 
   inspectWorkflowMatrix(workflowMatrix, failures);
   inspectPlatformIpcContract(platformIpcContract, failures);
-  inspectHostedCi(hostedCi, failures);
+  if (!/^[a-f0-9]{40}$/.test(currentHeadSha)) failures.push("currentHeadSha must be a commit SHA");
+  inspectHostedCi(hostedCi, currentHeadSha, failures);
   inspectRunnerSummary("githubHosted", readRecord(githubWorkflowRuns.githubHosted), failures);
   inspectRunnerSummary("selfHosted", readRecord(githubWorkflowRuns.selfHosted), failures);
   for (const [name, inspection] of Object.entries(sourceInspections)) {
@@ -141,6 +147,7 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
     "localRuntimeMatrixSixTargets",
     "installedBinIpcReadbackUploaded",
     "hostedCiArtifactsVerified",
+    "hostedCiMatchesCurrentHead",
     "githubHostedRunnerWorkflowPass",
     "selfHostedRunnerWorkflowPass",
     "runnerArtifactsNoLlmProvider"
@@ -190,7 +197,7 @@ function extractHostedCiEvidence(text: string) {
     runId: runMatch ? Number(runMatch[1]) : 0,
     headSha: runMatch?.[2] ?? "",
     runUrl: runMatch ? `https://github.com/Ancienttwo/arch-context/actions/runs/${runMatch[1]}` : "",
-    runConclusion: text.includes("GitHub Actions Verify run `27871833633`: PASS") ? "PASS" : "unknown",
+    runConclusion: runMatch && text.includes(`GitHub Actions Verify run \`${runMatch[1]}\`: PASS`) ? "PASS" : "unknown",
     downloadedArtifactsVerified: text.includes("Downloaded hosted IPC artifacts: PASS"),
     artifactNames,
     artifactCount: artifactNames.length,
@@ -259,9 +266,10 @@ function inspectPlatformIpcContract(platformIpcContract: Record<string, unknown>
   }
 }
 
-function inspectHostedCi(hostedCi: Record<string, unknown>, failures: string[]): void {
+function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: string, failures: string[]): void {
   if (!Number.isInteger(Number(hostedCi.runId)) || Number(hostedCi.runId) <= 0) failures.push("hostedCi.runId must be positive");
   if (!/^[a-f0-9]{40}$/.test(String(hostedCi.headSha ?? ""))) failures.push("hostedCi.headSha must be a commit SHA");
+  if (String(hostedCi.headSha ?? "") !== currentHeadSha) failures.push("hostedCi.headSha must match currentHeadSha");
   if (!String(hostedCi.runUrl ?? "").startsWith("https://github.com/")) failures.push("hostedCi.runUrl must be GitHub");
   if (hostedCi.runConclusion !== "PASS") failures.push("hostedCi.runConclusion must be PASS");
   if (hostedCi.downloadedArtifactsVerified !== true) failures.push("hostedCi downloaded artifacts must be verified");
@@ -272,6 +280,14 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, failures: string[]):
   }
   if (hostedCi.posixModeVerified !== true) failures.push("hostedCi POSIX mode proof missing");
   if (hostedCi.windowsAclVerified !== true) failures.push("hostedCi Windows ACL proof missing");
+}
+
+function currentGitHead(root: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  }).trim();
 }
 
 function inspectRunnerSummary(name: string, summary: Record<string, unknown>, failures: string[]): void {

@@ -674,7 +674,7 @@ describe("cloud D1 schema", () => {
       expect(() => secondDb.exec("DELETE FROM attestations WHERE attestation_id = 'att_restart'")).toThrow("attestations are append-only");
     } finally {
       activeDb?.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -762,7 +762,7 @@ describe("cloud D1 schema", () => {
       });
     } finally {
       for (const db of openDbs.reverse()) db.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
   });
 
@@ -1098,6 +1098,20 @@ function migratedDb(): Database {
   const db = new Database(":memory:");
   db.exec(d1MigrationSql());
   return db;
+}
+
+function removeTempRoot(root: string): void {
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+  } catch (error) {
+    if (isIgnorableWindowsCleanupError(error)) return;
+    throw error;
+  }
+}
+
+function isIgnorableWindowsCleanupError(error: unknown): boolean {
+  const code = (error as { code?: string }).code;
+  return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
 
 function faultingDatabase(db: Database, fault: { failOnSql: RegExp; message: string }) {

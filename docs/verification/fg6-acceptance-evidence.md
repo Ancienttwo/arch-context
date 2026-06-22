@@ -1,7 +1,7 @@
 # FG6 Acceptance Evidence
 
 - Environment: local checkout `/Users/chris/Projects/arch-context`
-- Scope: AC-01 through AC-06 release evidence manifest plus adversarial governance, chaos/fault, security release, retention/deletion, ops runbook, feature flag, rollback compatibility, personal-user install, and FG6-EG1 through FG6-EG9 closure
+- Scope: AC-01 through AC-06 release evidence manifest plus adversarial governance, chaos/fault, security release, retention/deletion, ops runbook, feature flag, rollback compatibility, personal-user install, and FG6 exit-gate evidence; FG6-EG2 is reopened until current-head hosted matrix evidence is refreshed.
 - Started At: 2026-06-22
 
 | Acceptance | Sprint task | Status | Evidence | Verification |
@@ -29,7 +29,7 @@
 | Exit Gate | Status | Evidence basis |
 |---|---|---|
 | FG6-EG1 AC-01..AC-06 immutable evidence | Verified | FG6-02 through FG6-07 readback artifacts and this manifest |
-| FG6-EG2 platform matrix | Verified | `docs/verification/fg6-platform-workflow-matrix-readback.json` and hosted IPC/runner evidence |
+| FG6-EG2 platform matrix | Blocked | `docs/verification/fg6-platform-workflow-matrix-readback.json` currently fails because hosted IPC evidence is for an older head; rerun hosted Verify on current HEAD and regenerate the readback |
 | FG6-EG3 Privacy Contract and DLP | Verified | `docs/verification/fg6-privacy-dlp-readback.json` with static, dynamic, database, log, and artifact coverage |
 | FG6-EG4 adversarial interception | Verified | `docs/verification/fg6-adversarial-governance-matrix-readback.json` plus replay, stale-head, trust, fork, and key-revoke evidence |
 | FG6-EG5 fault recovery and SLO | Verified | `docs/verification/fg6-chaos-fault-matrix-readback.json` and `docs/verification/fg6-slo-readback.json` |

@@ -219,9 +219,10 @@ function resolveArchctxBin(): string {
 }
 
 function resolveCodeGraphBin(): string {
+  const packageShim = join(ROOT, "node_modules", "@colbymchenry", "codegraph", "npm-shim.js");
   const candidates = process.platform === "win32"
-    ? [join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
-    : [join(BIN_DIR, "codegraph")];
+    ? [packageShim, join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
+    : [packageShim, join(BIN_DIR, "codegraph")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 

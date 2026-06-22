@@ -526,7 +526,7 @@ describe("@archcontext/cloud/runner", () => {
 
   test("review-action trigger policy forbids pull_request_target by default", () => {
     const runbook = readFileSync(join(root, "docs/runbooks/trusted-runner.md"), "utf8");
-    const workflowYaml = runbook.match(/```yaml\n([\s\S]*?)\n```/)![1];
+    const workflowYaml = runbook.match(/```yaml\r?\n([\s\S]*?)\r?\n```/)![1];
 
     expect(workflowYaml).toContain("pull_request:");
     expect(workflowYaml).not.toContain("pull_request_target");

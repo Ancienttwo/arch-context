@@ -11,7 +11,7 @@ const DEFAULT_OUTPUT = "docs/verification/fg6-representative-benchmark-readback.
 const DEFAULT_REPORT = "docs/verification/fg6-representative-benchmark.md";
 const BIN_DIR = resolve(process.cwd(), "node_modules", ".bin");
 const ARCHCTX_BIN = resolveBin("archctx");
-const CODEGRAPH_BIN = resolveBin("codegraph");
+const CODEGRAPH_BIN = resolveCodeGraphBin();
 const MIN_REPRESENTATIVE_FILES = 1000;
 const INITIAL_INDEX_BUDGET_MS = 300_000;
 const REPRESENTATIVE_E2E_BUDGET_MS = 300_000;
@@ -325,6 +325,14 @@ function resolveBin(name: string): string {
   const candidates = process.platform === "win32"
     ? [join(BIN_DIR, `${name}.cmd`), join(BIN_DIR, `${name}.exe`), join(BIN_DIR, name)]
     : [join(BIN_DIR, name)];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function resolveCodeGraphBin(): string {
+  const packageShim = resolve(process.cwd(), "node_modules", "@colbymchenry", "codegraph", "npm-shim.js");
+  const candidates = process.platform === "win32"
+    ? [packageShim, join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
+    : [packageShim, join(BIN_DIR, "codegraph")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 

@@ -46,6 +46,15 @@ function isIgnorableWindowsCleanupError(error: unknown): boolean {
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
 
+function expectSameExistingPath(actual: string, expected: string): void {
+  expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
+}
+
+function normalizeExistingPath(path: string): string {
+  const real = realpathSync.native(path);
+  return process.platform === "win32" ? real.toLowerCase() : real;
+}
+
 function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0] = {}) {
   return createStartedDaemon({
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -422,7 +431,7 @@ describe("local runtime foundation", () => {
       expect(existsSync(run.worktree.worktreeRoot)).toBe(true);
 
       const recovered = daemon.recoverDeveloperReviewRuns({ repositoryRoot: root, force: true });
-      expect(recovered.stateDir).toBe(defaultDeveloperReviewRunStateDir(realpathSync(root)));
+      expectSameExistingPath(recovered.stateDir, defaultDeveloperReviewRunStateDir(realpathSync.native(root)));
       expect(recovered.recovered).toHaveLength(1);
       expect(recovered.recovered[0]).toMatchObject({
         runId: run.runId,
@@ -617,7 +626,7 @@ describe("local runtime foundation", () => {
         taskSessionId: "task_runtime_complete",
         result: "pass"
       });
-      expect(provider.indexedRoots.map((indexedRoot) => realpathSync(indexedRoot))).toEqual([realpathSync(root)]);
+      expect(provider.indexedRoots.map((indexedRoot) => normalizeExistingPath(indexedRoot))).toEqual([normalizeExistingPath(root)]);
       expect(store.reviews.get((passed.data as any).reviewId)).toMatchObject({ result: "pass" });
 
       await expect(daemon.completeTask(root, {

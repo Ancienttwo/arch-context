@@ -2,9 +2,9 @@
   "schemaVersion": "archcontext.fg6-platform-workflow-matrix-readback/v1",
   "taskId": "FG6-08",
   "environment": "staging-release-readback",
-  "status": "verified",
-  "ok": true,
-  "generatedAt": "2026-06-21T18:57:41.536Z",
+  "status": "failed",
+  "ok": false,
+  "generatedAt": "2026-06-22T11:06:50.428Z",
   "sources": {
     "workflowPath": ".github/workflows/verify.yml",
     "platformReadbackScript": "scripts/platform-ipc-permission-readback.mjs",
@@ -59,6 +59,7 @@
       "posixModeVerified": true,
       "windowsAclVerified": true
     },
+    "currentHeadSha": "99562df9d558ebc1884fb689287523560bb28908",
     "githubWorkflowRuns": {
       "githubHosted": {
         "workflow": {
@@ -134,10 +135,14 @@
       "localRuntimeMatrixSixTargets": true,
       "installedBinIpcReadbackUploaded": true,
       "hostedCiArtifactsVerified": true,
+      "hostedCiMatchesCurrentHead": false,
       "githubHostedRunnerWorkflowPass": true,
       "selfHostedRunnerWorkflowPass": true,
       "runnerArtifactsNoLlmProvider": true
     }
   },
-  "failures": []
+  "failures": [
+    "hostedCi.headSha must match currentHeadSha",
+    "assertion hostedCiMatchesCurrentHead must be true"
+  ]
 }

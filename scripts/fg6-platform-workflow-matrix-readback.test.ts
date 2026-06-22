@@ -86,6 +86,7 @@ function verifiedRecording() {
         posixModeVerified: true,
         windowsAclVerified: true
       },
+      currentHeadSha: "596366329a709be48d52fc58b5b2542cdc8ae1aa",
       githubWorkflowRuns: {
         githubHosted: runnerSummary({ runnerOs: "Linux", kind: "github-hosted", runId: 27894392126 }),
         selfHosted: runnerSummary({ runnerOs: "macOS", kind: "self-hosted", runId: 27905483126 })
@@ -98,6 +99,7 @@ function verifiedRecording() {
         localRuntimeMatrixSixTargets: true,
         installedBinIpcReadbackUploaded: true,
         hostedCiArtifactsVerified: true,
+        hostedCiMatchesCurrentHead: true,
         githubHostedRunnerWorkflowPass: true,
         selfHostedRunnerWorkflowPass: true,
         runnerArtifactsNoLlmProvider: true

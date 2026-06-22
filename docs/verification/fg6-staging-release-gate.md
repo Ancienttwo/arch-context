@@ -104,7 +104,7 @@ FG6-06 composes existing static, dynamic, runner, and storage DLP evidence rathe
 
 FG6-07 composes no-provider deterministic sources instead of rerunning the official Review Action. The invariant is that required-check pass/fail must be stable without provider credentials and must come from deterministic runtime evidence, not Advisory or model output. The tradeoff is that this slice does not refresh the live GitHub Actions run; it freezes the last verified official action plus process-level deterministic conclusion proof, which is sufficient for AC-06 because platform matrix refresh is covered by FG6-08 and fork/permission degradation is covered by FG6-09.
 
-FG6-08 composes matrix evidence rather than dispatching a fresh hosted workflow from the release gate. The invariant is that `verify:governance` remains token-free and local while still detecting drift in the workflow matrix, installed-bin IPC readback, and previously verified hosted artifacts. The tradeoff is that the run IDs are immutable prior executions rather than a fresh CI dispatch; this is sufficient for the support-matrix slice because the current workflow contract is checked locally and the fork/permission matrices are covered by FG6-09.
+FG6-08 composes matrix evidence rather than dispatching a fresh hosted workflow from the release gate. The invariant is that `verify:governance` remains token-free and local while still detecting drift in the workflow matrix, installed-bin IPC readback, and hosted artifacts. The support-matrix evidence must now match the current checkout HEAD; older hosted runs are treated as stale and cannot close FG6-EG2.
 
 FG6-09 composes adversarial evidence rather than re-suspending the GitHub App installation or reopening another public fork PR. The invariant is that the final release gate must detect governance regressions without consuming operator credentials or mutating staging during ordinary CI. The tradeoff is that it freezes the last verified live fork/revoke/ruleset artifacts; this is sufficient for the adversarial matrix slice because each source artifact already exercised the real GitHub App, public fork namespace, temporary ruleset, and key lifecycle path, while fault injection and chaos behavior remain FG6-10.
 
@@ -167,7 +167,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 ## Results
 
 - `bun test scripts/governance-verify-workflow.test.ts scripts/sprint-status-check.test.ts scripts/platform-ipc-permission-workflow.test.ts`: PASS, 22 tests / 73 expects.
-- `bun run verify:governance`: PASS, full `bun run verify` returned 537 tests / 3242 expects and 192-entry acceptance ledger, then 23 committed evidence inspectors plus the root verify command returned `ok: true` with `commandCount: 24`.
+- Historical `bun run verify:governance`: superseded for the current HEAD; the ledger is reopened to 190 / 192 until FG6-EG2 and FG6-20 are refreshed.
 - `bun test scripts/fg6-local-no-cloud-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 20 expects.
 - `bun run readback:fg6:local-no-cloud`: PASS, wrote `docs/verification/fg6-local-no-cloud-readback.json` with local-only egress, local MCP stdio config, fresh checkpoint, passing complete, and passing review.
 - `bun test scripts/fg6-developer-review-provenance-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 22 expects.
@@ -183,9 +183,9 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `bun test scripts/fg6-no-provider-deterministic-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 29 expects.
 - `bun run readback:fg6:no-provider-deterministic`: PASS, wrote `docs/verification/fg6-no-provider-deterministic-readback.json` with Local Core no-provider pass, GitHub Actions official Review Action success, no-provider deterministic model digest, deterministic Attestation acceptance, Advisory injection rejection, and provider-free upload proof.
 - `bun scripts/fg6-no-provider-deterministic-readback.ts inspect --evidence docs/verification/fg6-no-provider-deterministic-readback.json --json`: PASS.
-- `bun test scripts/fg6-platform-workflow-matrix-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 31 expects.
-- `bun run readback:fg6:platform-workflow-matrix`: PASS, wrote `docs/verification/fg6-platform-workflow-matrix-readback.json` with six Local Runtime matrix targets, FG1 hosted run/artifact proof, installed-bin IPC upload contract, GitHub-hosted Runner workflow success, and self-hosted macOS Runner workflow success.
-- `bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json`: PASS.
+- `bun test scripts/fg6-platform-workflow-matrix-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS historically; current focused regression also passes after adding the current-head guard.
+- `bun run readback:fg6:platform-workflow-matrix`: STALE for the current HEAD until the hosted Verify matrix is rerun and this evidence is regenerated.
+- `bun scripts/fg6-platform-workflow-matrix-readback.ts inspect --evidence docs/verification/fg6-platform-workflow-matrix-readback.json --json`: FAIL on current HEAD because the committed hosted CI evidence predates the current checkout.
 - `bun test scripts/fg6-adversarial-governance-matrix-readback.test.ts scripts/governance-verify-workflow.test.ts`: PASS, 4 tests / 37 expects.
 - `bun run readback:fg6:adversarial-governance-matrix`: PASS, wrote `docs/verification/fg6-adversarial-governance-matrix-readback.json` with minimal permission, fork PR, installation revoke, ruleset expected-source, Developer downgrade, and revoked Runner Key evidence.
 - `bun scripts/fg6-adversarial-governance-matrix-readback.ts inspect --evidence docs/verification/fg6-adversarial-governance-matrix-readback.json --json`: PASS.
@@ -281,10 +281,10 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - FG6-16 proves operator runbook coverage against existing incident evidence. It does not replace a live production incident exercise or pager integration test.
 - FG6-17 proves local release feature flag behavior and source coverage. It does not execute design partner rollout or live feature-flag telemetry; that collaboration scope is deferred.
 - FG6-19 proves local rollback compatibility for schemas, Check Contexts, legacy Attestation handling, and Action version pinning. It does not execute a production rollback or publish a new Action release.
-- FG6-EG1 through FG6-EG8 are closed from committed immutable E3 evidence covering AC-01..06, platform support, Privacy Contract/DLP, adversarial interception, fault recovery/SLO, release security, representative performance, and rollback compatibility.
+- FG6-EG1 and FG6-EG3 through FG6-EG8 remain closed from committed immutable E3 evidence covering AC-01..06, Privacy Contract/DLP, adversarial interception, fault recovery/SLO, release security, representative performance, and rollback compatibility. FG6-EG2 is reopened until hosted support-matrix evidence matches the current HEAD.
 - Release distribution is now verified: `archctx@0.1.0` is published, registry-visible, and installable through npm. This proves the personal-user install precondition, not collaboration rollout health.
 - FG6-18 now covers individual-user public install and no-cloud first-run. It does not prove design-partner, opt-in beta, or team collaboration rollout completion.
 
 ## Decision
 
-PASS for FG6-01 through FG6-20 and FG6-EG1 through FG6-EG10 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. Personal-user Beta is approved for `archctx@0.1.0`.
+BLOCKED for current-head personal-user Beta closure. FG6-EG2 and FG6-20 are in progress until Ubuntu/macOS/Windows by Node 24/25 hosted Verify passes for the current HEAD and `docs/verification/fg6-platform-workflow-matrix-readback.json` plus this release gate are refreshed. Design partner, opt-in beta, and team collaboration rollout telemetry remain deferred to `tasks/todos.md`; they are not the blocker.
