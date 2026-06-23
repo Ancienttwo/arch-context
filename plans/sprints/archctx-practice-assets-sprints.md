@@ -985,60 +985,60 @@ bun run verify
 
 ### ADR 与 Port
 
-- [ ] S5-01 新增 ADR-0038：`External Documentation Is Advisory and Untrusted`。
-- [ ] S5-02 定义 `ExternalDocumentationPort`，core 不依赖 Context7 SDK、HTTP client 或 MCP client。
-- [ ] S5-03 定义 provider capability、resolve、query、cache、purge、health typed contract。
-- [ ] S5-04 定义 `ExternalDocumentationResourceV1`，强制 trust=`external-unverified`、enforcement=`advisory-only`。
+- [x] S5-01 新增 ADR-0038：`External Documentation Is Advisory and Untrusted`。（已用 ADR-0039 落地；ADR-0038 已被 Versioned Practice Assets 占用。）
+- [x] S5-02 定义 `ExternalDocumentationPort`，core 不依赖 Context7 SDK、HTTP client 或 MCP client。
+- [x] S5-03 定义 provider capability、resolve、query、cache、purge、health typed contract。
+- [x] S5-04 定义 `ExternalDocumentationResourceV1`，强制 trust=`external-unverified`、enforcement=`advisory-only`。
 
 ### Context7 adapter
 
-- [ ] S5-05 新建 `packages/local-runtime/context7-adapter`。
-- [ ] S5-06 优先使用官方 SDK/REST adapter；不在默认实现中 shell out 到 `ctx7`，不在 ArchContext MCP server 内递归调用另一个 MCP server。
-- [ ] S5-07 API key 只从 OS credential/env/user data 读取，不进入 repo、SQLite 明文或日志。
-- [ ] S5-08 配置默认 `enabled: false`，支持 `manual | prepare-unknowns` 两种模式。
-- [ ] S5-09 Context7 library ID 必须写入 lockfile；模糊 resolve 需要用户确认后固定。
+- [x] S5-05 新建 `packages/local-runtime/context7-adapter`。
+- [x] S5-06 优先使用官方 SDK/REST adapter；不在默认实现中 shell out 到 `ctx7`，不在 ArchContext MCP server 内递归调用另一个 MCP server。
+- [x] S5-07 API key 只从 OS credential/env/user data 读取，不进入 repo、SQLite 明文或日志。
+- [x] S5-08 配置默认 `enabled: false`，支持 `manual | prepare-unknowns` 两种模式。
+- [x] S5-09 Context7 library ID 必须写入 lockfile；模糊 resolve 需要用户确认后固定。
 - [ ] S5-10 从 package lock/manifest 获取 exact version；无法确定版本时只返回 unknown，不猜测 latest。
 
 ### Query minimization 与 DLP
 
-- [ ] S5-11 实现 structured intent builder，只发送 libraryId、version、受限 intent 和 sanitised query。
-- [ ] S5-12 建立 denylist/shape validator，拒绝 repository 名称、绝对路径、代码块、Diff、symbol list、secret-like token。
+- [x] S5-11 实现 structured intent builder，只发送 libraryId、version、受限 intent 和 sanitised query。
+- [x] S5-12 建立 denylist/shape validator，拒绝 repository 名称、绝对路径、代码块、Diff、symbol list、secret-like token。
 - [ ] S5-13 Provider request/response 日志只记录 digest、status、latency、byte count、libraryId 和 version。
-- [ ] S5-14 外部内容经过 size limit、control-character cleanup、instruction-boundary 标记和 URI validation。
-- [ ] S5-15 将 Provider 内容标为 untrusted documentation data，禁止覆盖 system/agent instructions。
+- [x] S5-14 外部内容经过 size limit、control-character cleanup、instruction-boundary 标记和 URI validation。
+- [x] S5-15 将 Provider 内容标为 untrusted documentation data，禁止覆盖 system/agent instructions。
 - [ ] S5-16 建立 rate limit、timeout、retry budget、circuit breaker；失败回退缓存或 static-only。
 
 ### Cache 与 provenance
 
-- [ ] S5-17 SQLite 增加 external docs cache：provider、libraryId、version、queryDigest、contentDigest、retrievedAt、expiresAt。
-- [ ] S5-18 默认 TTL 可配置；过期内容标 stale，不静默当作 fresh。
-- [ ] S5-19 Cache key 不包含 raw task；purge 支持 provider/library/all。
+- [x] S5-17 SQLite 增加 external docs cache：provider、libraryId、version、queryDigest、contentDigest、retrievedAt、expiresAt。
+- [x] S5-18 默认 TTL 可配置；过期内容标 stale，不静默当作 fresh。
+- [x] S5-19 Cache key 不包含 raw task；purge 支持 provider/library/all。
 - [ ] S5-20 Context7 返回资源只写入 `resources`/`unknowns`，不能填充 enforceable constraints。
 - [ ] S5-21 `archcontext://external-docs/context7/<digest>` 只从本地 daemon resource 读取。
 
 ### CLI/MCP/prepare
 
-- [ ] S5-22 增加 `archctx docs resolve <library>`，显示候选但不自动写 lockfile。
-- [ ] S5-23 增加 `archctx docs pin <libraryId> --version <version>`，显式 approval 后写 `.archcontext/integrations/context7.lock.yaml`。
-- [ ] S5-24 增加 `archctx docs fetch <libraryId> --query <intent>`、`status`、`purge`。
+- [x] S5-22 增加 `archctx docs resolve <library>`，显示候选但不自动写 lockfile。
+- [x] S5-23 增加 `archctx docs pin <libraryId> --version <version>`，显式 approval 后写 `.archcontext/integrations/context7.lock.yaml`。
+- [x] S5-24 增加 `archctx docs fetch <libraryId> --query <intent>`、`status`、`purge`。
 - [ ] S5-25 `prepare-unknowns` 只在 static match 已确认 framework scope 且存在版本相关 unknown 时调用。
-- [ ] S5-26 Hook/checkpoint/complete 路径加入硬断言：不得调用 ExternalDocumentationPort。
+- [x] S5-26 Hook/checkpoint/complete 路径加入硬断言：不得调用 ExternalDocumentationPort。
 - [ ] S5-27 MCP 暴露只读 external resource，不增加可让 Agent 绕过 allowlist 的通用 HTTP 工具。
 
 ### 安全与实跑
 
 - [ ] S5-28 Unit tests 使用 fake transport 验证 request minimization、redaction、TTL、stale 和 circuit breaker。
-- [ ] S5-29 DLP packet fixture 验证源码、Diff、路径、symbol、secret 路由数 = 0。
+- [x] S5-29 DLP packet fixture 验证源码、Diff、路径、symbol、secret 路由数 = 0。
 - [ ] S5-30 真实 Context7 readback 使用公开 fixture package 与无敏感 task，记录 exact library ID/version。
 - [ ] S5-31 验证 Context7 关闭、无 key、无网络、429、timeout、malformed response 时 Local Core 结果不变。
-- [ ] S5-32 编写 `docs/verification/practice-assets-s5-context7-gate.md`。
+- [x] S5-32 编写 `docs/verification/practice-assets-s5-context7-gate.md`。
 
 ## 13.3 Exit Gates
 
-- [ ] S5-EG1 默认安装与默认 prepare 的 egress = 0。
-- [ ] S5-EG2 Outbound payload 只含 allowlisted 字段；敏感字段泄漏测试拦截率 = 100%。
-- [ ] S5-EG3 Context7 内容参与 hard gate 的路径数 = 0，具有代码级断言与 negative test。
-- [ ] S5-EG4 exact library/version 可重放命中 cache，并显示 provider、retrievedAt、expiresAt、content digest。
+- [x] S5-EG1 默认安装与默认 prepare 的 egress = 0。
+- [x] S5-EG2 Outbound payload 只含 allowlisted 字段；敏感字段泄漏测试拦截率 = 100%。
+- [x] S5-EG3 Context7 内容参与 hard gate 的路径数 = 0，具有代码级断言与 negative test。
+- [x] S5-EG4 exact library/version 可重放命中 cache，并显示 provider、retrievedAt、expiresAt、content digest。
 - [ ] S5-EG5 Provider 不可用时 static practice IDs、pressure、posture、complete conclusion 与禁用 Provider 时一致。
 - [ ] S5-EG6 真实 Provider readback 明确记录社区内容不保证准确，不宣称端到端可审计。
 
@@ -1049,11 +1049,29 @@ bun test packages/local-runtime/context7-adapter
 bun test packages/local-runtime/local-store-sqlite
 bun test packages/core/context-compiler
 bun test packages/surfaces/cli
+bun run record:s5:context7
+bun run readback:s5:context7
 bun run e2e:local-no-cloud
 bun run verify
 ```
 
-## 13.5 Rollback
+## 13.5 Execution Record — 2026-06-24
+
+Completed S5 manual Context7 external docs vertical slice on branch
+`codex/context7-external-docs`.
+
+- Contracts: `ExternalDocumentationPort`, provider health/resolve/fetch/purge/cache DTOs, `ExternalDocumentationResourceV1`, JSON schema, and fixture.
+- Runtime: disabled-by-default Context7 provider, explicit `docs status|resolve|pin|fetch|purge`, daemon-owned lockfile, daemon-owned sanitized query digest, SQLite cache, stale readback, and purge.
+- Adapter: REST transport path, bounded intent builder, outbound DLP validator, size/control-character cleanup, HTTPS URI validation, advisory-only resource projection, and no shell/MCP recursion.
+- Evidence: `docs/adr/ADR-0039-external-documentation-advisory-untrusted.md`, `docs/verification/practice-assets-s5-context7-gate.md`, and `docs/verification/practice-context7-readback.json`.
+- Verified: `bun test scripts/practice-context7-readback.test.ts packages/local-runtime/context7-adapter/test/context7-adapter.test.ts`, `bun run record:s5:context7`, `bun run readback:s5:context7`, focused runtime/store/CLI/contracts suites, and `bun run typecheck`.
+
+Remaining S5 work is intentionally not marked complete: exact version discovery
+from manifests, provider log contract, automatic `prepare-unknowns`, MCP
+read-only resource surfacing, rate-limit/retry/circuit-breaker behavior, real
+live Context7 readback, and full provider failure matrix.
+
+## 13.6 Rollback
 
 - `externalDocs.context7.enabled: false` 完全禁用 Provider；缓存可保留或显式 purge。
 - Adapter 不可用不得影响 daemon 启动、prepare、checkpoint、complete 或 attestation。

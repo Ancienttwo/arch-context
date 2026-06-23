@@ -264,6 +264,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       );
       return result.ok ? { ...result, data: paginate(result.data, args) } : result;
     }
+    case "docs":
+      return runDocsCommand(args, cwd, await runtime());
     case "practices":
       return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
@@ -395,6 +397,51 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   } finally {
     for (const handle of runtimeHandles.reverse()) await handle.close();
   }
+}
+
+async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "status";
+  if (!["status", "resolve", "pin", "fetch", "purge"].includes(subcommand)) {
+    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+  }
+  if (subcommand === "status") {
+    return daemon.docs(cwd, { command: "status", provider: "context7" });
+  }
+  if (subcommand === "resolve") {
+    return daemon.docs(cwd, {
+      command: "resolve",
+      provider: "context7",
+      libraryName: readFlag(args, "--library") ?? args[1],
+      query: readFlag(args, "--query"),
+      allowNetwork: args.includes("--allow-network")
+    });
+  }
+  if (subcommand === "pin") {
+    return daemon.docs(cwd, {
+      command: "pin",
+      provider: "context7",
+      libraryId: readFlag(args, "--library-id") ?? args[1],
+      version: readFlag(args, "--version"),
+      approved: args.includes("--approved")
+    });
+  }
+  if (subcommand === "fetch") {
+    return daemon.docs(cwd, {
+      command: "fetch",
+      provider: "context7",
+      libraryId: readFlag(args, "--library-id") ?? args[1],
+      intent: readFlag(args, "--intent") ?? readFlag(args, "--query"),
+      query: readFlag(args, "--query"),
+      allowNetwork: args.includes("--allow-network"),
+      forceRefresh: args.includes("--force-refresh")
+    });
+  }
+  return daemon.docs(cwd, {
+    command: "purge",
+    provider: "context7",
+    libraryId: readFlag(args, "--library-id"),
+    all: args.includes("--all")
+  });
 }
 
 async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
@@ -1533,7 +1580,8 @@ function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
     "clock",
     "maxRepoSessions",
     "devicePrivateKeySigner",
-    "devicePrivateKeyStore"
+    "devicePrivateKeyStore",
+    "externalDocumentation"
   ].some((key) => key in deps);
 }
 

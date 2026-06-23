@@ -72,6 +72,7 @@ const schemaByFixture: Record<string, string> = {
   "explorer-projection": "schemas/runtime/explorer-projection.schema.json",
   "explorer-service": "schemas/runtime/explorer-service.schema.json",
   "product-version-manifest": "schemas/runtime/product-version-manifest.schema.json",
+  "external-document-resource": "schemas/runtime/external-document-resource.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
   "practice-match": "schemas/runtime/practice-match.schema.json",
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",

@@ -27,6 +27,7 @@
       "@archcontext/core/review-engine": ["packages/core/review-engine/src/index.ts"],
       "@archcontext/local-runtime": ["packages/local-runtime/src/index.ts"],
       "@archcontext/local-runtime/codegraph-adapter": ["packages/local-runtime/codegraph-adapter/src/index.ts"],
+      "@archcontext/local-runtime/context7-adapter": ["packages/local-runtime/context7-adapter/src/index.ts"],
       "@archcontext/local-runtime/git-adapter": ["packages/local-runtime/git-adapter/src/index.ts"],
       "@archcontext/local-runtime/local-store-sqlite": ["packages/local-runtime/local-store-sqlite/src/index.ts"],
       "@archcontext/local-runtime/model-store-yaml": ["packages/local-runtime/model-store-yaml/src/index.ts"],

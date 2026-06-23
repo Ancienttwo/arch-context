@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -132,6 +132,73 @@ function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync:
     }
   };
   return { port, counts: () => ({ sync, buildTaskContext }) };
+}
+
+function fakeExternalDocumentation(onFetch: () => void): ExternalDocumentationPort {
+  return {
+    health() {
+      return {
+        provider: "context7",
+        enabled: true,
+        mode: "manual",
+        egress: "manual-only",
+        cache: "sqlite",
+        keySource: "none"
+      };
+    },
+    async resolve() {
+      return {
+        schemaVersion: "archcontext.external-docs-resolve/v1",
+        provider: "context7",
+        queryDigest: `sha256:${"3".repeat(64)}`,
+        searchFilterApplied: false,
+        egress: "manual-only",
+        candidates: [{
+          id: "/facebook/react",
+          title: "React",
+          versions: ["18.2.0"]
+        }]
+      };
+    },
+    async fetch(input) {
+      onFetch();
+      return {
+        schemaVersion: "archcontext.external-docs-fetch/v1",
+        provider: "context7",
+        cacheStatus: "miss",
+        request: {
+          libraryId: input.libraryId,
+          version: input.version,
+          queryDigest: `sha256:${"4".repeat(64)}`,
+          intent: input.intent
+        },
+        resource: {
+          schemaVersion: "archcontext.external-document/v1",
+          provider: "context7",
+          libraryId: input.libraryId,
+          requestedVersion: input.version,
+          resolvedVersion: input.version,
+          queryDigest: `sha256:${"4".repeat(64)}`,
+          contentDigest: `sha256:${"5".repeat(64)}`,
+          retrievedAt: "2026-06-24T00:00:00.000Z",
+          expiresAt: "2026-07-24T00:00:00.000Z",
+          trust: "external-unverified",
+          enforcement: "advisory-only",
+          cacheStatus: "miss",
+          uri: `archcontext://external-docs/context7/sha256:${"5".repeat(64)}`,
+          byteCount: 38,
+          snippets: [{
+            title: "React useState",
+            contentPreview: "External documentation data for useState.",
+            contentDigest: `sha256:${"5".repeat(64)}`,
+            sourceUri: "https://react.dev/reference/react/useState",
+            byteCount: 38
+          }],
+          warning: "untrusted-documentation-data"
+        }
+      };
+    }
+  };
 }
 
 function mutableCycleFacts(): { port: CodeFactsPort; setCycle: (enabled: boolean) => void } {
@@ -355,6 +422,65 @@ describe("local runtime foundation", () => {
       expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
       expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
     } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("external docs manual fetch is pinned cached and excluded from prepare and complete", async () => {
+    const root = tempRepo();
+    let providerCalls = 0;
+    const daemon = await createStartedTestDaemon({
+      clock: () => "2026-06-24T00:00:00.000Z",
+      externalDocumentation: fakeExternalDocumentation(() => providerCalls++)
+    });
+    try {
+      await daemon.init(root, "Docs App");
+      const defaultStatus = await daemon.docs(root, { command: "status" });
+      expect((defaultStatus.data as any).defaultPrepareEgress).toBe("none");
+
+      const blockedResolve = await daemon.docs(root, {
+        command: "resolve",
+        libraryName: "React",
+        query: "state hooks"
+      });
+      expect(blockedResolve.ok).toBe(false);
+      expect(providerCalls).toBe(0);
+
+      const pin = await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+      expect(pin.ok).toBe(true);
+      expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(true);
+
+      const firstFetch = await daemon.docs(root, {
+        command: "fetch",
+        libraryId: "/facebook/react",
+        intent: "state hooks",
+        allowNetwork: true
+      });
+      expect(firstFetch.ok).toBe(true);
+      expect((firstFetch.data as any).cacheStatus).toBe("miss");
+      expect((firstFetch.data as any).resource.enforcement).toBe("advisory-only");
+      expect(providerCalls).toBe(1);
+
+      const secondFetch = await daemon.docs(root, {
+        command: "fetch",
+        libraryId: "/facebook/react",
+        intent: "state hooks",
+        allowNetwork: true
+      });
+      expect(secondFetch.ok).toBe(true);
+      expect((secondFetch.data as any).cacheStatus).toBe("fresh");
+      expect(providerCalls).toBe(1);
+
+      await daemon.prepare(root, "Use React state hooks", 12_288, 12, "task_docs");
+      await daemon.completeTask(root, { taskSessionId: "task_docs", headSha: "abc123" });
+      expect(providerCalls).toBe(1);
+    } finally {
+      await daemon.stop();
       removeTempRepo(root);
     }
   });

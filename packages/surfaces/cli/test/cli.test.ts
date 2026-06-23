@@ -470,6 +470,48 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const status = await runTestCli("docs", ["status"], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any)).toMatchObject({
+        schemaVersion: "archcontext.external-docs-status/v1",
+        provider: "context7",
+        defaultPrepareEgress: "none"
+      });
+      expect((status.data as any).health).toMatchObject({
+        enabled: false,
+        egress: "none"
+      });
+
+      const blockedResolve = await runTestCli("docs", ["resolve", "--library", "React", "--query", "state hooks"], root);
+      expect(blockedResolve.ok).toBe(false);
+      expect((blockedResolve as any).error.message).toContain("--allow-network");
+
+      const pinPreview = await runTestCli("docs", ["pin", "--library-id", "/facebook/react", "--version", "18.2.0"], root);
+      expect(pinPreview.ok).toBe(true);
+      expect((pinPreview.data as any).approved).toBe(false);
+      expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(false);
+
+      const pin = await runTestCli("docs", ["pin", "--library-id", "/facebook/react", "--version", "18.2.0", "--approved"], root);
+      expect(pin.ok).toBe(true);
+      expect((pin.data as any).approved).toBe(true);
+      const lockPath = join(root, ".archcontext", "integrations", "context7.lock.yaml");
+      expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({
+        schemaVersion: "archcontext.context7-lock/v1",
+        provider: "context7",
+        libraries: [{ libraryId: "/facebook/react", version: "18.2.0" }]
+      });
+
+      const blockedFetch = await runTestCli("docs", ["fetch", "--library-id", "/facebook/react", "--intent", "state hooks"], root);
+      expect(blockedFetch.ok).toBe(false);
+      expect((blockedFetch as any).error.message).toContain("--allow-network");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("first-party skills keep checkpoint SOP separate from practice logic", () => {
     const skillFiles = [
       "skills/archcontext-bootstrap/SKILL.md",

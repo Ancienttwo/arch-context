@@ -22,8 +22,9 @@ import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogComma
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
+import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -52,6 +53,20 @@ export interface RuntimeCheckpointInput {
   expectedWorktreeDigest?: string;
   maxBytes?: number;
   maxItems?: number;
+}
+
+export interface RuntimeDocsInput {
+  command: "status" | "resolve" | "pin" | "fetch" | "purge";
+  provider?: ExternalDocumentationProvider;
+  libraryName?: string;
+  libraryId?: string;
+  version?: string;
+  query?: string;
+  intent?: string;
+  approved?: boolean;
+  allowNetwork?: boolean;
+  forceRefresh?: boolean;
+  all?: boolean;
 }
 
 export interface RuntimePracticeWaiverInput {
@@ -181,6 +196,7 @@ export interface RuntimeDeps {
   modelStore?: ModelStorePort;
   localStore?: RuntimeLocalStore;
   changeSetEngine?: ChangeSetEngine;
+  externalDocumentation?: ExternalDocumentationPort;
   devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   localStorePath?: string;
   clock?: () => string;
@@ -204,6 +220,7 @@ export interface RuntimeCompositionReport {
     modelStore: "yaml" | "injected";
     localStore: "sqlite" | "injected";
     changeSetEngine: "default" | "injected";
+    externalDocumentation: "context7" | "injected";
   };
   localStorePath?: string;
   blockedProductionInjections: string[];
@@ -297,6 +314,7 @@ export interface RuntimeDaemonClient {
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
   checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
+  docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
   practiceWaivers(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -365,12 +383,16 @@ interface PersistedPracticeCheckpointBaseline {
   updatedAt: string;
 }
 
+const CONTEXT7_LOCKFILE = ".archcontext/integrations/context7.lock.yaml";
+
 export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
   private readonly modelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
+  private readonly externalDocumentation: ExternalDocumentationPort;
+  private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
@@ -397,6 +419,12 @@ export class ArchctxDaemon {
     });
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
+    this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
+      enabled: false,
+      mode: "manual",
+      clock: this.clock
+    });
+    this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
   }
@@ -638,6 +666,136 @@ export class ArchctxDaemon {
     } as unknown as Json);
   }
 
+  async docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const provider = input.provider ?? "context7";
+    if (provider !== "context7") return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs provider must be context7");
+    const session = await this.openSession(root);
+    try {
+      if (input.command === "status") {
+        const lock = readContext7Lockfile(session.workspace.root);
+        const cached = await this.localStore.listExternalDocumentation("context7");
+        return okEnvelope("docs.status", {
+          schemaVersion: "archcontext.external-docs-status/v1",
+          provider: "context7",
+          health: this.externalDocumentation.health(),
+          lock,
+          cacheEntries: cached.map((entry) => ({
+            provider: entry.provider,
+            libraryId: entry.libraryId,
+            version: entry.version,
+            queryDigest: entry.queryDigest,
+            contentDigest: entry.contentDigest,
+            retrievedAt: entry.retrievedAt,
+            expiresAt: entry.expiresAt,
+            stale: Date.parse(entry.expiresAt) <= Date.parse(this.clock())
+          })),
+          defaultPrepareEgress: "none"
+        } as unknown as Json);
+      }
+      if (input.command === "pin") {
+        if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
+        assertContext7LibraryId(input.libraryId);
+        assertContext7Version(input.version);
+        const lock = upsertContext7Pin(readContext7Lockfile(session.workspace.root), {
+          libraryId: input.libraryId,
+          version: input.version,
+          pinnedAt: this.clock(),
+          source: "manual"
+        });
+        if (!input.approved) {
+          return okEnvelope("docs.pin", {
+            schemaVersion: "archcontext.context7-pin-preview/v1",
+            approved: false,
+            path: CONTEXT7_LOCKFILE,
+            lock
+          } as unknown as Json);
+        }
+        writeContext7Lockfile(session.workspace.root, lock);
+        return okEnvelope("docs.pin", {
+          schemaVersion: "archcontext.context7-pin/v1",
+          approved: true,
+          path: CONTEXT7_LOCKFILE,
+          lock
+        } as unknown as Json);
+      }
+      if (input.command === "resolve") {
+        if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
+        if (!input.libraryName || !input.query) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --library and --query");
+        return okEnvelope("docs.resolve", await this.manualExternalDocumentation().resolve({
+          provider: "context7",
+          libraryName: input.libraryName,
+          query: input.query,
+          fast: true
+        }) as unknown as Json);
+      }
+      if (input.command === "fetch") {
+        if (!input.allowNetwork) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --allow-network");
+        if (!input.libraryId || !input.intent) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --library-id and --intent");
+        assertContext7LibraryId(input.libraryId);
+        const lock = readContext7Lockfile(session.workspace.root);
+        const pinned = lock.libraries.find((library) => library.libraryId === input.libraryId);
+        if (!pinned) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires a pinned library in .archcontext/integrations/context7.lock.yaml");
+        const query = buildContext7Query({ intent: input.intent, query: input.query });
+        const queryDigest = digestJson({ provider: "context7", libraryId: input.libraryId, version: pinned.version, query });
+        const cached = await this.localStore.readExternalDocumentation({
+          provider: "context7",
+          libraryId: input.libraryId,
+          version: pinned.version,
+          queryDigest
+        });
+        if (cached && !input.forceRefresh && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
+          return okEnvelope("docs.fetch", {
+            schemaVersion: "archcontext.external-docs-fetch/v1",
+            provider: "context7",
+            cacheStatus: "fresh",
+            resource: { ...cached.resource, cacheStatus: "fresh" },
+            request: { libraryId: input.libraryId, version: pinned.version, queryDigest, intent: input.intent }
+          } as unknown as Json);
+        }
+        const result = await this.manualExternalDocumentation().fetch({
+          provider: "context7",
+          libraryId: input.libraryId,
+          version: pinned.version,
+          intent: input.intent,
+          ...(input.query ? { query: input.query } : {}),
+          forceRefresh: input.forceRefresh
+        } satisfies ExternalDocumentationFetchInput);
+        const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
+        await this.localStore.saveExternalDocumentation({
+          provider: "context7",
+          libraryId: input.libraryId,
+          version: pinned.version,
+          queryDigest,
+          contentDigest: resource.contentDigest,
+          resource,
+          retrievedAt: resource.retrievedAt,
+          expiresAt: resource.expiresAt
+        } satisfies ExternalDocumentationCacheEntry);
+        return okEnvelope("docs.fetch", {
+          ...result,
+          cacheStatus: "miss",
+          request: { ...result.request, queryDigest },
+          resource
+        } as unknown as Json);
+      }
+      if (input.command === "purge") {
+        const purged = await this.localStore.purgeExternalDocumentation({
+          provider: "context7",
+          ...(input.libraryId ? { libraryId: input.libraryId } : {}),
+          all: input.all
+        });
+        return okEnvelope("docs.purge", {
+          schemaVersion: "archcontext.external-docs-purge/v1",
+          purged
+        } as unknown as Json);
+      }
+      return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+    } catch (error) {
+      return errorEnvelope(`docs.${input.command}`, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async planUpdate(root: string, input: {
     id: string;
     operations: ChangeOperation[];
@@ -714,6 +872,15 @@ export class ArchctxDaemon {
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
+  }
+
+  private manualExternalDocumentation(): ExternalDocumentationPort {
+    if (this.externalDocumentationInjected) return this.externalDocumentation;
+    return new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      mode: "manual",
+      clock: this.clock
+    });
   }
 
   async applyUpdate(root: string, input: {
@@ -1578,6 +1745,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("checkpoint", [root, input]);
   }
 
+  docs(root: string, input: RuntimeDocsInput) {
+    return this.call("docs", [root, input]);
+  }
+
   practices(root: string, input: PracticeCatalogCommandInput) {
     return this.call("practices", [root, input]);
   }
@@ -1827,6 +1998,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined, params[4] as string | undefined);
       case "checkpoint":
         return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
+      case "docs":
+        return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
       case "practices":
         return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
       case "practiceWaivers":
@@ -2131,6 +2304,42 @@ function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiv
   return candidate;
 }
 
+function readContext7Lockfile(root: string): Context7LockfileV1 {
+  const path = resolve(root, CONTEXT7_LOCKFILE);
+  if (!existsSync(path)) {
+    return {
+      schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
+      provider: "context7",
+      libraries: []
+    };
+  }
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as Context7LockfileV1;
+  if (parsed.schemaVersion !== CONTEXT7_LOCKFILE_SCHEMA_VERSION || parsed.provider !== "context7" || !Array.isArray(parsed.libraries)) {
+    throw new Error("Invalid Context7 lockfile");
+  }
+  for (const library of parsed.libraries) {
+    assertContext7LibraryId(library.libraryId);
+    assertContext7Version(library.version);
+  }
+  return {
+    ...parsed,
+    libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+  };
+}
+
+function upsertContext7Pin(lock: Context7LockfileV1, pin: Context7LibraryPinV1): Context7LockfileV1 {
+  return {
+    schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
+    provider: "context7",
+    libraries: [...lock.libraries.filter((library) => library.libraryId !== pin.libraryId), pin]
+      .sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+  };
+}
+
+function writeContext7Lockfile(root: string, lock: Context7LockfileV1): void {
+  writePrivateJson(resolve(root, CONTEXT7_LOCKFILE), lock);
+}
+
 function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {
   writePrivateJson(manifest.manifestPath, manifest);
 }
@@ -2210,7 +2419,8 @@ function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMod
       codeGraphProviderFactory: deps.codeGraphProviderFactory ? "injected" : "codegraph-cli",
       modelStore: deps.modelStore ? "injected" : "yaml",
       localStore: deps.localStore ? "injected" : "sqlite",
-      changeSetEngine: deps.changeSetEngine ? "injected" : "default"
+      changeSetEngine: deps.changeSetEngine ? "injected" : "default",
+      externalDocumentation: deps.externalDocumentation ? "injected" : "context7"
     },
     localStorePath: deps.localStorePath,
     blockedProductionInjections: blocked
@@ -2224,6 +2434,7 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
     "modelStore",
     "localStore",
     "changeSetEngine",
+    "externalDocumentation",
     "clock"
   ].filter((key) => key in deps);
 }

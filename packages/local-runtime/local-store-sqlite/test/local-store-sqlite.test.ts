@@ -27,10 +27,12 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0001_runtime_state",
       "0002_indexes",
       "0003_landscape_state",
-      "0004_changeset_journal"
+      "0004_changeset_journal",
+      "0005_external_docs_cache"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("external_docs_cache"))).toBe(true);
     expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
   });
 
@@ -281,7 +283,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("in-memory store follows snapshot and task state contracts", async () => {
     const store = new TestLocalStore();
     await store.migrate();
-    expect([...store.migrations]).toEqual(["0001_runtime_state", "0002_indexes", "0003_landscape_state", "0004_changeset_journal"]);
+    expect([...store.migrations]).toEqual([
+      "0001_runtime_state",
+      "0002_indexes",
+      "0003_landscape_state",
+      "0004_changeset_journal",
+      "0005_external_docs_cache"
+    ]);
 
     const snapshot = {
       repositoryId: "repo.test",
@@ -520,6 +528,71 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
 
       await expect(store.rebuildDerivedLandscapeState({ root })).rejects.toThrow("missing relations relation.web-calls-api");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("external docs cache is keyed by provider library version and query digest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-external-docs-cache-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const entry = {
+        provider: "context7" as const,
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        queryDigest: `sha256:${"1".repeat(64)}`,
+        contentDigest: `sha256:${"2".repeat(64)}`,
+        retrievedAt: "2026-06-24T00:00:00.000Z",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+        resource: {
+          schemaVersion: "archcontext.external-document/v1" as const,
+          provider: "context7" as const,
+          libraryId: "/facebook/react",
+          requestedVersion: "18.2.0",
+          resolvedVersion: "18.2.0",
+          queryDigest: `sha256:${"1".repeat(64)}`,
+          contentDigest: `sha256:${"2".repeat(64)}`,
+          retrievedAt: "2026-06-24T00:00:00.000Z",
+          expiresAt: "2026-07-24T00:00:00.000Z",
+          trust: "external-unverified" as const,
+          enforcement: "advisory-only" as const,
+          cacheStatus: "fresh" as const,
+          uri: `archcontext://external-docs/context7/sha256:${"2".repeat(64)}`,
+          byteCount: 34,
+          snippets: [{
+            title: "React docs",
+            contentPreview: "External documentation data only.",
+            contentDigest: `sha256:${"2".repeat(64)}`,
+            sourceUri: "https://react.dev/reference/react",
+            byteCount: 34
+          }],
+          warning: "untrusted-documentation-data" as const
+        }
+      };
+
+      await store.saveExternalDocumentation(entry);
+      await expect(store.readExternalDocumentation({
+        provider: "context7",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        queryDigest: `sha256:${"1".repeat(64)}`
+      })).resolves.toMatchObject({
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        resource: { enforcement: "advisory-only" }
+      });
+      expect(await store.readExternalDocumentation({
+        provider: "context7",
+        libraryId: "/facebook/react",
+        version: "latest",
+        queryDigest: `sha256:${"1".repeat(64)}`
+      })).toBeUndefined();
+      expect(await store.listExternalDocumentation("context7")).toHaveLength(1);
+      expect(await store.purgeExternalDocumentation({ provider: "context7", libraryId: "/facebook/react" })).toBe(1);
+      expect(await store.listExternalDocumentation("context7")).toHaveLength(0);
+    } finally {
+      store.close();
       rmSync(root, { recursive: true, force: true });
     }
   });

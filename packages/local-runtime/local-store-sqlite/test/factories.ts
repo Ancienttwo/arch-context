@@ -1,6 +1,6 @@
 import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
-import type { RepositorySnapshot } from "@archcontext/contracts";
+import type { ExternalDocumentationCacheEntry, ExternalDocumentationProvider, RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -11,6 +11,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly reviews = new Map<string, unknown>();
   readonly landscapes = new Map<string, Landscape>();
   readonly crossRepoEdges = new Map<string, CrossRepoRelation>();
+  readonly externalDocumentation = new Map<string, ExternalDocumentationCacheEntry>();
   readonly changeSetJournals = new Map<string, { root: string; draft: ChangeSetDraft; files: ChangeSetJournalFile[]; status: "pending" | "committed" | "aborted" | "recovered"; reason?: string }>();
 
   async migrate(): Promise<void> {
@@ -117,6 +118,39 @@ export class TestLocalStore implements RuntimeLocalStore {
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  async saveExternalDocumentation(entry: ExternalDocumentationCacheEntry): Promise<void> {
+    this.externalDocumentation.set(externalDocumentationKey(entry), entry);
+  }
+
+  async readExternalDocumentation(input: {
+    provider: ExternalDocumentationProvider;
+    libraryId: string;
+    version: string;
+    queryDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined> {
+    return this.externalDocumentation.get(externalDocumentationKey(input));
+  }
+
+  async listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]> {
+    return [...this.externalDocumentation.values()]
+      .filter((entry) => !provider || entry.provider === provider)
+      .sort((a, b) => b.retrievedAt.localeCompare(a.retrievedAt) || a.libraryId.localeCompare(b.libraryId));
+  }
+
+  async purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number> {
+    let purged = 0;
+    for (const [key, entry] of [...this.externalDocumentation.entries()]) {
+      const matches = input.all
+        || (input.provider && input.libraryId && entry.provider === input.provider && entry.libraryId === input.libraryId)
+        || (input.provider && !input.libraryId && entry.provider === input.provider);
+      if (matches) {
+        this.externalDocumentation.delete(key);
+        purged += 1;
+      }
+    }
+    return purged;
+  }
+
   clearDerivedLandscapeState(): void {
     this.landscapes.clear();
     this.crossRepoEdges.clear();
@@ -127,4 +161,13 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   close(): void {}
+}
+
+function externalDocumentationKey(input: {
+  provider: ExternalDocumentationProvider;
+  libraryId: string;
+  version: string;
+  queryDigest: string;
+}): string {
+  return [input.provider, input.libraryId, input.version, input.queryDigest].join("\0");
 }

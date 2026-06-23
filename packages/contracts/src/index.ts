@@ -1,4 +1,5 @@
 export * from "./control-plane-routes";
+export * from "./external-docs";
 export * from "./github-governance";
 export * from "./ports";
 export * from "./practices";
