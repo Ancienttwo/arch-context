@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, realpathSync, renameSync, rmSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   LANDSCAPE_FILE,
   landscapeDigest,
@@ -130,8 +132,118 @@ export function assertNoSourceStorageSchema(sql: string[]): void {
   }
 }
 
+export const ARCHCONTEXT_STATE_DIR_ENV = "ARCHCONTEXT_STATE_DIR";
+export const ARCHCONTEXT_LOCAL_STORE_PATH_ENV = "ARCHCONTEXT_LOCAL_STORE_PATH";
+
+export interface RuntimeStatePaths {
+  schemaVersion: "archcontext.runtime-state-paths/v1";
+  stateRoot: string;
+  source: "os-user-data" | "environment";
+  repositoryRoot: string;
+  repositoryAnchor: string;
+  workspaceAnchor: string;
+  storageRepositoryId: string;
+  storageWorkspaceId: string;
+  /** @deprecated Use storageRepositoryId for runtime-state storage partition identity. */
+  repositoryId: string;
+  /** @deprecated Use storageWorkspaceId for runtime-state storage partition identity. */
+  workspaceId: string;
+  repositoryStateDir: string;
+  workspaceStateDir: string;
+  sharedCacheDir: string;
+  localStorePath: string;
+  daemonConnectionPath: string;
+  daemonLockPath: string;
+  daemonLogPath: string;
+  developerReviewRunStateDir: string;
+  legacyControlDir: string;
+  legacyLocalStorePath: string;
+}
+
+export interface LegacyLocalStoreMigration {
+  schemaVersion: "archcontext.legacy-local-store-migration/v1";
+  migrated: boolean;
+  skippedReason?: "explicit-local-store-override" | "target-exists" | "legacy-missing";
+  legacyLocalStorePath: string;
+  targetLocalStorePath: string;
+  copiedFiles: string[];
+}
+
+export function defaultArchContextStateRoot(
+  env: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform,
+  home = homedir()
+): { path: string; source: "os-user-data" | "environment" } {
+  const override = env[ARCHCONTEXT_STATE_DIR_ENV];
+  if (override) return { path: resolve(override), source: "environment" };
+  if (platform === "darwin") return { path: join(home, "Library", "Application Support", "ArchContext"), source: "os-user-data" };
+  if (platform === "win32") return { path: join(env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "ArchContext"), source: "os-user-data" };
+  return { path: join(env.XDG_DATA_HOME ?? join(home, ".local", "share"), "archcontext"), source: "os-user-data" };
+}
+
+export function runtimeStatePaths(root = process.cwd(), env: Record<string, string | undefined> = process.env): RuntimeStatePaths {
+  const repositoryRoot = readGitPath(root, ["rev-parse", "--show-toplevel"]) ?? root;
+  const canonicalRepositoryRoot = canonicalPath(repositoryRoot);
+  const gitCommonDir = readGitPath(canonicalRepositoryRoot, ["rev-parse", "--git-common-dir"]);
+  const repositoryAnchor = canonicalPath(gitCommonDir ? resolveMaybeRelative(canonicalRepositoryRoot, gitCommonDir) : canonicalRepositoryRoot);
+  const workspaceAnchor = canonicalRepositoryRoot;
+  const storageRepositoryId = stableStorageId("repo", repositoryAnchor);
+  const storageWorkspaceId = stableStorageId("ws", workspaceAnchor);
+  const stateRoot = defaultArchContextStateRoot(env);
+  const repositoryStateDir = join(stateRoot.path, "repositories", storageRepositoryId);
+  const workspaceStateDir = join(repositoryStateDir, "worktrees", storageWorkspaceId);
+  const legacyControlDir = resolve(canonicalRepositoryRoot, ".archcontext", ".local");
+  return {
+    schemaVersion: "archcontext.runtime-state-paths/v1",
+    stateRoot: stateRoot.path,
+    source: stateRoot.source,
+    repositoryRoot: canonicalRepositoryRoot,
+    repositoryAnchor,
+    workspaceAnchor,
+    storageRepositoryId,
+    storageWorkspaceId,
+    repositoryId: storageRepositoryId,
+    workspaceId: storageWorkspaceId,
+    repositoryStateDir,
+    workspaceStateDir,
+    sharedCacheDir: join(repositoryStateDir, "shared", "cache"),
+    localStorePath: env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV] ?? join(workspaceStateDir, "runtime.sqlite"),
+    daemonConnectionPath: join(workspaceStateDir, "archctxd.json"),
+    daemonLockPath: join(workspaceStateDir, "archctxd.lock"),
+    daemonLogPath: join(workspaceStateDir, "archctxd.log"),
+    developerReviewRunStateDir: join(workspaceStateDir, "developer-review-runs"),
+    legacyControlDir,
+    legacyLocalStorePath: join(legacyControlDir, "runtime.sqlite")
+  };
+}
+
 export function defaultLocalStorePath(root = process.cwd()): string {
-  return process.env.ARCHCONTEXT_LOCAL_STORE_PATH ?? resolve(root, ".archcontext/.local/runtime.sqlite");
+  return runtimeStatePaths(root).localStorePath;
+}
+
+export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Record<string, string | undefined> = process.env): LegacyLocalStoreMigration {
+  const paths = runtimeStatePaths(root, env);
+  if (env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV]) {
+    return legacyMigrationResult(false, "explicit-local-store-override", paths, []);
+  }
+  if (existsSync(paths.localStorePath)) {
+    return legacyMigrationResult(false, "target-exists", paths, []);
+  }
+  if (!existsSync(paths.legacyLocalStorePath)) {
+    return legacyMigrationResult(false, "legacy-missing", paths, []);
+  }
+
+  ensurePrivateDir(dirname(paths.localStorePath));
+  const copiedFiles: string[] = [];
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const source = `${paths.legacyLocalStorePath}${suffix}`;
+    if (!existsSync(source)) continue;
+    const target = `${paths.localStorePath}${suffix}`;
+    copyFileSync(source, target);
+    makePrivateFile(target);
+    copiedFiles.push(target);
+  }
+  return legacyMigrationResult(copiedFiles.length > 0, undefined, paths, copiedFiles);
 }
 
 export interface LandscapeRebuildInput {
@@ -419,7 +531,7 @@ export async function rebuildDerivedLandscapeState(store: RuntimeLocalStore, inp
 }
 
 async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase> {
-  if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
+  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
   try {
     const nodeSqlite = await import("node:sqlite");
     const db = new (nodeSqlite as any).DatabaseSync(databasePath);
@@ -437,6 +549,73 @@ async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase>
       close: () => db.close()
     };
   }
+}
+
+function legacyMigrationResult(
+  migrated: boolean,
+  skippedReason: LegacyLocalStoreMigration["skippedReason"],
+  paths: RuntimeStatePaths,
+  copiedFiles: string[]
+): LegacyLocalStoreMigration {
+  return {
+    schemaVersion: "archcontext.legacy-local-store-migration/v1",
+    migrated,
+    skippedReason,
+    legacyLocalStorePath: paths.legacyLocalStorePath,
+    targetLocalStorePath: paths.localStorePath,
+    copiedFiles
+  };
+}
+
+function ensurePrivateDir(path: string): void {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    try {
+      chmodSync(path, 0o700);
+    } catch {
+      // Best-effort hardening; permission diagnostics report the final state.
+    }
+  }
+}
+
+function makePrivateFile(path: string): void {
+  if (process.platform !== "win32") {
+    try {
+      chmodSync(path, 0o600);
+    } catch {
+      // Best-effort hardening; permission diagnostics report the final state.
+    }
+  }
+}
+
+function readGitPath(root: string, args: string[]): string | undefined {
+  try {
+    const value = execFileSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return value.length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveMaybeRelative(base: string, path: string): string {
+  return isAbsolute(path) ? resolve(path) : resolve(base, path);
+}
+
+function canonicalPath(path: string): string {
+  const resolved = resolve(path);
+  try {
+    return realpathSync.native(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+function stableStorageId(prefix: "repo" | "ws", value: string): string {
+  return `${prefix}.${createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
 }
 
 function stableJson(value: unknown): string {

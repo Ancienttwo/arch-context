@@ -52,3 +52,4 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0034 | One-package Local Product Distribution |
 | ADR-0035 | GitHub Governance Privacy Contract |
 | ADR-0036 | Deterministic Gate, LLM Advisory |
+| ADR-0037 | Runtime State Placement and Identity |

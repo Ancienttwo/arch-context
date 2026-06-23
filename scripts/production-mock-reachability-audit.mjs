@@ -194,9 +194,11 @@ function runRuntimeProductionAssertion() {
     import { join } from "node:path";
     import { createStartedProductionDaemon, assertProductionRuntimeDeps } from "@archcontext/local-runtime/runtime-daemon";
     const root = mkdtempSync(join(tmpdir(), "archctx-production-runtime-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-production-state-"));
+    process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
     let daemon;
     try {
-      daemon = await createStartedProductionDaemon({ root, localStorePath: join(root, ".archcontext", "runtime.sqlite") });
+      daemon = await createStartedProductionDaemon({ root });
       const report = daemon.compositionReport();
       if (report.mode !== "production") throw new Error("expected production composition mode");
       if (report.productionSafe !== true) throw new Error("expected productionSafe=true");
@@ -224,6 +226,7 @@ function runRuntimeProductionAssertion() {
     } finally {
       if (daemon) await daemon.stop();
       rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
     }
   `;
   const result = spawnSync("bun", ["--eval", source], {

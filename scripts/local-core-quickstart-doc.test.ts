@@ -21,6 +21,7 @@ describe("local core quickstart runbook", () => {
       "bun install",
       "node scripts/packaged-cli-smoke.mjs",
       "archctx doctor",
+      "archctx paths",
       "archctx init --name",
       "archctx sync",
       "archctx prepare --task",

@@ -10,6 +10,7 @@ import {
   largeRepoPerfEstimate,
   launchGateReport,
   localEgressStatus,
+  PLATFORM_STATE_PATHS,
   secretScan,
   secureDefaults,
   sprint2LaunchGateReport,
@@ -43,6 +44,11 @@ describe("@archcontext/cloud/hardening", () => {
         configuredValue: "0",
         source: "environment"
       }
+    });
+    expect(PLATFORM_STATE_PATHS).toEqual({
+      darwin: "~/Library/Application Support/ArchContext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>",
+      linux: "~/.local/share/archcontext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>",
+      win32: "%LOCALAPPDATA%/ArchContext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>"
     });
   });
 

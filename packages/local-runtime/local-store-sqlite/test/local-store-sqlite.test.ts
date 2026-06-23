@@ -8,7 +8,9 @@ import {
   SQLITE_PRAGMAS,
   SqliteLocalStore,
   assertNoSourceStorageSchema,
-  migrationSql
+  migrateLegacyLocalStoreIfNeeded,
+  migrationSql,
+  runtimeStatePaths
 } from "../src/index";
 import { TestLocalStore } from "./factories";
 
@@ -33,6 +35,49 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "source_code"
     );
     expect(() => assertNoSourceStorageSchema(["CREATE TABLE bad (diff_body TEXT NOT NULL)"])).toThrow("diff_body");
+  });
+
+  test("runtime state paths use an OS/user-data root partitioned by repository and worktree", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-paths-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-root-"));
+    try {
+      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(paths.source).toBe("environment");
+      expect(paths.stateRoot).toBe(stateRoot);
+      expect(paths.storageRepositoryId).toMatch(/^repo\.[0-9a-f]{16}$/);
+      expect(paths.storageWorkspaceId).toMatch(/^ws\.[0-9a-f]{16}$/);
+      expect(paths.repositoryId).toMatch(/^repo\.[0-9a-f]{16}$/);
+      expect(paths.workspaceId).toMatch(/^ws\.[0-9a-f]{16}$/);
+      expect(paths.repositoryId).toBe(paths.storageRepositoryId);
+      expect(paths.workspaceId).toBe(paths.storageWorkspaceId);
+      expect(paths.localStorePath).toBe(join(paths.workspaceStateDir, "runtime.sqlite"));
+      expect(paths.daemonConnectionPath).toBe(join(paths.workspaceStateDir, "archctxd.json"));
+      expect(paths.legacyLocalStorePath).toBe(join(paths.repositoryRoot, ".archcontext", ".local", "runtime.sqlite"));
+      expect(paths.localStorePath.startsWith(root)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("legacy repo-local sqlite files can be copied into the runtime state partition", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-migration-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-migration-root-"));
+    try {
+      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      mkdirSync(dirname(paths.legacyLocalStorePath), { recursive: true });
+      writeFileSync(paths.legacyLocalStorePath, "legacy sqlite", "utf8");
+      writeFileSync(`${paths.legacyLocalStorePath}-wal`, "legacy wal", "utf8");
+
+      const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(migration.migrated).toBe(true);
+      expect(migration.copiedFiles).toEqual([paths.localStorePath, `${paths.localStorePath}-wal`]);
+      expect(readFileSync(paths.localStorePath, "utf8")).toBe("legacy sqlite");
+      expect(readFileSync(`${paths.localStorePath}-wal`, "utf8")).toBe("legacy wal");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
   });
 
   test("in-memory store follows snapshot and task state contracts", async () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -15,11 +15,21 @@ if (!existsSync(archctxBin)) {
 }
 
 const repo = mkdtempSync(join(tmpdir(), "archctx-packaged-cli-"));
-const connectionPath = join(repo, ".archcontext", ".local", "archctxd.json");
-const lockPath = join(repo, ".archcontext", ".local", "archctxd.lock");
+const stateRoot = mkdtempSync(join(tmpdir(), "archctx-packaged-state-"));
 
 try {
   writeFileSync(join(repo, "README.md"), "# packaged cli smoke\n", "utf8");
+  const canonicalRepo = realpathSync.native(repo);
+
+  const paths = await runArchctx("paths");
+  assert(paths.ok === true, "paths must succeed through packaged bin");
+  assert(paths.data?.repositoryTruthDir === join(canonicalRepo, ".archcontext"), "paths must report repository architecture truth");
+  assert(/^repo\.[0-9a-f]{16}$/.test(String(paths.data?.storageRepositoryId)), "paths must report storage repository identity");
+  assert(/^ws\.[0-9a-f]{16}$/.test(String(paths.data?.storageWorkspaceId)), "paths must report storage workspace identity");
+  assert(!String(paths.data?.localStorePath).startsWith(canonicalRepo), "runtime sqlite path must not be inside the repository by default");
+  assert(paths.data?.npmGlobalInstallState === "forbidden", "runtime state must not be stored in npm global install directories");
+  const connectionPath = paths.data.daemonConnectionPath;
+  const lockPath = paths.data.daemonLockPath;
 
   const started = await runArchctx("daemon", "start");
   assert(started.ok === true, "daemon start must succeed");
@@ -166,6 +176,7 @@ try {
 } finally {
   await runArchctx("daemon", "stop").catch(() => undefined);
   rmSync(repo, { recursive: true, force: true });
+  rmSync(stateRoot, { recursive: true, force: true });
 }
 
 function runArchctx(...args) {
@@ -174,6 +185,7 @@ function runArchctx(...args) {
       cwd: repo,
       env: {
         ...process.env,
+        ARCHCONTEXT_STATE_DIR: stateRoot,
         PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`
       }
     });
@@ -217,6 +229,7 @@ function runArchctxMcp(message) {
       cwd: repo,
       env: {
         ...process.env,
+        ARCHCONTEXT_STATE_DIR: stateRoot,
         PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`
       }
     });

@@ -32,10 +32,11 @@ Run from an ordinary Git repository:
 cd /path/to/your/repo
 
 archctx doctor
+archctx paths
 archctx init
 archctx sync
-archctx context
-archctx prepare
+archctx context --task "first local context smoke"
+archctx prepare --task "first local context smoke"
 archctx status
 ```
 

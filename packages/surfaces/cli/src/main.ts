@@ -5,10 +5,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
-import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { checkpoint } from "@archcontext/core/application";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
@@ -320,6 +320,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       };
     case "doctor":
       return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "doctor", data: await doctorReport(cwd) };
+    case "paths":
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "paths", data: runtimePathsReport(cwd) };
     case "privacy-audit":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -369,8 +371,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx paths", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -959,6 +961,7 @@ function agentHostRemoveConfig(host: AgentHost) {
 
 async function doctorReport(cwd: string) {
   const product = productVersionManifest();
+  const paths = runtimePathsReport(cwd);
   const daemon = await doctorDaemon(cwd);
   const git = doctorGit(cwd);
   const sqlite = doctorSqlite(cwd);
@@ -976,6 +979,7 @@ async function doctorReport(cwd: string) {
     },
     daemon,
     sqlite,
+    paths,
     codeGraph: product.runtime.codeGraph,
     git,
     permissions,
@@ -1024,20 +1028,41 @@ function doctorGit(cwd: string) {
 }
 
 function doctorSqlite(cwd: string) {
-  const path = defaultLocalStorePath(cwd);
+  const paths = runtimeStatePaths(cwd);
+  const path = paths.localStorePath;
   return {
     path,
     exists: existsSync(path),
-    migrations: productVersionManifest().runtime.sqliteMigrations
+    migrations: productVersionManifest().runtime.sqliteMigrations,
+    legacyPath: paths.legacyLocalStorePath,
+    legacyExists: existsSync(paths.legacyLocalStorePath)
   };
 }
 
 function doctorPermissions(cwd: string) {
+  const paths = runtimeStatePaths(cwd);
   const controlDir = dirname(defaultDaemonConnectionPath(cwd));
   return {
     workspace: pathAccess(cwd),
+    stateRoot: pathAccess(paths.stateRoot),
+    runtimeStateDir: pathAccess(paths.workspaceStateDir),
     controlDir: pathAccess(controlDir),
     sqlite: pathAccess(defaultLocalStorePath(cwd))
+  };
+}
+
+function runtimePathsReport(cwd: string) {
+  const paths = runtimeStatePaths(cwd);
+  return {
+    ...paths,
+    runtimeRepositoryId: repositoryFingerprint(paths.repositoryRoot),
+    repositoryTruthDir: join(paths.repositoryRoot, ".archcontext"),
+    codeGraphIndexDir: join(paths.repositoryRoot, ".codegraph"),
+    npmGlobalInstallState: "forbidden",
+    overrides: {
+      stateRootEnv: "ARCHCONTEXT_STATE_DIR",
+      localStorePathEnv: "ARCHCONTEXT_LOCAL_STORE_PATH"
+    }
   };
 }
 
@@ -1104,6 +1129,7 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
     githubReviewSubmissionPort: _githubReviewSubmissionPort,
     ...runtimeDeps
   } = deps;
+  if (!runtimeDeps.localStorePath) migrateLegacyLocalStoreIfNeeded(cwd);
   const daemon = await createStartedDaemon({
     localStorePath: defaultLocalStorePath(cwd),
     ...runtimeDeps,
@@ -1388,7 +1414,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {
-  const daemon = await createStartedProductionDaemon({ root: cwd, localStorePath: defaultLocalStorePath(cwd) });
+  const daemon = await createStartedProductionDaemon({ root: cwd });
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => {
     resolveStopped = resolve;
