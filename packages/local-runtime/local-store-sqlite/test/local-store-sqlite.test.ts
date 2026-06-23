@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -60,20 +61,122 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
-  test("legacy repo-local sqlite files can be copied into the runtime state partition", () => {
+  test("runtime state paths use Git common-dir for linked worktrees and worktree root for workspace identity", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "archctx-state-git-worktrees-"));
+    const repo = join(workspace, "repo");
+    const linked = join(workspace, "repo-linked");
+    const stateRoot = join(workspace, "state");
+    try {
+      createCommittedGitRepo(repo);
+      git(repo, "worktree", "add", "-b", "linked-fixture", linked);
+
+      const primary = runtimeStatePaths(repo, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      const linkedPaths = runtimeStatePaths(linked, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(primary.storageRepositoryId).toBe(linkedPaths.storageRepositoryId);
+      expect(primary.repositoryAnchor).toBe(linkedPaths.repositoryAnchor);
+      expect(primary.storageWorkspaceId).not.toBe(linkedPaths.storageWorkspaceId);
+      expect(primary.workspaceStateDir).not.toBe(linkedPaths.workspaceStateDir);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime state paths collapse monorepo subdirectories and isolate sibling repositories", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "archctx-state-git-roots-"));
+    const repo = join(workspace, "repo");
+    const sibling = join(workspace, "sibling");
+    const stateRoot = join(workspace, "state");
+    try {
+      createCommittedGitRepo(repo);
+      mkdirSync(join(repo, "packages", "web"), { recursive: true });
+      createCommittedGitRepo(sibling);
+
+      const rootPaths = runtimeStatePaths(repo, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      const subdirPaths = runtimeStatePaths(join(repo, "packages", "web"), { ARCHCONTEXT_STATE_DIR: stateRoot });
+      const siblingPaths = runtimeStatePaths(sibling, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(subdirPaths.repositoryRoot).toBe(rootPaths.repositoryRoot);
+      expect(subdirPaths.storageRepositoryId).toBe(rootPaths.storageRepositoryId);
+      expect(subdirPaths.storageWorkspaceId).toBe(rootPaths.storageWorkspaceId);
+      expect(siblingPaths.storageRepositoryId).not.toBe(rootPaths.storageRepositoryId);
+      expect(siblingPaths.workspaceStateDir).not.toBe(rootPaths.workspaceStateDir);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("legacy repo-local SQLite WAL database migrates through staging into the runtime state partition", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-state-migration-repo-"));
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-migration-root-"));
     try {
       const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      mkdirSync(dirname(paths.legacyLocalStorePath), { recursive: true });
-      writeFileSync(paths.legacyLocalStorePath, "legacy sqlite", "utf8");
-      writeFileSync(`${paths.legacyLocalStorePath}-wal`, "legacy wal", "utf8");
+      await writeTaskState(paths.legacyLocalStorePath, "task_legacy", { migrated: true });
 
       const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
       expect(migration.migrated).toBe(true);
-      expect(migration.copiedFiles).toEqual([paths.localStorePath, `${paths.localStorePath}-wal`]);
-      expect(readFileSync(paths.localStorePath, "utf8")).toBe("legacy sqlite");
-      expect(readFileSync(`${paths.localStorePath}-wal`, "utf8")).toBe("legacy wal");
+      expect(migration.status).toBe("migrated");
+      expect(migration.integrityCheck).toMatchObject({ legacy: "ok", staging: "ok", target: "ok" });
+      expect(migration.copiedFiles).toEqual([paths.localStorePath]);
+      expect(existsSync(migration.markerPath)).toBe(true);
+      await expectTaskState(paths.localStorePath, "task_legacy", { migrated: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("partial invalid target is quarantined and migration retries from legacy SQLite", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-partial-target-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-partial-target-root-"));
+    try {
+      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      await writeTaskState(paths.legacyLocalStorePath, "task_legacy", { recovered: true });
+      mkdirSync(dirname(paths.localStorePath), { recursive: true });
+      writeFileSync(paths.localStorePath, "partial sqlite target", "utf8");
+
+      const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(migration.migrated).toBe(true);
+      expect(migration.status).toBe("target-quarantined-and-migrated");
+      expect(migration.quarantinedFiles).toHaveLength(1);
+      expect(existsSync(migration.quarantinedFiles[0]!)).toBe(true);
+      await expectTaskState(paths.localStorePath, "task_legacy", { recovered: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("valid existing target is not overwritten by stale legacy SQLite", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-root-"));
+    try {
+      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      await writeTaskState(paths.legacyLocalStorePath, "task_state", { source: "legacy" });
+      await writeTaskState(paths.localStorePath, "task_state", { source: "target" });
+
+      const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      expect(migration.migrated).toBe(false);
+      expect(migration.status).toBe("target-current");
+      expect(migration.skippedReason).toBe("target-exists");
+      expect(migration.quarantinedFiles).toEqual([]);
+      await expectTaskState(paths.localStorePath, "task_state", { source: "target" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("invalid legacy SQLite fails without publishing an empty target", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-invalid-legacy-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-invalid-legacy-root-"));
+    try {
+      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      mkdirSync(dirname(paths.legacyLocalStorePath), { recursive: true });
+      writeFileSync(paths.legacyLocalStorePath, "not sqlite", "utf8");
+
+      expect(() => migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot })).toThrow(
+        "ArchContext legacy SQLite migration failed"
+      );
+      expect(existsSync(paths.localStorePath)).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(stateRoot, { recursive: true, force: true });
@@ -326,6 +429,32 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 });
+
+async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
+  const store = new SqliteLocalStore(databasePath);
+  await store.migrate();
+  await store.saveTaskState(taskSessionId, state);
+  store.close();
+}
+
+async function expectTaskState(databasePath: string, taskSessionId: string, expected: unknown): Promise<void> {
+  const store = new SqliteLocalStore(databasePath);
+  await store.migrate();
+  expect(await store.readTaskState(taskSessionId)).toEqual(expected);
+  store.close();
+}
+
+function createCommittedGitRepo(root: string): void {
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
+  git(root, "init");
+  git(root, "add", ".");
+  git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
+}
+
+function git(root: string, ...args: string[]): void {
+  execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
 
 function writeRepoFile(root: string, path: string, body: string): void {
   const absolute = join(root, path);

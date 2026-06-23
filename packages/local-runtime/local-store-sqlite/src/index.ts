@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, realpathSync, renameSync, rmSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
@@ -16,6 +17,11 @@ import {
 } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
 import type { LocalStorePort, RepositorySnapshot } from "@archcontext/contracts";
+
+const runtimeRequire = createRequire(import.meta.url);
+const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
+const LEGACY_MIGRATION_MARKER_FILE = "runtime.sqlite.migration.json";
+const LEGACY_MIGRATION_LOCK_FILE = "runtime.sqlite.migration.lock";
 
 export const SQLITE_PRAGMAS = [
   "PRAGMA journal_mode = WAL",
@@ -160,13 +166,33 @@ export interface RuntimeStatePaths {
   legacyLocalStorePath: string;
 }
 
+export type LegacyLocalStoreMigrationStatus =
+  | "explicit-local-store-override"
+  | "legacy-missing"
+  | "pending"
+  | "legacy-invalid"
+  | "target-current"
+  | "target-incomplete"
+  | "migrated"
+  | "target-quarantined-and-migrated";
+
 export interface LegacyLocalStoreMigration {
   schemaVersion: "archcontext.legacy-local-store-migration/v1";
+  status: LegacyLocalStoreMigrationStatus;
   migrated: boolean;
   skippedReason?: "explicit-local-store-override" | "target-exists" | "legacy-missing";
   legacyLocalStorePath: string;
   targetLocalStorePath: string;
+  markerPath: string;
+  lockPath: string;
+  integrityCheck: {
+    legacy?: string;
+    target?: string;
+    staging?: string;
+    error?: string;
+  };
   copiedFiles: string[];
+  quarantinedFiles: string[];
 }
 
 export function defaultArchContextStateRoot(
@@ -221,29 +247,97 @@ export function defaultLocalStorePath(root = process.cwd()): string {
   return runtimeStatePaths(root).localStorePath;
 }
 
+export function inspectLegacyLocalStoreMigration(root = process.cwd(), env: Record<string, string | undefined> = process.env): LegacyLocalStoreMigration {
+  const paths = runtimeStatePaths(root, env);
+  if (env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV]) {
+    return legacyMigrationResult(false, "explicit-local-store-override", paths, [], {
+      status: "explicit-local-store-override"
+    });
+  }
+
+  const legacyExists = existsSync(paths.legacyLocalStorePath);
+  const targetExists = existsSync(paths.localStorePath);
+  if (targetExists) {
+    const target = safeSqliteIntegrityCheck(paths.localStorePath);
+    return legacyMigrationResult(false, "target-exists", paths, [], {
+      status: target.ok ? "target-current" : "target-incomplete",
+      integrityCheck: target.ok ? { target: target.result } : { target: "failed", error: target.error }
+    });
+  }
+  if (!legacyExists) {
+    return legacyMigrationResult(false, "legacy-missing", paths, [], {
+      status: "legacy-missing"
+    });
+  }
+
+  const legacy = safeSqliteIntegrityCheck(paths.legacyLocalStorePath);
+  return legacyMigrationResult(false, undefined, paths, [], {
+    status: legacy.ok ? "pending" : "legacy-invalid",
+    integrityCheck: legacy.ok ? { legacy: legacy.result } : { legacy: "failed", error: legacy.error }
+  });
+}
+
 export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Record<string, string | undefined> = process.env): LegacyLocalStoreMigration {
   const paths = runtimeStatePaths(root, env);
   if (env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV]) {
-    return legacyMigrationResult(false, "explicit-local-store-override", paths, []);
-  }
-  if (existsSync(paths.localStorePath)) {
-    return legacyMigrationResult(false, "target-exists", paths, []);
-  }
-  if (!existsSync(paths.legacyLocalStorePath)) {
-    return legacyMigrationResult(false, "legacy-missing", paths, []);
+    return legacyMigrationResult(false, "explicit-local-store-override", paths, [], {
+      status: "explicit-local-store-override"
+    });
   }
 
   ensurePrivateDir(dirname(paths.localStorePath));
-  const copiedFiles: string[] = [];
-  for (const suffix of ["", "-wal", "-shm"]) {
-    const source = `${paths.legacyLocalStorePath}${suffix}`;
-    if (!existsSync(source)) continue;
-    const target = `${paths.localStorePath}${suffix}`;
-    copyFileSync(source, target);
-    makePrivateFile(target);
-    copiedFiles.push(target);
+  const legacyExists = existsSync(paths.legacyLocalStorePath);
+  const integrityCheck: LegacyLocalStoreMigration["integrityCheck"] = {};
+  const quarantinedFiles: string[] = [];
+
+  if (existsSync(paths.localStorePath)) {
+    try {
+      integrityCheck.target = assertSqliteIntegrity(paths.localStorePath);
+      return legacyMigrationResult(false, "target-exists", paths, [], {
+        status: "target-current",
+        integrityCheck
+      });
+    } catch (error) {
+      integrityCheck.target = "failed";
+      integrityCheck.error = error instanceof Error ? error.message : String(error);
+      if (!legacyExists) {
+        throw new Error(`ArchContext runtime state target is not a valid SQLite database and no legacy store is available: ${paths.localStorePath}`);
+      }
+      quarantinedFiles.push(...quarantineExistingLocalStore(paths));
+    }
   }
-  return legacyMigrationResult(copiedFiles.length > 0, undefined, paths, copiedFiles);
+  if (!legacyExists) {
+    return legacyMigrationResult(false, "legacy-missing", paths, [], {
+      status: "legacy-missing",
+      integrityCheck
+    });
+  }
+
+  const lock = acquireLegacyMigrationLock(paths);
+  const stagingDir = join(paths.workspaceStateDir, `.runtime.sqlite.migration-${process.pid}-${randomUUID()}`);
+  const stagingPath = join(stagingDir, "runtime.sqlite");
+  try {
+    ensurePrivateDir(stagingDir);
+    integrityCheck.legacy = vacuumLegacySqliteInto(paths.legacyLocalStorePath, stagingPath);
+    makePrivateFile(stagingPath);
+    migrateSqliteDatabaseSync(stagingPath);
+    compactSqliteDatabase(stagingPath);
+    integrityCheck.staging = assertSqliteIntegrity(stagingPath);
+    publishStagedLocalStore(stagingPath, paths.localStorePath);
+    integrityCheck.target = assertSqliteIntegrity(paths.localStorePath);
+    const markerPath = writeLegacyMigrationMarker(paths, integrityCheck, quarantinedFiles);
+    return legacyMigrationResult(true, undefined, paths, [paths.localStorePath], {
+      status: quarantinedFiles.length > 0 ? "target-quarantined-and-migrated" : "migrated",
+      integrityCheck,
+      markerPath,
+      quarantinedFiles
+    });
+  } catch (error) {
+    throw new Error(`ArchContext legacy SQLite migration failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    rmSync(stagingDir, { recursive: true, force: true });
+    releaseLegacyMigrationLock(lock);
+  }
 }
 
 export interface LandscapeRebuildInput {
@@ -551,20 +645,249 @@ async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase>
   }
 }
 
+function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
+  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
+  try {
+    const nodeSqlite = runtimeRequire("node:sqlite") as any;
+    const db = new (nodeSqlite as any).DatabaseSync(databasePath);
+    return {
+      exec: (sql) => db.exec(sql),
+      prepare: (sql) => db.prepare(sql),
+      close: () => db.close()
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ERR_UNKNOWN_BUILTIN_MODULE" && (error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") {
+      throw error;
+    }
+  }
+  const bunSqlite = runtimeRequire("bun:sqlite");
+  const db = new (bunSqlite as any).Database(databasePath);
+  return {
+    exec: (sql) => db.exec(sql),
+    prepare: (sql) => db.query(sql),
+    close: () => db.close()
+  };
+}
+
 function legacyMigrationResult(
   migrated: boolean,
   skippedReason: LegacyLocalStoreMigration["skippedReason"],
   paths: RuntimeStatePaths,
-  copiedFiles: string[]
+  copiedFiles: string[],
+  details: {
+    status: LegacyLocalStoreMigrationStatus;
+    markerPath?: string;
+    integrityCheck?: LegacyLocalStoreMigration["integrityCheck"];
+    quarantinedFiles?: string[];
+  }
 ): LegacyLocalStoreMigration {
   return {
     schemaVersion: "archcontext.legacy-local-store-migration/v1",
+    status: details.status,
     migrated,
     skippedReason,
     legacyLocalStorePath: paths.legacyLocalStorePath,
     targetLocalStorePath: paths.localStorePath,
-    copiedFiles
+    markerPath: details.markerPath ?? legacyMigrationMarkerPath(paths),
+    lockPath: legacyMigrationLockPath(paths),
+    integrityCheck: details.integrityCheck ?? {},
+    copiedFiles,
+    quarantinedFiles: details.quarantinedFiles ?? []
   };
+}
+
+function safeSqliteIntegrityCheck(path: string): { ok: true; result: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, result: assertSqliteIntegrity(path) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function assertSqliteIntegrity(path: string): string {
+  const db = openSqliteDatabaseSync(path);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    const row = db.prepare("PRAGMA integrity_check").get();
+    const result = firstSqliteColumn(row);
+    if (result !== "ok") throw new Error(`SQLite integrity_check failed for ${path}: ${result}`);
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+function vacuumLegacySqliteInto(sourcePath: string, targetPath: string): string {
+  const db = openSqliteDatabaseSync(sourcePath);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const integrity = sqliteIntegrityCheckOpenDatabase(db, sourcePath);
+    db.exec(`VACUUM INTO ${sqliteStringLiteral(targetPath)}`);
+    return integrity;
+  } finally {
+    db.close();
+  }
+}
+
+function migrateSqliteDatabaseSync(databasePath: string): void {
+  const db = openSqliteDatabaseSync(databasePath);
+  try {
+    for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
+    for (const migration of LOCAL_SQLITE_MIGRATIONS) {
+      for (const statement of migration.statements) db.exec(statement);
+      db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, nowIso());
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function compactSqliteDatabase(databasePath: string): void {
+  const db = openSqliteDatabaseSync(databasePath);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    db.exec("PRAGMA journal_mode = DELETE");
+  } finally {
+    db.close();
+  }
+  for (const suffix of ["-wal", "-shm"] as const) rmSync(`${databasePath}${suffix}`, { force: true });
+}
+
+function sqliteIntegrityCheckOpenDatabase(db: SqliteDatabase, path: string): string {
+  const row = db.prepare("PRAGMA integrity_check").get();
+  const result = firstSqliteColumn(row);
+  if (result !== "ok") throw new Error(`SQLite integrity_check failed for ${path}: ${result}`);
+  return result;
+}
+
+function firstSqliteColumn(row: Record<string, unknown> | undefined): string {
+  const value = row ? Object.values(row)[0] : undefined;
+  return typeof value === "string" ? value : String(value ?? "");
+}
+
+function sqliteStringLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function publishStagedLocalStore(stagingPath: string, targetPath: string): void {
+  for (const suffix of SQLITE_SIDECAR_SUFFIXES) {
+    const path = `${targetPath}${suffix}`;
+    if (existsSync(path)) throw new Error(`Cannot publish migrated SQLite over existing target file: ${path}`);
+  }
+  renameSync(stagingPath, targetPath);
+  makePrivateFile(targetPath);
+  fsyncDirectory(dirname(targetPath));
+}
+
+function writeLegacyMigrationMarker(
+  paths: RuntimeStatePaths,
+  integrityCheck: LegacyLocalStoreMigration["integrityCheck"],
+  quarantinedFiles: string[]
+): string {
+  const markerPath = legacyMigrationMarkerPath(paths);
+  writePrivateJson(markerPath, {
+    schemaVersion: "archcontext.legacy-local-store-migration-marker/v1",
+    migratedAt: nowIso(),
+    legacyLocalStorePath: paths.legacyLocalStorePath,
+    targetLocalStorePath: paths.localStorePath,
+    integrityCheck,
+    quarantinedFiles
+  });
+  return markerPath;
+}
+
+function acquireLegacyMigrationLock(paths: RuntimeStatePaths): { fd: number; path: string } {
+  const lockPath = legacyMigrationLockPath(paths);
+  ensurePrivateDir(dirname(lockPath));
+  try {
+    const fd = openSync(lockPath, "wx", 0o600);
+    writeFileSync(fd, JSON.stringify({
+      schemaVersion: "archcontext.legacy-local-store-migration-lock/v1",
+      pid: process.pid,
+      root: paths.repositoryRoot,
+      targetLocalStorePath: paths.localStorePath,
+      startedAt: nowIso()
+    }, null, 2), "utf8");
+    fsyncSync(fd);
+    return { fd, path: lockPath };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EEXIST" && isStaleMigrationLock(lockPath)) {
+      rmSync(lockPath, { force: true });
+      return acquireLegacyMigrationLock(paths);
+    }
+    if (code === "EEXIST") throw new Error(`Legacy SQLite migration already in progress; lock=${lockPath}`);
+    throw error;
+  }
+}
+
+function releaseLegacyMigrationLock(lock: { fd: number; path: string }): void {
+  closeSync(lock.fd);
+  rmSync(lock.path, { force: true });
+}
+
+function isStaleMigrationLock(lockPath: string): boolean {
+  try {
+    const parsed = JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: number };
+    if (typeof parsed.pid !== "number" || parsed.pid <= 0) return true;
+    return !isProcessAlive(parsed.pid);
+  } catch {
+    return true;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function quarantineExistingLocalStore(paths: RuntimeStatePaths): string[] {
+  const quarantineDir = join(paths.workspaceStateDir, "quarantine", `runtime.sqlite-${Date.now()}-${randomUUID()}`);
+  ensurePrivateDir(quarantineDir);
+  const quarantinedFiles: string[] = [];
+  for (const suffix of SQLITE_SIDECAR_SUFFIXES) {
+    const source = `${paths.localStorePath}${suffix}`;
+    if (!existsSync(source)) continue;
+    const target = join(quarantineDir, `runtime.sqlite${suffix}`);
+    renameSync(source, target);
+    quarantinedFiles.push(target);
+  }
+  const markerPath = legacyMigrationMarkerPath(paths);
+  if (existsSync(markerPath)) {
+    const target = join(quarantineDir, LEGACY_MIGRATION_MARKER_FILE);
+    renameSync(markerPath, target);
+    quarantinedFiles.push(target);
+  }
+  fsyncDirectory(quarantineDir);
+  fsyncDirectory(dirname(paths.localStorePath));
+  return quarantinedFiles;
+}
+
+function legacyMigrationMarkerPath(paths: RuntimeStatePaths): string {
+  return join(paths.workspaceStateDir, LEGACY_MIGRATION_MARKER_FILE);
+}
+
+function legacyMigrationLockPath(paths: RuntimeStatePaths): string {
+  return join(paths.workspaceStateDir, LEGACY_MIGRATION_LOCK_FILE);
+}
+
+function writePrivateJson(path: string, value: unknown): void {
+  ensurePrivateDir(dirname(path));
+  const fd = openSync(path, "w", 0o600);
+  try {
+    writeFileSync(fd, JSON.stringify(value, null, 2), "utf8");
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  makePrivateFile(path);
+  fsyncDirectory(dirname(path));
 }
 
 function ensurePrivateDir(path: string): void {

@@ -8,7 +8,7 @@ import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } fro
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { checkpoint } from "@archcontext/core/application";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
@@ -1030,12 +1030,14 @@ function doctorGit(cwd: string) {
 function doctorSqlite(cwd: string) {
   const paths = runtimeStatePaths(cwd);
   const path = paths.localStorePath;
+  const legacyLocalStore = inspectLegacyLocalStoreMigration(cwd);
   return {
     path,
     exists: existsSync(path),
     migrations: productVersionManifest().runtime.sqliteMigrations,
     legacyPath: paths.legacyLocalStorePath,
-    legacyExists: existsSync(paths.legacyLocalStorePath)
+    legacyExists: existsSync(paths.legacyLocalStorePath),
+    legacyLocalStore
   };
 }
 
@@ -1055,6 +1057,7 @@ function runtimePathsReport(cwd: string) {
   const paths = runtimeStatePaths(cwd);
   return {
     ...paths,
+    legacyLocalStore: inspectLegacyLocalStoreMigration(cwd),
     runtimeRepositoryId: repositoryFingerprint(paths.repositoryRoot),
     repositoryTruthDir: join(paths.repositoryRoot, ".archcontext"),
     codeGraphIndexDir: join(paths.repositoryRoot, ".codegraph"),

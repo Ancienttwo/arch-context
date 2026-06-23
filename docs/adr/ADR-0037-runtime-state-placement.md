@@ -50,3 +50,4 @@ ArchContext MUST NOT write mutable state into its package installation directory
 - Multi-repo landscapes avoid making one checkout own another repository's derived runtime state.
 - Crash recovery must discover runtime paths through `archctx paths`.
 - Existing `.archcontext/.local/runtime.sqlite` files may be copied forward into the new runtime partition, but `.archcontext/.local/` is not the canonical long-term state location.
+- Because storage identities are path-derived from the Git common directory and canonical worktree root, moving or renaming a repository/worktree creates a new runtime partition. The old partition is treated as rebuildable orphaned derived state until an explicit future cleanup command removes it; this ADR does not introduce an alias registry.

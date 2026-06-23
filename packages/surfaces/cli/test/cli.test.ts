@@ -8,7 +8,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
-import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { SqliteLocalStore, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
@@ -74,6 +74,13 @@ function createInitializedGitRepo(): string {
   git(root, "add", ".");
   git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   return root;
+}
+
+async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
+  const store = new SqliteLocalStore(databasePath);
+  await store.migrate();
+  await store.saveTaskState(taskSessionId, state);
+  store.close();
 }
 
 function git(root: string, ...args: string[]): void {
@@ -261,6 +268,47 @@ describe("archctx CLI", () => {
 
       const invalid = await runCli("mcp", ["install", "--host", "unknown"], root);
       expect(invalid.ok).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI paths and doctor expose structured legacy local store migration status", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-legacy-status-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const paths = testRuntimePaths(root);
+      await writeTaskState(paths.legacyLocalStorePath, "task_cli_legacy", { source: "legacy" });
+
+      const beforePaths = await runTestCli("paths", [], root);
+      expect(beforePaths.ok).toBe(true);
+      expect((beforePaths.data as any).legacyLocalStore).toMatchObject({
+        status: "pending",
+        legacyLocalStorePath: paths.legacyLocalStorePath,
+        targetLocalStorePath: paths.localStorePath,
+        integrityCheck: { legacy: "ok" }
+      });
+
+      const beforeDoctor = await runTestCli("doctor", [], root);
+      expect((beforeDoctor.data as any).sqlite.legacyPath).toBe(paths.legacyLocalStorePath);
+      expect((beforeDoctor.data as any).sqlite.legacyExists).toBe(true);
+      expect((beforeDoctor.data as any).sqlite.legacyLocalStore.status).toBe("pending");
+
+      const init = await runTestCli("init", ["--name", "Legacy Status App"], root);
+      expect(init.ok).toBe(true);
+
+      const afterPaths = await runTestCli("paths", [], root);
+      expect((afterPaths.data as any).legacyLocalStore).toMatchObject({
+        status: "target-current",
+        skippedReason: "target-exists",
+        integrityCheck: { target: "ok" }
+      });
+      expect(existsSync((afterPaths.data as any).legacyLocalStore.markerPath)).toBe(true);
+
+      const migrated = new SqliteLocalStore(paths.localStorePath);
+      await migrated.migrate();
+      expect(await migrated.readTaskState("task_cli_legacy")).toEqual({ source: "legacy" });
+      migrated.close();
     } finally {
       removeTempRoot(root);
     }
