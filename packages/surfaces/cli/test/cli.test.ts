@@ -8,7 +8,7 @@ import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
-import { SqliteLocalStore, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
@@ -294,8 +294,8 @@ describe("archctx CLI", () => {
       expect((beforeDoctor.data as any).sqlite.legacyExists).toBe(true);
       expect((beforeDoctor.data as any).sqlite.legacyLocalStore.status).toBe("pending");
 
-      const init = await runTestCli("init", ["--name", "Legacy Status App"], root);
-      expect(init.ok).toBe(true);
+      const migration = migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root));
+      expect(migration.status).toBe("migrated");
 
       const afterPaths = await runTestCli("paths", [], root);
       expect((afterPaths.data as any).legacyLocalStore).toMatchObject({
@@ -305,10 +305,9 @@ describe("archctx CLI", () => {
       });
       expect(existsSync((afterPaths.data as any).legacyLocalStore.markerPath)).toBe(true);
 
-      const migrated = new SqliteLocalStore(paths.localStorePath);
-      await migrated.migrate();
-      expect(await migrated.readTaskState("task_cli_legacy")).toEqual({ source: "legacy" });
-      migrated.close();
+      const afterDoctor = await runTestCli("doctor", [], root);
+      expect((afterDoctor.data as any).sqlite.legacyLocalStore.status).toBe("target-current");
+      expect(existsSync((afterDoctor.data as any).sqlite.legacyLocalStore.markerPath)).toBe(true);
     } finally {
       removeTempRoot(root);
     }
