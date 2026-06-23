@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CALLER_PROVIDED_ATTESTATION_FIELDS } from "@archcontext/contracts";
 import { inspectFg3AdversarialReviewConclusion } from "./fg3-adversarial-review-conclusion";
 
 describe("fg3 adversarial review conclusion evidence", () => {
@@ -27,7 +28,8 @@ describe("fg3 adversarial review conclusion evidence", () => {
 });
 
 function verifiedRecording() {
-  const deniedFields = ["result", "reviewDigest", "policyDigest", "modelDigest", "signature"];
+  const deniedFields = [...CALLER_PROVIDED_ATTESTATION_FIELDS];
+  const reviewEngineDeniedFields = deniedFields.filter((field) => field !== "modelDigest" && field !== "practiceEnforcement");
   return {
     schemaVersion: "archcontext.fg3-adversarial-review-conclusion/v1",
     environment: "process-fixture",
@@ -44,7 +46,7 @@ function verifiedRecording() {
       },
       reviewEngine: {
         legalResult: "pass",
-        deniedCases: cases(["result", "reviewDigest", "policyDigest", "signature"])
+        deniedCases: cases(reviewEngineDeniedFields)
       },
       runtimeCompleteTask: {
         legalResult: "pass",
@@ -73,7 +75,7 @@ function verifiedRecording() {
   };
 }
 
-function cases(fields: string[], reasonCode?: string) {
+function cases(fields: readonly string[], reasonCode?: string) {
   return fields.map((field) => ({
     field,
     denied: true,

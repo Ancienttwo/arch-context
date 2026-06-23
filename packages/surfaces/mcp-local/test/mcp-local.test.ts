@@ -124,7 +124,7 @@ describe("local MCP server", () => {
       expect((accepted.content as any).ok).toBe(true);
       expect((accepted.content as any).data.schemaVersion).toBe("archcontext.review/v1");
 
-      for (const field of ["result", "reviewDigest", "policyDigest", "modelDigest", "signature"]) {
+      for (const field of ["result", "reviewDigest", "policyDigest", "modelDigest", "signature", "practiceViolations"]) {
         const result = await server.callTool("archcontext_complete_task", {
           ...base,
           [field]: field === "signature" ? { algorithm: "ed25519", value: "forged" } : "pass"

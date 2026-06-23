@@ -3,7 +3,8 @@ import {
   digestJson,
   findCallerProvidedAttestationFields,
   type CallerProvidedAttestationField,
-  type Json
+  type Json,
+  type PracticeEnforcementEvaluationV1
 } from "@archcontext/contracts";
 import { validateLandscape, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
 import { detectCrossRepoPressure } from "@archcontext/core/pressure-engine";
@@ -22,6 +23,7 @@ export interface CompleteTaskInput {
   compatibilityPathIntroduced?: boolean;
   cleanupRequired?: number;
   cleanupCompleted?: number;
+  practiceEnforcement?: PracticeEnforcementEvaluationV1;
 }
 
 export type CallerProvidedReviewConclusionField = Exclude<CallerProvidedAttestationField, "modelDigest">;
@@ -30,15 +32,22 @@ export const CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS = CALLER_PROVIDED_ATTESTAT
   .filter((field): field is CallerProvidedReviewConclusionField => field !== "modelDigest");
 
 export function assertNoCallerProvidedReviewConclusionFields(value: unknown): void {
-  const fields = findCallerProvidedAttestationFields(value)
+  const fields = findCallerProvidedAttestationFields(withoutTrustedPracticeEnforcement(value))
     .filter((field): field is CallerProvidedReviewConclusionField => field !== "modelDigest");
   if (fields.length > 0) throw new Error(`review-conclusion-field-forbidden: ${fields.join(",")}`);
+}
+
+function withoutTrustedPracticeEnforcement(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const { practiceEnforcement: _practiceEnforcement, ...rest } = value as Record<string, unknown>;
+  return rest;
 }
 
 export function completeTaskGate(input: CompleteTaskInput) {
   assertNoCallerProvidedReviewConclusionFields(input);
   const findings: PolicyFinding[] = [];
-  if (input.headSha !== input.currentHeadSha) {
+  const staleContext = input.headSha !== input.currentHeadSha;
+  if (staleContext) {
     findings.push({ id: "stale-context", type: "stale-context", severity: "error", message: "Task snapshot HEAD does not match current HEAD." });
   }
   if (input.compatibilityPathIntroduced) {
@@ -47,6 +56,16 @@ export function completeTaskGate(input: CompleteTaskInput) {
   if ((input.cleanupRequired ?? 0) > (input.cleanupCompleted ?? 0)) {
     findings.push({ id: "cleanup-incomplete", type: "incomplete-intervention", severity: "error", message: "Intervention cleanup is incomplete." });
   }
+  const practiceViolations = staleContext ? [] : input.practiceEnforcement?.violations ?? [];
+  const waiversApplied = staleContext ? [] : input.practiceEnforcement?.waiversApplied ?? [];
+  const actionsRequired = staleContext ? [] : input.practiceEnforcement?.actionsRequired ?? [];
+  const practiceFindings: PolicyFinding[] = practiceViolations.map((violation) => ({
+    id: `practice:${violation.practiceId}:${violation.checkId}`,
+    type: "practice-violation",
+    severity: "error",
+    message: violation.message
+  }));
+  findings.push(...practiceFindings);
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
@@ -58,12 +77,20 @@ export function completeTaskGate(input: CompleteTaskInput) {
       headSha: input.currentHeadSha,
       worktreeDigest: input.worktreeDigest,
       modelDigest: input.modelDigest,
-      codeFactsDigest: input.codeFactsDigest
+      codeFactsDigest: input.codeFactsDigest,
+      ...(input.practiceEnforcement === undefined ? {} : {
+        practiceCatalogDigest: input.practiceEnforcement.catalogDigest,
+        practicePolicyDigest: input.practiceEnforcement.policyDigest,
+        practiceCheckResultDigest: input.practiceEnforcement.checkResultDigest
+      })
     },
     posture: input.posture,
     result: outcome,
-    summary: { errors, warnings, notices: 0 },
+    summary: { errors, warnings, notices: waiversApplied.length },
     findings,
+    practiceViolations,
+    waiversApplied,
+    actionsRequired,
     cleanup: {
       required: input.cleanupRequired ?? 0,
       completed: input.cleanupCompleted ?? 0
@@ -72,7 +99,8 @@ export function completeTaskGate(input: CompleteTaskInput) {
   return {
     ...result,
     extensions: {
-      digest: digestJson(result as unknown as Json)
+      digest: digestJson(result as unknown as Json),
+      ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {})
     }
   };
 }

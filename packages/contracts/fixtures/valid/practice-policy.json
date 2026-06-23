@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.practice-enforcement-policy/v1",
+  "mode": "active",
+  "rules": [
+    {
+      "practiceId": "modularity.no-new-cycle",
+      "enforcement": "complete",
+      "checkIds": ["no-new-cycle"],
+      "scope": {
+        "pathGlobs": ["packages/**"]
+      }
+    }
+  ]
+}

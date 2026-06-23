@@ -64,6 +64,8 @@ const schemaByFixture: Record<string, string> = {
   "practice": "schemas/repo/practices/practice.schema.json",
   "practice-profile": "schemas/repo/practices/practice-profile.schema.json",
   "practice-source": "schemas/repo/practices/practice-source.schema.json",
+  "practice-policy": "schemas/repo/practices/practice-policy.schema.json",
+  "practice-waiver": "schemas/repo/practices/practice-waiver.schema.json",
   "task-context": "schemas/runtime/task-context.schema.json",
   "changeset": "schemas/runtime/changeset.schema.json",
   "review-result": "schemas/runtime/review-result.schema.json",
@@ -73,6 +75,7 @@ const schemaByFixture: Record<string, string> = {
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
   "practice-match": "schemas/runtime/practice-match.schema.json",
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",
+  "practice-check-result": "schemas/runtime/practice-check-result.schema.json",
   "practice-checkpoint": "schemas/runtime/practice-checkpoint.schema.json",
   "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
   "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
@@ -202,6 +205,13 @@ describe("JSON schema contracts", () => {
       "policyDigest",
       "modelDigest",
       "signature",
+      "practiceEnforcement",
+      "practiceViolations",
+      "waiversApplied",
+      "actionsRequired",
+      "practiceCatalogDigest",
+      "practicePolicyDigest",
+      "practiceCheckResultDigest",
       "conclusion",
       "checkConclusion",
       "attestationResult"
@@ -320,8 +330,11 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.practice/v1": "practice",
     "archcontext.practice-profile/v1": "practice-profile",
     "archcontext.practice-source/v1": "practice-source",
+    "archcontext.practice-enforcement-policy/v1": "practice-policy",
+    "archcontext.practice-waiver/v1": "practice-waiver",
     "archcontext.practice-match/v1": "practice-match",
     "archcontext.practice-guidance/v1": "practice-guidance",
+    "archcontext.practice-check-result/v1": "practice-check-result",
     "archcontext.task-context/v1": "task-context",
     "archcontext.changeset/v1": "changeset",
     "archcontext.review/v1": "review-result",
@@ -598,7 +611,14 @@ describe("GitHub governance contracts", () => {
       "reviewDigest",
       "policyDigest",
       "modelDigest",
-      "signature"
+      "signature",
+      "practiceEnforcement",
+      "practiceViolations",
+      "waiversApplied",
+      "actionsRequired",
+      "practiceCatalogDigest",
+      "practicePolicyDigest",
+      "practiceCheckResultDigest"
     ]);
     const forged = {
       challengeId: "chal_1",
@@ -606,10 +626,12 @@ describe("GitHub governance contracts", () => {
       digests: {
         reviewDigest: `sha256:${"1".repeat(64)}`,
         policyDigest: `sha256:${"2".repeat(64)}`,
-        modelDigest: `sha256:${"3".repeat(64)}`
+        modelDigest: `sha256:${"3".repeat(64)}`,
+        practiceCheckResultDigest: `sha256:${"4".repeat(64)}`
       },
       nested: {
-        signature: { algorithm: "ed25519", value: "forged" }
+        signature: { algorithm: "ed25519", value: "forged" },
+        practiceViolations: []
       }
     };
     expect(findCallerProvidedAttestationFields(forged)).toEqual([
@@ -617,10 +639,12 @@ describe("GitHub governance contracts", () => {
       "reviewDigest",
       "policyDigest",
       "modelDigest",
-      "signature"
+      "signature",
+      "practiceViolations",
+      "practiceCheckResultDigest"
     ]);
     expect(() => assertNoCallerProvidedAttestationFields(forged, "agent")).toThrow(
-      "agent-caller-provided-attestation-field-forbidden: result,reviewDigest,policyDigest,modelDigest,signature"
+      "agent-caller-provided-attestation-field-forbidden: result,reviewDigest,policyDigest,modelDigest,signature,practiceViolations,practiceCheckResultDigest"
     );
     expect(() => assertNoCallerProvidedAttestationFields({ challengeId: "chal_1", taskSessionId: "task_1" }, "agent")).not.toThrow();
   });

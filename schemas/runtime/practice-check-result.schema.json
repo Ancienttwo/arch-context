@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/practice-check-result.schema.json",
+  "title": "PracticeCheckResult",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "practiceId", "checkId", "assetDigest", "enforcement", "status", "reasonCode", "deterministic", "subjects", "subjectDigests", "message", "remediation"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-check-result/v1" },
+    "practiceId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
+    "checkId": { "type": "string" },
+    "assetDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "enforcement": { "type": "string", "enum": ["advisory", "checkpoint", "complete"] },
+    "status": { "type": "string", "enum": ["pass", "fail", "waived", "not_applicable"] },
+    "reasonCode": {
+      "type": "string",
+      "enum": ["policy-disabled", "not-opted-in", "not-registered", "heuristic-only", "no-baseline", "no-violation", "violation", "waived", "invalid-waiver"]
+    },
+    "deterministic": { "const": true },
+    "subjects": { "type": "array", "items": { "type": "string" } },
+    "subjectDigests": { "type": "array", "items": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } },
+    "message": { "type": "string" },
+    "remediation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "paths"],
+      "properties": {
+        "action": { "type": "string" },
+        "paths": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "waiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["waiverDigest", "practiceId", "owner", "expiresAt"],
+      "properties": {
+        "waiverDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "practiceId": { "type": "string" },
+        "checkId": { "type": "string" },
+        "owner": { "type": "string" },
+        "expiresAt": { "type": "string" }
+      }
+    }
+  }
+}

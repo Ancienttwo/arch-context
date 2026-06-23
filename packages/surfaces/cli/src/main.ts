@@ -274,6 +274,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       }
       const result = await (await runtime()).completeTask(cwd, {
         taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
+        task: readFlag(args, "--task"),
         posture: (readFlag(args, "--posture") as any) ?? "normal",
         headSha: readFlag(args, "--head-sha")
       });

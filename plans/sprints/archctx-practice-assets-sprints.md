@@ -842,60 +842,70 @@ bun run verify
 
 把“建议”与“规则”严格分开，只允许可验证、可解释、可复现的 checker 进入 Gate。
 
+## 12.1.1 S4 执行记录
+
+- 2026-06-24：从 S3 stacked head 创建 `codex/practice-enforcement`，实现 S4 deterministic complete enforcement 第一刀。
+- 实现边界：新增 practice policy / waiver / check-result contracts 与 schemas，新增 `practice-engine` checker registry 和 enforcement evaluator，runtime daemon 在 repo policy `mode=active` 时加载 `.archcontext/policies/practices.yaml` 与 `.archcontext/waivers/*.yaml`，用 current guidance + previous checkpoint baseline 计算 complete-stage enforcement。
+- 首批 checker：`compatibility-contract-required` 与 `no-new-cycle`。`no-new-cycle` 只阻断 baseline 后新增 import-cycle evidence；无 baseline 时返回 `not_applicable:no-baseline`，不追责历史存量。
+- Trust boundary：CLI/MCP 仍只传 task/posture/head/compatibility/cleanup metadata；`practiceEnforcement`、`practiceViolations`、waiver outputs 和 practice digests 全部加入 caller-provided denylist。
+- Deferred：`dependency-direction`、`owner-required`、migration review/removal、required-test-evidence、owner registry lookup、以及 ChangeSet-backed waiver CLI 仍未实现。
+- 验证证据写入 `docs/verification/practice-assets-s4-enforcement-gate.md`。
+- 2026-06-24：full verification 通过，`bun run verify` readback 为 595 pass / 0 fail / 3529 expects；FG3 adversarial review conclusion evidence 已按扩展后的 practice attestation denylist 重新生成。
+
 ## 12.2 Checklist
 
 ### Enforcement contract
 
-- [ ] S4-01 定义 enforcement levels：`advisory | checkpoint | complete`，与 severity 分离。
-- [ ] S4-02 定义 `PracticeCheckDefinitionV1`、`PracticeCheckResultV1`、reason code 和 remediation contract。
-- [ ] S4-03 定义 repo opt-in policy：`.archcontext/policies/practices.yaml`。
-- [ ] S4-04 built-in practice 默认 advisory；只有 repo policy 显式列出的 ID 可晋升。
-- [ ] S4-05 dynamic external resource、heuristic-only match 和 unknown checker 的 enforcement ceiling 固定为 advisory。
+- [x] S4-01 定义 enforcement levels：`advisory | checkpoint | complete`，与 severity 分离。
+- [x] S4-02 定义 `PracticeCheckDefinitionV1`、`PracticeCheckResultV1`、reason code 和 remediation contract。
+- [x] S4-03 定义 repo opt-in policy：`.archcontext/policies/practices.yaml`。
+- [x] S4-04 built-in practice 默认 advisory；只有 repo policy 显式列出的 ID 可晋升。
+- [x] S4-05 dynamic external resource、heuristic-only match 和 unknown checker 的 enforcement ceiling 固定为 advisory。
 
 ### Deterministic checker registry
 
-- [ ] S4-06 实现纯函数 checker registry；checker 只能读取 normalized facts、model、policy 与 digest，不读取网络或 LLM。
-- [ ] S4-07 首批实现 `compatibility-contract-required`。
-- [ ] S4-08 首批实现 `no-new-cycle`，只阻断本次变更新增的 cycle，不追责历史存量。
+- [x] S4-06 实现纯函数 checker registry；checker 只能读取 normalized facts、model、policy 与 digest，不读取网络或 LLM。
+- [x] S4-07 首批实现 `compatibility-contract-required`。
+- [x] S4-08 首批实现 `no-new-cycle`，只阻断本次变更新增的 cycle，不追责历史存量。
 - [ ] S4-09 首批实现 `dependency-direction`，基于显式 repo layer/boundary profile。
 - [ ] S4-10 首批实现 `owner-required`，只对声明为 governed 的 component/resource 生效。
 - [ ] S4-11 首批实现 `migration-review-date` 与 `migration-removal-condition`。
 - [ ] S4-12 首批实现 `required-test-evidence`，仅在 policy 明确指定测试命令/证据时启用。
-- [ ] S4-13 Checker 结果包含 inspected fact digests、violation subjects、existing/new 状态和 remediation。
+- [x] S4-13 Checker 结果包含 inspected fact digests、violation subjects、existing/new 状态和 remediation。
 
 ### Waiver 与治理
 
-- [ ] S4-14 定义 `.archcontext/waivers/*.yaml`：practiceId、scope、owner、reason、createdAt、expiresAt、evidenceDigest。
-- [ ] S4-15 Waiver 必须有 owner、耐久理由、具体 scope 和过期时间；禁止 `temporary`、`cleanup later` 等空泛理由。
-- [ ] S4-16 过期、扩大 scope、digest 不匹配或未知 owner 的 waiver 被拒绝。
+- [x] S4-14 定义 `.archcontext/waivers/*.yaml`：practiceId、scope、owner、reason、createdAt、expiresAt、evidenceDigest。
+- [x] S4-15 Waiver 必须有 owner、耐久理由、具体 scope 和过期时间；禁止 `temporary`、`cleanup later` 等空泛理由。
+- [~] S4-16 过期、扩大 scope、digest 不匹配或未知 owner 的 waiver 被拒绝。（过期、扩大 scope、digest 不匹配已覆盖；owner registry lookup 待补。）
 - [ ] S4-17 Waiver 创建/更新必须走 ChangeSet engine、expectedWorktreeDigest 与路径白名单。
 - [ ] S4-18 CLI 增加 `archctx practices waive/waivers`，写操作要求显式 approval。
 
 ### Complete gate 集成
 
-- [ ] S4-19 `completeTaskGate` 在 stale、catalog/context digest 有效后运行 practice checks。
-- [ ] S4-20 stale-context 优先于 practice violation，避免对旧上下文给出错误结论。
-- [ ] S4-21 complete 输出新增 `practiceViolations`、`waiversApplied`、`actionsRequired`。
-- [ ] S4-22 兼容现有 compatibility contract 与 incomplete intervention gate，不重复或矛盾报错。
-- [ ] S4-23 Gate 结果与 device attestation 绑定 catalog digest、policy digest 和 check result digest。
+- [x] S4-19 `completeTaskGate` 在 stale、catalog/context digest 有效后运行 practice checks。
+- [x] S4-20 stale-context 优先于 practice violation，避免对旧上下文给出错误结论。
+- [x] S4-21 complete 输出新增 `practiceViolations`、`waiversApplied`、`actionsRequired`。
+- [~] S4-22 兼容现有 compatibility contract 与 incomplete intervention gate，不重复或矛盾报错。（stale/cleanup 兼容已覆盖；compatibility finding 去重仍待补。）
+- [x] S4-23 Gate 结果与 device attestation 绑定 catalog digest、policy digest 和 check result digest。
 
 ### 测试
 
-- [ ] S4-24 negative tests 证明 task text 无论多强烈都不能单独阻断 complete。
-- [ ] S4-25 historical debt fixture 证明只阻断新增 violation，除非 policy 显式启用 full baseline。
-- [ ] S4-26 waiver valid/expired/overscoped/tampered matrix 全覆盖。
-- [ ] S4-27 CLI 与 MCP 不能传入或伪造 `pass`、enforcement level 或 check result。
-- [ ] S4-28 complete 的 deterministic rerun 在相同 inputs 下产生相同 digest。
-- [ ] S4-29 编写 `docs/verification/practice-assets-s4-enforcement-gate.md`。
+- [x] S4-24 negative tests 证明 task text 无论多强烈都不能单独阻断 complete。
+- [x] S4-25 historical debt fixture 证明只阻断新增 violation，除非 policy 显式启用 full baseline。
+- [x] S4-26 waiver valid/expired/overscoped/tampered matrix 全覆盖。
+- [x] S4-27 CLI 与 MCP 不能传入或伪造 `pass`、enforcement level 或 check result。
+- [x] S4-28 complete 的 deterministic rerun 在相同 inputs 下产生相同 digest。
+- [x] S4-29 编写 `docs/verification/practice-assets-s4-enforcement-gate.md`。
 
 ## 12.3 Exit Gates
 
-- [ ] S4-EG1 100% complete-blocking 结果来自注册 deterministic checker。
-- [ ] S4-EG2 heuristic-only、Context7、LLM 或 Agent 字段造成的 hard-gate 数量 = 0。
-- [ ] S4-EG3 同一 head/worktree/catalog/policy 输入重复执行结果 digest 一致。
-- [ ] S4-EG4 invalid/expired/tampered waiver 拦截率 = 100%。
-- [ ] S4-EG5 关闭 repo enforcement policy 后，所有 built-in practices 恢复 advisory，不改变旧 complete gates。
-- [ ] S4-EG6 attestation 中可验证 catalog/policy/check digests，且不包含代码正文。
+- [x] S4-EG1 100% complete-blocking 结果来自注册 deterministic checker。
+- [x] S4-EG2 heuristic-only、Context7、LLM 或 Agent 字段造成的 hard-gate 数量 = 0。
+- [x] S4-EG3 同一 head/worktree/catalog/policy 输入重复执行结果 digest 一致。
+- [x] S4-EG4 invalid/expired/tampered waiver 拦截率 = 100%。
+- [x] S4-EG5 关闭 repo enforcement policy 后，所有 built-in practices 恢复 advisory，不改变旧 complete gates。
+- [x] S4-EG6 attestation 中可验证 catalog/policy/check digests，且不包含代码正文。
 
 ## 12.4 验证命令
 

@@ -3,7 +3,7 @@
   "environment": "process-fixture",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-20T21:09:36.471Z",
+  "generatedAt": "2026-06-23T19:23:26.636Z",
   "evidence": {
     "processLevelFixture": true,
     "deniedFields": [
@@ -11,7 +11,14 @@
       "reviewDigest",
       "policyDigest",
       "modelDigest",
-      "signature"
+      "signature",
+      "practiceEnforcement",
+      "practiceViolations",
+      "waiversApplied",
+      "actionsRequired",
+      "practiceCatalogDigest",
+      "practicePolicyDigest",
+      "practiceCheckResultDigest"
     ],
     "contract": {
       "denied": true,
@@ -20,7 +27,14 @@
         "reviewDigest",
         "policyDigest",
         "modelDigest",
-        "signature"
+        "signature",
+        "practiceEnforcement",
+        "practiceViolations",
+        "waiversApplied",
+        "actionsRequired",
+        "practiceCatalogDigest",
+        "practicePolicyDigest",
+        "practiceCheckResultDigest"
       ],
       "messageIncludesAllFields": true
     },
@@ -44,6 +58,36 @@
         },
         {
           "field": "signature",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceViolations",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "waiversApplied",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "actionsRequired",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCatalogDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practicePolicyDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCheckResultDigest",
           "denied": true,
           "messageIncludesField": true
         }
@@ -77,6 +121,41 @@
           "field": "signature",
           "denied": true,
           "messageIncludesField": true
+        },
+        {
+          "field": "practiceEnforcement",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceViolations",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "waiversApplied",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "actionsRequired",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCatalogDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practicePolicyDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCheckResultDigest",
+          "denied": true,
+          "messageIncludesField": true
         }
       ]
     },
@@ -108,6 +187,48 @@
         },
         {
           "field": "signature",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceEnforcement",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceViolations",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "waiversApplied",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "actionsRequired",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCatalogDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practicePolicyDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCheckResultDigest",
           "denied": true,
           "reasonCode": "AC_SCHEMA_INVALID",
           "messageIncludesField": true
@@ -146,6 +267,48 @@
           "denied": true,
           "reasonCode": "AC_SCHEMA_INVALID",
           "messageIncludesField": true
+        },
+        {
+          "field": "practiceEnforcement",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceViolations",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "waiversApplied",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "actionsRequired",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCatalogDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practicePolicyDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCheckResultDigest",
+          "denied": true,
+          "reasonCode": "AC_SCHEMA_INVALID",
+          "messageIncludesField": true
         }
       ]
     },
@@ -173,6 +336,41 @@
         },
         {
           "field": "signature",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceEnforcement",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceViolations",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "waiversApplied",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "actionsRequired",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCatalogDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practicePolicyDigest",
+          "denied": true,
+          "messageIncludesField": true
+        },
+        {
+          "field": "practiceCheckResultDigest",
           "denied": true,
           "messageIncludesField": true
         }

@@ -152,6 +152,7 @@ export class McpLocalServer {
           const root = requiredArg(args, "root");
           const result = await (await this.runtime(root)).completeTask(root, {
             taskSessionId: args.taskSessionId,
+            task: args.task,
             posture: args.posture,
             headSha: args.headSha,
             compatibilityContract: args.compatibilityContract,

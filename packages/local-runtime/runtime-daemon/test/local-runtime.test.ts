@@ -134,6 +134,67 @@ function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync:
   return { port, counts: () => ({ sync, buildTaskContext }) };
 }
 
+function mutableCycleFacts(): { port: CodeFactsPort; setCycle: (enabled: boolean) => void } {
+  let cycle = false;
+  const port: CodeFactsPort = {
+    async ensureReady() {
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"f".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"1".repeat(64)}`
+      };
+    },
+    async sync() {
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"f".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"1".repeat(64)}`
+      };
+    },
+    async buildTaskContext(input) {
+      const symbols = [
+        { id: "module.orders", name: "OrdersModule", kind: "module", path: "src/orders.ts" },
+        { id: "module.billing", name: "BillingModule", kind: "module", path: "src/billing.ts" }
+      ].slice(0, input.maxSymbols);
+      const edges = cycle
+        ? [
+          { source: "module.orders", target: "module.billing", kind: "imports" as const, confidence: "high" as const },
+          { source: "module.billing", target: "module.orders", kind: "imports" as const, confidence: "high" as const }
+        ]
+        : [
+          { source: "module.orders", target: "module.billing", kind: "imports" as const, confidence: "high" as const }
+        ];
+      return {
+        task: input.task,
+        symbols,
+        edges,
+        evidence: [],
+        digest: digestJson({ task: input.task, cycle } as any)
+      } satisfies NormalizedCodeContext;
+    },
+    async findSymbols() {
+      return [];
+    },
+    async getImpact() {
+      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
+    },
+    async getCallers() {
+      return [];
+    },
+    async getCallees() {
+      return [];
+    },
+    async resolveEvidence() {
+      return [];
+    }
+  };
+  return { port, setCycle: (enabled) => { cycle = enabled; } };
+}
+
 describe("local runtime foundation", () => {
   test("init, validate, sync, context, and status share one runtime session", async () => {
     const root = tempRepo();
@@ -214,6 +275,51 @@ describe("local runtime foundation", () => {
       expect((last.data as any).hook.coalescedEventCount).toBe(10);
       expect((last.data as any).resultDigest).toBe((first.data as any).resultDigest);
       expect(facts.counts()).toEqual({ sync: 1, buildTaskContext: 2 });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("complete_task applies repo opt-in deterministic practice enforcement from daemon-owned state", async () => {
+    const root = tempRepo();
+    const facts = mutableCycleFacts();
+    try {
+      const daemon = await createStartedTestDaemon({ codeFacts: facts.port });
+      await daemon.init(root, "Practice Enforcement App");
+      mkdirSync(join(root, ".archcontext/policies"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/policies/practices.yaml"), JSON.stringify({
+        schemaVersion: "archcontext.practice-enforcement-policy/v1",
+        mode: "active",
+        rules: [
+          {
+            practiceId: "modularity.no-new-cycle",
+            enforcement: "complete",
+            checkIds: ["no-new-cycle"]
+          }
+        ]
+      }, null, 2), "utf8");
+
+      const prepare = await daemon.prepare(root, "remove import cycle", 12_288, 5, "task_enforcement");
+      expect(prepare.ok).toBe(true);
+      facts.setCycle(true);
+
+      const review = await daemon.completeTask(root, {
+        taskSessionId: "task_enforcement",
+        task: "remove import cycle"
+      });
+
+      expect(review.ok).toBe(true);
+      expect((review.data as any).result).toBe("fail_action_required");
+      expect((review.data as any).practiceViolations).toHaveLength(1);
+      expect((review.data as any).practiceViolations[0]).toMatchObject({
+        practiceId: "modularity.no-new-cycle",
+        checkId: "no-new-cycle",
+        status: "fail",
+        deterministic: true
+      });
+      expect((review.data as any).snapshot.practiceCatalogDigest).toMatch(/^sha256:/);
+      expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
+      expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
     } finally {
       removeTempRepo(root);
     }

@@ -1,6 +1,8 @@
 import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1 } from "@archcontext/contracts";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { InMemoryLexicalRetriever, type RetrievalDocument } from "@archcontext/core/retrieval";
+export * from "./check-registry";
+export * from "./enforcement";
 
 export interface PracticeEngineCatalog {
   catalogDigest: string;

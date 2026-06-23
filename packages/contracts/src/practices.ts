@@ -4,6 +4,9 @@ export const PRACTICE_SCHEMA_VERSION = "archcontext.practice/v1" as const;
 export const PRACTICE_PROFILE_SCHEMA_VERSION = "archcontext.practice-profile/v1" as const;
 export const PRACTICE_SOURCE_SCHEMA_VERSION = "archcontext.practice-source/v1" as const;
 export const PRACTICE_CATALOG_MANIFEST_SCHEMA_VERSION = "archcontext.practice-catalog-manifest/v1" as const;
+export const PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION = "archcontext.practice-enforcement-policy/v1" as const;
+export const PRACTICE_WAIVER_SCHEMA_VERSION = "archcontext.practice-waiver/v1" as const;
+export const PRACTICE_CHECK_RESULT_SCHEMA_VERSION = "archcontext.practice-check-result/v1" as const;
 
 export type PracticeStatus = "active" | "deprecated" | "disabled";
 export type PracticeOverlayMode = "add" | "replace" | "disable";
@@ -33,6 +36,17 @@ export type PracticeCheckpointReasonCode =
   | "stale-worktree"
   | "no-baseline"
   | "no-op";
+export type PracticeCheckStatus = "pass" | "fail" | "waived" | "not_applicable";
+export type PracticeCheckReasonCode =
+  | "policy-disabled"
+  | "not-opted-in"
+  | "not-registered"
+  | "heuristic-only"
+  | "no-baseline"
+  | "no-violation"
+  | "violation"
+  | "waived"
+  | "invalid-waiver";
 
 export interface PracticeScopeV1 {
   repositoryKinds: string[];
@@ -68,6 +82,11 @@ export interface PracticeCheckV1 {
   checkId: string;
   mode: "deterministic";
   parameters: Record<string, Json>;
+}
+
+export interface PracticeCheckDefinitionV1 extends PracticeCheckV1 {
+  schemaVersion: "archcontext.practice-check-definition/v1";
+  practiceId: string;
 }
 
 export interface PracticeEnforcementV1 {
@@ -133,6 +152,36 @@ export interface PracticeProfileV1 {
   includePracticeIds: string[];
   excludePracticeIds: string[];
   provenance: PracticeProvenanceV1;
+}
+
+export interface PracticePolicyScopeV1 {
+  pathGlobs?: string[];
+  subjects?: string[];
+}
+
+export interface PracticePolicyRuleV1 {
+  practiceId: string;
+  enforcement: PracticeEnforcementLevel;
+  checkIds?: string[];
+  scope?: PracticePolicyScopeV1;
+}
+
+export interface PracticeEnforcementPolicyV1 {
+  schemaVersion: typeof PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION;
+  mode: "advisory" | "active";
+  rules: PracticePolicyRuleV1[];
+}
+
+export interface PracticeWaiverV1 {
+  schemaVersion: typeof PRACTICE_WAIVER_SCHEMA_VERSION;
+  practiceId: string;
+  checkId?: string;
+  scope: PracticePolicyScopeV1;
+  owner: string;
+  reason: string;
+  createdAt: string;
+  expiresAt: string;
+  evidenceDigest: string;
 }
 
 export interface PracticeSourceRecordV1 {
@@ -203,6 +252,46 @@ export interface PracticeMatchV1 {
   explanation: string[];
   sourceTrust: PracticeSourceTrust;
   suppressedReason?: string;
+}
+
+export interface PracticeCheckRemediationV1 {
+  action: string;
+  paths: string[];
+}
+
+export interface PracticeWaiverApplicationV1 {
+  waiverDigest: string;
+  practiceId: string;
+  checkId?: string;
+  owner: string;
+  expiresAt: string;
+}
+
+export interface PracticeCheckResultV1 {
+  schemaVersion: typeof PRACTICE_CHECK_RESULT_SCHEMA_VERSION;
+  practiceId: string;
+  checkId: string;
+  assetDigest: string;
+  enforcement: PracticeEnforcementLevel;
+  status: PracticeCheckStatus;
+  reasonCode: PracticeCheckReasonCode;
+  deterministic: true;
+  subjects: string[];
+  subjectDigests: string[];
+  message: string;
+  remediation: PracticeCheckRemediationV1;
+  waiver?: PracticeWaiverApplicationV1;
+}
+
+export interface PracticeEnforcementEvaluationV1 {
+  schemaVersion: "archcontext.practice-enforcement-evaluation/v1";
+  catalogDigest: string;
+  policyDigest: string;
+  checkResultDigest: string;
+  results: PracticeCheckResultV1[];
+  violations: PracticeCheckResultV1[];
+  waiversApplied: PracticeWaiverApplicationV1[];
+  actionsRequired: string[];
 }
 
 export interface PracticeGuidanceResultV1 {

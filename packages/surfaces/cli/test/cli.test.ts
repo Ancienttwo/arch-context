@@ -204,6 +204,15 @@ describe("archctx CLI", () => {
       expect((forgedDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
       expect((forgedDigest as any).error.message).toContain("--model-digest");
 
+      const forgedPractice = await runTestCli("complete", [
+        "--task-session-id", "task_cli_forged_practice",
+        "--head-sha", "abc123",
+        "--practice-violations", "[]"
+      ], root);
+      expect(forgedPractice.ok).toBe(false);
+      expect((forgedPractice as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((forgedPractice as any).error.message).toContain("--practice-violations");
+
       const config = await runTestCli("config", [], root);
       expect((config.data as any).generic.transport).toBe("stdio");
 

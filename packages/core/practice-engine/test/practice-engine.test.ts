@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { type EffectivePracticeAssetV1, type NormalizedCodeContext } from "@archcontext/contracts";
+import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEnforcementPolicyV1, type PracticeMatchV1, type PracticeWaiverV1 } from "@archcontext/contracts";
 import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { matchPracticesForTask, validatePracticeEngineCatalog } from "../src/index";
+import { evaluatePracticeEnforcement, matchPracticesForTask, practiceWaiverEvidenceDigest, validatePracticeEngineCatalog } from "../src/index";
 
 const workspaceRoot = process.cwd();
 
@@ -44,6 +44,62 @@ function heuristicOnlyContext(): NormalizedCodeContext {
     edges: [],
     evidence: [],
     digest: `sha256:${"e".repeat(64)}`
+  };
+}
+
+function completePolicy(practiceId: string, checkId: string): PracticeEnforcementPolicyV1 {
+  return {
+    schemaVersion: "archcontext.practice-enforcement-policy/v1",
+    mode: "active",
+    rules: [{ practiceId, enforcement: "complete", checkIds: [checkId] }]
+  };
+}
+
+function cycleMatch(assetDigest: string, subjects: string[], strength: "heuristic" | "observed" = "observed"): PracticeMatchV1 {
+  return {
+    schemaVersion: "archcontext.practice-match/v1",
+    practiceId: "modularity.no-new-cycle",
+    assetRevision: 1,
+    assetDigest,
+    title: "Do not introduce new dependency cycles",
+    category: "modularity",
+    score: 90,
+    confidence: strength === "heuristic" ? "low" : "high",
+    enforcement: strength === "heuristic" ? "advisory" : "checkpoint",
+    matchedBy: strength === "heuristic" ? ["retrieval"] : ["predicate"],
+    evidence: subjects.map((subject) => ({
+      kind: strength === "heuristic" ? "task-text" : "import-edge",
+      strength,
+      subject,
+      digest: digestJson({ subject }),
+      observedAt: "1970-01-01T00:00:00.000Z"
+    })),
+    explanation: ["cycle fixture"],
+    sourceTrust: "curated-static"
+  };
+}
+
+function compatibilityMatch(assetDigest: string): PracticeMatchV1 {
+  return {
+    schemaVersion: "archcontext.practice-match/v1",
+    practiceId: "compatibility.single-owner",
+    assetRevision: 1,
+    assetDigest,
+    title: "Compatibility paths require one lifecycle owner",
+    category: "compatibility",
+    score: 90,
+    confidence: "high",
+    enforcement: "checkpoint",
+    matchedBy: ["predicate"],
+    evidence: [{
+      kind: "symbol",
+      strength: "observed",
+      subject: "symbol.legacyAdapter",
+      digest: digestJson({ subject: "symbol.legacyAdapter" }),
+      observedAt: "1970-01-01T00:00:00.000Z"
+    }],
+    explanation: ["compatibility fixture"],
+    sourceTrust: "curated-static"
   };
 }
 
@@ -102,5 +158,155 @@ describe("@archcontext/core/practice-engine", () => {
     };
 
     expect(() => validatePracticeEngineCatalog([invalid])).toThrow("unsupported-new-predicate");
+  });
+
+  test("complete enforcement is repo opt-in and advisory when policy is disabled", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const evaluation = evaluatePracticeEnforcement({
+      catalog,
+      policy: { schemaVersion: "archcontext.practice-enforcement-policy/v1", mode: "advisory", rules: [] },
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, [])]
+    });
+
+    expect(evaluation.violations).toEqual([]);
+    expect(evaluation.results).toEqual([]);
+    expect(evaluation.policyDigest).toMatch(/^sha256:/);
+  });
+
+  test("registered complete checker blocks only new cycle evidence", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const policy = completePolicy("modularity.no-new-cycle", "no-new-cycle");
+
+    const historical = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])]
+    });
+    const newlyIntroduced = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b", "module.b->module.a"])],
+      previousMatches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])]
+    });
+    const repeated = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b", "module.b->module.a"])],
+      previousMatches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])]
+    });
+
+    expect(historical.violations).toEqual([]);
+    expect(historical.results[0].status).toBe("pass");
+    expect(newlyIntroduced.violations).toHaveLength(1);
+    expect(newlyIntroduced.violations[0]).toMatchObject({
+      practiceId: "modularity.no-new-cycle",
+      checkId: "no-new-cycle",
+      enforcement: "complete",
+      status: "fail",
+      deterministic: true,
+      subjects: ["module.b->module.a"]
+    });
+    expect(newlyIntroduced.checkResultDigest).toMatch(/^sha256:/);
+    expect(repeated.checkResultDigest).toBe(newlyIntroduced.checkResultDigest);
+  });
+
+  test("compatibility contract checker blocks missing durable contract", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
+    const evaluation = evaluatePracticeEnforcement({
+      catalog,
+      policy: completePolicy("compatibility.single-owner", "compatibility-contract-required"),
+      matches: [compatibilityMatch(asset.assetDigest)],
+      previousMatches: [compatibilityMatch(asset.assetDigest)],
+      compatibilityPathIntroduced: true
+    });
+
+    expect(evaluation.violations).toHaveLength(1);
+    expect(evaluation.violations[0]).toMatchObject({
+      practiceId: "compatibility.single-owner",
+      checkId: "compatibility-contract-required",
+      status: "fail"
+    });
+  });
+
+  test("heuristic-only matches cannot become complete violations", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const evaluation = evaluatePracticeEnforcement({
+      catalog,
+      policy: completePolicy("modularity.no-new-cycle", "no-new-cycle"),
+      matches: [cycleMatch(asset.assetDigest, ["legacy cycle wording only"], "heuristic")],
+      previousMatches: []
+    });
+
+    expect(evaluation.violations).toEqual([]);
+    expect(evaluation.results[0]).toMatchObject({ status: "not_applicable", reasonCode: "heuristic-only" });
+  });
+
+  test("waivers require exact unexpired evidence digest", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const policy = completePolicy("modularity.no-new-cycle", "no-new-cycle");
+    const failing = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, [])]
+    }).violations[0];
+    const waiver: PracticeWaiverV1 = {
+      schemaVersion: "archcontext.practice-waiver/v1",
+      practiceId: failing.practiceId,
+      checkId: failing.checkId,
+      scope: { subjects: failing.subjects },
+      owner: "team-architecture",
+      reason: "External migration window requires keeping this edge until the cutover date.",
+      createdAt: "2026-06-24T00:00:00.000Z",
+      expiresAt: "2026-07-24T00:00:00.000Z",
+      evidenceDigest: practiceWaiverEvidenceDigest(failing)
+    };
+
+    const waived = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      waivers: [waiver],
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, [])],
+      now: "2026-06-25T00:00:00.000Z"
+    });
+    const expired = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      waivers: [waiver],
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, [])],
+      now: "2026-08-25T00:00:00.000Z"
+    });
+    const tampered = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      waivers: [{ ...waiver, evidenceDigest: `sha256:${"0".repeat(64)}` }],
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, [])],
+      now: "2026-06-25T00:00:00.000Z"
+    });
+    const overscoped = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      waivers: [{ ...waiver, scope: { subjects: [...waiver.scope.subjects!, "module.extra->module.scope"] } }],
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])],
+      previousMatches: [cycleMatch(asset.assetDigest, [])],
+      now: "2026-06-25T00:00:00.000Z"
+    });
+
+    expect(waived.violations).toEqual([]);
+    expect(waived.waiversApplied).toHaveLength(1);
+    expect(waived.results[0].status).toBe("waived");
+    expect(expired.violations).toHaveLength(1);
+    expect(tampered.violations).toHaveLength(1);
+    expect(overscoped.violations).toHaveLength(1);
   });
 });

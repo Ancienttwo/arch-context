@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "archcontext.practice-check-result/v1",
+  "practiceId": "modularity.no-new-cycle",
+  "checkId": "no-new-cycle",
+  "assetDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "enforcement": "complete",
+  "status": "fail",
+  "reasonCode": "violation",
+  "deterministic": true,
+  "subjects": ["module.a->module.b"],
+  "subjectDigests": ["sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
+  "message": "Complete would introduce a new import cycle.",
+  "remediation": {
+    "action": "remove-new-import-cycle-or-add-a-more-specific-boundary",
+    "paths": []
+  }
+}

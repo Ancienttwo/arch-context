@@ -18,7 +18,8 @@ import {
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
-import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
+import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
+import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaivers } from "@archcontext/core/practice-engine";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
@@ -91,6 +92,7 @@ export interface DeveloperReviewSession {
 
 export interface RuntimeCompleteTaskInput {
   taskSessionId?: string;
+  task?: string;
   posture?: CompleteTaskInput["posture"];
   headSha?: string;
   compatibilityContract?: CompleteTaskInput["compatibilityContract"];
@@ -572,8 +574,29 @@ export class ArchctxDaemon {
     }
     const model = await this.modelStore.validateModel(session.workspace);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
+    const taskSessionId = input.taskSessionId ?? "task_runtime";
+    const baseline = this.checkpointBaselines.get(this.practiceCheckpointKey(session.workspace.repositoryId, taskSessionId));
+    const practicePolicy = loadPracticeEnforcementPolicy(session.workspace.root);
+    const practiceEnforcement = practicePolicy.mode === "active"
+      ? evaluatePracticeEnforcement({
+        catalog: loadPracticeCatalog({ root: session.workspace.root }),
+        policy: practicePolicy,
+        waivers: loadPracticeWaivers(session.workspace.root),
+        matches: (await compileTaskContext({
+          workspace: session.workspace,
+          task: input.task ?? baseline?.task ?? taskSessionId,
+          codeFacts: this.codeFacts,
+          modelStore: this.modelStore,
+          budget: { maxBytes: 12_288, maxItems: 12 }
+        })).practiceGuidance.matches,
+        previousMatches: baseline?.matches,
+        compatibilityContract: input.compatibilityContract,
+        compatibilityPathIntroduced: input.compatibilityPathIntroduced,
+        now: this.clock()
+      })
+      : undefined;
     const reviewInput: CompleteTaskInput = {
-      taskSessionId: input.taskSessionId ?? "task_runtime",
+      taskSessionId,
       posture: input.posture ?? "normal",
       headSha: input.headSha ?? currentHeadSha!,
       currentHeadSha: currentHeadSha!,
@@ -583,7 +606,8 @@ export class ArchctxDaemon {
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
       ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
-      ...(input.cleanupCompleted === undefined ? {} : { cleanupCompleted: input.cleanupCompleted })
+      ...(input.cleanupCompleted === undefined ? {} : { cleanupCompleted: input.cleanupCompleted }),
+      ...(practiceEnforcement === undefined ? {} : { practiceEnforcement })
     };
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
