@@ -48,6 +48,10 @@
     "failOpen": true,
     "pathCount": 1,
     "network": "forbidden",
+    "coalesced": false,
+    "skippedAnalysis": false,
+    "coalescedEventCount": 1,
+    "coalesceKey": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
     "elapsedMs": 12
   },
   "nextSnapshot": {

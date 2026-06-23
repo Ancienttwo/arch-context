@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CodeGraphAdapter } from "../../../local-runtime/codegraph-adapter/src/index";
 import { MockCodeGraphProvider } from "../../../local-runtime/codegraph-adapter/test/factories";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { digestJson, type CodeFactsPort } from "@archcontext/contracts";
+import { digestJson, type CodeFactsPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
@@ -69,6 +69,65 @@ function structuralCompatibilityFacts(): CodeFactsPort {
         ],
         digest: digestJson({ task: input.task, symbols } as any)
       };
+    },
+    async findSymbols() {
+      return [];
+    },
+    async getImpact() {
+      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
+    },
+    async getCallers() {
+      return [];
+    },
+    async getCallees() {
+      return [];
+    },
+    async resolveEvidence() {
+      return [];
+    }
+  };
+}
+
+function mutableCycleFacts(hasCycle: () => boolean): CodeFactsPort {
+  return {
+    async ensureReady() {
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"d".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"e".repeat(64)}`
+      };
+    },
+    async sync() {
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"d".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"e".repeat(64)}`
+      };
+    },
+    async buildTaskContext(input) {
+      const symbols = hasCycle()
+        ? [
+          { id: "symbol.billingService", name: "billingService", kind: "service", path: "src/billing/service.ts" },
+          { id: "symbol.orderService", name: "orderService", kind: "service", path: "src/orders/service.ts" }
+        ].slice(0, input.maxSymbols)
+        : [];
+      const edges = hasCycle()
+        ? [
+          { source: "symbol.billingService", target: "symbol.orderService", kind: "imports" as const, confidence: "high" as const },
+          { source: "symbol.orderService", target: "symbol.billingService", kind: "imports" as const, confidence: "high" as const }
+        ]
+        : [];
+      return {
+        task: input.task,
+        symbols,
+        edges,
+        evidence: [],
+        digest: digestJson({ task: input.task, symbols, edges } as any)
+      } satisfies NormalizedCodeContext;
     },
     async findSymbols() {
       return [];
@@ -185,6 +244,74 @@ describe("M2 architecture control loop", () => {
       });
       expect(stale.fresh).toBe(false);
       expect(stale.staleReasons).toContain("stale-worktree");
+
+      const normalizedPaths = await checkpointTask({
+        workspace,
+        taskSessionId: "task_test",
+        task: prepared.context.task,
+        event: "post-edit",
+        changedPaths: [" src/billing/legacy-wrapper-v1.ts", "src\\billing\\legacy-wrapper-v1.ts", "/tmp/escape.ts", "../escape.ts", "", "src/billing/fallback-mapper-v2.ts"],
+        previous: baseline,
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+      expect(normalizedPaths.changedPaths).toEqual(["src/billing/fallback-mapper-v2.ts", "src/billing/legacy-wrapper-v1.ts"]);
+      expect(normalizedPaths.hook.pathCount).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("checkpoint_task adds and removes observed cycle guidance across edit and revert", async () => {
+    const root = tempModel();
+    let cycleObserved = false;
+    const codeFacts = mutableCycleFacts(() => cycleObserved);
+    try {
+      const workspace = { root, repositoryId: "repo.test", headSha: "abc" };
+      const prepared = await prepareTask({
+        workspace,
+        task: "untangle dependency cycle between billing and orders",
+        codeFacts,
+        modelStore: new YamlModelStore()
+      });
+      expect(prepared.context.practiceGuidance.matches.map((match) => match.practiceId)).not.toContain("modularity.no-new-cycle");
+      const baseline = {
+        schemaVersion: "archcontext.practice-checkpoint-snapshot/v1" as const,
+        task: prepared.context.task,
+        headSha: workspace.headSha,
+        worktreeDigest: computeWorktreeDigest(root),
+        contextDigest: prepared.context.extensions.digest,
+        practiceGuidanceDigest: prepared.context.extensions.practiceGuidanceDigest,
+        catalogDigest: prepared.context.practiceGuidance.catalogDigest,
+        matches: prepared.context.practiceGuidance.matches
+      };
+
+      cycleObserved = true;
+      const added = await checkpointTask({
+        workspace,
+        taskSessionId: "task_cycle",
+        task: prepared.context.task,
+        event: "post-edit",
+        changedPaths: ["src/billing/service.ts", "src/orders/service.ts"],
+        previous: baseline,
+        codeFacts,
+        modelStore: new YamlModelStore()
+      });
+      expect(added.delta.added.map((match) => match.practiceId)).toContain("modularity.no-new-cycle");
+      expect(added.delta.removed).toHaveLength(0);
+
+      cycleObserved = false;
+      const removed = await checkpointTask({
+        workspace,
+        taskSessionId: "task_cycle",
+        task: prepared.context.task,
+        event: "post-edit",
+        changedPaths: ["src/billing/service.ts", "src/orders/service.ts"],
+        previous: added.nextSnapshot,
+        codeFacts,
+        modelStore: new YamlModelStore()
+      });
+      expect(removed.delta.removed.map((match) => match.practiceId)).toContain("modularity.no-new-cycle");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

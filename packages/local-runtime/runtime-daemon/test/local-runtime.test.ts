@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -78,6 +78,62 @@ function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0]
   });
 }
 
+function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync: number; buildTaskContext: number } } {
+  let sync = 0;
+  let buildTaskContext = 0;
+  const port: CodeFactsPort = {
+    async ensureReady() {
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"f".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"1".repeat(64)}`
+      };
+    },
+    async sync() {
+      sync += 1;
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"f".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"1".repeat(64)}`
+      };
+    },
+    async buildTaskContext(input) {
+      buildTaskContext += 1;
+      const symbols = [
+        { id: "symbol.legacyWrapperV1", name: "legacyWrapperV1", kind: "public-api", path: "src/billing/legacy-wrapper-v1.ts" },
+        { id: "symbol.fallbackMapperV2", name: "fallbackMapperV2", kind: "public-api", path: "src/billing/fallback-mapper-v2.ts" }
+      ].slice(0, input.maxSymbols);
+      return {
+        task: input.task,
+        symbols,
+        edges: [{ source: "symbol.legacyWrapperV1", target: "symbol.fallbackMapperV2", kind: "imports", confidence: "high" }],
+        evidence: [],
+        digest: digestJson({ task: input.task, symbols } as any)
+      } satisfies NormalizedCodeContext;
+    },
+    async findSymbols() {
+      return [];
+    },
+    async getImpact() {
+      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
+    },
+    async getCallers() {
+      return [];
+    },
+    async getCallees() {
+      return [];
+    },
+    async resolveEvidence() {
+      return [];
+    }
+  };
+  return { port, counts: () => ({ sync, buildTaskContext }) };
+}
+
 describe("local runtime foundation", () => {
   test("init, validate, sync, context, and status share one runtime session", async () => {
     const root = tempRepo();
@@ -124,6 +180,40 @@ describe("local runtime foundation", () => {
       expect((status.data as any).repositoryId).toBe(repositoryFingerprint(root));
       expect((status.data as any).worktreeDigest).toMatch(/^sha256:/);
       expect(daemon.status().sessions).toBe(1);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("checkpoint coalesces repeated hook events without re-running analysis", async () => {
+    const root = tempRepo();
+    const facts = countingCheckpointFacts();
+    try {
+      const daemon = await createStartedTestDaemon({ codeFacts: facts.port });
+      const prepare = await daemon.prepare(root, "remove legacy v1 wrapper", 12_288, 3, "task_coalesce");
+      expect(prepare.ok).toBe(true);
+      expect(facts.counts().buildTaskContext).toBe(1);
+
+      const input = {
+        taskSessionId: "task_coalesce",
+        event: "post-edit" as const,
+        changedPaths: ["src/billing/legacy-wrapper-v1.ts"],
+        toolCallId: "toolu_coalesce",
+        maxItems: 3
+      };
+      const first = await daemon.checkpoint(root, input);
+      expect((first.data as any).hook.coalesced).toBe(false);
+      expect(facts.counts()).toEqual({ sync: 1, buildTaskContext: 2 });
+
+      let last = first;
+      for (let index = 0; index < 9; index += 1) {
+        last = await daemon.checkpoint(root, input);
+      }
+      expect((last.data as any).hook.coalesced).toBe(true);
+      expect((last.data as any).hook.skippedAnalysis).toBe(true);
+      expect((last.data as any).hook.coalescedEventCount).toBe(10);
+      expect((last.data as any).resultDigest).toBe((first.data as any).resultDigest);
+      expect(facts.counts()).toEqual({ sync: 1, buildTaskContext: 2 });
     } finally {
       removeTempRepo(root);
     }

@@ -276,6 +276,10 @@ export interface PracticeCheckpointResultV1 {
     failOpen: true;
     pathCount: number;
     network: "forbidden";
+    coalesced?: boolean;
+    skippedAnalysis?: boolean;
+    coalescedEventCount?: number;
+    coalesceKey?: string;
   };
   nextSnapshot: PracticeCheckpointSnapshotV1;
 }

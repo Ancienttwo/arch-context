@@ -56,6 +56,10 @@
         "failOpen": { "const": true },
         "pathCount": { "type": "integer", "minimum": 0 },
         "network": { "const": "forbidden" },
+        "coalesced": { "type": "boolean" },
+        "skippedAnalysis": { "type": "boolean" },
+        "coalescedEventCount": { "type": "integer", "minimum": 1 },
+        "coalesceKey": { "type": "string", "pattern": "^sha256:" },
         "elapsedMs": { "type": "integer", "minimum": 0 }
       }
     },

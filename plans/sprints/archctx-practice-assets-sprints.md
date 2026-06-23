@@ -755,6 +755,8 @@ bun run verify
 - 验证证据写入 `docs/verification/practice-assets-s3-checkpoint-gate.md`。
 - 2026-06-24：full verification 通过，`bun run verify` readback 为 579 pass / 0 fail / 3457 expects；focused S3 suite 为 164 pass / 0 fail / 975 expects。
 - 2026-06-24：提交 stacked PR #15 `feat(practices): add checkpoint guidance deltas`，base 为 `codex/practice-matching`；最终合并前以 PR Checks readback 为准。
+- 2026-06-24：补 S3 hardening：daemon 对同一 worktree/tool call/path set 的重复 checkpoint 做 coalesce，core fixture 覆盖 observed cycle added/removed delta，benchmark readback 为 cold p95 31.086ms、warm p95 29.416ms、coalesced p95 16.843ms。
+- 2026-06-24：hardening 后 full verification 通过，`bun run verify` readback 为 581 pass / 0 fail / 3472 expects；focused S3 suite 为 166 pass / 0 fail / 990 expects。
 
 ## 11.2 Checklist
 
@@ -769,9 +771,9 @@ bun run verify
 
 - [x] S3-05 daemon session 保存上一次 effective match set 与 evidence digest。
 - [~] S3-06 changed path 与 affected symbol/edge 建立增量候选范围，避免每次全仓扫描。（本 slice 将 changed paths 传入 CodeFacts sync；affected symbol/edge narrowing 留到 hardening。）
-- [~] S3-07 对 rename、delete、generated files、ignored files、binary files 建立确定规则。（本 slice 做路径归一化与拒绝绝对/上级路径；完整事件矩阵待补。）
-- [~] S3-08 当实际 diff 消除触发条件时，checkpoint 能撤销或降级 prepare 建议。（delta 支持 removed/downgraded；真实 revert fixture 待补。）
-- [~] S3-09 当编辑引入新增 cycle、boundary import、compatibility path 时，checkpoint 能追加实践。（delta 支持 added/upgraded；新增腐化 fixture 待补。）
+- [~] S3-07 对 rename、delete、generated files、ignored files、binary files 建立确定规则。（已覆盖路径归一化、去重、拒绝绝对/上级路径；完整 rename/delete/generated/binary 事件矩阵待补。）
+- [~] S3-08 当实际 diff 消除触发条件时，checkpoint 能撤销或降级 prepare 建议。（core observed-cycle fixture 已覆盖 removed；真实 installed CLI revert fixture 待补。）
+- [~] S3-09 当编辑引入新增 cycle、boundary import、compatibility path 时，checkpoint 能追加实践。（core observed-cycle fixture 已覆盖 added；真实跨层 import fixture 待补。）
 - [x] S3-10 worktree/head/catalog 变化导致旧 checkpoint stale，返回可操作 reason code。
 
 ### Hook 入口
@@ -780,7 +782,7 @@ bun run verify
 - [x] S3-12 CLI 只转发事件，不读取源码、不做 matching、不直接写状态。
 - [ ] S3-13 为 central `repo-harness-hook` 定义 adapter contract 与配置示例，不在本仓库复制完整 Hook runtime。
 - [ ] S3-14 提供 `archctx hooks install/status/remove` 或扩展现有 host 安装流程，输出配置而非静默改写用户配置。
-- [ ] S3-15 连续事件进行 debounce/coalesce；同一 tool call/路径集不重复分析。
+- [x] S3-15 连续事件进行 debounce/coalesce；同一 tool call/路径集不重复分析。
 - [x] S3-16 Hook 设置本地超时和 fail-open；daemon 不可用时只 warning，不阻塞编辑。
 - [x] S3-17 Hook 路径明确禁止 HTTP、Context7、LLM、embedding 与外部 telemetry。
 - [ ] S3-18 本地日志仅记录 event type、耗时、path count、digest 和 reason code，不记录代码正文。
@@ -794,20 +796,20 @@ bun run verify
 
 ### 测试与实跑
 
-- [~] S3-23 单测覆盖 debounce、dedupe、delta diff、stale、rename/delete 和 fail-open。（delta/stale/fail-open 已覆盖；debounce、rename/delete 待补。）
+- [~] S3-23 单测覆盖 debounce、dedupe、delta diff、stale、rename/delete 和 fail-open。（debounce/coalesce、dedupe、delta added/removed、stale、fail-open 已覆盖；rename/delete/generated/binary 矩阵待补。）
 - [~] S3-24 独立进程 E2E：Agent/脚本进程 → hook CLI → daemon → CodeFacts → checkpoint result。（installed CLI checkpoint 已覆盖；hook CLI 独立进程矩阵待补。）
-- [ ] S3-25 真实 fixture 中 prepare 无警告，编辑后新增跨层 import，checkpoint 返回对应 practice。
-- [ ] S3-26 回滚编辑后再次 checkpoint，原 practice 被 removed/downgraded。
+- [~] S3-25 真实 fixture 中 prepare 无警告，编辑后新增跨层 import，checkpoint 返回对应 practice。（core observed-cycle fixture 已覆盖 added；真实 installed CLI fixture 待补。）
+- [~] S3-26 回滚编辑后再次 checkpoint，原 practice 被 removed/downgraded。（core observed-cycle fixture 已覆盖 removed；真实 installed CLI fixture 待补。）
 - [~] S3-27 daemon stop/crash/stale lock 场景不阻断编辑，并可在恢复后继续同一 session。（hook fail-open 已覆盖；checkpoint baseline restart recovery 待补。）
 - [x] S3-28 编写 `docs/verification/practice-assets-s3-checkpoint-gate.md`，附真实 Hook readback。
 
 ## 11.3 Exit Gates
 
 - [~] S3-EG1 Hook 不包含网络调用；packet/audit 证明 egress = 0。（hook result 和实现保持 local-only；独立 packet/audit 证据待补。）
-- [ ] S3-EG2 warm checkpoint p95 ≤ 250ms；cold checkpoint p95 ≤ 750ms，测试仓库规模与环境写入证据。
-- [ ] S3-EG3 连续 10 次 Write/Edit 事件最多触发 1 次有效分析和 1 次结果回传。
+- [x] S3-EG2 warm checkpoint p95 ≤ 250ms；cold checkpoint p95 ≤ 750ms，测试仓库规模与环境写入证据。
+- [x] S3-EG3 连续 10 次 Write/Edit 事件最多触发 1 次有效分析和 1 次结果回传。
 - [x] S3-EG4 daemon 不可用时 Hook fail-open，退出码与用户提示符合 contract。
-- [~] S3-EG5 prepare → edit → checkpoint → revert → checkpoint 的 practice delta 可复现。（prepare → checkpoint no-op 已覆盖；edit/revert fixture 待补。）
+- [~] S3-EG5 prepare → edit → checkpoint → revert → checkpoint 的 practice delta 可复现。（core added/removed fixture 已覆盖；真实 installed CLI edit/revert fixture 待补。）
 - [x] S3-EG6 central-first Hook 配置无需将 `hook_source` 设置为 `repo`。
 
 ## 11.4 验证命令

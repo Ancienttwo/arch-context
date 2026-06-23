@@ -53,6 +53,13 @@ export interface RuntimeCheckpointInput {
   maxItems?: number;
 }
 
+interface CheckpointCoalesceEntry {
+  repositoryId: string;
+  taskSessionId: string;
+  data: Json;
+  eventCount: number;
+}
+
 export interface DeveloperReviewDigestBundle {
   schemaVersion: "archcontext.developer-review-digest-bundle/v1";
   challengeId: string;
@@ -343,6 +350,7 @@ export class ArchctxDaemon {
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
   private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
+  private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private landscape?: Landscape;
   private explorer?: ExplorerServerSession;
@@ -377,6 +385,8 @@ export class ArchctxDaemon {
   async stop(): Promise<void> {
     await this.closeExplorer();
     this.sessions.clear();
+    this.checkpointBaselines.clear();
+    this.checkpointCoalesced.clear();
     this.localStore.close();
     this.running = false;
   }
@@ -457,6 +467,7 @@ export class ArchctxDaemon {
       catalogDigest: result.context.practiceGuidance.catalogDigest,
       matches: result.context.practiceGuidance.matches
     });
+    this.clearPracticeCheckpointCoalesced(session.workspace.repositoryId, taskSessionId);
     return okEnvelope("prepare", result as unknown as Json);
   }
 
@@ -467,6 +478,22 @@ export class ArchctxDaemon {
     const taskSessionId = input.taskSessionId ?? "task_runtime";
     const baseline = this.checkpointBaselines.get(this.practiceCheckpointKey(session.workspace.repositoryId, taskSessionId));
     const task = input.task ?? baseline?.task ?? "checkpoint";
+    const coalesceKey = this.practiceCheckpointCoalesceKey(session, taskSessionId, task, input, baseline);
+    const coalesced = this.checkpointCoalesced.get(coalesceKey);
+    if (coalesced) {
+      coalesced.eventCount += 1;
+      const cached = coalesced.data as Record<string, any>;
+      return okEnvelope("checkpoint", {
+        ...cached,
+        hook: {
+          ...cached.hook,
+          coalesced: true,
+          skippedAnalysis: true,
+          coalescedEventCount: coalesced.eventCount,
+          elapsedMs: Date.now() - started
+        }
+      } as Json);
+    }
     const result = await checkpointTask({
       workspace: session.workspace,
       taskSessionId,
@@ -482,13 +509,25 @@ export class ArchctxDaemon {
       budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
     });
     this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
-    return okEnvelope("checkpoint", {
+    const data = {
       ...result,
       hook: {
         ...result.hook,
+        coalesced: false,
+        skippedAnalysis: false,
+        coalescedEventCount: 1,
+        coalesceKey,
         elapsedMs: Date.now() - started
       }
-    } as unknown as Json);
+    } as unknown as Json;
+    this.checkpointCoalesced.set(coalesceKey, {
+      repositoryId: session.workspace.repositoryId,
+      taskSessionId,
+      data,
+      eventCount: 1
+    });
+    this.pruneCheckpointCoalesced();
+    return okEnvelope("checkpoint", data);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
@@ -1170,6 +1209,39 @@ export class ArchctxDaemon {
 
   private practiceCheckpointKey(repositoryId: string, taskSessionId: string): string {
     return `${repositoryId}:${taskSessionId}`;
+  }
+
+  private practiceCheckpointCoalesceKey(session: RepositorySession, taskSessionId: string, task: string, input: RuntimeCheckpointInput, baseline?: PracticeCheckpointSnapshotV1): string {
+    return digestJson({
+      repositoryId: session.workspace.repositoryId,
+      headSha: session.workspace.headSha,
+      worktreeDigest: session.snapshot.worktreeDigest,
+      taskSessionId,
+      task,
+      previousContextDigest: baseline?.contextDigest,
+      previousPracticeGuidanceDigest: baseline?.practiceGuidanceDigest,
+      event: input.event ?? "manual",
+      changedPaths: normalizeCheckpointPaths(input.changedPaths ?? []),
+      toolCallId: input.toolCallId,
+      expectedHeadSha: input.expectedHeadSha,
+      expectedWorktreeDigest: input.expectedWorktreeDigest,
+      maxBytes: input.maxBytes ?? 12_288,
+      maxItems: input.maxItems ?? 12
+    } as Json);
+  }
+
+  private clearPracticeCheckpointCoalesced(repositoryId: string, taskSessionId: string): void {
+    for (const [key, entry] of this.checkpointCoalesced) {
+      if (entry.repositoryId === repositoryId && entry.taskSessionId === taskSessionId) this.checkpointCoalesced.delete(key);
+    }
+  }
+
+  private pruneCheckpointCoalesced(): void {
+    while (this.checkpointCoalesced.size > 128) {
+      const oldest = this.checkpointCoalesced.keys().next().value;
+      if (oldest === undefined) return;
+      this.checkpointCoalesced.delete(oldest);
+    }
   }
 
   private assertRunning(): void {
@@ -2046,6 +2118,13 @@ function isProcessAlive(pid: number): boolean {
 
 function isLoopbackRemote(remoteAddress = ""): boolean {
   return ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddress);
+}
+
+function normalizeCheckpointPaths(paths: string[]): string[] {
+  return [...new Set(paths
+    .map((path) => path.trim().replaceAll("\\", "/"))
+    .filter((path) => path.length > 0 && !path.startsWith("/") && !path.includes(".."))
+  )].sort();
 }
 
 function requestRpcVersionHeader(request: IncomingMessage): string | undefined {
