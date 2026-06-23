@@ -35,6 +35,36 @@ const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
 };
 practiceEnforcement.violations = practiceEnforcement.results;
 
+const compatibilityPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
+  schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
+  catalogDigest: `sha256:${"1".repeat(64)}`,
+  policyDigest: `sha256:${"2".repeat(64)}`,
+  checkResultDigest: `sha256:${"3".repeat(64)}`,
+  results: [
+    {
+      schemaVersion: "archcontext.practice-check-result/v1",
+      practiceId: "compatibility.single-owner",
+      checkId: "compatibility-contract-required",
+      assetDigest: `sha256:${"4".repeat(64)}`,
+      enforcement: "complete",
+      status: "fail",
+      reasonCode: "violation",
+      deterministic: true,
+      subjects: ["compatibility-owner", "compatibility-reason"],
+      subjectDigests: [
+        digestJson({ subject: "compatibility-owner" }),
+        digestJson({ subject: "compatibility-reason" })
+      ],
+      message: "Compatibility path is missing a durable contract.",
+      remediation: { action: "add-compatibility-contract-owner-consumers-removal-and-review-date", paths: [] }
+    }
+  ],
+  violations: [],
+  waiversApplied: [],
+  actionsRequired: ["add-compatibility-contract-owner-consumers-removal-and-review-date"]
+};
+compatibilityPracticeEnforcement.violations = compatibilityPracticeEnforcement.results;
+
 function readJson(path: string) {
   return JSON.parse(readFileSync(join(root, path), "utf8"));
 }
@@ -98,6 +128,44 @@ describe("@archcontext/core/review-engine", () => {
       practiceCatalogDigest: practiceEnforcement.catalogDigest,
       practicePolicyDigest: practiceEnforcement.policyDigest,
       practiceCheckResultDigest: practiceEnforcement.checkResultDigest
+    });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("deduplicates compatibility contract findings already reported by practice enforcement", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.test",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      compatibilityPathIntroduced: true,
+      compatibilityContract: {
+        kind: "external-contract",
+        reason: "just in case",
+        consumers: ["external.client"],
+        removalConditions: ["external.client migrates"],
+        reviewAt: "2026-07-24T00:00:00.000Z"
+      },
+      practiceEnforcement: compatibilityPracticeEnforcement
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.practiceViolations).toHaveLength(1);
+    expect(result.findings.map((finding) => finding.id)).toEqual(["compatibility-reason", "compatibility-owner"]);
+    expect(result.summary.errors).toBe(2);
+    expect(result.findings.map((finding) => finding.id)).not.toContain("practice:compatibility.single-owner:compatibility-contract-required");
+    expect(result.extensions.suppressedPracticeFindings).toEqual([{
+      id: "practice:compatibility.single-owner:compatibility-contract-required",
+      reason: "duplicates-compatibility-contract-finding",
+      duplicateFindingIds: ["compatibility-owner", "compatibility-reason"]
+    }]);
+    expect(result.snapshot).toMatchObject({
+      practiceCatalogDigest: compatibilityPracticeEnforcement.catalogDigest,
+      practicePolicyDigest: compatibilityPracticeEnforcement.policyDigest,
+      practiceCheckResultDigest: compatibilityPracticeEnforcement.checkResultDigest
     });
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });

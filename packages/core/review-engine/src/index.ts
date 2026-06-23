@@ -59,12 +59,18 @@ export function completeTaskGate(input: CompleteTaskInput) {
   const practiceViolations = staleContext ? [] : input.practiceEnforcement?.violations ?? [];
   const waiversApplied = staleContext ? [] : input.practiceEnforcement?.waiversApplied ?? [];
   const actionsRequired = staleContext ? [] : input.practiceEnforcement?.actionsRequired ?? [];
-  const practiceFindings: PolicyFinding[] = practiceViolations.map((violation) => ({
-    id: `practice:${violation.practiceId}:${violation.checkId}`,
-    type: "practice-violation",
-    severity: "error",
-    message: violation.message
-  }));
+  const { practiceFindings, suppressedPracticeFindings } = dedupePracticeFindings(
+    practiceViolations.map((violation) => ({
+      violation,
+      finding: {
+        id: `practice:${violation.practiceId}:${violation.checkId}`,
+        type: "practice-violation",
+        severity: "error" as const,
+        message: violation.message
+      }
+    })),
+    findings
+  );
   findings.push(...practiceFindings);
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
@@ -100,9 +106,38 @@ export function completeTaskGate(input: CompleteTaskInput) {
     ...result,
     extensions: {
       digest: digestJson(result as unknown as Json),
-      ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {})
+      ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {}),
+      ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings })
     }
   };
+}
+
+function dedupePracticeFindings(
+  candidates: { violation: PracticeEnforcementEvaluationV1["violations"][number]; finding: PolicyFinding }[],
+  existingFindings: PolicyFinding[]
+): { practiceFindings: PolicyFinding[]; suppressedPracticeFindings: Json[] } {
+  const compatibilityFindingIds = new Set(existingFindings.filter(isCompatibilityFinding).map((finding) => finding.id));
+  const practiceFindings: PolicyFinding[] = [];
+  const suppressedPracticeFindings: Json[] = [];
+  for (const candidate of candidates) {
+    const duplicateCompatibilityIds = candidate.violation.checkId === "compatibility-contract-required"
+      ? candidate.violation.subjects.filter((subject) => compatibilityFindingIds.has(subject)).sort()
+      : [];
+    if (duplicateCompatibilityIds.length > 0) {
+      suppressedPracticeFindings.push({
+        id: candidate.finding.id,
+        reason: "duplicates-compatibility-contract-finding",
+        duplicateFindingIds: duplicateCompatibilityIds
+      } as unknown as Json);
+      continue;
+    }
+    practiceFindings.push(candidate.finding);
+  }
+  return { practiceFindings, suppressedPracticeFindings };
+}
+
+function isCompatibilityFinding(finding: PolicyFinding): boolean {
+  return finding.type === "unjustified-compatibility-path" || finding.type === "invalid-compatibility-contract";
 }
 
 export function reviewCrossRepoLandscape(input: { landscape: Landscape; relations: CrossRepoRelation[] }) {

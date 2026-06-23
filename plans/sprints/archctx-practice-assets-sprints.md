@@ -856,6 +856,10 @@ bun run verify
 - 写入边界：实际文件写入仍必须通过既有 `applyUpdate` / `archctx apply --approved --expected-worktree-digest ...`，继承 ChangeSet expected hash、worktree digest、policy-engine allowlist、symlink denial、journal 与 rollback。
 - 验证证据写入 `docs/verification/practice-assets-s4-waiver-governance.md`。
 - 2026-06-24：waiver governance full verification 通过，最终 `bun run verify` readback 为 597 pass / 0 fail / 3556 expects；期间一次 local-product E2E 15s 子进程超时已单独重跑通过后再跑全量通过。
+- 2026-06-24：从 waiver governance stacked head 创建 `codex/practice-compat-dedupe`，完成 S4-22 compatibility finding 去重。
+- 实现边界：当 `compatibility-contract-required` practice violation 的 subjects 已由直接 compatibility contract gate 报出时，`completeTaskGate` 保留 `practiceViolations`、policy/check digests 与 `actionsRequired`，但 suppress 重复的 user-facing `practice:*` finding 和错误计数；suppressed finding 记录在 `extensions.suppressedPracticeFindings`。
+- 验证证据写入 `docs/verification/practice-assets-s4-compat-dedupe.md`。
+- 2026-06-24：compatibility dedupe full verification 通过，`bun run verify` readback 为 598 pass / 0 fail / 3564 expects。
 
 ## 12.2 Checklist
 
@@ -891,7 +895,7 @@ bun run verify
 - [x] S4-19 `completeTaskGate` 在 stale、catalog/context digest 有效后运行 practice checks。
 - [x] S4-20 stale-context 优先于 practice violation，避免对旧上下文给出错误结论。
 - [x] S4-21 complete 输出新增 `practiceViolations`、`waiversApplied`、`actionsRequired`。
-- [~] S4-22 兼容现有 compatibility contract 与 incomplete intervention gate，不重复或矛盾报错。（stale/cleanup 兼容已覆盖；compatibility finding 去重仍待补。）
+- [x] S4-22 兼容现有 compatibility contract 与 incomplete intervention gate，不重复或矛盾报错。
 - [x] S4-23 Gate 结果与 device attestation 绑定 catalog digest、policy digest 和 check result digest。
 
 ### 测试
