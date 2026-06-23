@@ -22,6 +22,7 @@ const ALLOWLIST = [
   ".archcontext/model/",
   ".archcontext/policies/",
   ".archcontext/practices/",
+  ".archcontext/waivers/",
   ".archcontext/decisions/",
   ".archcontext/generated/"
 ];

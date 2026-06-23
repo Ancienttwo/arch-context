@@ -4,7 +4,7 @@ import { digestJson, type Json, type ModelStorePort } from "@archcontext/contrac
 import { assertAllowedArchContextPath, evaluateChangeSetPaths } from "@archcontext/core/policy-engine";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
-export type ChangeOperationKind = "create_entity" | "update_entity_fields" | "delete_entity" | "write_policy" | "render_projection";
+export type ChangeOperationKind = "create_entity" | "update_entity_fields" | "delete_entity" | "write_policy" | "write_waiver" | "render_projection";
 
 export interface ChangeSetBase {
   headSha: string;

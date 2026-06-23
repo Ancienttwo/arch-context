@@ -34,6 +34,17 @@ export interface PracticeEnforcementInput {
   now?: string;
 }
 
+export interface PracticeWaiverOwnerRegistry {
+  schemaVersion: "archcontext.practice-waiver-owner-registry/v1";
+  owners: string[];
+  sources: { owner: string; path: string; kind: "lifecycle" | "data" }[];
+  digest: string;
+}
+
+export interface PracticeWaiverValidationOptions {
+  allowedOwners?: readonly string[];
+}
+
 const ENFORCEMENT_RANK: Record<PracticeEnforcementLevel, number> = { advisory: 0, checkpoint: 1, complete: 2 };
 const DEFAULT_POLICY: PracticeEnforcementPolicyV1 = {
   schemaVersion: PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION,
@@ -61,14 +72,38 @@ export function loadPracticeWaivers(root: string): PracticeWaiverV1[] {
   if (stat.isSymbolicLink()) throw new Error("practice-waiver-directory-symlink-denied");
   if (!stat.isDirectory()) throw new Error("practice-waiver-path-not-directory");
   const waivers: PracticeWaiverV1[] = [];
+  const ownerRegistry = loadPracticeWaiverOwnerRegistry(root);
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || !/\.ya?ml$|\.json$/.test(entry.name)) continue;
+    if (!entry.isFile() || !/\.(?:ya?ml|json)$/.test(entry.name)) continue;
     const path = join(dir, entry.name);
     const relativePath = `.archcontext/waivers/${entry.name}`;
     assertRepoPolicyFile(root, path, relativePath);
-    waivers.push(validatePracticeWaiver(parseJsonYamlFile(path) as PracticeWaiverV1, relativePath));
+    waivers.push(validatePracticeWaiver(parseJsonYamlFile(path) as PracticeWaiverV1, relativePath, { allowedOwners: ownerRegistry.owners }));
   }
   return waivers.sort((left, right) => waiverDigest(left).localeCompare(waiverDigest(right)));
+}
+
+export function loadPracticeWaiverOwnerRegistry(root: string): PracticeWaiverOwnerRegistry {
+  const modelDir = resolve(root, ".archcontext/model/nodes");
+  const sources: PracticeWaiverOwnerRegistry["sources"] = [];
+  if (existsSync(modelDir)) {
+    if (lstatSync(modelDir).isSymbolicLink()) throw new Error("practice-owner-registry-symlink-denied");
+    for (const path of collectFiles(root, ".archcontext/model/nodes")) {
+      const absolute = resolve(root, path);
+      if (lstatSync(absolute).isSymbolicLink()) throw new Error(`practice-owner-registry-symlink-denied: ${path}`);
+      const body = readFileSync(absolute, "utf8");
+      for (const kind of ["lifecycle", "data"] as const) {
+        for (const owner of extractOwnershipOwners(body, kind)) sources.push({ owner, path, kind });
+      }
+    }
+  }
+  const owners = [...new Set(sources.map((source) => source.owner))].sort();
+  const withoutDigest = {
+    schemaVersion: "archcontext.practice-waiver-owner-registry/v1" as const,
+    owners,
+    sources: sources.sort((a, b) => a.owner.localeCompare(b.owner) || a.path.localeCompare(b.path) || a.kind.localeCompare(b.kind))
+  };
+  return { ...withoutDigest, digest: digestJson(withoutDigest as unknown as Json) };
 }
 
 export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPolicyV1, path = "practice policy"): PracticeEnforcementPolicyV1 {
@@ -88,12 +123,13 @@ export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPol
   return policy;
 }
 
-export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practice waiver"): PracticeWaiverV1 {
+export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practice waiver", options: PracticeWaiverValidationOptions = {}): PracticeWaiverV1 {
   if (!waiver || typeof waiver !== "object" || Array.isArray(waiver)) throw new Error(`practice-waiver-invalid: ${path}`);
   if (waiver.schemaVersion !== PRACTICE_WAIVER_SCHEMA_VERSION) throw new Error(`practice-waiver-schema-version: ${path}`);
   if (!waiver.practiceId || !/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/.test(waiver.practiceId)) throw new Error(`practice-waiver-practice-id-invalid: ${path}`);
   if (waiver.checkId !== undefined && !/^[a-z][a-z0-9-]*(?:-[a-z0-9]+)*$/.test(waiver.checkId)) throw new Error(`practice-waiver-check-id-invalid: ${path}`);
   if (!waiver.owner || waiver.owner.trim().length < 2) throw new Error(`practice-waiver-owner-required: ${path}`);
+  if (options.allowedOwners && !options.allowedOwners.includes(waiver.owner)) throw new Error(`practice-waiver-owner-unknown: ${path}`);
   if (isVagueReason(waiver.reason)) throw new Error(`practice-waiver-reason-not-durable: ${path}`);
   if (Number.isNaN(Date.parse(waiver.createdAt)) || Number.isNaN(Date.parse(waiver.expiresAt))) throw new Error(`practice-waiver-date-invalid: ${path}`);
   if (!/^sha256:[a-f0-9]{64}$/.test(waiver.evidenceDigest)) throw new Error(`practice-waiver-evidence-digest-invalid: ${path}`);
@@ -251,6 +287,69 @@ function parseJsonYamlFile(path: string): unknown {
   const body = readFileSync(path, "utf8").replace(/^\uFEFF/, "").trim();
   const withoutDocumentMarker = body.startsWith("---") ? body.replace(/^---\s*/, "").trim() : body;
   return JSON.parse(withoutDocumentMarker);
+}
+
+function collectFiles(root: string, relativeDir: string): string[] {
+  const dir = resolve(root, relativeDir);
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const child = `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) out.push(...collectFiles(root, child));
+    if (entry.isFile() && /\.(?:ya?ml|json)$/.test(entry.name)) out.push(child);
+  }
+  return out.sort();
+}
+
+function extractOwnershipOwners(body: string, kind: "lifecycle" | "data"): string[] {
+  const jsonOwners = extractJsonOwnershipOwners(body, kind);
+  if (jsonOwners.length > 0) return jsonOwners;
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const owners: string[] = [];
+  const ownershipIndex = lines.findIndex((line) => /^(\s*)ownership:\s*$/.test(line));
+  if (ownershipIndex === -1) return owners;
+  const ownershipIndent = leadingSpaces(lines[ownershipIndex]);
+  for (let index = ownershipIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim().length === 0) continue;
+    const indent = leadingSpaces(line);
+    if (indent <= ownershipIndent) break;
+    const keyMatch = line.match(new RegExp(`^\\s*${kind}:\\s*(.*)$`));
+    if (!keyMatch) continue;
+    const inline = keyMatch[1].trim();
+    if (inline.startsWith("[")) owners.push(...parseInlineStringArray(inline));
+    for (let childIndex = index + 1; childIndex < lines.length; childIndex += 1) {
+      const child = lines[childIndex];
+      if (child.trim().length === 0) continue;
+      const childIndent = leadingSpaces(child);
+      if (childIndent <= indent) break;
+      const item = child.match(/^\s*-\s*"?([^"\n]+)"?\s*$/);
+      if (item) owners.push(item[1].trim());
+    }
+  }
+  return [...new Set(owners.filter(Boolean))].sort();
+}
+
+function extractJsonOwnershipOwners(body: string, kind: "lifecycle" | "data"): string[] {
+  try {
+    const parsed = JSON.parse(body) as { ownership?: Record<string, unknown> };
+    const values = parsed.ownership?.[kind];
+    return Array.isArray(values) ? values.filter((value): value is string => typeof value === "string").sort() : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseInlineStringArray(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value.replace(/'/g, "\"")) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function leadingSpaces(value: string): number {
+  return value.match(/^\s*/)?.[0].length ?? 0;
 }
 
 function assertRepoPolicyFile(root: string, path: string, relativePath: string): void {

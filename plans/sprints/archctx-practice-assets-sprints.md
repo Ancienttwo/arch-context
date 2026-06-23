@@ -848,9 +848,14 @@ bun run verify
 - 实现边界：新增 practice policy / waiver / check-result contracts 与 schemas，新增 `practice-engine` checker registry 和 enforcement evaluator，runtime daemon 在 repo policy `mode=active` 时加载 `.archcontext/policies/practices.yaml` 与 `.archcontext/waivers/*.yaml`，用 current guidance + previous checkpoint baseline 计算 complete-stage enforcement。
 - 首批 checker：`compatibility-contract-required` 与 `no-new-cycle`。`no-new-cycle` 只阻断 baseline 后新增 import-cycle evidence；无 baseline 时返回 `not_applicable:no-baseline`，不追责历史存量。
 - Trust boundary：CLI/MCP 仍只传 task/posture/head/compatibility/cleanup metadata；`practiceEnforcement`、`practiceViolations`、waiver outputs 和 practice digests 全部加入 caller-provided denylist。
-- Deferred：`dependency-direction`、`owner-required`、migration review/removal、required-test-evidence、owner registry lookup、以及 ChangeSet-backed waiver CLI 仍未实现。
+- Deferred：`dependency-direction`、`owner-required`、migration review/removal、required-test-evidence 仍未实现。
 - 验证证据写入 `docs/verification/practice-assets-s4-enforcement-gate.md`。
 - 2026-06-24：full verification 通过，`bun run verify` readback 为 595 pass / 0 fail / 3529 expects；FG3 adversarial review conclusion evidence 已按扩展后的 practice attestation denylist 重新生成。
+- 2026-06-24：从 S4 enforcement stacked head 创建 `codex/practice-waiver-governance`，补齐 owner-aware waiver validation 与 ChangeSet-backed waiver draft/apply/readback。
+- 实现边界：waiver owner registry 从 `.archcontext/model/nodes/**` 的 `ownership.lifecycle` / `ownership.data` 读取；`.archcontext/waivers/*.json|*.yaml` 的 JSON-compatible waiver 文件读取时拒绝未知 owner；`archctx practices waivers` 只读列表，`archctx practices waive` 只生成 `write_waiver` ChangeSet draft。
+- 写入边界：实际文件写入仍必须通过既有 `applyUpdate` / `archctx apply --approved --expected-worktree-digest ...`，继承 ChangeSet expected hash、worktree digest、policy-engine allowlist、symlink denial、journal 与 rollback。
+- 验证证据写入 `docs/verification/practice-assets-s4-waiver-governance.md`。
+- 2026-06-24：waiver governance full verification 通过，最终 `bun run verify` readback 为 597 pass / 0 fail / 3556 expects；期间一次 local-product E2E 15s 子进程超时已单独重跑通过后再跑全量通过。
 
 ## 12.2 Checklist
 
@@ -877,9 +882,9 @@ bun run verify
 
 - [x] S4-14 定义 `.archcontext/waivers/*.yaml`：practiceId、scope、owner、reason、createdAt、expiresAt、evidenceDigest。
 - [x] S4-15 Waiver 必须有 owner、耐久理由、具体 scope 和过期时间；禁止 `temporary`、`cleanup later` 等空泛理由。
-- [~] S4-16 过期、扩大 scope、digest 不匹配或未知 owner 的 waiver 被拒绝。（过期、扩大 scope、digest 不匹配已覆盖；owner registry lookup 待补。）
-- [ ] S4-17 Waiver 创建/更新必须走 ChangeSet engine、expectedWorktreeDigest 与路径白名单。
-- [ ] S4-18 CLI 增加 `archctx practices waive/waivers`，写操作要求显式 approval。
+- [x] S4-16 过期、扩大 scope、digest 不匹配或未知 owner 的 waiver 被拒绝。
+- [x] S4-17 Waiver 创建/更新必须走 ChangeSet engine、expectedWorktreeDigest 与路径白名单。
+- [x] S4-18 CLI 增加 `archctx practices waive/waivers`，写操作要求显式 approval。
 
 ### Complete gate 集成
 

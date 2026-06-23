@@ -382,7 +382,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -411,7 +411,34 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
   if (subcommand === "sources") {
     return daemon.practices(cwd, { action: "sources" });
   }
-  return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires list|show|validate|sources");
+  if (subcommand === "waivers") {
+    return daemon.practiceWaivers(cwd);
+  }
+  if (subcommand === "waive") {
+    const required = ["--practice-id", "--owner", "--reason", "--expires-at", "--evidence-digest"];
+    const missing = required.filter((flag) => !readFlag(args, flag));
+    if (missing.length > 0) return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", `practices waive requires ${missing.join(", ")}`);
+    const subjects = readRepeatedFlag(args, "--subject");
+    const pathGlobs = readRepeatedFlag(args, "--path-glob");
+    if (subjects.length === 0 && pathGlobs.length === 0) {
+      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", "practices waive requires --subject or --path-glob");
+    }
+    return daemon.planPracticeWaiver(cwd, {
+      ...(readFlag(args, "--id") === undefined ? {} : { id: readFlag(args, "--id")! }),
+      ...(readFlag(args, "--waiver-id") === undefined ? {} : { waiverId: readFlag(args, "--waiver-id")! }),
+      ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
+      practiceId: readFlag(args, "--practice-id")!,
+      ...(readFlag(args, "--check-id") === undefined ? {} : { checkId: readFlag(args, "--check-id")! }),
+      owner: readFlag(args, "--owner")!,
+      reason: readFlag(args, "--reason")!,
+      ...(readFlag(args, "--created-at") === undefined ? {} : { createdAt: readFlag(args, "--created-at")! }),
+      expiresAt: readFlag(args, "--expires-at")!,
+      evidenceDigest: readFlag(args, "--evidence-digest")!,
+      ...(subjects.length === 0 ? {} : { subjects }),
+      ...(pathGlobs.length === 0 ? {} : { pathGlobs })
+    });
+  }
+  return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires list|show|validate|sources|waivers|waive");
 }
 
 async function runCheckpointCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient, requestId: string) {

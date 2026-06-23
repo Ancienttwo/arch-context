@@ -19,11 +19,11 @@ import {
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaivers } from "@archcontext/core/practice-engine";
+import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -52,6 +52,21 @@ export interface RuntimeCheckpointInput {
   expectedWorktreeDigest?: string;
   maxBytes?: number;
   maxItems?: number;
+}
+
+export interface RuntimePracticeWaiverInput {
+  id?: string;
+  waiverId?: string;
+  taskSessionId?: string;
+  practiceId: string;
+  checkId?: string;
+  owner: string;
+  reason: string;
+  createdAt?: string;
+  expiresAt: string;
+  evidenceDigest: string;
+  subjects?: string[];
+  pathGlobs?: string[];
 }
 
 interface CheckpointCoalesceEntry {
@@ -283,6 +298,8 @@ export interface RuntimeDaemonClient {
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
   checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
+  practiceWaivers(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> | JsonEnvelope;
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
@@ -535,6 +552,82 @@ export class ArchctxDaemon {
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
     this.assertRunning();
     return practiceCatalogEnvelope(root, input);
+  }
+
+  practiceWaivers(root: string): JsonEnvelope {
+    this.assertRunning();
+    try {
+      const ownerRegistry = loadPracticeWaiverOwnerRegistry(root);
+      const waivers = loadPracticeWaivers(root);
+      return okEnvelope("practices.waivers", {
+        schemaVersion: "archcontext.practice-waiver-list/v1",
+        ownerRegistry,
+        count: waivers.length,
+        waivers: waivers.map((waiver) => ({
+          ...waiver,
+          waiverDigest: digestJson(waiver as unknown as Json)
+        }))
+      } as unknown as Json);
+    } catch (error) {
+      return errorEnvelope("practices.waivers", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const session = await this.openSession(root);
+    const model = await this.modelStore.validateModel(session.workspace);
+    let ownerRegistry: ReturnType<typeof loadPracticeWaiverOwnerRegistry>;
+    try {
+      ownerRegistry = loadPracticeWaiverOwnerRegistry(session.workspace.root);
+    } catch (error) {
+      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    const waiver: PracticeWaiverV1 = {
+      schemaVersion: "archcontext.practice-waiver/v1",
+      practiceId: input.practiceId,
+      ...(input.checkId === undefined ? {} : { checkId: input.checkId }),
+      scope: {
+        ...(input.pathGlobs && input.pathGlobs.length > 0 ? { pathGlobs: input.pathGlobs } : {}),
+        ...(input.subjects && input.subjects.length > 0 ? { subjects: input.subjects } : {})
+      },
+      owner: input.owner,
+      reason: input.reason,
+      createdAt: input.createdAt ?? this.clock(),
+      expiresAt: input.expiresAt,
+      evidenceDigest: input.evidenceDigest
+    };
+    let waiverId: string;
+    try {
+      validatePracticeWaiver(waiver, "practice waiver input", { allowedOwners: ownerRegistry.owners });
+      waiverId = safePracticeWaiverId(input.waiverId, waiver);
+    } catch (error) {
+      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    const path = `.archcontext/waivers/${waiverId}.json`;
+    const absolute = resolve(session.workspace.root, path);
+    const body = `${JSON.stringify(waiver, null, 2)}\n`;
+    const expectedHash = existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
+    const draft = this.changeSetEngine.plan({
+      id: input.id ?? `changeset.practice-waiver-${waiverId.replace(/[^A-Za-z0-9_-]/g, "-")}`,
+      base: {
+        headSha: session.workspace.headSha,
+        worktreeDigest: session.snapshot.worktreeDigest,
+        modelDigest: model.modelDigest
+      },
+      reason: { taskSessionId: input.taskSessionId ?? "task_runtime" },
+      operations: [{ op: "write_waiver", path, expectedHash, body }]
+    });
+    this.changesets.set(draft.id, draft);
+    return okEnvelope("practices.waive", {
+      schemaVersion: "archcontext.practice-waiver-plan/v1",
+      waiver,
+      waiverDigest: digestJson(waiver as unknown as Json),
+      ownerRegistry,
+      path,
+      draft,
+      preview: this.changeSetEngine.preview(session.workspace.root, draft)
+    } as unknown as Json);
   }
 
   async planUpdate(root: string, input: {
@@ -1458,6 +1551,14 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("practices", [root, input]);
   }
 
+  practiceWaivers(root: string) {
+    return this.call("practiceWaivers", [root]);
+  }
+
+  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput) {
+    return this.call("planPracticeWaiver", [root, input]);
+  }
+
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }) {
     return this.call("planUpdate", [root, input]);
   }
@@ -1697,6 +1798,10 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
       case "practices":
         return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
+      case "practiceWaivers":
+        return this.daemon.practiceWaivers(params[0] as string);
+      case "planPracticeWaiver":
+        return this.daemon.planPracticeWaiver(params[0] as string, params[1] as RuntimePracticeWaiverInput);
       case "planUpdate":
         return this.daemon.planUpdate(params[0] as string, params[1] as any);
       case "completeTask":
@@ -1974,6 +2079,25 @@ function createDeveloperReviewRunPaths(input: {
 function safeControlFileSegment(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
   return sanitized.length > 0 ? sanitized : "developer-review";
+}
+
+function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiverV1): string {
+  const explicitTrimmed = explicit?.trim();
+  if (explicitTrimmed && (explicitTrimmed === "." || explicitTrimmed === ".." || explicitTrimmed.includes("/") || explicitTrimmed.includes("\\"))) {
+    throw new Error("practice-waiver-id-invalid");
+  }
+  const evidencePrefix = waiver.evidenceDigest.startsWith("sha256:")
+    ? waiver.evidenceDigest.slice("sha256:".length, "sha256:".length + 12)
+    : waiver.evidenceDigest.slice(0, 12);
+  const candidate = (explicitTrimmed || [waiver.practiceId.replace(/\./g, "-"), waiver.checkId ?? "all", evidencePrefix].join("-"))
+    .replace(/[^A-Za-z0-9_.-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+  if (!candidate || candidate === "." || candidate === ".." || candidate.includes("/") || candidate.includes("\\")) {
+    throw new Error("practice-waiver-id-invalid");
+  }
+  return candidate;
 }
 
 function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {

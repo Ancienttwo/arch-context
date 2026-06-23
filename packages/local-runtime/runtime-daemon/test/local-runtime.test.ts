@@ -325,6 +325,81 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("practice waiver writes are owner-aware ChangeSets with apply readback", async () => {
+    const root = tempRepo();
+    try {
+      const daemon = await createStartedTestDaemon();
+      await daemon.init(root, "Practice Waiver App");
+      writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: module.waiver-owner",
+        "kind: module",
+        "name: Waiver Owner",
+        "status: active",
+        "summary: Owns waiver governance fixtures.",
+        "ownership:",
+        "  lifecycle: [\"team-architecture\"]",
+        ""
+      ].join("\n"), "utf8");
+
+      const unknownOwner = await daemon.planPracticeWaiver(root, {
+        practiceId: "modularity.no-new-cycle",
+        checkId: "no-new-cycle",
+        owner: "unknown-team",
+        reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+        evidenceDigest: `sha256:${"1".repeat(64)}`,
+        subjects: ["module.a->module.b"]
+      });
+      expect(unknownOwner.ok).toBe(false);
+      expect((unknownOwner as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const plan = await daemon.planPracticeWaiver(root, {
+        id: "changeset.practice-waiver-cycle",
+        waiverId: "cycle-waiver",
+        taskSessionId: "task_waiver",
+        practiceId: "modularity.no-new-cycle",
+        checkId: "no-new-cycle",
+        owner: "team-architecture",
+        reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
+        createdAt: "2026-06-24T00:00:00.000Z",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+        evidenceDigest: `sha256:${"1".repeat(64)}`,
+        subjects: ["module.a->module.b"]
+      });
+
+      expect(plan.ok).toBe(true);
+      expect((plan.data as any).path).toBe(".archcontext/waivers/cycle-waiver.json");
+      expect((plan.data as any).ownerRegistry.owners).toContain("team-architecture");
+      expect((plan.data as any).draft.operations[0]).toMatchObject({
+        op: "write_waiver",
+        path: ".archcontext/waivers/cycle-waiver.json",
+        expectedHash: "missing"
+      });
+      expect((plan.data as any).preview.allowed).toBe(true);
+
+      const apply = await daemon.applyUpdate(root, {
+        id: (plan.data as any).draft.id,
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      expect(apply.ok).toBe(true);
+      expect(readFileSync(join(root, ".archcontext/waivers/cycle-waiver.json"), "utf8")).toContain("team-architecture");
+
+      const waivers = await daemon.practiceWaivers(root);
+      expect(waivers.ok).toBe(true);
+      expect((waivers.data as any).count).toBe(1);
+      expect((waivers.data as any).waivers[0]).toMatchObject({
+        practiceId: "modularity.no-new-cycle",
+        checkId: "no-new-cycle",
+        owner: "team-architecture"
+      });
+      expect((waivers.data as any).waivers[0].waiverDigest).toMatch(/^sha256:/);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("SQLite contract enables WAL, foreign keys, busy timeout, and stores no source bodies", () => {
     const sql = migrationSql();
     for (const pragma of SQLITE_PRAGMAS) expect(sql).toContain(pragma);

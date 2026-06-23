@@ -11,7 +11,7 @@ S4 adds the first opt-in deterministic complete gate for practice assets. The im
 - Runtime entry: `packages/local-runtime/runtime-daemon/src/index.ts` loads repo policy/waivers, recompiles current practice guidance when policy mode is `active`, and passes daemon-owned enforcement data to `completeTaskGate`.
 - Surfaces: CLI/MCP only pass task metadata. They cannot pass `practiceViolations`, `practiceEnforcement`, waiver outputs, or practice digest fields.
 
-Out of scope for this slice: `archctx practices waive/waivers`, ChangeSet-backed waiver writes, owner registry lookup, dependency-direction/owner/migration/test-evidence checkers.
+Out of scope for this slice: dependency-direction/owner/migration/test-evidence checkers. Waiver write governance was completed in the follow-up slice documented in `docs/verification/practice-assets-s4-waiver-governance.md`.
 
 ## P2 Trace
 
@@ -66,6 +66,5 @@ Observed readbacks:
 ## Known Limits
 
 - Only `compatibility-contract-required` and `no-new-cycle` are registered in this slice.
-- Waiver files are read and validated, but CLI creation/update via ChangeSet is not implemented yet.
-- Owner registry validation is not implemented; owner is required syntactically and reason/scope/expiry/digest are validated.
+- Waiver write governance, owner registry validation, and CLI `practices waive/waivers` are covered by `docs/verification/practice-assets-s4-waiver-governance.md`.
 - Dependency direction, owner-required, migration review/removal, and required-test-evidence checkers remain pending.

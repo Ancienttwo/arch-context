@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEnforcementPolicyV1, type PracticeMatchV1, type PracticeWaiverV1 } from "@archcontext/contracts";
 import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { evaluatePracticeEnforcement, matchPracticesForTask, practiceWaiverEvidenceDigest, validatePracticeEngineCatalog } from "../src/index";
+import { evaluatePracticeEnforcement, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, matchPracticesForTask, practiceWaiverEvidenceDigest, validatePracticeEngineCatalog, validatePracticeWaiver } from "../src/index";
 
 const workspaceRoot = process.cwd();
 
@@ -308,5 +311,47 @@ describe("@archcontext/core/practice-engine", () => {
     expect(expired.violations).toHaveLength(1);
     expect(tampered.violations).toHaveLength(1);
     expect(overscoped.violations).toHaveLength(1);
+  });
+
+  test("waiver owners must resolve from model ownership registry", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-practice-waiver-"));
+    try {
+      mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+      mkdirSync(join(root, ".archcontext/waivers"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/module.billing.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: module.billing",
+        "kind: module",
+        "name: Billing",
+        "status: active",
+        "summary: Billing module.",
+        "ownership:",
+        "  lifecycle:",
+        "    - team-architecture",
+        "  data: [\"data-platform\"]",
+        ""
+      ].join("\n"), "utf8");
+      const waiver: PracticeWaiverV1 = {
+        schemaVersion: "archcontext.practice-waiver/v1",
+        practiceId: "modularity.no-new-cycle",
+        checkId: "no-new-cycle",
+        scope: { subjects: ["module.a->module.b"] },
+        owner: "team-architecture",
+        reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
+        createdAt: "2026-06-24T00:00:00.000Z",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+        evidenceDigest: `sha256:${"1".repeat(64)}`
+      };
+      writeFileSync(join(root, ".archcontext/waivers/cycle-waiver.json"), `${JSON.stringify(waiver, null, 2)}\n`, "utf8");
+
+      const registry = loadPracticeWaiverOwnerRegistry(root);
+
+      expect(registry.owners).toEqual(["data-platform", "team-architecture"]);
+      expect(registry.digest).toMatch(/^sha256:/);
+      expect(loadPracticeWaivers(root)).toHaveLength(1);
+      expect(() => validatePracticeWaiver({ ...waiver, owner: "unknown-team" }, "cycle-waiver", { allowedOwners: registry.owners })).toThrow("practice-waiver-owner-unknown");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

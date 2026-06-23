@@ -130,6 +130,17 @@ describe("archctx CLI", () => {
     try {
       const init = await runTestCli("init", ["--name", "CLI App"], root);
       expect(init.ok).toBe(true);
+      writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: module.waiver-owner",
+        "kind: module",
+        "name: Waiver Owner",
+        "status: active",
+        "summary: Owns waiver governance fixtures.",
+        "ownership:",
+        "  lifecycle: [\"team-architecture\"]",
+        ""
+      ].join("\n"), "utf8");
 
       const context = await runTestCli("context", ["--task", "add teams"], root);
       expect(context.ok).toBe(true);
@@ -161,6 +172,41 @@ describe("archctx CLI", () => {
 
       const practiceSources = await runTestCli("practices", ["sources"], root);
       expect((practiceSources.data as any).sources.some((source: any) => source.id === "madr")).toBe(true);
+
+      const waiverPlan = await runTestCli("practices", [
+        "waive",
+        "--practice-id", "modularity.no-new-cycle",
+        "--check-id", "no-new-cycle",
+        "--waiver-id", "cycle-waiver",
+        "--owner", "team-architecture",
+        "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--expires-at", "2026-07-24T00:00:00.000Z",
+        "--evidence-digest", `sha256:${"1".repeat(64)}`,
+        "--subject", "module.a->module.b"
+      ], root);
+      expect(waiverPlan.ok).toBe(true);
+      expect((waiverPlan.data as any).draft.operations[0]).toMatchObject({
+        op: "write_waiver",
+        path: ".archcontext/waivers/cycle-waiver.json"
+      });
+      expect((waiverPlan.data as any).preview.allowed).toBe(true);
+
+      const waiverList = await runTestCli("practices", ["waivers"], root);
+      expect(waiverList.ok).toBe(true);
+      expect((waiverList.data as any).count).toBe(0);
+      expect((waiverList.data as any).ownerRegistry.owners).toContain("team-architecture");
+
+      const unknownWaiverOwner = await runTestCli("practices", [
+        "waive",
+        "--practice-id", "modularity.no-new-cycle",
+        "--owner", "unknown-team",
+        "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--expires-at", "2026-07-24T00:00:00.000Z",
+        "--evidence-digest", `sha256:${"1".repeat(64)}`,
+        "--subject", "module.a->module.b"
+      ], root);
+      expect(unknownWaiverOwner.ok).toBe(false);
+      expect((unknownWaiverOwner as any).error.code).toBe("AC_SCHEMA_INVALID");
 
       const checkpoint = await runTestCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
       expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
