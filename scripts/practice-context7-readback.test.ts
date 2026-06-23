@@ -42,17 +42,21 @@ describe("practice-context7-readback", () => {
         ...verifiedPracticeContext7Fixture().runtime,
         secondFetchCacheStatus: "miss",
         providerCallsAfterSecondFetch: 2,
-        providerCallsAfterPrepareComplete: 3
+        providerCallsAfterPrepareComplete: 3,
+        prepareExternalResource: {
+          ...(verifiedPracticeContext7Fixture().runtime as any).prepareExternalResource,
+          cacheStatus: "miss"
+        }
       },
       hardGateScan: {
-        prepareProviderReferences: 1,
         checkpointProviderReferences: 0,
         completeProviderReferences: 1
       },
       assertions: {
         ...verifiedPracticeContext7Fixture().assertions,
         hardGateProviderCallsZero: false,
-        exactVersionCacheReplay: false
+        exactVersionCacheReplay: false,
+        prepareUnknownsUsesPinnedCacheOnly: false
       }
     });
 
@@ -61,10 +65,11 @@ describe("practice-context7-readback", () => {
     expect(result.failures).toContain("runtime.secondFetchCacheStatus must be fresh");
     expect(result.failures).toContain("runtime.providerCallsAfterSecondFetch must be 1");
     expect(result.failures).toContain("runtime.providerCallsAfterPrepareComplete must remain 1");
-    expect(result.failures).toContain("hardGateScan.prepareProviderReferences must be 0");
+    expect(result.failures).toContain("runtime.prepareExternalResource.cacheStatus must be fresh");
     expect(result.failures).toContain("hardGateScan.completeProviderReferences must be 0");
     expect(result.failures).toContain("assertions.hardGateProviderCallsZero must be true");
     expect(result.failures).toContain("assertions.exactVersionCacheReplay must be true");
+    expect(result.failures).toContain("assertions.prepareUnknownsUsesPinnedCacheOnly must be true");
   });
 
   test("rejects packet-level private source, diff, path, and secret markers", () => {

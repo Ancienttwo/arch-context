@@ -134,14 +134,18 @@ function countingCheckpointFacts(): { port: CodeFactsPort; counts: () => { sync:
   return { port, counts: () => ({ sync, buildTaskContext }) };
 }
 
-function fakeExternalDocumentation(onFetch: () => void): ExternalDocumentationPort {
+function fakeExternalDocumentation(
+  onFetch: () => void,
+  mode: "manual" | "prepare-unknowns" = "manual",
+  options: { failFetch?: boolean } = {}
+): ExternalDocumentationPort {
   return {
     health() {
       return {
         provider: "context7",
         enabled: true,
-        mode: "manual",
-        egress: "manual-only",
+        mode,
+        egress: mode === "prepare-unknowns" ? "prepare-unknowns" : "manual-only",
         cache: "sqlite",
         keySource: "none"
       };
@@ -162,6 +166,7 @@ function fakeExternalDocumentation(onFetch: () => void): ExternalDocumentationPo
     },
     async fetch(input) {
       onFetch();
+      if (options.failFetch) throw new Error("context7 unavailable");
       return {
         schemaVersion: "archcontext.external-docs-fetch/v1",
         provider: "context7",
@@ -481,6 +486,143 @@ describe("local runtime foundation", () => {
       expect(providerCalls).toBe(1);
     } finally {
       await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("prepare-unknowns adds only advisory external docs resources for exact pinned framework versions", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "react-docs-app",
+      dependencies: { react: "18.2.0" }
+    }, null, 2), "utf8");
+    let providerCalls = 0;
+    const daemon = await createStartedTestDaemon({
+      clock: () => "2026-06-24T00:00:00.000Z",
+      externalDocumentation: fakeExternalDocumentation(() => providerCalls++, "prepare-unknowns")
+    });
+    try {
+      await daemon.init(root, "React Docs App");
+      await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      const noVersionUnknown = await daemon.prepare(root, "Use React state hooks without changing architecture constraints", 12_288, 12, "task_context7_no_version_unknown");
+      expect(noVersionUnknown.ok).toBe(true);
+      expect(((noVersionUnknown.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(false);
+      expect(providerCalls).toBe(0);
+
+      const first = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns without changing architecture constraints", 12_288, 12, "task_context7_prepare");
+      expect(first.ok).toBe(true);
+      const firstContext = (first.data as any).context;
+      const external = firstContext.resources.find((resource: any) => resource.type === "external-docs");
+      expect(external).toMatchObject({
+        provider: "context7",
+        libraryId: "/facebook/react",
+        packageName: "react",
+        version: "18.2.0",
+        trust: "external-unverified",
+        enforcement: "advisory-only",
+        cacheStatus: "fresh"
+      });
+      expect(external.uri).toMatch(/^archcontext:\/\/external-docs\/context7\/sha256:/);
+      expect(firstContext.unknowns.some((unknown: string) => unknown.includes("react@18.2.0"))).toBe(true);
+      expect(JSON.stringify(firstContext.constraints)).not.toContain("External documentation");
+      expect(JSON.stringify(firstContext.realConstraints)).not.toContain("External documentation");
+      expect(JSON.stringify(firstContext.practiceGuidance.resources)).not.toContain("external-docs");
+      expect(providerCalls).toBe(1);
+
+      const second = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns without changing architecture constraints", 12_288, 12, "task_context7_prepare_2");
+      expect(second.ok).toBe(true);
+      expect(((second.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(true);
+      expect(providerCalls).toBe(1);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("prepare-unknowns refuses fuzzy manifest versions and missing pins", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "react-docs-app",
+      dependencies: { react: "^18.2.0" }
+    }, null, 2), "utf8");
+    let providerCalls = 0;
+    const daemon = await createStartedTestDaemon({
+      clock: () => "2026-06-24T00:00:00.000Z",
+      externalDocumentation: fakeExternalDocumentation(() => providerCalls++, "prepare-unknowns")
+    });
+    try {
+      await daemon.init(root, "React Docs App");
+      await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      const prepare = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7_fuzzy");
+      expect(prepare.ok).toBe(true);
+      expect(((prepare.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(false);
+      expect(providerCalls).toBe(0);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("prepare-unknowns provider failure leaves static prepare result unchanged", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "react-docs-app",
+      dependencies: { react: "18.2.0" }
+    }, null, 2), "utf8");
+    let failingCalls = 0;
+    const staticDaemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    const failingDaemon = await createStartedTestDaemon({
+      clock: () => "2026-06-24T00:00:00.000Z",
+      externalDocumentation: fakeExternalDocumentation(() => failingCalls++, "prepare-unknowns", { failFetch: true })
+    });
+    try {
+      await staticDaemon.init(root, "React Docs App");
+      await failingDaemon.init(root, "React Docs App");
+      await failingDaemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      const staticPrepare = await staticDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_static");
+      const failingPrepare = await failingDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_failing");
+      expect(staticPrepare.ok).toBe(true);
+      expect(failingPrepare.ok).toBe(true);
+      const staticContext = (staticPrepare.data as any).context;
+      const failingContext = (failingPrepare.data as any).context;
+      expect((failingContext.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(false);
+      expect(failingContext.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(staticContext.practiceGuidance.matches.map((match: any) => match.practiceId));
+      expect(failingContext.constraints).toEqual(staticContext.constraints);
+      expect(failingContext.realConstraints).toEqual(staticContext.realConstraints);
+      expect((failingPrepare.data as any).posture).toEqual((staticPrepare.data as any).posture);
+      expect((failingPrepare.data as any).pressure).toEqual((staticPrepare.data as any).pressure);
+      const staticComplete = await staticDaemon.completeTask(root, { taskSessionId: "task_static", task: "Use React state hooks and confirm package version unknowns" });
+      const failingComplete = await failingDaemon.completeTask(root, { taskSessionId: "task_failing", task: "Use React state hooks and confirm package version unknowns" });
+      expect(staticComplete.ok).toBe(true);
+      expect(failingComplete.ok).toBe(true);
+      expect((failingComplete.data as any).result).toEqual((staticComplete.data as any).result);
+      expect((failingComplete.data as any).summary).toEqual((staticComplete.data as any).summary);
+      expect((failingComplete.data as any).findings).toEqual((staticComplete.data as any).findings);
+      expect((failingComplete.data as any).practiceViolations).toEqual((staticComplete.data as any).practiceViolations);
+      expect((failingComplete.data as any).actionsRequired).toEqual((staticComplete.data as any).actionsRequired);
+      expect((failingComplete.data as any).cleanup).toEqual((staticComplete.data as any).cleanup);
+      expect(failingCalls).toBe(1);
+    } finally {
+      await staticDaemon.stop();
+      await failingDaemon.stop();
       removeTempRepo(root);
     }
   });

@@ -20,9 +20,9 @@ Context7 without changing the deterministic practice engine.
   `scripts/practice-context7-readback.ts` and
   `docs/verification/practice-context7-readback.json`.
 
-Out of scope for this slice: automatic `prepare-unknowns` invocation, MCP
-resource surfacing, live Context7 provider readback with a real API key, and
-turning external docs into enforceable practice constraints.
+Out of scope for this slice: MCP resource surfacing, live Context7 provider
+readback with a real API key, provider log/rate-limit/circuit-breaker hardening,
+and turning external docs into enforceable practice constraints.
 
 ## P2 Trace
 
@@ -43,7 +43,16 @@ The concrete path is:
    `archcontext://external-docs/context7/<digest>` URI.
 5. A second fetch with the same exact library/version/query returns
    `cacheStatus=fresh` and does not call the provider.
-6. `prepare` and `complete` run after the fetch without increasing provider
+6. `prepare` keeps default egress at zero. When a caller explicitly configures
+   the provider in `prepare-unknowns` mode, the daemon first requires compiled
+   context to expose dependency/version pressure, then confirms a pinned Context7
+   library ID and an exact package version from `package-lock.json` or
+   `package.json`; fuzzy versions such as `^18.2.0` do not trigger provider
+   access.
+7. A matching `prepare` appends only an advisory `external-docs` resource and
+   an untrusted unknown to task context. It does not write constraints,
+   realConstraints, or practiceGuidance resources.
+8. `complete` runs after the fetch/prepare path without increasing provider
    call count.
 
 The pressure point was cache ownership: the daemon now writes cache records
@@ -54,14 +63,16 @@ returned digest.
 
 The design keeps external documentation outside Local Core authority. Context7
 can add bounded reference material for a pinned library/version, but the local
-daemon still owns cache keys, trust labels, and command approval. At 10x scale,
-the first failure point would be uncontrolled automatic provider calls during
-prepare/checkpoint, so this slice keeps the automatic path closed and verifies
-zero hard-gate provider references.
+daemon still owns cache keys, trust labels, exact-version discovery, and command
+approval. At 10x scale, the first failure point would be uncontrolled provider
+calls during hard gates, so this slice restricts automatic calls to explicit
+`prepare-unknowns` mode and verifies zero checkpoint/complete provider
+references.
 
 The smallest coherent change was a port plus one adapter, one cache table, and
-manual CLI commands. That preserves the existing repo pattern: contracts first,
-daemon-owned state, thin CLI, and executable evidence.
+manual CLI commands plus one daemon-level prepare augmentation. That preserves
+the existing repo pattern: contracts first, daemon-owned state, thin CLI, and
+executable evidence.
 
 ## Evidence
 
@@ -77,8 +88,9 @@ Observed readbacks:
 - Context7 adapter tests pass request minimization, DLP rejection, and advisory
   resource checks.
 - Runtime daemon test proves manual pin/fetch cache replay and no provider calls
-  from prepare/complete.
+  from complete; prepare-unknowns uses pinned exact versions and cache replay.
 - CLI test proves docs commands require explicit approval and `--allow-network`.
 - S5 readback evidence proves default egress zero, allowlisted outbound fields,
-  DLP interception, exact-version cache replay, and zero hard-gate provider
+  DLP interception, exact-version cache replay, prepare-unknowns advisory-only
+  resource insertion, provider failure fallback, and zero hard-gate provider
   references.

@@ -997,7 +997,7 @@ bun run verify
 - [x] S5-07 API key 只从 OS credential/env/user data 读取，不进入 repo、SQLite 明文或日志。
 - [x] S5-08 配置默认 `enabled: false`，支持 `manual | prepare-unknowns` 两种模式。
 - [x] S5-09 Context7 library ID 必须写入 lockfile；模糊 resolve 需要用户确认后固定。
-- [ ] S5-10 从 package lock/manifest 获取 exact version；无法确定版本时只返回 unknown，不猜测 latest。
+- [x] S5-10 从 package lock/manifest 获取 exact version；无法确定版本时只返回 unknown，不猜测 latest。
 
 ### Query minimization 与 DLP
 
@@ -1013,7 +1013,7 @@ bun run verify
 - [x] S5-17 SQLite 增加 external docs cache：provider、libraryId、version、queryDigest、contentDigest、retrievedAt、expiresAt。
 - [x] S5-18 默认 TTL 可配置；过期内容标 stale，不静默当作 fresh。
 - [x] S5-19 Cache key 不包含 raw task；purge 支持 provider/library/all。
-- [ ] S5-20 Context7 返回资源只写入 `resources`/`unknowns`，不能填充 enforceable constraints。
+- [x] S5-20 Context7 返回资源只写入 `resources`/`unknowns`，不能填充 enforceable constraints。
 - [ ] S5-21 `archcontext://external-docs/context7/<digest>` 只从本地 daemon resource 读取。
 
 ### CLI/MCP/prepare
@@ -1021,7 +1021,7 @@ bun run verify
 - [x] S5-22 增加 `archctx docs resolve <library>`，显示候选但不自动写 lockfile。
 - [x] S5-23 增加 `archctx docs pin <libraryId> --version <version>`，显式 approval 后写 `.archcontext/integrations/context7.lock.yaml`。
 - [x] S5-24 增加 `archctx docs fetch <libraryId> --query <intent>`、`status`、`purge`。
-- [ ] S5-25 `prepare-unknowns` 只在 static match 已确认 framework scope 且存在版本相关 unknown 时调用。
+- [x] S5-25 `prepare-unknowns` 只在 static match 已确认 framework scope 且存在版本相关 unknown 时调用。
 - [x] S5-26 Hook/checkpoint/complete 路径加入硬断言：不得调用 ExternalDocumentationPort。
 - [ ] S5-27 MCP 暴露只读 external resource，不增加可让 Agent 绕过 allowlist 的通用 HTTP 工具。
 
@@ -1039,7 +1039,7 @@ bun run verify
 - [x] S5-EG2 Outbound payload 只含 allowlisted 字段；敏感字段泄漏测试拦截率 = 100%。
 - [x] S5-EG3 Context7 内容参与 hard gate 的路径数 = 0，具有代码级断言与 negative test。
 - [x] S5-EG4 exact library/version 可重放命中 cache，并显示 provider、retrievedAt、expiresAt、content digest。
-- [ ] S5-EG5 Provider 不可用时 static practice IDs、pressure、posture、complete conclusion 与禁用 Provider 时一致。
+- [x] S5-EG5 Provider 不可用时 static practice IDs、pressure、posture、complete conclusion 与禁用 Provider 时一致。
 - [ ] S5-EG6 真实 Provider readback 明确记录社区内容不保证准确，不宣称端到端可审计。
 
 ## 13.4 验证命令
@@ -1067,11 +1067,36 @@ Completed S5 manual Context7 external docs vertical slice on branch
 - Verified: `bun test scripts/practice-context7-readback.test.ts packages/local-runtime/context7-adapter/test/context7-adapter.test.ts`, `bun run record:s5:context7`, `bun run readback:s5:context7`, focused runtime/store/CLI/contracts suites, and `bun run typecheck`.
 
 Remaining S5 work is intentionally not marked complete: exact version discovery
-from manifests, provider log contract, automatic `prepare-unknowns`, MCP
-read-only resource surfacing, rate-limit/retry/circuit-breaker behavior, real
-live Context7 readback, and full provider failure matrix.
+from non-JS manifests, provider log contract, MCP read-only resource surfacing,
+rate-limit/retry/circuit-breaker behavior, real live Context7 readback, and full
+provider failure matrix.
 
-## 13.6 Rollback
+## 13.6 Execution Record — 2026-06-24
+
+Completed S5 `prepare-unknowns` advisory integration on branch
+`codex/context7-prepare-unknowns`.
+
+- Runtime: `prepare` now augments context only when Context7 is explicitly
+  enabled in `prepare-unknowns` mode, compiled context already exposes
+  dependency/version pressure, the library is pinned in
+  `.archcontext/integrations/context7.lock.yaml`, and the package version is
+  exact in `package-lock.json` or `package.json`.
+- Context shape: external docs are appended only as `context.resources` and
+  `context.unknowns`; `constraints`, `realConstraints`, and
+  `practiceGuidance.resources` remain static and deterministic.
+- Failure behavior: framework tasks without version unknowns and fuzzy manifest
+  versions do not call the provider; provider failure leaves static practice
+  IDs, pressure, posture, and complete behavior unchanged.
+- Evidence: `docs/verification/practice-context7-readback.json` now records
+  prepare-unknowns cache replay, advisory resource metadata, and zero
+  checkpoint/complete provider references.
+- Verified: `bun run typecheck`, focused runtime tests for
+  `external docs|prepare-unknowns`, `bun test scripts/practice-context7-readback.test.ts`,
+  `bun run record:s5:context7`, `bun run readback:s5:context7`, broader
+  runtime/CLI/readback tests, `node scripts/sprint-status-check.mjs`, and
+  `bun run verify`.
+
+## 13.7 Rollback
 
 - `externalDocs.context7.enabled: false` 完全禁用 Provider；缓存可保留或显式 purge。
 - Adapter 不可用不得影响 daemon 启动、prepare、checkpoint、complete 或 attestation。

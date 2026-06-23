@@ -24,7 +24,7 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -385,6 +385,39 @@ interface PersistedPracticeCheckpointBaseline {
 
 const CONTEXT7_LOCKFILE = ".archcontext/integrations/context7.lock.yaml";
 
+type PreparedTaskContext = Awaited<ReturnType<typeof prepareTask>>["context"];
+
+interface PrepareUnknownsCandidate {
+  packageName: string;
+  libraryId: string;
+  version: string;
+  intent: string;
+}
+
+const CONTEXT7_PREPARE_FRAMEWORKS = [
+  {
+    packageName: "react",
+    libraryId: "/facebook/react",
+    scopePattern: /\b(react|jsx|hook|hooks|usestate|useeffect|component|suspense)\b/i,
+    intentPattern: /\b(hook|hooks|usestate|useeffect|state|component|suspense|jsx)\b/i,
+    intent: "state hooks"
+  },
+  {
+    packageName: "next",
+    libraryId: "/vercel/next.js",
+    scopePattern: /\b(next(?:\.js)?|app router|route handler|middleware|server component)\b/i,
+    intentPattern: /\b(app router|route handler|middleware|server component|routing|cache)\b/i,
+    intent: "app router"
+  },
+  {
+    packageName: "express",
+    libraryId: "/expressjs/express",
+    scopePattern: /\b(express|middleware|route handler)\b/i,
+    intentPattern: /\b(middleware|route|handler|request|response)\b/i,
+    intent: "middleware routing"
+  }
+] as const;
+
 export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
@@ -420,8 +453,8 @@ export class ArchctxDaemon {
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
-      enabled: false,
-      mode: "manual",
+      enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
+      mode: process.env.ARCHCONTEXT_CONTEXT7_MODE === "prepare-unknowns" ? "prepare-unknowns" : "manual",
       clock: this.clock
     });
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
@@ -512,18 +545,20 @@ export class ArchctxDaemon {
       modelStore: this.modelStore,
       budget: { maxBytes, maxItems }
     });
+    const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
+    const augmentedResult = context === result.context ? result : { ...result, context };
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
       schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
       task,
       headSha: session.workspace.headSha,
       worktreeDigest: session.snapshot.worktreeDigest,
-      contextDigest: result.context.extensions.digest,
-      practiceGuidanceDigest: result.context.extensions.practiceGuidanceDigest,
-      catalogDigest: result.context.practiceGuidance.catalogDigest,
-      matches: result.context.practiceGuidance.matches
+      contextDigest: augmentedResult.context.extensions.digest,
+      practiceGuidanceDigest: augmentedResult.context.extensions.practiceGuidanceDigest,
+      catalogDigest: augmentedResult.context.practiceGuidance.catalogDigest,
+      matches: augmentedResult.context.practiceGuidance.matches
     });
     this.clearPracticeCheckpointCoalesced(session.workspace.repositoryId, taskSessionId);
-    return okEnvelope("prepare", result as unknown as Json);
+    return okEnvelope("prepare", augmentedResult as unknown as Json);
   }
 
   async checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> {
@@ -678,7 +713,7 @@ export class ArchctxDaemon {
         return okEnvelope("docs.status", {
           schemaVersion: "archcontext.external-docs-status/v1",
           provider: "context7",
-          health: this.externalDocumentation.health(),
+          health: await this.externalDocumentation.health(),
           lock,
           cacheEntries: cached.map((entry) => ({
             provider: entry.provider,
@@ -881,6 +916,68 @@ export class ArchctxDaemon {
       mode: "manual",
       clock: this.clock
     });
+  }
+
+  private async augmentPrepareContextWithExternalDocs(
+    session: RepositorySession,
+    task: string,
+    context: PreparedTaskContext,
+    maxBytes: number
+  ): Promise<PreparedTaskContext> {
+    let health;
+    try {
+      health = await this.externalDocumentation.health();
+    } catch {
+      return context;
+    }
+    if (health.provider !== "context7" || !health.enabled || health.mode !== "prepare-unknowns") return context;
+    const lock = readContext7Lockfile(session.workspace.root);
+    const candidate = resolvePrepareUnknownsCandidate(session.workspace.root, task, context, lock);
+    if (!candidate) return context;
+    const resource = await this.readOrFetchPrepareExternalDocumentation(candidate);
+    if (!resource) return context;
+    return appendExternalDocumentationToContext(context, resource, candidate, maxBytes);
+  }
+
+  private async readOrFetchPrepareExternalDocumentation(candidate: PrepareUnknownsCandidate): Promise<ExternalDocumentationResourceV1 | undefined> {
+    const query = buildContext7Query({ intent: candidate.intent });
+    const queryDigest = digestJson({
+      provider: "context7",
+      libraryId: candidate.libraryId,
+      version: candidate.version,
+      query
+    });
+    const cached = await this.localStore.readExternalDocumentation({
+      provider: "context7",
+      libraryId: candidate.libraryId,
+      version: candidate.version,
+      queryDigest
+    });
+    if (cached && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
+      return { ...cached.resource, queryDigest, cacheStatus: "fresh" };
+    }
+    try {
+      const result = await this.externalDocumentation.fetch({
+        provider: "context7",
+        libraryId: candidate.libraryId,
+        version: candidate.version,
+        intent: candidate.intent
+      });
+      const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
+      await this.localStore.saveExternalDocumentation({
+        provider: "context7",
+        libraryId: candidate.libraryId,
+        version: candidate.version,
+        queryDigest,
+        contentDigest: resource.contentDigest,
+        resource,
+        retrievedAt: resource.retrievedAt,
+        expiresAt: resource.expiresAt
+      });
+      return resource;
+    } catch {
+      return cached ? { ...cached.resource, queryDigest, cacheStatus: "stale" } : undefined;
+    }
   }
 
   async applyUpdate(root: string, input: {
@@ -2302,6 +2399,191 @@ function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiv
     throw new Error("practice-waiver-id-invalid");
   }
   return candidate;
+}
+
+function resolvePrepareUnknownsCandidate(root: string, task: string, context: PreparedTaskContext, lock: Context7LockfileV1): PrepareUnknownsCandidate | undefined {
+  if (!prepareContextHasVersionRelatedUnknown(context)) return undefined;
+  for (const framework of CONTEXT7_PREPARE_FRAMEWORKS) {
+    if (!framework.scopePattern.test(task) || !framework.intentPattern.test(task)) continue;
+    const pinned = lock.libraries.find((library) => library.libraryId === framework.libraryId);
+    if (!pinned) continue;
+    const exactVersion = readExactPackageVersion(root, framework.packageName);
+    if (!exactVersion || exactVersion !== pinned.version) continue;
+    return {
+      packageName: framework.packageName,
+      libraryId: framework.libraryId,
+      version: exactVersion,
+      intent: framework.intent
+    };
+  }
+  return undefined;
+}
+
+function appendExternalDocumentationToContext(
+  context: PreparedTaskContext,
+  resource: ExternalDocumentationResourceV1,
+  candidate: PrepareUnknownsCandidate,
+  maxBytes: number
+): PreparedTaskContext {
+  const externalResource = {
+    type: "external-docs",
+    provider: resource.provider,
+    uri: resource.uri,
+    digest: resource.contentDigest,
+    libraryId: candidate.libraryId,
+    packageName: candidate.packageName,
+    version: candidate.version,
+    queryDigest: resource.queryDigest,
+    trust: resource.trust,
+    enforcement: resource.enforcement,
+    cacheStatus: resource.cacheStatus,
+    retrievedAt: resource.retrievedAt,
+    expiresAt: resource.expiresAt
+  } as Record<string, Json>;
+  const resources = context.resources.some((entry) => entry.uri === resource.uri)
+    ? context.resources
+    : [...context.resources, externalResource as any];
+  const unknown = `External documentation is advisory and untrusted for ${candidate.packageName}@${candidate.version}: ${candidate.intent}`;
+  const unknowns = context.unknowns.includes(unknown) ? context.unknowns : [...context.unknowns, unknown];
+  const extensionWithoutDigest = { ...context.extensions };
+  delete (extensionWithoutDigest as { digest?: string }).digest;
+  const withoutDigest = {
+    ...context,
+    unknowns,
+    resources,
+    recommendedTargetState: {
+      ...context.recommendedTargetState,
+      externalDocumentation: {
+        provider: resource.provider,
+        libraryId: candidate.libraryId,
+        packageName: candidate.packageName,
+        version: candidate.version,
+        intent: candidate.intent,
+        resourceUri: resource.uri,
+        contentDigest: resource.contentDigest,
+        trust: resource.trust,
+        enforcement: resource.enforcement
+      }
+    },
+    extensions: {
+      ...extensionWithoutDigest,
+      externalDocumentationDigest: digestJson({
+        provider: resource.provider,
+        libraryId: candidate.libraryId,
+        version: candidate.version,
+        queryDigest: resource.queryDigest,
+        contentDigest: resource.contentDigest,
+        cacheStatus: resource.cacheStatus
+      } as unknown as Json)
+    }
+  };
+  const byteLength = Buffer.byteLength(JSON.stringify(withoutDigest), "utf8");
+  const withMetadata = {
+    ...withoutDigest,
+    extensions: {
+      ...withoutDigest.extensions,
+      byteLength,
+      budgetExceeded: byteLength > maxBytes
+    }
+  };
+  return {
+    ...withMetadata,
+    extensions: {
+      ...withMetadata.extensions,
+      digest: digestJson(withMetadata as unknown as Json)
+    }
+  };
+}
+
+function prepareContextHasVersionRelatedUnknown(context: PreparedTaskContext): boolean {
+  const unknowns = context.unknowns.join(" ").toLowerCase();
+  if (/\b(version|dependency|dependencies|package|lockfile|runtime dependency|pinned)\b/.test(unknowns)) return true;
+  return context.architecturePressure.signals.includes("unpinned-runtime-dependency");
+}
+
+function readExactPackageVersion(root: string, packageName: string): string | undefined {
+  const lockVersion = readPackageLockExactVersion(root, packageName);
+  if (lockVersion) return lockVersion;
+  for (const manifestPath of packageManifestPaths(root)) {
+    const manifest = readJsonFile(manifestPath);
+    const version = exactVersionFromManifest(manifest, packageName);
+    if (version) return version;
+  }
+  return undefined;
+}
+
+function readPackageLockExactVersion(root: string, packageName: string): string | undefined {
+  const lock = readJsonFile(resolve(root, "package-lock.json"));
+  if (!lock || typeof lock !== "object" || Array.isArray(lock)) return undefined;
+  const packages = (lock as { packages?: Record<string, unknown> }).packages;
+  if (packages && typeof packages === "object") {
+    const entry = packages[`node_modules/${packageName}`] as { version?: unknown } | undefined;
+    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
+  }
+  const dependencies = (lock as { dependencies?: Record<string, unknown> }).dependencies;
+  if (dependencies && typeof dependencies === "object") {
+    const entry = dependencies[packageName] as { version?: unknown } | undefined;
+    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
+  }
+  return undefined;
+}
+
+function packageManifestPaths(root: string): string[] {
+  const paths = [resolve(root, "package.json")];
+  const rootManifest = readJsonFile(paths[0]);
+  for (const pattern of workspacePatternsFromManifest(rootManifest)) {
+    for (const path of expandWorkspacePackageJson(root, pattern)) paths.push(path);
+  }
+  return [...new Set(paths)];
+}
+
+function workspacePatternsFromManifest(manifest: unknown): string[] {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return [];
+  const workspaces = (manifest as { workspaces?: unknown }).workspaces;
+  if (Array.isArray(workspaces)) return workspaces.filter((item): item is string => typeof item === "string");
+  if (workspaces && typeof workspaces === "object" && Array.isArray((workspaces as { packages?: unknown }).packages)) {
+    return (workspaces as { packages: unknown[] }).packages.filter((item): item is string => typeof item === "string");
+  }
+  return [];
+}
+
+function expandWorkspacePackageJson(root: string, pattern: string): string[] {
+  if (pattern.includes("**") || pattern.startsWith("/") || pattern.includes("\\")) return [];
+  if (!pattern.includes("*")) {
+    const path = resolve(root, pattern, "package.json");
+    return existsSync(path) ? [path] : [];
+  }
+  if (!pattern.endsWith("/*")) return [];
+  const base = resolve(root, pattern.slice(0, -2));
+  if (!existsSync(base) || !statSync(base).isDirectory()) return [];
+  return readdirSync(base, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => resolve(base, entry.name, "package.json"))
+    .filter((path) => existsSync(path));
+}
+
+function exactVersionFromManifest(manifest: unknown, packageName: string): string | undefined {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return undefined;
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
+    const dependencies = (manifest as Record<string, unknown>)[field];
+    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) continue;
+    const value = (dependencies as Record<string, unknown>)[packageName];
+    if (typeof value === "string" && isExactPackageVersion(value)) return value;
+  }
+  return undefined;
+}
+
+function readJsonFile(path: string): unknown {
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function isExactPackageVersion(value: string): boolean {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(value);
 }
 
 function readContext7Lockfile(root: string): Context7LockfileV1 {

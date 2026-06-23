@@ -2,7 +2,7 @@
   "schemaVersion": "archcontext.practice-context7-readback/v1",
   "environment": "local-fixture",
   "status": "verified",
-  "generatedAt": "2026-06-23T22:47:57.268Z",
+  "generatedAt": "2026-06-23T23:10:35.941Z",
   "defaultHealth": {
     "provider": "context7",
     "enabled": false,
@@ -56,6 +56,24 @@
       "stale": false
     },
     "prepareOk": true,
+    "prepareExternalResource": {
+      "type": "external-docs",
+      "provider": "context7",
+      "uri": "archcontext://external-docs/context7/sha256:f458c24a4371b124380327a1063cffeeee871ab0b55666845067aa1d661dabef",
+      "digest": "sha256:f458c24a4371b124380327a1063cffeeee871ab0b55666845067aa1d661dabef",
+      "libraryId": "/facebook/react",
+      "packageName": "react",
+      "version": "18.2.0",
+      "queryDigest": "sha256:46bbbd6ed93d87b1676070cfa9fd7d43465f1ae741a6f100c9565c79a4e5caa1",
+      "trust": "external-unverified",
+      "enforcement": "advisory-only",
+      "cacheStatus": "fresh",
+      "retrievedAt": "2026-06-24T00:00:00.000Z",
+      "expiresAt": "2026-07-24T00:00:00.000Z"
+    },
+    "prepareExternalUnknown": true,
+    "prepareConstraintsExternalDocsAbsent": true,
+    "prepareRealConstraintsExternalDocsAbsent": true,
     "completeOk": true,
     "resourceSummary": {
       "schemaVersion": "archcontext.external-document/v1",
@@ -92,7 +110,6 @@
     "leakRoutes": 0
   },
   "hardGateScan": {
-    "prepareProviderReferences": 0,
     "checkpointProviderReferences": 0,
     "completeProviderReferences": 0
   },
@@ -121,6 +138,7 @@
     "providerContentAdvisoryOnly": true,
     "hardGateProviderCallsZero": true,
     "exactVersionCacheReplay": true,
+    "prepareUnknownsUsesPinnedCacheOnly": true,
     "providerUnavailableLeavesLocalCoreUnchanged": true
   },
   "readback": {

@@ -179,6 +179,18 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
         stale: false
       },
       prepareOk: true,
+      prepareExternalResource: {
+        provider: "context7",
+        libraryId: LIBRARY_ID,
+        packageName: "react",
+        version: VERSION,
+        trust: "external-unverified",
+        enforcement: "advisory-only",
+        cacheStatus: "fresh"
+      },
+      prepareExternalUnknown: true,
+      prepareConstraintsExternalDocsAbsent: true,
+      prepareRealConstraintsExternalDocsAbsent: true,
       completeOk: true
     },
     dlp: {
@@ -188,7 +200,6 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
       leakRoutes: 0
     },
     hardGateScan: {
-      prepareProviderReferences: 0,
       checkpointProviderReferences: 0,
       completeProviderReferences: 0
     },
@@ -217,6 +228,7 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
       providerContentAdvisoryOnly: true,
       hardGateProviderCallsZero: true,
       exactVersionCacheReplay: true,
+      prepareUnknownsUsesPinnedCacheOnly: true,
       providerUnavailableLeavesLocalCoreUnchanged: true
     },
     readback: {
@@ -250,14 +262,20 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
         && sameArray(adapter.outbound.fetchKeys, ["libraryId", "maxResults", "query", "timeoutMs"]),
       dlpInterceptsPrivateValues: dlp.rejected === dlp.cases && dlp.leakRoutes === 0,
       providerContentAdvisoryOnly: resourceSummary.trust === "external-unverified" && resourceSummary.enforcement === "advisory-only",
-      hardGateProviderCallsZero: hardGateScan.prepareProviderReferences === 0
-        && hardGateScan.checkpointProviderReferences === 0
+      hardGateProviderCallsZero: hardGateScan.checkpointProviderReferences === 0
         && hardGateScan.completeProviderReferences === 0
         && runtime.providerCallsAfterPrepareComplete === runtime.providerCallsAfterSecondFetch,
       exactVersionCacheReplay: runtime.firstFetchCacheStatus === "miss"
         && runtime.secondFetchCacheStatus === "fresh"
         && runtime.cacheEntry?.libraryId === LIBRARY_ID
         && runtime.cacheEntry?.version === VERSION,
+      prepareUnknownsUsesPinnedCacheOnly: runtime.prepareExternalResource?.libraryId === LIBRARY_ID
+        && runtime.prepareExternalResource?.version === VERSION
+        && runtime.prepareExternalResource?.cacheStatus === "fresh"
+        && runtime.prepareExternalUnknown === true
+        && runtime.prepareConstraintsExternalDocsAbsent === true
+        && runtime.prepareRealConstraintsExternalDocsAbsent === true
+        && runtime.providerCallsAfterPrepareComplete === runtime.providerCallsAfterSecondFetch,
       providerUnavailableLeavesLocalCoreUnchanged: runtime.resolveWithoutNetworkOk === false
         && runtime.prepareOk === true
         && runtime.completeOk === true
@@ -327,7 +345,7 @@ async function captureAdapterReadback() {
 async function captureRuntimeReadback() {
   const tempRoot = mkdtempSync(join(tmpdir(), "archctx-context7-readback-"));
   let daemon: Awaited<ReturnType<typeof createStartedDaemon>> | undefined;
-  const provider = fakeExternalDocumentation();
+  const provider = fakeExternalDocumentation("prepare-unknowns");
   try {
     initGitRepo(tempRoot);
     const localStorePath = join(tempRoot, ".archcontext", "runtime.sqlite");
@@ -366,14 +384,16 @@ async function captureRuntimeReadback() {
     });
     const providerCallsAfterSecondFetch = provider.fetchCalls;
     const statusAfterFetch = await daemon.docs(tempRoot, { command: "status" });
-    const prepare = await daemon.prepare(tempRoot, "Use React state hooks", 12_288, 12, "task_context7");
+    const prepare = await daemon.prepare(tempRoot, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7");
     const complete = await daemon.completeTask(tempRoot, {
       taskSessionId: "task_context7",
-      task: "Use React state hooks",
+      task: "Use React state hooks and confirm package version unknowns",
       headSha: "abc123"
     });
 
     const secondData = secondFetch.data as any;
+    const prepareContext = (prepare.data as any)?.context;
+    const prepareExternalResource = (prepareContext?.resources ?? []).find((resource: any) => resource.type === "external-docs");
     const cacheEntries = ((statusAfterFetch.data as any)?.cacheEntries ?? []) as Array<Record<string, unknown>>;
     const cacheEntry = cacheEntries[0];
     return {
@@ -393,6 +413,10 @@ async function captureRuntimeReadback() {
         stale: cacheEntry.stale
       } : undefined,
       prepareOk: prepare.ok,
+      prepareExternalResource,
+      prepareExternalUnknown: (prepareContext?.unknowns ?? []).some((unknown: string) => unknown.includes("react@18.2.0")),
+      prepareConstraintsExternalDocsAbsent: !JSON.stringify(prepareContext?.constraints ?? []).includes("External documentation"),
+      prepareRealConstraintsExternalDocsAbsent: !JSON.stringify(prepareContext?.realConstraints ?? []).includes("External documentation"),
       completeOk: complete.ok,
       resourceSummary: secondData?.resource ? summarizeExternalResource(secondData.resource) : undefined
     };
@@ -422,7 +446,6 @@ function captureDlpReadback() {
 function captureHardGateScan(root: string) {
   const source = readFileSync(resolve(root, "packages/local-runtime/runtime-daemon/src/index.ts"), "utf8");
   return {
-    prepareProviderReferences: countProviderReferences(methodBody(source, "prepare")),
     checkpointProviderReferences: countProviderReferences(methodBody(source, "checkpoint")),
     completeProviderReferences: countProviderReferences(methodBody(source, "completeTask"))
   };
@@ -474,6 +497,16 @@ function inspectRuntime(runtime: any, failures: string[]) {
   if (runtime.cacheEntry?.version !== VERSION) failures.push("runtime.cacheEntry.version must be 18.2.0");
   if (runtime.cacheEntry?.stale !== false) failures.push("runtime.cacheEntry.stale must be false");
   if (runtime.prepareOk !== true) failures.push("runtime.prepareOk must be true");
+  if (runtime.prepareExternalResource?.provider !== "context7") failures.push("runtime.prepareExternalResource.provider must be context7");
+  if (runtime.prepareExternalResource?.libraryId !== LIBRARY_ID) failures.push("runtime.prepareExternalResource.libraryId must be /facebook/react");
+  if (runtime.prepareExternalResource?.packageName !== "react") failures.push("runtime.prepareExternalResource.packageName must be react");
+  if (runtime.prepareExternalResource?.version !== VERSION) failures.push("runtime.prepareExternalResource.version must be 18.2.0");
+  if (runtime.prepareExternalResource?.trust !== "external-unverified") failures.push("runtime.prepareExternalResource.trust must be external-unverified");
+  if (runtime.prepareExternalResource?.enforcement !== "advisory-only") failures.push("runtime.prepareExternalResource.enforcement must be advisory-only");
+  if (runtime.prepareExternalResource?.cacheStatus !== "fresh") failures.push("runtime.prepareExternalResource.cacheStatus must be fresh");
+  if (runtime.prepareExternalUnknown !== true) failures.push("runtime.prepareExternalUnknown must be true");
+  if (runtime.prepareConstraintsExternalDocsAbsent !== true) failures.push("runtime.prepareConstraintsExternalDocsAbsent must be true");
+  if (runtime.prepareRealConstraintsExternalDocsAbsent !== true) failures.push("runtime.prepareRealConstraintsExternalDocsAbsent must be true");
   if (runtime.completeOk !== true) failures.push("runtime.completeOk must be true");
 }
 
@@ -492,7 +525,6 @@ function inspectHardGateScan(scan: any, failures: string[]) {
     failures.push("hardGateScan must be an object");
     return;
   }
-  if (scan.prepareProviderReferences !== 0) failures.push("hardGateScan.prepareProviderReferences must be 0");
   if (scan.checkpointProviderReferences !== 0) failures.push("hardGateScan.checkpointProviderReferences must be 0");
   if (scan.completeProviderReferences !== 0) failures.push("hardGateScan.completeProviderReferences must be 0");
 }
@@ -541,6 +573,7 @@ function inspectAssertions(assertions: any, failures: string[]) {
     "providerContentAdvisoryOnly",
     "hardGateProviderCallsZero",
     "exactVersionCacheReplay",
+    "prepareUnknownsUsesPinnedCacheOnly",
     "providerUnavailableLeavesLocalCoreUnchanged"
   ]) {
     if (assertions[key] !== true) failures.push(`assertions.${key} must be true`);
@@ -584,7 +617,7 @@ function summarizeExternalResource(resource: any) {
   };
 }
 
-function fakeExternalDocumentation() {
+function fakeExternalDocumentation(mode: "manual" | "prepare-unknowns" = "manual") {
   let fetchCalls = 0;
   let resolveCalls = 0;
   const port: ExternalDocumentationPort = {
@@ -592,8 +625,8 @@ function fakeExternalDocumentation() {
       return {
         provider: "context7",
         enabled: true,
-        mode: "manual",
-        egress: "manual-only",
+        mode,
+        egress: mode === "prepare-unknowns" ? "prepare-unknowns" : "manual-only",
         cache: "sqlite",
         keySource: "none"
       };
@@ -718,7 +751,7 @@ function fakeCodeFacts(): CodeFactsPort {
 }
 
 function initGitRepo(root: string) {
-  writeFileSync(join(root, "package.json"), `${JSON.stringify({ name: "context7-readback" }, null, 2)}\n`, "utf8");
+  writeFileSync(join(root, "package.json"), `${JSON.stringify({ name: "context7-readback", dependencies: { react: VERSION } }, null, 2)}\n`, "utf8");
   runGit(root, ["init", "-q"]);
   runGit(root, ["add", "package.json"]);
   runGit(root, ["-c", "user.email=context7-readback@example.invalid", "-c", "user.name=Context7 Readback", "commit", "-m", "init", "-q"]);
