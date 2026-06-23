@@ -217,6 +217,15 @@ describe("archctx CLI", () => {
       const hookCheckpoint = await runTestCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/example.ts"], root);
       expect(hookCheckpoint.requestId).toBe("hook.checkpoint");
       expect((hookCheckpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect((hookCheckpoint.data as any).hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-edit",
+        pathCount: 1,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect((hookCheckpoint.data as any).hookLog.changedPathDigest).toMatch(/^sha256:/);
+      expect(JSON.stringify((hookCheckpoint.data as any).hookLog)).not.toContain("src/example.ts");
 
       const complete = await runTestCli("complete", [
         "--task-session-id", "task_cli",
@@ -374,9 +383,114 @@ describe("archctx CLI", () => {
       expect((result.data as any).schemaVersion).toBe("archcontext.hook-checkpoint-fail-open/v1");
       expect((result.data as any).failOpen).toBe(true);
       expect((result.data as any).egress).toBe("none");
+      expect((result.data as any).network).toBe("forbidden");
+      expect((result.data as any).hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-edit",
+        pathCount: 1,
+        reasonCode: "runtime-unavailable",
+        failOpen: true,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((result.data as any).hookLog)).not.toContain("src/app.ts");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("CLI renders central hook adapter install status and remove configuration", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-hooks-host-"));
+    try {
+      const install = await runCli("hooks", ["install", "--host", "codex"], root);
+      expect(install.ok).toBe(true);
+      expect(install.requestId).toBe("hooks.install");
+      expect((install.data as any)).toMatchObject({
+        schemaVersion: "archcontext.hook-adapter/v1",
+        host: "codex",
+        adapterName: "repo-harness-hook",
+        ownership: "central-first",
+        repoLocalRuntime: "not-vendored",
+        writes: "manual-host-config",
+        installed: true
+      });
+      expect((install.data as any).entrypoint).toMatchObject({
+        command: "archctx",
+        args: ["hook", "checkpoint"],
+        failOpen: true,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect((install.data as any).configExample).toMatchObject({
+        configPath: "~/.codex/hooks.json",
+        adapter: { command: "repo-harness-hook" },
+        centralFirst: true,
+        repoHookSourceRequired: false
+      });
+      expect((install.data as any).logContract.allowedFields).toEqual([
+        "schemaVersion",
+        "event",
+        "elapsedMs",
+        "pathCount",
+        "changedPathDigest",
+        "reasonCode",
+        "failOpen",
+        "egress",
+        "network"
+      ]);
+      expect(JSON.stringify(install.data)).not.toContain("hook_source");
+      expect(JSON.stringify(install.data)).not.toContain("sourceBody");
+
+      const status = await runCli("hooks", ["status", "--host", "claude"], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any)).toMatchObject({
+        host: "claude",
+        installed: "config-ready",
+        adapterName: "repo-harness-hook",
+        writes: "manual-host-config"
+      });
+      expect((status.data as any).configExample.configPath).toBe("~/.claude/settings.json");
+
+      const remove = await runCli("hooks", ["remove", "--host", "generic"], root);
+      expect(remove.ok).toBe(true);
+      expect((remove.data as any).removeConfig).toMatchObject({
+        removeAdapter: "repo-harness-hook",
+        removeEntrypoint: "archctx hook checkpoint",
+        repoHookSourceRequired: false
+      });
+
+      const invalid = await runCli("hooks", ["install", "--host", "unknown"], root);
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("first-party skills keep checkpoint SOP separate from practice logic", () => {
+    const skillFiles = [
+      "skills/archcontext-bootstrap/SKILL.md",
+      "skills/archcontext-develop/SKILL.md",
+      "skills/archcontext-intervene/SKILL.md",
+      "skills/archcontext-review/SKILL.md"
+    ];
+    const forbidden = [
+      "compatibility.single-owner",
+      "modularity.no-new-cycle",
+      "required-test-evidence",
+      "candidateTerms",
+      "structuralPredicates",
+      "matchPracticesForTask"
+    ];
+    for (const file of skillFiles) {
+      const body = readFileSync(join(process.cwd(), file), "utf8");
+      expect(body).toContain("SOP");
+      for (const token of forbidden) expect(body).not.toContain(token);
+    }
+    const develop = readFileSync(join(process.cwd(), "skills/archcontext-develop/SKILL.md"), "utf8");
+    expect(develop).toContain("archcontext_checkpoint");
+    expect(develop).toContain("added/upgraded");
+    expect(develop).toContain("removed/downgraded");
   });
 
   test("CLI discovers a running daemon RPC connection before embedded fallback", async () => {

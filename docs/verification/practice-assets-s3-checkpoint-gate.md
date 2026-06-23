@@ -1,6 +1,6 @@
 # Practice Assets S3 Checkpoint Gate
 
-> Status: local implementation evidence captured; PR #15 submitted.
+> Status: local implementation evidence captured; PR #15 submitted; hook adapter follow-up captured on `codex/practice-hook-adapter`.
 > Scope: S3 incremental checkpoint and hook integration vertical slice.
 > Branch: `codex/practice-checkpoint-hooks`
 
@@ -15,7 +15,10 @@ Implemented surfaces:
 - Runtime daemon: `prepare` records a task-session practice baseline; `checkpoint` syncs changed-path hints, evaluates current guidance, returns delta, and updates the baseline.
 - RPC: runtime client/server dispatch includes `checkpoint`.
 - CLI: `archctx checkpoint` and `archctx hook checkpoint --event post-edit --path ...` call the daemon. Hook failure is fail-open and local-only.
+- CLI hook adapter: `archctx hooks install/status/remove --host codex|claude|generic` emits a central-first `repo-harness-hook` adapter contract and manual host configuration example; it does not write host config or vendor hook runtime into this repository.
+- Hook log contract: `archctx hook checkpoint` attaches `archcontext.hook-log/v1` with schema version, event, elapsed time, path count, changed-path digest, reason code, fail-open, egress, and network fields only.
 - MCP: `archcontext_checkpoint` returns delta rather than the old placeholder error.
+- Skills: first-party skills describe prepare/checkpoint/complete SOP and checkpoint delta interpretation only; runtime packages own practice matching and checker behavior.
 
 ## Data Flow Readback
 
@@ -70,17 +73,25 @@ Hardening readbacks captured after PR #15 creation:
 - Windows CI repair readback: developer-review temporary worktree/run-root cleanup now uses retrying removal for `EBUSY`/locked-path cleanup; focused CLI suite is 16 pass / 0 fail / 275 expects, git-adapter + runtime-daemon suite is 23 pass / 0 fail / 206 expects.
 - Full verification after CI repair: 581 pass / 0 fail / 3472 expects.
 
+Hook adapter follow-up readbacks:
+
+- CLI focused suite: 18 pass / 0 fail / 338 expects.
+- Full verification after hook adapter follow-up: 605 pass / 0 fail / 3653 expects.
+- `archctx hooks install/status/remove` returns `archcontext.hook-adapter/v1`, names `repo-harness-hook`, keeps `writes = manual-host-config`, and keeps `repoLocalRuntime = not-vendored`.
+- Hook checkpoint success and fail-open payloads include `archcontext.hook-log/v1`; tests assert the log contains a changed-path digest, declares forbidden network, and does not contain the raw changed path.
+- First-party skills are covered by a regression test that rejects embedded practice IDs, candidate terms, structural predicates, or practice matcher names in skill prose.
+
 ## Gate Evidence
 
-- S3-EG1: Hook checkpoint path is implemented through local CLI -> loopback daemon RPC only; result declares `hook.egress = "none"` and `hook.network = "forbidden"`.
+- S3-EG1: Hook checkpoint path is implemented through local CLI -> loopback daemon RPC only; result declares `hook.egress = "none"` and `hook.network = "forbidden"`. Hook adapter output also declares `egress = "none"` and `network = "forbidden"`; independent packet/audit evidence remains a separate gate before marking EG1 fully complete.
 - S3-EG2: `scripts/practice-checkpoint-benchmark.ts` records cold/warm/coalesced p95 under the S3 limits for a local temporary repository.
 - S3-EG3: Daemon checkpoint coalescing returns cached checkpoint data for duplicate same-worktree events and marks `hook.coalesced = true`, `hook.skippedAnalysis = true`.
 - S3-EG4: `archctx hook checkpoint` catches runtime errors and returns a fail-open `archcontext.hook-checkpoint-fail-open/v1` payload.
 - S3-EG5: Core tests cover prepare -> edit introduces observed cycle -> checkpoint added `modularity.no-new-cycle` -> revert -> checkpoint removed `modularity.no-new-cycle`. Runtime/MCP tests cover prepare -> checkpoint no-op delta in a shared daemon session. Local product E2E covers installed CLI prepare -> checkpoint.
-- S3-EG6: No repository hook runtime is added. The hook entrypoint is `archctx hook checkpoint`, preserving central-first hook ownership.
+- S3-EG6: No repository hook runtime is added. The hook entrypoint is `archctx hook checkpoint`, and `archctx hooks install/status/remove` outputs central-first `repo-harness-hook` config without requiring `hook_source = repo`.
 
 ## Known Limits
 
 - Rename/delete/generated/binary path classification is not yet a separate deterministic matrix; this slice covers normalization, de-dupe, absolute path rejection, and parent traversal rejection.
 - Checkpoint state is daemon-session scoped; persistent task-state recovery across daemon restart remains deferred.
-- `hooks install/status/remove` is not expanded in this slice; existing host config surfaces remain read-only/config output.
+- Real installed-CLI edit/revert and cross-layer import fixtures are still deferred; core fixtures cover added/removed deltas.

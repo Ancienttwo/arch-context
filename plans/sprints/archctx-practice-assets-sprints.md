@@ -758,6 +758,11 @@ bun run verify
 - 2026-06-24：补 S3 hardening：daemon 对同一 worktree/tool call/path set 的重复 checkpoint 做 coalesce，core fixture 覆盖 observed cycle added/removed delta，benchmark readback 为 cold p95 31.086ms、warm p95 29.416ms、coalesced p95 16.843ms。
 - 2026-06-24：hardening 后 full verification 通过，`bun run verify` readback 为 581 pass / 0 fail / 3472 expects；focused S3 suite 为 166 pass / 0 fail / 990 expects。
 - 2026-06-24：PR #15 远端 Windows Node 24 暴露 developer-review 临时 worktree cleanup `EBUSY`；修复为 retrying removal，并给该长流程 CLI test 单独 15s timeout。focused CLI suite 为 16 pass / 0 fail / 275 expects，git-adapter + runtime-daemon suite 为 23 pass / 0 fail / 206 expects，`bun run verify` 仍为 581 pass / 0 fail / 3472 expects。
+- 2026-06-24：从 S4 test-evidence stacked head 创建 `codex/practice-hook-adapter`，补 S3 hook adapter follow-up。
+- 实现边界：新增 `archctx hooks install/status/remove --host codex|claude|generic`，输出 central-first `repo-harness-hook` adapter contract 和 manual host config example；不写用户配置、不设置 repo-local `hook_source`、不 vendored hook runtime。
+- Hook log 边界：`archctx hook checkpoint` 成功和 fail-open payload 均带 `archcontext.hook-log/v1`，只记录 schemaVersion、event、elapsedMs、pathCount、changedPathDigest、reasonCode、failOpen、egress、network；测试断言不包含 changed path 正文。
+- Skills 边界：`skills/archcontext-develop/SKILL.md` 只说明 checkpoint delta SOP；回归测试禁止 first-party skill 嵌入 practice ID、candidate terms、structural predicates 或 matcher 名称。
+- 验证证据更新 `docs/verification/practice-assets-s3-checkpoint-gate.md`；focused CLI suite 为 18 pass / 0 fail / 338 expects，`bun run verify` 为 605 pass / 0 fail / 3653 expects。
 
 ## 11.2 Checklist
 
@@ -781,18 +786,18 @@ bun run verify
 
 - [x] S3-11 增加稳定 daemon RPC 与 CLI：`archctx hook checkpoint --event post-edit [--path ...]`。
 - [x] S3-12 CLI 只转发事件，不读取源码、不做 matching、不直接写状态。
-- [ ] S3-13 为 central `repo-harness-hook` 定义 adapter contract 与配置示例，不在本仓库复制完整 Hook runtime。
-- [ ] S3-14 提供 `archctx hooks install/status/remove` 或扩展现有 host 安装流程，输出配置而非静默改写用户配置。
+- [x] S3-13 为 central `repo-harness-hook` 定义 adapter contract 与配置示例，不在本仓库复制完整 Hook runtime。
+- [x] S3-14 提供 `archctx hooks install/status/remove` 或扩展现有 host 安装流程，输出配置而非静默改写用户配置。
 - [x] S3-15 连续事件进行 debounce/coalesce；同一 tool call/路径集不重复分析。
 - [x] S3-16 Hook 设置本地超时和 fail-open；daemon 不可用时只 warning，不阻塞编辑。
 - [x] S3-17 Hook 路径明确禁止 HTTP、Context7、LLM、embedding 与外部 telemetry。
-- [ ] S3-18 本地日志仅记录 event type、耗时、path count、digest 和 reason code，不记录代码正文。
+- [x] S3-18 本地日志仅记录 event type、耗时、path count、digest 和 reason code，不记录代码正文。
 
 ### MCP/Agent 体验
 
 - [x] S3-19 `archcontext_checkpoint` 返回 delta，而不是重复完整 prepare payload。
-- [~] S3-20 Agent guidance 明确区分：new issue、resolved issue、proof required、stale session。（contract reasonCode/delta 已区分；人类文案和 SOP 待补。）
-- [ ] S3-21 Skills 只编排 checkpoint SOP，不复制 practice 文本或 matching 规则。
+- [x] S3-20 Agent guidance 明确区分：new issue、resolved issue、proof required、stale session。
+- [x] S3-21 Skills 只编排 checkpoint SOP，不复制 practice 文本或 matching 规则。
 - [x] S3-22 对无变化 checkpoint 返回 no-op digest，避免 Agent 噪声。
 
 ### 测试与实跑

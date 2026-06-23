@@ -3,7 +3,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CALLER_PROVIDED_ATTESTATION_FIELDS, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
@@ -35,6 +35,10 @@ const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
 const NPM_VIEW_TIMEOUT_MS = 5_000;
+const HOOK_ADAPTER_SCHEMA_VERSION = "archcontext.hook-adapter/v1";
+const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
+const HOOK_ADAPTER_NAME = "repo-harness-hook";
+const HOOK_CHECKPOINT_TIMEOUT_MS = 5_000;
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -266,6 +270,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runCheckpointCommand(args, cwd, await runtime(), "checkpoint");
     case "hook":
       return runHookCommand(args, cwd, runtime);
+    case "hooks":
+      return runHooksCommand(args);
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -381,8 +387,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -461,10 +467,13 @@ async function runHookCommand(args: string[], cwd: string, runtime: () => Promis
   const subcommand = args[0] ?? "status";
   if (subcommand !== "checkpoint") return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires checkpoint");
   const checkpointArgs = args.slice(1);
+  const started = Date.now();
+  const event = readFlag(checkpointArgs, "--event") ?? "post-edit";
+  const changedPaths = [...readRepeatedFlag(checkpointArgs, "--path"), ...readRepeatedFlag(checkpointArgs, "--changed")];
   try {
-    return await runCheckpointCommand(
+    const result = await runCheckpointCommand(
       [
-        "--event", readFlag(checkpointArgs, "--event") ?? "post-edit",
+        "--event", event,
         "--task-session-id", readFlag(checkpointArgs, "--task-session-id") ?? "task_cli",
         ...copyOptionalFlag(checkpointArgs, "--task"),
         ...copyOptionalFlag(checkpointArgs, "--tool-call-id"),
@@ -479,18 +488,72 @@ async function runHookCommand(args: string[], cwd: string, runtime: () => Promis
       await runtime(),
       "hook.checkpoint"
     );
+    if (!result.ok || typeof result.data !== "object" || result.data === null) return result;
+    return {
+      ...result,
+      data: {
+        ...(result.data as Record<string, Json>),
+        hookLog: hookLogRecord({
+          event,
+          changedPaths,
+          reasonCode: String((result.data as any).reasonCode ?? "unknown"),
+          elapsedMs: Date.now() - started,
+          failOpen: false
+        })
+      } as Json
+    };
   } catch (error) {
     return okEnvelope("hook.checkpoint", {
       schemaVersion: "archcontext.hook-checkpoint-fail-open/v1",
       accepted: false,
       failOpen: true,
       reasonCode: "runtime-unavailable",
-      event: readFlag(checkpointArgs, "--event") ?? "post-edit",
-      pathCount: readRepeatedFlag(checkpointArgs, "--path").length + readRepeatedFlag(checkpointArgs, "--changed").length,
+      event,
+      pathCount: changedPaths.length,
       egress: "none",
+      network: "forbidden",
+      hookLog: hookLogRecord({
+        event,
+        changedPaths,
+        reasonCode: "runtime-unavailable",
+        elapsedMs: Date.now() - started,
+        failOpen: true
+      }),
       message: error instanceof Error ? error.message : String(error)
     } as Json);
   }
+}
+
+function runHooksCommand(args: string[]) {
+  const subcommand = args[0] ?? "status";
+  if (!["install", "status", "remove"].includes(subcommand)) {
+    return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "hooks requires install|status|remove");
+  }
+  const host = readAgentHost(args);
+  if (!host) return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "--host must be codex, claude, or generic");
+  const adapter = hookAdapterContract(host);
+  if (subcommand === "install") {
+    return okEnvelope("hooks.install", {
+      ...adapter,
+      installed: true,
+      writes: "manual-host-config",
+      configExample: hookHostConfigExample(host)
+    } as any);
+  }
+  if (subcommand === "status") {
+    return okEnvelope("hooks.status", {
+      ...adapter,
+      installed: "config-ready",
+      writes: "manual-host-config",
+      configExample: hookHostConfigExample(host)
+    } as any);
+  }
+  return okEnvelope("hooks.remove", {
+    ...adapter,
+    installed: false,
+    writes: "manual-host-config",
+    removeConfig: hookHostRemoveConfig(host)
+  } as any);
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -1053,6 +1116,88 @@ function runMcpCommand(args: string[]) {
     removeConfig: agentHostRemoveConfig(host),
     markerRemovedFrom: uninstallMarker(readFlag(args, "--content") ?? "", host)
   } as any);
+}
+
+function hookAdapterContract(host: AgentHost) {
+  return {
+    schemaVersion: HOOK_ADAPTER_SCHEMA_VERSION,
+    host,
+    adapterName: HOOK_ADAPTER_NAME,
+    ownership: "central-first",
+    hookRuntime: "external-user-level",
+    repoLocalRuntime: "not-vendored",
+    entrypoint: {
+      command: "archctx",
+      args: ["hook", "checkpoint"],
+      timeoutMs: HOOK_CHECKPOINT_TIMEOUT_MS,
+      failOpen: true,
+      egress: "none",
+      network: "forbidden"
+    },
+    acceptedInput: {
+      eventFlag: "--event",
+      changedPathFlags: ["--path", "--changed"],
+      toolCallIdFlag: "--tool-call-id",
+      taskSessionIdFlag: "--task-session-id"
+    },
+    output: {
+      checkpointSchemaVersion: "archcontext.practice-checkpoint/v1",
+      failOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
+    },
+    logContract: {
+      schemaVersion: HOOK_LOG_SCHEMA_VERSION,
+      allowedFields: ["schemaVersion", "event", "elapsedMs", "pathCount", "changedPathDigest", "reasonCode", "failOpen", "egress", "network"],
+      forbiddenContent: ["source", "diff", "patch", "symbolBody", "architectureModelBody", "secret"]
+    }
+  };
+}
+
+function hookHostConfigExample(host: AgentHost) {
+  return {
+    host,
+    configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
+    writes: "manual-host-config",
+    adapter: {
+      command: HOOK_ADAPTER_NAME,
+      args: ["archcontext-checkpoint"],
+      invokes: {
+        command: "archctx",
+        args: ["hook", "checkpoint", "--event", "post-edit"]
+      }
+    },
+    eventMap: {
+      postEdit: "archctx hook checkpoint --event post-edit --path <changed-path>",
+      postWrite: "archctx hook checkpoint --event post-write --path <changed-path>"
+    },
+    centralFirst: true,
+    repoHookSourceRequired: false
+  };
+}
+
+function hookHostRemoveConfig(host: AgentHost) {
+  return {
+    host,
+    configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
+    removeAdapter: HOOK_ADAPTER_NAME,
+    removeEntrypoint: "archctx hook checkpoint",
+    repoHookSourceRequired: false
+  };
+}
+
+function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCode: string; elapsedMs: number; failOpen: boolean }) {
+  return {
+    schemaVersion: HOOK_LOG_SCHEMA_VERSION,
+    event: input.event,
+    elapsedMs: input.elapsedMs,
+    pathCount: input.changedPaths.length,
+    changedPathDigest: digestJson({
+      paths: [...new Set(input.changedPaths)].sort()
+    }),
+    reasonCode: input.reasonCode,
+    failOpen: input.failOpen,
+    egress: "none",
+    network: "forbidden"
+  };
 }
 
 function readAgentHost(args: string[]): AgentHost | undefined {
