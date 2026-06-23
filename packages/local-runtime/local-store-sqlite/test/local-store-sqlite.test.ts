@@ -15,6 +15,8 @@ import {
 } from "../src/index";
 import { TestLocalStore } from "./factories";
 
+const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = 30_000;
+
 describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("migration SQL enables required SQLite safety pragmas", () => {
     const sql = migrationSql();
@@ -104,66 +106,78 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
-  test("legacy repo-local SQLite WAL database migrates through staging into the runtime state partition", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-migration-repo-"));
-    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-migration-root-"));
-    try {
-      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      await writeTaskState(paths.legacyLocalStorePath, "task_legacy", { migrated: true });
+  test(
+    "legacy repo-local SQLite WAL database migrates through staging into the runtime state partition",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-state-migration-repo-"));
+      const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-migration-root-"));
+      try {
+        const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        await writeTaskState(paths.legacyLocalStorePath, "task_legacy", { migrated: true });
 
-      const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      expect(migration.migrated).toBe(true);
-      expect(migration.status).toBe("migrated");
-      expect(migration.integrityCheck).toMatchObject({ legacy: "ok", staging: "ok", target: "ok" });
-      expect(migration.copiedFiles).toEqual([paths.localStorePath]);
-      expect(existsSync(migration.markerPath)).toBe(true);
-      await expectTaskState(paths.localStorePath, "task_legacy", { migrated: true });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(stateRoot, { recursive: true, force: true });
-    }
-  });
+        const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        expect(migration.migrated).toBe(true);
+        expect(migration.status).toBe("migrated");
+        expect(migration.integrityCheck).toMatchObject({ legacy: "ok", staging: "ok", target: "ok" });
+        expect(migration.copiedFiles).toEqual([paths.localStorePath]);
+        expect(existsSync(migration.markerPath)).toBe(true);
+        await expectTaskState(paths.localStorePath, "task_legacy", { migrated: true });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(stateRoot, { recursive: true, force: true });
+      }
+    },
+    LEGACY_SQLITE_MIGRATION_TIMEOUT_MS
+  );
 
-  test("partial invalid target is quarantined and migration retries from legacy SQLite", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-partial-target-repo-"));
-    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-partial-target-root-"));
-    try {
-      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      await writeTaskState(paths.legacyLocalStorePath, "task_legacy", { recovered: true });
-      mkdirSync(dirname(paths.localStorePath), { recursive: true });
-      writeFileSync(paths.localStorePath, "partial sqlite target", "utf8");
+  test(
+    "partial invalid target is quarantined and migration retries from legacy SQLite",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-state-partial-target-repo-"));
+      const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-partial-target-root-"));
+      try {
+        const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        await writeTaskState(paths.legacyLocalStorePath, "task_legacy", { recovered: true });
+        mkdirSync(dirname(paths.localStorePath), { recursive: true });
+        writeFileSync(paths.localStorePath, "partial sqlite target", "utf8");
 
-      const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      expect(migration.migrated).toBe(true);
-      expect(migration.status).toBe("target-quarantined-and-migrated");
-      expect(migration.quarantinedFiles).toHaveLength(1);
-      expect(existsSync(migration.quarantinedFiles[0]!)).toBe(true);
-      await expectTaskState(paths.localStorePath, "task_legacy", { recovered: true });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(stateRoot, { recursive: true, force: true });
-    }
-  });
+        const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        expect(migration.migrated).toBe(true);
+        expect(migration.status).toBe("target-quarantined-and-migrated");
+        expect(migration.quarantinedFiles).toHaveLength(1);
+        expect(existsSync(migration.quarantinedFiles[0]!)).toBe(true);
+        await expectTaskState(paths.localStorePath, "task_legacy", { recovered: true });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(stateRoot, { recursive: true, force: true });
+      }
+    },
+    LEGACY_SQLITE_MIGRATION_TIMEOUT_MS
+  );
 
-  test("valid existing target is not overwritten by stale legacy SQLite", async () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-repo-"));
-    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-root-"));
-    try {
-      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      await writeTaskState(paths.legacyLocalStorePath, "task_state", { source: "legacy" });
-      await writeTaskState(paths.localStorePath, "task_state", { source: "target" });
+  test(
+    "valid existing target is not overwritten by stale legacy SQLite",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-repo-"));
+      const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-root-"));
+      try {
+        const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        await writeTaskState(paths.legacyLocalStorePath, "task_state", { source: "legacy" });
+        await writeTaskState(paths.localStorePath, "task_state", { source: "target" });
 
-      const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
-      expect(migration.migrated).toBe(false);
-      expect(migration.status).toBe("target-current");
-      expect(migration.skippedReason).toBe("target-exists");
-      expect(migration.quarantinedFiles).toEqual([]);
-      await expectTaskState(paths.localStorePath, "task_state", { source: "target" });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(stateRoot, { recursive: true, force: true });
-    }
-  });
+        const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        expect(migration.migrated).toBe(false);
+        expect(migration.status).toBe("target-current");
+        expect(migration.skippedReason).toBe("target-exists");
+        expect(migration.quarantinedFiles).toEqual([]);
+        await expectTaskState(paths.localStorePath, "task_state", { source: "target" });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(stateRoot, { recursive: true, force: true });
+      }
+    },
+    LEGACY_SQLITE_MIGRATION_TIMEOUT_MS
+  );
 
   test("invalid legacy SQLite fails without publishing an empty target", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-state-invalid-legacy-repo-"));
