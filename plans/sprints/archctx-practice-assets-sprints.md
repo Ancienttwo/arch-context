@@ -1,6 +1,6 @@
 # Sprint Plan：ArchContext Architecture Practice Assets
 
-> Status: Executing — S3 checkpoint-hook vertical slice verified locally; PR pending
+> Status: Executing — S3 checkpoint-hook vertical slice submitted in PR #15
 > Created: 2026-06-23
 > Target repository: `Ancienttwo/arch-context`
 > Suggested path after review: `plans/sprints/archctx-practice-assets-sprints.md`
@@ -754,6 +754,7 @@ bun run verify
 - Hook 失败策略：`archctx hook checkpoint` 捕获 runtime unavailable，返回 fail-open payload，egress 固定 `none`，不阻断编辑。
 - 验证证据写入 `docs/verification/practice-assets-s3-checkpoint-gate.md`。
 - 2026-06-24：full verification 通过，`bun run verify` readback 为 579 pass / 0 fail / 3457 expects；focused S3 suite 为 164 pass / 0 fail / 975 expects。
+- 2026-06-24：提交 stacked PR #15 `feat(practices): add checkpoint guidance deltas`，base 为 `codex/practice-matching`；最终合并前以 PR Checks readback 为准。
 
 ## 11.2 Checklist
 

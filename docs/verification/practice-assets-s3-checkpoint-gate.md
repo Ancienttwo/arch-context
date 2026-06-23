@@ -1,6 +1,6 @@
 # Practice Assets S3 Checkpoint Gate
 
-> Status: local implementation evidence captured; PR pending.
+> Status: local implementation evidence captured; PR #15 submitted.
 > Scope: S3 incremental checkpoint and hook integration vertical slice.
 > Branch: `codex/practice-checkpoint-hooks`
 
