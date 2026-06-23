@@ -766,6 +766,9 @@ bun run verify
 - 2026-06-24：从 S3 hook adapter head 创建 `codex/practice-checkpoint-hardening`，补 checkpoint baseline 持久化、路径事件摘要和 installed hook edit/revert E2E。
 - 实现边界：`prepare/checkpoint/complete` 通过 local store 恢复同一 task session 的 practice checkpoint baseline；checkpoint result 增加无路径正文的 `hook.pathSummary`；真实 installed `archctx hook checkpoint` 覆盖 compatibility path edit/revert delta。不在本 slice 实现 CodeGraph import edge extraction。
 - 验证证据更新 `docs/verification/practice-assets-s3-checkpoint-gate.md`；focused contract/core/runtime/local-product suite 为 151 pass / 0 fail / 718 expects，local-product E2E 为 4 pass / 0 fail / 73 expects，CLI focused suite 为 18 pass / 0 fail / 339 expects，`bun run verify` 为 608 pass / 0 fail / 3677 expects。
+- 2026-06-24：从 checkpoint hardening head 创建 `codex/practice-codegraph-edge-context`，补 CodeGraph changed-path import edge extraction 和真实 installed cross-layer import E2E。
+- 实现边界：`checkpointTask` 将 changed paths 传入 `compileTaskContext`；`CodeGraphCliProvider` 对 changed paths 单独执行 `query -k import`，解析 relative import specifier 为 repo-relative file edge；普通 `sync --changed` 不污染后续 prepare/checkpoint context。
+- 验证证据更新 `docs/verification/practice-assets-s3-checkpoint-gate.md`；typecheck 通过，CodeGraph adapter suite 为 5 pass / 0 fail / 22 expects，context compiler suite 为 3 pass / 0 fail / 23 expects，core application suite 为 11 pass / 0 fail / 39 expects，practice engine suite 为 14 pass / 0 fail / 69 expects，local-product E2E 为 5 pass / 0 fail / 82 expects，`bun run verify` 为 610 pass / 0 fail / 3693 expects。
 
 ## 11.2 Checklist
 
@@ -779,10 +782,10 @@ bun run verify
 ### Incremental evaluation
 
 - [x] S3-05 daemon session 保存上一次 effective match set 与 evidence digest。
-- [~] S3-06 changed path 与 affected symbol/edge 建立增量候选范围，避免每次全仓扫描。（本 slice 将 changed paths 传入 CodeFacts sync；affected symbol/edge narrowing 留到 hardening。）
+- [x] S3-06 changed path 与 affected symbol/edge 建立增量候选范围，避免每次全仓扫描。（checkpoint-scoped changed paths 传入 CodeFacts `buildTaskContext`；CodeGraph adapter 对 normalized changed paths 执行 `query -k import` 生成 affected import edges，且普通 `sync --changed` 不污染后续 context。）
 - [x] S3-07 对 rename、delete、generated files、ignored files、binary files 建立确定规则。（`hook.pathSummary` 覆盖 source/generated/ignored/binary/deleted/renameHints，且不含路径正文。）
 - [x] S3-08 当实际 diff 消除触发条件时，checkpoint 能撤销或降级 prepare 建议。（core observed-cycle removed；installed hook compatibility revert downgraded。）
-- [~] S3-09 当编辑引入新增 cycle、boundary import、compatibility path 时，checkpoint 能追加实践。（core observed-cycle 和 installed compatibility path 已覆盖；真实跨层 import fixture 仍依赖 CodeGraph edge extraction。）
+- [x] S3-09 当编辑引入新增 cycle、boundary import、compatibility path 时，checkpoint 能追加实践。（core observed-cycle、installed compatibility path、installed real cross-layer import 均覆盖；cross-layer import 返回 `modularity.respect-dependency-direction` + `import-edge` evidence。）
 - [x] S3-10 worktree/head/catalog 变化导致旧 checkpoint stale，返回可操作 reason code。
 
 ### Hook 入口
@@ -807,7 +810,7 @@ bun run verify
 
 - [x] S3-23 单测覆盖 debounce、dedupe、delta diff、stale、rename/delete 和 fail-open。（新增 path classification matrix；既有覆盖 coalesce、dedupe、delta added/removed、stale、fail-open。）
 - [x] S3-24 独立进程 E2E：Agent/脚本进程 → hook CLI → daemon → CodeFacts → checkpoint result。（installed `archctx hook checkpoint` E2E 通过 loopback daemon 和 real CodeGraph。）
-- [~] S3-25 真实 fixture 中 prepare 无警告，编辑后新增跨层 import，checkpoint 返回对应 practice。（installed compatibility path 已覆盖；真实跨层 import 仍依赖 CodeGraph adapter 输出 import edges。）
+- [x] S3-25 真实 fixture 中 prepare 无警告，编辑后新增跨层 import，checkpoint 返回对应 practice。（installed `archctx hook checkpoint` E2E 覆盖 prepare 不含 dependency-direction、编辑 `src/web/page.ts` import `../domain/order-service`、checkpoint added `modularity.respect-dependency-direction`。）
 - [x] S3-26 回滚编辑后再次 checkpoint，原 practice 被 removed/downgraded。（core observed-cycle removed；installed hook compatibility revert downgraded。）
 - [x] S3-27 daemon stop/crash/stale lock 场景不阻断编辑，并可在恢复后继续同一 session。（hook fail-open、runtime stale-lock recovery、baseline restart recovery 均有测试覆盖。）
 - [x] S3-28 编写 `docs/verification/practice-assets-s3-checkpoint-gate.md`，附真实 Hook readback。

@@ -10,7 +10,7 @@ export class MockCodeGraphProvider implements CodeGraphProvider {
     this.indexedRoots.push(workspaceRoot);
   }
 
-  async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean }): Promise<NormalizedCodeContext> {
+  async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
     const symbols: NormalizedSymbol[] = [
       { id: "symbol.prepareTask", name: "prepareTask", kind: "function", path: "packages/core/application/src/index.ts" }
     ].slice(0, options.maxSymbols);

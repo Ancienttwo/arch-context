@@ -72,13 +72,15 @@ export async function compileTaskContext(input: {
   codeFacts: CodeFactsPort;
   modelStore: ModelStorePort;
   budget: ContextBudget;
+  changedPaths?: string[];
 }): Promise<CompiledTaskContext> {
   const codeFacts = await input.codeFacts.ensureReady(input.workspace);
   const model = await input.modelStore.validateModel(input.workspace);
   const codeContext = await input.codeFacts.buildTaskContext({
     task: input.task,
     maxSymbols: input.budget.maxItems,
-    includeSource: false
+    includeSource: false,
+    changedPaths: input.changedPaths
   });
   const pressure = detectArchitecturePressure({
     task: input.task,

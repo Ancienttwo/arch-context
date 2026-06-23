@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, openSync, readSync, realpathSync } from "node:fs";
-import { basename, delimiter, isAbsolute, join } from "node:path";
+import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { basename, delimiter, isAbsolute, join, posix } from "node:path";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
@@ -20,7 +20,7 @@ export interface CodeGraphProvider {
   version: string;
   capabilities: string[];
   indexAll(workspaceRoot: string): Promise<void>;
-  buildContext(task: string, options: { maxSymbols: number; includeSource: boolean }): Promise<NormalizedCodeContext>;
+  buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
   findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
   getImpactRadius(symbolId: string, depth: number): Promise<NormalizedImpact>;
 }
@@ -42,14 +42,21 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
     this.run(["sync", workspaceRoot]);
   }
 
-  async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean }): Promise<NormalizedCodeContext> {
-    const output = this.run(["explore", "-p", this.workspaceRoot, "--max-files", String(options.maxSymbols), task]);
-    const symbols = parseExploreSymbols(output, options.maxSymbols);
-    const fallback = symbols.length > 0 ? symbols : await this.findSymbols({ query: task, limit: options.maxSymbols });
+  async buildContext(task: string, options: { maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
+    const query = scopedTaskQuery(task, options.changedPaths ?? []);
+    const output = this.run(["explore", "-p", this.workspaceRoot, "--max-files", String(options.maxSymbols), query]);
+    const queryNodes = this.queryNodes(query, Math.max(options.maxSymbols * 4, 12));
+    const importNodes = this.importNodesForChangedPaths(options.changedPaths ?? []);
+    const symbols = uniqueSymbols([
+      ...queryNodes.filter((node) => node.kind !== "import").map(normalizeCliNode),
+      ...parseExploreSymbols(output, options.maxSymbols)
+    ]).slice(0, options.maxSymbols);
+    const fallback = symbols.length > 0 ? symbols : await this.findSymbols({ query, limit: options.maxSymbols });
+    const edges = uniqueEdges(importEdgesFromQueryNodes(this.workspaceRoot, importNodes.length > 0 ? importNodes : queryNodes));
     return {
       task,
       symbols: fallback,
-      edges: [],
+      edges,
       evidence: fallback.map((symbol, index) => ({
         id: `evidence_${index + 1}`,
         selector: { path: symbol.path, symbolId: symbol.id, startLine: symbol.range?.startLine, endLine: symbol.range?.endLine },
@@ -61,17 +68,27 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
           worktreeDigest: digestJson({ task, path: symbol.path, output } as unknown as Json)
         }
       })),
-      digest: digestJson({ task, symbols: fallback, includeSource: options.includeSource, outputDigest: digestJson(output as unknown as Json) } as unknown as Json)
+      digest: digestJson({ task, symbols: fallback, edges, includeSource: options.includeSource, outputDigest: digestJson(output as unknown as Json) } as unknown as Json)
     };
   }
 
   async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
-    const args = ["query", "-p", this.workspaceRoot, "-j", "-l", String(query.limit ?? 10)];
-    for (const kind of query.kinds ?? []) args.push("-k", kind);
-    args.push(query.query);
+    return this.queryNodes(query.query, query.limit ?? 10, query.kinds).map(normalizeCliNode);
+  }
+
+  private queryNodes(query: string, limit: number, kinds: string[] = []): CodeGraphCliNode[] {
+    const args = ["query", "-p", this.workspaceRoot, "-j", "-l", String(limit)];
+    for (const kind of kinds) args.push("-k", kind);
+    args.push(query);
     const output = this.run(args);
     const parsed = JSON.parse(output) as { node: CodeGraphCliNode }[];
-    return parsed.map(({ node }) => normalizeCliNode(node));
+    return parsed.map(({ node }) => node);
+  }
+
+  private importNodesForChangedPaths(changedPaths: string[]): CodeGraphCliNode[] {
+    const query = importQuery(changedPaths);
+    if (!query) return [];
+    return this.queryNodes(query, Math.max(changedPaths.length * 8, 12), ["import"]);
   }
 
   async getImpactRadius(symbolId: string, depth: number): Promise<NormalizedImpact> {
@@ -177,9 +194,9 @@ export class CodeGraphAdapter implements CodeFactsPort {
     return this.#snapshot;
   }
 
-  async buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean }): Promise<NormalizedCodeContext> {
+  async buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
     this.assertCompatible();
-    return this.provider.buildContext(input.task, input);
+    return this.provider.buildContext(input.task, { ...input, changedPaths: normalizeChangedPaths(input.changedPaths ?? []) });
   }
 
   async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
@@ -340,6 +357,8 @@ interface CodeGraphCliNode {
   endLine?: number;
 }
 
+const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
+
 function normalizeCliNode(node: CodeGraphCliNode): NormalizedSymbol {
   return {
     id: node.id ?? `codegraph.${digestJson({ name: node.name, path: node.filePath } as unknown as Json).slice(7, 19)}`,
@@ -348,6 +367,90 @@ function normalizeCliNode(node: CodeGraphCliNode): NormalizedSymbol {
     path: node.filePath,
     range: node.startLine ? { startLine: node.startLine, endLine: node.endLine ?? node.startLine } : undefined
   };
+}
+
+function scopedTaskQuery(task: string, changedPaths: string[]): string {
+  return uniqueStrings([task, ...changedPaths]).join(" ");
+}
+
+function importQuery(changedPaths: string[]): string | undefined {
+  const scoped = normalizeChangedPaths(changedPaths);
+  if (scoped.length === 0) return undefined;
+  return uniqueStrings(["import", ...scoped]).join(" ");
+}
+
+function importEdgesFromQueryNodes(workspaceRoot: string, nodes: CodeGraphCliNode[]): NormalizedEdge[] {
+  return nodes
+    .filter((node) => node.kind === "import")
+    .flatMap((node) => {
+      const target = resolveImportTarget(workspaceRoot, node.filePath, node.name);
+      if (!target) return [];
+      return [{
+        source: fileSymbolId(node.filePath),
+        target: fileSymbolId(target),
+        kind: "imports" as const,
+        confidence: "high" as const
+      }];
+    });
+}
+
+function resolveImportTarget(workspaceRoot: string, fromPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith(".")) return undefined;
+  const base = posix.normalize(posix.join(posix.dirname(fromPath), specifier));
+  if (base === "." || base.startsWith("../") || posix.isAbsolute(base)) return undefined;
+  for (const candidate of importTargetCandidates(base)) {
+    const filePath = join(workspaceRoot, ...candidate.split("/"));
+    if (!existsSync(filePath)) continue;
+    try {
+      if (statSync(filePath).isFile()) return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function importTargetCandidates(base: string): string[] {
+  return [
+    base,
+    ...SOURCE_EXTENSIONS.map((extension) => `${base}${extension}`),
+    ...SOURCE_EXTENSIONS.map((extension) => posix.join(base, `index${extension}`))
+  ];
+}
+
+function fileSymbolId(path: string): string {
+  return `file:${path}`;
+}
+
+function uniqueSymbols(symbols: NormalizedSymbol[]): NormalizedSymbol[] {
+  const seen = new Set<string>();
+  return symbols.filter((symbol) => {
+    const key = `${symbol.id}:${symbol.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function uniqueEdges(edges: NormalizedEdge[]): NormalizedEdge[] {
+  const seen = new Set<string>();
+  return edges.filter((edge) => {
+    const key = `${edge.kind}:${edge.source}:${edge.target}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeChangedPaths(paths: string[]): string[] {
+  return uniqueStrings(paths
+    .map((path) => path.trim().replaceAll("\\", "/"))
+    .filter((path) => path.length > 0 && !path.startsWith("/") && !path.includes(".."))
+  ).sort();
+}
+
+function uniqueStrings(items: string[]): string[] {
+  return [...new Set(items)];
 }
 
 function parseExploreSymbols(output: string, maxSymbols: number): NormalizedSymbol[] {

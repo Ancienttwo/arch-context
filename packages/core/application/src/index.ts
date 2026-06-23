@@ -94,7 +94,8 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
     task: input.task,
     codeFacts: input.codeFacts,
     modelStore: input.modelStore,
-    budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 }
+    budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 },
+    changedPaths: input.changedPaths
   });
   const worktreeDigest = computeWorktreeDigest(input.workspace.root);
   const nextSnapshot: PracticeCheckpointSnapshotV1 = {

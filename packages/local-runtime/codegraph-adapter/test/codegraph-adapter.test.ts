@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
@@ -39,6 +39,84 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
       expect(log.argv).toEqual(["sync", root]);
       expect(realpathSync.native(log.cwd)).toBe(realpathSync.native(root));
       expect(log.execPath).toBe(process.execPath);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("extracts import edges from CodeGraph import nodes scoped by changed paths", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-import-edge-"));
+    const logPath = join(root, "codegraph-query-log.json");
+    const shimPath = join(root, "fake-codegraph.js");
+    try {
+      mkdirSync(join(root, ".codegraph"), { recursive: true });
+      mkdirSync(join(root, "src", "web"), { recursive: true });
+      mkdirSync(join(root, "src", "domain"), { recursive: true });
+      writeFileSync(join(root, "src", "domain", "order-service.ts"), "export const orderService = true;\n", "utf8");
+      writeFileSync(join(root, "src", "web", "page.ts"), "import { orderService } from \"../domain/order-service\";\nexport const page = orderService;\n", "utf8");
+      writeFileSync(shimPath, `
+import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+if (args[0] === "sync") process.exit(0);
+if (args[0] === "explore") {
+  console.log("## Exploration: fake\\n\\n#### src/web/page.ts — page.ts(file)\\n");
+  process.exit(0);
+}
+if (args[0] === "query") {
+  writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({ argv: args }));
+  console.log(JSON.stringify([
+    { node: {
+      id: "import:order-service",
+      kind: "import",
+      name: "../domain/order-service",
+      qualifiedName: "../domain/order-service",
+      filePath: "src/web/page.ts",
+      language: "typescript",
+      startLine: 1,
+      endLine: 1
+    } },
+    { node: {
+      id: "file:src/web/page.ts",
+      kind: "file",
+      name: "page.ts",
+      qualifiedName: "src/web/page.ts",
+      filePath: "src/web/page.ts",
+      language: "typescript",
+      startLine: 1,
+      endLine: 2
+    } }
+  ]));
+  process.exit(0);
+}
+console.error("unexpected fake codegraph args", args);
+process.exit(2);
+`);
+
+      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath));
+      await adapter.sync({
+        workspace: { root, repositoryId: "repo.test", headSha: "abc" },
+        changedPaths: [" src\\web\\page.ts", "../escape.ts", "/tmp/escape.ts"]
+      });
+      const context = await adapter.buildTaskContext({
+        task: "respect dependency layer import",
+        maxSymbols: 6,
+        includeSource: false,
+        changedPaths: [" src\\web\\page.ts", "../escape.ts", "/tmp/escape.ts"]
+      });
+
+      expect(context.edges).toEqual([{
+        source: "file:src/web/page.ts",
+        target: "file:src/domain/order-service.ts",
+        kind: "imports",
+        confidence: "high"
+      }]);
+      expect(context.digest).toMatch(/^sha256:/);
+      const log = JSON.parse(readFileSync(logPath, "utf8")) as { argv: string[] };
+      expect(log.argv).toEqual(expect.arrayContaining(["-k", "import"]));
+      expect(log.argv.at(-1)).toContain("src/web/page.ts");
+      expect(log.argv.at(-1)).toContain("import");
+      expect(log.argv.at(-1)).not.toContain("respect dependency layer import");
+      expect(log.argv.at(-1)).not.toContain("escape.ts");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

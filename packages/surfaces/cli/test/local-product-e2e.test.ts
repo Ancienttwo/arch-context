@@ -146,6 +146,67 @@ describe("local product first-experience E2E", () => {
       removeTempRoot(workspace);
     }
   }, 30_000);
+
+  test("installed hook checkpoint adds dependency direction guidance from a changed import edge", async () => {
+    expect(existsSync(ARCHCTX_BIN)).toBe(true);
+    const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-import-edge-e2e-"));
+    const repo = join(workspace, "single-repo-basic");
+    const changedPath = "src/web/page.ts";
+    cpSync(SINGLE_REPO_FIXTURE_ROOT, repo, { recursive: true });
+    try {
+      git(repo, "init");
+      git(repo, "add", ".");
+      git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
+      runCodeGraph(repo, "init", repo);
+
+      const init = await runArchctx(repo, "init", "--name", "Import Edge E2E");
+      expect(init.ok).toBe(true);
+
+      const prepared = await runArchctx(
+        repo,
+        "prepare",
+        "--task", "review checkout page change",
+        "--task-session-id", "task_import_edge",
+        "--max-items", "5"
+      );
+      expect(prepared.ok).toBe(true);
+      expect(practiceIds(prepared.data.context.practiceGuidance.matches)).not.toContain("modularity.respect-dependency-direction");
+
+      mkdirSync(join(repo, "src", "domain"), { recursive: true });
+      mkdirSync(join(repo, "src", "web"), { recursive: true });
+      writeFileSync(join(repo, "src", "domain", "order-service.ts"), "export function placeOrder() { return \"ok\"; }\n", "utf8");
+      writeFileSync(join(repo, changedPath), "import { placeOrder } from \"../domain/order-service\";\nexport function renderPage() { return placeOrder(); }\n", "utf8");
+
+      const edited = await runArchctx(
+        repo,
+        "hook", "checkpoint",
+        "--event", "post-edit",
+        "--path", changedPath,
+        "--task-session-id", "task_import_edge",
+        "--tool-call-id", "edit",
+        "--max-items", "5"
+      );
+      expect(edited.ok).toBe(true);
+      expect(edited.requestId).toBe("hook.checkpoint");
+      expect(practiceIds(edited.data.delta.added)).toContain("modularity.respect-dependency-direction");
+      const dependencyDirection = edited.data.delta.added.find((match: any) => match.practiceId === "modularity.respect-dependency-direction");
+      expect(dependencyDirection.evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "import-edge",
+          subject: "file:src/web/page.ts->file:src/domain/order-service.ts"
+        })
+      ]));
+      expect(edited.data.hook.pathSummary).toMatchObject({
+        schemaVersion: "archcontext.checkpoint-path-summary/v1",
+        total: 1,
+        source: 1,
+        deleted: 0
+      });
+    } finally {
+      await stopDaemonAndWait(repo);
+      removeTempRoot(workspace);
+    }
+  }, 30_000);
 });
 
 async function runFirstExperience(

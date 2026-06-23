@@ -1,6 +1,6 @@
 # Practice Assets S3 Checkpoint Gate
 
-> Status: local implementation evidence captured; PR #15 submitted; hook adapter follow-up captured on `codex/practice-hook-adapter`; checkpoint hardening captured on `codex/practice-checkpoint-hardening`.
+> Status: local implementation evidence captured; PR #15 submitted; hook adapter follow-up captured on `codex/practice-hook-adapter`; checkpoint hardening captured on `codex/practice-checkpoint-hardening`; CodeGraph import-edge follow-up captured on `codex/practice-codegraph-edge-context`.
 > Scope: S3 incremental checkpoint and hook integration vertical slice.
 > Branch: `codex/practice-checkpoint-hooks`
 
@@ -13,6 +13,7 @@ Implemented surfaces:
 - Contract: `archcontext.practice-checkpoint/v1` schema, fixture, and TypeScript result types.
 - Core: `checkpointTask` compiles current context, binds head/worktree/catalog/context/practice guidance digests, and computes practice delta.
 - Runtime daemon: `prepare` records a task-session practice baseline; `checkpoint` syncs changed-path hints, evaluates current guidance, returns delta, persists the next baseline, and restores the baseline after daemon restart.
+- CodeFacts: checkpoint-scoped changed paths are passed into `buildTaskContext`; the CodeGraph CLI adapter performs a separate `query -k import` over normalized changed paths and synthesizes file-level `imports` edges without reading CodeGraph internal storage.
 - RPC: runtime client/server dispatch includes `checkpoint`.
 - CLI: `archctx checkpoint` and `archctx hook checkpoint --event post-edit --path ...` call the daemon. Hook failure is fail-open and local-only.
 - CLI hook adapter: `archctx hooks install/status/remove --host codex|claude|generic` emits a central-first `repo-harness-hook` adapter contract and manual host configuration example; it does not write host config or vendor hook runtime into this repository.
@@ -94,15 +95,26 @@ Checkpoint hardening follow-up readbacks:
 - Runtime daemon restart test reuses persisted task state and restores the prior practice checkpoint baseline before the next checkpoint.
 - Installed `archctx hook checkpoint` E2E covers prepare -> edit compatibility path -> upgraded practice delta -> revert -> downgraded practice delta through a separate CLI process and loopback daemon.
 
+CodeGraph import-edge follow-up readbacks:
+
+- Typecheck: `tsc --noEmit`.
+- CodeGraph adapter focused suite: 5 pass / 0 fail / 22 expects.
+- Context compiler focused suite: 3 pass / 0 fail / 23 expects.
+- Core application checkpoint suite: 11 pass / 0 fail / 39 expects.
+- Practice engine focused suite: 14 pass / 0 fail / 69 expects.
+- Local product E2E: 5 pass / 0 fail / 82 expects.
+- Full verification after CodeGraph import-edge follow-up: 610 pass / 0 fail / 3693 expects; packaged CLI smoke, privacy audits, acceptance ledger, sprint-status check, and representative eval gates PASS.
+- Real installed `archctx hook checkpoint` E2E covers prepare without dependency-direction guidance -> edit `src/web/page.ts` with `../domain/order-service` import -> checkpoint added `modularity.respect-dependency-direction` with `import-edge` evidence `file:src/web/page.ts->file:src/domain/order-service.ts`.
+
 ## Gate Evidence
 
 - S3-EG1: Hook checkpoint path is implemented through local CLI -> loopback daemon RPC only; result declares `hook.egress = "none"` and `hook.network = "forbidden"`. Hook adapter output also declares `egress = "none"` and `network = "forbidden"`; independent packet/audit evidence remains a separate gate before marking EG1 fully complete.
 - S3-EG2: `scripts/practice-checkpoint-benchmark.ts` records cold/warm/coalesced p95 under the S3 limits for a local temporary repository.
 - S3-EG3: Daemon checkpoint coalescing returns cached checkpoint data for duplicate same-worktree events and marks `hook.coalesced = true`, `hook.skippedAnalysis = true`.
 - S3-EG4: `archctx hook checkpoint` catches runtime errors and returns a fail-open `archcontext.hook-checkpoint-fail-open/v1` payload.
-- S3-EG5: Core tests cover prepare -> edit introduces observed cycle -> checkpoint added `modularity.no-new-cycle` -> revert -> checkpoint removed `modularity.no-new-cycle`. Runtime/MCP tests cover prepare -> checkpoint no-op delta in a shared daemon session. Local product E2E covers installed `archctx hook checkpoint` prepare -> edit compatibility path -> upgraded delta -> revert -> downgraded delta.
+- S3-EG5: Core tests cover prepare -> edit introduces observed cycle -> checkpoint added `modularity.no-new-cycle` -> revert -> checkpoint removed `modularity.no-new-cycle`. Runtime/MCP tests cover prepare -> checkpoint no-op delta in a shared daemon session. Local product E2E covers installed `archctx hook checkpoint` prepare -> edit compatibility path -> upgraded delta -> revert -> downgraded delta, plus prepare -> edit real cross-layer import -> added `modularity.respect-dependency-direction` with `import-edge` evidence.
 - S3-EG6: No repository hook runtime is added. The hook entrypoint is `archctx hook checkpoint`, and `archctx hooks install/status/remove` outputs central-first `repo-harness-hook` config without requiring `hook_source = repo`.
 
 ## Known Limits
 
-- Real installed-CLI cross-layer import fixture remains deferred; the current real CodeGraph adapter returns symbols from `codegraph explore` but does not yet emit import edges in `buildTaskContext`.
+- S3-EG1 still needs an independent packet/audit capture before it can be marked fully complete; current hook/runtime contracts declare local-only egress and forbidden network but do not yet include packet-level evidence.
