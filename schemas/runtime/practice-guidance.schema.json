@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/practice-guidance.schema.json",
+  "title": "PracticeGuidance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "catalogDigest", "overlayDigest", "matches", "constraints", "decisions", "realConstraints", "unknowns", "requiredCheckpoints", "resources"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-guidance/v1" },
+    "catalogDigest": { "type": "string", "pattern": "^sha256:" },
+    "overlayDigest": { "type": "string", "pattern": "^sha256:" },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["schemaVersion", "practiceId", "assetDigest"],
+        "properties": {
+          "schemaVersion": { "const": "archcontext.practice-match/v1" },
+          "practiceId": { "type": "string" },
+          "assetDigest": { "type": "string", "pattern": "^sha256:" }
+        }
+      }
+    },
+    "constraints": { "type": "array", "items": { "type": "string" } },
+    "decisions": { "type": "array", "items": { "type": "string" } },
+    "realConstraints": { "type": "array", "items": { "type": "string" } },
+    "unknowns": { "type": "array", "items": { "type": "string" } },
+    "requiredCheckpoints": { "type": "array", "items": { "type": "string" } },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "uri", "digest"],
+        "properties": {
+          "type": { "const": "practice" },
+          "uri": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:" }
+        }
+      }
+    }
+  }
+}

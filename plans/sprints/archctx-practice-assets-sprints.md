@@ -1,6 +1,6 @@
 # Sprint Plan：ArchContext Architecture Practice Assets
 
-> Status: Executing — S1 static catalog verified; PR pending
+> Status: Executing — S2 evidence-backed matching verified; PR pending
 > Created: 2026-06-23
 > Target repository: `Ancienttwo/arch-context`
 > Suggested path after review: `plans/sprints/archctx-practice-assets-sprints.md`
@@ -650,61 +650,70 @@ bun run verify
 
 将静态 catalog 接入现有 retrieval、pressure-engine、CodeFacts、context-compiler 和 application workflow，解决“关键词命中即高压力”与“context 字段为空”的核心缺口。
 
+## 10.1.1 S2 执行记录
+
+- 2026-06-24：在 stacked 分支 `codex/practice-matching` 上实现 S2 evidence-backed matching vertical slice。
+- 实现边界：`context` 与 `prepare` 共享 `compileTaskContext`，输出 `practiceGuidance`、catalog digest、practice resources、constraints、required checkpoints；不实现 checkpoint delta、complete enforcement、waiver 或 Context7。
+- 设计取舍：`PressureSignal.evidence/evidenceKind` 保持兼容，新增 typed `evidenceDetails`；task-text-only 信号最高保持 advisory/low-pressure，observed/verified structural evidence 才能升级。
+- Scope filtering 在 S2 只实装 path / negative path 与 structural predicate；repository kind、language、framework、profile precedence 留到 profile/enforcement hardening slice。
+- 验证证据写入 `docs/verification/practice-assets-s2-matching-gate.md`；practice eval 增加 30 positive / 30 benign negative cases。
+- 2026-06-24：full verification 通过，`bun run verify` readback 为 575 pass / 0 fail / 3423 expects。
+
 ## 10.2 Checklist
 
 ### Evidence contract
 
-- [ ] S2-01 将 `PressureSignal.evidenceKind` 升级为 `PracticeEvidence { kind, strength, subject, digest, observedAt }`。
-- [ ] S2-02 保留旧字段的兼容读取，输出 schema version 升级并提供 migration test。
-- [ ] S2-03 实现 evidence strength 排序：heuristic < declared < observed < verified。
-- [ ] S2-04 实现 `EnforcementCeiling` 计算：heuristic-only 永远不高于 advisory。
+- [x] S2-01 将 `PressureSignal.evidenceKind` 升级为 `PracticeEvidence { kind, strength, subject, digest, observedAt }`。
+- [x] S2-02 保留旧字段的兼容读取，输出 schema version 升级并提供 migration test。
+- [x] S2-03 实现 evidence strength 排序：heuristic < declared < observed < verified。
+- [x] S2-04 实现 `EnforcementCeiling` 计算：heuristic-only 永远不高于 advisory。
 
 ### Pressure engine 修正
 
-- [ ] S2-05 将 task text 正则降级为 candidate signal，不直接产生 high-severity observed signal。
-- [ ] S2-06 为 duplicate responsibility、multiple lifecycle owner、wrapper/adapter、dual-track、cross-boundary access 建立结构 corroboration 接口。
-- [ ] S2-07 从 CodeFactsPort 获取 symbol、import/call/data edge、caller coverage 等 normalized facts，不读取 CodeGraph 内部 DB。
-- [ ] S2-08 对 README、文档、变量名、测试 fixture 中的 `legacy/v1/adapter/wrapper` 建立 benign suppression。
-- [ ] S2-09 对没有关键词但存在新增 cycle、跨层 import、parallel public API 的 fixture 产生 observed signal。
+- [x] S2-05 将 task text 正则降级为 candidate signal，不直接产生 high-severity observed signal。
+- [x] S2-06 为 duplicate responsibility、multiple lifecycle owner、wrapper/adapter、dual-track、cross-boundary access 建立结构 corroboration 接口。
+- [x] S2-07 从 CodeFactsPort 获取 symbol、import/call/data edge、caller coverage 等 normalized facts，不读取 CodeGraph 内部 DB。
+- [x] S2-08 对 README、文档、变量名、测试 fixture 中的 `legacy/v1/adapter/wrapper` 建立 benign suppression。
+- [x] S2-09 对没有关键词但存在新增 cycle、跨层 import、parallel public API 的 fixture 产生 observed signal。
 
 ### Practice engine
 
-- [ ] S2-10 新建 `packages/core/practice-engine`。
-- [ ] S2-11 将 PracticeAsset 映射为现有 `RetrievalDocument`，复用英文归一化与 Jieba tokenizer。
-- [ ] S2-12 Candidate retrieval 只做召回；scope filter 和 evidence matcher 决定最终匹配，不允许只按 lexical score 输出。
-- [ ] S2-13 实现 scope 过滤：repository kind、language、framework、path glob、node kind。
-- [ ] S2-14 实现 structural predicates registry，未知 predicate 必须 fail validation，不能静默忽略。
-- [ ] S2-15 实现 deterministic re-rank：retrieval、scope、observed evidence、repo policy、negative scope 分别计分。
-- [ ] S2-16 实现 Top-K 去重、同 category 限额和 context budget trimming。
-- [ ] S2-17 Match 输出包含 explanation、matchedBy、evidence、asset digest 和 suppression reason。
+- [x] S2-10 新建 `packages/core/practice-engine`。
+- [x] S2-11 将 PracticeAsset 映射为现有 `RetrievalDocument`，复用英文归一化与 Jieba tokenizer。
+- [x] S2-12 Candidate retrieval 只做召回；scope filter 和 evidence matcher 决定最终匹配，不允许只按 lexical score 输出。
+- [~] S2-13 实现 scope 过滤：repository kind、language、framework、path glob、node kind。（S2 实装 path / negative path / node evidence；profile-driven repository kind、language、framework 留到后续 profile slice。）
+- [x] S2-14 实现 structural predicates registry，未知 predicate 必须 fail validation，不能静默忽略。
+- [x] S2-15 实现 deterministic re-rank：retrieval、scope、observed evidence、repo policy、negative scope 分别计分。
+- [x] S2-16 实现 Top-K 去重、同 category 限额和 context budget trimming。
+- [x] S2-17 Match 输出包含 explanation、matchedBy、evidence、asset digest 和 suppression reason。
 
 ### Context compiler 与 application
 
-- [ ] S2-18 在 `CompiledTaskContext` 增加 typed `practiceGuidance`，保持旧消费者可读取现有字段。
-- [ ] S2-19 用 practice matches 填充 `constraints`、`decisions`、`realConstraints`、`unknowns`、`recommendedTargetState`、`requiredCheckpoints`、`resources`。
-- [ ] S2-20 `resources` 增加 `archcontext://practice/<id>@<revision>` 与 catalog digest。
-- [ ] S2-21 `prepareTask` 只调用一次完整 compile/match 链路，消除重复计算与结果漂移。
-- [ ] S2-22 修复 `context` placeholder：改为调用真实 compiler；无法提供真实数据时返回明确 capability error，禁止写死 low/0/empty。
-- [ ] S2-23 CLI 和 MCP 输出同一个 daemon result，包含 Top 3–5 practices 与简洁解释。
-- [ ] S2-24 超预算时优先保留 repo-authored、higher evidence、higher enforcement ceiling 的实践。
+- [x] S2-18 在 `CompiledTaskContext` 增加 typed `practiceGuidance`，保持旧消费者可读取现有字段。
+- [x] S2-19 用 practice matches 填充 `constraints`、`decisions`、`realConstraints`、`unknowns`、`recommendedTargetState`、`requiredCheckpoints`、`resources`。
+- [x] S2-20 `resources` 增加 `archcontext://practice/<id>@<revision>` 与 catalog digest。
+- [x] S2-21 `prepareTask` 只调用一次完整 compile/match 链路，消除重复计算与结果漂移。
+- [x] S2-22 修复 `context` placeholder：改为调用真实 compiler；无法提供真实数据时返回明确 capability error，禁止写死 low/0/empty。
+- [x] S2-23 CLI 和 MCP 输出同一个 daemon result，包含 Top 3–5 practices 与简洁解释。
+- [x] S2-24 超预算时优先保留 repo-authored、higher evidence、higher enforcement ceiling 的实践。
 
 ### Eval 与测试
 
-- [ ] S2-25 增加至少 30 个 benign negative cases，覆盖 README typo、类名 Adapter、legacy migration 文档、v1 test fixture。
-- [ ] S2-26 增加至少 30 个 structural positive cases，其中一半不包含触发关键词。
-- [ ] S2-27 增加中英文 practice retrieval eval，记录 Top-1/Top-3 recall、constraint recall、irrelevant ratio。
-- [ ] S2-28 增加 budget eval：12KB/12 items 下保留最关键 constraint 与 checkpoint。
-- [ ] S2-29 将 practice gates 接入 `evals/run.ts --check` 和 acceptance ledger。
-- [ ] S2-30 编写 `docs/verification/practice-assets-s2-matching-gate.md`。
+- [x] S2-25 增加至少 30 个 benign negative cases，覆盖 README typo、类名 Adapter、legacy migration 文档、v1 test fixture。
+- [x] S2-26 增加至少 30 个 structural positive cases，其中一半不包含触发关键词。
+- [x] S2-27 增加中英文 practice retrieval eval，记录 Top-1/Top-3 recall、constraint recall、irrelevant ratio。
+- [x] S2-28 增加 budget eval：12KB/12 items 下保留最关键 constraint 与 checkpoint。
+- [~] S2-29 将 practice gates 接入 `evals/run.ts --check` 和 acceptance ledger。（practice gates 已接入 `evals/run.ts --check`；历史 FG acceptance ledger 保持不扩展，证据落入 S2 verification doc。）
+- [x] S2-30 编写 `docs/verification/practice-assets-s2-matching-gate.md`。
 
 ## 10.3 Exit Gates
 
-- [ ] S2-EG1 heuristic-only high severity rate = 0%。
-- [ ] S2-EG2 现有 architecture drift precision ≥ 90%，不得通过删除全部信号作弊。
-- [ ] S2-EG3 Practice Top-3 recall ≥ 90%，constraint recall ≥ 95%，irrelevant ratio ≤ 20%。
-- [ ] S2-EG4 至少一个无关键词结构腐化 fixture 能命中正确 practice。
-- [ ] S2-EG5 `context` 与 `prepare` 对相同 task/catalog/CodeFacts 使用同一 digest，不再返回常量桩。
-- [ ] S2-EG6 CLI 与 MCP 对同一 session 返回相同 practice IDs、evidence 与 catalog digest。
+- [x] S2-EG1 heuristic-only high severity rate = 0%。
+- [x] S2-EG2 现有 architecture drift precision ≥ 90%，不得通过删除全部信号作弊。
+- [x] S2-EG3 Practice Top-3 recall ≥ 90%，constraint recall ≥ 95%，irrelevant ratio ≤ 20%。
+- [x] S2-EG4 至少一个无关键词结构腐化 fixture 能命中正确 practice。
+- [x] S2-EG5 `context` 与 `prepare` 对相同 task/catalog/CodeFacts 使用同一 digest，不再返回常量桩。
+- [x] S2-EG6 CLI 与 MCP 对同一 session 返回相同 practice IDs、evidence 与 catalog digest。
 
 ## 10.4 验证命令
 

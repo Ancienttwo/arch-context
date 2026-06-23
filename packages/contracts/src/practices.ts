@@ -24,6 +24,8 @@ export type PracticeEvidenceKind =
 export type PracticeEnforcementLevel = "advisory" | "checkpoint" | "complete";
 export type PracticeSourceTrust = "repo-authored" | "curated-static" | "external-dynamic";
 export type PracticeSourceLicenseLevel = "A" | "B" | "C" | "D" | "E";
+export type PracticeMatchConfidence = "low" | "medium" | "high";
+export type PracticeMatchReason = "retrieval" | "scope" | "signal" | "predicate" | "repo-policy";
 
 export interface PracticeScopeV1 {
   repositoryKinds: string[];
@@ -169,4 +171,42 @@ export interface EffectivePracticeAssetV1 {
   sourceTrust: PracticeSourceTrust;
   originPath: string;
   overrideChain: string[];
+}
+
+export interface PracticeEvidenceV1 {
+  kind: PracticeEvidenceKind;
+  strength: PracticeEvidenceStrength;
+  subject: string;
+  digest?: string;
+  observedAt?: string;
+}
+
+export interface PracticeMatchV1 {
+  schemaVersion: "archcontext.practice-match/v1";
+  practiceId: string;
+  assetRevision: number;
+  assetDigest: string;
+  title: string;
+  category: string;
+  score: number;
+  confidence: PracticeMatchConfidence;
+  enforcement: PracticeEnforcementLevel;
+  matchedBy: PracticeMatchReason[];
+  evidence: PracticeEvidenceV1[];
+  explanation: string[];
+  sourceTrust: PracticeSourceTrust;
+  suppressedReason?: string;
+}
+
+export interface PracticeGuidanceResultV1 {
+  schemaVersion: "archcontext.practice-guidance/v1";
+  catalogDigest: string;
+  overlayDigest: string;
+  matches: PracticeMatchV1[];
+  constraints: string[];
+  decisions: string[];
+  realConstraints: string[];
+  unknowns: string[];
+  requiredCheckpoints: string[];
+  resources: { type: "practice"; uri: string; digest: string }[];
 }

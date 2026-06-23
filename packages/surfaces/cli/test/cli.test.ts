@@ -133,6 +133,8 @@ describe("archctx CLI", () => {
       const context = await runTestCli("context", ["--task", "add teams"], root);
       expect(context.ok).toBe(true);
       expect((context.data as any).task).toBe("add teams");
+      expect((context.data as any).practiceGuidance.schemaVersion).toBe("archcontext.practice-guidance/v1");
+      expect((context.data as any).practiceGuidance.catalogDigest).toMatch(/^sha256:/);
 
       const status = await runTestCli("status", [], root);
       expect(status.ok).toBe(true);
@@ -141,6 +143,7 @@ describe("archctx CLI", () => {
       const prepare = await runTestCli("prepare", ["--task", "remove legacy v1 wrapper", "--max-items", "1"], root);
       expect(prepare.ok).toBe(true);
       expect((prepare.data as any).posture).toBeTruthy();
+      expect((prepare.data as any).context.practiceGuidance.matches.length).toBeGreaterThan(0);
 
       const practices = await runTestCli("practices", ["list", "--json"], root);
       expect(practices.ok).toBe(true);

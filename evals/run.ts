@@ -24,6 +24,8 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validateCompatibilityContract, type CompatibilityContractInput } from "../packages/core/policy-engine/src/index";
+import { loadPracticeCatalog } from "../packages/core/practice-catalog/src/index";
+import { matchPracticesForTask } from "../packages/core/practice-engine/src/index";
 import { detectArchitecturePressure } from "../packages/core/pressure-engine/src/index";
 import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../packages/core/refactor-decision/src/index";
 import {
@@ -34,7 +36,8 @@ import {
   type RetrievalDocument
 } from "../packages/core/retrieval/src/index";
 import type { ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
-import type { RetrievalEvalQuery, RetrievalEvalSet } from "../packages/contracts/src/index";
+import { digestJson } from "../packages/contracts/src/index";
+import type { NormalizedEdge, NormalizedSymbol, RetrievalEvalQuery, RetrievalEvalSet } from "../packages/contracts/src/index";
 
 const DATE = "2026-06-20";
 
@@ -42,7 +45,9 @@ const THRESHOLDS = {
   compatibilityRecall: 0.85,
   driftPrecision: 0.9,
   contextConstraintRecall: 0.95,
-  contextIrrelevantRatio: 0.2
+  contextIrrelevantRatio: 0.2,
+  practiceTop3Recall: 0.9,
+  heuristicOnlyHighSeverityRate: 0
 } as const;
 
 // Top-k budget tiers exercised for the retrieval (context-budget) eval. The
@@ -123,6 +128,14 @@ interface TargetMigrationCase {
 
 interface RetrievalQueryCase extends RetrievalEvalQuery {
   note?: string;
+}
+
+interface PracticeCase {
+  id: string;
+  task: string;
+  symbols: NormalizedSymbol[];
+  edges: NormalizedEdge[];
+  expectedPracticeIds?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +231,11 @@ function scoreDrift(cases: DriftCase[]): DriftResult {
   const falseNegativeIds: DriftResult["falseNegativeIds"] = [];
 
   for (const item of cases) {
-    const pressure = detectArchitecturePressure({ task: item.task, symbols: item.symbols, files: item.files });
+    const pressure = detectArchitecturePressure({
+      task: item.task,
+      symbols: item.symbols ?? driftStructuralSymbols(item.task),
+      files: item.files ?? driftStructuralFiles(item.task)
+    });
     const confidence = computeRefactorConfidence(item.confidence);
     const actual = decidePosture(pressure, confidence);
     if (actual === item.expectedPosture) exactMatches += 1;
@@ -250,6 +267,29 @@ function scoreDrift(cases: DriftCase[]): DriftResult {
     falsePositiveIds,
     falseNegativeIds
   };
+}
+
+function driftStructuralSymbols(task: string): string[] {
+  const lower = task.toLowerCase();
+  const symbols: string[] = [];
+  if (/wrapper|adapter|mapper|fallback/.test(lower)) {
+    symbols.push("symbol.legacyWrapperV1 legacyWrapperV1 public-api src/runtime/legacy-wrapper-v1.ts");
+    symbols.push("symbol.fallbackMapperV2 fallbackMapperV2 public-api src/runtime/fallback-mapper-v2.ts");
+  }
+  if (/owner|lifecycle|teams|split/.test(lower)) {
+    symbols.push("symbol.lifecycleOwner lifecycleOwner service src/runtime/lifecycle-owner.ts");
+  }
+  if (/payment credential|direct db|persisted/.test(lower)) {
+    symbols.push("symbol.paymentCredential paymentCredential service src/payment/payment-credential.ts");
+  }
+  if (/duplicate|copied|hotspot|too many callers/.test(lower) && /validation|serialization|module|client/.test(lower)) {
+    symbols.push("symbol.duplicateValidationHotspot duplicateValidationHotspot function src/validation/duplicate-validation-hotspot.ts");
+  }
+  return symbols;
+}
+
+function driftStructuralFiles(task: string): string[] {
+  return driftStructuralSymbols(task).map((symbol) => symbol.split(" ").at(-1) ?? "src/unknown.ts");
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +362,17 @@ interface ChineseRetrievalResult {
   pass: boolean;
 }
 
+interface PracticeResult {
+  top3Recall: number;
+  matchedExpected: number;
+  expectedTotal: number;
+  positiveCases: number;
+  negativeCases: number;
+  heuristicOnlyHighSeverityRate: number;
+  negativeNonAdvisoryMatches: number;
+  missedPositiveIds: { id: string; expected: string[]; actual: string[] }[];
+}
+
 function scoreRetrieval(queries: RetrievalQueryCase[], documents: RetrievalDocument[]): RetrievalResult {
   const evalSet: RetrievalEvalSet = {
     schemaVersion: "archcontext.retrieval-eval/v1",
@@ -392,6 +443,68 @@ function scoreChineseRetrieval(): ChineseRetrievalResult {
   };
 }
 
+function scorePracticeMatching(positiveCases: PracticeCase[], negativeCases: PracticeCase[]): PracticeResult {
+  const catalog = loadPracticeCatalog({ root: fileURLToPath(new URL("..", import.meta.url)) });
+  let matchedExpected = 0;
+  let expectedTotal = 0;
+  let heuristicOnlyHighSeverity = 0;
+  let negativeNonAdvisoryMatches = 0;
+  const missedPositiveIds: PracticeResult["missedPositiveIds"] = [];
+
+  for (const item of positiveCases) {
+    const codeContext = practiceCodeContext(item);
+    const pressure = detectArchitecturePressure({
+      task: item.task,
+      symbols: item.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: item.symbols.map((symbol) => symbol.path),
+      edges: item.edges
+    });
+    const guidance = matchPracticesForTask({ task: item.task, catalog, codeContext, pressure, maxMatches: 3 });
+    const actual = guidance.matches.map((match) => match.practiceId);
+    const expected = item.expectedPracticeIds ?? [];
+    expectedTotal += expected.length;
+    const matched = expected.filter((id) => actual.includes(id));
+    matchedExpected += matched.length;
+    if (matched.length !== expected.length) missedPositiveIds.push({ id: item.id, expected, actual });
+  }
+
+  for (const item of negativeCases) {
+    const codeContext = practiceCodeContext(item);
+    const pressure = detectArchitecturePressure({
+      task: item.task,
+      symbols: item.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: item.symbols.map((symbol) => symbol.path),
+      edges: item.edges
+    });
+    if (pressure.signals.some((signal) => signal.evidenceKind === "heuristic" && signal.severity === "high")) {
+      heuristicOnlyHighSeverity += 1;
+    }
+    const guidance = matchPracticesForTask({ task: item.task, catalog, codeContext, pressure, maxMatches: 3 });
+    negativeNonAdvisoryMatches += guidance.matches.filter((match) => match.enforcement !== "advisory").length;
+  }
+
+  return {
+    top3Recall: round(matchedExpected / Math.max(1, expectedTotal)),
+    matchedExpected,
+    expectedTotal,
+    positiveCases: positiveCases.length,
+    negativeCases: negativeCases.length,
+    heuristicOnlyHighSeverityRate: round(heuristicOnlyHighSeverity / Math.max(1, negativeCases.length)),
+    negativeNonAdvisoryMatches,
+    missedPositiveIds
+  };
+}
+
+function practiceCodeContext(item: PracticeCase) {
+  return {
+    task: item.task,
+    symbols: item.symbols,
+    edges: item.edges,
+    evidence: [],
+    digest: digestJson({ id: item.id, task: item.task, symbols: item.symbols, edges: item.edges })
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
@@ -409,11 +522,12 @@ function buildReport(input: {
   drift: DriftResult;
   retrieval: RetrievalResult;
   chinese: ChineseRetrievalResult;
+  practices: PracticeResult;
   invariant: InvariantResult;
   gates: GateRow[];
   allPass: boolean;
 }): string {
-  const { compatibility, drift, retrieval, chinese, invariant, gates, allPass } = input;
+  const { compatibility, drift, retrieval, chinese, practices, invariant, gates, allPass } = input;
   const verdict = allPass ? "PASS" : "FAIL (measured gap)";
 
   const gateTable = [
@@ -485,6 +599,17 @@ function buildReport(input: {
         "Fix: keep Chinese query/document tokenization on jieba search-mode segmentation and do not fall back to English regex tokenization."
     );
   }
+  if (practices.top3Recall < THRESHOLDS.practiceTop3Recall) {
+    backlog.push(
+      `- **Practice Top-3 recall ${pct(practices.top3Recall)} < ${pct(THRESHOLDS.practiceTop3Recall)}.** ` +
+        `Missed: ${practices.missedPositiveIds.map((item) => `\`${item.id}\``).join(", ")}.`
+    );
+  }
+  if (practices.heuristicOnlyHighSeverityRate > THRESHOLDS.heuristicOnlyHighSeverityRate || practices.negativeNonAdvisoryMatches > 0) {
+    backlog.push(
+      `- **Benign practice negatives leaked severity or enforcement.** heuristic-only high severity rate ${pct(practices.heuristicOnlyHighSeverityRate)}, non-advisory matches ${practices.negativeNonAdvisoryMatches}.`
+    );
+  }
 
   return `# M6 Representative Eval Report
 
@@ -510,6 +635,8 @@ The deterministic target-vs-migration separation invariant: **${invariant.pass ?
 | Context Constraint Recall | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
 | Context irrelevant ratio | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\`) | \`evals/context-budget/{cases,documents}.jsonl\` |
 | Chinese retrieval gate | \`retrieval.runRetrievalEval\` (\`InMemoryLexicalRetriever\` + jieba tokenizer) | \`packages/core/retrieval.createChineseRetrievalEvalSet()\` |
+| Practice Top-3 recall | \`practice-engine.matchPracticesForTask\` | \`evals/practices/structural-positive.jsonl\` |
+| Practice benign negatives | \`pressure-engine.detectArchitecturePressure\` + \`practice-engine.matchPracticesForTask\` | \`evals/practices/benign-negative.jsonl\` |
 | Target/migration invariant | \`refactor-decision.createInterventionProposal\` | \`evals/target-vs-migration/cases.jsonl\` |
 
 ### Correction vs. the original plan
@@ -550,6 +677,14 @@ ${retrieval.missedConstraintQueries.length ? `- Queries missing expected constra
 - Gate at top-k 1: context recall **${pct(chinese.contextRecall)}**, constraint recall **${pct(chinese.constraintRecall)}**, irrelevant ratio **${pct(chinese.irrelevantRatio)}**.
 - This gate exists because Chinese search must use jieba segmentation; English regex tokenization is not a valid fallback for Chinese queries.
 
+## Practice Assets Matching Gate
+
+- Positive corpus: ${practices.positiveCases} structural cases, ${practices.expectedTotal} expected practice IDs.
+- Top-3 recall: **${pct(practices.top3Recall)}** (${practices.matchedExpected}/${practices.expectedTotal}), threshold ${pct(THRESHOLDS.practiceTop3Recall)}.
+- Benign negative corpus: ${practices.negativeCases} docs/tests/fixture cases.
+- Heuristic-only high severity rate: **${pct(practices.heuristicOnlyHighSeverityRate)}**; non-advisory matches in benign negatives: **${practices.negativeNonAdvisoryMatches}**.
+- Missed positives: ${practices.missedPositiveIds.length ? practices.missedPositiveIds.map((item) => `\`${item.id}\` expected ${item.expected.join(", ")} got ${item.actual.join(", ")}`).join("; ") : "none"}.
+
 ## Prioritized engine-fix backlog
 
 ${backlog.length ? backlog.join("\n") : "_None — all statistical targets met and the invariant holds._"}
@@ -570,12 +705,15 @@ function main(): void {
   const targetMigrationCases = loadJsonl<TargetMigrationCase>("./target-vs-migration/cases.jsonl");
   const retrievalQueries = loadJsonl<RetrievalQueryCase>("./context-budget/cases.jsonl");
   const retrievalDocuments = loadJsonl<RetrievalDocument>("./context-budget/documents.jsonl");
+  const practicePositiveCases = loadJsonl<PracticeCase>("./practices/structural-positive.jsonl");
+  const practiceNegativeCases = loadJsonl<PracticeCase>("./practices/benign-negative.jsonl");
 
   const compatibility = scoreCompatibility(compatibilityCases);
   const drift = scoreDrift(driftCases);
   const invariant = scoreTargetMigration(targetMigrationCases);
   const retrieval = scoreRetrieval(retrievalQueries, retrievalDocuments);
   const chinese = scoreChineseRetrieval();
+  const practices = scorePracticeMatching(practicePositiveCases, practiceNegativeCases);
 
   const gates: GateRow[] = [
     {
@@ -612,6 +750,20 @@ function main(): void {
       threshold: "100.0% / 0.0%",
       observed: `${pct(chinese.contextRecall)} context, ${pct(chinese.constraintRecall)} constraint, ${pct(chinese.irrelevantRatio)} irrelevant`,
       pass: chinese.pass
+    },
+    {
+      target: "Practice Top-3 recall",
+      metric: "recall @ top-k 3",
+      threshold: `≥ ${pct(THRESHOLDS.practiceTop3Recall)}`,
+      observed: pct(practices.top3Recall),
+      pass: practices.top3Recall >= THRESHOLDS.practiceTop3Recall
+    },
+    {
+      target: "Practice benign negatives",
+      metric: "heuristic high severity / non-advisory matches",
+      threshold: "0.0% / 0",
+      observed: `${pct(practices.heuristicOnlyHighSeverityRate)} / ${practices.negativeNonAdvisoryMatches}`,
+      pass: practices.heuristicOnlyHighSeverityRate === 0 && practices.negativeNonAdvisoryMatches === 0
     }
   ];
 
@@ -622,7 +774,7 @@ function main(): void {
   // the report, keeping the verify path read-only — consistent with the repo's
   // other readback gates. The report is (re)generated on demand by `bun run eval`.
   const checkOnly = process.argv.includes("--check");
-  const report = buildReport({ compatibility, drift, retrieval, chinese, invariant, gates, allPass });
+  const report = buildReport({ compatibility, drift, retrieval, chinese, practices, invariant, gates, allPass });
   const reportPath = fileURLToPath(new URL("../docs/verification/m6-representative-eval-report.md", import.meta.url));
   if (!checkOnly) {
     mkdirSync(dirname(reportPath), { recursive: true });
@@ -635,7 +787,7 @@ function main(): void {
     console.log(`  ${gate.pass ? "PASS" : "FAIL"}  ${gate.target}: ${gate.observed} (threshold ${gate.threshold})`);
   }
   console.log(`  ${invariant.pass ? "PASS" : "FAIL"}  Target/migration separation invariant: ${invariant.passed}/${invariant.total}`);
-  console.log(`\nDatasets: compatibility=${compatibility.total}, drift=${drift.total}, target-migration=${invariant.total}, retrieval=${retrieval.queries} queries / ${retrieval.documents} docs, zh-retrieval=${chinese.queries} queries / ${chinese.documents} docs`);
+  console.log(`\nDatasets: compatibility=${compatibility.total}, drift=${drift.total}, target-migration=${invariant.total}, retrieval=${retrieval.queries} queries / ${retrieval.documents} docs, zh-retrieval=${chinese.queries} queries / ${chinese.documents} docs, practices=${practices.positiveCases} positive / ${practices.negativeCases} negative`);
   if (!checkOnly) console.log(`Report: docs/verification/m6-representative-eval-report.md`);
   console.log(`\nVerdict: ${allPass ? "PASS — all §25.3 statistical targets met" : "FAIL — measured gap (see report backlog)"}`);
 

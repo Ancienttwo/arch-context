@@ -1,5 +1,5 @@
 import { builtinModules } from "node:module";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -159,15 +159,14 @@ function resolveFile(target) {
 
 function buildAndScanProductionBundle() {
   const dir = mkdtempSync(join(tmpdir(), "archctx-production-bundle-"));
-  const outfile = join(dir, "archctx.mjs");
   try {
     const result = spawnSync("bun", [
       "build",
       productionBundleEntry,
       "--target=node",
       "--format=esm",
-      "--outfile",
-      outfile
+      "--outdir",
+      dir
     ], {
       cwd: root,
       encoding: "utf8",
@@ -177,14 +176,22 @@ function buildAndScanProductionBundle() {
       findings.push(`production bundle build failed: ${trimOutput(result.stderr || result.stdout)}`);
       return { entry: productionBundleEntry, bytes: 0 };
     }
-    const source = readFileSync(outfile, "utf8");
+    const outputFiles = listFiles(dir).filter((file) => /\.(m?js|cjs)$/.test(file));
+    const source = outputFiles.map((file) => readFileSync(file, "utf8")).join("\n");
     for (const marker of blockedBundleMarkers) {
       if (source.includes(marker)) findings.push(`production bundle contains blocked marker ${marker}`);
     }
-    return { entry: productionBundleEntry, bytes: Buffer.byteLength(source) };
+    return { entry: productionBundleEntry, files: outputFiles.length, bytes: Buffer.byteLength(source) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+function listFiles(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? listFiles(path) : [path];
+  });
 }
 
 function runRuntimeProductionAssertion() {

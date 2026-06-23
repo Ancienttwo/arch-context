@@ -162,6 +162,10 @@ describe("local MCP server", () => {
         maxBytes: 12_288
       });
       expect((cli.data as any).posture).toBe((mcp.content as any).data.posture);
+      expect((cli.data as any).context.practiceGuidance.catalogDigest).toBe((mcp.content as any).data.context.practiceGuidance.catalogDigest);
+      expect((cli.data as any).context.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(
+        (mcp.content as any).data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
+      );
       expect(JSON.stringify(mcp.content)).not.toContain("sourceCode");
     } finally {
       rmSync(root, { recursive: true, force: true });

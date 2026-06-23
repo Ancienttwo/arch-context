@@ -2,7 +2,7 @@ import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetBase, type ChangeSetReason } from "@archcontext/core/changeset-engine";
 import { compileTaskContext, type ContextBudget } from "@archcontext/core/context-compiler";
 import type { CodeFactsPort, ModelStorePort, WorkspaceRef } from "@archcontext/contracts";
-import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
+import type { ArchitecturePressure, PressureSignal } from "@archcontext/core/pressure-engine";
 import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "@archcontext/core/refactor-decision";
 import { completeTaskGate } from "@archcontext/core/review-engine";
 
@@ -25,7 +25,17 @@ export async function prepareTask(input: PrepareTaskInput) {
     modelStore: input.modelStore,
     budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 }
   });
-  const pressure = detectArchitecturePressure({ task: input.task, symbols: context.relevantNodes });
+  const pressure: ArchitecturePressure = {
+    level: context.architecturePressure.level,
+    score: context.architecturePressure.score,
+    signals: (context.extensions.pressureSignals as PressureSignal[] | undefined) ?? context.architecturePressure.signals.map((type) => ({
+      type: type as PressureSignal["type"],
+      severity: "low",
+      evidence: ["compiled-context"],
+      evidenceKind: "heuristic",
+      evidenceDetails: []
+    }))
+  };
   const confidence = computeRefactorConfidence({
     callerCoverage: input.callerCoverage ?? 0.8,
     testsAvailable: input.testsAvailable ?? true,

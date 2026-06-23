@@ -99,13 +99,18 @@ describe("@archcontext/core/context-compiler", () => {
       task: "Remove duplicate wrapper v1/v2",
       codeFacts: codeFacts(),
       modelStore: modelStore(),
-      budget: { maxBytes: 4096, maxItems: 2 }
+      budget: { maxBytes: 12_288, maxItems: 2 }
     });
 
     expect(context.schemaVersion).toBe("archcontext.task-context/v1");
     expect(context.relevantNodes).toEqual(["symbol.billingV1", "symbol.billingV2"]);
     expect(context.architecturePressure.signals).toContain("duplicate-responsibility");
     expect(context.refactorConfidence.coverage).toEqual(["caller-coverage:1"]);
+    expect(context.practiceGuidance.schemaVersion).toBe("archcontext.practice-guidance/v1");
+    expect(context.practiceGuidance.matches.map((match) => match.practiceId)).toContain("compatibility.single-owner");
+    expect(context.resources.some((resource) => resource.uri?.startsWith("archcontext://practice/"))).toBe(true);
+    expect(context.extensions.catalogDigest).toMatch(/^sha256:/);
+    expect(context.extensions.practiceGuidanceDigest).toMatch(/^sha256:/);
     expect(context.extensions.digest).toMatch(/^sha256:/);
 
     const result = validateJsonSchema(readJson("schemas/runtime/task-context.schema.json") as any, context as any);
@@ -122,7 +127,8 @@ describe("@archcontext/core/context-compiler", () => {
       budget: { maxBytes: 1, maxItems: 4 }
     });
 
-    expect(context.resources).toHaveLength(1);
+    expect(context.resources[0].type).toBe("code-context");
+    expect(context.practiceGuidance.matches.length).toBeLessThanOrEqual(2);
     expect(context.relevantNodes.length).toBeLessThanOrEqual(2);
     expect(context.extensions.budgetExceeded).toBe(true);
   });
@@ -168,6 +174,7 @@ describe("@archcontext/core/context-compiler", () => {
     });
 
     expect(context.resources[0].type).toBe("landscape");
+    expect(context.practiceGuidance.catalogDigest).toMatch(/^sha256:/);
     expect(context.extensions.landscapeDigest).toMatch(/^sha256:/);
     expect(context.extensions.activeRepositories).toEqual(["repo.api", "repo.web"]);
     expect(context.extensions.crossRepoRelations).toEqual(["relation.web-calls-api"]);

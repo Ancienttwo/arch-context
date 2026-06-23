@@ -21,7 +21,7 @@ import { prepareTask } from "@archcontext/core/application";
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
-import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
+import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -413,24 +413,14 @@ export class ArchctxDaemon {
   async context(root: string, task: string, maxSymbols = 12): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const codeFacts = await this.codeFacts.ensureReady(session.workspace);
-    const model = await this.modelStore.validateModel(session.workspace);
-    const codeContext = await this.codeFacts.buildTaskContext({ task, maxSymbols, includeSource: false });
-    return okEnvelope("context", {
-      schemaVersion: "archcontext.task-context/v1",
+    const context = await compileTaskContext({
+      workspace: session.workspace,
       task,
-      posture: "normal",
-      architecturePressure: { level: "low", score: 0, signals: [] },
-      refactorConfidence: { level: "high", score: 80, coverage: ["codegraph-ready"] },
-      relevantNodes: [],
-      constraints: [],
-      decisions: [],
-      realConstraints: [],
-      unknowns: [],
-      recommendedTargetState: {},
-      requiredCheckpoints: ["before-task-complete"],
-      resources: [{ type: "codefacts", digest: codeFacts.schemaDigest }, { type: "model", digest: model.modelDigest }, { type: "code-context", digest: codeContext.digest }]
-    } as Json);
+      codeFacts: this.codeFacts,
+      modelStore: this.modelStore,
+      budget: { maxBytes: 12_288, maxItems: maxSymbols }
+    });
+    return okEnvelope("context", context as unknown as Json);
   }
 
   async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12): Promise<JsonEnvelope> {

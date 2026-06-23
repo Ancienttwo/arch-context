@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { CodeGraphAdapter } from "../../../local-runtime/codegraph-adapter/src/index";
 import { MockCodeGraphProvider } from "../../../local-runtime/codegraph-adapter/test/factories";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { digestJson } from "@archcontext/contracts";
+import { digestJson, type CodeFactsPort } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
@@ -19,6 +19,67 @@ function tempModel(): string {
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   initializeArchContextModel(root, "M2 App");
   return root;
+}
+
+function structuralCompatibilityFacts(): CodeFactsPort {
+  return {
+    async ensureReady() {
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"a".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"b".repeat(64)}`
+      };
+    },
+    async sync() {
+      throw new Error("not used");
+    },
+    async buildTaskContext(input) {
+      const symbols = [
+        { id: "symbol.legacyWrapperV1", name: "legacyWrapperV1", kind: "public-api", path: "src/billing/legacy-wrapper-v1.ts" },
+        { id: "symbol.fallbackMapperV2", name: "fallbackMapperV2", kind: "public-api", path: "src/billing/fallback-mapper-v2.ts" },
+        { id: "symbol.paymentRepository", name: "paymentRepository", kind: "service", path: "src/billing/payment-repository.ts" }
+      ].slice(0, input.maxSymbols);
+      return {
+        task: input.task,
+        symbols,
+        edges: [
+          { source: "symbol.legacyWrapperV1", target: "symbol.fallbackMapperV2", kind: "imports", confidence: "high" },
+          { source: "symbol.fallbackMapperV2", target: "symbol.paymentRepository", kind: "reads", confidence: "high" }
+        ],
+        evidence: [
+          {
+            id: "evidence.compatibility-test",
+            selector: { path: "src/billing/legacy-wrapper-v1.ts", symbolId: "symbol.legacyWrapperV1" },
+            summary: "verified compatibility path",
+            confidence: "verified",
+            snapshot: {
+              repositoryId: "repo.test",
+              headSha: "abc",
+              worktreeDigest: `sha256:${"c".repeat(64)}`
+            }
+          }
+        ],
+        digest: digestJson({ task: input.task, symbols } as any)
+      };
+    },
+    async findSymbols() {
+      return [];
+    },
+    async getImpact() {
+      return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
+    },
+    async getCallers() {
+      return [];
+    },
+    async getCallees() {
+      return [];
+    },
+    async resolveEvidence() {
+      return [];
+    }
+  };
 }
 
 function yamlChangeSetEngine(): ChangeSetEngine {
@@ -35,7 +96,7 @@ describe("M2 architecture control loop", () => {
       const result = await prepareTask({
         workspace: { root, repositoryId: "repo.test", headSha: "abc" },
         task: "remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
-        codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+        codeFacts: structuralCompatibilityFacts(),
         modelStore: new YamlModelStore(),
         callerCoverage: 1,
         testsAvailable: true,
@@ -44,6 +105,7 @@ describe("M2 architecture control loop", () => {
       expect(result.posture).toBe("intervention");
       expect(result.intervention?.targetState.removedConcepts).toContain("legacy-wrapper");
       expect(result.intervention?.migrationState.active).toBe(true);
+      expect(result.context.practiceGuidance.matches.map((match) => match.practiceId)).toContain("compatibility.single-owner");
       expect(result.intervention?.thesis).not.toContain("minimal diff");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -52,7 +114,10 @@ describe("M2 architecture control loop", () => {
 
   test("high pressure with low confidence enters Proof Required", () => {
     const pressure = detectArchitecturePressure({
-      task: "rewrite legacy v1 fallback mapper with multiple lifecycle owner and unknown external consumers"
+      task: "rewrite legacy v1 fallback mapper with multiple lifecycle owner and unknown external consumers",
+      symbols: ["legacyWrapperV1", "fallbackMapperV2", "multiple lifecycle owners"],
+      files: ["src/billing/legacy-wrapper-v1.ts", "src/billing/fallback-mapper-v2.ts"],
+      edges: [{ source: "legacyWrapperV1", target: "fallbackMapperV2", kind: "imports", confidence: "high" }]
     });
     const confidence = computeRefactorConfidence({
       callerCoverage: 0.1,
@@ -65,7 +130,12 @@ describe("M2 architecture control loop", () => {
   });
 
   test("target state and migration state stay separate", () => {
-    const pressure = detectArchitecturePressure({ task: "remove legacy v1 wrapper fallback mapper with multiple lifecycle owner" });
+    const pressure = detectArchitecturePressure({
+      task: "remove legacy v1 wrapper fallback mapper with multiple lifecycle owner",
+      symbols: ["legacyWrapperV1", "fallbackMapperV2", "multiple lifecycle owners"],
+      files: ["src/billing/legacy-wrapper-v1.ts", "src/billing/fallback-mapper-v2.ts"],
+      edges: [{ source: "legacyWrapperV1", target: "fallbackMapperV2", kind: "imports", confidence: "high" }]
+    });
     const confidence = computeRefactorConfidence({ callerCoverage: 1, testsAvailable: true, rollbackAvailable: true });
     const intervention = createInterventionProposal({ task: "unify subscription lifecycle", pressure, confidence });
     expect(intervention.targetState.removedConcepts).toContain("legacy-wrapper");

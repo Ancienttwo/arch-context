@@ -5,7 +5,19 @@ import { computeRefactorConfidence, createInterventionProposal, createProofPoint
 const highPressure: ArchitecturePressure = {
   level: "high",
   score: 80,
-  signals: [{ type: "unjustified-wrapper-adapter", severity: "high", evidence: ["task-text"], evidenceKind: "heuristic" }]
+  signals: [{
+    type: "unjustified-wrapper-adapter",
+    severity: "high",
+    evidence: ["symbol.legacyWrapper"],
+    evidenceKind: "observed",
+    evidenceDetails: [{
+      kind: "symbol",
+      strength: "observed",
+      subject: "symbol.legacyWrapper",
+      digest: `sha256:${"a".repeat(64)}`,
+      observedAt: "1970-01-01T00:00:00.000Z"
+    }]
+  }]
 };
 
 describe("@archcontext/core/refactor-decision", () => {

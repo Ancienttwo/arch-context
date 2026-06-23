@@ -12,10 +12,12 @@ This eval converts the four PRD §25.3 statistical targets from assertions into 
 | Target / gate | Metric | Threshold | Observed | Result |
 |---|---|---:|---:|:--:|
 | Unjustified Compatibility Recall | recall | ≥ 85.0% | 88.2% | ✅ PASS |
-| Architecture Drift Precision | precision | ≥ 90.0% | 95.7% | ✅ PASS |
+| Architecture Drift Precision | precision | ≥ 90.0% | 100.0% | ✅ PASS |
 | Context Constraint Recall | recall @ top-k 5 | ≥ 95.0% | 100.0% | ✅ PASS |
 | Context irrelevant ratio | ratio @ top-k 5 | ≤ 20.0% | 4.4% | ✅ PASS |
 | Chinese Jieba Retrieval Gate | recall / irrelevant ratio @ top-k 1 | 100.0% / 0.0% | 100.0% context, 100.0% constraint, 0.0% irrelevant | ✅ PASS |
+| Practice Top-3 recall | recall @ top-k 3 | ≥ 90.0% | 96.7% | ✅ PASS |
+| Practice benign negatives | heuristic high severity / non-advisory matches | 0.0% / 0 | 0.0% / 0 | ✅ PASS |
 
 The deterministic target-vs-migration separation invariant: **✅ HOLD** (20/20).
 
@@ -28,6 +30,8 @@ The deterministic target-vs-migration separation invariant: **✅ HOLD** (20/20)
 | Context Constraint Recall | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
 | Context irrelevant ratio | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
 | Chinese retrieval gate | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever` + jieba tokenizer) | `packages/core/retrieval.createChineseRetrievalEvalSet()` |
+| Practice Top-3 recall | `practice-engine.matchPracticesForTask` | `evals/practices/structural-positive.jsonl` |
+| Practice benign negatives | `pressure-engine.detectArchitecturePressure` + `practice-engine.matchPracticesForTask` | `evals/practices/benign-negative.jsonl` |
 | Target/migration invariant | `refactor-decision.createInterventionProposal` | `evals/target-vs-migration/cases.jsonl` |
 
 ### Correction vs. the original plan
@@ -46,10 +50,10 @@ The six other §25.3 targets (schema precision, stale interception, path-escape,
 
 ## Target 2 — Architecture Drift Precision
 
-- Drift precision (non-normal posture correctness): **95.7%** (22/23), threshold 90.0%.
+- Drift precision (non-normal posture correctness): **100.0%** (22/22), threshold 90.0%.
 - Drift recall (genuine drift detected): 100.0% (22/22).
-- Exact posture accuracy: 93.8% (30/32).
-- False positives (engine over-flagged drift): `fp-004` (keyword-false-trigger: expected normal, got structural).
+- Exact posture accuracy: 81.3% (26/32).
+- False positives (engine over-flagged drift): none.
 - False negatives (engine missed drift, incl. high-pressure/medium-confidence gap): none.
 
 ## Targets 3 & 4 — Context Constraint Recall + irrelevant ratio
@@ -71,6 +75,14 @@ The six other §25.3 targets (schema precision, stale interception, path-escape,
 - Corpus: 3 Chinese architecture documents, 2 Chinese queries.
 - Gate at top-k 1: context recall **100.0%**, constraint recall **100.0%**, irrelevant ratio **0.0%**.
 - This gate exists because Chinese search must use jieba segmentation; English regex tokenization is not a valid fallback for Chinese queries.
+
+## Practice Assets Matching Gate
+
+- Positive corpus: 30 structural cases, 30 expected practice IDs.
+- Top-3 recall: **96.7%** (29/30), threshold 90.0%.
+- Benign negative corpus: 30 docs/tests/fixture cases.
+- Heuristic-only high severity rate: **0.0%**; non-advisory matches in benign negatives: **0**.
+- Missed positives: `practice-pos-010` expected migration.target-and-removal-state got compatibility.single-owner, data.single-authoritative-model, observability.boundary-telemetry.
 
 ## Prioritized engine-fix backlog
 
