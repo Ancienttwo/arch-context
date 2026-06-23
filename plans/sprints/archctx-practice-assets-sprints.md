@@ -1,6 +1,6 @@
 # Sprint Plan：ArchContext Architecture Practice Assets
 
-> Status: Executing — S3 checkpoint-hook vertical slice submitted in PR #15
+> Status: Executing — S3 checkpoint-hook exit gates completed through hook egress audit
 > Created: 2026-06-23
 > Target repository: `Ancienttwo/arch-context`
 > Suggested path after review: `plans/sprints/archctx-practice-assets-sprints.md`
@@ -769,6 +769,9 @@ bun run verify
 - 2026-06-24：从 checkpoint hardening head 创建 `codex/practice-codegraph-edge-context`，补 CodeGraph changed-path import edge extraction 和真实 installed cross-layer import E2E。
 - 实现边界：`checkpointTask` 将 changed paths 传入 `compileTaskContext`；`CodeGraphCliProvider` 对 changed paths 单独执行 `query -k import`，解析 relative import specifier 为 repo-relative file edge；普通 `sync --changed` 不污染后续 prepare/checkpoint context。
 - 验证证据更新 `docs/verification/practice-assets-s3-checkpoint-gate.md`；typecheck 通过，CodeGraph adapter suite 为 5 pass / 0 fail / 22 expects，context compiler suite 为 3 pass / 0 fail / 23 expects，core application suite 为 11 pass / 0 fail / 39 expects，practice engine suite 为 14 pass / 0 fail / 69 expects，local-product E2E 为 5 pass / 0 fail / 82 expects，`bun run verify` 为 610 pass / 0 fail / 3693 expects。
+- 2026-06-24：从 CodeGraph import-edge head 创建 `codex/practice-hook-egress-audit`，补 S3-EG1 独立 hook egress packet/readback。
+- 实现边界：新增 `scripts/practice-hook-egress-readback.mjs`、`scripts/practice-hook-egress-readback.test.ts` 和 `docs/verification/practice-hook-egress-readback.json`，验证 hook success、fail-open 和 central adapter 都保持 `egress = none` / `network = forbidden`，且 packet capture `totalRequests = 0`、网络 entries 为空、无 raw changed path body、无源码/diff/token payload。不改 checkpoint runtime 行为。
+- 验证证据更新 `docs/verification/practice-assets-s3-checkpoint-gate.md`；hook egress readback 为 `ok = true`、`totalRequests = 0`、DLP 115 checked values；focused suite 为 5 pass / 0 fail / 10 expects；`bun run verify` 为 615 pass / 0 fail / 3703 expects。
 
 ## 11.2 Checklist
 
@@ -817,7 +820,7 @@ bun run verify
 
 ## 11.3 Exit Gates
 
-- [~] S3-EG1 Hook 不包含网络调用；packet/audit 证明 egress = 0。（hook result 和实现保持 local-only；独立 packet/audit 证据待补。）
+- [x] S3-EG1 Hook 不包含网络调用；packet/audit 证明 egress = 0。（`docs/verification/practice-hook-egress-readback.json` + `scripts/practice-hook-egress-readback.mjs` 证明 hook success/fail-open/adapter 均 local-only，packet capture `totalRequests = 0`，且 DLP 通过。）
 - [x] S3-EG2 warm checkpoint p95 ≤ 250ms；cold checkpoint p95 ≤ 750ms，测试仓库规模与环境写入证据。
 - [x] S3-EG3 连续 10 次 Write/Edit 事件最多触发 1 次有效分析和 1 次结果回传。
 - [x] S3-EG4 daemon 不可用时 Hook fail-open，退出码与用户提示符合 contract。
@@ -832,6 +835,7 @@ bun test packages/local-runtime/runtime-daemon
 bun test packages/surfaces/cli
 bun test packages/surfaces/mcp-local
 bun run e2e:local-no-cloud
+node scripts/practice-hook-egress-readback.mjs readback --evidence docs/verification/practice-hook-egress-readback.json --json
 bun run verify
 ```
 
