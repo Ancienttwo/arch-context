@@ -860,6 +860,11 @@ bun run verify
 - 实现边界：当 `compatibility-contract-required` practice violation 的 subjects 已由直接 compatibility contract gate 报出时，`completeTaskGate` 保留 `practiceViolations`、policy/check digests 与 `actionsRequired`，但 suppress 重复的 user-facing `practice:*` finding 和错误计数；suppressed finding 记录在 `extensions.suppressedPracticeFindings`。
 - 验证证据写入 `docs/verification/practice-assets-s4-compat-dedupe.md`。
 - 2026-06-24：compatibility dedupe full verification 通过，`bun run verify` readback 为 598 pass / 0 fail / 3564 expects。
+- 2026-06-24：从 compat dedupe stacked head 创建 `codex/practice-dependency-direction`，完成 S4-09 `dependency-direction` deterministic checker。
+- 实现边界：checker 只接受 explicit repo layer/boundary profile 派生的 non-heuristic `architecture-model` / `import-edge` violation subjects，例如 `declared-layer-violation:*`、`boundary-violation:*`、`dependency-direction-violation:*`；普通 import edge 只可参与召回，不能 hard-fail complete。
+- Baseline 行为：与 `no-new-cycle` 一致，只阻断 checkpoint baseline 后新增的显式 dependency-direction violation；无 baseline 时返回 `not_applicable:no-baseline`，不追责历史存量。
+- 验证证据写入 `docs/verification/practice-assets-s4-dependency-direction.md`。
+- 2026-06-24：dependency-direction full verification 通过，`bun run verify` readback 为 599 pass / 0 fail / 3572 expects。
 
 ## 12.2 Checklist
 
@@ -876,7 +881,7 @@ bun run verify
 - [x] S4-06 实现纯函数 checker registry；checker 只能读取 normalized facts、model、policy 与 digest，不读取网络或 LLM。
 - [x] S4-07 首批实现 `compatibility-contract-required`。
 - [x] S4-08 首批实现 `no-new-cycle`，只阻断本次变更新增的 cycle，不追责历史存量。
-- [ ] S4-09 首批实现 `dependency-direction`，基于显式 repo layer/boundary profile。
+- [x] S4-09 首批实现 `dependency-direction`，基于显式 repo layer/boundary profile。
 - [ ] S4-10 首批实现 `owner-required`，只对声明为 governed 的 component/resource 生效。
 - [ ] S4-11 首批实现 `migration-review-date` 与 `migration-removal-condition`。
 - [ ] S4-12 首批实现 `required-test-evidence`，仅在 policy 明确指定测试命令/证据时启用。

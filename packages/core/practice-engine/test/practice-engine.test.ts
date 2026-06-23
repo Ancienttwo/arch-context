@@ -82,6 +82,30 @@ function cycleMatch(assetDigest: string, subjects: string[], strength: "heuristi
   };
 }
 
+function dependencyDirectionMatch(assetDigest: string, evidence: Array<{ subject: string; kind?: "architecture-model" | "import-edge" }>): PracticeMatchV1 {
+  return {
+    schemaVersion: "archcontext.practice-match/v1",
+    practiceId: "modularity.respect-dependency-direction",
+    assetRevision: 1,
+    assetDigest,
+    title: "Dependency direction must follow declared layers",
+    category: "modularity",
+    score: 90,
+    confidence: "high",
+    enforcement: "checkpoint",
+    matchedBy: ["predicate"],
+    evidence: evidence.map((item) => ({
+      kind: item.kind ?? "import-edge",
+      strength: "observed",
+      subject: item.subject,
+      digest: digestJson({ subject: item.subject }),
+      observedAt: "1970-01-01T00:00:00.000Z"
+    })),
+    explanation: ["dependency direction fixture"],
+    sourceTrust: "curated-static"
+  };
+}
+
 function compatibilityMatch(assetDigest: string): PracticeMatchV1 {
   return {
     schemaVersion: "archcontext.practice-match/v1",
@@ -215,6 +239,62 @@ describe("@archcontext/core/practice-engine", () => {
     });
     expect(newlyIntroduced.checkResultDigest).toMatch(/^sha256:/);
     expect(repeated.checkResultDigest).toBe(newlyIntroduced.checkResultDigest);
+  });
+
+  test("dependency direction checker blocks only explicit new profile-derived violations", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.respect-dependency-direction")!;
+    const policy = completePolicy("modularity.respect-dependency-direction", "dependency-direction");
+    const historicalSubject = "declared-layer-violation:packages/core->packages/surfaces";
+    const newSubject = "boundary-violation:packages/contracts->packages/local-runtime";
+
+    const plainImport = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [dependencyDirectionMatch(asset.assetDigest, [{ subject: "symbol.ui->symbol.domain" }])],
+      previousMatches: [dependencyDirectionMatch(asset.assetDigest, [])]
+    });
+    const historical = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [dependencyDirectionMatch(asset.assetDigest, [{ subject: historicalSubject, kind: "architecture-model" }])],
+      previousMatches: [dependencyDirectionMatch(asset.assetDigest, [{ subject: historicalSubject, kind: "architecture-model" }])]
+    });
+    const newlyIntroduced = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [dependencyDirectionMatch(asset.assetDigest, [
+        { subject: historicalSubject, kind: "architecture-model" },
+        { subject: newSubject }
+      ])],
+      previousMatches: [dependencyDirectionMatch(asset.assetDigest, [{ subject: historicalSubject, kind: "architecture-model" }])]
+    });
+    const noBaseline = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [dependencyDirectionMatch(asset.assetDigest, [{ subject: newSubject }])]
+    });
+
+    expect(plainImport.violations).toEqual([]);
+    expect(plainImport.results[0]).toMatchObject({
+      status: "not_applicable",
+      reasonCode: "no-violation",
+      subjects: []
+    });
+    expect(historical.violations).toEqual([]);
+    expect(historical.results[0]).toMatchObject({
+      status: "pass",
+      subjects: [historicalSubject]
+    });
+    expect(newlyIntroduced.violations).toHaveLength(1);
+    expect(newlyIntroduced.violations[0]).toMatchObject({
+      practiceId: "modularity.respect-dependency-direction",
+      checkId: "dependency-direction",
+      status: "fail",
+      subjects: [newSubject]
+    });
+    expect(noBaseline.violations).toEqual([]);
+    expect(noBaseline.results[0]).toMatchObject({ status: "not_applicable", reasonCode: "no-baseline" });
   });
 
   test("compatibility contract checker blocks missing durable contract", () => {

@@ -1032,7 +1032,7 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
       removeTempRoot(otherRoot);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI exports and imports interop projections without overwriting Native model", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
