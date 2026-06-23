@@ -5,8 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { checkpoint } from "@archcontext/core/application";
+import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -256,19 +255,17 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         cwd,
         task,
         Number(readFlag(args, "--max-bytes") ?? 12288),
-        Number(readFlag(args, "--max-items") ?? 12)
+        Number(readFlag(args, "--max-items") ?? 12),
+        readFlag(args, "--task-session-id") ?? "task_cli"
       );
       return result.ok ? { ...result, data: paginate(result.data, args) } : result;
     }
     case "practices":
       return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: "checkpoint",
-        data: checkpoint({ root: cwd, expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(cwd) })
-      };
+      return runCheckpointCommand(args, cwd, await runtime(), "checkpoint");
+    case "hook":
+      return runHookCommand(args, cwd, runtime);
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -383,8 +380,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -414,6 +411,58 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
     return daemon.practices(cwd, { action: "sources" });
   }
   return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires list|show|validate|sources");
+}
+
+async function runCheckpointCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient, requestId: string) {
+  const task = readFlag(args, "--task");
+  const result = await daemon.checkpoint(cwd, {
+    taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
+    ...(task === undefined ? {} : { task }),
+    event: (readFlag(args, "--event") as any) ?? "manual",
+    changedPaths: [...readRepeatedFlag(args, "--path"), ...readRepeatedFlag(args, "--changed")],
+    toolCallId: readFlag(args, "--tool-call-id"),
+    expectedHeadSha: readFlag(args, "--expected-head-sha") ?? readFlag(args, "--head-sha"),
+    expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest"),
+    maxBytes: Number(readFlag(args, "--max-bytes") ?? 12_288),
+    maxItems: Number(readFlag(args, "--max-items") ?? 12)
+  });
+  return { ...result, requestId };
+}
+
+async function runHookCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand !== "checkpoint") return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires checkpoint");
+  const checkpointArgs = args.slice(1);
+  try {
+    return await runCheckpointCommand(
+      [
+        "--event", readFlag(checkpointArgs, "--event") ?? "post-edit",
+        "--task-session-id", readFlag(checkpointArgs, "--task-session-id") ?? "task_cli",
+        ...copyOptionalFlag(checkpointArgs, "--task"),
+        ...copyOptionalFlag(checkpointArgs, "--tool-call-id"),
+        ...copyOptionalFlag(checkpointArgs, "--expected-head-sha"),
+        ...copyOptionalFlag(checkpointArgs, "--expected-worktree-digest"),
+        ...copyOptionalFlag(checkpointArgs, "--max-bytes"),
+        ...copyOptionalFlag(checkpointArgs, "--max-items"),
+        ...readRepeatedFlag(checkpointArgs, "--path").flatMap((path) => ["--path", path]),
+        ...readRepeatedFlag(checkpointArgs, "--changed").flatMap((path) => ["--changed", path])
+      ],
+      cwd,
+      await runtime(),
+      "hook.checkpoint"
+    );
+  } catch (error) {
+    return okEnvelope("hook.checkpoint", {
+      schemaVersion: "archcontext.hook-checkpoint-fail-open/v1",
+      accepted: false,
+      failOpen: true,
+      reasonCode: "runtime-unavailable",
+      event: readFlag(checkpointArgs, "--event") ?? "post-edit",
+      pathCount: readRepeatedFlag(checkpointArgs, "--path").length + readRepeatedFlag(checkpointArgs, "--changed").length,
+      egress: "none",
+      message: error instanceof Error ? error.message : String(error)
+    } as Json);
+  }
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -1644,6 +1693,11 @@ function requireFlag(args: string[], flag: string): string {
   const value = readFlag(args, flag);
   if (!value) throw new Error(`${flag} is required`);
   return value;
+}
+
+function copyOptionalFlag(args: string[], flag: string): string[] {
+  const value = readFlag(args, flag);
+  return value === undefined ? [] : [flag, value];
 }
 
 function readForbiddenAttestationFlags(args: string[]): string[] {

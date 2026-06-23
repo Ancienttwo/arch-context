@@ -132,9 +132,12 @@ async function runFirstExperience(
     expect(status.data.worktreeDigest).toMatch(/^sha256:/);
     input.afterStatus?.(repo, status);
 
-    const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest);
+    const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest, "--max-items", "2");
     expect(checkpoint.ok).toBe(true);
     expect(checkpoint.data.fresh).toBe(true);
+    expect(checkpoint.data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+    expect(checkpoint.data.reasonCode).toBe("no-op");
+    expect(checkpoint.data.hook.egress).toBe("none");
 
     const complete = await runArchctx(
       repo,

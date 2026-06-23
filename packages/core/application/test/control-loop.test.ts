@@ -12,7 +12,7 @@ import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract } from "@archcontext/core/policy-engine";
 import { assertNoHumanEditableGeneratedSection } from "@archcontext/core/reconcile-engine";
 import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "@archcontext/core/refactor-decision";
-import { applyArchitectureUpdate, completeTask, prepareTask } from "../src/index";
+import { applyArchitectureUpdate, checkpointTask, completeTask, prepareTask } from "../src/index";
 
 function tempModel(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-m2-"));
@@ -33,7 +33,13 @@ function structuralCompatibilityFacts(): CodeFactsPort {
       };
     },
     async sync() {
-      throw new Error("not used");
+      return {
+        provider: "codegraph",
+        version: "1.0.1",
+        schemaDigest: `sha256:${"a".repeat(64)}`,
+        indexedAt: "2026-06-19T00:00:00.000Z",
+        workspaceDigest: `sha256:${"b".repeat(64)}`
+      };
     },
     async buildTaskContext(input) {
       const symbols = [
@@ -127,6 +133,61 @@ describe("M2 architecture control loop", () => {
       persistedData: ["status-values"]
     });
     expect(decidePosture(pressure, confidence)).toBe("proof-required");
+  });
+
+  test("checkpoint_task returns practice delta and stale reasons", async () => {
+    const root = tempModel();
+    try {
+      const workspace = { root, repositoryId: "repo.test", headSha: "abc" };
+      const prepared = await prepareTask({
+        workspace,
+        task: "remove legacy v1 wrapper",
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+      const baseline = {
+        schemaVersion: "archcontext.practice-checkpoint-snapshot/v1" as const,
+        task: prepared.context.task,
+        headSha: workspace.headSha,
+        worktreeDigest: computeWorktreeDigest(root),
+        contextDigest: prepared.context.extensions.digest,
+        practiceGuidanceDigest: prepared.context.extensions.practiceGuidanceDigest,
+        catalogDigest: prepared.context.practiceGuidance.catalogDigest,
+        matches: prepared.context.practiceGuidance.matches
+      };
+
+      const noOp = await checkpointTask({
+        workspace,
+        taskSessionId: "task_test",
+        task: prepared.context.task,
+        event: "post-edit",
+        changedPaths: ["src/billing/legacy-wrapper-v1.ts"],
+        expectedWorktreeDigest: baseline.worktreeDigest,
+        previous: baseline,
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+      expect(noOp.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect(noOp.reasonCode).toBe("no-op");
+      expect(noOp.fresh).toBe(true);
+      expect(noOp.delta.unchanged.length).toBeGreaterThan(0);
+      expect(noOp.hook.egress).toBe("none");
+
+      const stale = await checkpointTask({
+        workspace,
+        taskSessionId: "task_test",
+        task: prepared.context.task,
+        event: "post-edit",
+        expectedWorktreeDigest: `sha256:${"0".repeat(64)}`,
+        previous: baseline,
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+      expect(stale.fresh).toBe(false);
+      expect(stale.staleReasons).toContain("stale-worktree");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("target state and migration state stay separate", () => {

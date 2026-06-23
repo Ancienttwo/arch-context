@@ -17,12 +17,12 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { prepareTask } from "@archcontext/core/application";
+import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
@@ -39,6 +39,18 @@ export interface RepositorySession {
   codeFactsDigest?: string;
   modelDigest?: string;
   startedAt: string;
+}
+
+export interface RuntimeCheckpointInput {
+  taskSessionId?: string;
+  task?: string;
+  event?: PracticeCheckpointEvent;
+  changedPaths?: string[];
+  toolCallId?: string;
+  expectedHeadSha?: string;
+  expectedWorktreeDigest?: string;
+  maxBytes?: number;
+  maxItems?: number;
 }
 
 export interface DeveloperReviewDigestBundle {
@@ -259,7 +271,8 @@ export interface RuntimeDaemonClient {
   sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope> | JsonEnvelope;
   validate(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
-  prepare(root: string, task: string, maxBytes?: number, maxItems?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -329,6 +342,7 @@ export class ArchctxDaemon {
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
+  private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private landscape?: Landscape;
   private explorer?: ExplorerServerSession;
@@ -423,7 +437,7 @@ export class ArchctxDaemon {
     return okEnvelope("context", context as unknown as Json);
   }
 
-  async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12): Promise<JsonEnvelope> {
+  async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const result = await prepareTask({
@@ -433,7 +447,48 @@ export class ArchctxDaemon {
       modelStore: this.modelStore,
       budget: { maxBytes, maxItems }
     });
+    this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
+      schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
+      task,
+      headSha: session.workspace.headSha,
+      worktreeDigest: session.snapshot.worktreeDigest,
+      contextDigest: result.context.extensions.digest,
+      practiceGuidanceDigest: result.context.extensions.practiceGuidanceDigest,
+      catalogDigest: result.context.practiceGuidance.catalogDigest,
+      matches: result.context.practiceGuidance.matches
+    });
     return okEnvelope("prepare", result as unknown as Json);
+  }
+
+  async checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const started = Date.now();
+    const session = await this.openSession(root);
+    const taskSessionId = input.taskSessionId ?? "task_runtime";
+    const baseline = this.checkpointBaselines.get(this.practiceCheckpointKey(session.workspace.repositoryId, taskSessionId));
+    const task = input.task ?? baseline?.task ?? "checkpoint";
+    const result = await checkpointTask({
+      workspace: session.workspace,
+      taskSessionId,
+      task,
+      event: input.event ?? "manual",
+      changedPaths: input.changedPaths ?? [],
+      toolCallId: input.toolCallId,
+      expectedHeadSha: input.expectedHeadSha,
+      expectedWorktreeDigest: input.expectedWorktreeDigest,
+      previous: baseline,
+      codeFacts: this.codeFacts,
+      modelStore: this.modelStore,
+      budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
+    });
+    this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
+    return okEnvelope("checkpoint", {
+      ...result,
+      hook: {
+        ...result.hook,
+        elapsedMs: Date.now() - started
+      }
+    } as unknown as Json);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
@@ -1109,6 +1164,14 @@ export class ArchctxDaemon {
     }
   }
 
+  private savePracticeCheckpointBaseline(repositoryId: string, taskSessionId: string, snapshot: PracticeCheckpointSnapshotV1): void {
+    this.checkpointBaselines.set(this.practiceCheckpointKey(repositoryId, taskSessionId), snapshot);
+  }
+
+  private practiceCheckpointKey(repositoryId: string, taskSessionId: string): string {
+    return `${repositoryId}:${taskSessionId}`;
+  }
+
   private assertRunning(): void {
     if (!this.running) throw new Error("archctxd is not running");
   }
@@ -1287,8 +1350,12 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("context", [root, task, maxSymbols]);
   }
 
-  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12) {
-    return this.call("prepare", [root, task, maxBytes, maxItems]);
+  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId?: string) {
+    return this.call("prepare", [root, task, maxBytes, maxItems, taskSessionId]);
+  }
+
+  checkpoint(root: string, input: RuntimeCheckpointInput) {
+    return this.call("checkpoint", [root, input]);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput) {
@@ -1529,7 +1596,9 @@ export class ArchctxRuntimeRpcServer {
       case "context":
         return this.daemon.context(params[0] as string, params[1] as string, params[2] as number | undefined);
       case "prepare":
-        return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined);
+        return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined, params[4] as string | undefined);
+      case "checkpoint":
+        return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
       case "practices":
         return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
       case "planUpdate":

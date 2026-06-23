@@ -73,6 +73,7 @@ const schemaByFixture: Record<string, string> = {
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
   "practice-match": "schemas/runtime/practice-match.schema.json",
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",
+  "practice-checkpoint": "schemas/runtime/practice-checkpoint.schema.json",
   "retrieval-config": "schemas/runtime/retrieval-config.schema.json",
   "retrieval-eval": "schemas/runtime/retrieval-eval.schema.json",
   "retrieval-decision": "schemas/runtime/retrieval-decision.schema.json",

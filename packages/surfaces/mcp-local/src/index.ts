@@ -32,7 +32,7 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "archcontext_checkpoint",
-    description: "Call after meaningful code or model changes. Verifies the task snapshot is still fresh.",
+    description: "Call after meaningful code or model changes. Returns practice guidance deltas from the daemon checkpoint.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
@@ -75,7 +75,7 @@ export class McpLocalServer {
         const root = requiredArg(args, "root");
         const task = requiredArg(args, "task");
         try {
-          const result = await (await this.runtime(root)).prepare(root, task, args.maxBytes ?? 12_288, args.maxItems ?? 12);
+          const result = await (await this.runtime(root)).prepare(root, task, args.maxBytes ?? 12_288, args.maxItems ?? 12, args.taskSessionId ?? "task_mcp");
           return this.budgeted("prepare", result as unknown as Json, args.maxBytes ?? 12_288);
         } catch (error) {
           return runtimeUnavailable("prepare", error);
@@ -96,8 +96,25 @@ export class McpLocalServer {
           return runtimeUnavailable("practices", error);
         }
       }
-      case "archcontext_checkpoint":
-        return { content: errorEnvelope("checkpoint", "AC_SCHEMA_INVALID", "checkpoint moved to archctxd status/context RPC") as unknown as Json, dataClassification: "local-metadata" };
+      case "archcontext_checkpoint": {
+        const root = requiredArg(args, "root");
+        try {
+          const result = await (await this.runtime(root)).checkpoint(root, {
+            taskSessionId: args.taskSessionId ?? "task_mcp",
+            task: args.task,
+            event: args.event ?? "manual",
+            changedPaths: Array.isArray(args.changedPaths) ? args.changedPaths : [],
+            toolCallId: args.toolCallId,
+            expectedHeadSha: args.expectedHeadSha,
+            expectedWorktreeDigest: args.expectedWorktreeDigest,
+            maxBytes: args.maxBytes ?? 12_288,
+            maxItems: args.maxItems ?? 12
+          });
+          return { content: result as unknown as Json, dataClassification: "local-metadata" };
+        } catch (error) {
+          return runtimeUnavailable("checkpoint", error);
+        }
+      }
       case "archcontext_plan_update": {
         const root = requiredArg(args, "root");
         try {

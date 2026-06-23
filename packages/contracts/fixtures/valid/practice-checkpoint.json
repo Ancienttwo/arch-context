@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "archcontext.practice-checkpoint/v1",
+  "taskSessionId": "task_cli",
+  "event": "post-edit",
+  "headSha": "abc123",
+  "expectedHeadSha": "abc123",
+  "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "expectedWorktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "fresh": true,
+  "reasonCode": "no-op",
+  "staleReasons": [],
+  "changedPaths": ["src/billing/adapter.ts"],
+  "toolCallId": "toolu_123",
+  "catalogDigest": "sha256:235dc7f02375c408a1b1497d0d5bca444abde26519875e2d396f770ae5d3b892",
+  "contextDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "previousContextDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "practiceGuidanceDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "previousPracticeGuidanceDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "delta": {
+    "schemaVersion": "archcontext.practice-delta/v1",
+    "added": [],
+    "removed": [],
+    "upgraded": [],
+    "downgraded": [],
+    "unchanged": [
+      {
+        "schemaVersion": "archcontext.practice-match/v1",
+        "practiceId": "compatibility.single-owner",
+        "assetRevision": 1,
+        "assetDigest": "sha256:52c1f1ed2128f56e0a3e4f07303efa34bda507da54bd0e7914d7cf17f6f27843",
+        "title": "Compatibility paths require one lifecycle owner",
+        "category": "compatibility",
+        "score": 87,
+        "confidence": "high",
+        "enforcement": "checkpoint",
+        "matchedBy": ["predicate", "retrieval", "scope", "signal"],
+        "evidence": [],
+        "explanation": ["compatibility.single-owner: A compatibility path must have one accountable owner."],
+        "sourceTrust": "curated-static"
+      }
+    ],
+    "requiresProof": []
+  },
+  "noOpDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "resultDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "hook": {
+    "egress": "none",
+    "failOpen": true,
+    "pathCount": 1,
+    "network": "forbidden",
+    "elapsedMs": 12
+  },
+  "nextSnapshot": {
+    "schemaVersion": "archcontext.practice-checkpoint-snapshot/v1",
+    "task": "remove legacy v1 wrapper",
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "contextDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "practiceGuidanceDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "catalogDigest": "sha256:235dc7f02375c408a1b1497d0d5bca444abde26519875e2d396f770ae5d3b892",
+    "matches": [
+      {
+        "schemaVersion": "archcontext.practice-match/v1",
+        "practiceId": "compatibility.single-owner",
+        "assetRevision": 1,
+        "assetDigest": "sha256:52c1f1ed2128f56e0a3e4f07303efa34bda507da54bd0e7914d7cf17f6f27843",
+        "title": "Compatibility paths require one lifecycle owner",
+        "category": "compatibility",
+        "score": 87,
+        "confidence": "high",
+        "enforcement": "checkpoint",
+        "matchedBy": ["predicate", "retrieval", "scope", "signal"],
+        "evidence": [],
+        "explanation": ["compatibility.single-owner: A compatibility path must have one accountable owner."],
+        "sourceTrust": "curated-static"
+      }
+    ]
+  }
+}

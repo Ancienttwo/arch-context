@@ -162,7 +162,14 @@ describe("archctx CLI", () => {
       expect((practiceSources.data as any).sources.some((source: any) => source.id === "madr")).toBe(true);
 
       const checkpoint = await runTestCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
+      expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.data as any).fresh).toBe(true);
+      expect(["no-op", "no-baseline"]).toContain((checkpoint.data as any).reasonCode);
+      expect((checkpoint.data as any).hook.egress).toBe("none");
+
+      const hookCheckpoint = await runTestCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/example.ts"], root);
+      expect(hookCheckpoint.requestId).toBe("hook.checkpoint");
+      expect((hookCheckpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
 
       const complete = await runTestCli("complete", [
         "--task-session-id", "task_cli",
@@ -292,6 +299,27 @@ describe("archctx CLI", () => {
       });
     } finally {
       removeTempRoot(root);
+    }
+  });
+
+  test("hook checkpoint fails open when runtime checkpoint is unavailable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-hook-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const result = await runCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/app.ts"], root, {
+        runtimeClient: {
+          checkpoint() {
+            throw new Error("runtime offline");
+          }
+        } as any
+      });
+      expect(result.ok).toBe(true);
+      expect(result.requestId).toBe("hook.checkpoint");
+      expect((result.data as any).schemaVersion).toBe("archcontext.hook-checkpoint-fail-open/v1");
+      expect((result.data as any).failOpen).toBe(true);
+      expect((result.data as any).egress).toBe("none");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

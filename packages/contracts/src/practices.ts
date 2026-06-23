@@ -26,6 +26,13 @@ export type PracticeSourceTrust = "repo-authored" | "curated-static" | "external
 export type PracticeSourceLicenseLevel = "A" | "B" | "C" | "D" | "E";
 export type PracticeMatchConfidence = "low" | "medium" | "high";
 export type PracticeMatchReason = "retrieval" | "scope" | "signal" | "predicate" | "repo-policy";
+export type PracticeCheckpointEvent = "manual" | "post-edit" | "post-write" | "pre-complete";
+export type PracticeCheckpointReasonCode =
+  | "fresh"
+  | "stale-head"
+  | "stale-worktree"
+  | "no-baseline"
+  | "no-op";
 
 export interface PracticeScopeV1 {
   repositoryKinds: string[];
@@ -209,4 +216,66 @@ export interface PracticeGuidanceResultV1 {
   unknowns: string[];
   requiredCheckpoints: string[];
   resources: { type: "practice"; uri: string; digest: string }[];
+}
+
+export interface CheckpointInputV2 {
+  schemaVersion: "archcontext.checkpoint-input/v2";
+  taskSessionId: string;
+  task?: string;
+  headSha?: string;
+  expectedWorktreeDigest?: string;
+  event: PracticeCheckpointEvent;
+  changedPaths: string[];
+  toolCallId?: string;
+}
+
+export interface PracticeCheckpointSnapshotV1 {
+  schemaVersion: "archcontext.practice-checkpoint-snapshot/v1";
+  task: string;
+  headSha: string;
+  worktreeDigest: string;
+  contextDigest: string;
+  practiceGuidanceDigest: string;
+  catalogDigest: string;
+  matches: PracticeMatchV1[];
+}
+
+export interface PracticeDeltaV1 {
+  schemaVersion: "archcontext.practice-delta/v1";
+  added: PracticeMatchV1[];
+  removed: PracticeMatchV1[];
+  upgraded: PracticeMatchV1[];
+  downgraded: PracticeMatchV1[];
+  unchanged: PracticeMatchV1[];
+  requiresProof: PracticeMatchV1[];
+}
+
+export interface PracticeCheckpointResultV1 {
+  schemaVersion: "archcontext.practice-checkpoint/v1";
+  taskSessionId: string;
+  event: PracticeCheckpointEvent;
+  headSha: string;
+  expectedHeadSha?: string;
+  worktreeDigest: string;
+  expectedWorktreeDigest?: string;
+  fresh: boolean;
+  reasonCode: PracticeCheckpointReasonCode;
+  staleReasons: PracticeCheckpointReasonCode[];
+  changedPaths: string[];
+  toolCallId?: string;
+  catalogDigest: string;
+  contextDigest: string;
+  previousContextDigest?: string;
+  practiceGuidanceDigest: string;
+  previousPracticeGuidanceDigest?: string;
+  delta: PracticeDeltaV1;
+  noOpDigest: string;
+  resultDigest: string;
+  hook: {
+    egress: "none";
+    failOpen: true;
+    pathCount: number;
+    network: "forbidden";
+  };
+  nextSnapshot: PracticeCheckpointSnapshotV1;
 }

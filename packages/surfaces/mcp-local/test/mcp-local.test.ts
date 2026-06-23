@@ -166,6 +166,15 @@ describe("local MCP server", () => {
       expect((cli.data as any).context.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(
         (mcp.content as any).data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
       );
+      const checkpoint = await server.callTool("archcontext_checkpoint", {
+        root,
+        taskSessionId: "task_mcp",
+        event: "post-edit",
+        changedPaths: ["src/example.ts"]
+      });
+      expect((checkpoint.content as any).ok).toBe(true);
+      expect((checkpoint.content as any).data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect((checkpoint.content as any).data.delta.unchanged.length).toBeGreaterThan(0);
       expect(JSON.stringify(mcp.content)).not.toContain("sourceCode");
     } finally {
       rmSync(root, { recursive: true, force: true });

@@ -108,6 +108,18 @@ describe("local runtime foundation", () => {
       expect((context.data as any).schemaVersion).toBe("archcontext.task-context/v1");
       expect((context.data as any).resources.length).toBeGreaterThanOrEqual(3);
 
+      const prepare = await daemon.prepare(root, "remove legacy v1 wrapper", 12_288, 2, "task_runtime_test");
+      expect(prepare.ok).toBe(true);
+      const checkpoint = await daemon.checkpoint(root, {
+        taskSessionId: "task_runtime_test",
+        event: "post-edit",
+        changedPaths: ["src/example.ts"],
+        maxItems: 2
+      });
+      expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect((checkpoint.data as any).reasonCode).toBe("no-op");
+      expect((checkpoint.data as any).delta.unchanged.length).toBeGreaterThan(0);
+
       const status = await daemon.runtimeStatus(root);
       expect((status.data as any).repositoryId).toBe(repositoryFingerprint(root));
       expect((status.data as any).worktreeDigest).toMatch(/^sha256:/);
