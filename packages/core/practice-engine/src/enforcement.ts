@@ -131,6 +131,7 @@ export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPol
     if (seen.has(key)) throw new Error(`practice-policy-rule-duplicate: ${rule.practiceId}`);
     seen.add(key);
     validateScope(rule.scope, path);
+    validateTestEvidence(rule.testEvidence, path);
   }
   return policy;
 }
@@ -184,7 +185,8 @@ export function evaluatePracticeEnforcement(input: PracticeEnforcementInput): Pr
           compatibilityPathIntroduced: input.compatibilityPathIntroduced,
           hasBaseline: input.previousMatches !== undefined,
           previousMatch: previousById.get(rule.practiceId),
-          ownerRegistry: input.ownerRegistry
+          ownerRegistry: input.ownerRegistry,
+          policyRule: rule
         })
         : notApplicable(match, "not-registered", rule.enforcement, `Practice check is not registered for complete enforcement: ${check.checkId}`, check.checkId);
       results.push(applyWaiver(result, input.waivers ?? [], input.now ?? new Date(0).toISOString()));
@@ -287,6 +289,19 @@ function validateScope(scope: { pathGlobs?: string[]; subjects?: string[] } | un
   }
   for (const subject of scope.subjects ?? []) {
     if (typeof subject !== "string" || subject.trim().length === 0) throw new Error(`practice-scope-subject-invalid: ${path}`);
+  }
+}
+
+function validateTestEvidence(testEvidence: { commands?: string[]; subjects?: string[] } | undefined, path: string): void {
+  if (!testEvidence) return;
+  const commands = testEvidence.commands ?? [];
+  const subjects = testEvidence.subjects ?? [];
+  if (!Array.isArray(commands) || !Array.isArray(subjects) || commands.length + subjects.length === 0) throw new Error(`practice-policy-test-evidence-required: ${path}`);
+  for (const command of commands) {
+    if (typeof command !== "string" || command.trim().length === 0 || command.includes("\n") || command.includes("\r")) throw new Error(`practice-policy-test-command-invalid: ${path}`);
+  }
+  for (const subject of subjects) {
+    if (typeof subject !== "string" || subject.trim().length === 0) throw new Error(`practice-policy-test-subject-invalid: ${path}`);
   }
 }
 

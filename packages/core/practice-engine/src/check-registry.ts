@@ -1,4 +1,4 @@
-import { digestJson, type Json, type PracticeCheckResultV1, type PracticeCheckV1, type PracticeEnforcementLevel, type PracticeMatchV1 } from "@archcontext/contracts";
+import { digestJson, type Json, type PracticeCheckResultV1, type PracticeCheckV1, type PracticeEnforcementLevel, type PracticeMatchV1, type PracticePolicyRuleV1 } from "@archcontext/contracts";
 import { validateCompatibilityContract, type CompatibilityContractInput } from "@archcontext/core/policy-engine";
 
 export interface PracticeOwnerRegistry {
@@ -21,6 +21,7 @@ export interface PracticeCheckRunInput {
   hasBaseline?: boolean;
   previousMatch?: PracticeMatchV1;
   ownerRegistry?: PracticeOwnerRegistry;
+  policyRule?: PracticePolicyRuleV1;
 }
 
 type RegisteredPracticeCheck = (input: PracticeCheckRunInput) => PracticeCheckResultV1;
@@ -31,7 +32,8 @@ const REGISTERED_CHECKS: Record<string, RegisteredPracticeCheck> = {
   "migration-removal-condition": migrationRemovalCondition,
   "migration-review-date": migrationReviewDate,
   "no-new-cycle": noNewCycle,
-  "owner-required": ownerRequired
+  "owner-required": ownerRequired,
+  "required-test-evidence": requiredTestEvidence
 };
 
 const DEPENDENCY_DIRECTION_VIOLATION_PREFIXES = [
@@ -73,6 +75,17 @@ const MIGRATION_REMOVAL_CONDITION_PREFIXES = [
   "migration-removal-condition:",
   "removal-condition:",
   "removal-state:"
+];
+
+const TEST_COMMAND_PREFIXES = [
+  "test-command:",
+  "test-command-passed:"
+];
+
+const TEST_EVIDENCE_PREFIXES = [
+  "test-evidence:",
+  "test-result:",
+  "test:"
 ];
 
 export function isRegisteredPracticeCheck(checkId: string): boolean {
@@ -266,6 +279,47 @@ function migrationRemovalCondition(input: PracticeCheckRunInput): PracticeCheckR
   });
 }
 
+function requiredTestEvidence(input: PracticeCheckRunInput): PracticeCheckResultV1 {
+  const requirements = input.policyRule?.testEvidence;
+  const requiredCommands = [...new Set(requirements?.commands ?? [])].sort();
+  const requiredSubjects = [...new Set(requirements?.subjects ?? [])].sort();
+  if (requiredCommands.length + requiredSubjects.length === 0) {
+    return checkResult(input, {
+      status: "not_applicable",
+      reasonCode: "no-violation",
+      subjects: [],
+      message: "No test evidence requirement is declared in the practice policy.",
+      action: "declare-required-test-evidence-in-practice-policy"
+    });
+  }
+  const observed = observedTestEvidence(input.match);
+  const missingCommands = requiredCommands.filter((command) => !observed.commands.has(command));
+  const missingSubjects = requiredSubjects.filter((subject) => !observed.subjects.has(subject));
+  const violations = [
+    ...missingCommands.map((command) => `test-command:${command}`),
+    ...missingSubjects.map((subject) => `test-evidence:${subject}`)
+  ];
+  if (violations.length === 0) {
+    return checkResult(input, {
+      status: "pass",
+      reasonCode: "no-violation",
+      subjects: [
+        ...requiredCommands.map((command) => `test-command:${command}`),
+        ...requiredSubjects.map((subject) => `test-evidence:${subject}`)
+      ],
+      message: "Required test evidence is present for the policy-scoped practice.",
+      action: "none"
+    });
+  }
+  return checkResult(input, {
+    status: "fail",
+    reasonCode: "violation",
+    subjects: violations,
+    message: "Required policy-declared test evidence is missing.",
+    action: "run-or-record-policy-declared-test-evidence"
+  });
+}
+
 function noMigrationEvidence(input: PracticeCheckRunInput, action: string): PracticeCheckResultV1 {
   return checkResult(input, {
     status: "not_applicable",
@@ -274,6 +328,20 @@ function noMigrationEvidence(input: PracticeCheckRunInput, action: string): Prac
     message: "No explicitly governed migration evidence is available.",
     action
   });
+}
+
+function observedTestEvidence(match: PracticeMatchV1): { commands: Set<string>; subjects: Set<string> } {
+  const commands = new Set<string>();
+  const subjects = new Set<string>();
+  for (const evidence of match.evidence) {
+    if (evidence.strength !== "observed" && evidence.strength !== "verified") continue;
+    if (evidence.kind !== "test" && evidence.kind !== "runtime-check") continue;
+    const command = prefixedSubject(evidence.subject, TEST_COMMAND_PREFIXES);
+    if (command) commands.add(command);
+    const subject = prefixedSubject(evidence.subject, TEST_EVIDENCE_PREFIXES);
+    if (subject) subjects.add(subject);
+  }
+  return { commands, subjects };
 }
 
 function importCycleSubjects(match: PracticeMatchV1): string[] {

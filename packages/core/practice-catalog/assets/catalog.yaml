@@ -7,7 +7,7 @@
     {
       "id": "api.contract-before-implementation",
       "revision": 1,
-      "digest": "sha256:61bd896d73c4d1af8bef13c59f7678e9dc2c70bba88361f3faf5a85c65133afd",
+      "digest": "sha256:a5037b6bee0bde83d7493185dd4cc42e5d935b7b4fae4c1357ab4a9550d1d935",
       "sourceIds": ["archcontext.adr.0012"]
     },
     {
@@ -90,5 +90,5 @@
     "openssf.scorecard",
     "opentelemetry"
   ],
-  "catalogDigest": "sha256:d2a657766c618502556baadf7400150cb36201073a53b5f37449c42495bc032d"
+  "catalogDigest": "sha256:39c0218f78a1416bb7e4d9fe48e6ba1f5f5325fd8ef2d6aaea9676145bf7281a"
 }

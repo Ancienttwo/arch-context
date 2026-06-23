@@ -24,7 +24,7 @@
     "minimumStrengthForRecommendation": "declared",
     "minimumStrengthForCheckpoint": "observed",
     "minimumStrengthForEnforcement": "observed",
-    "requiredKindsForEnforcement": ["diff", "path"],
+    "requiredKindsForEnforcement": ["diff", "path", "test"],
     "maxEnforcementWhenOnlyHeuristic": "advisory"
   },
   "guidance": {
@@ -43,7 +43,7 @@
   ],
   "enforcement": {
     "default": "advisory",
-    "promotableTo": "checkpoint",
+    "promotableTo": "complete",
     "repoOptInRequired": true
   },
   "provenance": {

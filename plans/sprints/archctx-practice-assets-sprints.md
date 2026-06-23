@@ -875,6 +875,11 @@ bun run verify
 - Catalog 边界：`migration.target-and-removal-state` 从 checkpoint-only 晋升为 repo opt-in complete-capable，内置 catalog manifest digest 同步更新。
 - 验证证据写入 `docs/verification/practice-assets-s4-migration-state.md`。
 - 2026-06-24：migration-state full verification 通过，`bun run verify` readback 为 601 pass / 0 fail / 3590 expects。
+- 2026-06-24：从 migration-state stacked head 创建 `codex/practice-test-evidence`，完成 S4-12 `required-test-evidence` deterministic checker。
+- 实现边界：policy rule 新增可选 `testEvidence.commands` / `testEvidence.subjects`；checker 仅在 policy 明确声明测试命令或证据 subject 时启用。未声明时返回 `not_applicable`，task text、symbol evidence 和 heuristic-only evidence 都不能触发或满足 complete hard gate。
+- Catalog 边界：`api.contract-before-implementation` 从 checkpoint-only 晋升为 repo opt-in complete-capable，并要求 enforcement evidence 包含 `test` kind；内置 catalog manifest digest 同步更新。
+- 验证证据写入 `docs/verification/practice-assets-s4-test-evidence.md`。
+- 2026-06-24：test-evidence full verification 通过，`bun run verify` readback 为 603 pass / 0 fail / 3601 expects。
 
 ## 12.2 Checklist
 
@@ -894,7 +899,7 @@ bun run verify
 - [x] S4-09 首批实现 `dependency-direction`，基于显式 repo layer/boundary profile。
 - [x] S4-10 首批实现 `owner-required`，只对声明为 governed 的 component/resource 生效。
 - [x] S4-11 首批实现 `migration-review-date` 与 `migration-removal-condition`。
-- [ ] S4-12 首批实现 `required-test-evidence`，仅在 policy 明确指定测试命令/证据时启用。
+- [x] S4-12 首批实现 `required-test-evidence`，仅在 policy 明确指定测试命令/证据时启用。
 - [x] S4-13 Checker 结果包含 inspected fact digests、violation subjects、existing/new 状态和 remediation。
 
 ### Waiver 与治理

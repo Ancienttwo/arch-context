@@ -7,11 +7,8 @@
       "enforcement": "complete",
       "checkIds": ["required-test-evidence"],
       "testEvidence": {
-        "commands": ["bun test packages/api-contract.test.ts"],
-        "subjects": ["schema.public-api"]
-      },
-      "scope": {
-        "pathGlobs": ["packages/**"]
+        "commands": [],
+        "subjects": []
       }
     }
   ]

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEnforcementPolicyV1, type PracticeMatchV1, type PracticeWaiverV1 } from "@archcontext/contracts";
 import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { evaluatePracticeEnforcement, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, matchPracticesForTask, practiceWaiverEvidenceDigest, validatePracticeEngineCatalog, validatePracticeWaiver } from "../src/index";
+import { evaluatePracticeEnforcement, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, matchPracticesForTask, practiceWaiverEvidenceDigest, validatePracticeEnforcementPolicy, validatePracticeEngineCatalog, validatePracticeWaiver } from "../src/index";
 
 const workspaceRoot = process.cwd();
 
@@ -150,6 +150,30 @@ function migrationMatch(assetDigest: string, evidence: Array<{ subject: string; 
       observedAt: "1970-01-01T00:00:00.000Z"
     })),
     explanation: ["migration fixture"],
+    sourceTrust: "curated-static"
+  };
+}
+
+function testEvidenceMatch(assetDigest: string, evidence: Array<{ subject: string; kind?: "test" | "runtime-check" | "symbol" | "task-text"; strength?: "heuristic" | "observed" | "verified" }>): PracticeMatchV1 {
+  return {
+    schemaVersion: "archcontext.practice-match/v1",
+    practiceId: "api.contract-before-implementation",
+    assetRevision: 1,
+    assetDigest,
+    title: "API boundary changes should update the contract before implementation",
+    category: "api",
+    score: 90,
+    confidence: "high",
+    enforcement: "checkpoint",
+    matchedBy: ["predicate"],
+    evidence: evidence.map((item) => ({
+      kind: item.kind ?? "test",
+      strength: item.strength ?? "observed",
+      subject: item.subject,
+      digest: digestJson({ subject: item.subject }),
+      observedAt: "1970-01-01T00:00:00.000Z"
+    })),
+    explanation: ["test evidence fixture"],
     sourceTrust: "curated-static"
   };
 }
@@ -526,6 +550,95 @@ describe("@archcontext/core/practice-engine", () => {
       expect.objectContaining({ checkId: "migration-review-date", status: "pass" }),
       expect.objectContaining({ checkId: "migration-removal-condition", status: "pass" })
     ]));
+  });
+
+  test("required test evidence checker only enforces policy-declared test proof", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "api.contract-before-implementation")!;
+    const withoutTestEvidence = completePolicy("api.contract-before-implementation", "required-test-evidence");
+    const withTestEvidence: PracticeEnforcementPolicyV1 = {
+      schemaVersion: "archcontext.practice-enforcement-policy/v1",
+      mode: "active",
+      rules: [{
+        practiceId: "api.contract-before-implementation",
+        enforcement: "complete",
+        checkIds: ["required-test-evidence"],
+        testEvidence: {
+          commands: ["bun test packages/api-contract.test.ts"],
+          subjects: ["schema.public-api"]
+        }
+      }]
+    };
+
+    const noPolicyRequirement = evaluatePracticeEnforcement({
+      catalog,
+      policy: withoutTestEvidence,
+      matches: [testEvidenceMatch(asset.assetDigest, [{ kind: "symbol", subject: "symbol.publicApiChanged" }])]
+    });
+    const missing = evaluatePracticeEnforcement({
+      catalog,
+      policy: withTestEvidence,
+      matches: [testEvidenceMatch(asset.assetDigest, [
+        { kind: "symbol", subject: "symbol.publicApiChanged" },
+        { kind: "task-text", strength: "heuristic", subject: "ran bun test packages/api-contract.test.ts" }
+      ])]
+    });
+    const partial = evaluatePracticeEnforcement({
+      catalog,
+      policy: withTestEvidence,
+      matches: [testEvidenceMatch(asset.assetDigest, [
+        { subject: "test-command:bun test packages/api-contract.test.ts" }
+      ])]
+    });
+    const complete = evaluatePracticeEnforcement({
+      catalog,
+      policy: withTestEvidence,
+      matches: [testEvidenceMatch(asset.assetDigest, [
+        { subject: "test-command:bun test packages/api-contract.test.ts" },
+        { kind: "runtime-check", strength: "verified", subject: "test-evidence:schema.public-api" }
+      ])]
+    });
+
+    expect(noPolicyRequirement.violations).toEqual([]);
+    expect(noPolicyRequirement.results[0]).toMatchObject({
+      checkId: "required-test-evidence",
+      status: "not_applicable"
+    });
+    expect(missing.violations[0].subjects).toEqual([
+      "test-command:bun test packages/api-contract.test.ts",
+      "test-evidence:schema.public-api"
+    ]);
+    expect(partial.violations[0].subjects).toEqual(["test-evidence:schema.public-api"]);
+    expect(complete.violations).toEqual([]);
+    expect(complete.results[0]).toMatchObject({
+      checkId: "required-test-evidence",
+      status: "pass"
+    });
+  });
+
+  test("practice policy test evidence declaration is explicit and non-empty", () => {
+    const policy: PracticeEnforcementPolicyV1 = {
+      schemaVersion: "archcontext.practice-enforcement-policy/v1",
+      mode: "active",
+      rules: [{
+        practiceId: "api.contract-before-implementation",
+        enforcement: "complete",
+        checkIds: ["required-test-evidence"],
+        testEvidence: {
+          commands: ["bun test packages/api-contract.test.ts"],
+          subjects: ["schema.public-api"]
+        }
+      }]
+    };
+    expect(validatePracticeEnforcementPolicy(policy)).toBe(policy);
+    expect(() => validatePracticeEnforcementPolicy({
+      ...policy,
+      rules: [{ ...policy.rules[0], testEvidence: { commands: [], subjects: [] } }]
+    })).toThrow("practice-policy-test-evidence-required");
+    expect(() => validatePracticeEnforcementPolicy({
+      ...policy,
+      rules: [{ ...policy.rules[0], testEvidence: { commands: ["bun test\nrm -rf tmp"] } }]
+    })).toThrow("practice-policy-test-command-invalid");
   });
 
   test("compatibility contract checker blocks missing durable contract", () => {

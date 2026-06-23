@@ -159,11 +159,17 @@ export interface PracticePolicyScopeV1 {
   subjects?: string[];
 }
 
+export interface PracticePolicyTestEvidenceV1 {
+  commands?: string[];
+  subjects?: string[];
+}
+
 export interface PracticePolicyRuleV1 {
   practiceId: string;
   enforcement: PracticeEnforcementLevel;
   checkIds?: string[];
   scope?: PracticePolicyScopeV1;
+  testEvidence?: PracticePolicyTestEvidenceV1;
 }
 
 export interface PracticeEnforcementPolicyV1 {
