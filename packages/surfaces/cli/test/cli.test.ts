@@ -274,11 +274,6 @@ describe("archctx CLI", () => {
   });
 
   test("CLI paths and doctor expose structured legacy local store migration status", async () => {
-    if (process.platform === "win32") {
-      expect(process.platform).toBe("win32");
-      return;
-    }
-
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-legacy-status-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     try {

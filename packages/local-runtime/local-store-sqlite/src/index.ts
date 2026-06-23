@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   LANDSCAPE_FILE,
   landscapeDigest,
@@ -22,6 +22,17 @@ const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
 const LEGACY_MIGRATION_MARKER_FILE = "runtime.sqlite.migration.json";
 const LEGACY_MIGRATION_LOCK_FILE = "runtime.sqlite.migration.lock";
+const REQUIRED_LOCAL_STORE_TABLES = [
+  "schema_migrations",
+  "repository_sessions",
+  "snapshots",
+  "task_states",
+  "observed_evidence",
+  "review_results",
+  "landscapes",
+  "cross_repo_edges",
+  "changeset_journal"
+] as const;
 
 export const SQLITE_PRAGMAS = [
   "PRAGMA journal_mode = WAL",
@@ -258,7 +269,7 @@ export function inspectLegacyLocalStoreMigration(root = process.cwd(), env: Reco
   const legacyExists = existsSync(paths.legacyLocalStorePath);
   const targetExists = existsSync(paths.localStorePath);
   if (targetExists) {
-    const target = safeSqliteIntegrityCheck(paths.localStorePath);
+    const target = safeCurrentLocalStoreCheck(paths.localStorePath);
     return legacyMigrationResult(false, "target-exists", paths, [], {
       status: target.ok ? "target-current" : "target-incomplete",
       integrityCheck: target.ok ? { target: target.result } : { target: "failed", error: target.error }
@@ -270,6 +281,13 @@ export function inspectLegacyLocalStoreMigration(root = process.cwd(), env: Reco
     });
   }
 
+  const source = safeTrustedLegacyLocalStoreSourceCheck(paths);
+  if (!source.ok) {
+    return legacyMigrationResult(false, undefined, paths, [], {
+      status: "legacy-invalid",
+      integrityCheck: { legacy: "failed", error: source.error }
+    });
+  }
   const legacy = safeSqliteIntegrityCheck(paths.legacyLocalStorePath);
   return legacyMigrationResult(false, undefined, paths, [], {
     status: legacy.ok ? "pending" : "legacy-invalid",
@@ -289,10 +307,11 @@ export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Recor
   const legacyExists = existsSync(paths.legacyLocalStorePath);
   const integrityCheck: LegacyLocalStoreMigration["integrityCheck"] = {};
   const quarantinedFiles: string[] = [];
+  const targetExists = existsSync(paths.localStorePath);
 
-  if (existsSync(paths.localStorePath)) {
+  if (targetExists) {
     try {
-      integrityCheck.target = assertSqliteIntegrity(paths.localStorePath);
+      integrityCheck.target = assertCurrentLocalStore(paths.localStorePath);
       return legacyMigrationResult(false, "target-exists", paths, [], {
         status: "target-current",
         integrityCheck
@@ -303,7 +322,6 @@ export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Recor
       if (!legacyExists) {
         throw new Error(`ArchContext runtime state target is not a valid SQLite database and no legacy store is available: ${paths.localStorePath}`);
       }
-      quarantinedFiles.push(...quarantineExistingLocalStore(paths));
     }
   }
   if (!legacyExists) {
@@ -312,19 +330,21 @@ export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Recor
       integrityCheck
     });
   }
+  assertTrustedLegacyLocalStoreSource(paths);
 
   const lock = acquireLegacyMigrationLock(paths);
   const stagingDir = join(paths.workspaceStateDir, `.runtime.sqlite.migration-${process.pid}-${randomUUID()}`);
   const stagingPath = join(stagingDir, "runtime.sqlite");
   try {
+    if (targetExists) quarantinedFiles.push(...quarantineExistingLocalStore(paths));
     ensurePrivateDir(stagingDir);
     integrityCheck.legacy = vacuumLegacySqliteInto(paths.legacyLocalStorePath, stagingPath);
     makePrivateFile(stagingPath);
     migrateSqliteDatabaseSync(stagingPath);
     compactSqliteDatabase(stagingPath);
-    integrityCheck.staging = assertSqliteIntegrity(stagingPath);
+    integrityCheck.staging = assertCurrentLocalStore(stagingPath);
     publishStagedLocalStore(stagingPath, paths.localStorePath);
-    integrityCheck.target = assertSqliteIntegrity(paths.localStorePath);
+    integrityCheck.target = assertCurrentLocalStore(paths.localStorePath);
     const markerPath = writeLegacyMigrationMarker(paths, integrityCheck, quarantinedFiles);
     return legacyMigrationResult(true, undefined, paths, [paths.localStorePath], {
       status: quarantinedFiles.length > 0 ? "target-quarantined-and-migrated" : "migrated",
@@ -704,6 +724,23 @@ function safeSqliteIntegrityCheck(path: string): { ok: true; result: string } | 
   }
 }
 
+function safeCurrentLocalStoreCheck(path: string): { ok: true; result: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, result: assertCurrentLocalStore(path) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function safeTrustedLegacyLocalStoreSourceCheck(paths: RuntimeStatePaths): { ok: true } | { ok: false; error: string } {
+  try {
+    assertTrustedLegacyLocalStoreSource(paths);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function assertSqliteIntegrity(path: string): string {
   const db = openSqliteDatabaseSync(path);
   try {
@@ -714,6 +751,46 @@ function assertSqliteIntegrity(path: string): string {
     return result;
   } finally {
     db.close();
+  }
+}
+
+function assertCurrentLocalStore(path: string): string {
+  const db = openSqliteDatabaseSync(path);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    const integrity = sqliteIntegrityCheckOpenDatabase(db, path);
+    assertCurrentLocalStoreSchema(db, path);
+    return integrity;
+  } finally {
+    db.close();
+  }
+}
+
+function assertCurrentLocalStoreSchema(db: SqliteDatabase, path: string): void {
+  const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String(row.name)));
+  const missingTables = REQUIRED_LOCAL_STORE_TABLES.filter((table) => !tables.has(table));
+  if (missingTables.length > 0) {
+    throw new Error(`SQLite local store schema incomplete for ${path}: missing tables ${missingTables.join(", ")}`);
+  }
+
+  const migrations = new Set(db.prepare("SELECT id FROM schema_migrations").all().map((row) => String(row.id)));
+  const missingMigrations = LOCAL_SQLITE_MIGRATIONS.map((migration) => migration.id).filter((id) => !migrations.has(id));
+  if (missingMigrations.length > 0) {
+    throw new Error(`SQLite local store schema incomplete for ${path}: missing migrations ${missingMigrations.join(", ")}`);
+  }
+}
+
+function assertTrustedLegacyLocalStoreSource(paths: RuntimeStatePaths): void {
+  const stat = lstatSync(paths.legacyLocalStorePath);
+  if (stat.isSymbolicLink()) {
+    throw new Error(`Legacy SQLite source must not be a symbolic link: ${paths.legacyLocalStorePath}`);
+  }
+  if (!stat.isFile()) {
+    throw new Error(`Legacy SQLite source must be a regular file: ${paths.legacyLocalStorePath}`);
+  }
+  const sourceRealPath = realpathSync.native(paths.legacyLocalStorePath);
+  if (!isPathInsideOrSame(sourceRealPath, paths.repositoryRoot)) {
+    throw new Error(`Legacy SQLite source must stay inside the repository root: ${paths.legacyLocalStorePath}`);
   }
 }
 
@@ -935,6 +1012,13 @@ function canonicalPath(path: string): string {
   } catch {
     return resolved;
   }
+}
+
+function isPathInsideOrSame(path: string, parent: string): boolean {
+  const child = resolve(path);
+  const base = resolve(parent);
+  const fromBase = relative(base, child);
+  return fromBase === "" || (!!fromBase && !fromBase.startsWith("..") && !isAbsolute(fromBase));
 }
 
 function stableStorageId(prefix: "repo" | "ws", value: string): string {

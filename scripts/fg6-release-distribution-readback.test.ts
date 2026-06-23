@@ -33,7 +33,14 @@ describe("fg6 release distribution readback", () => {
       registry: [
         { name: "archcontext", status: "missing", version: null, errorCode: "E404" },
         { name: "@archcontext/cli", status: "missing", version: null, errorCode: "E404" },
-        { name: "archctx", status: "published", version: "0.0.0" }
+        {
+          name: "archctx",
+          status: "published",
+          version: "0.0.0",
+          engines: { node: ">=24 <26" },
+          packageManager: null,
+          bin: { archctx: "./bin/archctx.mjs" }
+        }
       ],
       generatedAt: "2026-06-22T00:00:00.000Z"
     });
@@ -82,7 +89,14 @@ describe("fg6 release distribution readback", () => {
       registry: [
         { name: "archcontext", status: "missing", version: null, errorCode: "E404" },
         { name: "@archcontext/cli", status: "missing", version: null, errorCode: "E404" },
-        { name: "archctx", status: "published", version: "0.1.0" }
+        {
+          name: "archctx",
+          status: "published",
+          version: "0.1.0",
+          engines: { node: ">=24 <26" },
+          packageManager: null,
+          bin: { archctx: "bin/archctx.mjs" }
+        }
       ],
       generatedAt: "2026-06-22T00:00:00.000Z"
     });
@@ -127,7 +141,14 @@ describe("fg6 release distribution readback", () => {
       registry: [
         { name: "archcontext", status: "missing", version: null, errorCode: "E404" },
         { name: "@archcontext/cli", status: "missing", version: null, errorCode: "E404" },
-        { name: "archctx", status: "published", version: "0.0.0" }
+        {
+          name: "archctx",
+          status: "published",
+          version: "0.0.0",
+          engines: { node: ">=24 <26" },
+          packageManager: null,
+          bin: { archctx: "./bin/archctx.mjs" }
+        }
       ],
       generatedAt: "2026-06-22T00:00:00.000Z"
     });
@@ -163,5 +184,53 @@ describe("fg6 release distribution readback", () => {
 
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("verified status must have ok true");
+  });
+
+  test("blocks rollout when the published package still requires Bun", () => {
+    const recording = buildReleaseDistributionReadback({
+      rootPackage: {
+        name: "archcontext",
+        version: "0.1.1",
+        private: true
+      },
+      workspacePackages: [],
+      placeholder: undefined,
+      npmDryRun: {
+        schemaVersion: "archcontext.fg6-npm-release-dry-run/v1",
+        status: "verified",
+        ok: true,
+        package: {
+          name: "archctx",
+          version: "0.1.1",
+          homepage: "https://archcontext.repoharness.com"
+        },
+        artifact: {
+          tarball: "archctx-0.1.1.tgz",
+          publishDryRunId: "archctx@0.1.1"
+        },
+        rollout: {
+          postPublishInstallCommand: "npm install -g archctx@0.1.1"
+        }
+      },
+      registry: [
+        { name: "archcontext", status: "missing", version: null, errorCode: "E404" },
+        { name: "@archcontext/cli", status: "missing", version: null, errorCode: "E404" },
+        {
+          name: "archctx",
+          status: "published",
+          version: "0.1.1",
+          engines: { node: ">=24 <26", bun: ">=1.3.10" },
+          packageManager: "bun@1.3.10",
+          bin: { archctx: "./bin/archctx.mjs" }
+        }
+      ],
+      generatedAt: "2026-06-22T00:00:00.000Z"
+    });
+
+    expect(recording.status).toBe("blocked");
+    expect(recording.assertions.npmReleasePublished).toBe(true);
+    expect(recording.assertions.publishedRuntimeNodeOnly).toBe(false);
+    expect(recording.release.blockers).toContain("npm release archctx@0.1.1 is not a Node-only CLI artifact");
+    expect(inspectReleaseDistributionReadback(recording)).toEqual({ ok: true, failures: [] });
   });
 });

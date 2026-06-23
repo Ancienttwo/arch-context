@@ -11,7 +11,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, delimiter, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -33,11 +33,9 @@ try {
   assert(existsSync(archctxBin), `installed archctx bin missing: ${archctxBin}`);
 
   const repo = createGitFixture();
-  const env = {
-    ...process.env,
-    DO_NOT_TRACK: "1",
-    PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}`
-  };
+  const env = nodeOnlyRuntimeEnv(binDir);
+  const bunProbe = await runOptional("bun", ["--version"], { cwd: repo, env });
+  assert(bunProbe.code !== 0, "tarball smoke runtime PATH must not expose bun");
 
   await run("codegraph", ["init", repo], { cwd: repo, env });
 
@@ -129,6 +127,7 @@ async function buildLocalProductTarball(artifactDir) {
   const binDir = join(stageDir, "bin");
   mkdirSync(binDir, { recursive: true });
   const binPath = join(binDir, "archctx.mjs");
+  const codeGraphBinPath = join(binDir, "codegraph.mjs");
   await run("bun", [
     "build",
     "packages/surfaces/cli/src/main.ts",
@@ -137,8 +136,10 @@ async function buildLocalProductTarball(artifactDir) {
     "--outfile",
     binPath
   ], { cwd: root, env: process.env });
-  rewriteShebang(binPath, "#!/usr/bin/env bun");
+  rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
+  writeCodeGraphShim(codeGraphBinPath);
+  chmodSync(codeGraphBinPath, 0o755);
 
   writeFileSync(join(stageDir, "README.md"), [
     "# archctx",
@@ -157,18 +158,15 @@ async function buildLocalProductTarball(artifactDir) {
     private: false,
     type: "module",
     bin: {
-      archctx: "./bin/archctx.mjs"
+      archctx: "./bin/archctx.mjs",
+      codegraph: "./bin/codegraph.mjs"
     },
     homepage: releaseHomeUrl,
     license: "UNLICENSED",
     publishConfig: {
       registry: "https://registry.npmjs.org/"
     },
-    packageManager: rootManifest.packageManager,
-    engines: {
-      ...rootManifest.engines,
-      bun: ">=1.3.10"
-    },
+    engines: rootManifest.engines,
     files: [
       "bin",
       "README.md"
@@ -177,6 +175,7 @@ async function buildLocalProductTarball(artifactDir) {
       "@colbymchenry/codegraph": rootManifest.dependencies?.["@colbymchenry/codegraph"]
     }
   }, null, 2), "utf8");
+  assertNodeOnlyReleaseRuntime(stageDir, binPath);
 
   const output = await run("npm", ["pack", "--silent", "--pack-destination", artifactDir], {
     cwd: stageDir,
@@ -272,6 +271,36 @@ function run(command, commandArgs, options) {
   });
 }
 
+function runOptional(command, commandArgs, options) {
+  return new Promise((resolvePromise) => {
+    const child = spawn(command, commandArgs, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      resolvePromise({ code: 124, stdout, stderr });
+    }, PROCESS_TIMEOUT_MS);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", (error) => {
+      clearTimeout(timeout);
+      resolvePromise({ code: 127, stdout, stderr: error instanceof Error ? error.message : String(error) });
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolvePromise({ code: code ?? 1, stdout, stderr });
+    });
+  });
+}
+
 function resolveArchctxBin(binDir) {
   const candidates = process.platform === "win32"
     ? [join(binDir, "archctx.cmd"), join(binDir, "archctx.exe"), join(binDir, "archctx")]
@@ -283,6 +312,44 @@ function rewriteShebang(path, shebang) {
   const source = readFileSync(path, "utf8");
   const withoutShebang = source.replace(/^#!.*\n/, "");
   writeFileSync(path, `${shebang}\n${withoutShebang}`, "utf8");
+}
+
+function writeCodeGraphShim(path) {
+  writeFileSync(path, [
+    "#!/usr/bin/env node",
+    "import { createRequire } from \"node:module\";",
+    "import { dirname, join } from \"node:path\";",
+    "const require = createRequire(import.meta.url);",
+    "const packageJson = require.resolve(\"@colbymchenry/codegraph/package.json\");",
+    "require(join(dirname(packageJson), \"npm-shim.js\"));",
+    ""
+  ].join("\n"), "utf8");
+}
+
+function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
+  const bin = readFileSync(binPath, "utf8");
+  assert(bin.startsWith("#!/usr/bin/env node\n"), "release bin must use a node shebang");
+  assert(!bin.startsWith("#!/usr/bin/env bun"), "release bin must not require bun");
+  const manifest = JSON.parse(readFileSync(join(stageDir, "package.json"), "utf8"));
+  assert(!("packageManager" in manifest), "release package must not declare a packageManager runtime contract");
+  assert(manifest.engines?.node === rootManifest.engines?.node, "release package must declare the root node engine");
+  assert(!("bun" in (manifest.engines ?? {})), "release package must not declare a bun engine");
+  assert(manifest.bin?.codegraph === "./bin/codegraph.mjs", "release package must expose the bundled codegraph shim");
+}
+
+function nodeOnlyRuntimeEnv(binDir) {
+  return {
+    ...process.env,
+    DO_NOT_TRACK: "1",
+    PATH: [
+      binDir,
+      dirname(process.execPath),
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin"
+    ].join(delimiter)
+  };
 }
 
 function parseArgs(argv) {

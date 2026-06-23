@@ -27,7 +27,7 @@ try {
   git(repo, "add", ".");
   git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   const headSha = gitOut(repo, "rev-parse", "HEAD");
-  await run(process.execPath, [CODEGRAPH_BIN, "init", repo], { cwd: repo, env });
+  await run(CODEGRAPH_BIN, ["init", repo], { cwd: repo, env });
 
   const doctor = await runArchctx(repo, "doctor");
   assert(doctor.ok === true, "doctor must succeed without cloud or LLM provider env");
@@ -219,11 +219,10 @@ function resolveArchctxBin(binDir) {
 }
 
 function resolveCodeGraphBin(binDir) {
-  const packageShim = join(ROOT, "node_modules", "@colbymchenry", "codegraph", "npm-shim.js");
   const candidates = process.platform === "win32"
-    ? [packageShim, join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
-    : [packageShim, join(binDir, "codegraph")];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+    ? [join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
+    : [join(binDir, "codegraph")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
 }
 
 function displayPath(path) {

@@ -50,7 +50,7 @@ export async function runFg6RepresentativeBenchmark(config: ReturnType<typeof bu
   const sourceRepo = resolve(config.sourceRepo);
   if (!existsSync(sourceRepo)) throw new Error(`benchmark source repo missing: ${sourceRepo}`);
   if (!existsSync(ARCHCTX_BIN)) throw new Error(`missing archctx bin: ${ARCHCTX_BIN}`);
-  if (!existsSync(CODEGRAPH_BIN)) throw new Error(`missing codegraph bin: ${CODEGRAPH_BIN}`);
+  if (!commandExists(CODEGRAPH_BIN)) throw new Error(`missing codegraph bin: ${CODEGRAPH_BIN}`);
 
   const env = benchmarkEnv();
   const sourceClean = gitLines(sourceRepo, "status", "--porcelain").length === 0;
@@ -67,7 +67,7 @@ export async function runFg6RepresentativeBenchmark(config: ReturnType<typeof bu
     const trackedFiles = gitLines(repo, "ls-files").length;
     const changedPath = chooseRepresentativeFile(repo);
 
-    const codeGraphInit = measureCommand(process.execPath, [CODEGRAPH_BIN, "init", repo], { cwd: repo, env, timeoutMs: 180_000 });
+    const codeGraphInit = measureCommand(CODEGRAPH_BIN, ["init", repo], { cwd: repo, env, timeoutMs: 180_000 });
     measurements.push({ phase: "codegraph-init", ...codeGraphInit });
     const doctor = parseJsonCommand(measureCommand(ARCHCTX_BIN, ["doctor"], { cwd: repo, env, timeoutMs: 60_000 }), "doctor");
     measurements.push({ phase: "doctor", ...doctor.measurement });
@@ -329,11 +329,14 @@ function resolveBin(name: string): string {
 }
 
 function resolveCodeGraphBin(): string {
-  const packageShim = resolve(process.cwd(), "node_modules", "@colbymchenry", "codegraph", "npm-shim.js");
   const candidates = process.platform === "win32"
-    ? [packageShim, join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
-    : [packageShim, join(BIN_DIR, "codegraph")];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+    ? [join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
+    : [join(BIN_DIR, "codegraph")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
+}
+
+function commandExists(command: string): boolean {
+  return spawnSync(command, ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).status === 0;
 }
 
 function displayPath(path: string): string {

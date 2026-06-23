@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { canonicalAttestationV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2 } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -264,7 +264,7 @@ describe("local runtime foundation", () => {
         headSha,
         headTreeOid: worktree!.headTreeOid,
         runtime: {
-          version: "0.1.1",
+          version: ARCHCONTEXT_PRODUCT_VERSION,
           codeGraphVersion: REQUIRED_CODEGRAPH_VERSION
         }
       });

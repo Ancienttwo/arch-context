@@ -94,15 +94,18 @@ export function buildNpmReleaseDryRunReadback(input: {
     packageNameResolved: input.packageJson.name === RELEASE_PACKAGE_NAME,
     packageVersionMatchesRoot: input.packageJson.version === input.rootManifest.version,
     packagePublishable: input.packageJson.private === false,
-    bunRuntimeDeclared: input.packageJson.packageManager === input.rootManifest.packageManager
-      && readRecord(input.packageJson.engines).bun === ">=1.3.10",
+    nodeRuntimeDeclared: readRecord(input.packageJson.engines).node === readRecord(input.rootManifest.engines).node,
+    noBunRuntimeDeclared: !("packageManager" in input.packageJson)
+      && !("bun" in readRecord(input.packageJson.engines)),
     homeUrlCorrect: input.packageJson.homepage === HOME_URL,
     noSourceRepositoryUrl: !("repository" in input.packageJson),
     binExposesArchctx: readRecord(input.packageJson.bin).archctx === "./bin/archctx.mjs",
+    binExposesCodeGraph: readRecord(input.packageJson.bin).codegraph === "./bin/codegraph.mjs",
     publishRegistryCorrect: readRecord(input.packageJson.publishConfig).registry === REGISTRY,
     npmPackProducedTarball: tarballName === `${RELEASE_PACKAGE_NAME}-${input.rootManifest.version}.tgz`,
     publishDryRunSucceeded: publish.name === RELEASE_PACKAGE_NAME && publish.version === input.rootManifest.version,
     packageContentsBounded: packageFiles.includes("bin/archctx.mjs")
+      && packageFiles.includes("bin/codegraph.mjs")
       && packageFiles.includes("README.md")
       && packageFiles.includes("package.json")
       && !packageFiles.some((path) => path.includes("src/") || path.includes(".git") || path.includes("_ops"))
@@ -123,7 +126,7 @@ export function buildNpmReleaseDryRunReadback(input: {
       private: input.packageJson.private === true,
       homepage: String(input.packageJson.homepage ?? ""),
       license: String(input.packageJson.license ?? ""),
-      packageManager: String(input.packageJson.packageManager ?? ""),
+      packageManager: typeof input.packageJson.packageManager === "string" ? input.packageJson.packageManager : null,
       engines: readRecord(input.packageJson.engines),
       bin: readRecord(input.packageJson.bin),
       publishConfig: readRecord(input.packageJson.publishConfig)
@@ -162,8 +165,10 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (pkg.name !== RELEASE_PACKAGE_NAME) failures.push("package name must be archctx");
   if (pkg.private !== false) failures.push("release package must be publishable");
   if (pkg.homepage !== HOME_URL) failures.push("homepage must be archcontext.repoharness.com");
-  if (pkg.packageManager !== "bun@1.3.10") failures.push("packageManager must declare bun runtime");
-  if (readRecord(pkg.engines).bun !== ">=1.3.10") failures.push("engines.bun must be declared");
+  if (pkg.packageManager !== null) failures.push("release package must not declare packageManager runtime");
+  if (readRecord(pkg.engines).node !== ">=24 <26") failures.push("engines.node must be declared");
+  if ("bun" in readRecord(pkg.engines)) failures.push("engines.bun must not be declared");
+  if (readRecord(pkg.bin).codegraph !== "./bin/codegraph.mjs") failures.push("release package must expose bundled codegraph bin");
   if (!String(artifact.tarball ?? "").startsWith(`${RELEASE_PACKAGE_NAME}-`)) failures.push("tarball must use archctx package name");
   if (!String(rollout.postPublishInstallCommand ?? "").startsWith(`npm install -g ${RELEASE_PACKAGE_NAME}@`)) {
     failures.push("post-publish install command must use archctx");
@@ -182,9 +187,9 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>) {
     private: false,
     type: "module",
     bin: {
-      archctx: "./bin/archctx.mjs"
+      archctx: "./bin/archctx.mjs",
+      codegraph: "./bin/codegraph.mjs"
     },
-    packageManager: String(rootManifest.packageManager ?? ""),
     files: [
       "bin",
       "README.md"
@@ -194,10 +199,7 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>) {
     publishConfig: {
       registry: REGISTRY
     },
-    engines: {
-      ...readRecord(rootManifest.engines),
-      bun: ">=1.3.10"
-    },
+    engines: readRecord(rootManifest.engines),
     dependencies: {
       "@colbymchenry/codegraph": readRecord(rootManifest.dependencies)["@colbymchenry/codegraph"]
     }
@@ -208,6 +210,7 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
   const binDir = join(stageDir, "bin");
   mkdirSync(binDir, { recursive: true });
   const binPath = join(binDir, "archctx.mjs");
+  const codeGraphBinPath = join(binDir, "codegraph.mjs");
   runCommand("bun", [
     "build",
     "packages/surfaces/cli/src/main.ts",
@@ -216,9 +219,11 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
     "--outfile",
     binPath
   ], root);
-  rewriteShebang(binPath, "#!/usr/bin/env bun");
+  rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
   if (!existsSync(binPath)) throw new Error(`missing built bin: ${binPath}`);
+  writeCodeGraphShim(codeGraphBinPath);
+  chmodSync(codeGraphBinPath, 0o755);
   writeFileSync(join(stageDir, "README.md"), [
     "# archctx",
     "",
@@ -230,6 +235,18 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
     "It does not require a GitHub App, Cloud account, subscription, or LLM provider for Local Core."
   ].join("\n"), "utf8");
   writeFileSync(join(stageDir, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+}
+
+function writeCodeGraphShim(path: string) {
+  writeFileSync(path, [
+    "#!/usr/bin/env node",
+    "import { createRequire } from \"node:module\";",
+    "import { dirname, join } from \"node:path\";",
+    "const require = createRequire(import.meta.url);",
+    "const packageJson = require.resolve(\"@colbymchenry/codegraph/package.json\");",
+    "require(join(dirname(packageJson), \"npm-shim.js\"));",
+    ""
+  ].join("\n"), "utf8");
 }
 
 function runJsonCommand(command: string, args: string[], cwd: string): unknown {

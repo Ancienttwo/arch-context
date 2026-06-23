@@ -4,20 +4,20 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-23T07:45:44.297Z",
+  "generatedAt": "2026-06-23T10:07:41.772Z",
   "package": {
     "name": "archctx",
-    "version": "0.1.1",
+    "version": "0.1.3",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "UNLICENSED",
-    "packageManager": "bun@1.3.10",
+    "packageManager": null,
     "engines": {
-      "node": ">=24 <26",
-      "bun": ">=1.3.10"
+      "node": ">=24 <26"
     },
     "bin": {
-      "archctx": "./bin/archctx.mjs"
+      "archctx": "./bin/archctx.mjs",
+      "codegraph": "./bin/codegraph.mjs"
     },
     "publishConfig": {
       "registry": "https://registry.npmjs.org/"
@@ -25,31 +25,34 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.1.1.tgz",
-    "publishDryRunId": "archctx@0.1.1",
-    "integrity": "sha512-mNEUEY188oqJgwljvb0YrmpSHlih6Y+CC0baOO9utOB3l7BcULFDe9UQDPo0fjE5E9taF2G7AuG11fkBJXVW0A==",
-    "shasum": "9cc1fa46949e09ff2631c31b14e9ca9f6efe4cd7",
-    "size": 102583,
-    "unpackedSize": 505595,
-    "entryCount": 3,
+    "tarball": "archctx-0.1.3.tgz",
+    "publishDryRunId": "archctx@0.1.3",
+    "integrity": "sha512-wdq0y+Z5uQ55BTg2yuzenjo7yPJg/pU5IAL3EAC4Cb/KPOwJxN8hQgRyf18yAHesPjSMoJa2kRXc/4SAzajHIA==",
+    "shasum": "900efadb8f3e148b67876eeda37ddffebd466d71",
+    "size": 103813,
+    "unpackedSize": 511024,
+    "entryCount": 4,
     "files": [
       "README.md",
       "bin/archctx.mjs",
+      "bin/codegraph.mjs",
       "package.json"
     ]
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.1.1",
+    "postPublishInstallCommand": "npm install -g archctx@0.1.3",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
     "packageNameResolved": true,
     "packageVersionMatchesRoot": true,
     "packagePublishable": true,
-    "bunRuntimeDeclared": true,
+    "nodeRuntimeDeclared": true,
+    "noBunRuntimeDeclared": true,
     "homeUrlCorrect": true,
     "noSourceRepositoryUrl": true,
     "binExposesArchctx": true,
+    "binExposesCodeGraph": true,
     "publishRegistryCorrect": true,
     "npmPackProducedTarball": true,
     "publishDryRunSucceeded": true,
