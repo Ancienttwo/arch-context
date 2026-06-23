@@ -93,7 +93,7 @@ function verifiedRecording() {
         controlPlaneRejectsCheckNameMismatch: true
       },
       actionProbe: {
-        currentRuntimeVersion: "0.1.0",
+        currentRuntimeVersion: "0.1.1",
         currentRuntimeAccepted: true,
         oldRuntimeRejectedReason: "runtime-version-mismatch",
         actionPlanSchemaVersion: "archcontext.review-action-plan/v1",

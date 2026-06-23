@@ -16,7 +16,7 @@
     },
     "packages/cloud": {
       "name": "@archcontext/cloud",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@archcontext/core": "workspace:*",
@@ -25,11 +25,11 @@
     },
     "packages/contracts": {
       "name": "@archcontext/contracts",
-      "version": "0.1.0",
+      "version": "0.1.1",
     },
     "packages/core": {
       "name": "@archcontext/core",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@node-rs/jieba": "^2.0.1",
@@ -37,7 +37,7 @@
     },
     "packages/local-runtime": {
       "name": "@archcontext/local-runtime",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@archcontext/core": "workspace:*",
@@ -46,7 +46,7 @@
     },
     "packages/surfaces": {
       "name": "@archcontext/surfaces",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "bin": {
         "archctx": "./cli/src/main.ts",
       },

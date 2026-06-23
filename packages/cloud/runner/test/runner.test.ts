@@ -408,8 +408,8 @@ describe("@archcontext/cloud/runner", () => {
     expect(workflow).toContain("trust-level: organization");
     expect(workflow).toContain("fail-on: blocking");
     expect(workflow).toContain("fork-pr-mode: unsupported");
-    expect(workflow).toContain("runtime-version: \"0.1.0\"");
-    expect(workflow).toContain("runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz");
+    expect(workflow).toContain("runtime-version: \"0.1.1\"");
+    expect(workflow).toContain("runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz");
     expect(workflow).toContain("runtime-artifact-digest: sha256:<release-digest>");
     expect(workflow).toContain("expected-repository: <owner/name from Challenge>");
     expect(workflow).toContain("expected-head-sha: ${{ github.event.pull_request.head.sha }}");
@@ -457,7 +457,7 @@ describe("@archcontext/cloud/runner", () => {
     expect(caller).not.toContain("@v1");
     expect(caller).toContain("expected_head_sha: ${{ github.event.pull_request.head.sha }}");
     expect(caller).toContain("expected_head_tree_oid: <head tree OID from Challenge>");
-    expect(caller).toContain("runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz");
+    expect(caller).toContain("runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz");
     expect(caller).toContain("runtime_artifact_digest: sha256:<release-digest>");
     expect(verifyReviewActionWorkflowPermissions({
       contents: "read",
@@ -619,7 +619,7 @@ describe("@archcontext/cloud/runner", () => {
     const plan = createReviewActionPreflightPlan({
       runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       runtimeArtifactDigest: artifactDigest,
-      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     });
 
     expect(plan).toEqual({
@@ -631,7 +631,7 @@ describe("@archcontext/cloud/runner", () => {
         challenge: "auto",
         failOn: "blocking",
         runtimeArtifactDigest: artifactDigest,
-        runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz",
+        runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz",
         runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
         trustLevel: "organization"
       }
@@ -639,12 +639,12 @@ describe("@archcontext/cloud/runner", () => {
     expect(createReviewActionPreflightPlan({
       runtimeVersion: "0.0.0",
       runtimeArtifactDigest: artifactDigest,
-      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     })).toEqual({ ok: false, reason: "runtime-version-mismatch" });
     expect(createReviewActionPreflightPlan({
       runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       runtimeArtifactDigest: "sha256:bad",
-      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     })).toEqual({ ok: false, reason: "runtime-artifact-digest-invalid" });
   });
 
@@ -725,7 +725,7 @@ describe("@archcontext/cloud/runner", () => {
       INPUT_EXPECTED_HEAD_TREE_OID: expected.headTreeOid,
       INPUT_RUNTIME_VERSION: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       INPUT_RUNTIME_ARTIFACT_DIGEST: artifactDigest,
-      INPUT_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      INPUT_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     });
 
     expect(result.status).toBe(0);
@@ -736,7 +736,7 @@ describe("@archcontext/cloud/runner", () => {
     expect(output).toContain("\"schemaVersion\":\"archcontext.review-action-checkout/v1\"");
     expect(output).toContain("\"schemaVersion\":\"archcontext.review-action-plan/v1\"");
     expect(output).toContain("\"schemaVersion\":\"archcontext.review-action-fork-policy/v1\"");
-    expect(summary).toContain("Runtime version: 0.1.0");
+    expect(summary).toContain("Runtime version: 0.1.1");
     expect(summary).toContain(`Head: ${expected.headSha}`);
     expect(runnerPrivacyAudit(JSON.parse(output.match(/action-plan<<[^\n]+\n([\s\S]*?)\narchcontext_action_plan/)![1]))).toEqual({
       ok: true,
@@ -763,7 +763,7 @@ describe("@archcontext/cloud/runner", () => {
       "INPUT_EXPECTED-HEAD-TREE-OID": expected.headTreeOid,
       "INPUT_RUNTIME-VERSION": REVIEW_ACTION_DEFAULTS.runtimeVersion,
       "INPUT_RUNTIME-ARTIFACT-DIGEST": artifactDigest,
-      "INPUT_RUNTIME-ARTIFACT-URL": "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      "INPUT_RUNTIME-ARTIFACT-URL": "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     });
     expect(githubEnvResult.status).toBe(0);
     expect(readFileSync(githubEnvOutputPath, "utf8")).toContain(artifactDigest);
@@ -803,7 +803,7 @@ describe("@archcontext/cloud/runner", () => {
     const rejected = runAction({
       INPUT_RUNTIME_VERSION: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       INPUT_RUNTIME_ARTIFACT_DIGEST: "sha256:bad",
-      INPUT_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      INPUT_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     });
     expect(rejected.status).not.toBe(0);
     expect(rejected.stderr).toContain("runtime-artifact-digest-invalid");
@@ -816,7 +816,7 @@ describe("@archcontext/cloud/runner", () => {
       INPUT_EXPECTED_HEAD_TREE_OID: expected.headTreeOid,
       INPUT_RUNTIME_VERSION: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       INPUT_RUNTIME_ARTIFACT_DIGEST: artifactDigest,
-      INPUT_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      INPUT_RUNTIME_ARTIFACT_URL: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     });
     expect(badCheckout.status).not.toBe(0);
     expect(badCheckout.stderr).toContain("HEAD_SHA_MISMATCH");
@@ -914,7 +914,7 @@ function createTestAttestationRuntime() {
   const pin = createReviewActionPreflightPlan({
     runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
     runtimeArtifactDigest: runtimeBuildDigest,
-    runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+    runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
   });
   if (!pin.ok) throw new Error(pin.reason);
   return createReviewActionAttestationRuntime({

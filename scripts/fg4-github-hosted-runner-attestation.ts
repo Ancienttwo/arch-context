@@ -57,7 +57,7 @@ export async function createFg4GithubHostedRunnerAttestation(input: { env: NodeJ
   const workflowRef = readEnv(input.env, "FG4_EG1_WORKFLOW_REF");
   const runId = readEnv(input.env, "GITHUB_RUN_ID");
   const runAttempt = parsePositiveInteger(input.env.GITHUB_RUN_ATTEMPT ?? "1", "runAttempt");
-  const runtimeArtifactUrl = input.env.FG4_EG1_RUNTIME_ARTIFACT_URL ?? "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz";
+  const runtimeArtifactUrl = input.env.FG4_EG1_RUNTIME_ARTIFACT_URL ?? "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz";
   const runtimeArtifactDigest = readEnv(input.env, "FG4_EG1_RUNTIME_ARTIFACT_DIGEST");
   const challenge = createReviewChallengeV2({
     challengeId: `chal_${safeReadbackId}_${runId}_${runAttempt}`,

@@ -73,24 +73,24 @@ export async function runFg4SupplyChainNegativeReadback(config: ReturnType<typeo
   const preflight = createReviewActionPreflightPlan({
     runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
     runtimeArtifactDigest: RUNTIME_ARTIFACT_DIGEST,
-    runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+    runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
   });
   if (!preflight.ok) throw new Error(preflight.reason);
   const preflightCases: PreflightCase[] = [
     recordPreflightCase("runtime-version-mismatch", "runtime-version-mismatch", {
       runtimeVersion: "0.0.0",
       runtimeArtifactDigest: RUNTIME_ARTIFACT_DIGEST,
-      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     }),
     recordPreflightCase("runtime-artifact-digest-invalid", "runtime-artifact-digest-invalid", {
       runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       runtimeArtifactDigest: "sha256:bad",
-      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     }),
     recordPreflightCase("runtime-artifact-url-invalid", "runtime-artifact-url-invalid", {
       runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
       runtimeArtifactDigest: RUNTIME_ARTIFACT_DIGEST,
-      runtimeArtifactUrl: "http://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+      runtimeArtifactUrl: "http://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
     })
   ];
 

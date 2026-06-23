@@ -44,7 +44,7 @@ const SELF_HOSTED_WORKFLOW_NAME = "FG4 EG2 Self-hosted Organization Runner";
 const SELF_HOSTED_ARTIFACT_NAME = "archcontext-fg4-eg2-attestation";
 const SELF_HOSTED_ATTESTATION_FILE_NAME = "fg4-eg2-organization-attestation.json";
 const SELF_HOSTED_DEFAULT_RUNNER_LABELS = ["self-hosted", "macOS", "ARM64", "archcontext-fg4-eg2"];
-const RUNTIME_ARTIFACT_URL = "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz";
+const RUNTIME_ARTIFACT_URL = "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz";
 const RUNTIME_ARTIFACT_DIGEST = `sha256:${"a".repeat(64)}`;
 
 if (import.meta.main) {
@@ -504,7 +504,7 @@ jobs:
           trust-level: organization
           fail-on: blocking
           fork-pr-mode: unsupported
-          runtime-version: "0.1.0"
+          runtime-version: "0.1.1"
           runtime-artifact-url: \${{ env.FG4_EG1_RUNTIME_ARTIFACT_URL }}
           runtime-artifact-digest: ${RUNTIME_ARTIFACT_DIGEST}
           expected-repository: \${{ github.repository }}

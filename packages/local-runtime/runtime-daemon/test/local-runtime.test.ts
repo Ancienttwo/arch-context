@@ -264,7 +264,7 @@ describe("local runtime foundation", () => {
         headSha,
         headTreeOid: worktree!.headTreeOid,
         runtime: {
-          version: "0.1.0",
+          version: "0.1.1",
           codeGraphVersion: REQUIRED_CODEGRAPH_VERSION
         }
       });

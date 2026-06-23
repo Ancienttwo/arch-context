@@ -1,12 +1,12 @@
 # Personal User Install
 
-This runbook is the current individual-user install path for `archctx@0.1.0`.
+This runbook is the current individual-user install path for `archctx@0.1.1`.
 Team collaboration, design-partner rollout, opt-in beta cohorts, and shared organization rollout evidence are deferred.
 
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Required release artifact: public npm package `archctx@0.1.0`.
+- Required release artifact: public npm package `archctx@0.1.1`.
 - Runtime: Bun 1.3.10 or newer must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 
@@ -20,7 +20,7 @@ Open a new terminal, then verify Bun and install ArchContext:
 
 ```bash
 bun --version
-npm install -g archctx@0.1.0
+npm install -g archctx@0.1.1
 archctx --help
 ```
 
