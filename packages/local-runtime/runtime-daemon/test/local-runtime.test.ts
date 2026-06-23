@@ -280,6 +280,40 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("checkpoint restores persisted baseline after daemon restart", async () => {
+    const root = tempRepo();
+    const facts = mutableCycleFacts();
+    const store = new TestLocalStore();
+    let first: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let second: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      first = await createStartedTestDaemon({ codeFacts: facts.port, localStore: store });
+      const prepare = await first.prepare(root, "untangle dependency cycle between billing and orders", 12_288, 5, "task_restart");
+      expect(prepare.ok).toBe(true);
+      await first.stop();
+      first = undefined;
+
+      facts.setCycle(true);
+      second = await createStartedTestDaemon({ codeFacts: facts.port, localStore: store });
+      const checkpoint = await second.checkpoint(root, {
+        taskSessionId: "task_restart",
+        event: "post-edit",
+        changedPaths: ["src/orders.ts", "src/billing.ts"],
+        maxItems: 5
+      });
+
+      expect(checkpoint.ok).toBe(true);
+      expect((checkpoint.data as any).reasonCode).toBe("fresh");
+      expect((checkpoint.data as any).previousPracticeGuidanceDigest).toMatch(/^sha256:/);
+      expect((checkpoint.data as any).delta.added.map((match: any) => match.practiceId)).toContain("modularity.no-new-cycle");
+      expect((checkpoint.data as any).hook.coalesced).toBe(false);
+    } finally {
+      await first?.stop();
+      await second?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("complete_task applies repo opt-in deterministic practice enforcement from daemon-owned state", async () => {
     const root = tempRepo();
     const facts = mutableCycleFacts();

@@ -48,6 +48,16 @@
     "failOpen": true,
     "pathCount": 1,
     "network": "forbidden",
+    "pathSummary": {
+      "schemaVersion": "archcontext.checkpoint-path-summary/v1",
+      "total": 1,
+      "source": 1,
+      "generated": 0,
+      "ignored": 0,
+      "binary": 0,
+      "deleted": 0,
+      "renameHints": 0
+    },
     "coalesced": false,
     "skippedAnalysis": false,
     "coalescedEventCount": 1,

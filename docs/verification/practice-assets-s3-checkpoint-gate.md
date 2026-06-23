@@ -1,6 +1,6 @@
 # Practice Assets S3 Checkpoint Gate
 
-> Status: local implementation evidence captured; PR #15 submitted; hook adapter follow-up captured on `codex/practice-hook-adapter`.
+> Status: local implementation evidence captured; PR #15 submitted; hook adapter follow-up captured on `codex/practice-hook-adapter`; checkpoint hardening captured on `codex/practice-checkpoint-hardening`.
 > Scope: S3 incremental checkpoint and hook integration vertical slice.
 > Branch: `codex/practice-checkpoint-hooks`
 
@@ -12,11 +12,11 @@ Implemented surfaces:
 
 - Contract: `archcontext.practice-checkpoint/v1` schema, fixture, and TypeScript result types.
 - Core: `checkpointTask` compiles current context, binds head/worktree/catalog/context/practice guidance digests, and computes practice delta.
-- Runtime daemon: `prepare` records a task-session practice baseline; `checkpoint` syncs changed-path hints, evaluates current guidance, returns delta, and updates the baseline.
+- Runtime daemon: `prepare` records a task-session practice baseline; `checkpoint` syncs changed-path hints, evaluates current guidance, returns delta, persists the next baseline, and restores the baseline after daemon restart.
 - RPC: runtime client/server dispatch includes `checkpoint`.
 - CLI: `archctx checkpoint` and `archctx hook checkpoint --event post-edit --path ...` call the daemon. Hook failure is fail-open and local-only.
 - CLI hook adapter: `archctx hooks install/status/remove --host codex|claude|generic` emits a central-first `repo-harness-hook` adapter contract and manual host configuration example; it does not write host config or vendor hook runtime into this repository.
-- Hook log contract: `archctx hook checkpoint` attaches `archcontext.hook-log/v1` with schema version, event, elapsed time, path count, changed-path digest, reason code, fail-open, egress, and network fields only.
+- Hook log contract: `archctx hook checkpoint` attaches `archcontext.hook-log/v1` with schema version, event, elapsed time, path count, changed-path digest, reason code, fail-open, egress, and network fields only. The checkpoint result also includes an aggregate `hook.pathSummary` for source/generated/ignored/binary/deleted/rename-hint counts without path bodies.
 - MCP: `archcontext_checkpoint` returns delta rather than the old placeholder error.
 - Skills: first-party skills describe prepare/checkpoint/complete SOP and checkpoint delta interpretation only; runtime packages own practice matching and checker behavior.
 
@@ -81,17 +81,28 @@ Hook adapter follow-up readbacks:
 - Hook checkpoint success and fail-open payloads include `archcontext.hook-log/v1`; tests assert the log contains a changed-path digest, declares forbidden network, and does not contain the raw changed path.
 - First-party skills are covered by a regression test that rejects embedded practice IDs, candidate terms, structural predicates, or practice matcher names in skill prose.
 
+Checkpoint hardening follow-up readbacks:
+
+- Focused contract/core/runtime/local-product suite: 151 pass / 0 fail / 718 expects.
+- Local product E2E: 4 pass / 0 fail / 73 expects.
+- CLI focused suite: 18 pass / 0 fail / 339 expects.
+- Core application checkpoint suite: 11 pass / 0 fail / 39 expects.
+- Runtime daemon checkpoint suite: 22 pass / 0 fail / 206 expects.
+- Typecheck: `tsc --noEmit`.
+- Full verification after checkpoint hardening: 608 pass / 0 fail / 3677 expects; packaged CLI smoke, privacy audits, acceptance ledger, sprint-status check, and representative eval gates PASS.
+- Path classification matrix covers source, generated, ignored, binary, deleted, and rename-hint counts, and asserts the summary omits raw path bodies.
+- Runtime daemon restart test reuses persisted task state and restores the prior practice checkpoint baseline before the next checkpoint.
+- Installed `archctx hook checkpoint` E2E covers prepare -> edit compatibility path -> upgraded practice delta -> revert -> downgraded practice delta through a separate CLI process and loopback daemon.
+
 ## Gate Evidence
 
 - S3-EG1: Hook checkpoint path is implemented through local CLI -> loopback daemon RPC only; result declares `hook.egress = "none"` and `hook.network = "forbidden"`. Hook adapter output also declares `egress = "none"` and `network = "forbidden"`; independent packet/audit evidence remains a separate gate before marking EG1 fully complete.
 - S3-EG2: `scripts/practice-checkpoint-benchmark.ts` records cold/warm/coalesced p95 under the S3 limits for a local temporary repository.
 - S3-EG3: Daemon checkpoint coalescing returns cached checkpoint data for duplicate same-worktree events and marks `hook.coalesced = true`, `hook.skippedAnalysis = true`.
 - S3-EG4: `archctx hook checkpoint` catches runtime errors and returns a fail-open `archcontext.hook-checkpoint-fail-open/v1` payload.
-- S3-EG5: Core tests cover prepare -> edit introduces observed cycle -> checkpoint added `modularity.no-new-cycle` -> revert -> checkpoint removed `modularity.no-new-cycle`. Runtime/MCP tests cover prepare -> checkpoint no-op delta in a shared daemon session. Local product E2E covers installed CLI prepare -> checkpoint.
+- S3-EG5: Core tests cover prepare -> edit introduces observed cycle -> checkpoint added `modularity.no-new-cycle` -> revert -> checkpoint removed `modularity.no-new-cycle`. Runtime/MCP tests cover prepare -> checkpoint no-op delta in a shared daemon session. Local product E2E covers installed `archctx hook checkpoint` prepare -> edit compatibility path -> upgraded delta -> revert -> downgraded delta.
 - S3-EG6: No repository hook runtime is added. The hook entrypoint is `archctx hook checkpoint`, and `archctx hooks install/status/remove` outputs central-first `repo-harness-hook` config without requiring `hook_source = repo`.
 
 ## Known Limits
 
-- Rename/delete/generated/binary path classification is not yet a separate deterministic matrix; this slice covers normalization, de-dupe, absolute path rejection, and parent traversal rejection.
-- Checkpoint state is daemon-session scoped; persistent task-state recovery across daemon restart remains deferred.
-- Real installed-CLI edit/revert and cross-layer import fixtures are still deferred; core fixtures cover added/removed deltas.
+- Real installed-CLI cross-layer import fixture remains deferred; the current real CodeGraph adapter returns symbols from `codegraph explore` but does not yet emit import edges in `buildTaskContext`.

@@ -56,6 +56,21 @@
         "failOpen": { "const": true },
         "pathCount": { "type": "integer", "minimum": 0 },
         "network": { "const": "forbidden" },
+        "pathSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "total", "source", "generated", "ignored", "binary", "deleted", "renameHints"],
+          "properties": {
+            "schemaVersion": { "const": "archcontext.checkpoint-path-summary/v1" },
+            "total": { "type": "integer", "minimum": 0 },
+            "source": { "type": "integer", "minimum": 0 },
+            "generated": { "type": "integer", "minimum": 0 },
+            "ignored": { "type": "integer", "minimum": 0 },
+            "binary": { "type": "integer", "minimum": 0 },
+            "deleted": { "type": "integer", "minimum": 0 },
+            "renameHints": { "type": "integer", "minimum": 0 }
+          }
+        },
         "coalesced": { "type": "boolean" },
         "skippedAnalysis": { "type": "boolean" },
         "coalescedEventCount": { "type": "integer", "minimum": 1 },

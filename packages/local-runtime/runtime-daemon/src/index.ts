@@ -357,6 +357,14 @@ interface ModelFileSummary {
   digest: string;
 }
 
+interface PersistedPracticeCheckpointBaseline {
+  schemaVersion: "archcontext.practice-checkpoint-baseline/v1";
+  repositoryId: string;
+  taskSessionId: string;
+  snapshot: PracticeCheckpointSnapshotV1;
+  updatedAt: string;
+}
+
 export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
@@ -476,7 +484,7 @@ export class ArchctxDaemon {
       modelStore: this.modelStore,
       budget: { maxBytes, maxItems }
     });
-    this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
+    await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
       schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
       task,
       headSha: session.workspace.headSha,
@@ -495,7 +503,7 @@ export class ArchctxDaemon {
     const started = Date.now();
     const session = await this.openSession(root);
     const taskSessionId = input.taskSessionId ?? "task_runtime";
-    const baseline = this.checkpointBaselines.get(this.practiceCheckpointKey(session.workspace.repositoryId, taskSessionId));
+    const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
     const task = input.task ?? baseline?.task ?? "checkpoint";
     const coalesceKey = this.practiceCheckpointCoalesceKey(session, taskSessionId, task, input, baseline);
     const coalesced = this.checkpointCoalesced.get(coalesceKey);
@@ -527,7 +535,7 @@ export class ArchctxDaemon {
       modelStore: this.modelStore,
       budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
     });
-    this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
+    await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
     const data = {
       ...result,
       hook: {
@@ -668,7 +676,7 @@ export class ArchctxDaemon {
     const model = await this.modelStore.validateModel(session.workspace);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
     const taskSessionId = input.taskSessionId ?? "task_runtime";
-    const baseline = this.checkpointBaselines.get(this.practiceCheckpointKey(session.workspace.repositoryId, taskSessionId));
+    const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
     const practicePolicy = loadPracticeEnforcementPolicy(session.workspace.root);
     const practiceEnforcement = practicePolicy.mode === "active"
       ? evaluatePracticeEnforcement({
@@ -1321,12 +1329,34 @@ export class ArchctxDaemon {
     }
   }
 
-  private savePracticeCheckpointBaseline(repositoryId: string, taskSessionId: string, snapshot: PracticeCheckpointSnapshotV1): void {
+  private async savePracticeCheckpointBaseline(repositoryId: string, taskSessionId: string, snapshot: PracticeCheckpointSnapshotV1): Promise<void> {
     this.checkpointBaselines.set(this.practiceCheckpointKey(repositoryId, taskSessionId), snapshot);
+    await this.localStore.saveTaskState(this.practiceCheckpointStateKey(repositoryId, taskSessionId), {
+      schemaVersion: "archcontext.practice-checkpoint-baseline/v1",
+      repositoryId,
+      taskSessionId,
+      snapshot,
+      updatedAt: this.clock()
+    } satisfies PersistedPracticeCheckpointBaseline);
+  }
+
+  private async readPracticeCheckpointBaseline(repositoryId: string, taskSessionId: string): Promise<PracticeCheckpointSnapshotV1 | undefined> {
+    const key = this.practiceCheckpointKey(repositoryId, taskSessionId);
+    const memory = this.checkpointBaselines.get(key);
+    if (memory) return memory;
+    const state = await this.localStore.readTaskState(this.practiceCheckpointStateKey(repositoryId, taskSessionId));
+    const persisted = parsePracticeCheckpointBaselineState(state, repositoryId, taskSessionId);
+    if (!persisted) return undefined;
+    this.checkpointBaselines.set(key, persisted.snapshot);
+    return persisted.snapshot;
   }
 
   private practiceCheckpointKey(repositoryId: string, taskSessionId: string): string {
     return `${repositoryId}:${taskSessionId}`;
+  }
+
+  private practiceCheckpointStateKey(repositoryId: string, taskSessionId: string): string {
+    return `practice-checkpoint:${repositoryId}:${taskSessionId}`;
   }
 
   private practiceCheckpointCoalesceKey(session: RepositorySession, taskSessionId: string, task: string, input: RuntimeCheckpointInput, baseline?: PracticeCheckpointSnapshotV1): string {
@@ -2274,6 +2304,31 @@ function normalizeCheckpointPaths(paths: string[]): string[] {
     .map((path) => path.trim().replaceAll("\\", "/"))
     .filter((path) => path.length > 0 && !path.startsWith("/") && !path.includes(".."))
   )].sort();
+}
+
+function parsePracticeCheckpointBaselineState(
+  state: unknown,
+  repositoryId: string,
+  taskSessionId: string
+): PersistedPracticeCheckpointBaseline | undefined {
+  if (!state || typeof state !== "object") return undefined;
+  const record = state as Partial<PersistedPracticeCheckpointBaseline>;
+  if (record.schemaVersion !== "archcontext.practice-checkpoint-baseline/v1") return undefined;
+  if (record.repositoryId !== repositoryId || record.taskSessionId !== taskSessionId) return undefined;
+  const snapshot = record.snapshot as Partial<PracticeCheckpointSnapshotV1> | undefined;
+  if (!snapshot || snapshot.schemaVersion !== "archcontext.practice-checkpoint-snapshot/v1") return undefined;
+  if (
+    typeof snapshot.task !== "string" ||
+    typeof snapshot.headSha !== "string" ||
+    typeof snapshot.worktreeDigest !== "string" ||
+    typeof snapshot.contextDigest !== "string" ||
+    typeof snapshot.practiceGuidanceDigest !== "string" ||
+    typeof snapshot.catalogDigest !== "string" ||
+    !Array.isArray(snapshot.matches)
+  ) {
+    return undefined;
+  }
+  return record as PersistedPracticeCheckpointBaseline;
 }
 
 function requestRpcVersionHeader(request: IncomingMessage): string | undefined {

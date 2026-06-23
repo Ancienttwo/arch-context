@@ -211,8 +211,11 @@ describe("archctx CLI", () => {
       const checkpoint = await runTestCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
       expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.data as any).fresh).toBe(true);
-      expect(["no-op", "no-baseline"]).toContain((checkpoint.data as any).reasonCode);
+      expect(["fresh", "no-op", "no-baseline"]).toContain((checkpoint.data as any).reasonCode);
       expect((checkpoint.data as any).hook.egress).toBe("none");
+      if ((checkpoint.data as any).reasonCode === "fresh") {
+        expect((checkpoint.data as any).previousPracticeGuidanceDigest).toMatch(/^sha256:/);
+      }
 
       const hookCheckpoint = await runTestCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/example.ts"], root);
       expect(hookCheckpoint.requestId).toBe("hook.checkpoint");

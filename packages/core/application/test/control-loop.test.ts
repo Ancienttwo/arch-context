@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodeGraphAdapter } from "../../../local-runtime/codegraph-adapter/src/index";
@@ -257,6 +257,49 @@ describe("M2 architecture control loop", () => {
       });
       expect(normalizedPaths.changedPaths).toEqual(["src/billing/fallback-mapper-v2.ts", "src/billing/legacy-wrapper-v1.ts"]);
       expect(normalizedPaths.hook.pathCount).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("checkpoint_task summarizes rename delete generated ignored and binary path classes without path bodies", async () => {
+    const root = tempModel();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      mkdirSync(join(root, "assets"), { recursive: true });
+      writeFileSync(join(root, "src/new-name.ts"), "export const renamed = true;\n", "utf8");
+      writeFileSync(join(root, "assets/logo.png"), "not-real-image-binary-fixture\n", "utf8");
+
+      const result = await checkpointTask({
+        workspace: { root, repositoryId: "repo.test", headSha: "abc" },
+        taskSessionId: "task_paths",
+        task: "inspect changed path classes",
+        event: "post-edit",
+        changedPaths: [
+          "src/old-name.ts",
+          "src/new-name.ts",
+          ".archcontext/generated/model.json",
+          "dist/bundle.js",
+          "node_modules/pkg/index.js",
+          "coverage/output.txt",
+          "assets/logo.png"
+        ],
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+
+      expect(result.hook.pathSummary).toEqual({
+        schemaVersion: "archcontext.checkpoint-path-summary/v1",
+        total: 7,
+        source: 1,
+        generated: 2,
+        ignored: 2,
+        binary: 1,
+        deleted: 1,
+        renameHints: 1
+      });
+      expect(JSON.stringify(result.hook.pathSummary)).not.toContain("src/new-name.ts");
+      expect(JSON.stringify(result.hook.pathSummary)).not.toContain("src/old-name.ts");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

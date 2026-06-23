@@ -1,3 +1,5 @@
+import { existsSync, statSync } from "node:fs";
+import { extname, resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetBase, type ChangeSetReason } from "@archcontext/core/changeset-engine";
 import { compileTaskContext, type ContextBudget } from "@archcontext/core/context-compiler";
@@ -113,6 +115,7 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
   const noBaseline = input.previous === undefined;
   const noDelta = delta.added.length === 0 && delta.removed.length === 0 && delta.upgraded.length === 0 && delta.downgraded.length === 0;
   const reasonCode = staleReasons[0] ?? (noBaseline ? "no-baseline" : noDelta ? "no-op" : "fresh");
+  const changedPaths = normalizeChangedPaths(input.changedPaths ?? []);
   const withoutDigests = {
     schemaVersion: "archcontext.practice-checkpoint/v1" as const,
     taskSessionId: input.taskSessionId,
@@ -124,7 +127,7 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
     fresh: staleReasons.length === 0,
     reasonCode,
     staleReasons,
-    changedPaths: normalizeChangedPaths(input.changedPaths ?? []),
+    changedPaths,
     ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
     catalogDigest: nextSnapshot.catalogDigest,
     contextDigest: nextSnapshot.contextDigest,
@@ -135,8 +138,9 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
     hook: {
       egress: "none" as const,
       failOpen: true as const,
-      pathCount: normalizeChangedPaths(input.changedPaths ?? []).length,
-      network: "forbidden" as const
+      pathCount: changedPaths.length,
+      network: "forbidden" as const,
+      pathSummary: summarizeCheckpointPaths(input.workspace.root, changedPaths)
     },
     nextSnapshot
   };
@@ -261,3 +265,71 @@ function normalizeChangedPaths(paths: string[]): string[] {
     .filter((path) => path.length > 0 && !path.startsWith("/") && !path.includes(".."))
   )].sort();
 }
+
+function summarizeCheckpointPaths(root: string, paths: string[]): PracticeCheckpointResultV1["hook"]["pathSummary"] {
+  const summary = {
+    schemaVersion: "archcontext.checkpoint-path-summary/v1" as const,
+    total: paths.length,
+    source: 0,
+    generated: 0,
+    ignored: 0,
+    binary: 0,
+    deleted: 0,
+    renameHints: 0
+  };
+  for (const path of paths) {
+    const kind = classifyCheckpointPath(root, path);
+    summary[kind] += 1;
+  }
+  summary.renameHints = Math.min(summary.deleted, summary.source);
+  return summary;
+}
+
+function classifyCheckpointPath(root: string, path: string): "source" | "generated" | "ignored" | "binary" | "deleted" {
+  if (isIgnoredCheckpointPath(path)) return "ignored";
+  if (isGeneratedCheckpointPath(path)) return "generated";
+  const absolute = resolve(root, path);
+  if (!existsSync(absolute)) return "deleted";
+  try {
+    if (!statSync(absolute).isFile()) return "ignored";
+  } catch {
+    return "deleted";
+  }
+  if (isBinaryCheckpointPath(path)) return "binary";
+  return "source";
+}
+
+function isGeneratedCheckpointPath(path: string): boolean {
+  return path.startsWith(".archcontext/generated/") ||
+    path.startsWith("dist/") ||
+    path.startsWith("build/") ||
+    path.includes("/generated/");
+}
+
+function isIgnoredCheckpointPath(path: string): boolean {
+  return path.startsWith(".git/") ||
+    path.startsWith("node_modules/") ||
+    path.startsWith("coverage/") ||
+    path.endsWith(".log");
+}
+
+function isBinaryCheckpointPath(path: string): boolean {
+  return CHECKPOINT_BINARY_EXTENSIONS.has(extname(path).toLowerCase());
+}
+
+const CHECKPOINT_BINARY_EXTENSIONS = new Set([
+  ".bin",
+  ".bmp",
+  ".db",
+  ".gif",
+  ".gz",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".pdf",
+  ".png",
+  ".sqlite",
+  ".wasm",
+  ".webp",
+  ".zip"
+]);

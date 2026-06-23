@@ -371,6 +371,16 @@ export interface PracticeCheckpointResultV1 {
     failOpen: true;
     pathCount: number;
     network: "forbidden";
+    pathSummary?: {
+      schemaVersion: "archcontext.checkpoint-path-summary/v1";
+      total: number;
+      source: number;
+      generated: number;
+      ignored: number;
+      binary: number;
+      deleted: number;
+      renameHints: number;
+    };
     coalesced?: boolean;
     skippedAnalysis?: boolean;
     coalescedEventCount?: number;
