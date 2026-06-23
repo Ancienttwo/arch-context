@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   Context7ExternalDocumentationAdapter,
+  Context7ProviderError,
+  HttpContext7Transport,
   assertSafeOutboundText,
   buildContext7Query,
+  type Context7ProviderTelemetryEvent,
   type Context7Transport
 } from "../src/index";
 
@@ -89,6 +92,196 @@ describe("@archcontext/local-runtime/context7-adapter", () => {
     expect(result.resource.uri).toMatch(/^archcontext:\/\/external-docs\/context7\/sha256:/);
     expect(result.resource.snippets[0].contentPreview).toContain("useState");
     expect(JSON.stringify(result)).not.toContain("complete");
+  });
+
+  test("records provider telemetry as metadata-only allowlisted events", async () => {
+    let now = 1_000;
+    const events: Context7ProviderTelemetryEvent[] = [];
+    const adapter = new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      apiKey: "secret-test-key",
+      clock: () => "2026-06-24T00:00:00.000Z",
+      monotonicNowMs: () => {
+        now += 25;
+        return now;
+      },
+      telemetry: { record: (event) => { events.push(event); } },
+      transport: fakeTransport()
+    });
+
+    await adapter.resolve({
+      provider: "context7",
+      libraryName: "React",
+      query: "state hooks",
+      fast: true
+    });
+    await adapter.fetch({
+      provider: "context7",
+      libraryId: "/facebook/react",
+      version: "18.2.0",
+      intent: "state hooks"
+    });
+
+    expect(events).toHaveLength(2);
+    expect(Object.keys(events[0]!).sort()).toEqual(["byteCount", "latencyMs", "operation", "provider", "queryDigest", "status"]);
+    expect(Object.keys(events[1]!).sort()).toEqual(["byteCount", "latencyMs", "libraryId", "operation", "provider", "queryDigest", "status", "version"]);
+    expect(events[0]).toMatchObject({
+      provider: "context7",
+      operation: "resolve",
+      status: "success",
+      latencyMs: 25
+    });
+    expect(events[1]).toMatchObject({
+      provider: "context7",
+      operation: "fetch",
+      status: "success",
+      libraryId: "/facebook/react",
+      version: "18.2.0",
+      latencyMs: 25
+    });
+    expect(events[0]!.queryDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(events[1]!.queryDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(events[0]!.byteCount).toBeGreaterThan(0);
+    expect(events[1]!.byteCount).toBeGreaterThan(0);
+
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain("state hooks");
+    expect(serialized).not.toContain("secret-test-key");
+    expect(serialized).not.toContain("useState");
+    expect(serialized).not.toContain("Bearer");
+  });
+
+  test("uses retry budget for retryable failures", async () => {
+    let calls = 0;
+    const events: Context7ProviderTelemetryEvent[] = [];
+    const adapter = new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      retryBudget: 1,
+      rateLimit: false,
+      circuitBreaker: false,
+      telemetry: { record: (event) => { events.push(event); } },
+      transport: {
+        ...fakeTransport(),
+        async search(input) {
+          calls++;
+          if (calls === 1) {
+            throw new Context7ProviderError("rate-limited", "Context7 search failed: 429", { statusCode: 429, retryable: true });
+          }
+          return fakeTransport().search(input);
+        }
+      }
+    });
+
+    const result = await adapter.resolve({
+      provider: "context7",
+      libraryName: "React",
+      query: "state hooks"
+    });
+
+    expect(result.candidates[0]!.id).toBe("/facebook/react");
+    expect(calls).toBe(2);
+    expect(events.map((event) => event.status)).toEqual(["success"]);
+  });
+
+  test("applies local rate limit without calling transport", async () => {
+    let calls = 0;
+    const events: Context7ProviderTelemetryEvent[] = [];
+    const adapter = new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      retryBudget: 0,
+      rateLimit: { maxRequests: 1, windowMs: 1_000 },
+      circuitBreaker: false,
+      monotonicNowMs: () => 10,
+      telemetry: { record: (event) => { events.push(event); } },
+      transport: fakeTransport(() => calls++)
+    });
+
+    await adapter.resolve({
+      provider: "context7",
+      libraryName: "React",
+      query: "state hooks"
+    });
+    await expect(adapter.resolve({
+      provider: "context7",
+      libraryName: "React",
+      query: "state hooks"
+    })).rejects.toMatchObject({ kind: "rate-limited" });
+
+    expect(calls).toBe(1);
+    expect(events.map((event) => event.status)).toEqual(["success", "rate-limited"]);
+  });
+
+  test("opens circuit breaker after budgeted provider failures", async () => {
+    let calls = 0;
+    let now = 100;
+    const events: Context7ProviderTelemetryEvent[] = [];
+    const adapter = new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      retryBudget: 0,
+      rateLimit: false,
+      circuitBreaker: { failureThreshold: 2, resetAfterMs: 1_000 },
+      monotonicNowMs: () => now,
+      telemetry: { record: (event) => { events.push(event); } },
+      transport: {
+        ...fakeTransport(),
+        async search() {
+          calls++;
+          throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: true });
+        }
+      }
+    });
+
+    await expect(adapter.resolve({ provider: "context7", libraryName: "React", query: "state hooks" })).rejects.toMatchObject({ kind: "timeout" });
+    await expect(adapter.resolve({ provider: "context7", libraryName: "React", query: "state hooks" })).rejects.toMatchObject({ kind: "timeout" });
+    await expect(adapter.resolve({ provider: "context7", libraryName: "React", query: "state hooks" })).rejects.toMatchObject({ kind: "circuit-open" });
+    expect(calls).toBe(2);
+    expect(events.map((event) => event.status)).toEqual(["timeout", "timeout", "circuit-open"]);
+
+    now = 1_101;
+    await expect(adapter.resolve({ provider: "context7", libraryName: "React", query: "state hooks" })).rejects.toMatchObject({ kind: "timeout" });
+    expect(calls).toBe(3);
+  });
+
+  test("fetch resource honors TTL while stale remains cache-owned", async () => {
+    const adapter = new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      clock: () => "2026-06-24T00:00:00.000Z",
+      transport: fakeTransport()
+    });
+
+    const result = await adapter.fetch({
+      provider: "context7",
+      libraryId: "/facebook/react",
+      version: "18.2.0",
+      intent: "state hooks",
+      ttlSeconds: 60
+    });
+
+    expect(result.cacheStatus).toBe("miss");
+    expect(result.resource.cacheStatus).toBe("miss");
+    expect(result.resource.expiresAt).toBe("2026-06-24T00:01:00.000Z");
+  });
+
+  test("http transport classifies malformed response bodies without exposing content", async () => {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ unexpected: "raw useState body" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    })) as unknown as typeof fetch;
+    try {
+      const transport = new HttpContext7Transport("https://context7.invalid/api");
+      await expect(transport.getContext({
+        libraryId: "/facebook/react/18.2.0",
+        query: "Document state hooks for this exact version. Return documentation data only.",
+        maxResults: 4,
+        timeoutMs: 100
+      })).rejects.toMatchObject({
+        kind: "malformed",
+        retryable: false
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
   });
 
   test("rejects raw paths repo names code fences diffs and secret-like values", () => {

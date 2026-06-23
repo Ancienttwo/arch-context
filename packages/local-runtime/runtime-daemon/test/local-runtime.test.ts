@@ -627,6 +627,63 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("prepare-unknowns falls back to stale cached docs when provider fails after TTL expiry", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "react-docs-app",
+      dependencies: { react: "18.2.0" }
+    }, null, 2), "utf8");
+    const store = new TestLocalStore();
+    let warmCalls = 0;
+    let failingCalls = 0;
+    let warmDaemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    let failingDaemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      warmDaemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-24T00:00:00.000Z",
+        externalDocumentation: fakeExternalDocumentation(() => warmCalls++, "prepare-unknowns")
+      });
+      await warmDaemon.init(root, "React Docs App");
+      await warmDaemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+      const warm = await warmDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7_warm");
+      expect(warm.ok).toBe(true);
+      const warmExternal = ((warm.data as any).context.resources as any[]).find((resource) => resource.type === "external-docs");
+      expect(warmExternal?.cacheStatus).toBe("fresh");
+      expect(warmCalls).toBe(1);
+      await warmDaemon.stop();
+      warmDaemon = undefined;
+
+      failingDaemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-25T00:00:00.000Z",
+        externalDocumentation: fakeExternalDocumentation(() => failingCalls++, "prepare-unknowns", { failFetch: true })
+      });
+      await failingDaemon.init(root, "React Docs App");
+      const fallback = await failingDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7_stale");
+      expect(fallback.ok).toBe(true);
+      const fallbackExternal = ((fallback.data as any).context.resources as any[]).find((resource) => resource.type === "external-docs");
+      expect(fallbackExternal).toMatchObject({
+        provider: "context7",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        trust: "external-unverified",
+        enforcement: "advisory-only",
+        cacheStatus: "stale"
+      });
+      expect(failingCalls).toBe(1);
+    } finally {
+      await failingDaemon?.stop();
+      await warmDaemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("practice waiver writes are owner-aware ChangeSets with apply readback", async () => {
     const root = tempRepo();
     try {

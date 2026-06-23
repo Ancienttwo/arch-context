@@ -2,7 +2,7 @@
   "schemaVersion": "archcontext.practice-context7-readback/v1",
   "environment": "local-fixture",
   "status": "verified",
-  "generatedAt": "2026-06-23T23:10:35.941Z",
+  "generatedAt": "2026-06-23T23:33:31.795Z",
   "defaultHealth": {
     "provider": "context7",
     "enabled": false,
@@ -38,6 +38,43 @@
     },
     "resolveApiKeyPresent": false,
     "fetchApiKeyPresent": false
+  },
+  "providerTelemetry": {
+    "eventCount": 2,
+    "statuses": [
+      "success",
+      "success"
+    ],
+    "operations": [
+      "resolve",
+      "fetch"
+    ],
+    "resolveKeys": [
+      "byteCount",
+      "latencyMs",
+      "operation",
+      "provider",
+      "queryDigest",
+      "status"
+    ],
+    "fetchKeys": [
+      "byteCount",
+      "latencyMs",
+      "libraryId",
+      "operation",
+      "provider",
+      "queryDigest",
+      "status",
+      "version"
+    ],
+    "fetchLibraryId": "/facebook/react",
+    "fetchVersion": "18.2.0",
+    "queryDigestsValid": true,
+    "byteCountsPositive": true,
+    "metadataOnly": true,
+    "rawQueryPresent": false,
+    "rawContentPresent": false,
+    "credentialPresent": false
   },
   "runtime": {
     "defaultPrepareEgress": "none",
@@ -134,6 +171,7 @@
   "assertions": {
     "defaultInstallEgressZero": true,
     "outboundFieldsAllowlisted": true,
+    "providerTelemetryMetadataOnly": true,
     "dlpInterceptsPrivateValues": true,
     "providerContentAdvisoryOnly": true,
     "hardGateProviderCallsZero": true,

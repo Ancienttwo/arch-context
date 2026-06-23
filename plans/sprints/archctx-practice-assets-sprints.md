@@ -1003,10 +1003,10 @@ bun run verify
 
 - [x] S5-11 实现 structured intent builder，只发送 libraryId、version、受限 intent 和 sanitised query。
 - [x] S5-12 建立 denylist/shape validator，拒绝 repository 名称、绝对路径、代码块、Diff、symbol list、secret-like token。
-- [ ] S5-13 Provider request/response 日志只记录 digest、status、latency、byte count、libraryId 和 version。
+- [x] S5-13 Provider request/response 日志只记录 digest、status、latency、byte count、libraryId 和 version。
 - [x] S5-14 外部内容经过 size limit、control-character cleanup、instruction-boundary 标记和 URI validation。
 - [x] S5-15 将 Provider 内容标为 untrusted documentation data，禁止覆盖 system/agent instructions。
-- [ ] S5-16 建立 rate limit、timeout、retry budget、circuit breaker；失败回退缓存或 static-only。
+- [x] S5-16 建立 rate limit、timeout、retry budget、circuit breaker；失败回退缓存或 static-only。
 
 ### Cache 与 provenance
 
@@ -1027,7 +1027,7 @@ bun run verify
 
 ### 安全与实跑
 
-- [ ] S5-28 Unit tests 使用 fake transport 验证 request minimization、redaction、TTL、stale 和 circuit breaker。
+- [x] S5-28 Unit tests 使用 fake transport 验证 request minimization、redaction、TTL、stale 和 circuit breaker。
 - [x] S5-29 DLP packet fixture 验证源码、Diff、路径、symbol、secret 路由数 = 0。
 - [ ] S5-30 真实 Context7 readback 使用公开 fixture package 与无敏感 task，记录 exact library ID/version。
 - [ ] S5-31 验证 Context7 关闭、无 key、无网络、429、timeout、malformed response 时 Local Core 结果不变。
@@ -1096,7 +1096,28 @@ Completed S5 `prepare-unknowns` advisory integration on branch
   runtime/CLI/readback tests, `node scripts/sprint-status-check.mjs`, and
   `bun run verify`.
 
-## 13.7 Rollback
+## 13.7 Execution Record — 2026-06-24
+
+Completed S5 provider observability/resilience module on branch
+`codex/context7-provider-resilience`.
+
+- Adapter: Context7 provider calls now use metadata-only telemetry, classified
+  provider errors, bounded retry budget, local rate limit, timeout handling, and
+  circuit breaker. Telemetry fields are restricted to provider, operation,
+  query digest, status, latency, byte count, library ID, and version.
+- Runtime fallback: prepare-unknowns keeps Local Core unchanged on provider
+  failure, and expired cached docs fall back as `cacheStatus=stale` advisory
+  resources instead of failing prepare.
+- Evidence: `docs/verification/practice-context7-readback.json` now records
+  provider telemetry allowlist assertions, with raw query/content/credential
+  presence all false.
+- Verified: `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`, `bun run record:s5:context7`, `bun run readback:s5:context7`, and `bun run typecheck`.
+
+Remaining S5 work is intentionally not marked complete: MCP read-only resource
+surfacing, live real Context7 provider readback, and the full disabled/no-key/
+no-network/429/timeout/malformed Local Core failure matrix.
+
+## 13.8 Rollback
 
 - `externalDocs.context7.enabled: false` 完全禁用 Provider；缓存可保留或显式 purge。
 - Adapter 不可用不得影响 daemon 启动、prepare、checkpoint、complete 或 attestation。

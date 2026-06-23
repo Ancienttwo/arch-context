@@ -17,6 +17,7 @@ import {
   Context7ExternalDocumentationAdapter,
   assertSafeOutboundText,
   type Context7ContextRequest,
+  type Context7ProviderTelemetryEvent,
   type Context7SearchRequest,
   type Context7Transport
 } from "@archcontext/local-runtime/context7-adapter";
@@ -106,6 +107,7 @@ export function inspectPracticeContext7Readback(packet: any) {
 
   inspectDefaultHealth(packet.defaultHealth, failures);
   inspectOutbound(packet.outbound, failures);
+  inspectProviderTelemetry(packet.providerTelemetry, failures);
   inspectRuntime(packet.runtime, failures);
   inspectDlp(packet.dlp, failures);
   inspectHardGateScan(packet.hardGateScan, failures);
@@ -161,6 +163,21 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
       },
       resolveApiKeyPresent: false,
       fetchApiKeyPresent: false
+    },
+    providerTelemetry: {
+      eventCount: 2,
+      statuses: ["success", "success"],
+      operations: ["resolve", "fetch"],
+      resolveKeys: ["byteCount", "latencyMs", "operation", "provider", "queryDigest", "status"],
+      fetchKeys: ["byteCount", "latencyMs", "libraryId", "operation", "provider", "queryDigest", "status", "version"],
+      fetchLibraryId: LIBRARY_ID,
+      fetchVersion: VERSION,
+      queryDigestsValid: true,
+      byteCountsPositive: true,
+      metadataOnly: true,
+      rawQueryPresent: false,
+      rawContentPresent: false,
+      credentialPresent: false
     },
     runtime: {
       defaultPrepareEgress: "none",
@@ -224,6 +241,7 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
     assertions: {
       defaultInstallEgressZero: true,
       outboundFieldsAllowlisted: true,
+      providerTelemetryMetadataOnly: true,
       dlpInterceptsPrivateValues: true,
       providerContentAdvisoryOnly: true,
       hardGateProviderCallsZero: true,
@@ -252,6 +270,7 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
     generatedAt: new Date().toISOString(),
     defaultHealth: adapter.defaultHealth,
     outbound: adapter.outbound,
+    providerTelemetry: adapter.providerTelemetry,
     runtime,
     dlp,
     hardGateScan,
@@ -260,6 +279,9 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
       defaultInstallEgressZero: adapter.defaultHealth.egress === "none" && runtime.defaultPrepareEgress === "none",
       outboundFieldsAllowlisted: sameArray(adapter.outbound.resolveKeys, ["fast", "libraryName", "query", "timeoutMs"])
         && sameArray(adapter.outbound.fetchKeys, ["libraryId", "maxResults", "query", "timeoutMs"]),
+      providerTelemetryMetadataOnly: adapter.providerTelemetry.metadataOnly === true
+        && adapter.providerTelemetry.queryDigestsValid === true
+        && adapter.providerTelemetry.byteCountsPositive === true,
       dlpInterceptsPrivateValues: dlp.rejected === dlp.cases && dlp.leakRoutes === 0,
       providerContentAdvisoryOnly: resourceSummary.trust === "external-unverified" && resourceSummary.enforcement === "advisory-only",
       hardGateProviderCallsZero: hardGateScan.checkpointProviderReferences === 0
@@ -288,6 +310,8 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
 
 async function captureAdapterReadback() {
   const outbound: { resolve?: Record<string, unknown>; fetch?: Record<string, unknown> } = {};
+  const telemetryEvents: Context7ProviderTelemetryEvent[] = [];
+  let monotonicNowMs = 1_000;
   const transport: Context7Transport = {
     async search(input: Context7SearchRequest) {
       outbound.resolve = projectOutboundRequest(input);
@@ -317,6 +341,11 @@ async function captureAdapterReadback() {
     mode: "manual",
     transport,
     clock: () => NOW,
+    monotonicNowMs: () => {
+      monotonicNowMs += 25;
+      return monotonicNowMs;
+    },
+    telemetry: { record: (event) => { telemetryEvents.push(event); } },
     maxBytes: 1024
   });
   await adapter.resolve({ provider: "context7", libraryName: "React", query: INTENT, fast: true });
@@ -338,6 +367,7 @@ async function captureAdapterReadback() {
       resolveApiKeyPresent: outbound.resolve?.apiKeyPresent === true,
       fetchApiKeyPresent: outbound.fetch?.apiKeyPresent === true
     },
+    providerTelemetry: summarizeProviderTelemetry(telemetryEvents),
     resourceSummary: summarizeExternalResource({ ...fetch.resource, cacheStatus: "fresh" })
   };
 }
@@ -479,6 +509,30 @@ function inspectOutbound(outbound: any, failures: string[]) {
   if (outbound.fetch?.libraryId !== `${LIBRARY_ID}/${VERSION}`) failures.push("outbound.fetch.libraryId must include exact pinned version");
 }
 
+function inspectProviderTelemetry(telemetry: any, failures: string[]) {
+  if (!telemetry || typeof telemetry !== "object" || Array.isArray(telemetry)) {
+    failures.push("providerTelemetry must be an object");
+    return;
+  }
+  if (telemetry.eventCount !== 2) failures.push("providerTelemetry.eventCount must be 2");
+  if (!sameArray(telemetry.statuses, ["success", "success"])) failures.push("providerTelemetry.statuses must be success,success");
+  if (!sameArray(telemetry.operations, ["resolve", "fetch"])) failures.push("providerTelemetry.operations must be resolve,fetch");
+  if (!sameArray(telemetry.resolveKeys, ["byteCount", "latencyMs", "operation", "provider", "queryDigest", "status"])) {
+    failures.push("providerTelemetry.resolveKeys must be metadata-only");
+  }
+  if (!sameArray(telemetry.fetchKeys, ["byteCount", "latencyMs", "libraryId", "operation", "provider", "queryDigest", "status", "version"])) {
+    failures.push("providerTelemetry.fetchKeys must be metadata-only with libraryId/version");
+  }
+  if (telemetry.fetchLibraryId !== LIBRARY_ID) failures.push("providerTelemetry.fetchLibraryId must be /facebook/react");
+  if (telemetry.fetchVersion !== VERSION) failures.push("providerTelemetry.fetchVersion must be 18.2.0");
+  if (telemetry.queryDigestsValid !== true) failures.push("providerTelemetry.queryDigestsValid must be true");
+  if (telemetry.byteCountsPositive !== true) failures.push("providerTelemetry.byteCountsPositive must be true");
+  if (telemetry.metadataOnly !== true) failures.push("providerTelemetry.metadataOnly must be true");
+  if (telemetry.rawQueryPresent !== false) failures.push("providerTelemetry.rawQueryPresent must be false");
+  if (telemetry.rawContentPresent !== false) failures.push("providerTelemetry.rawContentPresent must be false");
+  if (telemetry.credentialPresent !== false) failures.push("providerTelemetry.credentialPresent must be false");
+}
+
 function inspectRuntime(runtime: any, failures: string[]) {
   if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
     failures.push("runtime must be an object");
@@ -569,6 +623,7 @@ function inspectAssertions(assertions: any, failures: string[]) {
   for (const key of [
     "defaultInstallEgressZero",
     "outboundFieldsAllowlisted",
+    "providerTelemetryMetadataOnly",
     "dlpInterceptsPrivateValues",
     "providerContentAdvisoryOnly",
     "hardGateProviderCallsZero",
@@ -614,6 +669,30 @@ function summarizeExternalResource(resource: any) {
     uriPrefix: typeof resource.uri === "string" ? resource.uri.replace(resource.contentDigest, "") : undefined,
     snippetCount: Array.isArray(resource.snippets) ? resource.snippets.length : 0,
     byteCount: resource.byteCount
+  };
+}
+
+function summarizeProviderTelemetry(events: Context7ProviderTelemetryEvent[]) {
+  const serialized = JSON.stringify(events);
+  const resolve = events.find((event) => event.operation === "resolve");
+  const fetch = events.find((event) => event.operation === "fetch");
+  return {
+    eventCount: events.length,
+    statuses: events.map((event) => event.status),
+    operations: events.map((event) => event.operation),
+    resolveKeys: Object.keys(resolve ?? {}).sort(),
+    fetchKeys: Object.keys(fetch ?? {}).sort(),
+    fetchLibraryId: fetch?.libraryId,
+    fetchVersion: fetch?.version,
+    queryDigestsValid: events.every((event) => /^sha256:[0-9a-f]{64}$/.test(event.queryDigest)),
+    byteCountsPositive: events.every((event) => Number.isInteger(event.byteCount) && event.byteCount > 0),
+    metadataOnly: !serialized.includes(INTENT)
+      && !serialized.includes("External documentation data")
+      && !serialized.includes("React useState")
+      && !serialized.includes("apiKey"),
+    rawQueryPresent: serialized.includes(INTENT),
+    rawContentPresent: serialized.includes("External documentation data") || serialized.includes("React useState"),
+    credentialPresent: serialized.includes("Bearer") || serialized.includes("apiKey") || serialized.includes("CONTEXT7_API_KEY")
   };
 }
 

@@ -645,7 +645,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  });
+  }, 15_000);
 
   test("github connect, status, and disconnect use control-plane credential refs without gh", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-"));

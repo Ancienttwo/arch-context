@@ -21,6 +21,11 @@ export interface Context7AdapterOptions {
   timeoutMs?: number;
   maxBytes?: number;
   clock?: () => string;
+  monotonicNowMs?: () => number;
+  telemetry?: Context7ProviderTelemetryRecorder;
+  retryBudget?: number;
+  rateLimit?: Partial<Context7RateLimitOptions> | false;
+  circuitBreaker?: Partial<Context7CircuitBreakerOptions> | false;
 }
 
 export interface Context7Transport {
@@ -64,10 +69,72 @@ export interface Context7Documentation {
   source: string;
 }
 
+export type Context7ProviderOperation = "resolve" | "fetch";
+export type Context7ProviderTelemetryStatus =
+  | "success"
+  | "http-error"
+  | "timeout"
+  | "rate-limited"
+  | "malformed"
+  | "transport-error"
+  | "circuit-open";
+export type Context7ProviderFailureStatus = Exclude<Context7ProviderTelemetryStatus, "success">;
+
+export interface Context7ProviderTelemetryEvent {
+  provider: "context7";
+  operation: Context7ProviderOperation;
+  queryDigest: string;
+  status: Context7ProviderTelemetryStatus;
+  latencyMs: number;
+  byteCount: number;
+  libraryId?: string;
+  version?: string;
+}
+
+export interface Context7ProviderTelemetryRecorder {
+  record(event: Context7ProviderTelemetryEvent): void | Promise<void>;
+}
+
+export interface Context7RateLimitOptions {
+  maxRequests: number;
+  windowMs: number;
+}
+
+export interface Context7CircuitBreakerOptions {
+  failureThreshold: number;
+  resetAfterMs: number;
+}
+
+export class Context7ProviderError extends Error {
+  readonly kind: Context7ProviderFailureStatus;
+  readonly statusCode?: number;
+  readonly retryable: boolean;
+  readonly byteCount: number;
+
+  constructor(
+    kind: Context7ProviderFailureStatus,
+    message: string,
+    options: { statusCode?: number; retryable?: boolean; byteCount?: number; cause?: unknown } = {}
+  ) {
+    super(message);
+    this.name = "Context7ProviderError";
+    this.kind = kind;
+    this.statusCode = options.statusCode;
+    this.retryable = options.retryable ?? false;
+    this.byteCount = options.byteCount ?? 0;
+    if (options.cause !== undefined) {
+      (this as { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
 const DEFAULT_CONTEXT7_API_BASE = "https://context7.com/api";
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_BYTES = 24_576;
 const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60;
+const DEFAULT_RETRY_BUDGET = 1;
+const DEFAULT_RATE_LIMIT: Context7RateLimitOptions = { maxRequests: 60, windowMs: 60_000 };
+const DEFAULT_CIRCUIT_BREAKER: Context7CircuitBreakerOptions = { failureThreshold: 3, resetAfterMs: 60_000 };
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const LIBRARY_ID_PATTERN = /^\/[A-Za-z0-9._-]+\/[A-Za-z0-9._/@-]+$/;
 const VERSION_PATTERN = /^[A-Za-z0-9._@:+-]+$/;
@@ -93,6 +160,14 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
   private readonly timeoutMs: number;
   private readonly maxBytes: number;
   private readonly clock: () => string;
+  private readonly monotonicNowMs: () => number;
+  private readonly telemetry?: Context7ProviderTelemetryRecorder;
+  private readonly retryBudget: number;
+  private readonly rateLimit?: Context7RateLimitOptions;
+  private readonly circuitBreaker?: Context7CircuitBreakerOptions;
+  private requestTimestamps: number[] = [];
+  private consecutiveFailures = 0;
+  private circuitOpenedAtMs: number | undefined;
 
   constructor(options: Context7AdapterOptions = {}) {
     this.transport = options.transport ?? new HttpContext7Transport();
@@ -102,6 +177,17 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.clock = options.clock ?? (() => new Date(0).toISOString());
+    this.monotonicNowMs = options.monotonicNowMs ?? (() => Date.now());
+    this.telemetry = options.telemetry;
+    this.retryBudget = clampInteger(options.retryBudget ?? DEFAULT_RETRY_BUDGET, 0, 3);
+    this.rateLimit = options.rateLimit === false ? undefined : {
+      maxRequests: clampInteger(options.rateLimit?.maxRequests ?? DEFAULT_RATE_LIMIT.maxRequests, 1, 10_000),
+      windowMs: clampInteger(options.rateLimit?.windowMs ?? DEFAULT_RATE_LIMIT.windowMs, 1, 24 * 60 * 60 * 1000)
+    };
+    this.circuitBreaker = options.circuitBreaker === false ? undefined : {
+      failureThreshold: clampInteger(options.circuitBreaker?.failureThreshold ?? DEFAULT_CIRCUIT_BREAKER.failureThreshold, 1, 1_000),
+      resetAfterMs: clampInteger(options.circuitBreaker?.resetAfterMs ?? DEFAULT_CIRCUIT_BREAKER.resetAfterMs, 1, 24 * 60 * 60 * 1000)
+    };
   }
 
   health(): ExternalDocumentationProviderHealth {
@@ -120,17 +206,26 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
     if (input.provider !== "context7") throw new Error("Context7 adapter only supports provider=context7");
     assertSafeOutboundText(input.libraryName, "libraryName");
     assertSafeOutboundText(input.query, "query");
-    const response = await this.transport.search({
-      libraryName: input.libraryName,
-      query: input.query,
-      fast: input.fast ?? true,
-      timeoutMs: this.timeoutMs,
-      ...(this.apiKey ? { apiKey: this.apiKey } : {})
+    const queryDigest = digestJson({ provider: "context7", libraryName: input.libraryName, query: input.query });
+    const response = await this.executeProviderRequest({
+      operation: "resolve",
+      queryDigest,
+      call: () => this.transport.search({
+        libraryName: input.libraryName,
+        query: input.query,
+        fast: input.fast ?? true,
+        timeoutMs: this.timeoutMs,
+        ...(this.apiKey ? { apiKey: this.apiKey } : {})
+      }),
+      byteCountOf: (result) => byteCountJson({
+        searchFilterApplied: result.searchFilterApplied,
+        candidates: result.results.map(projectLibraryCandidate)
+      })
     });
     return {
       schemaVersion: "archcontext.external-docs-resolve/v1",
       provider: "context7",
-      queryDigest: digestJson({ provider: "context7", libraryName: input.libraryName, query: input.query }),
+      queryDigest,
       candidates: response.results.map(projectLibraryCandidate),
       searchFilterApplied: response.searchFilterApplied,
       egress: "manual-only"
@@ -144,12 +239,20 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
     assertContext7Version(input.version);
     const query = buildContext7Query(input);
     assertSafeOutboundText(query, "query");
-    const docs = await this.transport.getContext({
-      libraryId: `${input.libraryId}/${input.version}`,
-      query,
-      maxResults: input.maxResults ?? 4,
-      timeoutMs: this.timeoutMs,
-      ...(this.apiKey ? { apiKey: this.apiKey } : {})
+    const queryDigest = digestJson({ provider: "context7", libraryId: input.libraryId, version: input.version, query });
+    const docs = await this.executeProviderRequest({
+      operation: "fetch",
+      queryDigest,
+      libraryId: input.libraryId,
+      version: input.version,
+      call: () => this.transport.getContext({
+        libraryId: `${input.libraryId}/${input.version}`,
+        query,
+        maxResults: input.maxResults ?? 4,
+        timeoutMs: this.timeoutMs,
+        ...(this.apiKey ? { apiKey: this.apiKey } : {})
+      }),
+      byteCountOf: (result) => result.reduce((total, doc) => total + Buffer.byteLength(cleanExternalText(doc.content), "utf8"), 0)
     });
     const resource = buildExternalDocumentationResource({
       libraryId: input.libraryId,
@@ -173,6 +276,105 @@ export class Context7ExternalDocumentationAdapter implements ExternalDocumentati
       }
     };
   }
+
+  private async executeProviderRequest<T>(input: {
+    operation: Context7ProviderOperation;
+    queryDigest: string;
+    libraryId?: string;
+    version?: string;
+    call: () => Promise<T>;
+    byteCountOf: (result: T) => number;
+  }): Promise<T> {
+    const startedAtMs = this.monotonicNowMs();
+    const circuitError = this.checkCircuitOpen(startedAtMs);
+    if (circuitError) {
+      await this.recordTelemetry(input, circuitError.kind, startedAtMs, circuitError.byteCount);
+      throw circuitError;
+    }
+
+    const rateLimitError = this.consumeRateLimit(startedAtMs);
+    if (rateLimitError) {
+      await this.recordTelemetry(input, rateLimitError.kind, startedAtMs, rateLimitError.byteCount);
+      throw rateLimitError;
+    }
+
+    let attempt = 0;
+    while (attempt <= this.retryBudget) {
+      try {
+        const result = await input.call();
+        this.noteProviderSuccess();
+        await this.recordTelemetry(input, "success", startedAtMs, input.byteCountOf(result));
+        return result;
+      } catch (error) {
+        const classified = classifyContext7Error(error);
+        if (attempt >= this.retryBudget || !classified.retryable) {
+          this.noteProviderFailure(startedAtMs);
+          await this.recordTelemetry(input, classified.kind, startedAtMs, classified.byteCount);
+          throw classified;
+        }
+        attempt++;
+      }
+    }
+
+    const error = new Context7ProviderError("transport-error", "Context7 provider retry budget exhausted", { retryable: false });
+    this.noteProviderFailure(startedAtMs);
+    await this.recordTelemetry(input, error.kind, startedAtMs, error.byteCount);
+    throw error;
+  }
+
+  private consumeRateLimit(nowMs: number): Context7ProviderError | undefined {
+    if (!this.rateLimit) return undefined;
+    const windowStart = nowMs - this.rateLimit.windowMs;
+    this.requestTimestamps = this.requestTimestamps.filter((timestamp) => timestamp > windowStart);
+    if (this.requestTimestamps.length >= this.rateLimit.maxRequests) {
+      return new Context7ProviderError("rate-limited", "Context7 provider local rate limit exceeded", { retryable: false });
+    }
+    this.requestTimestamps.push(nowMs);
+    return undefined;
+  }
+
+  private checkCircuitOpen(nowMs: number): Context7ProviderError | undefined {
+    if (!this.circuitBreaker || this.circuitOpenedAtMs === undefined) return undefined;
+    if (nowMs - this.circuitOpenedAtMs >= this.circuitBreaker.resetAfterMs) return undefined;
+    return new Context7ProviderError("circuit-open", "Context7 provider circuit breaker is open", { retryable: false });
+  }
+
+  private noteProviderSuccess(): void {
+    this.consecutiveFailures = 0;
+    this.circuitOpenedAtMs = undefined;
+  }
+
+  private noteProviderFailure(nowMs: number): void {
+    if (!this.circuitBreaker) return;
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= this.circuitBreaker.failureThreshold) {
+      this.circuitOpenedAtMs = nowMs;
+    }
+  }
+
+  private async recordTelemetry(
+    input: Pick<Context7ProviderTelemetryEvent, "operation" | "queryDigest" | "libraryId" | "version">,
+    status: Context7ProviderTelemetryStatus,
+    startedAtMs: number,
+    byteCount: number
+  ): Promise<void> {
+    if (!this.telemetry) return;
+    const event: Context7ProviderTelemetryEvent = {
+      provider: "context7",
+      operation: input.operation,
+      queryDigest: input.queryDigest,
+      status,
+      latencyMs: Math.max(0, Math.round(this.monotonicNowMs() - startedAtMs)),
+      byteCount: Math.max(0, Math.round(byteCount)),
+      ...(input.libraryId ? { libraryId: input.libraryId } : {}),
+      ...(input.version ? { version: input.version } : {})
+    };
+    try {
+      await this.telemetry.record(event);
+    } catch {
+      // Telemetry is advisory and must not change external-doc behavior.
+    }
+  }
 }
 
 export class HttpContext7Transport implements Context7Transport {
@@ -187,8 +389,9 @@ export class HttpContext7Transport implements Context7Transport {
       method: "GET",
       headers: authHeaders(input.apiKey)
     }, input.timeoutMs);
-    if (!response.ok) throw new Error(`Context7 search failed: ${response.status}`);
-    return await response.json() as Context7SearchResponse;
+    if (!response.ok) throw httpStatusError("Context7 search failed", response);
+    const { payload } = await parseJsonResponse(response, "Context7 search");
+    return parseSearchResponse(payload);
   }
 
   async getContext(input: Context7ContextRequest): Promise<Context7Documentation[]> {
@@ -204,12 +407,9 @@ export class HttpContext7Transport implements Context7Transport {
         maxResults: input.maxResults
       })
     }, input.timeoutMs);
-    if (!response.ok) throw new Error(`Context7 context fetch failed: ${response.status}`);
-    const payload = await response.json() as unknown;
-    if (Array.isArray(payload)) return payload as Context7Documentation[];
-    if (payload && typeof payload === "object" && Array.isArray((payload as any).results)) return (payload as any).results as Context7Documentation[];
-    if (payload && typeof payload === "object" && Array.isArray((payload as any).docs)) return (payload as any).docs as Context7Documentation[];
-    return [];
+    if (!response.ok) throw httpStatusError("Context7 context fetch failed", response);
+    const { payload } = await parseJsonResponse(response, "Context7 context fetch");
+    return parseDocumentationResponse(payload);
   }
 }
 
@@ -319,6 +519,11 @@ async function fetchWithTimeout(input: string | URL, init: RequestInit, timeoutM
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: true, cause: error });
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -326,4 +531,95 @@ async function fetchWithTimeout(input: string | URL, init: RequestInit, timeoutM
 
 function authHeaders(apiKey?: string): Record<string, string> {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
+function classifyContext7Error(error: unknown): Context7ProviderError {
+  if (error instanceof Context7ProviderError) return error;
+  if (isAbortError(error)) {
+    return new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: true, cause: error });
+  }
+  return new Context7ProviderError("transport-error", "Context7 provider transport failed", { retryable: true, cause: error });
+}
+
+function httpStatusError(label: string, response: Response): Context7ProviderError {
+  const statusCode = response.status;
+  const kind: Context7ProviderFailureStatus = statusCode === 429 ? "rate-limited" : "http-error";
+  return new Context7ProviderError(kind, `${label}: ${statusCode}`, {
+    statusCode,
+    retryable: statusCode === 429 || statusCode >= 500,
+    byteCount: contentLengthByteCount(response)
+  });
+}
+
+async function parseJsonResponse(response: Response, label: string): Promise<{ payload: unknown; byteCount: number }> {
+  const body = await response.text();
+  const byteCount = Buffer.byteLength(body, "utf8");
+  try {
+    return { payload: JSON.parse(body) as unknown, byteCount };
+  } catch (error) {
+    throw new Context7ProviderError("malformed", `${label} returned malformed JSON`, { retryable: false, byteCount, cause: error });
+  }
+}
+
+function parseSearchResponse(payload: unknown): Context7SearchResponse {
+  if (!payload || typeof payload !== "object" || !Array.isArray((payload as { results?: unknown }).results)) {
+    throw new Context7ProviderError("malformed", "Context7 search returned malformed response", { retryable: false, byteCount: byteCountJson(payload) });
+  }
+  const results = ((payload as { results: unknown[] }).results).filter(isContext7Library);
+  return {
+    results,
+    searchFilterApplied: Boolean((payload as { searchFilterApplied?: unknown }).searchFilterApplied)
+  };
+}
+
+function parseDocumentationResponse(payload: unknown): Context7Documentation[] {
+  const docs = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && Array.isArray((payload as { results?: unknown }).results)
+      ? (payload as { results: unknown[] }).results
+      : payload && typeof payload === "object" && Array.isArray((payload as { docs?: unknown }).docs)
+        ? (payload as { docs: unknown[] }).docs
+        : undefined;
+  if (!docs) {
+    throw new Context7ProviderError("malformed", "Context7 context fetch returned malformed response", { retryable: false, byteCount: byteCountJson(payload) });
+  }
+  if (!docs.every(isContext7Documentation)) {
+    throw new Context7ProviderError("malformed", "Context7 context fetch returned malformed documentation entries", { retryable: false, byteCount: byteCountJson(payload) });
+  }
+  return docs;
+}
+
+function isContext7Library(value: unknown): value is Context7Library {
+  return !!value
+    && typeof value === "object"
+    && typeof (value as { id?: unknown }).id === "string"
+    && typeof (value as { title?: unknown }).title === "string";
+}
+
+function isContext7Documentation(value: unknown): value is Context7Documentation {
+  return !!value
+    && typeof value === "object"
+    && typeof (value as { title?: unknown }).title === "string"
+    && typeof (value as { content?: unknown }).content === "string"
+    && typeof (value as { source?: unknown }).source === "string";
+}
+
+function isAbortError(error: unknown): boolean {
+  return !!error && typeof error === "object" && (error as { name?: unknown }).name === "AbortError";
+}
+
+function byteCountJson(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value ?? null), "utf8");
+}
+
+function contentLengthByteCount(response: Response): number {
+  const raw = response.headers.get("content-length");
+  if (!raw) return 0;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.floor(value)));
 }

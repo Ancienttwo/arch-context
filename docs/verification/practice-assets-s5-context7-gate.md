@@ -21,8 +21,8 @@ Context7 without changing the deterministic practice engine.
   `docs/verification/practice-context7-readback.json`.
 
 Out of scope for this slice: MCP resource surfacing, live Context7 provider
-readback with a real API key, provider log/rate-limit/circuit-breaker hardening,
-and turning external docs into enforceable practice constraints.
+readback with a real API key, and turning external docs into enforceable
+practice constraints.
 
 ## P2 Trace
 
@@ -41,6 +41,10 @@ The concrete path is:
    SQLite by provider/library/version/query digest, calls the provider only on
    cache miss, stores the advisory resource, and returns a local
    `archcontext://external-docs/context7/<digest>` URI.
+   The Context7 adapter wraps the provider call with a bounded timeout, retry
+   budget, local rate limit, and circuit breaker. Telemetry records only
+   provider, operation, query digest, status, latency, byte count, library ID,
+   and version.
 5. A second fetch with the same exact library/version/query returns
    `cacheStatus=fresh` and does not call the provider.
 6. `prepare` keeps default egress at zero. When a caller explicitly configures
@@ -55,9 +59,10 @@ The concrete path is:
 8. `complete` runs after the fetch/prepare path without increasing provider
    call count.
 
-The pressure point was cache ownership: the daemon now writes cache records
-using the daemon-computed sanitized query digest rather than trusting a provider
-returned digest.
+The pressure points were cache ownership and provider failure shape. The daemon
+writes cache records using the daemon-computed sanitized query digest rather
+than trusting a provider returned digest, while the adapter classifies
+429/timeout/malformed/transport failures before they reach runtime fallback.
 
 ## P3 Decision
 
@@ -70,27 +75,31 @@ calls during hard gates, so this slice restricts automatic calls to explicit
 references.
 
 The smallest coherent change was a port plus one adapter, one cache table, and
-manual CLI commands plus one daemon-level prepare augmentation. That preserves
-the existing repo pattern: contracts first, daemon-owned state, thin CLI, and
-executable evidence.
+manual CLI commands plus one daemon-level prepare augmentation. Provider
+resilience stays in the adapter instead of widening `ExternalDocumentationPort`,
+which preserves the existing repo pattern: contracts first, daemon-owned state,
+thin CLI, and executable evidence.
 
 ## Evidence
 
 - `bun test scripts/practice-context7-readback.test.ts`
 - `bun run record:s5:context7`
 - `bun run readback:s5:context7`
+- `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`
 - `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts`
 - `bun test packages/contracts/test/contracts.test.ts`
 - `bun run typecheck`
 
 Observed readbacks:
 
-- Context7 adapter tests pass request minimization, DLP rejection, and advisory
-  resource checks.
+- Context7 adapter tests pass request minimization, DLP rejection, advisory
+  resource checks, metadata-only telemetry, retry budget, local rate limit,
+  circuit breaker, TTL projection, and malformed response classification.
 - Runtime daemon test proves manual pin/fetch cache replay and no provider calls
-  from complete; prepare-unknowns uses pinned exact versions and cache replay.
+  from complete; prepare-unknowns uses pinned exact versions, cache replay, and
+  stale cache fallback when provider fetch fails after TTL expiry.
 - CLI test proves docs commands require explicit approval and `--allow-network`.
 - S5 readback evidence proves default egress zero, allowlisted outbound fields,
-  DLP interception, exact-version cache replay, prepare-unknowns advisory-only
-  resource insertion, provider failure fallback, and zero hard-gate provider
-  references.
+  metadata-only provider telemetry, DLP interception, exact-version cache
+  replay, prepare-unknowns advisory-only resource insertion, provider failure
+  fallback, and zero hard-gate provider references.
