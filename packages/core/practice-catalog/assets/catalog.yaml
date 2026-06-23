@@ -37,7 +37,7 @@
     {
       "id": "migration.target-and-removal-state",
       "revision": 1,
-      "digest": "sha256:062b5b9a202e819d63e09a39842b5128968932c3e2a9aec16c710ca00447fca3",
+      "digest": "sha256:c71b3d1428e70c83526870af03c08e0c76ed8f9943640d431af828870579e8ba",
       "sourceIds": ["archcontext.adr.0009", "madr"]
     },
     {
@@ -90,5 +90,5 @@
     "openssf.scorecard",
     "opentelemetry"
   ],
-  "catalogDigest": "sha256:b43eff92f4752306034fe908413c34c516e99f22189ad1247e63e52e98062e3a"
+  "catalogDigest": "sha256:d2a657766c618502556baadf7400150cb36201073a53b5f37449c42495bc032d"
 }

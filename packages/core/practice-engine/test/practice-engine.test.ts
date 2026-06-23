@@ -130,6 +130,30 @@ function ownerMatch(assetDigest: string, evidence: Array<{ subject: string; kind
   };
 }
 
+function migrationMatch(assetDigest: string, evidence: Array<{ subject: string; kind?: "architecture-model" | "diff" | "symbol" }>): PracticeMatchV1 {
+  return {
+    schemaVersion: "archcontext.practice-match/v1",
+    practiceId: "migration.target-and-removal-state",
+    assetRevision: 1,
+    assetDigest,
+    title: "Migration work needs both target state and removal state",
+    category: "migration",
+    score: 90,
+    confidence: "high",
+    enforcement: "checkpoint",
+    matchedBy: ["predicate"],
+    evidence: evidence.map((item) => ({
+      kind: item.kind ?? "architecture-model",
+      strength: "observed",
+      subject: item.subject,
+      digest: digestJson({ subject: item.subject }),
+      observedAt: "1970-01-01T00:00:00.000Z"
+    })),
+    explanation: ["migration fixture"],
+    sourceTrust: "curated-static"
+  };
+}
+
 function compatibilityMatch(assetDigest: string): PracticeMatchV1 {
   return {
     schemaVersion: "archcontext.practice-match/v1",
@@ -426,6 +450,82 @@ describe("@archcontext/core/practice-engine", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("migration checkers require explicit review date and removal condition evidence", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "migration.target-and-removal-state")!;
+    const policy: PracticeEnforcementPolicyV1 = {
+      schemaVersion: "archcontext.practice-enforcement-policy/v1",
+      mode: "active",
+      rules: [{
+        practiceId: "migration.target-and-removal-state",
+        enforcement: "complete",
+        checkIds: ["migration-review-date", "migration-removal-condition"]
+      }]
+    };
+
+    const plainSymbol = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [migrationMatch(asset.assetDigest, [{ kind: "symbol", subject: "symbol.legacyMigrationAdapter" }])]
+    });
+    const missingBoth = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [migrationMatch(asset.assetDigest, [{ subject: "migration:module.billing-v1-removal" }])]
+    });
+    const missingRemoval = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [migrationMatch(asset.assetDigest, [
+        { subject: "migration:module.billing-v1-removal" },
+        { subject: "migration-review-date:module.billing-v1-removal=2026-07-31" }
+      ])]
+    });
+    const invalidReviewDate = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [migrationMatch(asset.assetDigest, [
+        { subject: "migration:module.billing-v1-removal" },
+        { subject: "migration-review-date:module.billing-v1-removal=2026-02-31" },
+        { subject: "migration-removal-condition:module.billing-v1-removal=all-callers-use-billing-v2" }
+      ])]
+    });
+    const vagueRemoval = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [migrationMatch(asset.assetDigest, [
+        { subject: "migration:module.billing-v1-removal" },
+        { subject: "migration-review-date:module.billing-v1-removal=2026-07-31" },
+        { subject: "migration-removal-condition:module.billing-v1-removal=cleanup later" }
+      ])]
+    });
+    const complete = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [migrationMatch(asset.assetDigest, [
+        { subject: "migration:module.billing-v1-removal" },
+        { subject: "migration-review-date:module.billing-v1-removal=2026-07-31" },
+        { subject: "migration-removal-condition:module.billing-v1-removal=all-callers-use-billing-v2" }
+      ])]
+    });
+
+    expect(plainSymbol.violations).toEqual([]);
+    expect(plainSymbol.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ checkId: "migration-review-date", status: "not_applicable" }),
+      expect.objectContaining({ checkId: "migration-removal-condition", status: "not_applicable" })
+    ]));
+    expect(missingBoth.violations.map((violation) => violation.checkId)).toEqual(["migration-removal-condition", "migration-review-date"]);
+    expect(missingBoth.violations.every((violation) => violation.subjects[0] === "module.billing-v1-removal")).toBe(true);
+    expect(missingRemoval.violations.map((violation) => violation.checkId)).toEqual(["migration-removal-condition"]);
+    expect(invalidReviewDate.violations.map((violation) => violation.checkId)).toEqual(["migration-review-date"]);
+    expect(vagueRemoval.violations.map((violation) => violation.checkId)).toEqual(["migration-removal-condition"]);
+    expect(complete.violations).toEqual([]);
+    expect(complete.results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ checkId: "migration-review-date", status: "pass" }),
+      expect.objectContaining({ checkId: "migration-removal-condition", status: "pass" })
+    ]));
   });
 
   test("compatibility contract checker blocks missing durable contract", () => {

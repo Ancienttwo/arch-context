@@ -870,6 +870,11 @@ bun run verify
 - Catalog 边界：`ownership.explicit-lifecycle-owner` 从 checkpoint-only 晋升为 repo opt-in complete-capable，内置 catalog manifest digest 同步更新。
 - 验证证据写入 `docs/verification/practice-assets-s4-owner-required.md`。
 - 2026-06-24：owner-required full verification 通过，`bun run verify` readback 为 600 pass / 0 fail / 3581 expects。
+- 2026-06-24：从 owner-required stacked head 创建 `codex/practice-migration-state`，完成 S4-11 `migration-review-date` 与 `migration-removal-condition` deterministic checker。
+- 实现边界：migration checker 只接受 explicit migration `architecture-model` / `diff` evidence；plain symbol 和 task text 不会 hard-fail。review date 必须是 exactly one `YYYY-MM-DD`，removal condition 必须是 exactly one durable non-vague condition。
+- Catalog 边界：`migration.target-and-removal-state` 从 checkpoint-only 晋升为 repo opt-in complete-capable，内置 catalog manifest digest 同步更新。
+- 验证证据写入 `docs/verification/practice-assets-s4-migration-state.md`。
+- 2026-06-24：migration-state full verification 通过，`bun run verify` readback 为 601 pass / 0 fail / 3590 expects。
 
 ## 12.2 Checklist
 
@@ -888,7 +893,7 @@ bun run verify
 - [x] S4-08 首批实现 `no-new-cycle`，只阻断本次变更新增的 cycle，不追责历史存量。
 - [x] S4-09 首批实现 `dependency-direction`，基于显式 repo layer/boundary profile。
 - [x] S4-10 首批实现 `owner-required`，只对声明为 governed 的 component/resource 生效。
-- [ ] S4-11 首批实现 `migration-review-date` 与 `migration-removal-condition`。
+- [x] S4-11 首批实现 `migration-review-date` 与 `migration-removal-condition`。
 - [ ] S4-12 首批实现 `required-test-evidence`，仅在 policy 明确指定测试命令/证据时启用。
 - [x] S4-13 Checker 结果包含 inspected fact digests、violation subjects、existing/new 状态和 remediation。
 

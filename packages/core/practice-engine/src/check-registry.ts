@@ -28,6 +28,8 @@ type RegisteredPracticeCheck = (input: PracticeCheckRunInput) => PracticeCheckRe
 const REGISTERED_CHECKS: Record<string, RegisteredPracticeCheck> = {
   "compatibility-contract-required": compatibilityContractRequired,
   "dependency-direction": dependencyDirection,
+  "migration-removal-condition": migrationRemovalCondition,
+  "migration-review-date": migrationReviewDate,
   "no-new-cycle": noNewCycle,
   "owner-required": ownerRequired
 };
@@ -53,6 +55,24 @@ const LIFECYCLE_OWNER_PREFIXES = [
   "lifecycle-owner:",
   "lifecycle-owner-declared:",
   "owner:"
+];
+
+const MIGRATION_SUBJECT_PREFIXES = [
+  "migration:",
+  "migration-path:",
+  "migration-state:",
+  "temporary-state:"
+];
+
+const MIGRATION_REVIEW_DATE_PREFIXES = [
+  "migration-review-date:",
+  "review-date:"
+];
+
+const MIGRATION_REMOVAL_CONDITION_PREFIXES = [
+  "migration-removal-condition:",
+  "removal-condition:",
+  "removal-state:"
 ];
 
 export function isRegisteredPracticeCheck(checkId: string): boolean {
@@ -200,6 +220,62 @@ function ownerRequired(input: PracticeCheckRunInput): PracticeCheckResultV1 {
   });
 }
 
+function migrationReviewDate(input: PracticeCheckRunInput): PracticeCheckResultV1 {
+  const subjects = migrationSubjects(input.match);
+  if (subjects.length === 0) return noMigrationEvidence(input, "declare-migration-before-review-date-enforcement");
+  const reviewDates = migrationDeclarations(input.match, MIGRATION_REVIEW_DATE_PREFIXES);
+  const violations = subjects.filter((subject) => !validMigrationReviewDate(reviewDates.get(subject)));
+  if (violations.length === 0) {
+    return checkResult(input, {
+      status: "pass",
+      reasonCode: "no-violation",
+      subjects,
+      message: "Every explicitly governed migration has a deterministic review date.",
+      action: "none"
+    });
+  }
+  return checkResult(input, {
+    status: "fail",
+    reasonCode: "violation",
+    subjects: violations,
+    message: "A migration is missing a valid review date.",
+    action: "record-migration-review-date"
+  });
+}
+
+function migrationRemovalCondition(input: PracticeCheckRunInput): PracticeCheckResultV1 {
+  const subjects = migrationSubjects(input.match);
+  if (subjects.length === 0) return noMigrationEvidence(input, "declare-migration-before-removal-condition-enforcement");
+  const removalConditions = migrationDeclarations(input.match, MIGRATION_REMOVAL_CONDITION_PREFIXES);
+  const violations = subjects.filter((subject) => !durableMigrationRemovalCondition(removalConditions.get(subject)));
+  if (violations.length === 0) {
+    return checkResult(input, {
+      status: "pass",
+      reasonCode: "no-violation",
+      subjects,
+      message: "Every explicitly governed migration has a deterministic removal condition.",
+      action: "none"
+    });
+  }
+  return checkResult(input, {
+    status: "fail",
+    reasonCode: "violation",
+    subjects: violations,
+    message: "A migration is missing a durable removal condition.",
+    action: "record-migration-removal-condition"
+  });
+}
+
+function noMigrationEvidence(input: PracticeCheckRunInput, action: string): PracticeCheckResultV1 {
+  return checkResult(input, {
+    status: "not_applicable",
+    reasonCode: "no-violation",
+    subjects: [],
+    message: "No explicitly governed migration evidence is available.",
+    action
+  });
+}
+
 function importCycleSubjects(match: PracticeMatchV1): string[] {
   return match.evidence
     .filter((evidence) => evidence.kind === "import-edge" && evidence.strength !== "heuristic")
@@ -244,6 +320,45 @@ function lifecycleOwnerDeclaration(subject: string): { subject: string; owner: s
 function prefixedSubject(subject: string, prefixes: string[]): string | undefined {
   const prefix = prefixes.find((candidate) => subject.startsWith(candidate));
   return prefix ? subject.slice(prefix.length) : undefined;
+}
+
+function migrationSubjects(match: PracticeMatchV1): string[] {
+  const subjects = match.evidence.flatMap((evidence) => {
+    if (evidence.strength === "heuristic") return [];
+    if (evidence.kind !== "architecture-model" && evidence.kind !== "diff") return [];
+    const subject = prefixedSubject(evidence.subject, MIGRATION_SUBJECT_PREFIXES);
+    return subject ? [subject] : [];
+  });
+  return [...new Set(subjects)].sort();
+}
+
+function migrationDeclarations(match: PracticeMatchV1, prefixes: string[]): Map<string, string[]> {
+  const declarations = new Map<string, string[]>();
+  for (const evidence of match.evidence) {
+    if (evidence.strength === "heuristic") continue;
+    if (evidence.kind !== "architecture-model" && evidence.kind !== "diff") continue;
+    const declaration = prefixedSubject(evidence.subject, prefixes);
+    const separator = declaration?.indexOf("=") ?? -1;
+    if (!declaration || separator <= 0 || separator === declaration.length - 1) continue;
+    const subject = declaration.slice(0, separator);
+    const value = declaration.slice(separator + 1);
+    declarations.set(subject, [...new Set([...(declarations.get(subject) ?? []), value])].sort());
+  }
+  return declarations;
+}
+
+function validMigrationReviewDate(values: string[] | undefined): boolean {
+  if (!values || values.length !== 1) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(values[0])) return false;
+  const parsed = new Date(`${values[0]}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === values[0];
+}
+
+function durableMigrationRemovalCondition(values: string[] | undefined): boolean {
+  if (!values || values.length !== 1) return false;
+  const value = values[0].trim();
+  if (value.length < 8) return false;
+  return !/\b(?:todo|tbd|later|eventually|temporary|cleanup-later|cleanup_later)\b/i.test(value);
 }
 
 function dependencyDirectionViolationSubjects(match: PracticeMatchV1): string[] {
