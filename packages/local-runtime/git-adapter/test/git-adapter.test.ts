@@ -30,6 +30,15 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     expect(binding.worktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
   });
 
+  test("non-repository roots fail without walking past the filesystem root", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-git-adapter-nonrepo-"));
+    try {
+      expect(() => findRepositoryRoot(root)).toThrow("Repository root not found");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("creates a detached temporary worktree at an exact clean commit", () => {
     const root = createGitFixture();
     const tempRoot = mkdtempSync(join(tmpdir(), "archctx-review-worktrees-"));
