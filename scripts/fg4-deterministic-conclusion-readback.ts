@@ -269,7 +269,7 @@ function createRuntime() {
   const preflight = createReviewActionPreflightPlan({
     runtimeVersion: REVIEW_ACTION_DEFAULTS.runtimeVersion,
     runtimeArtifactDigest: RUNTIME_ARTIFACT_DIGEST,
-    runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.0.tgz"
+    runtimeArtifactUrl: "https://archcontext.repoharness.com/releases/archctx-0.1.1.tgz"
   });
   if (!preflight.ok) throw new Error(preflight.reason);
   return createReviewActionAttestationRuntime({

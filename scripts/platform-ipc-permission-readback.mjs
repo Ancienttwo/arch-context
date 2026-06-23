@@ -6,13 +6,15 @@ import { delimiter, join } from "node:path";
 
 const workspaceRoot = process.cwd();
 const root = mkdtempSync(join(tmpdir(), "archctx-platform-ipc-"));
+const stateRoot = mkdtempSync(join(tmpdir(), "archctx-platform-ipc-state-"));
 const archctxCommand = resolveInstalledArchctxCommand();
-const connectionPath = join(root, ".archcontext", ".local", "archctxd.json");
-const lockPath = join(root, ".archcontext", ".local", "archctxd.lock");
 
 try {
   writeFileSync(join(root, "README.md"), "# platform ipc readback\n", "utf8");
   const help = runArchctx();
+  const paths = runArchctx("paths");
+  const connectionPath = paths.data.daemonConnectionPath;
+  const lockPath = paths.data.daemonLockPath;
   const started = runArchctx("daemon", "start");
   const connection = JSON.parse(readFileSync(connectionPath, "utf8"));
   const status = runArchctx("daemon", "status");
@@ -43,6 +45,10 @@ try {
     controlFiles: {
       connectionPath: redactRoot(connectionPath),
       lockPath: redactRoot(lockPath),
+      runtimeStateRoot: redactPath(paths.data.stateRoot),
+      storageRepositoryId: paths.data.storageRepositoryId,
+      storageWorkspaceId: paths.data.storageWorkspaceId,
+      npmGlobalInstallState: paths.data.npmGlobalInstallState,
       connectionMode,
       lockMode,
       tokenRedactedFromStatus
@@ -58,6 +64,7 @@ try {
   assert(readback.install.hasDaemonCommand, "installed archctx bin must expose daemon command");
   assert(readback.install.hasMcpCommand, "installed archctx bin must expose mcp command");
   assert(readback.install.hasDoctorCommand, "installed archctx bin must expose doctor command");
+  assert(readback.controlFiles.npmGlobalInstallState === "forbidden", "mutable runtime state must not use npm global installation directories");
   assert(readback.transport.protocol === "http-loopback", "daemon transport must be loopback HTTP for MVP");
   assert(readback.transport.loopbackOnly, "daemon must bind loopback");
   assert(readback.controlFiles.tokenRedactedFromStatus, "daemon status must redact bearer token");
@@ -71,6 +78,7 @@ try {
 } finally {
   runArchctx("daemon", "stop", { allowFailure: true });
   rmSync(root, { recursive: true, force: true });
+  rmSync(stateRoot, { recursive: true, force: true });
 }
 
 function runArchctx(...args) {
@@ -81,6 +89,7 @@ function runArchctx(...args) {
     env: {
       ...process.env,
       DO_NOT_TRACK: "1",
+      ARCHCONTEXT_STATE_DIR: stateRoot,
       PATH: `${join(workspaceRoot, "node_modules", ".bin")}${delimiter}${process.env.PATH ?? ""}`
     },
     shell: archctxCommand.shell,

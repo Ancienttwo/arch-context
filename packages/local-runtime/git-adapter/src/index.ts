@@ -13,9 +13,11 @@ export function findRepositoryRoot(start: string): string {
     }).trim());
   } catch {
     let cursor = resolve(start);
-    while (cursor !== "/") {
+    while (true) {
       if (existsSync(resolve(cursor, ".git"))) return cursor;
-      cursor = resolve(cursor, "..");
+      const parent = dirname(cursor);
+      if (parent === cursor) break;
+      cursor = parent;
     }
     throw new Error(`Repository root not found from ${start}`);
   }

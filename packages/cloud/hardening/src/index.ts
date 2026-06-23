@@ -12,9 +12,9 @@ export const NODE_SUPPORT_MATRIX = [
 ] as const;
 
 export const PLATFORM_STATE_PATHS = {
-  darwin: "~/Library/Application Support/ArchContext/repos/<fingerprint>",
-  linux: "~/.local/share/archcontext/repos/<fingerprint>",
-  win32: "%LOCALAPPDATA%/ArchContext/repos/<fingerprint>"
+  darwin: "~/Library/Application Support/ArchContext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>",
+  linux: "~/.local/share/archcontext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>",
+  win32: "%LOCALAPPDATA%/ArchContext/repositories/<storage-repository-id>/worktrees/<storage-workspace-id>"
 } as const;
 
 export function diagnostics() {

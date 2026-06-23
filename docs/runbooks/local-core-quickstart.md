@@ -28,6 +28,7 @@ Run the local product from the repository root:
 ```bash
 cd /path/to/my-repo
 archctx doctor
+archctx paths
 archctx init --name "My App"
 archctx sync
 archctx prepare --task "Describe the change you are about to make"
@@ -36,7 +37,8 @@ archctx status
 
 Expected local behavior:
 
-- `archctx doctor` reports Git, SQLite, CodeGraph, filesystem permission, product version, daemon, and egress state.
+- `archctx doctor` reports Git, SQLite, CodeGraph, filesystem permission, product version, daemon, runtime paths, and egress state.
+- `archctx paths` reports repository truth, CodeGraph index, storage repository/worktree identity, and OS user-data runtime paths.
 - `archctx init` writes the repository-local `.archcontext/` model files.
 - `archctx sync` updates local derived runtime state.
 - `archctx prepare` compiles local task context through the daemon.
@@ -61,7 +63,7 @@ Stop the daemon for the current repository when the session is done:
 archctx daemon stop
 ```
 
-Stopping the daemon removes transient connection and lock files. It does not delete `.archcontext/model`, generated projections, or retained local runtime state.
+Stopping the daemon removes transient connection and lock files from the reported runtime state directory. It does not delete `.archcontext/model`, generated projections, or retained local runtime state.
 
 ## Optional Governance
 

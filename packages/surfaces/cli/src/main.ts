@@ -1,14 +1,14 @@
 #!/usr/bin/env bun
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
-import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { checkpoint } from "@archcontext/core/application";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { defaultLocalStorePath } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
@@ -31,7 +31,11 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
-const DAEMON_START_TIMEOUT_MS = 5_000;
+const DAEMON_START_TIMEOUT_MS = 15_000;
+const RELEASE_PACKAGE_NAME = "archctx";
+const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
+const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
+const NPM_VIEW_TIMEOUT_MS = 5_000;
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -319,7 +323,15 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         data: { content: uninstallMarker(readFlag(args, "--content") ?? "", (readFlag(args, "--host") as any) ?? "generic") }
       };
     case "doctor":
-      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "doctor", data: await doctorReport(cwd) };
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "doctor", data: await doctorReport(cwd, args) };
+    case "update": {
+      if (!args.includes("--check")) {
+        return errorEnvelope("update", "AC_CAPABILITY_UNSUPPORTED", "update only supports read-only checks; run archctx update --check");
+      }
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "update.check", data: updateCheckReport({ checkUpdates: true }) };
+    }
+    case "paths":
+      return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "paths", data: runtimePathsReport(cwd) };
     case "privacy-audit":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -369,8 +381,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -957,8 +969,9 @@ function agentHostRemoveConfig(host: AgentHost) {
   return { mcpServers: { archcontext: null } };
 }
 
-async function doctorReport(cwd: string) {
+async function doctorReport(cwd: string, args: string[] = []) {
   const product = productVersionManifest();
+  const paths = runtimePathsReport(cwd);
   const daemon = await doctorDaemon(cwd);
   const git = doctorGit(cwd);
   const sqlite = doctorSqlite(cwd);
@@ -976,6 +989,10 @@ async function doctorReport(cwd: string) {
     },
     daemon,
     sqlite,
+    update: updateCheckReport({
+      checkUpdates: args.includes("--check-updates") || process.env[UPDATE_CHECK_ENV] === "1"
+    }),
+    paths,
     codeGraph: product.runtime.codeGraph,
     git,
     permissions,
@@ -983,6 +1000,127 @@ async function doctorReport(cwd: string) {
     hardening,
     ok: hardening.supportedNode && permissions.workspace.readable && permissions.workspace.writable && hardening.egress.ok
   };
+}
+
+type UpdateCheckStatus = "not-checked" | "current" | "update-available" | "latest-unavailable" | "compare-unavailable";
+
+function updateCheckReport(opts: { checkUpdates: boolean; env?: NodeJS.ProcessEnv }) {
+  const env = opts.env ?? process.env;
+  const currentVersion = productVersionManifest().product.version;
+  const installCommand = `npm install -g ${RELEASE_PACKAGE_NAME}@latest`;
+  const base = {
+    schemaVersion: "archcontext.update-check/v1",
+    packageName: RELEASE_PACKAGE_NAME,
+    currentVersion,
+    installCommand,
+    egress: {
+      default: "none",
+      checkUpdates: "https://registry.npmjs.org/"
+    }
+  };
+
+  if (!opts.checkUpdates) {
+    return {
+      ...base,
+      status: "not-checked" as UpdateCheckStatus,
+      checkUpdates: false,
+      updateAvailable: false,
+      reason: `disabled; run archctx update --check or ${UPDATE_CHECK_ENV}=1 archctx doctor`
+    };
+  }
+
+  const latest = readLatestPackageVersion(env);
+  if (!latest.version) {
+    return {
+      ...base,
+      status: "latest-unavailable" as UpdateCheckStatus,
+      checkUpdates: true,
+      updateAvailable: false,
+      source: latest.source,
+      error: latest.error ?? "unknown error",
+      reason: "latest version unavailable"
+    };
+  }
+
+  const comparison = compareVersions(currentVersion, latest.version);
+  if (comparison === null) {
+    return {
+      ...base,
+      status: "compare-unavailable" as UpdateCheckStatus,
+      checkUpdates: true,
+      updateAvailable: false,
+      latestVersion: latest.version,
+      source: latest.source,
+      reason: "unable to compare semantic versions"
+    };
+  }
+
+  if (comparison < 0) {
+    return {
+      ...base,
+      status: "update-available" as UpdateCheckStatus,
+      checkUpdates: true,
+      updateAvailable: true,
+      latestVersion: latest.version,
+      source: latest.source,
+      reason: `current=${currentVersion}; latest=${latest.version}`
+    };
+  }
+
+  return {
+    ...base,
+    status: "current" as UpdateCheckStatus,
+    checkUpdates: true,
+    updateAvailable: false,
+    latestVersion: latest.version,
+    source: latest.source,
+    reason: `current=${currentVersion}; latest=${latest.version}`
+  };
+}
+
+function readLatestPackageVersion(env: NodeJS.ProcessEnv): { source: "env" | "npm"; version?: string; error?: string } {
+  if (env[LATEST_VERSION_ENV]) {
+    return { source: "env", version: env[LATEST_VERSION_ENV] };
+  }
+
+  const result = spawnSync("npm", ["view", RELEASE_PACKAGE_NAME, "version", "--json"], {
+    encoding: "utf8",
+    timeout: NPM_VIEW_TIMEOUT_MS,
+    shell: false
+  });
+  if (result.status !== 0 || result.error) {
+    return {
+      source: "npm",
+      error: trimUpdateError(result.stderr || result.stdout || String(result.error?.message ?? result.error ?? "npm view failed"))
+    };
+  }
+  try {
+    const parsed = JSON.parse(result.stdout);
+    return { source: "npm", version: typeof parsed === "string" ? parsed : String(parsed) };
+  } catch {
+    return { source: "npm", version: result.stdout.trim().replace(/^"|"$/g, "") };
+  }
+}
+
+function trimUpdateError(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 400);
+}
+
+function parseVersion(value: string): number[] | null {
+  const match = value.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) return null;
+  return match.slice(1).map((part) => Number(part));
+}
+
+function compareVersions(a: string, b: string): number | null {
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  if (!left || !right) return null;
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    if (diff !== 0) return diff > 0 ? 1 : -1;
+  }
+  return 0;
 }
 
 async function doctorDaemon(cwd: string) {
@@ -1024,20 +1162,44 @@ function doctorGit(cwd: string) {
 }
 
 function doctorSqlite(cwd: string) {
-  const path = defaultLocalStorePath(cwd);
+  const paths = runtimeStatePaths(cwd);
+  const path = paths.localStorePath;
+  const legacyLocalStore = inspectLegacyLocalStoreMigration(cwd);
   return {
     path,
     exists: existsSync(path),
-    migrations: productVersionManifest().runtime.sqliteMigrations
+    migrations: productVersionManifest().runtime.sqliteMigrations,
+    legacyPath: paths.legacyLocalStorePath,
+    legacyExists: existsSync(paths.legacyLocalStorePath),
+    legacyLocalStore
   };
 }
 
 function doctorPermissions(cwd: string) {
+  const paths = runtimeStatePaths(cwd);
   const controlDir = dirname(defaultDaemonConnectionPath(cwd));
   return {
     workspace: pathAccess(cwd),
+    stateRoot: pathAccess(paths.stateRoot),
+    runtimeStateDir: pathAccess(paths.workspaceStateDir),
     controlDir: pathAccess(controlDir),
     sqlite: pathAccess(defaultLocalStorePath(cwd))
+  };
+}
+
+function runtimePathsReport(cwd: string) {
+  const paths = runtimeStatePaths(cwd);
+  return {
+    ...paths,
+    legacyLocalStore: inspectLegacyLocalStoreMigration(cwd),
+    runtimeRepositoryId: repositoryFingerprint(paths.repositoryRoot),
+    repositoryTruthDir: join(paths.repositoryRoot, ".archcontext"),
+    codeGraphIndexDir: join(paths.repositoryRoot, ".codegraph"),
+    npmGlobalInstallState: "forbidden",
+    overrides: {
+      stateRootEnv: "ARCHCONTEXT_STATE_DIR",
+      localStorePathEnv: "ARCHCONTEXT_LOCAL_STORE_PATH"
+    }
   };
 }
 
@@ -1104,6 +1266,7 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
     githubReviewSubmissionPort: _githubReviewSubmissionPort,
     ...runtimeDeps
   } = deps;
+  if (!runtimeDeps.localStorePath) migrateLegacyLocalStoreIfNeeded(cwd);
   const daemon = await createStartedDaemon({
     localStorePath: defaultLocalStorePath(cwd),
     ...runtimeDeps,
@@ -1225,7 +1388,7 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
     child.unref();
     const ready = await waitForDaemonReady(cwd, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
     if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}`);
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}; logTail=${readFileTail(logPath)}`);
     }
     return okEnvelope("daemon.start", {
       running: true,
@@ -1387,8 +1550,17 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function readFileTail(path: string, maxBytes = 4_096): string {
+  try {
+    const content = readFileSync(path, "utf8");
+    return content.slice(Math.max(0, content.length - maxBytes)).replace(/\s+/g, " ").trim();
+  } catch {
+    return "<unavailable>";
+  }
+}
+
 export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {
-  const daemon = await createStartedProductionDaemon({ root: cwd, localStorePath: defaultLocalStorePath(cwd) });
+  const daemon = await createStartedProductionDaemon({ root: cwd });
   let resolveStopped!: () => void;
   const stopped = new Promise<void>((resolve) => {
     resolveStopped = resolve;

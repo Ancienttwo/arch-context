@@ -76,7 +76,17 @@ export function buildReleaseDistributionReadback(input: {
   workspacePackages: Array<{ path: string; manifest: Record<string, unknown> }>;
   placeholder?: Record<string, unknown>;
   npmDryRun?: Record<string, unknown>;
-  registry: Array<{ name: string; status: string; version: string | null; errorCode?: string }>;
+  registry: Array<{
+    name: string;
+    status: string;
+    version: string | null;
+    errorCode?: string;
+    homepage?: string | null;
+    license?: string | null;
+    engines?: Record<string, unknown>;
+    packageManager?: string | null;
+    bin?: Record<string, unknown>;
+  }>;
   generatedAt: string;
 }) {
   const rootPackage = summarizePackage("package.json", input.rootPackage);
@@ -86,6 +96,7 @@ export function buildReleaseDistributionReadback(input: {
   const publishedCandidates = input.registry.filter((entry) => entry.status === "published");
   const releasePackageName = npmDryRun?.packageName ?? "";
   const releaseCandidates = publishedCandidates.filter((entry) => entry.version === rootPackage.version && entry.name === releasePackageName);
+  const releaseCandidate = releaseCandidates[0];
   const placeholderRegistry = input.registry.find((entry) => entry.name === "archctx");
   const publishableManifests = [rootPackage, ...workspacePackages].filter((entry) => entry.private === false);
   const packageNameSources = unique([
@@ -105,6 +116,11 @@ export function buildReleaseDistributionReadback(input: {
     rootManifestPublishable: rootPackage.private === false,
     workspaceReleaseManifestPublishable: publishableManifests.some((entry) => entry.binNames.includes("archctx")),
     npmReleasePublished: releaseCandidates.length >= 1,
+    publishedRuntimeNodeOnly: releaseCandidates.length >= 1
+      && readRecord(releaseCandidate?.engines).node === ">=24 <26"
+      && !("bun" in readRecord(releaseCandidate?.engines))
+      && !releaseCandidate?.packageManager
+      && isArchctxReleaseBinPath(readRecord(releaseCandidate?.bin).archctx),
     placeholderIsNotRelease: placeholderRegistry?.name !== "archctx" || placeholderRegistry.version !== rootPackage.version,
     installCommandPublic: dryRunReady && releaseCandidates.length >= 1,
     homeUrlCorrect: EXPECTED_HOME_URL === "https://archcontext.repoharness.com"
@@ -115,6 +131,9 @@ export function buildReleaseDistributionReadback(input: {
   if (!dryRunReady && !assertions.rootManifestPublishable) blockers.push("root package.json is private");
   if (!dryRunReady && !assertions.workspaceReleaseManifestPublishable) blockers.push("no publishable workspace manifest exposes the archctx bin");
   if (!assertions.npmReleasePublished) blockers.push(`npm release ${releasePackageName || "archctx"}@${rootPackage.version} is not published`);
+  if (assertions.npmReleasePublished && !assertions.publishedRuntimeNodeOnly) {
+    blockers.push(`npm release ${releasePackageName || "archctx"}@${rootPackage.version} is not a Node-only CLI artifact`);
+  }
   if (releaseCandidates.length === 0 && placeholderRegistry?.name === "archctx" && placeholderRegistry.version !== rootPackage.version && !dryRunReady) {
     blockers.push(`archctx npm package is placeholder/version ${placeholderRegistry.version}, not release ${rootPackage.version}`);
   }
@@ -177,13 +196,33 @@ export function inspectReleaseDistributionReadback(recording: unknown): { ok: bo
 }
 
 function queryNpmPackage(name: string) {
-  const result = spawnSync("npm", ["view", name, "version", "--json"], {
+  const result = spawnSync("npm", [
+    "view",
+    name,
+    "version",
+    "homepage",
+    "license",
+    "engines",
+    "packageManager",
+    "bin",
+    "--json"
+  ], {
     encoding: "utf8",
     shell: false
   });
   if (result.status === 0) {
-    const version = String(JSON.parse(result.stdout || "null") ?? "");
-    return { name, status: "published", version, errorCode: undefined };
+    const metadata = readRecord(JSON.parse(result.stdout || "null"));
+    return {
+      name,
+      status: "published",
+      version: typeof metadata.version === "string" ? metadata.version : "",
+      homepage: typeof metadata.homepage === "string" ? metadata.homepage : null,
+      license: typeof metadata.license === "string" ? metadata.license : null,
+      engines: readRecord(metadata.engines),
+      packageManager: typeof metadata.packageManager === "string" ? metadata.packageManager : null,
+      bin: readRecord(metadata.bin),
+      errorCode: undefined
+    };
   }
   const text = `${result.stdout}\n${result.stderr}`;
   const errorCode = text.includes("E404") ? "E404" : `exit_${result.status ?? 1}`;
@@ -202,6 +241,10 @@ function summarizePackage(path: string, manifest: Record<string, unknown>) {
       ? String(readRecord(manifest.publishConfig).registry)
       : null
   };
+}
+
+function isArchctxReleaseBinPath(value: unknown): boolean {
+  return value === "./bin/archctx.mjs" || value === "bin/archctx.mjs";
 }
 
 function summarizeDryRun(recording?: Record<string, unknown>) {

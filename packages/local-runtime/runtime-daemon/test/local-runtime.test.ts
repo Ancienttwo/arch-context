@@ -1,11 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { canonicalAttestationV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2 } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -25,6 +25,16 @@ import {
   recoverStaleDaemonControlFiles,
   readRuntimeRpcConnection
 } from "../src/index";
+
+const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
+const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
+process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
+
+afterAll(() => {
+  if (PREVIOUS_ARCHCONTEXT_STATE_DIR === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+  else process.env.ARCHCONTEXT_STATE_DIR = PREVIOUS_ARCHCONTEXT_STATE_DIR;
+  rmSync(RUNTIME_TEST_STATE_ROOT, { recursive: true, force: true });
+});
 
 function tempRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-"));
@@ -128,7 +138,7 @@ describe("local runtime foundation", () => {
 
   test("daemon restart restores persisted repository sessions from the local store", async () => {
     const root = tempRepo();
-    const dbPath = join(root, ".archcontext/.local/runtime.sqlite");
+    const dbPath = join(root, "runtime-state", "runtime.sqlite");
     let first: Awaited<ReturnType<typeof createStartedDaemon>> | undefined;
     let second: Awaited<ReturnType<typeof createStartedDaemon>> | undefined;
     try {
@@ -254,7 +264,7 @@ describe("local runtime foundation", () => {
         headSha,
         headTreeOid: worktree!.headTreeOid,
         runtime: {
-          version: "0.1.0",
+          version: ARCHCONTEXT_PRODUCT_VERSION,
           codeGraphVersion: REQUIRED_CODEGRAPH_VERSION
         }
       });
@@ -757,7 +767,7 @@ describe("local runtime foundation", () => {
     const root = tempRepo();
     const connectionPath = defaultDaemonConnectionPath(root);
     const lockPath = defaultDaemonLockPath(root);
-    mkdirSync(join(root, ".archcontext/.local"), { recursive: true });
+    mkdirSync(dirname(connectionPath), { recursive: true });
     writeFileSync(connectionPath, JSON.stringify({
       schemaVersion: RUNTIME_RPC_VERSION,
       protocol: "http-loopback",

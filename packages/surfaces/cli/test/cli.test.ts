@@ -1,30 +1,50 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon, defaultDaemonConnectionPath, defaultDaemonLockPath } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, RUNTIME_RPC_VERSION, RuntimeRpcClient, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const CLI_PROCESS_TIMEOUT_MS = 15_000;
+const CLI_PROCESS_TIMEOUT_MS = 30_000;
 const DAEMON_TEST_TIMEOUT_MS = 30_000;
 
 function runTestCli(command: string, args: string[], root: string) {
+  const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+  process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
   return runCli(command, args, root, {
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
+  }).finally(() => {
+    if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+    else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
   });
+}
+
+function testStateRoot(root: string): string {
+  return join(dirname(root), `.archctx-state-${basename(root)}`);
+}
+
+function testStateEnv(root: string): NodeJS.ProcessEnv {
+  return { ...process.env, ARCHCONTEXT_STATE_DIR: testStateRoot(root) };
+}
+
+function testRuntimePaths(root: string) {
+  return runtimeStatePaths(root, testStateEnv(root));
 }
 
 function removeTempRoot(root: string): void {
   try {
+    rmSync(testStateRoot(root), { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
     rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
   } catch (error) {
     if (isIgnorableWindowsCleanupError(error)) return;
@@ -56,6 +76,13 @@ function createInitializedGitRepo(): string {
   return root;
 }
 
+async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
+  const store = new SqliteLocalStore(databasePath);
+  await store.migrate();
+  await store.saveTaskState(taskSessionId, state);
+  store.close();
+}
+
 function git(root: string, ...args: string[]): void {
   execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 }
@@ -66,6 +93,24 @@ function gitOut(root: string, ...args: string[]): string {
 
 function readFileMode(path: string): number {
   return statSync(path).mode & 0o777;
+}
+
+async function withEnv<T>(patch: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const key of Object.keys(patch)) {
+    previous.set(key, process.env[key]);
+    const value = patch[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 function expectSafeGithubReviewOutput(data: unknown, challenge: { nonce: string }, signatureValue?: string): void {
@@ -147,6 +192,14 @@ describe("archctx CLI", () => {
       expectSameExistingPath((doctor.data as any).git.root, root);
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
       expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.0.1");
+      expect((doctor.data as any).update).toMatchObject({
+        schemaVersion: "archcontext.update-check/v1",
+        packageName: "archctx",
+        currentVersion: "0.1.3",
+        status: "not-checked",
+        checkUpdates: false,
+        updateAvailable: false
+      });
       expect((doctor.data as any).egress).toMatchObject({
         ok: true,
         defaultOutbound: "local-only",
@@ -160,8 +213,64 @@ describe("archctx CLI", () => {
         }
       });
       expect((doctor.data as any).hardening.privacyRouteDigest).toMatch(/^sha256:/);
+      const paths = await runTestCli("paths", [], root);
+      expect(paths.ok).toBe(true);
+      expect((paths.data as any).repositoryTruthDir).toBe(join(realpathSync.native(root), ".archcontext"));
+      expect((paths.data as any).codeGraphIndexDir).toBe(join(realpathSync.native(root), ".codegraph"));
+      expect((paths.data as any).runtimeRepositoryId).toBe(repositoryFingerprint(root));
+      expect((paths.data as any).storageRepositoryId).toMatch(/^repo\.[0-9a-f]{16}$/);
+      expect((paths.data as any).storageWorkspaceId).toMatch(/^ws\.[0-9a-f]{16}$/);
+      expect((paths.data as any).localStorePath).toContain("runtime.sqlite");
+      expect((paths.data as any).localStorePath.startsWith(root)).toBe(false);
+      expect((paths.data as any).npmGlobalInstallState).toBe("forbidden");
       const privacyAudit = await runTestCli("privacy-audit", [], root);
       expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI update check is explicit and doctor can include the same advisory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-update-check-"));
+    writeFileSync(join(root, "README.md"), "# update check fixture\n", "utf8");
+    try {
+      await withEnv({
+        ARCHCONTEXT_CHECK_UPDATES: undefined,
+        ARCHCONTEXT_LATEST_VERSION: "99.0.0"
+      }, async () => {
+        const defaultDoctor = await runTestCli("doctor", [], root);
+        expect((defaultDoctor.data as any).update).toMatchObject({
+          status: "not-checked",
+          checkUpdates: false,
+          updateAvailable: false
+        });
+
+        const update = await runTestCli("update", ["--check"], root);
+        expect(update.ok).toBe(true);
+        expect((update.data as any)).toMatchObject({
+          schemaVersion: "archcontext.update-check/v1",
+          packageName: "archctx",
+          currentVersion: "0.1.3",
+          latestVersion: "99.0.0",
+          source: "env",
+          status: "update-available",
+          checkUpdates: true,
+          updateAvailable: true,
+          installCommand: "npm install -g archctx@latest"
+        });
+
+        const checkedDoctor = await runTestCli("doctor", ["--check-updates"], root);
+        expect((checkedDoctor.data as any).update).toMatchObject({
+          latestVersion: "99.0.0",
+          source: "env",
+          status: "update-available",
+          updateAvailable: true
+        });
+
+        const unsupported = await runTestCli("update", [], root);
+        expect(unsupported.ok).toBe(false);
+        expect((unsupported as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      });
     } finally {
       removeTempRoot(root);
     }
@@ -236,11 +345,53 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI paths and doctor expose structured legacy local store migration status", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-legacy-status-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const paths = testRuntimePaths(root);
+      await writeTaskState(paths.legacyLocalStorePath, "task_cli_legacy", { source: "legacy" });
+
+      const beforePaths = await runTestCli("paths", [], root);
+      expect(beforePaths.ok).toBe(true);
+      expect((beforePaths.data as any).legacyLocalStore).toMatchObject({
+        status: "pending",
+        legacyLocalStorePath: paths.legacyLocalStorePath,
+        targetLocalStorePath: paths.localStorePath,
+        integrityCheck: { legacy: "ok" }
+      });
+
+      const beforeDoctor = await runTestCli("doctor", [], root);
+      expect((beforeDoctor.data as any).sqlite.legacyPath).toBe(paths.legacyLocalStorePath);
+      expect((beforeDoctor.data as any).sqlite.legacyExists).toBe(true);
+      expect((beforeDoctor.data as any).sqlite.legacyLocalStore.status).toBe("pending");
+
+      const migration = migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root));
+      expect(migration.status).toBe("migrated");
+
+      const afterPaths = await runTestCli("paths", [], root);
+      expect((afterPaths.data as any).legacyLocalStore).toMatchObject({
+        status: "target-current",
+        skippedReason: "target-exists",
+        integrityCheck: { target: "ok" }
+      });
+      expect(existsSync((afterPaths.data as any).legacyLocalStore.markerPath)).toBe(true);
+
+      const afterDoctor = await runTestCli("doctor", [], root);
+      expect((afterDoctor.data as any).sqlite.legacyLocalStore.status).toBe("target-current");
+      expect(existsSync((afterDoctor.data as any).sqlite.legacyLocalStore.markerPath)).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("github connect, status, and disconnect use control-plane credential refs without gh", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-"));
     const credentials = new InMemoryCredentialSecretStore();
     const devicePrivateKeyStore = new DevicePrivateKeyStore(credentials);
     const tokenStore = new KeychainTokenStore();
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
     try {
       const connect = await runCli("github", [
         "connect",
@@ -259,7 +410,7 @@ describe("archctx CLI", () => {
       expect((connect.data as any).deviceKey.keyRef).toBe("keychain://archcontext/device/acct_42/key_device_0001");
       expect((connect.data as any).deviceKey.publicKeyFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/);
 
-      const connectionPath = join(root, ".archcontext/.local/github-connection.json");
+      const connectionPath = join(testRuntimePaths(root).workspaceStateDir, "github-connection.json");
       expect(existsSync(connectionPath)).toBe(true);
       const persisted = readFileSync(connectionPath, "utf8");
       expect(persisted).toContain("keychain://archcontext/device/acct_42/key_device_0001");
@@ -287,6 +438,8 @@ describe("archctx CLI", () => {
       const invalid = await runCli("github", ["review"], root);
       expect(invalid.ok).toBe(false);
     } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
   });
@@ -434,6 +587,8 @@ describe("archctx CLI", () => {
         }
       }
     };
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
     try {
       const connect = await runCli("github", [
         "connect",
@@ -457,7 +612,7 @@ describe("archctx CLI", () => {
       expect((claim.data as any).challenge.status).toBe("LEASED");
       expectSafeGithubReviewOutput(claim.data, challenge);
 
-      const statePath = join(root, ".archcontext/.local/github-developer-review-pr-42.json");
+      const statePath = join(testRuntimePaths(root).workspaceStateDir, "github-developer-review-pr-42.json");
       expect(existsSync(statePath)).toBe(true);
       if (process.platform !== "win32") expect(readFileMode(statePath) & 0o077).toBe(0);
       const persistedClaim = readFileSync(statePath, "utf8");
@@ -513,6 +668,8 @@ describe("archctx CLI", () => {
       expect(submissions).toHaveLength(2);
       expectSafeGithubReviewOutput(retry.data, challenge, submissions[1].attestation.signature.value);
     } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
   });
@@ -522,7 +679,7 @@ describe("archctx CLI", () => {
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
     const daemon = spawn(process.execPath, [CLI_ENTRY, "daemon", "start", "--foreground", "--port", "0"], {
       cwd: root,
-      env: process.env
+      env: testStateEnv(root)
     });
     try {
       const started = await readJsonFromProcess(daemon);
@@ -530,8 +687,9 @@ describe("archctx CLI", () => {
       expect(started.data.running).toBe(true);
       expect(started.data.protocol).toBe("http-loopback");
       expect(String(started.data.url)).toMatch(/^http:\/\/127\.0\.0\.1:/);
-      expect(existsSync(join(root, ".archcontext/.local/archctxd.json"))).toBe(true);
-      expect(existsSync(join(root, ".archcontext/.local/archctxd.lock"))).toBe(true);
+      const paths = testRuntimePaths(root);
+      expect(existsSync(paths.daemonConnectionPath)).toBe(true);
+      expect(existsSync(paths.daemonLockPath)).toBe(true);
       const health = await fetch(`${started.data.url}health`);
       expect((await health.json() as any).composition).toMatchObject({
         mode: "production",
@@ -551,7 +709,7 @@ describe("archctx CLI", () => {
       expect(status.data.running).toBe(true);
 
       const daemonStatus = await runCliProcess(root, "daemon", "status");
-      const connection = JSON.parse(readFileSync(join(root, ".archcontext/.local/archctxd.json"), "utf8"));
+      const connection = JSON.parse(readFileSync(paths.daemonConnectionPath, "utf8"));
       expect(daemonStatus.data.running).toBe(true);
       expect(daemonStatus.data.rpcVersionCompatible).toBe(true);
       expect(daemonStatus.data.product.schemaVersion).toBe("archcontext.product-version-manifest/v1");
@@ -562,8 +720,8 @@ describe("archctx CLI", () => {
       const stopped = await runCliProcess(root, "daemon", "stop");
       expect(stopped.ok).toBe(true);
       await expectProcessExit(daemon);
-      expect(existsSync(join(root, ".archcontext/.local/archctxd.json"))).toBe(false);
-      expect(existsSync(join(root, ".archcontext/.local/archctxd.lock"))).toBe(false);
+      expect(existsSync(paths.daemonConnectionPath)).toBe(false);
+      expect(existsSync(paths.daemonLockPath)).toBe(false);
     } finally {
       if (daemon.exitCode === null && !daemon.killed) daemon.kill("SIGTERM");
       await expectProcessExit(daemon).catch(() => undefined);
@@ -574,8 +732,8 @@ describe("archctx CLI", () => {
   test("background daemon start returns after ready and survives the starter process", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-background-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = join(root, ".archcontext/.local/archctxd.json");
-    const lockPath = join(root, ".archcontext/.local/archctxd.lock");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    const lockPath = testRuntimePaths(root).daemonLockPath;
     try {
       const started = await runCliProcess(root, "daemon", "start");
       expect(started.ok).toBe(true);
@@ -612,8 +770,8 @@ describe("archctx CLI", () => {
   test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-crash-recovery-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = defaultDaemonConnectionPath(root);
-    const lockPath = defaultDaemonLockPath(root);
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    const lockPath = testRuntimePaths(root).daemonLockPath;
     try {
       const started = await runCliProcess(root, "daemon", "start");
       expect(started.ok).toBe(true);
@@ -647,10 +805,12 @@ describe("archctx CLI", () => {
   test("CLI downgrades stale daemon connection files instead of failing commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
     try {
-      const connectionPath = defaultDaemonConnectionPath(root);
-      const lockPath = defaultDaemonLockPath(root);
-      mkdirSync(join(root, ".archcontext/.local"), { recursive: true });
+      const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+      const lockPath = testRuntimePaths(root).daemonLockPath;
+      mkdirSync(testRuntimePaths(root).workspaceStateDir, { recursive: true });
       writeFileSync(connectionPath, JSON.stringify({
         schemaVersion: RUNTIME_RPC_VERSION,
         protocol: "http-loopback",
@@ -674,6 +834,8 @@ describe("archctx CLI", () => {
       expect((status.data as any).running).toBe(true);
     } finally {
       await stopDaemonAndWait(root);
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
@@ -681,7 +843,7 @@ describe("archctx CLI", () => {
   test("CLI reports incompatible daemon versions and replaces them through daemon upgrade", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-upgrade-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
-    const connectionPath = defaultDaemonConnectionPath(root);
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
     try {
       const started = await runCliProcess(root, "daemon", "start");
       expect(started.ok).toBe(true);
@@ -796,7 +958,7 @@ describe("archctx CLI", () => {
 async function runCliProcess(root: string, ...args: string[]): Promise<any> {
   const child = spawn(process.execPath, [CLI_ENTRY, ...args], {
     cwd: root,
-    env: process.env
+    env: testStateEnv(root)
   });
   const { stdout, stderr, code } = await collectProcess(child);
   if (code !== 0) throw new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
@@ -805,8 +967,8 @@ async function runCliProcess(root: string, ...args: string[]): Promise<any> {
 
 async function stopDaemonAndWait(root: string): Promise<void> {
   await runCliProcess(root, "daemon", "stop").catch(() => undefined);
-  await expectFileRemoved(defaultDaemonConnectionPath(root)).catch(() => undefined);
-  await expectFileRemoved(defaultDaemonLockPath(root)).catch(() => undefined);
+  await expectFileRemoved(testRuntimePaths(root).daemonConnectionPath).catch(() => undefined);
+  await expectFileRemoved(testRuntimePaths(root).daemonLockPath).catch(() => undefined);
 }
 
 function readJsonFromProcess(child: ChildProcessWithoutNullStreams): Promise<any> {

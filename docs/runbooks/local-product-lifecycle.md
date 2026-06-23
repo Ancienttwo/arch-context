@@ -1,6 +1,6 @@
 # Local Product Lifecycle
 
-This runbook is the Local Core lifecycle policy for FG1. It covers the local `archctx` package, `archctxd`, MCP host configuration, and repository-local runtime state. It does not cover GitHub App installation, Cloud accounts, subscriptions, or organization runners.
+This runbook is the Local Core lifecycle policy for FG1. It covers the local `archctx` package, `archctxd`, MCP host configuration, repository architecture files, and OS user-data runtime state. It does not cover GitHub App installation, Cloud accounts, subscriptions, or organization runners.
 
 ## Install
 
@@ -27,6 +27,7 @@ This runbook is the Local Core lifecycle policy for FG1. It covers the local `ar
 
    ```bash
    archctx doctor
+   archctx paths
    ```
 
 Expected install state:
@@ -61,7 +62,7 @@ Expected install state:
 Upgrade invariants:
 
 - Version negotiation is local RPC only.
-- `archctx daemon upgrade` may terminate only the PID recorded in the private `.archcontext/.local/archctxd.json` file for the current repository.
+- `archctx daemon upgrade` may terminate only the PID recorded in the private `archctx paths` daemon connection file for the current repository/worktree.
 - Upgrade must preserve `.archcontext/model`, generated projections, and local SQLite state.
 - Schema upgrades must follow `docs/runbooks/schema-upgrade-guide.md`.
 
@@ -86,7 +87,7 @@ Uninstall invariants:
 
 - Host configuration removal does not delete repository architecture files or runtime state.
 - Package removal does not imply data deletion.
-- A future package install can reuse retained `.archcontext/` state.
+- A future package install can reuse retained `.archcontext/` truth and OS user-data runtime state.
 
 ## Data Retention
 
@@ -94,7 +95,7 @@ Data retained by default:
 
 - Git-tracked architecture truth under `.archcontext/model`.
 - Generated local projections under `.archcontext/generated`.
-- Repository-local daemon control files and SQLite-derived state under `.archcontext/.local` while the product is in use.
+- Mutable runtime state under the OS user-data root reported by `archctx paths`, partitioned by storage repository/worktree identity.
 
 Data not retained by Local Core:
 
@@ -104,8 +105,9 @@ Data not retained by Local Core:
 
 Manual cleanup policy:
 
-- Deleting `.archcontext/.local` removes derived daemon/session state and can be rebuilt from Git-tracked model files plus CodeGraph.
+- Deleting the workspace runtime state directory reported by `archctx paths` removes derived daemon/session state and can be rebuilt from Git-tracked model files plus CodeGraph.
 - Deleting `.archcontext/model` removes the repository architecture source of truth and is not part of uninstall.
+- `.archcontext/.local` remains ignored for legacy migration, explicit overrides, and non-secret discovery pointers; it is not the canonical runtime state location.
 - Destructive data deletion must be an explicit user action, not a side effect of `archctx uninstall`, `archctx mcp remove`, or package removal.
 
 ## Verification

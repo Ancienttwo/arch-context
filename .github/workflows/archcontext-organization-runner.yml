@@ -27,7 +27,7 @@ on:
         description: ArchContext runtime version expected by this workflow release.
         required: false
         type: string
-        default: "0.1.0"
+        default: "0.1.3"
       fail_on:
         description: Whether a failing deterministic gate should fail the job.
         required: false

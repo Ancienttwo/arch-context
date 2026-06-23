@@ -10,7 +10,7 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.0",
-        packageManager: "bun@1.3.10"
+        engines: { node: ">=24 <26" }
       },
       packageJson: {
         name: "archctx",
@@ -18,9 +18,8 @@ describe("fg6 npm release dry-run", () => {
         private: false,
         homepage: "https://archcontext.repoharness.com",
         license: "UNLICENSED",
-        packageManager: "bun@1.3.10",
-        engines: { bun: ">=1.3.10" },
-        bin: { archctx: "./bin/archctx.mjs" },
+        engines: { node: ">=24 <26" },
+        bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
         publishConfig: { registry: "https://registry.npmjs.org/" }
       },
       stageDir: "/tmp/archctx-stage",
@@ -39,9 +38,10 @@ describe("fg6 npm release dry-run", () => {
         shasum: "abc",
         size: 100,
         unpackedSize: 200,
-        entryCount: 3,
+        entryCount: 4,
         files: [
           { path: "bin/archctx.mjs" },
+          { path: "bin/codegraph.mjs" },
           { path: "README.md" },
           { path: "package.json" }
         ]
@@ -61,7 +61,7 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.0",
-        packageManager: "bun@1.3.10"
+        engines: { node: ">=24 <26" }
       },
       packageJson: {
         name: "archcontext",
@@ -69,7 +69,7 @@ describe("fg6 npm release dry-run", () => {
         private: false,
         homepage: "https://github.com/Ancienttwo/arch-context#readme",
         packageManager: "bun@1.3.10",
-        engines: { bun: ">=1.3.10" },
+        engines: { node: ">=24 <26", bun: ">=1.3.10" },
         repository: { type: "git", url: "git+https://github.com/Ancienttwo/arch-context.git" },
         bin: { archctx: "./bin/archctx.mjs" },
         publishConfig: { registry: "https://registry.npmjs.org/" }
@@ -97,6 +97,7 @@ describe("fg6 npm release dry-run", () => {
 
     expect(recording.status).toBe("failed");
     expect(recording.assertions.packageNameResolved).toBe(false);
+    expect(recording.assertions.noBunRuntimeDeclared).toBe(false);
     expect(recording.assertions.homeUrlCorrect).toBe(false);
     expect(recording.assertions.noSourceRepositoryUrl).toBe(false);
     const result = inspectNpmReleaseDryRun(recording);

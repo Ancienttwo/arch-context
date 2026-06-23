@@ -245,10 +245,11 @@ archctx --help
 # 在任意普通 Git Repository
 cd my-repo
 archctx doctor
+archctx paths
 archctx init
 archctx sync
-archctx context
-archctx prepare
+archctx context --task "first local context smoke"
+archctx prepare --task "first local context smoke"
 archctx status
 
 # 配置本地 Agent Host
@@ -1563,6 +1564,7 @@ personalPublish
 | ADR-0034 | One-package Local Product Distribution | CLI、Daemon 和 MCP Surface 同版本交付 |
 | ADR-0035 | GitHub Governance Privacy Contract | 类型化 API 白名单、egress 和日志投影共同构成隐私边界 |
 | ADR-0036 | Deterministic Gate, LLM Advisory | required check 不依赖 LLM；LLM 只生成 Advisory |
+| ADR-0037 | Runtime State Placement and Identity | 运行态在 OS 用户数据目录按 storage repository/worktree identity 分区；Git 中 `.archcontext/` 只承载项目事实 |
 
 ---
 

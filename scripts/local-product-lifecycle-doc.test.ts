@@ -12,6 +12,7 @@ describe("local product lifecycle runbook", () => {
     for (const command of [
       "node scripts/packaged-cli-smoke.mjs",
       "archctx mcp install --host codex",
+      "archctx paths",
       "archctx daemon status",
       "archctx daemon upgrade",
       "archctx mcp remove --host codex",
@@ -23,6 +24,7 @@ describe("local product lifecycle runbook", () => {
     expect(DOC).toContain("No GitHub App, Cloud account, subscription, or LLM provider is required for Local Core.");
     expect(DOC).toContain("Destructive data deletion must be an explicit user action");
     expect(DOC).toContain(".archcontext/model");
-    expect(DOC).toContain(".archcontext/.local");
+    expect(DOC).toContain("OS user-data");
+    expect(DOC).toContain("legacy migration");
   });
 });

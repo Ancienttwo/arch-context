@@ -27,7 +27,7 @@ try {
   git(repo, "add", ".");
   git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   const headSha = gitOut(repo, "rev-parse", "HEAD");
-  await run(process.execPath, [CODEGRAPH_BIN, "init", repo], { cwd: repo, env });
+  await run(CODEGRAPH_BIN, ["init", repo], { cwd: repo, env });
 
   const doctor = await runArchctx(repo, "doctor");
   assert(doctor.ok === true, "doctor must succeed without cloud or LLM provider env");
@@ -35,6 +35,15 @@ try {
   assert(doctor.data?.egress?.cloudContentUpload === "deny", "doctor must deny cloud content upload");
   assert(doctor.data?.egress?.secureMcpTunnel === "disabled-by-default", "doctor must keep secure MCP tunnel disabled by default");
   assert(doctor.data?.egress?.thirdPartyTelemetry === "disabled", "doctor must report third-party telemetry disabled");
+
+  const paths = await runArchctx(repo, "paths");
+  assert(paths.ok === true, "paths must succeed without cloud or LLM provider env");
+  assert(paths.data?.repositoryTruthDir === join(realpathSync.native(repo), ".archcontext"), "paths must report repo-local architecture truth");
+  assert(/^repo\.[0-9a-f]{16}$/.test(String(paths.data?.storageRepositoryId)), "paths must report storage repository identity");
+  assert(/^ws\.[0-9a-f]{16}$/.test(String(paths.data?.storageWorkspaceId)), "paths must report storage workspace identity");
+  assert(String(paths.data?.localStorePath).includes("runtime.sqlite"), "paths must report runtime sqlite path");
+  assert(!String(paths.data?.localStorePath).startsWith(realpathSync.native(repo)), "runtime sqlite path must not be inside the repository by default");
+  assert(paths.data?.npmGlobalInstallState === "forbidden", "mutable state must not be stored in npm global install directories");
 
   const mcpInstall = await runArchctx(repo, "mcp", "install", "--host", MCP_HOST);
   assert(mcpInstall.ok === true, "mcp install must succeed without GitHub, Cloud, or LLM");
@@ -101,7 +110,7 @@ try {
 
   console.log(JSON.stringify({
     schemaVersion: "archcontext.local-no-cloud-e2e/v1",
-    commands: ["doctor", "mcp install", "init", "sync", "context", "prepare", "status", "checkpoint", "complete", "review"],
+    commands: ["doctor", "paths", "mcp install", "init", "sync", "context", "prepare", "status", "checkpoint", "complete", "review"],
     providerEnvRemoved: REMOVED_PROVIDER_ENV,
     git: {
       headSha
@@ -126,7 +135,12 @@ try {
     },
     paths: {
       repo: displayPath(realpathSync.native(repo)),
-      bin: displayPath(realpathSync.native(ARCHCTX_BIN))
+      bin: displayPath(realpathSync.native(ARCHCTX_BIN)),
+      runtimeStateRoot: displayPath(paths.data.stateRoot),
+      storageRepositoryId: paths.data.storageRepositoryId,
+      storageWorkspaceId: paths.data.storageWorkspaceId,
+      localStorePath: displayPath(paths.data.localStorePath),
+      npmGlobalInstallState: paths.data.npmGlobalInstallState
     }
   }, null, 2));
 } finally {
@@ -138,6 +152,7 @@ function localOnlyEnv() {
   const env = { ...process.env };
   for (const key of REMOVED_PROVIDER_ENV) delete env[key];
   env.DO_NOT_TRACK = "1";
+  env.ARCHCONTEXT_STATE_DIR = join(workspace, "archcontext-state");
   env.PATH = `${BIN_DIR}${delimiter}${process.env.PATH ?? ""}`;
   return env;
 }
@@ -204,11 +219,10 @@ function resolveArchctxBin(binDir) {
 }
 
 function resolveCodeGraphBin(binDir) {
-  const packageShim = join(ROOT, "node_modules", "@colbymchenry", "codegraph", "npm-shim.js");
   const candidates = process.platform === "win32"
-    ? [packageShim, join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
-    : [packageShim, join(binDir, "codegraph")];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+    ? [join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
+    : [join(binDir, "codegraph")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
 }
 
 function displayPath(path) {

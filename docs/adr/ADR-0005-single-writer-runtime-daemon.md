@@ -17,7 +17,7 @@ Repeated CLI/MCP startup would duplicate CodeGraph handles, DB connections, and 
 
 `archctxd` owns workspace sessions, locks, CodeGraph lifecycle, SQLite, and write serialization.
 
-For MVP, the local RPC transport is protected loopback HTTP with a repo-local connection file and lock file under `.archcontext/.local/`. The connection file carries the ephemeral bearer token for local clients; it must be private to the current user, and user-visible status output must redact it. UDS / Windows Named Pipe can replace the transport later without changing the daemon ownership boundary.
+For MVP, the local RPC transport is protected loopback HTTP with a private connection file and lock file under the OS user-data runtime state directory for the current repository/worktree. The connection file carries the ephemeral bearer token for local clients; it must be private to the current user, and user-visible status output must redact it. UDS / Windows Named Pipe can replace the transport later without changing the daemon ownership boundary.
 
 # Consequences
 

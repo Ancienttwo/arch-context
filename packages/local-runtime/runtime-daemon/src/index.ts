@@ -23,7 +23,7 @@ import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type
 import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 
 export interface RuntimeStatus {
@@ -1587,19 +1587,19 @@ export class ArchctxRuntimeRpcServer {
 }
 
 export function defaultDaemonControlDir(root = process.cwd()): string {
-  return join(root, ".archcontext", ".local");
+  return runtimeStatePaths(root).workspaceStateDir;
 }
 
 export function defaultDeveloperReviewRunStateDir(root = process.cwd()): string {
-  return join(defaultDaemonControlDir(root), "developer-review-runs");
+  return runtimeStatePaths(root).developerReviewRunStateDir;
 }
 
 export function defaultDaemonConnectionPath(root = process.cwd()): string {
-  return join(defaultDaemonControlDir(root), "archctxd.json");
+  return runtimeStatePaths(root).daemonConnectionPath;
 }
 
 export function defaultDaemonLockPath(root = process.cwd()): string {
-  return join(defaultDaemonControlDir(root), "archctxd.lock");
+  return runtimeStatePaths(root).daemonLockPath;
 }
 
 export function readRuntimeRpcConnectionFile(root = process.cwd()): RuntimeRpcConnectionFile | undefined {
@@ -1855,6 +1855,7 @@ export async function createStartedDaemon(deps: RuntimeDeps = {}): Promise<Archc
 }
 
 export function createProductionDaemon(options: ProductionRuntimeOptions = {}): ArchctxDaemon {
+  if (!options.localStorePath) migrateLegacyLocalStoreIfNeeded(options.root);
   const deps: RuntimeDeps = {
     localStorePath: options.localStorePath ?? defaultLocalStorePath(options.root),
     maxRepoSessions: options.maxRepoSessions

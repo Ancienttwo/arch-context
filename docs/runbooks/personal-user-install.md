@@ -1,26 +1,25 @@
 # Personal User Install
 
-This runbook is the current individual-user install path for `archctx@0.1.0`.
+This runbook is the current individual-user install path for `archctx@0.1.3`.
 Team collaboration, design-partner rollout, opt-in beta cohorts, and shared organization rollout evidence are deferred.
 
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Required release artifact: public npm package `archctx@0.1.0`.
-- Runtime: Bun 1.3.10 or newer must be available on `PATH`.
+- Required release artifact: public npm package `archctx@0.1.3`.
+- Runtime: Node.js 24.x or 25.x, npm, and git must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
+- Do not treat this runbook as approved for a published package version until `docs/verification/fg6-release-distribution-readback.json` is verified for that exact version.
 
 ## Install
 
-```bash
-curl -fsSL https://bun.sh/install | bash
-```
-
-Open a new terminal, then verify Bun and install ArchContext:
+Verify Node/npm/git and install ArchContext:
 
 ```bash
-bun --version
-npm install -g archctx@0.1.0
+node --version
+npm --version
+git --version
+npm install -g archctx@0.1.3
 archctx --help
 ```
 
@@ -32,10 +31,11 @@ Run from an ordinary Git repository:
 cd /path/to/your/repo
 
 archctx doctor
+archctx paths
 archctx init
 archctx sync
-archctx context
-archctx prepare
+archctx context --task "first local context smoke"
+archctx prepare --task "first local context smoke"
 archctx status
 ```
 

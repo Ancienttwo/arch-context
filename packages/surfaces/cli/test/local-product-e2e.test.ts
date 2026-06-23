@@ -161,7 +161,7 @@ function gitOut(repo: string, ...args: string[]): string {
 }
 
 function runCodeGraph(repo: string, ...args: string[]): void {
-  execFileSync(process.execPath, [CODEGRAPH_BIN, ...args], { cwd: repo, env: testEnv(), stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync(CODEGRAPH_BIN, args, { cwd: repo, env: testEnv(), stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function runArchctx(cwd: string, ...args: string[]): Promise<any> {
@@ -219,11 +219,10 @@ function resolveArchctxBin(): string {
 }
 
 function resolveCodeGraphBin(): string {
-  const packageShim = join(ROOT, "node_modules", "@colbymchenry", "codegraph", "npm-shim.js");
   const candidates = process.platform === "win32"
-    ? [packageShim, join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
-    : [packageShim, join(BIN_DIR, "codegraph")];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+    ? [join(BIN_DIR, "codegraph.cmd"), join(BIN_DIR, "codegraph.exe"), join(BIN_DIR, "codegraph")]
+    : [join(BIN_DIR, "codegraph")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
 }
 
 async function stopDaemonAndWait(root: string): Promise<void> {
