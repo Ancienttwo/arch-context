@@ -1,6 +1,6 @@
 # Sprint Plan：ArchContext Architecture Practice Assets
 
-> Status: Executing — S2 evidence-backed matching verified; PR pending
+> Status: Executing — S2 evidence-backed matching verified in PR #14; awaiting review
 > Created: 2026-06-23
 > Target repository: `Ancienttwo/arch-context`
 > Suggested path after review: `plans/sprints/archctx-practice-assets-sprints.md`
@@ -658,6 +658,7 @@ bun run verify
 - Scope filtering 在 S2 只实装 path / negative path 与 structural predicate；repository kind、language、framework、profile precedence 留到 profile/enforcement hardening slice。
 - 验证证据写入 `docs/verification/practice-assets-s2-matching-gate.md`；practice eval 增加 30 positive / 30 benign negative cases。
 - 2026-06-24：full verification 通过，`bun run verify` readback 为 575 pass / 0 fail / 3423 expects。
+- 2026-06-24：提交 stacked PR #14 `feat(practices): add evidence-backed matching to prepare`，base 为 `codex/practice-catalog`；远端 GitHub Verify 全矩阵通过，最终合并前以 PR Checks readback 为准。
 
 ## 10.2 Checklist
 
