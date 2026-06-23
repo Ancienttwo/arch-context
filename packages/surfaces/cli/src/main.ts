@@ -31,7 +31,7 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
-const DAEMON_START_TIMEOUT_MS = 5_000;
+const DAEMON_START_TIMEOUT_MS = 15_000;
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -1251,7 +1251,7 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
     child.unref();
     const ready = await waitForDaemonReady(cwd, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
     if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}`);
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}; logTail=${readFileTail(logPath)}`);
     }
     return okEnvelope("daemon.start", {
       running: true,
@@ -1411,6 +1411,15 @@ async function waitForDaemonReady(cwd: string, timeoutMs: number) {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readFileTail(path: string, maxBytes = 4_096): string {
+  try {
+    const content = readFileSync(path, "utf8");
+    return content.slice(Math.max(0, content.length - maxBytes)).replace(/\s+/g, " ").trim();
+  } catch {
+    return "<unavailable>";
+  }
 }
 
 export async function runForegroundDaemon(cwd: string, args: string[]): Promise<void> {

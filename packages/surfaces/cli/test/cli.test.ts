@@ -15,7 +15,7 @@ import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const CLI_PROCESS_TIMEOUT_MS = 15_000;
+const CLI_PROCESS_TIMEOUT_MS = 30_000;
 const DAEMON_TEST_TIMEOUT_MS = 30_000;
 
 function runTestCli(command: string, args: string[], root: string) {
