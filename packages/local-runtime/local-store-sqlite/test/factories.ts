@@ -131,6 +131,18 @@ export class TestLocalStore implements RuntimeLocalStore {
     return this.externalDocumentation.get(externalDocumentationKey(input));
   }
 
+  async readExternalDocumentationByContentDigest(input: {
+    provider: ExternalDocumentationProvider;
+    contentDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined> {
+    return [...this.externalDocumentation.values()]
+      .filter((entry) => entry.provider === input.provider && entry.contentDigest === input.contentDigest)
+      .sort((a, b) => b.retrievedAt.localeCompare(a.retrievedAt)
+        || a.libraryId.localeCompare(b.libraryId)
+        || a.version.localeCompare(b.version)
+        || a.queryDigest.localeCompare(b.queryDigest))[0];
+  }
+
   async listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]> {
     return [...this.externalDocumentation.values()]
       .filter((entry) => !provider || entry.provider === provider)

@@ -8,7 +8,7 @@ import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { LOCAL_MCP_TOOLS, McpLocalServer, runStdioMcpLoop } from "../src/index";
+import { LOCAL_MCP_TOOLS, LocalHttpMcpServer, McpLocalServer, runStdioMcpLoop } from "../src/index";
 import { runCli } from "@archcontext/surfaces/cli";
 
 function tempModel(): string {
@@ -24,6 +24,44 @@ async function createTestServer(): Promise<McpLocalServer> {
     codeGraphProviderFactory: () => new MockCodeGraphProvider(),
     localStore: new TestLocalStore()
   }));
+}
+
+function externalDocsEntry() {
+  const contentDigest = `sha256:${"7".repeat(64)}`;
+  const queryDigest = `sha256:${"8".repeat(64)}`;
+  return {
+    provider: "context7" as const,
+    libraryId: "/facebook/react",
+    version: "18.2.0",
+    queryDigest,
+    contentDigest,
+    retrievedAt: "2026-06-24T00:00:00.000Z",
+    expiresAt: "2026-07-24T00:00:00.000Z",
+    resource: {
+      schemaVersion: "archcontext.external-document/v1" as const,
+      provider: "context7" as const,
+      libraryId: "/facebook/react",
+      requestedVersion: "18.2.0",
+      resolvedVersion: "18.2.0",
+      queryDigest,
+      contentDigest,
+      retrievedAt: "2026-06-24T00:00:00.000Z",
+      expiresAt: "2026-07-24T00:00:00.000Z",
+      trust: "external-unverified" as const,
+      enforcement: "advisory-only" as const,
+      cacheStatus: "fresh" as const,
+      uri: `archcontext://external-docs/context7/${contentDigest}`,
+      byteCount: 42,
+      snippets: [{
+        title: "React useState",
+        contentPreview: "External documentation data for useState.",
+        contentDigest,
+        sourceUri: "https://react.dev/reference/react/useState",
+        byteCount: 42
+      }],
+      warning: "untrusted-documentation-data" as const
+    }
+  };
 }
 
 function runTestCli(command: string, args: string[], root: string) {
@@ -62,8 +100,50 @@ describe("local MCP server", () => {
         maxItems: 12
       });
       expect(result.resourceUri).toMatch(/^archcontext:\/\/resource\//);
-      expect(server.readResource(result.resourceUri!)).toBeTruthy();
+      expect(await server.readResource(result.resourceUri!)).toBeTruthy();
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("MCP reads Context7 external documentation resources only from the daemon cache", async () => {
+    const root = tempModel();
+    const store = new TestLocalStore();
+    const entry = externalDocsEntry();
+    await store.saveExternalDocumentation(entry);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: store,
+      clock: () => "2026-06-24T00:00:00.000Z"
+    });
+    try {
+      await daemon.init(root, "MCP Docs App");
+      const server = new McpLocalServer(daemon);
+      const resources = await server.listResources(root);
+      expect(resources).toContainEqual(expect.objectContaining({
+        uri: entry.resource.uri,
+        name: "Context7 /facebook/react@18.2.0",
+        mimeType: "application/json",
+        annotations: { safety: "read-only" }
+      }));
+
+      const resource = await server.readResource(entry.resource.uri, root);
+      expect(resource).toMatchObject({
+        schemaVersion: "archcontext.resource-read/v1",
+        uri: entry.resource.uri,
+        dataClassification: "external-unverified-documentation",
+        resource: {
+          provider: "context7",
+          libraryId: "/facebook/react",
+          trust: "external-unverified",
+          enforcement: "advisory-only",
+          cacheStatus: "fresh"
+        }
+      });
+      expect(await server.readResource("https://example.test/context7", root)).toBeUndefined();
+    } finally {
+      await daemon.stop();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -203,6 +283,54 @@ describe("local MCP server", () => {
       const status = await new RuntimeRpcClient(connection).runtimeStatus(root);
       expect((status.data as any).sessions).toBe(1);
       expect(JSON.stringify(result.content)).not.toContain("sourceCode");
+      await rpc.stop();
+      stopped = true;
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("HTTP MCP resources/read uses loopback daemon RPC for external docs", async () => {
+    const root = tempModel();
+    const store = new TestLocalStore();
+    const entry = externalDocsEntry();
+    await store.saveExternalDocumentation(entry);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: store,
+      clock: () => "2026-06-24T00:00:00.000Z"
+    });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "mcp-resource-token" });
+    let stopped = false;
+    try {
+      await rpc.start();
+      await daemon.init(root, "MCP Resource RPC App");
+      const http = new LocalHttpMcpServer(new McpLocalServer());
+
+      const listed = await http.handle({
+        method: "GET",
+        path: "/mcp/resources",
+        host: "127.0.0.1",
+        body: { root }
+      });
+      expect(listed.status).toBe(200);
+      expect((listed.body as any).resources.map((resource: any) => resource.uri)).toContain(entry.resource.uri);
+
+      const read = await http.handle({
+        method: "POST",
+        path: "/mcp/resources/read",
+        host: "127.0.0.1",
+        body: { root, uri: entry.resource.uri }
+      });
+      expect(read.status).toBe(200);
+      expect((read.body as any).content.resource).toMatchObject({
+        provider: "context7",
+        libraryId: "/facebook/react",
+        cacheStatus: "fresh",
+        warning: "untrusted-documentation-data"
+      });
       await rpc.stop();
       stopped = true;
     } finally {

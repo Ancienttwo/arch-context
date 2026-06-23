@@ -69,6 +69,13 @@ export interface RuntimeDocsInput {
   all?: boolean;
 }
 
+export interface RuntimeResourceReadResult {
+  schemaVersion: "archcontext.resource-read/v1";
+  uri: string;
+  dataClassification: "external-unverified-documentation";
+  resource: ExternalDocumentationResourceV1;
+}
+
 export interface RuntimePracticeWaiverInput {
   id?: string;
   waiverId?: string;
@@ -315,6 +322,7 @@ export interface RuntimeDaemonClient {
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
   checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
   docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
+  readResource(root: string, uri: string): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
   practiceWaivers(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -417,6 +425,17 @@ const CONTEXT7_PREPARE_FRAMEWORKS = [
     intent: "middleware routing"
   }
 ] as const;
+
+const EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN = /^archcontext:\/\/external-docs\/context7\/(sha256:[0-9a-f]{64})$/;
+
+function parseExternalDocumentationResourceUri(uri: string): {
+  provider: ExternalDocumentationProvider;
+  contentDigest: string;
+} | undefined {
+  const match = EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN.exec(uri);
+  if (!match) return undefined;
+  return { provider: "context7", contentDigest: match[1] };
+}
 
 export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
@@ -829,6 +848,32 @@ export class ArchctxDaemon {
     } catch (error) {
       return errorEnvelope(`docs.${input.command}`, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
     }
+  }
+
+  async readResource(root: string, uri: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.openSession(root);
+    const parsed = parseExternalDocumentationResourceUri(uri);
+    if (!parsed) {
+      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "unsupported resource URI");
+    }
+    const cached = await this.localStore.readExternalDocumentationByContentDigest(parsed);
+    if (!cached) {
+      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "external documentation resource is not present in the local daemon cache");
+    }
+    const cacheStatus = Date.parse(cached.expiresAt) > Date.parse(this.clock()) ? "fresh" : "stale";
+    const resource: ExternalDocumentationResourceV1 = {
+      ...cached.resource,
+      uri,
+      cacheStatus
+    };
+    const result: RuntimeResourceReadResult = {
+      schemaVersion: "archcontext.resource-read/v1",
+      uri,
+      dataClassification: "external-unverified-documentation",
+      resource
+    };
+    return okEnvelope("resource.read", result as unknown as Json);
   }
 
   async planUpdate(root: string, input: {
@@ -1846,6 +1891,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("docs", [root, input]);
   }
 
+  readResource(root: string, uri: string) {
+    return this.call("readResource", [root, uri]);
+  }
+
   practices(root: string, input: PracticeCatalogCommandInput) {
     return this.call("practices", [root, input]);
   }
@@ -2097,6 +2146,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
       case "docs":
         return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
+      case "readResource":
+        return this.daemon.readResource(params[0] as string, params[1] as string);
       case "practices":
         return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
       case "practiceWaivers":

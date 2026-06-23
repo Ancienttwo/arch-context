@@ -408,6 +408,10 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
     version: string;
     queryDigest: string;
   }): Promise<ExternalDocumentationCacheEntry | undefined>;
+  readExternalDocumentationByContentDigest(input: {
+    provider: ExternalDocumentationProvider;
+    contentDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined>;
   listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]>;
   purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number>;
   clearDerivedLandscapeState(): void;
@@ -648,6 +652,21 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         FROM external_docs_cache
         WHERE provider = ? AND library_id = ? AND version = ? AND query_digest = ?`
     ).get(input.provider, input.libraryId, input.version, input.queryDigest);
+    return row ? externalDocumentationEntryFromRow(row) : undefined;
+  }
+
+  async readExternalDocumentationByContentDigest(input: {
+    provider: ExternalDocumentationProvider;
+    contentDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT provider, library_id, version, query_digest, content_digest, resource_json, retrieved_at, expires_at
+        FROM external_docs_cache
+        WHERE provider = ? AND content_digest = ?
+        ORDER BY retrieved_at DESC, library_id ASC, version ASC, query_digest ASC
+        LIMIT 1`
+    ).get(input.provider, input.contentDigest);
     return row ? externalDocumentationEntryFromRow(row) : undefined;
   }
 

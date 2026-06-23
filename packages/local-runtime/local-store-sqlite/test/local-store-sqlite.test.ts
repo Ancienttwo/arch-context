@@ -582,6 +582,17 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         version: "18.2.0",
         resource: { enforcement: "advisory-only" }
       });
+      await expect(store.readExternalDocumentationByContentDigest({
+        provider: "context7",
+        contentDigest: `sha256:${"2".repeat(64)}`
+      })).resolves.toMatchObject({
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        resource: {
+          uri: `archcontext://external-docs/context7/sha256:${"2".repeat(64)}`,
+          trust: "external-unverified"
+        }
+      });
       expect(await store.readExternalDocumentation({
         provider: "context7",
         libraryId: "/facebook/react",

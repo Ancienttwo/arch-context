@@ -22,6 +22,7 @@ import {
   type Context7Transport
 } from "@archcontext/local-runtime/context7-adapter";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { auditPacketCapture } from "./privacy-capture-lib.mjs";
 
 const DEFAULT_EVIDENCE = "docs/verification/practice-context7-readback.json";
@@ -208,7 +209,14 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
       prepareExternalUnknown: true,
       prepareConstraintsExternalDocsAbsent: true,
       prepareRealConstraintsExternalDocsAbsent: true,
-      completeOk: true
+      completeOk: true,
+      mcpResource: {
+        listed: true,
+        readOk: true,
+        uriMatchesFetch: true,
+        dataClassification: "external-unverified-documentation",
+        genericHttpToolPresent: false
+      }
     },
     dlp: {
       cases: PRIVATE_VALUE_CASES.length,
@@ -247,7 +255,8 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
       hardGateProviderCallsZero: true,
       exactVersionCacheReplay: true,
       prepareUnknownsUsesPinnedCacheOnly: true,
-      providerUnavailableLeavesLocalCoreUnchanged: true
+      providerUnavailableLeavesLocalCoreUnchanged: true,
+      mcpExternalResourceReadOnly: true
     },
     readback: {
       command: "bun scripts/practice-context7-readback.ts inspect --evidence docs/verification/practice-context7-readback.json --json"
@@ -300,7 +309,12 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
         && runtime.providerCallsAfterPrepareComplete === runtime.providerCallsAfterSecondFetch,
       providerUnavailableLeavesLocalCoreUnchanged: runtime.resolveWithoutNetworkOk === false
         && runtime.prepareOk === true
-        && runtime.completeOk === true
+        && runtime.completeOk === true,
+      mcpExternalResourceReadOnly: runtime.mcpResource?.listed === true
+        && runtime.mcpResource?.readOk === true
+        && runtime.mcpResource?.uriMatchesFetch === true
+        && runtime.mcpResource?.dataClassification === "external-unverified-documentation"
+        && runtime.mcpResource?.genericHttpToolPresent === false
     },
     readback: {
       command: "bun scripts/practice-context7-readback.ts inspect --evidence docs/verification/practice-context7-readback.json --json"
@@ -412,6 +426,12 @@ async function captureRuntimeReadback() {
       intent: INTENT,
       allowNetwork: true
     });
+    const secondData = secondFetch.data as any;
+    const mcp = new McpLocalServer(daemon);
+    const mcpResources = await mcp.listResources(tempRoot);
+    const mcpResourceRead = secondData?.resource?.uri
+      ? await mcp.readResource(secondData.resource.uri, tempRoot)
+      : undefined;
     const providerCallsAfterSecondFetch = provider.fetchCalls;
     const statusAfterFetch = await daemon.docs(tempRoot, { command: "status" });
     const prepare = await daemon.prepare(tempRoot, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_context7");
@@ -421,7 +441,6 @@ async function captureRuntimeReadback() {
       headSha: "abc123"
     });
 
-    const secondData = secondFetch.data as any;
     const prepareContext = (prepare.data as any)?.context;
     const prepareExternalResource = (prepareContext?.resources ?? []).find((resource: any) => resource.type === "external-docs");
     const cacheEntries = ((statusAfterFetch.data as any)?.cacheEntries ?? []) as Array<Record<string, unknown>>;
@@ -448,6 +467,13 @@ async function captureRuntimeReadback() {
       prepareConstraintsExternalDocsAbsent: !JSON.stringify(prepareContext?.constraints ?? []).includes("External documentation"),
       prepareRealConstraintsExternalDocsAbsent: !JSON.stringify(prepareContext?.realConstraints ?? []).includes("External documentation"),
       completeOk: complete.ok,
+      mcpResource: {
+        listed: mcpResources.some((resource) => resource.uri === secondData?.resource?.uri),
+        readOk: (mcpResourceRead as any)?.schemaVersion === "archcontext.resource-read/v1",
+        uriMatchesFetch: (mcpResourceRead as any)?.uri === secondData?.resource?.uri,
+        dataClassification: (mcpResourceRead as any)?.dataClassification,
+        genericHttpToolPresent: mcp.listTools().some((tool) => /http|fetch|request/i.test(tool.name))
+      },
       resourceSummary: secondData?.resource ? summarizeExternalResource(secondData.resource) : undefined
     };
   } finally {
@@ -562,6 +588,13 @@ function inspectRuntime(runtime: any, failures: string[]) {
   if (runtime.prepareConstraintsExternalDocsAbsent !== true) failures.push("runtime.prepareConstraintsExternalDocsAbsent must be true");
   if (runtime.prepareRealConstraintsExternalDocsAbsent !== true) failures.push("runtime.prepareRealConstraintsExternalDocsAbsent must be true");
   if (runtime.completeOk !== true) failures.push("runtime.completeOk must be true");
+  if (runtime.mcpResource?.listed !== true) failures.push("runtime.mcpResource.listed must be true");
+  if (runtime.mcpResource?.readOk !== true) failures.push("runtime.mcpResource.readOk must be true");
+  if (runtime.mcpResource?.uriMatchesFetch !== true) failures.push("runtime.mcpResource.uriMatchesFetch must be true");
+  if (runtime.mcpResource?.dataClassification !== "external-unverified-documentation") {
+    failures.push("runtime.mcpResource.dataClassification must be external-unverified-documentation");
+  }
+  if (runtime.mcpResource?.genericHttpToolPresent !== false) failures.push("runtime.mcpResource.genericHttpToolPresent must be false");
 }
 
 function inspectDlp(dlp: any, failures: string[]) {
@@ -629,7 +662,8 @@ function inspectAssertions(assertions: any, failures: string[]) {
     "hardGateProviderCallsZero",
     "exactVersionCacheReplay",
     "prepareUnknownsUsesPinnedCacheOnly",
-    "providerUnavailableLeavesLocalCoreUnchanged"
+    "providerUnavailableLeavesLocalCoreUnchanged",
+    "mcpExternalResourceReadOnly"
   ]) {
     if (assertions[key] !== true) failures.push(`assertions.${key} must be true`);
   }

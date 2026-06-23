@@ -1014,7 +1014,7 @@ bun run verify
 - [x] S5-18 默认 TTL 可配置；过期内容标 stale，不静默当作 fresh。
 - [x] S5-19 Cache key 不包含 raw task；purge 支持 provider/library/all。
 - [x] S5-20 Context7 返回资源只写入 `resources`/`unknowns`，不能填充 enforceable constraints。
-- [ ] S5-21 `archcontext://external-docs/context7/<digest>` 只从本地 daemon resource 读取。
+- [x] S5-21 `archcontext://external-docs/context7/<digest>` 只从本地 daemon resource 读取。
 
 ### CLI/MCP/prepare
 
@@ -1023,7 +1023,7 @@ bun run verify
 - [x] S5-24 增加 `archctx docs fetch <libraryId> --query <intent>`、`status`、`purge`。
 - [x] S5-25 `prepare-unknowns` 只在 static match 已确认 framework scope 且存在版本相关 unknown 时调用。
 - [x] S5-26 Hook/checkpoint/complete 路径加入硬断言：不得调用 ExternalDocumentationPort。
-- [ ] S5-27 MCP 暴露只读 external resource，不增加可让 Agent 绕过 allowlist 的通用 HTTP 工具。
+- [x] S5-27 MCP 暴露只读 external resource，不增加可让 Agent 绕过 allowlist 的通用 HTTP 工具。
 
 ### 安全与实跑
 
@@ -1066,10 +1066,8 @@ Completed S5 manual Context7 external docs vertical slice on branch
 - Evidence: `docs/adr/ADR-0039-external-documentation-advisory-untrusted.md`, `docs/verification/practice-assets-s5-context7-gate.md`, and `docs/verification/practice-context7-readback.json`.
 - Verified: `bun test scripts/practice-context7-readback.test.ts packages/local-runtime/context7-adapter/test/context7-adapter.test.ts`, `bun run record:s5:context7`, `bun run readback:s5:context7`, focused runtime/store/CLI/contracts suites, and `bun run typecheck`.
 
-Remaining S5 work is intentionally not marked complete: exact version discovery
-from non-JS manifests, provider log contract, MCP read-only resource surfacing,
-rate-limit/retry/circuit-breaker behavior, real live Context7 readback, and full
-provider failure matrix.
+Remaining S5 work is intentionally not marked complete: real live Context7
+readback and the full provider failure matrix.
 
 ## 13.6 Execution Record — 2026-06-24
 
@@ -1113,11 +1111,36 @@ Completed S5 provider observability/resilience module on branch
   presence all false.
 - Verified: `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`, `bun run record:s5:context7`, `bun run readback:s5:context7`, and `bun run typecheck`.
 
-Remaining S5 work is intentionally not marked complete: MCP read-only resource
-surfacing, live real Context7 provider readback, and the full disabled/no-key/
-no-network/429/timeout/malformed Local Core failure matrix.
+Remaining S5 work is intentionally not marked complete: live real Context7
+provider readback and the full disabled/no-key/no-network/429/timeout/malformed
+Local Core failure matrix.
 
-## 13.8 Rollback
+## 13.8 Execution Record — 2026-06-24
+
+Completed S5 MCP read-only external-docs resource module on branch
+`codex/context7-mcp-resource`.
+
+- Store/runtime: SQLite and `TestLocalStore` can read external docs by
+  provider/content digest; daemon exposes `readResource(root, uri)` and validates
+  only `archcontext://external-docs/context7/sha256:<digest>` URIs.
+- RPC/MCP: `RuntimeRpcClient` and loopback server dispatch `readResource`;
+  `McpLocalServer` exposes `resources/list` and `resources/read` for daemon
+  cached external docs, plus local HTTP `/mcp/resources` and
+  `/mcp/resources/read` routes.
+- Safety: MCP did not add any generic HTTP/fetch/request tool. Unsupported
+  external URIs and missing cache entries do not trigger provider/network
+  access.
+- Evidence: `docs/verification/practice-context7-readback.json` now records
+  `runtime.mcpResource` readback with `listed=true`, `readOk=true`,
+  matching URI, external-unverified data classification, and
+  `genericHttpToolPresent=false`.
+- Verified: `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`, `bun test packages/surfaces/mcp-local/test/chatgpt-surface.test.ts`, `bun run record:s5:context7`, `bun run readback:s5:context7`, `node scripts/sprint-status-check.mjs`, and `bun run typecheck`.
+
+Remaining S5 work is intentionally not marked complete: live real Context7
+provider readback and the full disabled/no-key/no-network/429/timeout/malformed
+Local Core failure matrix.
+
+## 13.9 Rollback
 
 - `externalDocs.context7.enabled: false` 完全禁用 Provider；缓存可保留或显式 purge。
 - Adapter 不可用不得影响 daemon 启动、prepare、checkpoint、complete 或 attestation。

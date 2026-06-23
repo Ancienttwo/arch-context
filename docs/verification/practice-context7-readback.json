@@ -2,7 +2,7 @@
   "schemaVersion": "archcontext.practice-context7-readback/v1",
   "environment": "local-fixture",
   "status": "verified",
-  "generatedAt": "2026-06-23T23:33:31.795Z",
+  "generatedAt": "2026-06-23T23:55:02.783Z",
   "defaultHealth": {
     "provider": "context7",
     "enabled": false,
@@ -112,6 +112,13 @@
     "prepareConstraintsExternalDocsAbsent": true,
     "prepareRealConstraintsExternalDocsAbsent": true,
     "completeOk": true,
+    "mcpResource": {
+      "listed": true,
+      "readOk": true,
+      "uriMatchesFetch": true,
+      "dataClassification": "external-unverified-documentation",
+      "genericHttpToolPresent": false
+    },
     "resourceSummary": {
       "schemaVersion": "archcontext.external-document/v1",
       "provider": "context7",
@@ -177,7 +184,8 @@
     "hardGateProviderCallsZero": true,
     "exactVersionCacheReplay": true,
     "prepareUnknownsUsesPinnedCacheOnly": true,
-    "providerUnavailableLeavesLocalCoreUnchanged": true
+    "providerUnavailableLeavesLocalCoreUnchanged": true,
+    "mcpExternalResourceReadOnly": true
   },
   "readback": {
     "command": "bun scripts/practice-context7-readback.ts inspect --evidence docs/verification/practice-context7-readback.json --json"

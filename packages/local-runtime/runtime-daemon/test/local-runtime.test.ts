@@ -470,6 +470,7 @@ describe("local runtime foundation", () => {
       expect((firstFetch.data as any).cacheStatus).toBe("miss");
       expect((firstFetch.data as any).resource.enforcement).toBe("advisory-only");
       expect(providerCalls).toBe(1);
+      const resourceUri = (firstFetch.data as any).resource.uri as string;
 
       const secondFetch = await daemon.docs(root, {
         command: "fetch",
@@ -480,6 +481,24 @@ describe("local runtime foundation", () => {
       expect(secondFetch.ok).toBe(true);
       expect((secondFetch.data as any).cacheStatus).toBe("fresh");
       expect(providerCalls).toBe(1);
+
+      const resourceRead = await daemon.readResource(root, resourceUri);
+      expect(resourceRead.ok).toBe(true);
+      expect((resourceRead.data as any)).toMatchObject({
+        schemaVersion: "archcontext.resource-read/v1",
+        uri: resourceUri,
+        dataClassification: "external-unverified-documentation",
+        resource: {
+          provider: "context7",
+          libraryId: "/facebook/react",
+          resolvedVersion: "18.2.0",
+          trust: "external-unverified",
+          enforcement: "advisory-only",
+          cacheStatus: "fresh"
+        }
+      });
+      expect((await daemon.readResource(root, "https://context7.com/react")).ok).toBe(false);
+      expect((await daemon.readResource(root, `archcontext://external-docs/context7/sha256:${"9".repeat(64)}`)).ok).toBe(false);
 
       await daemon.prepare(root, "Use React state hooks", 12_288, 12, "task_docs");
       await daemon.completeTask(root, { taskSessionId: "task_docs", headSha: "abc123" });

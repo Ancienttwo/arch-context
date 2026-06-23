@@ -16,13 +16,14 @@ Context7 without changing the deterministic practice engine.
   owns `external_docs_cache`.
 - User surface: `packages/surfaces/cli/src/main.ts` owns
   `archctx docs status|resolve|pin|fetch|purge`.
+- MCP surface: `packages/surfaces/mcp-local/src/index.ts` exposes read-only
+  `resources/list` and `resources/read` for daemon-owned external-docs URIs.
 - Verification surface:
   `scripts/practice-context7-readback.ts` and
   `docs/verification/practice-context7-readback.json`.
 
-Out of scope for this slice: MCP resource surfacing, live Context7 provider
-readback with a real API key, and turning external docs into enforceable
-practice constraints.
+Out of scope for this slice: live Context7 provider readback with a real API
+key, and turning external docs into enforceable practice constraints.
 
 ## P2 Trace
 
@@ -47,16 +48,22 @@ The concrete path is:
    and version.
 5. A second fetch with the same exact library/version/query returns
    `cacheStatus=fresh` and does not call the provider.
-6. `prepare` keeps default egress at zero. When a caller explicitly configures
+6. `McpLocalServer.resources/list` projects cached daemon resources as
+   `archcontext://external-docs/context7/<digest>` entries, and
+   `resources/read` calls `RuntimeDaemonClient.readResource(root, uri)`. The
+   daemon validates the URI shape and reads by provider/content digest from
+   SQLite; unsupported URIs and cache misses return schema errors rather than
+   network access. No generic HTTP/fetch MCP tool is added.
+7. `prepare` keeps default egress at zero. When a caller explicitly configures
    the provider in `prepare-unknowns` mode, the daemon first requires compiled
    context to expose dependency/version pressure, then confirms a pinned Context7
    library ID and an exact package version from `package-lock.json` or
    `package.json`; fuzzy versions such as `^18.2.0` do not trigger provider
    access.
-7. A matching `prepare` appends only an advisory `external-docs` resource and
+8. A matching `prepare` appends only an advisory `external-docs` resource and
    an untrusted unknown to task context. It does not write constraints,
    realConstraints, or practiceGuidance resources.
-8. `complete` runs after the fetch/prepare path without increasing provider
+9. `complete` runs after the fetch/prepare path without increasing provider
    call count.
 
 The pressure points were cache ownership and provider failure shape. The daemon
@@ -85,7 +92,7 @@ thin CLI, and executable evidence.
 - `bun test scripts/practice-context7-readback.test.ts`
 - `bun run record:s5:context7`
 - `bun run readback:s5:context7`
-- `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`
+- `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`
 - `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts`
 - `bun test packages/contracts/test/contracts.test.ts`
 - `bun run typecheck`
@@ -98,8 +105,11 @@ Observed readbacks:
 - Runtime daemon test proves manual pin/fetch cache replay and no provider calls
   from complete; prepare-unknowns uses pinned exact versions, cache replay, and
   stale cache fallback when provider fetch fails after TTL expiry.
+- MCP tests prove external-docs resources list/read through daemon cache and
+  loopback RPC, while unsupported external URIs are not fetched.
 - CLI test proves docs commands require explicit approval and `--allow-network`.
 - S5 readback evidence proves default egress zero, allowlisted outbound fields,
   metadata-only provider telemetry, DLP interception, exact-version cache
   replay, prepare-unknowns advisory-only resource insertion, provider failure
-  fallback, and zero hard-gate provider references.
+  fallback, MCP read-only external resource access, no generic HTTP tool, and
+  zero hard-gate provider references.
