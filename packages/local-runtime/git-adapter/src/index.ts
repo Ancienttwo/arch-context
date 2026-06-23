@@ -175,7 +175,7 @@ export function prepareDetachedReviewWorktree(input: {
       }
     };
   } catch (error) {
-    rmSync(temporaryRoot, { recursive: true, force: true });
+    removePathWithRetry(temporaryRoot);
     if (isGitWorktreeError(error)) {
       return {
         schemaVersion: "archcontext.detached-review-worktree-verification/v1",
@@ -193,10 +193,14 @@ export function removeDetachedReviewWorktree(worktree: Pick<DetachedReviewWorktr
   try {
     runGit(worktree.sourceRoot, ["worktree", "remove", "--force", worktree.worktreeRoot]);
   } catch {
-    rmSync(worktree.worktreeRoot, { recursive: true, force: true });
+    removePathWithRetry(worktree.worktreeRoot);
   } finally {
-    rmSync(worktree.temporaryRoot || dirname(worktree.worktreeRoot), { recursive: true, force: true });
+    removePathWithRetry(worktree.temporaryRoot || dirname(worktree.worktreeRoot));
   }
+}
+
+export function removePathWithRetry(path: string): void {
+  rmSync(path, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
 }
 
 function readCommitTreeOid(root: string, headSha: string): string | undefined {

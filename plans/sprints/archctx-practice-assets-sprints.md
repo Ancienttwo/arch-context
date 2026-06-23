@@ -757,6 +757,7 @@ bun run verify
 - 2026-06-24：提交 stacked PR #15 `feat(practices): add checkpoint guidance deltas`，base 为 `codex/practice-matching`；最终合并前以 PR Checks readback 为准。
 - 2026-06-24：补 S3 hardening：daemon 对同一 worktree/tool call/path set 的重复 checkpoint 做 coalesce，core fixture 覆盖 observed cycle added/removed delta，benchmark readback 为 cold p95 31.086ms、warm p95 29.416ms、coalesced p95 16.843ms。
 - 2026-06-24：hardening 后 full verification 通过，`bun run verify` readback 为 581 pass / 0 fail / 3472 expects；focused S3 suite 为 166 pass / 0 fail / 990 expects。
+- 2026-06-24：PR #15 远端 Windows Node 24 暴露 developer-review 临时 worktree cleanup `EBUSY`；修复为 retrying removal，并给该长流程 CLI test 单独 15s timeout。focused CLI suite 为 16 pass / 0 fail / 275 expects，git-adapter + runtime-daemon suite 为 23 pass / 0 fail / 206 expects，`bun run verify` 仍为 581 pass / 0 fail / 3472 expects。
 
 ## 11.2 Checklist
 

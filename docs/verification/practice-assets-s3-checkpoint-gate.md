@@ -67,6 +67,8 @@ Hardening readbacks captured after PR #15 creation:
 - Benchmark fixture: darwin-arm64, Node v24.3.0, Bun 1.3.10, 4-file temporary repository, mock CodeGraph provider.
 - Benchmark p95: cold 31.086ms <= 750ms, warm 29.416ms <= 250ms, coalesced 16.843ms <= 50ms.
 - Coalesce readback: 10 repeated post-edit events for the same tool call/path set reuse one checkpoint result digest; runtime test asserts CodeFacts sync/build counts do not increase after the first analysis.
+- Windows CI repair readback: developer-review temporary worktree/run-root cleanup now uses retrying removal for `EBUSY`/locked-path cleanup; focused CLI suite is 16 pass / 0 fail / 275 expects, git-adapter + runtime-daemon suite is 23 pass / 0 fail / 206 expects.
+- Full verification after CI repair: 581 pass / 0 fail / 3472 expects.
 
 ## Gate Evidence
 

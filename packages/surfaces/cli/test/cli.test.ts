@@ -17,6 +17,7 @@ import { runCli } from "../src/main";
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = 30_000;
 const DAEMON_TEST_TIMEOUT_MS = 30_000;
+const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
 function runTestCli(command: string, args: string[], root: string) {
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
@@ -719,7 +720,7 @@ describe("archctx CLI", () => {
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
-  });
+  }, GITHUB_REVIEW_TEST_TIMEOUT_MS);
 
   test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-foreground-"));

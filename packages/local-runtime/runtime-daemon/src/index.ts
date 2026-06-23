@@ -23,7 +23,7 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
 import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
-import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 
@@ -658,7 +658,7 @@ export class ArchctxDaemon {
       }
     };
     if (existsSync(paths.lockPath) || existsSync(paths.manifestPath)) {
-      rmSync(paths.runRoot, { recursive: true, force: true });
+      removePathWithRetry(paths.runRoot);
       throw new Error(`developer-review-run-already-active: ${input.challenge.challengeId}`);
     }
     let lockAcquired = false;
@@ -693,7 +693,7 @@ export class ArchctxDaemon {
       if (lockAcquired) {
         this.cleanupDeveloperReviewRun(preparing);
       } else {
-        rmSync(paths.runRoot, { recursive: true, force: true });
+        removePathWithRetry(paths.runRoot);
       }
       throw error;
     }
@@ -736,7 +736,7 @@ export class ArchctxDaemon {
     ] as const) {
       try {
         const existed = existsSync(path);
-        rmSync(path, { recursive: true, force: true });
+        removePathWithRetry(path);
         if (existed) removed.push(kind);
       } catch (error) {
         errors.push(cleanupErrorMessage(kind, error));
