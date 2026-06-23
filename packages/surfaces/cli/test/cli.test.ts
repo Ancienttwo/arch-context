@@ -95,6 +95,24 @@ function readFileMode(path: string): number {
   return statSync(path).mode & 0o777;
 }
 
+async function withEnv<T>(patch: Record<string, string | undefined>, run: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>();
+  for (const key of Object.keys(patch)) {
+    previous.set(key, process.env[key]);
+    const value = patch[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    return await run();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
 function expectSafeGithubReviewOutput(data: unknown, challenge: { nonce: string }, signatureValue?: string): void {
   const serialized = JSON.stringify(data);
   expect(serialized).not.toContain(challenge.nonce);
@@ -174,6 +192,14 @@ describe("archctx CLI", () => {
       expectSameExistingPath((doctor.data as any).git.root, root);
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
       expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.0.1");
+      expect((doctor.data as any).update).toMatchObject({
+        schemaVersion: "archcontext.update-check/v1",
+        packageName: "archctx",
+        currentVersion: "0.1.3",
+        status: "not-checked",
+        checkUpdates: false,
+        updateAvailable: false
+      });
       expect((doctor.data as any).egress).toMatchObject({
         ok: true,
         defaultOutbound: "local-only",
@@ -199,6 +225,52 @@ describe("archctx CLI", () => {
       expect((paths.data as any).npmGlobalInstallState).toBe("forbidden");
       const privacyAudit = await runTestCli("privacy-audit", [], root);
       expect((privacyAudit.data as any).dependencyAudit.ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI update check is explicit and doctor can include the same advisory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-update-check-"));
+    writeFileSync(join(root, "README.md"), "# update check fixture\n", "utf8");
+    try {
+      await withEnv({
+        ARCHCONTEXT_CHECK_UPDATES: undefined,
+        ARCHCONTEXT_LATEST_VERSION: "99.0.0"
+      }, async () => {
+        const defaultDoctor = await runTestCli("doctor", [], root);
+        expect((defaultDoctor.data as any).update).toMatchObject({
+          status: "not-checked",
+          checkUpdates: false,
+          updateAvailable: false
+        });
+
+        const update = await runTestCli("update", ["--check"], root);
+        expect(update.ok).toBe(true);
+        expect((update.data as any)).toMatchObject({
+          schemaVersion: "archcontext.update-check/v1",
+          packageName: "archctx",
+          currentVersion: "0.1.3",
+          latestVersion: "99.0.0",
+          source: "env",
+          status: "update-available",
+          checkUpdates: true,
+          updateAvailable: true,
+          installCommand: "npm install -g archctx@latest"
+        });
+
+        const checkedDoctor = await runTestCli("doctor", ["--check-updates"], root);
+        expect((checkedDoctor.data as any).update).toMatchObject({
+          latestVersion: "99.0.0",
+          source: "env",
+          status: "update-available",
+          updateAvailable: true
+        });
+
+        const unsupported = await runTestCli("update", [], root);
+        expect(unsupported.ok).toBe(false);
+        expect((unsupported as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      });
     } finally {
       removeTempRoot(root);
     }
