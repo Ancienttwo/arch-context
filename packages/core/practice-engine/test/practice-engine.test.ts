@@ -106,6 +106,30 @@ function dependencyDirectionMatch(assetDigest: string, evidence: Array<{ subject
   };
 }
 
+function ownerMatch(assetDigest: string, evidence: Array<{ subject: string; kind?: "architecture-model" | "diff" | "symbol" }>): PracticeMatchV1 {
+  return {
+    schemaVersion: "archcontext.practice-match/v1",
+    practiceId: "ownership.explicit-lifecycle-owner",
+    assetRevision: 1,
+    assetDigest,
+    title: "Governed architecture elements need one lifecycle owner",
+    category: "ownership",
+    score: 90,
+    confidence: "high",
+    enforcement: "checkpoint",
+    matchedBy: ["predicate"],
+    evidence: evidence.map((item) => ({
+      kind: item.kind ?? "architecture-model",
+      strength: "observed",
+      subject: item.subject,
+      digest: digestJson({ subject: item.subject }),
+      observedAt: "1970-01-01T00:00:00.000Z"
+    })),
+    explanation: ["ownership fixture"],
+    sourceTrust: "curated-static"
+  };
+}
+
 function compatibilityMatch(assetDigest: string): PracticeMatchV1 {
   return {
     schemaVersion: "archcontext.practice-match/v1",
@@ -297,6 +321,113 @@ describe("@archcontext/core/practice-engine", () => {
     expect(noBaseline.results[0]).toMatchObject({ status: "not_applicable", reasonCode: "no-baseline" });
   });
 
+  test("owner required checker applies only to explicitly governed subjects", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-practice-owner-"));
+    try {
+      mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/model/nodes/component.checkout.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: component.checkout",
+        "kind: component",
+        "name: Checkout",
+        "status: active",
+        "summary: Checkout component.",
+        "ownership:",
+        "  lifecycle: [\"team-architecture\"]",
+        ""
+      ].join("\n"), "utf8");
+      writeFileSync(join(root, ".archcontext/model/nodes/module.billing.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: module.billing",
+        "kind: module",
+        "name: Billing",
+        "status: active",
+        "summary: Billing module.",
+        ""
+      ].join("\n"), "utf8");
+      writeFileSync(join(root, ".archcontext/model/nodes/component.split.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: component.split",
+        "kind: component",
+        "name: Split",
+        "status: active",
+        "summary: Split-owned component.",
+        "ownership:",
+        "  lifecycle: [\"team-architecture\", \"team-platform\"]",
+        ""
+      ].join("\n"), "utf8");
+      const catalog = loadPracticeCatalog({ root: workspaceRoot });
+      const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "ownership.explicit-lifecycle-owner")!;
+      const policy = completePolicy("ownership.explicit-lifecycle-owner", "owner-required");
+      const ownerRegistry = loadPracticeWaiverOwnerRegistry(root);
+
+      const plainSymbol = evaluatePracticeEnforcement({
+        catalog,
+        policy,
+        ownerRegistry,
+        matches: [ownerMatch(asset.assetDigest, [{ kind: "symbol", subject: "symbol.componentCheckout" }])]
+      });
+      const owned = evaluatePracticeEnforcement({
+        catalog,
+        policy,
+        ownerRegistry,
+        matches: [ownerMatch(asset.assetDigest, [{ subject: "governed:component.checkout" }])]
+      });
+      const missing = evaluatePracticeEnforcement({
+        catalog,
+        policy,
+        ownerRegistry,
+        matches: [ownerMatch(asset.assetDigest, [{ subject: "governed:module.billing" }])]
+      });
+      const split = evaluatePracticeEnforcement({
+        catalog,
+        policy,
+        ownerRegistry,
+        matches: [ownerMatch(asset.assetDigest, [{ subject: "governed:component.split" }])]
+      });
+      const unknownOwner = evaluatePracticeEnforcement({
+        catalog,
+        policy,
+        ownerRegistry,
+        matches: [ownerMatch(asset.assetDigest, [
+          { subject: "governed:component.reporting" },
+          { subject: "lifecycle-owner:component.reporting=unknown-team" }
+        ])]
+      });
+      const selfAttestedOwner = evaluatePracticeEnforcement({
+        catalog,
+        policy,
+        ownerRegistry: { owners: [] },
+        matches: [ownerMatch(asset.assetDigest, [
+          { subject: "governed:component.reporting" },
+          { subject: "lifecycle-owner:component.reporting=team-reporting" }
+        ])]
+      });
+
+      expect(plainSymbol.violations).toEqual([]);
+      expect(plainSymbol.results[0]).toMatchObject({
+        status: "not_applicable",
+        reasonCode: "no-violation"
+      });
+      expect(owned.violations).toEqual([]);
+      expect(owned.results[0]).toMatchObject({
+        status: "pass",
+        subjects: ["component.checkout"]
+      });
+      expect(missing.violations[0]).toMatchObject({
+        practiceId: "ownership.explicit-lifecycle-owner",
+        checkId: "owner-required",
+        status: "fail",
+        subjects: ["module.billing"]
+      });
+      expect(split.violations[0].subjects).toEqual(["component.split"]);
+      expect(unknownOwner.violations[0].subjects).toEqual(["component.reporting"]);
+      expect(selfAttestedOwner.violations[0].subjects).toEqual(["component.reporting"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("compatibility contract checker blocks missing durable contract", () => {
     const catalog = loadPracticeCatalog({ root: workspaceRoot });
     const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
@@ -427,6 +558,13 @@ describe("@archcontext/core/practice-engine", () => {
       const registry = loadPracticeWaiverOwnerRegistry(root);
 
       expect(registry.owners).toEqual(["data-platform", "team-architecture"]);
+      expect(registry.subjects).toEqual([{
+        subject: "module.billing",
+        path: ".archcontext/model/nodes/module.billing.yaml",
+        kind: "module",
+        lifecycleOwners: ["team-architecture"],
+        dataOwners: ["data-platform"]
+      }]);
       expect(registry.digest).toMatch(/^sha256:/);
       expect(loadPracticeWaivers(root)).toHaveLength(1);
       expect(() => validatePracticeWaiver({ ...waiver, owner: "unknown-team" }, "cycle-waiver", { allowedOwners: registry.owners })).toThrow("practice-waiver-owner-unknown");

@@ -16,7 +16,7 @@ import {
 } from "@archcontext/contracts";
 import type { CompatibilityContractInput } from "@archcontext/core/policy-engine";
 import { assertRepoRelativePath } from "@archcontext/core/architecture-domain";
-import { isRegisteredPracticeCheck, runRegisteredPracticeCheck } from "./check-registry";
+import { isRegisteredPracticeCheck, runRegisteredPracticeCheck, type PracticeOwnerRegistry } from "./check-registry";
 
 export interface PracticeEnforcementCatalog {
   catalogDigest: string;
@@ -31,6 +31,7 @@ export interface PracticeEnforcementInput {
   previousMatches?: PracticeMatchV1[];
   compatibilityContract?: CompatibilityContractInput;
   compatibilityPathIntroduced?: boolean;
+  ownerRegistry?: PracticeOwnerRegistry;
   now?: string;
 }
 
@@ -38,6 +39,7 @@ export interface PracticeWaiverOwnerRegistry {
   schemaVersion: "archcontext.practice-waiver-owner-registry/v1";
   owners: string[];
   sources: { owner: string; path: string; kind: "lifecycle" | "data" }[];
+  subjects: { subject: string; path: string; kind: string; lifecycleOwners: string[]; dataOwners: string[] }[];
   digest: string;
 }
 
@@ -86,14 +88,23 @@ export function loadPracticeWaivers(root: string): PracticeWaiverV1[] {
 export function loadPracticeWaiverOwnerRegistry(root: string): PracticeWaiverOwnerRegistry {
   const modelDir = resolve(root, ".archcontext/model/nodes");
   const sources: PracticeWaiverOwnerRegistry["sources"] = [];
+  const subjects: PracticeWaiverOwnerRegistry["subjects"] = [];
   if (existsSync(modelDir)) {
     if (lstatSync(modelDir).isSymbolicLink()) throw new Error("practice-owner-registry-symlink-denied");
     for (const path of collectFiles(root, ".archcontext/model/nodes")) {
       const absolute = resolve(root, path);
       if (lstatSync(absolute).isSymbolicLink()) throw new Error(`practice-owner-registry-symlink-denied: ${path}`);
       const body = readFileSync(absolute, "utf8");
+      const lifecycleOwners = extractOwnershipOwners(body, "lifecycle");
+      const dataOwners = extractOwnershipOwners(body, "data");
       for (const kind of ["lifecycle", "data"] as const) {
         for (const owner of extractOwnershipOwners(body, kind)) sources.push({ owner, path, kind });
+      }
+      const subject = extractNodeScalar(body, "id");
+      const nodeKind = extractNodeScalar(body, "kind");
+      const status = extractNodeScalar(body, "status");
+      if (subject && nodeKind && status !== "removed" && isGovernedOwnerSubjectKind(nodeKind)) {
+        subjects.push({ subject, path, kind: nodeKind, lifecycleOwners, dataOwners });
       }
     }
   }
@@ -101,7 +112,8 @@ export function loadPracticeWaiverOwnerRegistry(root: string): PracticeWaiverOwn
   const withoutDigest = {
     schemaVersion: "archcontext.practice-waiver-owner-registry/v1" as const,
     owners,
-    sources: sources.sort((a, b) => a.owner.localeCompare(b.owner) || a.path.localeCompare(b.path) || a.kind.localeCompare(b.kind))
+    sources: sources.sort((a, b) => a.owner.localeCompare(b.owner) || a.path.localeCompare(b.path) || a.kind.localeCompare(b.kind)),
+    subjects: subjects.sort((a, b) => a.subject.localeCompare(b.subject) || a.path.localeCompare(b.path))
   };
   return { ...withoutDigest, digest: digestJson(withoutDigest as unknown as Json) };
 }
@@ -171,7 +183,8 @@ export function evaluatePracticeEnforcement(input: PracticeEnforcementInput): Pr
           compatibilityContract: input.compatibilityContract,
           compatibilityPathIntroduced: input.compatibilityPathIntroduced,
           hasBaseline: input.previousMatches !== undefined,
-          previousMatch: previousById.get(rule.practiceId)
+          previousMatch: previousById.get(rule.practiceId),
+          ownerRegistry: input.ownerRegistry
         })
         : notApplicable(match, "not-registered", rule.enforcement, `Practice check is not registered for complete enforcement: ${check.checkId}`, check.checkId);
       results.push(applyWaiver(result, input.waivers ?? [], input.now ?? new Date(0).toISOString()));
@@ -337,6 +350,21 @@ function extractJsonOwnershipOwners(body: string, kind: "lifecycle" | "data"): s
   } catch {
     return [];
   }
+}
+
+function extractNodeScalar(body: string, key: "id" | "kind" | "status"): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const value = parsed[key];
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    const match = body.replace(/\r\n/g, "\n").match(new RegExp(`^\\s*${key}:\\s*"?([^"\\n]+)"?\\s*$`, "m"));
+    return match?.[1].trim();
+  }
+}
+
+function isGovernedOwnerSubjectKind(kind: string): boolean {
+  return ["component", "datastore", "deployment", "external-system", "interface", "module"].includes(kind);
 }
 
 function parseInlineStringArray(value: string): string[] {

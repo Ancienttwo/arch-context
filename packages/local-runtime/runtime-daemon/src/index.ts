@@ -685,6 +685,7 @@ export class ArchctxDaemon {
         previousMatches: baseline?.matches,
         compatibilityContract: input.compatibilityContract,
         compatibilityPathIntroduced: input.compatibilityPathIntroduced,
+        ownerRegistry: loadPracticeWaiverOwnerRegistry(session.workspace.root),
         now: this.clock()
       })
       : undefined;

@@ -61,7 +61,7 @@
     {
       "id": "ownership.explicit-lifecycle-owner",
       "revision": 1,
-      "digest": "sha256:8275e53b2ed25ae6b10e109eea76f8c0262c84aac201e5b5efd97c225d129768",
+      "digest": "sha256:628e460457009e3f3c1c42bda8e88361d19b34afdf473d8f29f82938a8410d62",
       "sourceIds": ["archcontext.spec", "backstage"]
     },
     {
@@ -90,5 +90,5 @@
     "openssf.scorecard",
     "opentelemetry"
   ],
-  "catalogDigest": "sha256:235dc7f02375c408a1b1497d0d5bca444abde26519875e2d396f770ae5d3b892"
+  "catalogDigest": "sha256:b43eff92f4752306034fe908413c34c516e99f22189ad1247e63e52e98062e3a"
 }
