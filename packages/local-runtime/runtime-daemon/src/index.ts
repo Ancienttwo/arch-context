@@ -18,6 +18,7 @@ import {
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { prepareTask } from "@archcontext/core/application";
+import { practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
@@ -259,6 +260,7 @@ export interface RuntimeDaemonClient {
   validate(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
@@ -442,6 +444,11 @@ export class ArchctxDaemon {
       budget: { maxBytes, maxItems }
     });
     return okEnvelope("prepare", result as unknown as Json);
+  }
+
+  practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
+    this.assertRunning();
+    return practiceCatalogEnvelope(root, input);
   }
 
   async planUpdate(root: string, input: {
@@ -1294,6 +1301,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("prepare", [root, task, maxBytes, maxItems]);
   }
 
+  practices(root: string, input: PracticeCatalogCommandInput) {
+    return this.call("practices", [root, input]);
+  }
+
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }) {
     return this.call("planUpdate", [root, input]);
   }
@@ -1529,6 +1540,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.context(params[0] as string, params[1] as string, params[2] as number | undefined);
       case "prepare":
         return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined);
+      case "practices":
+        return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
       case "planUpdate":
         return this.daemon.planUpdate(params[0] as string, params[1] as any);
       case "completeTask":

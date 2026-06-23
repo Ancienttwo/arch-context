@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "revision",
+    "status",
+    "title",
+    "summary",
+    "category",
+    "tags",
+    "appliesTo",
+    "triggers",
+    "evidencePolicy",
+    "guidance",
+    "checks",
+    "enforcement",
+    "provenance",
+    "lifecycle"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["active", "deprecated", "disabled"] },
+    "title": { "type": "string" },
+    "summary": { "type": "string" },
+    "category": { "type": "string" },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "appliesTo": { "type": "object" },
+    "triggers": { "type": "object" },
+    "evidencePolicy": { "type": "object" },
+    "guidance": { "type": "object" },
+    "checks": { "type": "array", "items": { "type": "object" } },
+    "enforcement": { "type": "object" },
+    "provenance": { "type": "object" },
+    "lifecycle": { "type": "object" },
+    "overlay": { "type": "object" }
+  },
+  "additionalProperties": false
+}

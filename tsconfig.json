@@ -18,6 +18,7 @@
       "@archcontext/core/changeset-engine": ["packages/core/changeset-engine/src/index.ts"],
       "@archcontext/core/context-compiler": ["packages/core/context-compiler/src/index.ts"],
       "@archcontext/core/policy-engine": ["packages/core/policy-engine/src/index.ts"],
+      "@archcontext/core/practice-catalog": ["packages/core/practice-catalog/src/index.ts"],
       "@archcontext/core/pressure-engine": ["packages/core/pressure-engine/src/index.ts"],
       "@archcontext/core/reconcile-engine": ["packages/core/reconcile-engine/src/index.ts"],
       "@archcontext/core/refactor-decision": ["packages/core/refactor-decision/src/index.ts"],

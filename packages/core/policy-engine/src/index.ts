@@ -21,6 +21,7 @@ const INVALID_COMPAT_REASONS = new Set(["just in case", "safer to keep", "many i
 const ALLOWLIST = [
   ".archcontext/model/",
   ".archcontext/policies/",
+  ".archcontext/practices/",
   ".archcontext/decisions/",
   ".archcontext/generated/"
 ];

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "compatibility.single-owner",
+  "revision": 1,
+  "status": "active",
+  "title": "Compatibility paths require one lifecycle owner",
+  "summary": "A compatibility path must have one accountable owner and a bounded removal condition.",
+  "category": "compatibility",
+  "tags": ["compatibility", "migration"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["**/*"],
+    "nodeKinds": ["module", "service", "public-api"]
+  },
+  "triggers": {
+    "candidateTerms": ["compatibility", "legacy", "fallback"],
+    "pressureSignals": ["unjustified-wrapper-adapter"],
+    "structuralPredicates": ["compatibility-path-added"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "heuristic",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff", "symbol"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Who owns removal?"],
+    "preferred": ["Adapt at one boundary."],
+    "avoid": ["Permanent fallback code."]
+  },
+  "checks": [
+    {
+      "checkId": "compatibility-contract-required",
+      "mode": "deterministic",
+      "parameters": {
+        "requireOwner": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "complete",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.adr.0010"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

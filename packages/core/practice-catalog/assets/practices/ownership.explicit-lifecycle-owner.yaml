@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "ownership.explicit-lifecycle-owner",
+  "revision": 1,
+  "status": "active",
+  "title": "Governed architecture elements need one lifecycle owner",
+  "summary": "A component, integration, policy, compatibility path, or generated artifact that can block delivery must have one accountable lifecycle owner.",
+  "category": "ownership",
+  "tags": ["ownership", "lifecycle", "governance"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["**/*"],
+    "nodeKinds": ["module", "service", "resource", "public-api"],
+    "negativePathGlobs": ["test/**", "**/*.fixture.*"]
+  },
+  "triggers": {
+    "candidateTerms": ["owner", "ownership", "team", "lifecycle"],
+    "pressureSignals": ["multiple-lifecycle-owner", "missing-owner"],
+    "structuralPredicates": ["governed-element-created", "ownership-spread-observed"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "declared",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["architecture-model", "diff"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Who owns this element through removal or replacement?", "Where is that owner recorded?", "What condition ends the obligation?"],
+    "preferred": ["Record one owner in the model or policy.", "Use review dates for temporary ownership."],
+    "avoid": ["Shared ownership with no escalation path.", "Implicit ownership by whoever touched the file last."]
+  },
+  "checks": [
+    {
+      "checkId": "owner-required",
+      "mode": "deterministic",
+      "parameters": {
+        "scope": "governed-elements"
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "curated-open-source",
+    "sourceRefs": [
+      {
+        "sourceId": "backstage",
+        "licenseSpdx": "Apache-2.0"
+      },
+      {
+        "sourceId": "archcontext.spec"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

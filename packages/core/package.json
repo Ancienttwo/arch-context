@@ -10,6 +10,7 @@
     "./changeset-engine": "./changeset-engine/src/index.ts",
     "./context-compiler": "./context-compiler/src/index.ts",
     "./policy-engine": "./policy-engine/src/index.ts",
+    "./practice-catalog": "./practice-catalog/src/index.ts",
     "./pressure-engine": "./pressure-engine/src/index.ts",
     "./reconcile-engine": "./reconcile-engine/src/index.ts",
     "./refactor-decision": "./refactor-decision/src/index.ts",

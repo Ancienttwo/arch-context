@@ -260,6 +260,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       );
       return result.ok ? { ...result, data: paginate(result.data, args) } : result;
     }
+    case "practices":
+      return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
       return {
         schemaVersion: "archcontext.envelope/v1",
@@ -381,14 +383,37 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
   } finally {
     for (const handle of runtimeHandles.reverse()) await handle.close();
   }
+}
+
+async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "list";
+  if (subcommand === "list") {
+    return daemon.practices(cwd, {
+      action: "list",
+      category: readFlag(args, "--category"),
+      source: readFlag(args, "--source")
+    });
+  }
+  if (subcommand === "show") {
+    const id = args[1] ?? readFlag(args, "--id");
+    if (!id) return errorEnvelope("practices.show", "AC_SCHEMA_INVALID", "practices show requires <id> or --id");
+    return daemon.practices(cwd, { action: "show", id });
+  }
+  if (subcommand === "validate") {
+    return daemon.practices(cwd, { action: "validate", strict: args.includes("--strict") });
+  }
+  if (subcommand === "sources") {
+    return daemon.practices(cwd, { action: "sources" });
+  }
+  return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires list|show|validate|sources");
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {

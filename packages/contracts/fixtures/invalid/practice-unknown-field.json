@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "compatibility.unknown-field",
+  "revision": 1,
+  "status": "active",
+  "title": "Unknown field fixture",
+  "summary": "This fixture must be rejected because it adds an unknown top-level field.",
+  "category": "compatibility",
+  "tags": ["fixture"],
+  "appliesTo": {
+    "repositoryKinds": ["application"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["**/*"],
+    "nodeKinds": ["module"]
+  },
+  "triggers": {
+    "candidateTerms": ["fixture"],
+    "pressureSignals": ["fixture"],
+    "structuralPredicates": ["fixture"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "heuristic",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Fixture?"],
+    "preferred": ["Reject unknown fields."],
+    "avoid": ["Accepting unknown fields."]
+  },
+  "checks": [],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.spec"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  },
+  "unexpectedField": true
+}

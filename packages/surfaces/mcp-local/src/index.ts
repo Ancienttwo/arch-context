@@ -26,6 +26,11 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
+    name: "archcontext_practices",
+    description: "List, show, validate, or inspect source records for the effective static Practice Catalog.",
+    annotations: { safety: "read-only", requiresConfirmation: false }
+  },
+  {
     name: "archcontext_checkpoint",
     description: "Call after meaningful code or model changes. Verifies the task snapshot is still fresh.",
     annotations: { safety: "read-only", requiresConfirmation: false }
@@ -74,6 +79,21 @@ export class McpLocalServer {
           return this.budgeted("prepare", result as unknown as Json, args.maxBytes ?? 12_288);
         } catch (error) {
           return runtimeUnavailable("prepare", error);
+        }
+      }
+      case "archcontext_practices": {
+        const root = requiredArg(args, "root");
+        try {
+          const result = await (await this.runtime(root)).practices(root, {
+            action: args.action ?? "list",
+            id: args.id,
+            category: args.category,
+            source: args.source,
+            strict: args.strict === true
+          });
+          return this.budgeted("practices", result as unknown as Json, args.maxBytes ?? 12_288);
+        } catch (error) {
+          return runtimeUnavailable("practices", error);
         }
       }
       case "archcontext_checkpoint":

@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "supply-chain.pinned-dependencies",
+  "revision": 1,
+  "status": "active",
+  "title": "Runtime dependency changes should be pinned and reviewable",
+  "summary": "A dependency introduced into the runtime path should be pinned through the package manager lockfile or an equivalent deterministic manifest.",
+  "category": "supply-chain",
+  "tags": ["supply-chain", "dependencies", "lockfile"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["package.json", "bun.lock", "pnpm-lock.yaml", "package-lock.json", "Cargo.toml", "go.mod"],
+    "nodeKinds": ["package", "module"],
+    "negativePathGlobs": ["docs/**", "test/**"]
+  },
+  "triggers": {
+    "candidateTerms": ["dependency", "package", "lockfile", "version"],
+    "pressureSignals": ["unpinned-runtime-dependency"],
+    "structuralPredicates": ["runtime-dependency-added", "lockfile-not-updated"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "observed",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["package-manifest", "diff"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Which runtime path uses this dependency?", "Where is the resolved version pinned?", "What rollback removes the dependency safely?"],
+    "preferred": ["Commit lockfile changes with manifest changes.", "Keep optional providers out of mandatory local-core paths."],
+    "avoid": ["Adding a runtime dependency without lockfile evidence.", "Letting optional network providers become implicit required dependencies."]
+  },
+  "checks": [
+    {
+      "checkId": "pinned-dependencies-required",
+      "mode": "deterministic",
+      "parameters": {
+        "requireLockfileEvidence": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "curated-open-source",
+    "sourceRefs": [
+      {
+        "sourceId": "openssf.scorecard",
+        "licenseSpdx": "Apache-2.0"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "api.contract-before-implementation",
+  "revision": 1,
+  "status": "active",
+  "title": "API boundary changes should update the contract before implementation",
+  "summary": "A public API, event, or integration boundary should have its contract updated before downstream implementation details depend on it.",
+  "category": "api",
+  "tags": ["api", "contract", "boundary"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["src/**", "packages/**", "schemas/**"],
+    "nodeKinds": ["public-api", "service", "module"],
+    "negativePathGlobs": ["test/**", "docs/**"]
+  },
+  "triggers": {
+    "candidateTerms": ["api", "contract", "schema", "event", "public"],
+    "pressureSignals": ["contract-after-implementation"],
+    "structuralPredicates": ["public-api-changed", "schema-contract-missing"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "declared",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff", "path"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Which consumer sees this boundary?", "Where is the contract versioned?", "What compatibility test proves the shape?"],
+    "preferred": ["Change the schema or contract in the same slice.", "Keep implementation and contract reviewable together."],
+    "avoid": ["Implementing first and documenting later.", "Letting tests be the only public contract."]
+  },
+  "checks": [
+    {
+      "checkId": "required-test-evidence",
+      "mode": "deterministic",
+      "parameters": {
+        "scope": "public-api"
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.adr.0012"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

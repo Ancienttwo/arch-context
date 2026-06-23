@@ -35,9 +35,10 @@ function runTestCli(command: string, args: string[], root: string) {
 }
 
 describe("local MCP server", () => {
-  test("exposes exactly five workflow tools with safety annotations", () => {
+  test("exposes exactly six workflow tools with safety annotations", () => {
     expect(LOCAL_MCP_TOOLS.map((tool) => tool.name)).toEqual([
       "archcontext_prepare_task",
+      "archcontext_practices",
       "archcontext_checkpoint",
       "archcontext_plan_update",
       "archcontext_apply_update",
@@ -62,6 +63,23 @@ describe("local MCP server", () => {
       });
       expect(result.resourceUri).toMatch(/^archcontext:\/\/resource\//);
       expect(server.readResource(result.resourceUri!)).toBeTruthy();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("practices tool reads the daemon-resolved catalog", async () => {
+    const root = tempModel();
+    try {
+      const server = await createTestServer();
+      const result = await server.callTool("archcontext_practices", {
+        root,
+        action: "list",
+        maxBytes: 12_288
+      });
+      expect((result.content as any).ok).toBe(true);
+      expect((result.content as any).data.schemaVersion).toBe("archcontext.practice-list/v1");
+      expect((result.content as any).data.practices.map((practice: any) => practice.id)).toContain("compatibility.single-owner");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -128,7 +146,7 @@ describe("local MCP server", () => {
     }
     await runStdioMcpLoop(input(), (line) => output.push(line), (line) => logs.push(line));
     expect(output.length).toBe(1);
-    expect(JSON.parse(output[0]).result.tools.length).toBe(5);
+    expect(JSON.parse(output[0]).result.tools.length).toBe(6);
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 

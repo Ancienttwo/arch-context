@@ -142,6 +142,22 @@ describe("archctx CLI", () => {
       expect(prepare.ok).toBe(true);
       expect((prepare.data as any).posture).toBeTruthy();
 
+      const practices = await runTestCli("practices", ["list", "--json"], root);
+      expect(practices.ok).toBe(true);
+      expect((practices.data as any).schemaVersion).toBe("archcontext.practice-list/v1");
+      expect((practices.data as any).count).toBeGreaterThanOrEqual(12);
+      expect((practices.data as any).catalogDigest).toMatch(/^sha256:/);
+
+      const practice = await runTestCli("practices", ["show", "compatibility.single-owner"], root);
+      expect(practice.ok).toBe(true);
+      expect((practice.data as any).practice.id).toBe("compatibility.single-owner");
+
+      const practiceValidation = await runTestCli("practices", ["validate", "--strict"], root);
+      expect((practiceValidation.data as any).valid).toBe(true);
+
+      const practiceSources = await runTestCli("practices", ["sources"], root);
+      expect((practiceSources.data as any).sources.some((source: any) => source.id === "madr")).toBe(true);
+
       const checkpoint = await runTestCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
       expect((checkpoint.data as any).fresh).toBe(true);
 

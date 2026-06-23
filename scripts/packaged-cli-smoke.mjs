@@ -54,6 +54,16 @@ try {
   assert(mcp.id === 1, "mcp must preserve request id");
   assert(Array.isArray(mcp.result?.tools), "mcp must list tools");
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
+  assert(mcp.result.tools.some((tool) => tool.name === "archcontext_practices"), "mcp must expose practices");
+
+  const practices = await runArchctx("practices", "validate", "--strict");
+  assert(practices.ok === true, "practices validate must succeed through packaged bin");
+  assert(practices.data?.valid === true, "built-in practice catalog must validate through packaged bin");
+  assert(practices.data?.practiceCount >= 12, "packaged catalog must include seed practice assets");
+
+  const practiceList = await runArchctx("practices", "list", "--json");
+  assert(practiceList.ok === true, "practices list must succeed through packaged bin");
+  assert(practiceList.data?.practices?.some((practice) => practice.id === "compatibility.single-owner"), "packaged catalog must list compatibility.single-owner");
 
   const planned = await runArchctxMcp({
     jsonrpc: "2.0",
