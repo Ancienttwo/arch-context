@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { inspectPracticeContext7Readback, verifiedPracticeContext7Fixture } from "./practice-context7-readback";
+import {
+  inspectLivePracticeContext7Readback,
+  inspectPracticeContext7Readback,
+  verifiedLivePracticeContext7Fixture,
+  verifiedPracticeContext7Fixture
+} from "./practice-context7-readback";
 
 describe("practice-context7-readback", () => {
   test("accepts verified Context7 packet with manual-only egress and advisory resources", () => {
@@ -117,5 +122,52 @@ describe("practice-context7-readback", () => {
     const result = inspectPracticeContext7Readback(packet);
     expect(result.ok).toBe(false);
     expect(result.failures.some((failure: string) => failure.includes("DLP finding"))).toBe(true);
+  });
+
+  test("accepts verified live Context7 packet with public fixture and community disclaimer", () => {
+    expect(inspectLivePracticeContext7Readback(verifiedLivePracticeContext7Fixture())).toMatchObject({
+      ok: true,
+      schemaVersion: "archcontext.practice-context7-live-readback/v1",
+      libraryId: "/vercel/next.js",
+      version: "v15.1.8",
+      snippetCount: 2,
+      failures: []
+    });
+  });
+
+  test("rejects live Context7 packet without exact version or disclaimer", () => {
+    const result = inspectLivePracticeContext7Readback(verifiedLivePracticeContext7Fixture({
+      fixture: {
+        ...(verifiedLivePracticeContext7Fixture().fixture as any),
+        version: "latest"
+      },
+      resolve: {
+        ...(verifiedLivePracticeContext7Fixture().resolve as any),
+        selectedVersionPresent: false
+      },
+      disclaimer: {
+        ...(verifiedLivePracticeContext7Fixture().disclaimer as any),
+        accuracyNotGuaranteed: false,
+        notEndToEndAuditable: false,
+        statement: "Context7 community documentation is advisory."
+      },
+      assertions: {
+        ...(verifiedLivePracticeContext7Fixture().assertions as any),
+        exactVersionRecorded: false,
+        accuracyNotGuaranteed: false,
+        doesNotClaimEndToEndAuditable: false
+      }
+    }));
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain("fixture.version must be v15.1.8");
+    expect(result.failures).toContain("resolve.selectedVersionPresent must be true");
+    expect(result.failures).toContain("disclaimer.accuracyNotGuaranteed must be true");
+    expect(result.failures).toContain("disclaimer.notEndToEndAuditable must be true");
+    expect(result.failures).toContain("disclaimer.statement must record accuracy is not guaranteed");
+    expect(result.failures).toContain("disclaimer.statement must record the readback is not end-to-end auditable");
+    expect(result.failures).toContain("assertions.exactVersionRecorded must be true");
+    expect(result.failures).toContain("assertions.accuracyNotGuaranteed must be true");
+    expect(result.failures).toContain("assertions.doesNotClaimEndToEndAuditable must be true");
   });
 });

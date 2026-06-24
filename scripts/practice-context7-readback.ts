@@ -27,11 +27,18 @@ import { McpLocalServer } from "@archcontext/surfaces/mcp-local";
 import { auditPacketCapture } from "./privacy-capture-lib.mjs";
 
 const DEFAULT_EVIDENCE = "docs/verification/practice-context7-readback.json";
+const DEFAULT_LIVE_EVIDENCE = "docs/verification/practice-context7-live-readback.json";
 const PACKET_SCHEMA_VERSION = "archcontext.practice-context7-readback/v1";
+const LIVE_PACKET_SCHEMA_VERSION = "archcontext.practice-context7-live-readback/v1";
 const NOW = "2026-06-24T00:00:00.000Z";
 const LIBRARY_ID = "/facebook/react";
 const VERSION = "18.2.0";
 const INTENT = "state hooks";
+const LIVE_LIBRARY_NAME = "Next.js";
+const LIVE_LIBRARY_ID = "/vercel/next.js";
+const LIVE_VERSION = "v15.1.8";
+const LIVE_PACKAGE_NAME = "next";
+const LIVE_INTENT = "app router metadata api";
 const FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
 type FailureMatrixCase = typeof FAILURE_MATRIX_CASES[number];
 const FAILURE_MATRIX_EXPECTED_STATUS: Record<FailureMatrixCase, string> = {
@@ -56,8 +63,8 @@ const PRIVATE_VALUE_CASES = [
 
 if (import.meta.main) {
   const [command = "inspect", ...args] = process.argv.slice(2);
-  if (!["run", "inspect"].includes(command)) {
-    console.error("[practice-context7-readback] usage: run|inspect [--out path] [--evidence path] [--json]");
+  if (!["run", "inspect", "live", "inspect-live"].includes(command)) {
+    console.error("[practice-context7-readback] usage: run|inspect|live|inspect-live [--out path] [--evidence path] [--json]");
     process.exit(2);
   }
 
@@ -66,18 +73,33 @@ if (import.meta.main) {
       root: process.cwd(),
       outPath: readFlag(args, "--out") ?? readFlag(args, "--evidence") ?? DEFAULT_EVIDENCE
     })
-    : inspectPracticeContext7ReadbackFile({
-      root: process.cwd(),
-      evidencePath: readFlag(args, "--evidence") ?? readFlag(args, "--out") ?? DEFAULT_EVIDENCE
-    });
+    : command === "live"
+      ? await runLivePracticeContext7Readback({
+        root: process.cwd(),
+        outPath: readFlag(args, "--out") ?? readFlag(args, "--evidence") ?? DEFAULT_LIVE_EVIDENCE
+      })
+      : command === "inspect-live"
+        ? inspectLivePracticeContext7ReadbackFile({
+          root: process.cwd(),
+          evidencePath: readFlag(args, "--evidence") ?? readFlag(args, "--out") ?? DEFAULT_LIVE_EVIDENCE
+        })
+        : inspectPracticeContext7ReadbackFile({
+          root: process.cwd(),
+          evidencePath: readFlag(args, "--evidence") ?? readFlag(args, "--out") ?? DEFAULT_EVIDENCE
+        });
 
   if (args.includes("--json")) {
     console.log(JSON.stringify(result, null, 2));
-  } else if (result.ok) {
-    console.log(`[practice-context7-readback] OK defaultEgress=${result.defaultPrepareEgress} dlpRejected=${result.dlpRejected}/${result.dlpCases}`);
   } else {
-    console.error("[practice-context7-readback] FAILED");
-    for (const failure of result.failures) console.error(`- ${failure}`);
+    const printable = result as any;
+    if (printable.ok && printable.schemaVersion === LIVE_PACKET_SCHEMA_VERSION) {
+      console.log(`[practice-context7-readback] OK liveLibrary=${printable.libraryId}@${printable.version} snippets=${printable.snippetCount}`);
+    } else if (printable.ok) {
+      console.log(`[practice-context7-readback] OK defaultEgress=${printable.defaultPrepareEgress} dlpRejected=${printable.dlpRejected}/${printable.dlpCases}`);
+    } else {
+      console.error("[practice-context7-readback] FAILED");
+      for (const failure of printable.failures) console.error(`- ${failure}`);
+    }
   }
   if (!result.ok) process.exit(1);
 }
@@ -105,6 +127,31 @@ export function inspectPracticeContext7ReadbackFile({
 } = {}) {
   const packet = JSON.parse(readFileSync(resolve(root, evidencePath), "utf8"));
   return inspectPracticeContext7Readback(packet);
+}
+
+export async function runLivePracticeContext7Readback({
+  root = process.cwd(),
+  outPath = DEFAULT_LIVE_EVIDENCE
+}: {
+  root?: string;
+  outPath?: string;
+} = {}) {
+  const packet = await buildLivePracticeContext7ReadbackPacket();
+  const resolvedOut = resolve(root, outPath);
+  mkdirSync(dirname(resolvedOut), { recursive: true });
+  writeFileSync(resolvedOut, `${JSON.stringify(packet, null, 2)}\n`, "utf8");
+  return inspectLivePracticeContext7Readback(packet);
+}
+
+export function inspectLivePracticeContext7ReadbackFile({
+  root = process.cwd(),
+  evidencePath = DEFAULT_LIVE_EVIDENCE
+}: {
+  root?: string;
+  evidencePath?: string;
+} = {}) {
+  const packet = JSON.parse(readFileSync(resolve(root, evidencePath), "utf8"));
+  return inspectLivePracticeContext7Readback(packet);
 }
 
 export function inspectPracticeContext7Readback(packet: any) {
@@ -139,6 +186,40 @@ export function inspectPracticeContext7Readback(packet: any) {
     defaultPrepareEgress: packet.runtime?.defaultPrepareEgress,
     dlpCases: packet.dlp?.cases,
     dlpRejected: packet.dlp?.rejected,
+    failures
+  };
+}
+
+export function inspectLivePracticeContext7Readback(packet: any) {
+  const failures: string[] = [];
+  if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
+    return liveFailureResult(["packet must be an object"]);
+  }
+
+  if (packet.schemaVersion !== LIVE_PACKET_SCHEMA_VERSION) failures.push(`schemaVersion must be ${LIVE_PACKET_SCHEMA_VERSION}`);
+  if (packet.environment !== "live-context7-public-fixture") failures.push("environment must be live-context7-public-fixture");
+  if (packet.status !== "verified") failures.push("status must be verified");
+
+  inspectLiveFixture(packet.fixture, failures);
+  inspectLiveResolve(packet.resolve, failures);
+  inspectLiveFetch(packet.fetch, failures);
+  inspectLiveProviderTelemetry(packet.providerTelemetry, failures);
+  inspectLiveDisclaimer(packet.disclaimer, failures);
+  inspectLiveAssertions(packet.assertions, failures);
+
+  const dlpAudit = auditPacketCapture(packet);
+  if (!dlpAudit.ok) {
+    for (const finding of dlpAudit.findings) {
+      failures.push(`DLP finding at ${finding.entry}${finding.path}: ${finding.pattern}`);
+    }
+  }
+
+  return {
+    ok: failures.length === 0,
+    schemaVersion: LIVE_PACKET_SCHEMA_VERSION,
+    libraryId: packet.fixture?.libraryId,
+    version: packet.fixture?.version,
+    snippetCount: packet.fetch?.resourceSummary?.snippetCount,
     failures
   };
 }
@@ -278,6 +359,100 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
   };
 }
 
+export function verifiedLivePracticeContext7Fixture(overrides: Record<string, unknown> = {}) {
+  const resourceSummary = {
+    schemaVersion: EXTERNAL_DOCUMENTATION_RESOURCE_SCHEMA_VERSION,
+    provider: "context7",
+    libraryId: LIVE_LIBRARY_ID,
+    requestedVersion: LIVE_VERSION,
+    resolvedVersion: LIVE_VERSION,
+    trust: "external-unverified",
+    enforcement: "advisory-only",
+    warning: "untrusted-documentation-data",
+    cacheStatus: "miss",
+    retrievedAt: NOW,
+    expiresAt: "2026-06-25T00:00:00.000Z",
+    uriPrefix: "archcontext://external-docs/context7/",
+    snippetCount: 2,
+    byteCount: 512,
+    contentDigest: `sha256:${"7".repeat(64)}`,
+    queryDigest: `sha256:${"8".repeat(64)}`
+  };
+  return {
+    schemaVersion: LIVE_PACKET_SCHEMA_VERSION,
+    environment: "live-context7-public-fixture",
+    status: "verified",
+    generatedAt: NOW,
+    fixture: {
+      provider: "context7",
+      packageName: LIVE_PACKAGE_NAME,
+      libraryName: LIVE_LIBRARY_NAME,
+      libraryId: LIVE_LIBRARY_ID,
+      version: LIVE_VERSION,
+      intent: LIVE_INTENT,
+      publicPackage: true,
+      sensitiveTask: false,
+      rawTaskSent: false,
+      fileContentsSent: false,
+      diffSent: false,
+      pathsSent: false,
+      symbolsSent: false
+    },
+    resolve: {
+      provider: "context7",
+      libraryName: LIVE_LIBRARY_NAME,
+      queryDigest: digestJson({ provider: "context7", libraryName: LIVE_LIBRARY_NAME, query: LIVE_INTENT }),
+      candidateCount: 1,
+      selectedLibraryId: LIVE_LIBRARY_ID,
+      selectedVersion: LIVE_VERSION,
+      selectedVersionPresent: true,
+      searchFilterApplied: false
+    },
+    fetch: {
+      provider: "context7",
+      cacheStatus: "miss",
+      request: {
+        libraryId: LIVE_LIBRARY_ID,
+        version: LIVE_VERSION,
+        intentDigest: digestJson({ intent: LIVE_INTENT }),
+        queryDigest: resourceSummary.queryDigest
+      },
+      resourceSummary
+    },
+    providerTelemetry: {
+      eventCount: 2,
+      statuses: ["success", "success"],
+      operations: ["resolve", "fetch"],
+      resolveKeys: ["byteCount", "latencyMs", "operation", "provider", "queryDigest", "status"],
+      fetchKeys: ["byteCount", "latencyMs", "libraryId", "operation", "provider", "queryDigest", "status", "version"],
+      fetchLibraryId: LIVE_LIBRARY_ID,
+      fetchVersion: LIVE_VERSION,
+      queryDigestsValid: true,
+      byteCountsPositive: true,
+      metadataOnly: true,
+      rawQueryPresent: false,
+      rawContentPresent: false,
+      credentialPresent: false
+    },
+    disclaimer: liveContext7Disclaimer(),
+    assertions: {
+      exactLibraryIdRecorded: true,
+      exactVersionRecorded: true,
+      publicFixtureOnly: true,
+      noSensitiveTaskFields: true,
+      providerContentAdvisoryOnly: true,
+      communityContentDisclaimerPresent: true,
+      accuracyNotGuaranteed: true,
+      doesNotClaimEndToEndAuditable: true,
+      evidenceStoresDigestOnly: true
+    },
+    readback: {
+      command: "bun scripts/practice-context7-readback.ts inspect-live --evidence docs/verification/practice-context7-live-readback.json --json"
+    },
+    ...overrides
+  };
+}
+
 function verifiedFailureMatrixFixture() {
   const rows = FAILURE_MATRIX_CASES.map((label) => ({
     case: label,
@@ -363,6 +538,108 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
     },
     readback: {
       command: "bun scripts/practice-context7-readback.ts inspect --evidence docs/verification/practice-context7-readback.json --json"
+    }
+  };
+}
+
+async function buildLivePracticeContext7ReadbackPacket() {
+  const telemetryEvents: Context7ProviderTelemetryEvent[] = [];
+  const adapter = new Context7ExternalDocumentationAdapter({
+    enabled: true,
+    mode: "manual",
+    retryBudget: 0,
+    rateLimit: false,
+    circuitBreaker: false,
+    timeoutMs: 10_000,
+    maxBytes: 4_096,
+    clock: () => new Date().toISOString(),
+    telemetry: { record: (event) => { telemetryEvents.push(event); } }
+  });
+  const resolveResult = await adapter.resolve({
+    provider: "context7",
+    libraryName: LIVE_LIBRARY_NAME,
+    query: LIVE_INTENT,
+    fast: true
+  });
+  const selected = resolveResult.candidates.find((candidate) => candidate.id === LIVE_LIBRARY_ID);
+  if (!selected) {
+    throw new Error(`Context7 live readback did not resolve ${LIVE_LIBRARY_ID}`);
+  }
+  if (!selected.versions.includes(LIVE_VERSION)) {
+    throw new Error(`Context7 live readback did not expose ${LIVE_LIBRARY_ID}@${LIVE_VERSION}`);
+  }
+  const fetchResult = await adapter.fetch({
+    provider: "context7",
+    libraryId: LIVE_LIBRARY_ID,
+    version: LIVE_VERSION,
+    intent: LIVE_INTENT,
+    ttlSeconds: 86_400,
+    maxResults: 2
+  });
+  const resourceSummary = summarizeExternalResource(fetchResult.resource);
+  return {
+    schemaVersion: LIVE_PACKET_SCHEMA_VERSION,
+    environment: "live-context7-public-fixture",
+    status: "verified",
+    generatedAt: new Date().toISOString(),
+    fixture: {
+      provider: "context7",
+      packageName: LIVE_PACKAGE_NAME,
+      libraryName: LIVE_LIBRARY_NAME,
+      libraryId: LIVE_LIBRARY_ID,
+      version: LIVE_VERSION,
+      intent: LIVE_INTENT,
+      publicPackage: true,
+      sensitiveTask: false,
+      rawTaskSent: false,
+      fileContentsSent: false,
+      diffSent: false,
+      pathsSent: false,
+      symbolsSent: false
+    },
+    resolve: {
+      provider: resolveResult.provider,
+      libraryName: LIVE_LIBRARY_NAME,
+      queryDigest: resolveResult.queryDigest,
+      candidateCount: resolveResult.candidates.length,
+      selectedLibraryId: selected.id,
+      selectedVersion: LIVE_VERSION,
+      selectedVersionPresent: selected.versions.includes(LIVE_VERSION),
+      searchFilterApplied: resolveResult.searchFilterApplied
+    },
+    fetch: {
+      provider: fetchResult.provider,
+      cacheStatus: fetchResult.cacheStatus,
+      request: {
+        libraryId: fetchResult.request.libraryId,
+        version: fetchResult.request.version,
+        intentDigest: digestJson({ intent: fetchResult.request.intent }),
+        queryDigest: fetchResult.request.queryDigest
+      },
+      resourceSummary
+    },
+    providerTelemetry: summarizeProviderTelemetry(telemetryEvents, {
+      rawQueryNeedles: [LIVE_INTENT, LIVE_LIBRARY_NAME],
+      rawContentNeedles: ["metadata api", "export const metadata"]
+    }),
+    disclaimer: liveContext7Disclaimer(),
+    assertions: {
+      exactLibraryIdRecorded: selected.id === LIVE_LIBRARY_ID && fetchResult.request.libraryId === LIVE_LIBRARY_ID,
+      exactVersionRecorded: selected.versions.includes(LIVE_VERSION)
+        && fetchResult.request.version === LIVE_VERSION
+        && resourceSummary.requestedVersion === LIVE_VERSION
+        && resourceSummary.resolvedVersion === LIVE_VERSION,
+      publicFixtureOnly: true,
+      noSensitiveTaskFields: true,
+      providerContentAdvisoryOnly: resourceSummary.trust === "external-unverified"
+        && resourceSummary.enforcement === "advisory-only",
+      communityContentDisclaimerPresent: true,
+      accuracyNotGuaranteed: true,
+      doesNotClaimEndToEndAuditable: true,
+      evidenceStoresDigestOnly: true
+    },
+    readback: {
+      command: "bun scripts/practice-context7-readback.ts inspect-live --evidence docs/verification/practice-context7-live-readback.json --json"
     }
   };
 }
@@ -923,6 +1200,153 @@ function inspectAssertions(assertions: any, failures: string[]) {
   }
 }
 
+function inspectLiveFixture(fixture: any, failures: string[]) {
+  if (!fixture || typeof fixture !== "object" || Array.isArray(fixture)) {
+    failures.push("fixture must be an object");
+    return;
+  }
+  if (fixture.provider !== "context7") failures.push("fixture.provider must be context7");
+  if (fixture.packageName !== LIVE_PACKAGE_NAME) failures.push("fixture.packageName must be next");
+  if (fixture.libraryName !== LIVE_LIBRARY_NAME) failures.push("fixture.libraryName must be Next.js");
+  if (fixture.libraryId !== LIVE_LIBRARY_ID) failures.push("fixture.libraryId must be /vercel/next.js");
+  if (fixture.version !== LIVE_VERSION) failures.push("fixture.version must be v15.1.8");
+  if (fixture.intent !== LIVE_INTENT) failures.push("fixture.intent must be app router metadata api");
+  for (const key of ["publicPackage"]) {
+    if (fixture[key] !== true) failures.push(`fixture.${key} must be true`);
+  }
+  for (const key of ["sensitiveTask", "rawTaskSent", "fileContentsSent", "diffSent", "pathsSent", "symbolsSent"]) {
+    if (fixture[key] !== false) failures.push(`fixture.${key} must be false`);
+  }
+}
+
+function inspectLiveResolve(resolveResult: any, failures: string[]) {
+  if (!resolveResult || typeof resolveResult !== "object" || Array.isArray(resolveResult)) {
+    failures.push("resolve must be an object");
+    return;
+  }
+  if (resolveResult.provider !== "context7") failures.push("resolve.provider must be context7");
+  if (resolveResult.libraryName !== LIVE_LIBRARY_NAME) failures.push("resolve.libraryName must be Next.js");
+  if (!isShaDigest(resolveResult.queryDigest)) failures.push("resolve.queryDigest must be a sha256 digest");
+  if (!Number.isInteger(resolveResult.candidateCount) || resolveResult.candidateCount < 1) failures.push("resolve.candidateCount must be positive");
+  if (resolveResult.selectedLibraryId !== LIVE_LIBRARY_ID) failures.push("resolve.selectedLibraryId must be /vercel/next.js");
+  if (resolveResult.selectedVersion !== LIVE_VERSION) failures.push("resolve.selectedVersion must be v15.1.8");
+  if (resolveResult.selectedVersionPresent !== true) failures.push("resolve.selectedVersionPresent must be true");
+  if (typeof resolveResult.searchFilterApplied !== "boolean") failures.push("resolve.searchFilterApplied must be boolean");
+}
+
+function inspectLiveFetch(fetchResult: any, failures: string[]) {
+  if (!fetchResult || typeof fetchResult !== "object" || Array.isArray(fetchResult)) {
+    failures.push("fetch must be an object");
+    return;
+  }
+  if (fetchResult.provider !== "context7") failures.push("fetch.provider must be context7");
+  if (fetchResult.cacheStatus !== "miss") failures.push("fetch.cacheStatus must be miss");
+  if (fetchResult.request?.libraryId !== LIVE_LIBRARY_ID) failures.push("fetch.request.libraryId must be /vercel/next.js");
+  if (fetchResult.request?.version !== LIVE_VERSION) failures.push("fetch.request.version must be v15.1.8");
+  if (!isShaDigest(fetchResult.request?.intentDigest)) failures.push("fetch.request.intentDigest must be a sha256 digest");
+  if (!isShaDigest(fetchResult.request?.queryDigest)) failures.push("fetch.request.queryDigest must be a sha256 digest");
+  inspectLiveResourceSummary(fetchResult.resourceSummary, failures);
+}
+
+function inspectLiveResourceSummary(resource: any, failures: string[]) {
+  if (!resource || typeof resource !== "object" || Array.isArray(resource)) {
+    failures.push("fetch.resourceSummary must be an object");
+    return;
+  }
+  if (resource.schemaVersion !== EXTERNAL_DOCUMENTATION_RESOURCE_SCHEMA_VERSION) {
+    failures.push(`fetch.resourceSummary.schemaVersion must be ${EXTERNAL_DOCUMENTATION_RESOURCE_SCHEMA_VERSION}`);
+  }
+  if (resource.provider !== "context7") failures.push("fetch.resourceSummary.provider must be context7");
+  if (resource.libraryId !== LIVE_LIBRARY_ID) failures.push("fetch.resourceSummary.libraryId must be /vercel/next.js");
+  if (resource.requestedVersion !== LIVE_VERSION) failures.push("fetch.resourceSummary.requestedVersion must be v15.1.8");
+  if (resource.resolvedVersion !== LIVE_VERSION) failures.push("fetch.resourceSummary.resolvedVersion must be v15.1.8");
+  if (resource.trust !== "external-unverified") failures.push("fetch.resourceSummary.trust must be external-unverified");
+  if (resource.enforcement !== "advisory-only") failures.push("fetch.resourceSummary.enforcement must be advisory-only");
+  if (resource.warning !== "untrusted-documentation-data") failures.push("fetch.resourceSummary.warning must be untrusted-documentation-data");
+  if (resource.cacheStatus !== "miss") failures.push("fetch.resourceSummary.cacheStatus must be miss");
+  if (typeof resource.retrievedAt !== "string" || Number.isNaN(Date.parse(resource.retrievedAt))) {
+    failures.push("fetch.resourceSummary.retrievedAt must be an ISO timestamp");
+  }
+  if (typeof resource.expiresAt !== "string" || Number.isNaN(Date.parse(resource.expiresAt))) {
+    failures.push("fetch.resourceSummary.expiresAt must be an ISO timestamp");
+  }
+  if (resource.uriPrefix !== "archcontext://external-docs/context7/") failures.push("fetch.resourceSummary.uriPrefix must be archcontext external docs");
+  if (!Number.isInteger(resource.snippetCount) || resource.snippetCount < 1) failures.push("fetch.resourceSummary.snippetCount must be positive");
+  if (!Number.isInteger(resource.byteCount) || resource.byteCount <= 0) failures.push("fetch.resourceSummary.byteCount must be positive");
+  if (!isShaDigest(resource.contentDigest)) failures.push("fetch.resourceSummary.contentDigest must be a sha256 digest");
+  if (!isShaDigest(resource.queryDigest)) failures.push("fetch.resourceSummary.queryDigest must be a sha256 digest");
+}
+
+function inspectLiveProviderTelemetry(telemetry: any, failures: string[]) {
+  if (!telemetry || typeof telemetry !== "object" || Array.isArray(telemetry)) {
+    failures.push("providerTelemetry must be an object");
+    return;
+  }
+  if (telemetry.eventCount !== 2) failures.push("providerTelemetry.eventCount must be 2");
+  if (!sameArray(telemetry.statuses, ["success", "success"])) failures.push("providerTelemetry.statuses must be success,success");
+  if (!sameArray(telemetry.operations, ["resolve", "fetch"])) failures.push("providerTelemetry.operations must be resolve,fetch");
+  if (!sameArray(telemetry.resolveKeys, ["byteCount", "latencyMs", "operation", "provider", "queryDigest", "status"])) {
+    failures.push("providerTelemetry.resolveKeys must be metadata-only");
+  }
+  if (!sameArray(telemetry.fetchKeys, ["byteCount", "latencyMs", "libraryId", "operation", "provider", "queryDigest", "status", "version"])) {
+    failures.push("providerTelemetry.fetchKeys must be metadata-only with libraryId/version");
+  }
+  if (telemetry.fetchLibraryId !== LIVE_LIBRARY_ID) failures.push("providerTelemetry.fetchLibraryId must be /vercel/next.js");
+  if (telemetry.fetchVersion !== LIVE_VERSION) failures.push("providerTelemetry.fetchVersion must be v15.1.8");
+  if (telemetry.queryDigestsValid !== true) failures.push("providerTelemetry.queryDigestsValid must be true");
+  if (telemetry.byteCountsPositive !== true) failures.push("providerTelemetry.byteCountsPositive must be true");
+  if (telemetry.metadataOnly !== true) failures.push("providerTelemetry.metadataOnly must be true");
+  if (telemetry.rawQueryPresent !== false) failures.push("providerTelemetry.rawQueryPresent must be false");
+  if (telemetry.rawContentPresent !== false) failures.push("providerTelemetry.rawContentPresent must be false");
+  if (telemetry.credentialPresent !== false) failures.push("providerTelemetry.credentialPresent must be false");
+}
+
+function inspectLiveDisclaimer(disclaimer: any, failures: string[]) {
+  if (!disclaimer || typeof disclaimer !== "object" || Array.isArray(disclaimer)) {
+    failures.push("disclaimer must be an object");
+    return;
+  }
+  for (const key of [
+    "communityContentUnverified",
+    "accuracyNotGuaranteed",
+    "notEndToEndAuditable",
+    "advisoryOnly",
+    "noHardGateAuthority"
+  ]) {
+    if (disclaimer[key] !== true) failures.push(`disclaimer.${key} must be true`);
+  }
+  if (typeof disclaimer.statement !== "string") {
+    failures.push("disclaimer.statement must be a string");
+    return;
+  }
+  if (!disclaimer.statement.includes("does not guarantee accuracy or completeness")) {
+    failures.push("disclaimer.statement must record accuracy is not guaranteed");
+  }
+  if (!disclaimer.statement.includes("not end-to-end auditable")) {
+    failures.push("disclaimer.statement must record the readback is not end-to-end auditable");
+  }
+}
+
+function inspectLiveAssertions(assertions: any, failures: string[]) {
+  if (!assertions || typeof assertions !== "object" || Array.isArray(assertions)) {
+    failures.push("assertions must be an object");
+    return;
+  }
+  for (const key of [
+    "exactLibraryIdRecorded",
+    "exactVersionRecorded",
+    "publicFixtureOnly",
+    "noSensitiveTaskFields",
+    "providerContentAdvisoryOnly",
+    "communityContentDisclaimerPresent",
+    "accuracyNotGuaranteed",
+    "doesNotClaimEndToEndAuditable",
+    "evidenceStoresDigestOnly"
+  ]) {
+    if (assertions[key] !== true) failures.push(`assertions.${key} must be true`);
+  }
+}
+
 function projectOutboundRequest(input: Context7SearchRequest | Context7ContextRequest): Record<string, unknown> {
   return Object.fromEntries(Object.entries({
     ...(isSearchRequest(input) ? {
@@ -960,10 +1384,15 @@ function summarizeExternalResource(resource: any) {
   };
 }
 
-function summarizeProviderTelemetry(events: Context7ProviderTelemetryEvent[]) {
+function summarizeProviderTelemetry(
+  events: Context7ProviderTelemetryEvent[],
+  options: { rawQueryNeedles?: string[]; rawContentNeedles?: string[] } = {}
+) {
   const serialized = JSON.stringify(events);
   const resolve = events.find((event) => event.operation === "resolve");
   const fetch = events.find((event) => event.operation === "fetch");
+  const rawQueryNeedles = options.rawQueryNeedles ?? [INTENT];
+  const rawContentNeedles = options.rawContentNeedles ?? ["External documentation data", "React useState"];
   return {
     eventCount: events.length,
     statuses: events.map((event) => event.status),
@@ -974,12 +1403,11 @@ function summarizeProviderTelemetry(events: Context7ProviderTelemetryEvent[]) {
     fetchVersion: fetch?.version,
     queryDigestsValid: events.every((event) => /^sha256:[0-9a-f]{64}$/.test(event.queryDigest)),
     byteCountsPositive: events.every((event) => Number.isInteger(event.byteCount) && event.byteCount > 0),
-    metadataOnly: !serialized.includes(INTENT)
-      && !serialized.includes("External documentation data")
-      && !serialized.includes("React useState")
+    metadataOnly: rawQueryNeedles.every((needle) => !serialized.includes(needle))
+      && rawContentNeedles.every((needle) => !serialized.includes(needle))
       && !serialized.includes("apiKey"),
-    rawQueryPresent: serialized.includes(INTENT),
-    rawContentPresent: serialized.includes("External documentation data") || serialized.includes("React useState"),
+    rawQueryPresent: rawQueryNeedles.some((needle) => serialized.includes(needle)),
+    rawContentPresent: rawContentNeedles.some((needle) => serialized.includes(needle)),
     credentialPresent: serialized.includes("Bearer") || serialized.includes("apiKey") || serialized.includes("CONTEXT7_API_KEY")
   };
 }
@@ -1138,6 +1566,17 @@ function countProviderReferences(section: string): number {
   return (section.match(/\b(?:manualExternalDocumentation|externalDocumentation|Context7ExternalDocumentationAdapter)\b/g) ?? []).length;
 }
 
+function liveContext7Disclaimer() {
+  return {
+    communityContentUnverified: true,
+    accuracyNotGuaranteed: true,
+    notEndToEndAuditable: true,
+    advisoryOnly: true,
+    noHardGateAuthority: true,
+    statement: "Context7 community documentation is external, unverified advisory data; ArchContext does not guarantee accuracy or completeness and this live readback is not end-to-end auditable."
+  };
+}
+
 function runGit(cwd: string, args: string[]) {
   const child = spawnSync("git", args, {
     cwd,
@@ -1157,6 +1596,10 @@ function sameArray(value: unknown, expected: string[]): boolean {
   return Array.isArray(value) && value.length === expected.length && value.every((item, index) => item === expected[index]);
 }
 
+function isShaDigest(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
+}
+
 function deepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -1168,6 +1611,17 @@ function failureResult(failures: string[]) {
     defaultPrepareEgress: undefined,
     dlpCases: undefined,
     dlpRejected: undefined,
+    failures
+  };
+}
+
+function liveFailureResult(failures: string[]) {
+  return {
+    ok: false,
+    schemaVersion: LIVE_PACKET_SCHEMA_VERSION,
+    libraryId: undefined,
+    version: undefined,
+    snippetCount: undefined,
     failures
   };
 }

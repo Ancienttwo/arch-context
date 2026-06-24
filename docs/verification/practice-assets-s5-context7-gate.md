@@ -20,10 +20,12 @@ Context7 without changing the deterministic practice engine.
   `resources/list` and `resources/read` for daemon-owned external-docs URIs.
 - Verification surface:
   `scripts/practice-context7-readback.ts` and
-  `docs/verification/practice-context7-readback.json`.
+  `docs/verification/practice-context7-readback.json`, plus the explicit field
+  readback packet at `docs/verification/practice-context7-live-readback.json`.
 
-Out of scope for this slice: live Context7 provider readback with a real API
-key, and turning external docs into enforceable practice constraints.
+Out of scope for this slice: private Context7 sources, recording API keys or
+credentials in evidence, and turning external docs into enforceable practice
+constraints.
 
 ## P2 Trace
 
@@ -70,6 +72,14 @@ The concrete path is:
     circuits before fetch; the other cases fail during provider fetch and fall
     back to the static Local Core result.
 
+The separate field-readback path is `bun run record:s5:context7:live`. It calls
+the current Context7 public REST API with the public fixture
+`/vercel/next.js@v15.1.8` and the bounded intent `app router metadata api`,
+then records only selected library/version, request/content digests, telemetry
+metadata, advisory trust labels, and an explicit community-content disclaimer.
+It does not send repository names, raw task text, file contents, diffs, paths,
+symbols, or credentials.
+
 The pressure points were cache ownership and provider failure shape. The daemon
 writes cache records using the daemon-computed sanitized query digest rather
 than trusting a provider returned digest, while the adapter classifies
@@ -96,6 +106,8 @@ thin CLI, and executable evidence.
 - `bun test scripts/practice-context7-readback.test.ts`
 - `bun run record:s5:context7`
 - `bun run readback:s5:context7`
+- `bun run record:s5:context7:live`
+- `bun run readback:s5:context7:live`
 - `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`
 - `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts`
 - `bun test packages/contracts/test/contracts.test.ts`
@@ -120,3 +132,8 @@ Observed readbacks:
   replay, prepare-unknowns advisory-only resource insertion, provider failure
   fallback, full provider failure matrix invariance, MCP read-only external
   resource access, no generic HTTP tool, and zero hard-gate provider references.
+- Live Context7 readback proves the current public provider path resolves and
+  fetches `/vercel/next.js@v15.1.8`, stores only summary/digest evidence,
+  records `trust=external-unverified` and `enforcement=advisory-only`, and
+  explicitly states that community documentation is not guaranteed accurate or
+  complete and is not end-to-end auditable.

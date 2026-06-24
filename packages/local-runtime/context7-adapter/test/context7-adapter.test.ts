@@ -284,6 +284,55 @@ describe("@archcontext/local-runtime/context7-adapter", () => {
     }
   });
 
+  test("http transport uses Context7 v2 GET context endpoint and projects snippet responses", async () => {
+    const previousFetch = globalThis.fetch;
+    let observedUrl: string | undefined;
+    let observedMethod: string | undefined;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      observedUrl = String(input);
+      observedMethod = init?.method;
+      return new Response(JSON.stringify({
+        codeSnippets: [{
+          codeTitle: "Next.js Metadata API",
+          codeDescription: "Defines metadata in the app directory.",
+          codeId: "https://github.com/vercel/next.js/blob/v15.1.8/docs/metadata.mdx#_snippet_0",
+          pageTitle: "Metadata",
+          codeList: [{ language: "tsx", code: "export const metadata = { title: 'Docs' }" }]
+        }],
+        infoSnippets: [{
+          pageId: "https://github.com/vercel/next.js/blob/v15.1.8/docs/metadata.mdx",
+          breadcrumb: "App Router > Metadata",
+          content: "The Metadata API can define document metadata from layouts and pages."
+        }]
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }) as unknown as typeof fetch;
+    try {
+      const transport = new HttpContext7Transport("https://context7.invalid/api");
+      const docs = await transport.getContext({
+        libraryId: "/vercel/next.js/v15.1.8",
+        query: "Document app router metadata api for this exact version.",
+        maxResults: 1,
+        timeoutMs: 100
+      });
+
+      expect(observedMethod).toBe("GET");
+      expect(observedUrl).toContain("/api/v2/context");
+      expect(observedUrl).toContain("libraryId=%2Fvercel%2Fnext.js%2Fv15.1.8");
+      expect(observedUrl).toContain("type=json");
+      expect(observedUrl).toContain("fast=true");
+      expect(docs).toEqual([{
+        title: "Next.js Metadata API",
+        content: "Defines metadata in the app directory.\n\nexport const metadata = { title: 'Docs' }",
+        source: "https://github.com/vercel/next.js/blob/v15.1.8/docs/metadata.mdx#_snippet_0"
+      }]);
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   test("rejects raw paths repo names code fences diffs and secret-like values", () => {
     for (const value of [
       "/Users/ancienttwo/Projects/arch-context/src/index.ts",

@@ -2,7 +2,7 @@
   "schemaVersion": "archcontext.practice-context7-readback/v1",
   "environment": "local-fixture",
   "status": "verified",
-  "generatedAt": "2026-06-24T00:11:23.869Z",
+  "generatedAt": "2026-06-24T00:30:19.964Z",
   "defaultHealth": {
     "provider": "context7",
     "enabled": false,

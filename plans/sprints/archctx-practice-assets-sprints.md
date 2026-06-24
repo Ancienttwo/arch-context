@@ -1029,7 +1029,7 @@ bun run verify
 
 - [x] S5-28 Unit tests 使用 fake transport 验证 request minimization、redaction、TTL、stale 和 circuit breaker。
 - [x] S5-29 DLP packet fixture 验证源码、Diff、路径、symbol、secret 路由数 = 0。
-- [ ] S5-30 真实 Context7 readback 使用公开 fixture package 与无敏感 task，记录 exact library ID/version。
+- [x] S5-30 真实 Context7 readback 使用公开 fixture package 与无敏感 task，记录 exact library ID/version。
 - [x] S5-31 验证 Context7 关闭、无 key、无网络、429、timeout、malformed response 时 Local Core 结果不变。
 - [x] S5-32 编写 `docs/verification/practice-assets-s5-context7-gate.md`。
 
@@ -1040,7 +1040,7 @@ bun run verify
 - [x] S5-EG3 Context7 内容参与 hard gate 的路径数 = 0，具有代码级断言与 negative test。
 - [x] S5-EG4 exact library/version 可重放命中 cache，并显示 provider、retrievedAt、expiresAt、content digest。
 - [x] S5-EG5 Provider 不可用时 static practice IDs、pressure、posture、complete conclusion 与禁用 Provider 时一致。
-- [ ] S5-EG6 真实 Provider readback 明确记录社区内容不保证准确，不宣称端到端可审计。
+- [x] S5-EG6 真实 Provider readback 明确记录社区内容不保证准确，不宣称端到端可审计。
 
 ## 13.4 验证命令
 
@@ -1051,6 +1051,8 @@ bun test packages/core/context-compiler
 bun test packages/surfaces/cli
 bun run record:s5:context7
 bun run readback:s5:context7
+bun run record:s5:context7:live
+bun run readback:s5:context7:live
 bun run e2e:local-no-cloud
 bun run verify
 ```
@@ -1161,7 +1163,28 @@ Completed S5 provider failure matrix module on branch
 Remaining S5 work is intentionally not marked complete: live real Context7
 provider readback and S5-EG6 community-content disclaimer readback.
 
-## 13.10 Rollback
+## 13.10 Execution Record — 2026-06-24
+
+Completed S5 live Context7 provider readback module on branch
+`codex/context7-live-readback`.
+
+- Adapter: `HttpContext7Transport` now uses the current Context7 public
+  `GET /api/v2/context` endpoint and projects `codeSnippets`/`infoSnippets`
+  into the existing internal external-document resource shape.
+- Evidence: `docs/verification/practice-context7-live-readback.json` records the
+  public fixture `/vercel/next.js@v15.1.8`, bounded intent
+  `app router metadata api`, metadata-only telemetry, content/query digests,
+  advisory trust labels, and explicit community-content disclaimer.
+- Inspector: `scripts/practice-context7-readback.ts` now has explicit
+  `live`/`inspect-live` commands and rejects missing exact library/version,
+  sensitive task fields, raw-content leakage, missing disclaimer, and any claim
+  that the live provider readback is end-to-end auditable.
+- Verified: `bun test scripts/practice-context7-readback.test.ts packages/local-runtime/context7-adapter/test/context7-adapter.test.ts --timeout 20000`, `bun run record:s5:context7:live`, and `bun run readback:s5:context7:live`.
+
+S5 is now complete. Remaining work moves to Sprint 6 catalog expansion,
+evaluation, packaging, and release gates.
+
+## 13.11 Rollback
 
 - `externalDocs.context7.enabled: false` 完全禁用 Provider；缓存可保留或显式 purge。
 - Adapter 不可用不得影响 daemon 启动、prepare、checkpoint、complete 或 attestation。

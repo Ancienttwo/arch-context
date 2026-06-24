@@ -395,21 +395,18 @@ export class HttpContext7Transport implements Context7Transport {
   }
 
   async getContext(input: Context7ContextRequest): Promise<Context7Documentation[]> {
-    const response = await fetchWithTimeout(`${this.baseUrl}/v1/context/get-documentation-context`, {
-      method: "POST",
-      headers: {
-        ...authHeaders(input.apiKey),
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        libraryId: input.libraryId,
-        query: input.query,
-        maxResults: input.maxResults
-      })
+    const url = new URL(`${this.baseUrl}/v2/context`);
+    url.searchParams.set("libraryId", input.libraryId);
+    url.searchParams.set("query", input.query);
+    url.searchParams.set("type", "json");
+    url.searchParams.set("fast", "true");
+    const response = await fetchWithTimeout(url, {
+      method: "GET",
+      headers: authHeaders(input.apiKey)
     }, input.timeoutMs);
     if (!response.ok) throw httpStatusError("Context7 context fetch failed", response);
     const { payload } = await parseJsonResponse(response, "Context7 context fetch");
-    return parseDocumentationResponse(payload);
+    return parseDocumentationResponse(payload).slice(0, input.maxResults);
   }
 }
 
@@ -581,9 +578,46 @@ function parseDocumentationResponse(payload: unknown): Context7Documentation[] {
         ? (payload as { docs: unknown[] }).docs
         : undefined;
   if (!docs) {
+    const v2Docs = parseV2DocumentationResponse(payload);
+    if (v2Docs) return v2Docs;
     throw new Context7ProviderError("malformed", "Context7 context fetch returned malformed response", { retryable: false, byteCount: byteCountJson(payload) });
   }
   if (!docs.every(isContext7Documentation)) {
+    throw new Context7ProviderError("malformed", "Context7 context fetch returned malformed documentation entries", { retryable: false, byteCount: byteCountJson(payload) });
+  }
+  return docs;
+}
+
+function parseV2DocumentationResponse(payload: unknown): Context7Documentation[] | undefined {
+  if (!isRecord(payload)) return undefined;
+  const codeSnippets = Array.isArray(payload.codeSnippets) ? payload.codeSnippets : undefined;
+  const infoSnippets = Array.isArray(payload.infoSnippets) ? payload.infoSnippets : undefined;
+  if (!codeSnippets && !infoSnippets) return undefined;
+
+  const docs: Context7Documentation[] = [];
+  for (const snippet of codeSnippets ?? []) {
+    if (!isRecord(snippet)) continue;
+    const source = stringField(snippet.codeId);
+    const title = stringField(snippet.codeTitle) ?? stringField(snippet.pageTitle) ?? source;
+    const description = stringField(snippet.codeDescription);
+    const codeList = Array.isArray(snippet.codeList) ? snippet.codeList : [];
+    const codeBodies = codeList
+      .filter(isRecord)
+      .map((entry) => stringField(entry.code))
+      .filter((value): value is string => !!value);
+    const content = [description, ...codeBodies].filter((value): value is string => !!value).join("\n\n");
+    if (title && content && source) docs.push({ title, content, source });
+  }
+
+  for (const snippet of infoSnippets ?? []) {
+    if (!isRecord(snippet)) continue;
+    const source = stringField(snippet.pageId);
+    const title = stringField(snippet.breadcrumb) ?? stringField(snippet.pageTitle) ?? source;
+    const content = stringField(snippet.content);
+    if (title && content && source) docs.push({ title, content, source });
+  }
+
+  if (docs.length === 0) {
     throw new Context7ProviderError("malformed", "Context7 context fetch returned malformed documentation entries", { retryable: false, byteCount: byteCountJson(payload) });
   }
   return docs;
@@ -602,6 +636,14 @@ function isContext7Documentation(value: unknown): value is Context7Documentation
     && typeof (value as { title?: unknown }).title === "string"
     && typeof (value as { content?: unknown }).content === "string"
     && typeof (value as { source?: unknown }).source === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function isAbortError(error: unknown): boolean {
