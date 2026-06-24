@@ -5,7 +5,9 @@
 This document is the S6 release-gate evidence ledger. The catalog-scale,
 eval/quality, performance/reliability, package-manifest, local no-cloud, and
 local tarball lifecycle gates are verified. The cross-platform PR CI matrix is
-also verified; docs, rollout, and final release gates remain pending.
+also verified. Documentation, operations, rollout controls, independent disable,
+central Hook, rollback, session stale, and cache purge gates are verified for
+Practice Assets v1.
 
 ## Catalog Scale Gate
 
@@ -340,12 +342,82 @@ This closes S6-30 and S6-EG3 for the packaging branch: the same verify workflow
 ran the installed local product tarball smoke, no-cloud E2E, sprint status
 check, and platform IPC permission readback across the release OS matrix.
 
+## Documentation And Operations Gate
+
+### P1 Map
+
+The docs/ops boundary is the user-facing Practice Assets v1 operating surface,
+not a new runtime decision path.
+
+- README trust boundary: `README.md`
+- Practice Assets runbook: `docs/runbooks/practice-assets-v1.md`
+- Upgrade/rollback runbook: `docs/runbooks/upgrade-rollback.md`
+- Central Hook policy: `.ai/hooks/README.md`
+- S6 docs/ops readback:
+  `scripts/practice-assets-s6-docs-ops-readback.ts`,
+  `docs/verification/practice-assets-s6-docs-ops-readback.json`, and
+  `docs/verification/practice-assets-s6-docs-ops-readback.md`
+- Source evidence reused by the readback:
+  `docs/verification/practice-hook-egress-readback.json`,
+  `docs/verification/practice-context7-readback.json`,
+  `docs/verification/practice-assets-s4-enforcement-gate.md`,
+  `docs/verification/practice-assets-s6-catalog-readback.json`,
+  `docs/verification/practice-assets-s6-runtime-readback.json`,
+  `docs/verification/fg6-npm-release-dry-run.json`,
+  `docs/verification/fg6-local-product-tarball-smoke.json`, and
+  `docs/verification/fg6-rollback-compat-readback.json`
+
+Out of scope: design-partner, opt-in beta, team collaboration, or production
+rollout telemetry. Those require separate external rollout packets.
+
+### P2 Trace
+
+The verified path is:
+
+1. README separates Static Practice Assets from Dynamic Documentation
+   References and states that Local Core sends no source body, diff, prompt,
+   model output, secret, or unredacted path to Context7 by default.
+2. The Practice Assets runbook documents repo practice authoring, enforcement
+   promotion through `.archcontext/policies/practices.yaml`, ChangeSet-backed
+   waivers, central Hook setup, Context7 pin/fetch/purge privacy, source update,
+   license incident, false-positive rollback, quarterly owner review, feature
+   flags, and staged rollout readback.
+3. The upgrade/rollback runbook binds package release, rollback, catalog
+   revision, stale session, and cache purge drills to concrete commands.
+4. The docs/ops readback inspects the documentation plus existing S3/S4/S5/S6
+   evidence. It verifies enforcement can be set to advisory independently,
+   Context7 is default-disabled and failure-matrix safe, Codex has a
+   central-first `repo-harness-hook` readback, package release and local tarball
+   lifecycle evidence are green, stale catalog detection is green, and
+   `archctx docs purge --all` is documented with a runtime purge command.
+
+The side effects are
+`docs/verification/practice-assets-s6-docs-ops-readback.json` and
+`docs/verification/practice-assets-s6-docs-ops-readback.md`, both verified.
+This closes S6-34 through S6-40 and S6-EG5 through S6-EG7 for the Practice
+Assets v1 documentation, operations, rollout controls, central Hook, rollback,
+session stale, and cache purge boundary.
+
+### P3 Decision
+
+The S6 docs/ops gate keeps operational truth inspectable instead of treating
+documentation as prose-only release evidence. The invariant is that Static
+Practice Assets remain local, deterministic, provenance-bound, and advisory by
+default, while Context7 stays optional, external, unverified, and advisory-only.
+
+At 10x scale, the first failure point would be drift between product behavior
+and runbooks: users could promote enforcement or fetch external docs without a
+bounded rollback path. The chosen gate makes docs executable enough to fail
+closed while reusing existing runtime/readback evidence, which is the smallest
+coherent change because it does not add another policy engine or rollout system.
+
 ## Verified Commands
 
 - `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`
 - `bun test scripts/practice-assets-s6-catalog-readback.test.ts`
 - `bun test scripts/practice-assets-s6-eval-readback.test.ts`
 - `bun test scripts/practice-assets-s6-runtime-readback.test.ts`
+- `bun test scripts/practice-assets-s6-docs-ops-readback.test.ts`
 - `bun test scripts/fg6-npm-release-dry-run.test.ts scripts/fg6-local-no-cloud-readback.test.ts`
 - `bun test packages/core/application/test/control-loop.test.ts packages/contracts/test/contracts.test.ts`
 - `bun run record:s6:catalog`
@@ -354,6 +426,8 @@ check, and platform IPC permission readback across the release OS matrix.
 - `bun run readback:s6:eval`
 - `bun run record:s6:runtime`
 - `bun run readback:s6:runtime`
+- `bun run record:s6:docs-ops`
+- `bun run readback:s6:docs-ops`
 - `bun run readback:fg6:npm-release-dry-run`
 - `bun scripts/fg6-npm-release-dry-run.ts inspect --evidence docs/verification/fg6-npm-release-dry-run.json --json`
 - `bun run readback:fg6:local-no-cloud`
@@ -368,5 +442,5 @@ check, and platform IPC permission readback across the release OS matrix.
 
 ## Pending S6 Gates
 
-- Documentation, operations, rollout, and final release signoff: S6-34 through
-  S6-40 and S6-EG5 through S6-EG7.
+None for Practice Assets v1. Collaboration rollout telemetry remains a separate
+future acceptance surface and is not claimed by this S6 release gate.

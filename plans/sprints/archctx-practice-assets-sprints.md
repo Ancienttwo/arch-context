@@ -1254,13 +1254,13 @@ evaluation, packaging, and release gates.
 
 ### 文档与运营
 
-- [ ] S6-34 README 增加 Static Assets 与 Dynamic Docs 的信任边界说明。
-- [ ] S6-35 增加“如何编写 repo practice”“如何晋升 enforcement”“如何添加 waiver”“如何接入 Hook”。
-- [ ] S6-36 增加“如何 pin Context7 library/version”“哪些数据不会发送”的隐私文档。
-- [ ] S6-37 建立 source update runbook、license incident runbook、false-positive rollback runbook。
-- [ ] S6-38 建立资产季度 review 机制与 owner。
-- [ ] S6-39 建立 feature flags 与逐级 rollout readback。
-- [ ] S6-40 编写 `docs/verification/practice-assets-s6-release-gate.md`。
+- [x] S6-34 README 增加 Static Assets 与 Dynamic Docs 的信任边界说明。
+- [x] S6-35 增加“如何编写 repo practice”“如何晋升 enforcement”“如何添加 waiver”“如何接入 Hook”。
+- [x] S6-36 增加“如何 pin Context7 library/version”“哪些数据不会发送”的隐私文档。
+- [x] S6-37 建立 source update runbook、license incident runbook、false-positive rollback runbook。
+- [x] S6-38 建立资产季度 review 机制与 owner。
+- [x] S6-39 建立 feature flags 与逐级 rollout readback。
+- [x] S6-40 编写 `docs/verification/practice-assets-s6-release-gate.md`。
 
 ## 14.3 Exit Gates
 
@@ -1268,9 +1268,9 @@ evaluation, packaging, and release gates.
 - [x] S6-EG2 所有发布 assets provenance/license/digest 完整率 = 100%。
 - [x] S6-EG3 三大 OS packaged product E2E 全绿。
 - [x] S6-EG4 默认配置保持 static-only、zero-egress、advisory-first。
-- [ ] S6-EG5 enforcement 与 Context7 均可独立关闭，关闭后旧 Local Core 行为保持兼容。
-- [ ] S6-EG6 至少一个真实 Agent host 的 central Hook readback 完成。
-- [ ] S6-EG7 发布、回滚、catalog revision、session stale 和 cache purge runbook 实跑通过。
+- [x] S6-EG5 enforcement 与 Context7 均可独立关闭，关闭后旧 Local Core 行为保持兼容。
+- [x] S6-EG6 至少一个真实 Agent host 的 central Hook readback 完成。
+- [x] S6-EG7 发布、回滚、catalog revision、session stale 和 cache purge runbook 实跑通过。
 
 ## 14.4 验证命令
 
@@ -1281,6 +1281,7 @@ bun evals/run.ts --check
 bun run e2e:local-no-cloud
 bun run e2e:local-product-tarball
 bun run verify:acceptance-ledger
+bun run readback:s6:docs-ops
 bun run verify
 ```
 
@@ -1419,6 +1420,37 @@ Completed the S6 packaging and local product gate slice on branch
 
 S6-01 through S6-33, S6-EG1 through S6-EG4 are complete. S6-34 through S6-40
 and S6-EG5 through S6-EG7 remain open.
+
+## 14.10 Execution Record — 2026-06-24
+
+Completed the S6 documentation, operations, rollout-control, and final release
+gate slice on branch `codex/practice-assets-s6-docs-rollout-gates`.
+
+- README trust boundary: `README.md` now separates Static Practice Assets from
+  Dynamic Documentation References and states the default no-source-body,
+  no-diff, no-prompt, no-secret, and no-unredacted-path provider boundary.
+- Operations runbook: `docs/runbooks/practice-assets-v1.md` covers repo
+  practice authoring, enforcement promotion, waiver creation, central Hook
+  connection, Context7 pin/fetch/purge privacy, source update, license incident,
+  false-positive rollback, quarterly owner review, feature flags, and staged
+  rollout readback.
+- Rollback runbook: `docs/runbooks/upgrade-rollback.md` now covers Practice
+  Assets v1 release drills, rollback drills, catalog revision, session stale,
+  and Context7 cache purge.
+- Central Hook: `.ai/hooks/README.md` points to
+  `docs/verification/practice-hook-egress-readback.json`, which verifies Codex
+  host central-first `repo-harness-hook` to `archctx hook checkpoint` with
+  `egress:none`, `network:forbidden`, fail-open behavior, and no raw path/body
+  logging.
+- Evidence: `docs/verification/practice-assets-s6-docs-ops-readback.json`,
+  `docs/verification/practice-assets-s6-docs-ops-readback.md`, and
+  `docs/verification/practice-assets-s6-release-gate.md`.
+- Verified: `bun test scripts/practice-assets-s6-docs-ops-readback.test.ts`,
+  `bun run record:s6:docs-ops`, and `bun run readback:s6:docs-ops`.
+
+S6-01 through S6-40 and S6-EG1 through S6-EG7 are complete for Practice Assets
+v1. This does not claim design-partner, opt-in beta, or team collaboration
+rollout telemetry; those require separate external rollout packets.
 
 ---
 
