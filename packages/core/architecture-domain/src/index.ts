@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
+import { canonicalize, digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
 
 export interface RepositoryBinding {
   repositoryId: string;
@@ -329,6 +329,14 @@ export function landscapeYaml(landscape: Landscape): string {
   return stableYaml(landscape as unknown as Json);
 }
 
+export function canonicalArchitectureJson(value: Json): Json {
+  return JSON.parse(canonicalize(value)) as Json;
+}
+
+export function canonicalArchitectureYaml(value: Json): string {
+  return stableYaml(canonicalArchitectureJson(value));
+}
+
 export function parseLandscapeFile(body: string, path = LANDSCAPE_FILE): Landscape {
   const value = parseJsonOrStableYaml(body, path);
   assertObject(value, path);
@@ -460,7 +468,7 @@ function dedupeStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function parseJsonOrStableYaml(body: string, path: string): Json {
+export function parseJsonOrStableYaml(body: string, path: string): Json {
   const trimmed = body.trim();
   if (!trimmed) throw new Error(`${path}: empty model file`);
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return JSON.parse(trimmed) as Json;
@@ -534,11 +542,20 @@ class StableYamlParser {
     if (separator <= 0) throw new Error(`${this.path}: expected key/value entry`);
     const key = entry.slice(0, separator).trim();
     const rest = entry.slice(separator + 1).trim();
-    object[key] = rest ? parseScalar(rest) : this.parseBlock(indent + 2);
+    object[key] = rest ? parseScalar(rest) : this.parseNestedValue(indent);
   }
 
   private isKeyValue(value: string): boolean {
     return /^[A-Za-z0-9_-]+:/.test(value);
+  }
+
+  private parseNestedValue(parentIndent: number): Json {
+    const next = this.lines[this.index];
+    if (next && next.indent <= parentIndent && (next.text.trim() === "[]" || next.text.trim() === "{}")) {
+      this.index += 1;
+      return parseScalar(next.text.trim());
+    }
+    return this.parseBlock(parentIndent + 2);
   }
 }
 

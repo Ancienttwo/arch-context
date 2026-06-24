@@ -25,8 +25,11 @@ import {
   validateLandscape,
   repositoryFingerprint,
   assertAdapterDoesNotOverwriteNativeCore,
+  canonicalArchitectureJson,
+  canonicalArchitectureYaml,
   isArchitectureDirectionViolationSubject,
   isArchitectureDirectionalEdgeViolationSubject,
+  parseJsonOrStableYaml,
   stripAdapterProtectedNativeFields
 } from "../src/index";
 
@@ -97,6 +100,21 @@ describe("@archcontext/core/architecture-domain", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("stable YAML parser and canonical serializer round-trip nested architecture JSON", () => {
+    const value = {
+      schemaVersion: "archcontext.node/v1",
+      id: "module.checkout",
+      metadata: {
+        owners: ["team-checkout", "team-platform"],
+        flags: { beta: true, score: 2 }
+      },
+      name: "Checkout"
+    };
+    const yaml = canonicalArchitectureYaml(value as any);
+    expect(yaml.indexOf("id: \"module.checkout\"")).toBeLessThan(yaml.indexOf("metadata:"));
+    expect(parseJsonOrStableYaml(yaml, ".archcontext/model/nodes/module.checkout.yaml")).toEqual(canonicalArchitectureJson(value as any));
   });
 
   test("intervention ids are stable and bounded", () => {

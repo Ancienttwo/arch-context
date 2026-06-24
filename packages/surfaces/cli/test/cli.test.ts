@@ -15,9 +15,9 @@ import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const CLI_PROCESS_TIMEOUT_MS = 30_000;
+const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 60_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
-const DAEMON_TEST_TIMEOUT_MS = 30_000;
+const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
 function runTestCli(command: string, args: string[], root: string) {
@@ -1191,6 +1191,30 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
       removeTempRoot(otherRoot);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI plans YAML to ledger migration as a read-only dry-run", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const result = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run", "--now", "2026-06-25T02:30:00.000Z"], root);
+      expect(result.ok).toBe(true);
+      expect((result.data as any).schemaVersion).toBe("archcontext.architecture-ledger-yaml-import-plan/v1");
+      expect((result.data as any).sourceMode).toBe("yaml");
+      expect((result.data as any).dryRun).toBe(true);
+      expect((result.data as any).append).toBe("not-applied");
+      expect((result.data as any).writes).toBe("none");
+      expect((result.data as any).event.source).toBe("yaml_import");
+      expect((result.data as any).event.eventHash).toMatch(/^sha256:/);
+      expect((result.data as any).graphDigest).toMatch(/^sha256:/);
+      expect((result.data as any).drift).toMatchObject({ ok: true, semanticDrift: false });
+      expect((result.data as any).ignoredFiles).toContainEqual({
+        path: ".archcontext/generated/ARCHITECTURE.md",
+        reasonCode: "generated-projection"
+      });
+      expect(existsSync(testRuntimePaths(root).localStorePath)).toBe(false);
+    } finally {
+      removeTempRoot(root);
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 

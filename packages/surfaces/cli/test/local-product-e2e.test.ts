@@ -10,6 +10,8 @@ const MONOREPO_FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/mo
 const BIN_DIR = join(ROOT, "node_modules", ".bin");
 const ARCHCTX_BIN = resolveArchctxBin();
 const CODEGRAPH_BIN = resolveCodeGraphBin();
+const ARCHCTX_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 45_000 : 15_000;
+const LOCAL_PRODUCT_E2E_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 
 describe("local product first-experience E2E", () => {
   test("installed archctx works against an ordinary single Git repository", async () => {
@@ -20,7 +22,7 @@ describe("local product first-experience E2E", () => {
       task: "inspect greeting module",
       taskSessionId: "task_single_repo_e2e"
     });
-  }, 30_000);
+  }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
   test("installed archctx treats a workspace monorepo as one local repository", async () => {
     await runFirstExperience(MONOREPO_FIXTURE_ROOT, {
@@ -35,7 +37,7 @@ describe("local product first-experience E2E", () => {
         expect(existsSync(join(repo, "packages", "lib", "package.json"))).toBe(true);
       }
     });
-  }, 30_000);
+  }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
   test("installed archctx rejects sibling repository input before starting the daemon", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
@@ -64,7 +66,7 @@ describe("local product first-experience E2E", () => {
       await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
-  }, 30_000);
+  }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
   test("installed hook checkpoint updates and reverts practice deltas through the daemon", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
@@ -145,7 +147,7 @@ describe("local product first-experience E2E", () => {
       await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
-  }, 30_000);
+  }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 
   test("installed hook checkpoint keeps plain import edges advisory until a declared boundary violation exists", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
@@ -199,7 +201,7 @@ describe("local product first-experience E2E", () => {
       await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
     }
-  }, 30_000);
+  }, LOCAL_PRODUCT_E2E_TIMEOUT_MS);
 });
 
 async function runFirstExperience(
@@ -331,7 +333,7 @@ function collectProcess(child: ChildProcessWithoutNullStreams): Promise<{ stdout
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
       rejectPromise(new Error(`Timed out waiting for process: ${stderr || stdout}`));
-    }, 15_000);
+    }, ARCHCTX_PROCESS_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });

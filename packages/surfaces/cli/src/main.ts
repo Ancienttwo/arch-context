@@ -1,14 +1,16 @@
 #!/usr/bin/env bun
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
-import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { planYamlToArchitectureLedgerImport } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
@@ -30,7 +32,7 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
-const DAEMON_START_TIMEOUT_MS = 15_000;
+const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 45_000 : 15_000;
 const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
@@ -221,6 +223,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "landscape":
       return (await runtime()).landscapeStatus();
+    case "ledger":
+      return runLedgerCommand(args, cwd);
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
@@ -389,14 +393,47 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
   } finally {
     for (const handle of runtimeHandles.reverse()) await handle.close();
   }
+}
+
+async function runLedgerCommand(args: string[], cwd: string) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand === "migrate") {
+    if (!args.includes("--from-yaml") || !args.includes("--dry-run")) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml --dry-run");
+    }
+    const root = findRepositoryRoot(cwd);
+    const paths = runtimeStatePaths(root);
+    const plan = planYamlToArchitectureLedgerImport({
+      repository: {
+        repositoryId: repositoryFingerprint(root),
+        storageRepositoryId: paths.storageRepositoryId
+      },
+      worktree: {
+        workspaceId: paths.workspaceId,
+        storageWorkspaceId: paths.storageWorkspaceId,
+        branch: readCurrentBranch(root),
+        headSha: readHeadSha(root),
+        worktreeDigest: computeWorktreeDigest(root)
+      },
+      files: listModelFiles(root),
+      createdAt: readFlag(args, "--now") ?? new Date().toISOString(),
+      command: "archctx ledger migrate --from-yaml --dry-run"
+    });
+    return okEnvelope("ledger.migrate", {
+      ...plan,
+      append: "not-applied",
+      writes: "none"
+    } as unknown as Json);
+  }
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires migrate --from-yaml --dry-run");
 }
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
@@ -1902,6 +1939,19 @@ function renderResult(result: any, format: string): string {
   if (format !== "human") return JSON.stringify(result, null, 2);
   if (!result.ok) return `ERROR ${result.error?.code}: ${result.error?.message}`;
   return `OK ${result.requestId}\n${JSON.stringify(result.data, null, 2)}`;
+}
+
+function readCurrentBranch(root: string): string {
+  try {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return branch === "HEAD" ? "detached" : branch;
+  } catch {
+    return "unknown";
+  }
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

@@ -10,7 +10,7 @@ export const AGENT_JOB_SCHEMA_VERSION = "archcontext.agent-job/v1" as const;
 export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-report/v1" as const;
 
 export type ArchitectureFactAuthority = "declared" | "observed" | "verified" | "proposed" | "projected";
-export type ArchitectureLedgerMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
+export type ArchitectureLedgerMode = "yaml" | "dual" | "dual-compare" | "ledger-shadow" | "ledger" | "ledger-authoritative";
 export type ArchitectureActorKind = "developer" | "daemon" | "hook" | "cli" | "mcp" | "subagent" | "migration" | "system";
 export type ArchitectureEventSource =
   | "prepare_task"
