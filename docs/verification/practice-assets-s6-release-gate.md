@@ -4,8 +4,8 @@
 
 This document is the S6 release-gate evidence ledger. The catalog-scale,
 eval/quality, performance/reliability, package-manifest, local no-cloud, and
-local tarball lifecycle gates are verified; cross-platform CI matrix, docs,
-rollout, and final release gates remain pending.
+local tarball lifecycle gates are verified. The cross-platform PR CI matrix is
+also verified; docs, rollout, and final release gates remain pending.
 
 ## Catalog Scale Gate
 
@@ -271,8 +271,8 @@ workspace checkout or private workspace packages.
   `docs/verification/fg6-local-product-tarball-smoke.json`, and
   `docs/verification/fg6-local-no-cloud-readback.json`
 
-Out of scope for this slice: README/runbook docs, rollout flags, live npm
-publish, and final three-OS PR CI readback.
+Out of scope for this slice: README/runbook docs, rollout flags, and live npm
+publish.
 
 ### P2 Trace
 
@@ -322,6 +322,24 @@ runtime behavior from the generated package, which is the smallest coherent
 change because it reuses the existing release stage instead of adding a second
 packaging path.
 
+## Cross-Platform CI Matrix Gate
+
+PR #36 (`codex/practice-assets-s6-packaging-gates`) verified the packaged
+product path on GitHub Actions run `28070573588` at head
+`713806d0c50101ec48dd76d11b3811ac0b558dc0`.
+
+- Governance Verify: passed.
+- `ubuntu-latest` / Node 24.x: passed.
+- `ubuntu-latest` / Node 25.x: passed.
+- `macos-latest` / Node 24.x: passed.
+- `macos-latest` / Node 25.x: passed.
+- `windows-latest` / Node 24.x: passed.
+- `windows-latest` / Node 25.x: passed.
+
+This closes S6-30 and S6-EG3 for the packaging branch: the same verify workflow
+ran the installed local product tarball smoke, no-cloud E2E, sprint status
+check, and platform IPC permission readback across the release OS matrix.
+
 ## Verified Commands
 
 - `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`
@@ -350,6 +368,5 @@ packaging path.
 
 ## Pending S6 Gates
 
-- Cross-platform PR CI matrix: S6-30 and S6-EG3.
 - Documentation, operations, rollout, and final release signoff: S6-34 through
   S6-40 and S6-EG5 through S6-EG7.

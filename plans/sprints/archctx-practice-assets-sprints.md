@@ -1247,7 +1247,7 @@ evaluation, packaging, and release gates.
 ### 打包与跨平台
 
 - [x] S6-29 packaged CLI/tarball 包含 catalog、source registry、schemas 和必要 attribution。
-- [ ] S6-30 Linux/macOS/Windows 安装、升级、卸载与 data retention matrix 通过。
+- [x] S6-30 Linux/macOS/Windows 安装、升级、卸载与 data retention matrix 通过。
 - [x] S6-31 `npm pack --dry-run`/产品分发 manifest 明确列出 assets，防止 `.npmignore` 漏包。
 - [x] S6-32 本地无云 E2E 覆盖 `init → sync → practices validate → prepare → checkpoint → complete`。
 - [x] S6-33 Context7 作为 optional dependency/capability，不扩大 Local Core 的强制安装面。
@@ -1266,7 +1266,7 @@ evaluation, packaging, and release gates.
 
 - [x] S6-EG1 所有质量与性能 KPI 通过 `bun evals/run.ts --check` 或独立 gate 脚本。
 - [x] S6-EG2 所有发布 assets provenance/license/digest 完整率 = 100%。
-- [ ] S6-EG3 三大 OS packaged product E2E 全绿。
+- [x] S6-EG3 三大 OS packaged product E2E 全绿。
 - [x] S6-EG4 默认配置保持 static-only、zero-egress、advisory-first。
 - [ ] S6-EG5 enforcement 与 Context7 均可独立关闭，关闭后旧 Local Core 行为保持兼容。
 - [ ] S6-EG6 至少一个真实 Agent host 的 central Hook readback 完成。
@@ -1413,11 +1413,12 @@ Completed the S6 packaging and local product gate slice on branch
   `bun run readback:fg6:local-no-cloud`,
   `bun scripts/fg6-local-no-cloud-readback.ts inspect --evidence docs/verification/fg6-local-no-cloud-readback.json --json`,
   and `bun run readback:fg6:local-product-tarball`.
+- PR CI matrix: GitHub Actions run `28070573588` on PR #36 at head
+  `713806d0c50101ec48dd76d11b3811ac0b558dc0` passed Governance Verify plus
+  `ubuntu-latest`, `macos-latest`, and `windows-latest` on Node 24.x and 25.x.
 
-S6-01 through S6-29, S6-31 through S6-33, S6-EG1, S6-EG2, and S6-EG4 are
-complete. S6-30, S6-34 through S6-40, S6-EG3, and S6-EG5 through S6-EG7 remain
-open. S6-30/S6-EG3 are intentionally left open until this branch's PR CI proves
-the packaged product E2E on Linux, macOS, and Windows.
+S6-01 through S6-33, S6-EG1 through S6-EG4 are complete. S6-34 through S6-40
+and S6-EG5 through S6-EG7 remain open.
 
 ---
 
