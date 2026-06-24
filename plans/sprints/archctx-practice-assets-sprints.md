@@ -1477,6 +1477,11 @@ All active sprint task breakdown items and exit gates are now `[x]`. The
 remaining unchecked lists in sections 3.3, 6.5, 8.1, 18, and 19 are normative
 templates or future backlog checklists, not active task-breakdown items.
 
+Mainline landing PR #38 `release(practices): expand curated assets and close
+production gates` targets `main` from `codex/practice-assets-v1-release`; it
+rolls up the completed stacked review history (#13-#37) into one Practice
+Assets v1 release merge/readback surface.
+
 ---
 
 ## 15. 跨 Sprint 依赖图
