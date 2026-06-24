@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "migration.target-and-removal-state",
+  "revision": 1,
+  "status": "active",
+  "title": "Migration work needs both target state and removal state",
+  "summary": "A migration is not complete until the desired target state and the removal path for temporary state are both explicit.",
+  "category": "migration",
+  "tags": ["migration", "target-state", "cleanup"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["**/*"],
+    "nodeKinds": ["module", "service", "resource"],
+    "negativePathGlobs": ["docs/**", "test/**"]
+  },
+  "triggers": {
+    "candidateTerms": ["migration", "target state", "cleanup", "remove old", "dual path"],
+    "pressureSignals": ["migration-without-target-state", "temporary-state-without-removal"],
+    "structuralPredicates": ["old-and-new-path-coexist", "migration-cleanup-missing"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "declared",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["architecture-model", "diff"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["What is the final single-path state?", "Which temporary elements remain?", "What proof deletes or retires them?"],
+    "preferred": ["Track target state and kill list together.", "Attach review date and owner to temporary state."],
+    "avoid": ["Calling migration complete when dual paths still exist.", "Leaving deletion as implicit future work."]
+  },
+  "checks": [
+    {
+      "checkId": "migration-review-date",
+      "mode": "deterministic",
+      "parameters": {
+        "required": true
+      }
+    },
+    {
+      "checkId": "migration-removal-condition",
+      "mode": "deterministic",
+      "parameters": {
+        "required": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "complete",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.adr.0009"
+      },
+      {
+        "sourceId": "madr",
+        "sourceRevision": "v4.0.0",
+        "licenseSpdx": "MIT OR CC0-1.0"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

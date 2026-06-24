@@ -60,10 +60,16 @@ try {
   assert(sync.ok === true, "sync must succeed with local CodeGraph only");
   assert(/^sha256:/.test(String(sync.data?.codeFactsDigest)), "sync must return code facts digest");
 
+  const practiceValidation = await runArchctx(repo, "practices", "validate", "--strict");
+  assert(practiceValidation.ok === true, "practices validate must succeed without cloud or LLM");
+  assert(practiceValidation.data?.valid === true, "practice catalog must validate without cloud or LLM");
+  assert(Number(practiceValidation.data?.practiceCount ?? 0) >= 40, "practice catalog must include S6 built-in assets");
+  assert(Number(practiceValidation.data?.sourceCount ?? 0) >= 19, "practice catalog must include source registry");
+
   const context = await runArchctx(repo, "context", "--task", "inspect greeting module", "--max-symbols", "2");
   assert(context.ok === true, "context must succeed without GitHub, Cloud, or LLM");
   assert(context.data?.schemaVersion === "archcontext.task-context/v1", "context must return task-context schema");
-  assert(context.data?.resources?.some((resource) => resource.type === "codefacts"), "context must include local codefacts resource");
+  assert(context.data?.resources?.some((resource) => resource.type === "code-context"), "context must include local code context resource");
   assert(context.data?.resources?.some((resource) => resource.type === "model"), "context must include local model resource");
 
   const prepared = await runArchctx(repo, "prepare", "--task", "inspect greeting module", "--max-items", "2");
@@ -110,7 +116,7 @@ try {
 
   console.log(JSON.stringify({
     schemaVersion: "archcontext.local-no-cloud-e2e/v1",
-    commands: ["doctor", "paths", "mcp install", "init", "sync", "context", "prepare", "status", "checkpoint", "complete", "review"],
+    commands: ["doctor", "paths", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "complete", "review"],
     providerEnvRemoved: REMOVED_PROVIDER_ENV,
     git: {
       headSha
@@ -126,6 +132,14 @@ try {
       checkpointFresh: checkpoint.data.fresh,
       completeSchemaVersion: complete.data.schemaVersion,
       completeResult: complete.data.result
+    },
+    practices: {
+      validation: "strict",
+      valid: practiceValidation.data.valid,
+      practiceCount: practiceValidation.data.practiceCount,
+      sourceCount: practiceValidation.data.sourceCount,
+      profileCount: practiceValidation.data.profileCount,
+      catalogDigest: practiceValidation.data.catalogDigest
     },
     review: {
       schemaVersion: review.data.schemaVersion,

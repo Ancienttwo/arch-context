@@ -17,7 +17,10 @@
         "headSha": { "type": "string" },
         "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "modelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "practiceCatalogDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "practicePolicyDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "practiceCheckResultDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
       }
     },
     "posture": { "type": "string", "enum": ["normal", "structural", "intervention", "proof-required"] },
@@ -33,6 +36,9 @@
       }
     },
     "findings": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "practiceViolations": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "waiversApplied": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "actionsRequired": { "type": "array", "items": { "type": "string" } },
     "cleanup": { "type": "object", "additionalProperties": false, "properties": { "required": { "type": "integer" }, "completed": { "type": "integer" } } },
     "extensions": { "type": "object", "additionalProperties": true }
   }

@@ -37,6 +37,17 @@
     "recommendedTargetState": { "type": "object", "additionalProperties": true },
     "requiredCheckpoints": { "type": "array", "items": { "type": "string" } },
     "resources": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "practiceGuidance": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "catalogDigest", "overlayDigest", "matches"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.practice-guidance/v1" },
+        "catalogDigest": { "type": "string", "pattern": "^sha256:" },
+        "overlayDigest": { "type": "string", "pattern": "^sha256:" },
+        "matches": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      }
+    },
     "extensions": { "type": "object", "additionalProperties": true }
   }
 }

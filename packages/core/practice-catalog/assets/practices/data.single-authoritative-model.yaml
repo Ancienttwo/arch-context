@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "data.single-authoritative-model",
+  "revision": 1,
+  "status": "active",
+  "title": "Data concepts need one authoritative model",
+  "summary": "When multiple data shapes represent the same business concept, identify one authoritative model and keep adapters at explicit boundaries.",
+  "category": "data",
+  "tags": ["data", "model", "authority"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["src/**", "packages/**", "schemas/**", "migrations/**"],
+    "nodeKinds": ["resource", "module", "service"],
+    "negativePathGlobs": ["test/**", "**/*.fixture.*"]
+  },
+  "triggers": {
+    "candidateTerms": ["model", "dto", "mapper", "entity", "schema"],
+    "pressureSignals": ["dual-track-business-concept"],
+    "structuralPredicates": ["parallel-data-shape-observed", "mapper-symbol-added"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "heuristic",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["symbol", "data-edge"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Which representation owns writes?", "Where are adapters allowed?", "What temporary shapes are removed?"],
+    "preferred": ["Keep one internal representation.", "Map at ingress, egress, or persistence boundaries."],
+    "avoid": ["Business rules duplicated across DTO/entity pairs.", "New mapper chains with no target-state plan."]
+  },
+  "checks": [
+    {
+      "checkId": "single-authoritative-model",
+      "mode": "deterministic",
+      "parameters": {
+        "requireBoundaryAdapter": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.spec"
+      },
+      {
+        "sourceId": "archcontext.adr.0009"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

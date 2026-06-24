@@ -72,7 +72,14 @@ export const CALLER_PROVIDED_ATTESTATION_FIELDS = [
   "reviewDigest",
   "policyDigest",
   "modelDigest",
-  "signature"
+  "signature",
+  "practiceEnforcement",
+  "practiceViolations",
+  "waiversApplied",
+  "actionsRequired",
+  "practiceCatalogDigest",
+  "practicePolicyDigest",
+  "practiceCheckResultDigest"
 ] as const;
 export const LLM_ADVISORY_FORBIDDEN_FIELDS = [
   ...CALLER_PROVIDED_ATTESTATION_FIELDS,

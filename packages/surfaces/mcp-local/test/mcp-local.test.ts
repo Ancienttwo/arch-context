@@ -8,7 +8,7 @@ import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { LOCAL_MCP_TOOLS, McpLocalServer, runStdioMcpLoop } from "../src/index";
+import { LOCAL_MCP_TOOLS, LocalHttpMcpServer, McpLocalServer, runStdioMcpLoop } from "../src/index";
 import { runCli } from "@archcontext/surfaces/cli";
 
 function tempModel(): string {
@@ -26,6 +26,44 @@ async function createTestServer(): Promise<McpLocalServer> {
   }));
 }
 
+function externalDocsEntry() {
+  const contentDigest = `sha256:${"7".repeat(64)}`;
+  const queryDigest = `sha256:${"8".repeat(64)}`;
+  return {
+    provider: "context7" as const,
+    libraryId: "/facebook/react",
+    version: "18.2.0",
+    queryDigest,
+    contentDigest,
+    retrievedAt: "2026-06-24T00:00:00.000Z",
+    expiresAt: "2026-07-24T00:00:00.000Z",
+    resource: {
+      schemaVersion: "archcontext.external-document/v1" as const,
+      provider: "context7" as const,
+      libraryId: "/facebook/react",
+      requestedVersion: "18.2.0",
+      resolvedVersion: "18.2.0",
+      queryDigest,
+      contentDigest,
+      retrievedAt: "2026-06-24T00:00:00.000Z",
+      expiresAt: "2026-07-24T00:00:00.000Z",
+      trust: "external-unverified" as const,
+      enforcement: "advisory-only" as const,
+      cacheStatus: "fresh" as const,
+      uri: `archcontext://external-docs/context7/${contentDigest}`,
+      byteCount: 42,
+      snippets: [{
+        title: "React useState",
+        contentPreview: "External documentation data for useState.",
+        contentDigest,
+        sourceUri: "https://react.dev/reference/react/useState",
+        byteCount: 42
+      }],
+      warning: "untrusted-documentation-data" as const
+    }
+  };
+}
+
 function runTestCli(command: string, args: string[], root: string) {
   return runCli(command, args, root, {
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -35,9 +73,10 @@ function runTestCli(command: string, args: string[], root: string) {
 }
 
 describe("local MCP server", () => {
-  test("exposes exactly five workflow tools with safety annotations", () => {
+  test("exposes exactly six workflow tools with safety annotations", () => {
     expect(LOCAL_MCP_TOOLS.map((tool) => tool.name)).toEqual([
       "archcontext_prepare_task",
+      "archcontext_practices",
       "archcontext_checkpoint",
       "archcontext_plan_update",
       "archcontext_apply_update",
@@ -61,7 +100,72 @@ describe("local MCP server", () => {
         maxItems: 12
       });
       expect(result.resourceUri).toMatch(/^archcontext:\/\/resource\//);
-      expect(server.readResource(result.resourceUri!)).toBeTruthy();
+      expect(await server.readResource(result.resourceUri!)).toBeTruthy();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("MCP reads Context7 external documentation resources only from the daemon cache", async () => {
+    const root = tempModel();
+    const store = new TestLocalStore();
+    const entry = externalDocsEntry();
+    await store.saveExternalDocumentation(entry);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: store,
+      clock: () => "2026-06-24T00:00:00.000Z"
+    });
+    try {
+      await daemon.init(root, "MCP Docs App");
+      const server = new McpLocalServer(daemon);
+      const resources = await server.listResources(root);
+      expect(resources).toContainEqual(expect.objectContaining({
+        uri: entry.resource.uri,
+        name: "Context7 /facebook/react@18.2.0",
+        mimeType: "application/json",
+        annotations: { safety: "read-only" }
+      }));
+
+      const resource = await server.readResource(entry.resource.uri, root);
+      expect(resource).toMatchObject({
+        schemaVersion: "archcontext.resource-read/v1",
+        uri: entry.resource.uri,
+        dataClassification: "external-unverified-documentation",
+        resource: {
+          provider: "context7",
+          libraryId: "/facebook/react",
+          trust: "external-unverified",
+          enforcement: "advisory-only",
+          cacheStatus: "fresh"
+        }
+      });
+      expect(await server.readResource("https://example.test/context7", root)).toBeUndefined();
+    } finally {
+      await daemon.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("practices tool reads the daemon-resolved catalog", async () => {
+    const root = tempModel();
+    try {
+      const server = await createTestServer();
+      const result = await server.callTool("archcontext_practices", {
+        root,
+        action: "list",
+        maxBytes: 12_288
+      });
+      const envelope = (result.content as any).ok === true
+        ? result.content as any
+        : await server.readResource((result.content as any).resourceUri, root) as any;
+      if ((result.content as any).schemaVersion === "archcontext.resource-summary/v1") {
+        expect((result.content as any).resourceUri).toBe(result.resourceUri);
+      }
+      expect(envelope.ok).toBe(true);
+      expect(envelope.data.schemaVersion).toBe("archcontext.practice-list/v1");
+      expect(envelope.data.practices.map((practice: any) => practice.id)).toContain("compatibility.single-owner");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -106,7 +210,7 @@ describe("local MCP server", () => {
       expect((accepted.content as any).ok).toBe(true);
       expect((accepted.content as any).data.schemaVersion).toBe("archcontext.review/v1");
 
-      for (const field of ["result", "reviewDigest", "policyDigest", "modelDigest", "signature"]) {
+      for (const field of ["result", "reviewDigest", "policyDigest", "modelDigest", "signature", "practiceViolations"]) {
         const result = await server.callTool("archcontext_complete_task", {
           ...base,
           [field]: field === "signature" ? { algorithm: "ed25519", value: "forged" } : "pass"
@@ -128,7 +232,7 @@ describe("local MCP server", () => {
     }
     await runStdioMcpLoop(input(), (line) => output.push(line), (line) => logs.push(line));
     expect(output.length).toBe(1);
-    expect(JSON.parse(output[0]).result.tools.length).toBe(5);
+    expect(JSON.parse(output[0]).result.tools.length).toBe(6);
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 
@@ -144,6 +248,19 @@ describe("local MCP server", () => {
         maxBytes: 12_288
       });
       expect((cli.data as any).posture).toBe((mcp.content as any).data.posture);
+      expect((cli.data as any).context.practiceGuidance.catalogDigest).toBe((mcp.content as any).data.context.practiceGuidance.catalogDigest);
+      expect((cli.data as any).context.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(
+        (mcp.content as any).data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
+      );
+      const checkpoint = await server.callTool("archcontext_checkpoint", {
+        root,
+        taskSessionId: "task_mcp",
+        event: "post-edit",
+        changedPaths: ["src/example.ts"]
+      });
+      expect((checkpoint.content as any).ok).toBe(true);
+      expect((checkpoint.content as any).data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect((checkpoint.content as any).data.delta.unchanged.length).toBeGreaterThan(0);
       expect(JSON.stringify(mcp.content)).not.toContain("sourceCode");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -172,6 +289,54 @@ describe("local MCP server", () => {
       const status = await new RuntimeRpcClient(connection).runtimeStatus(root);
       expect((status.data as any).sessions).toBe(1);
       expect(JSON.stringify(result.content)).not.toContain("sourceCode");
+      await rpc.stop();
+      stopped = true;
+    } finally {
+      if (!stopped) await rpc.stop().catch(() => undefined);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("HTTP MCP resources/read uses loopback daemon RPC for external docs", async () => {
+    const root = tempModel();
+    const store = new TestLocalStore();
+    const entry = externalDocsEntry();
+    await store.saveExternalDocumentation(entry);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: store,
+      clock: () => "2026-06-24T00:00:00.000Z"
+    });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "mcp-resource-token" });
+    let stopped = false;
+    try {
+      await rpc.start();
+      await daemon.init(root, "MCP Resource RPC App");
+      const http = new LocalHttpMcpServer(new McpLocalServer());
+
+      const listed = await http.handle({
+        method: "GET",
+        path: "/mcp/resources",
+        host: "127.0.0.1",
+        body: { root }
+      });
+      expect(listed.status).toBe(200);
+      expect((listed.body as any).resources.map((resource: any) => resource.uri)).toContain(entry.resource.uri);
+
+      const read = await http.handle({
+        method: "POST",
+        path: "/mcp/resources/read",
+        host: "127.0.0.1",
+        body: { root, uri: entry.resource.uri }
+      });
+      expect(read.status).toBe(200);
+      expect((read.body as any).content.resource).toMatchObject({
+        provider: "context7",
+        libraryId: "/facebook/react",
+        cacheStatus: "fresh",
+        warning: "untrusted-documentation-data"
+      });
       await rpc.stop();
       stopped = true;
     } finally {

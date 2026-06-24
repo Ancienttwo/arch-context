@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "compatibility.single-owner",
+  "revision": 1,
+  "status": "active",
+  "title": "Compatibility paths require one lifecycle owner",
+  "summary": "A compatibility path must have one accountable owner, a durable reason, a removal condition, and a bounded review date.",
+  "category": "compatibility",
+  "tags": ["compatibility", "migration", "lifecycle"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["**/*"],
+    "nodeKinds": ["module", "service", "public-api"],
+    "negativePathGlobs": ["test/**", "**/*.fixture.*"]
+  },
+  "triggers": {
+    "candidateTerms": ["compatibility", "legacy", "fallback", "adapter", "v1", "v2"],
+    "pressureSignals": ["unjustified-wrapper-adapter", "dual-track-business-concept"],
+    "structuralPredicates": ["compatibility-path-added", "parallel-public-api-observed"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "heuristic",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff", "symbol"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Who owns the compatibility path through removal?", "What external contract or persisted state requires it?", "What exact condition allows deletion?"],
+    "preferred": ["Adapt at one boundary and keep one internal representation.", "Record owner, review date, tests, and removal condition."],
+    "avoid": ["Maintaining v1/v2 branches in multiple business layers.", "Permanent fallback code with a generic cleanup note."]
+  },
+  "checks": [
+    {
+      "checkId": "compatibility-contract-required",
+      "mode": "deterministic",
+      "parameters": {
+        "requireOwner": true,
+        "requireRemovalCondition": true,
+        "requireReviewDate": true,
+        "requireTests": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "complete",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.adr.0010"
+      },
+      {
+        "sourceId": "madr",
+        "sourceRevision": "v4.0.0",
+        "licenseSpdx": "MIT OR CC0-1.0"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

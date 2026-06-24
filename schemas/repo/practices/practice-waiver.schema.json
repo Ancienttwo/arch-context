@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/repo/practices/practice-waiver.schema.json",
+  "title": "PracticeWaiver",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "practiceId", "scope", "owner", "reason", "createdAt", "expiresAt", "evidenceDigest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-waiver/v1" },
+    "practiceId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
+    "checkId": { "type": "string" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pathGlobs": { "type": "array", "items": { "type": "string" } },
+        "subjects": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "owner": { "type": "string" },
+    "reason": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "expiresAt": { "type": "string" },
+    "evidenceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

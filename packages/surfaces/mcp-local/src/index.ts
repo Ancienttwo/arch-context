@@ -19,6 +19,16 @@ export interface ToolCallResult {
   dataClassification: "local-architecture" | "local-metadata";
 }
 
+export interface McpResourceDefinition {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType: "application/json";
+  annotations: {
+    safety: "read-only";
+  };
+}
+
 export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_prepare_task",
@@ -26,8 +36,13 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
+    name: "archcontext_practices",
+    description: "List, show, validate, or inspect source records for the effective static Practice Catalog.",
+    annotations: { safety: "read-only", requiresConfirmation: false }
+  },
+  {
     name: "archcontext_checkpoint",
-    description: "Call after meaningful code or model changes. Verifies the task snapshot is still fresh.",
+    description: "Call after meaningful code or model changes. Returns practice guidance deltas from the daemon checkpoint.",
     annotations: { safety: "read-only", requiresConfirmation: false }
   },
   {
@@ -70,14 +85,46 @@ export class McpLocalServer {
         const root = requiredArg(args, "root");
         const task = requiredArg(args, "task");
         try {
-          const result = await (await this.runtime(root)).prepare(root, task, args.maxBytes ?? 12_288, args.maxItems ?? 12);
+          const result = await (await this.runtime(root)).prepare(root, task, args.maxBytes ?? 12_288, args.maxItems ?? 12, args.taskSessionId ?? "task_mcp");
           return this.budgeted("prepare", result as unknown as Json, args.maxBytes ?? 12_288);
         } catch (error) {
           return runtimeUnavailable("prepare", error);
         }
       }
-      case "archcontext_checkpoint":
-        return { content: errorEnvelope("checkpoint", "AC_SCHEMA_INVALID", "checkpoint moved to archctxd status/context RPC") as unknown as Json, dataClassification: "local-metadata" };
+      case "archcontext_practices": {
+        const root = requiredArg(args, "root");
+        try {
+          const result = await (await this.runtime(root)).practices(root, {
+            action: args.action ?? "list",
+            id: args.id,
+            category: args.category,
+            source: args.source,
+            strict: args.strict === true
+          });
+          return this.budgeted("practices", result as unknown as Json, args.maxBytes ?? 12_288);
+        } catch (error) {
+          return runtimeUnavailable("practices", error);
+        }
+      }
+      case "archcontext_checkpoint": {
+        const root = requiredArg(args, "root");
+        try {
+          const result = await (await this.runtime(root)).checkpoint(root, {
+            taskSessionId: args.taskSessionId ?? "task_mcp",
+            task: args.task,
+            event: args.event ?? "manual",
+            changedPaths: Array.isArray(args.changedPaths) ? args.changedPaths : [],
+            toolCallId: args.toolCallId,
+            expectedHeadSha: args.expectedHeadSha,
+            expectedWorktreeDigest: args.expectedWorktreeDigest,
+            maxBytes: args.maxBytes ?? 12_288,
+            maxItems: args.maxItems ?? 12
+          });
+          return { content: result as unknown as Json, dataClassification: "local-metadata" };
+        } catch (error) {
+          return runtimeUnavailable("checkpoint", error);
+        }
+      }
       case "archcontext_plan_update": {
         const root = requiredArg(args, "root");
         try {
@@ -115,6 +162,7 @@ export class McpLocalServer {
           const root = requiredArg(args, "root");
           const result = await (await this.runtime(root)).completeTask(root, {
             taskSessionId: args.taskSessionId,
+            task: args.task,
             posture: args.posture,
             headSha: args.headSha,
             compatibilityContract: args.compatibilityContract,
@@ -132,8 +180,49 @@ export class McpLocalServer {
     }
   }
 
-  readResource(uri: string): Json | undefined {
-    return this.resources.get(uri);
+  async listResources(root = process.cwd()): Promise<McpResourceDefinition[]> {
+    const localResources = [...this.resources.keys()].map((uri) => ({
+      uri,
+      name: uri,
+      description: "Daemon-budgeted local architecture result.",
+      mimeType: "application/json" as const,
+      annotations: { safety: "read-only" as const }
+    }));
+    try {
+      const status = await (await this.runtime(root)).docs(root, { command: "status", provider: "context7" });
+      if (!status.ok) return localResources;
+      const cacheEntries = ((status.data as any)?.cacheEntries ?? []) as Array<Record<string, unknown>>;
+      return [
+        ...localResources,
+        ...cacheEntries
+          .filter((entry) => typeof entry.contentDigest === "string" && /^sha256:[0-9a-f]{64}$/.test(entry.contentDigest))
+          .map((entry) => {
+            const library = typeof entry.libraryId === "string" ? entry.libraryId : "context7";
+            const version = typeof entry.version === "string" ? entry.version : "unknown";
+            return {
+              uri: `archcontext://external-docs/context7/${entry.contentDigest}`,
+              name: `Context7 ${library}@${version}`,
+              description: "Read-only external documentation resource from the local daemon cache.",
+              mimeType: "application/json" as const,
+              annotations: { safety: "read-only" as const }
+            };
+          })
+      ];
+    } catch {
+      return localResources;
+    }
+  }
+
+  async readResource(uri: string, root = process.cwd()): Promise<Json | undefined> {
+    const local = this.resources.get(uri);
+    if (local) return local;
+    if (!isExternalDocumentationResourceUri(uri)) return undefined;
+    try {
+      const result = await (await this.runtime(root)).readResource(root, uri);
+      return result.ok ? result.data as Json : result as unknown as Json;
+    } catch (error) {
+      return runtimeUnavailable("resource.read", error).content;
+    }
   }
 
   recoverSession(taskSessionId: string): Json {
@@ -208,9 +297,21 @@ export class LocalHttpMcpServer {
     if (request.method === "GET" && request.path === "/mcp/tools") {
       return { status: 200, body: { tools: this.localMcp.listTools() } };
     }
+    if (request.method === "GET" && request.path === "/mcp/resources") {
+      return { status: 200, body: { resources: await this.localMcp.listResources(request.body?.root) } };
+    }
     if (request.method === "POST" && request.path === "/mcp/call") {
       const body = request.body ?? {};
       return { status: 200, body: await this.localMcp.callTool(body.name, body.arguments ?? {}) };
+    }
+    if (request.method === "POST" && request.path === "/mcp/resources/read") {
+      const body = request.body ?? {};
+      const uri = requiredArg(body, "uri");
+      const content = await this.localMcp.readResource(uri, body.root);
+      if (content === undefined) {
+        return { status: 404, body: errorEnvelope("http-mcp-resource", "AC_SCHEMA_INVALID", "Resource not found") };
+      }
+      return { status: 200, body: { content } };
     }
     return { status: 404, body: errorEnvelope("http-mcp", "AC_SCHEMA_INVALID", "Unknown local MCP route") };
   }
@@ -271,9 +372,26 @@ export async function runStdioMcpLoop(input: AsyncIterable<string>, output: (lin
   log("[archctx-mcp] started");
   for await (const line of input) {
     const message = JSON.parse(line);
-    const result = message.method === "tools/list"
-      ? { tools: server.listTools() }
-      : await server.callTool(message.params?.name, message.params?.arguments ?? {});
+    let result;
+    if (message.method === "tools/list") {
+      result = { tools: server.listTools() };
+    } else if (message.method === "resources/list") {
+      result = { resources: await server.listResources(message.params?.root) };
+    } else if (message.method === "resources/read") {
+      const uri = message.params?.uri;
+      const content = typeof uri === "string" ? await server.readResource(uri, message.params?.root) : undefined;
+      result = {
+        contents: content === undefined
+          ? []
+          : [{ uri, mimeType: "application/json", text: JSON.stringify(content) }]
+      };
+    } else {
+      result = await server.callTool(message.params?.name, message.params?.arguments ?? {});
+    }
     output(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
   }
+}
+
+function isExternalDocumentationResourceUri(uri: string): boolean {
+  return /^archcontext:\/\/external-docs\/context7\/sha256:[0-9a-f]{64}$/.test(uri);
 }

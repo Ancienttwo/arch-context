@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "compatibility.disabled-overlay",
+  "revision": 1,
+  "status": "disabled",
+  "title": "Disabled overlay boundary fixture",
+  "summary": "Disabled overlay tombstones keep a reason and explicit overlay mode.",
+  "category": "compatibility",
+  "tags": ["fixture"],
+  "appliesTo": {
+    "repositoryKinds": ["application"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["**/*"],
+    "nodeKinds": ["module"]
+  },
+  "triggers": {
+    "candidateTerms": ["fixture"],
+    "pressureSignals": ["fixture"],
+    "structuralPredicates": ["fixture"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "heuristic",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Fixture?"],
+    "preferred": ["Use explicit disable tombstones."],
+    "avoid": ["Silent deletion."]
+  },
+  "checks": [],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.spec"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": [],
+    "disabledWithReason": "Boundary fixture for explicit disable overlays."
+  },
+  "overlay": {
+    "mode": "disable"
+  }
+}

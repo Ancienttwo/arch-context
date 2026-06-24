@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/practice-checkpoint.schema.json",
+  "title": "PracticeCheckpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskSessionId",
+    "event",
+    "headSha",
+    "worktreeDigest",
+    "fresh",
+    "reasonCode",
+    "staleReasons",
+    "changedPaths",
+    "catalogDigest",
+    "contextDigest",
+    "practiceGuidanceDigest",
+    "delta",
+    "noOpDigest",
+    "resultDigest",
+    "hook",
+    "nextSnapshot"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-checkpoint/v1" },
+    "taskSessionId": { "type": "string", "minLength": 1 },
+    "event": { "enum": ["manual", "post-edit", "post-write", "pre-complete"] },
+    "headSha": { "type": "string", "minLength": 1 },
+    "expectedHeadSha": { "type": "string", "minLength": 1 },
+    "worktreeDigest": { "type": "string", "pattern": "^sha256:" },
+    "expectedWorktreeDigest": { "type": "string", "pattern": "^sha256:" },
+    "fresh": { "type": "boolean" },
+    "reasonCode": { "enum": ["fresh", "stale-head", "stale-worktree", "stale-catalog", "no-baseline", "no-op"] },
+    "staleReasons": {
+      "type": "array",
+      "items": { "enum": ["fresh", "stale-head", "stale-worktree", "stale-catalog", "no-baseline", "no-op"] }
+    },
+    "changedPaths": { "type": "array", "items": { "type": "string" } },
+    "toolCallId": { "type": "string" },
+    "catalogDigest": { "type": "string", "pattern": "^sha256:" },
+    "previousCatalogDigest": { "type": "string", "pattern": "^sha256:" },
+    "contextDigest": { "type": "string", "pattern": "^sha256:" },
+    "previousContextDigest": { "type": "string", "pattern": "^sha256:" },
+    "practiceGuidanceDigest": { "type": "string", "pattern": "^sha256:" },
+    "previousPracticeGuidanceDigest": { "type": "string", "pattern": "^sha256:" },
+    "delta": { "$ref": "#/$defs/delta" },
+    "noOpDigest": { "type": "string", "pattern": "^sha256:" },
+    "resultDigest": { "type": "string", "pattern": "^sha256:" },
+    "hook": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["egress", "failOpen", "pathCount", "network"],
+      "properties": {
+        "egress": { "const": "none" },
+        "failOpen": { "const": true },
+        "pathCount": { "type": "integer", "minimum": 0 },
+        "network": { "const": "forbidden" },
+        "pathSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "total", "source", "generated", "ignored", "binary", "deleted", "renameHints"],
+          "properties": {
+            "schemaVersion": { "const": "archcontext.checkpoint-path-summary/v1" },
+            "total": { "type": "integer", "minimum": 0 },
+            "source": { "type": "integer", "minimum": 0 },
+            "generated": { "type": "integer", "minimum": 0 },
+            "ignored": { "type": "integer", "minimum": 0 },
+            "binary": { "type": "integer", "minimum": 0 },
+            "deleted": { "type": "integer", "minimum": 0 },
+            "renameHints": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "coalesced": { "type": "boolean" },
+        "skippedAnalysis": { "type": "boolean" },
+        "coalescedEventCount": { "type": "integer", "minimum": 1 },
+        "coalesceKey": { "type": "string", "pattern": "^sha256:" },
+        "elapsedMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "nextSnapshot": { "$ref": "#/$defs/snapshot" }
+  },
+  "$defs": {
+    "delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "added", "removed", "upgraded", "downgraded", "unchanged", "requiresProof"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.practice-delta/v1" },
+        "added": { "type": "array", "items": { "$ref": "#/$defs/match" } },
+        "removed": { "type": "array", "items": { "$ref": "#/$defs/match" } },
+        "upgraded": { "type": "array", "items": { "$ref": "#/$defs/match" } },
+        "downgraded": { "type": "array", "items": { "$ref": "#/$defs/match" } },
+        "unchanged": { "type": "array", "items": { "$ref": "#/$defs/match" } },
+        "requiresProof": { "type": "array", "items": { "$ref": "#/$defs/match" } }
+      }
+    },
+    "match": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["schemaVersion", "practiceId", "assetDigest", "enforcement", "confidence"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.practice-match/v1" },
+        "practiceId": { "type": "string" },
+        "assetDigest": { "type": "string", "pattern": "^sha256:" },
+        "enforcement": { "enum": ["advisory", "checkpoint", "complete"] },
+        "confidence": { "enum": ["low", "medium", "high"] }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "task", "headSha", "worktreeDigest", "contextDigest", "practiceGuidanceDigest", "catalogDigest", "matches"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.practice-checkpoint-snapshot/v1" },
+        "task": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:" },
+        "contextDigest": { "type": "string", "pattern": "^sha256:" },
+        "practiceGuidanceDigest": { "type": "string", "pattern": "^sha256:" },
+        "catalogDigest": { "type": "string", "pattern": "^sha256:" },
+        "matches": { "type": "array", "items": { "$ref": "#/$defs/match" } }
+      }
+    }
+  }
+}

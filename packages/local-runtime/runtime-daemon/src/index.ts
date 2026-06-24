@@ -17,12 +17,15 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { prepareTask } from "@archcontext/core/application";
+import { checkpointTask, prepareTask } from "@archcontext/core/application";
+import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
+import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
-import { compileLandscapeTaskContext } from "@archcontext/core/context-compiler";
-import { assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type DevicePrivateKeySignerPort, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
-import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
+import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 
@@ -38,6 +41,61 @@ export interface RepositorySession {
   codeFactsDigest?: string;
   modelDigest?: string;
   startedAt: string;
+}
+
+export interface RuntimeCheckpointInput {
+  taskSessionId?: string;
+  task?: string;
+  event?: PracticeCheckpointEvent;
+  changedPaths?: string[];
+  toolCallId?: string;
+  expectedHeadSha?: string;
+  expectedWorktreeDigest?: string;
+  maxBytes?: number;
+  maxItems?: number;
+}
+
+export interface RuntimeDocsInput {
+  command: "status" | "resolve" | "pin" | "fetch" | "purge";
+  provider?: ExternalDocumentationProvider;
+  libraryName?: string;
+  libraryId?: string;
+  version?: string;
+  query?: string;
+  intent?: string;
+  approved?: boolean;
+  allowNetwork?: boolean;
+  forceRefresh?: boolean;
+  all?: boolean;
+}
+
+export interface RuntimeResourceReadResult {
+  schemaVersion: "archcontext.resource-read/v1";
+  uri: string;
+  dataClassification: "external-unverified-documentation";
+  resource: ExternalDocumentationResourceV1;
+}
+
+export interface RuntimePracticeWaiverInput {
+  id?: string;
+  waiverId?: string;
+  taskSessionId?: string;
+  practiceId: string;
+  checkId?: string;
+  owner: string;
+  reason: string;
+  createdAt?: string;
+  expiresAt: string;
+  evidenceDigest: string;
+  subjects?: string[];
+  pathGlobs?: string[];
+}
+
+interface CheckpointCoalesceEntry {
+  repositoryId: string;
+  taskSessionId: string;
+  data: Json;
+  eventCount: number;
 }
 
 export interface DeveloperReviewDigestBundle {
@@ -71,6 +129,7 @@ export interface DeveloperReviewSession {
 
 export interface RuntimeCompleteTaskInput {
   taskSessionId?: string;
+  task?: string;
   posture?: CompleteTaskInput["posture"];
   headSha?: string;
   compatibilityContract?: CompleteTaskInput["compatibilityContract"];
@@ -144,6 +203,7 @@ export interface RuntimeDeps {
   modelStore?: ModelStorePort;
   localStore?: RuntimeLocalStore;
   changeSetEngine?: ChangeSetEngine;
+  externalDocumentation?: ExternalDocumentationPort;
   devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   localStorePath?: string;
   clock?: () => string;
@@ -167,6 +227,7 @@ export interface RuntimeCompositionReport {
     modelStore: "yaml" | "injected";
     localStore: "sqlite" | "injected";
     changeSetEngine: "default" | "injected";
+    externalDocumentation: "context7" | "injected";
   };
   localStorePath?: string;
   blockedProductionInjections: string[];
@@ -258,7 +319,13 @@ export interface RuntimeDaemonClient {
   sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope> | JsonEnvelope;
   validate(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
-  prepare(root: string, task: string, maxBytes?: number, maxItems?: number): Promise<JsonEnvelope> | JsonEnvelope;
+  prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
+  docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
+  readResource(root: string, uri: string): Promise<JsonEnvelope> | JsonEnvelope;
+  practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
+  practiceWaivers(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> | JsonEnvelope;
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
@@ -316,17 +383,75 @@ interface ModelFileSummary {
   digest: string;
 }
 
+interface PersistedPracticeCheckpointBaseline {
+  schemaVersion: "archcontext.practice-checkpoint-baseline/v1";
+  repositoryId: string;
+  taskSessionId: string;
+  snapshot: PracticeCheckpointSnapshotV1;
+  updatedAt: string;
+}
+
+const CONTEXT7_LOCKFILE = ".archcontext/integrations/context7.lock.yaml";
+
+type PreparedTaskContext = Awaited<ReturnType<typeof prepareTask>>["context"];
+
+interface PrepareUnknownsCandidate {
+  packageName: string;
+  libraryId: string;
+  version: string;
+  intent: string;
+}
+
+const CONTEXT7_PREPARE_FRAMEWORKS = [
+  {
+    packageName: "react",
+    libraryId: "/facebook/react",
+    scopePattern: /\b(react|jsx|hook|hooks|usestate|useeffect|component|suspense)\b/i,
+    intentPattern: /\b(hook|hooks|usestate|useeffect|state|component|suspense|jsx)\b/i,
+    intent: "state hooks"
+  },
+  {
+    packageName: "next",
+    libraryId: "/vercel/next.js",
+    scopePattern: /\b(next(?:\.js)?|app router|route handler|middleware|server component)\b/i,
+    intentPattern: /\b(app router|route handler|middleware|server component|routing|cache)\b/i,
+    intent: "app router"
+  },
+  {
+    packageName: "express",
+    libraryId: "/expressjs/express",
+    scopePattern: /\b(express|middleware|route handler)\b/i,
+    intentPattern: /\b(middleware|route|handler|request|response)\b/i,
+    intent: "middleware routing"
+  }
+] as const;
+
+const EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN = /^archcontext:\/\/external-docs\/context7\/(sha256:[0-9a-f]{64})$/;
+
+function parseExternalDocumentationResourceUri(uri: string): {
+  provider: ExternalDocumentationProvider;
+  contentDigest: string;
+} | undefined {
+  const match = EXTERNAL_DOCUMENTATION_RESOURCE_URI_PATTERN.exec(uri);
+  if (!match) return undefined;
+  return { provider: "context7", contentDigest: match[1] };
+}
+
 export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
   private readonly modelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
+  private readonly externalDocumentation: ExternalDocumentationPort;
+  private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
   private readonly sessions = new Map<string, RepositorySession>();
+  private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
+  private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private landscape?: Landscape;
   private explorer?: ExplorerServerSession;
@@ -346,6 +471,12 @@ export class ArchctxDaemon {
     });
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
+    this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
+      enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
+      mode: process.env.ARCHCONTEXT_CONTEXT7_MODE === "prepare-unknowns" ? "prepare-unknowns" : "manual",
+      clock: this.clock
+    });
+    this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
     this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
   }
@@ -361,6 +492,8 @@ export class ArchctxDaemon {
   async stop(): Promise<void> {
     await this.closeExplorer();
     this.sessions.clear();
+    this.checkpointBaselines.clear();
+    this.checkpointCoalesced.clear();
     this.localStore.close();
     this.running = false;
   }
@@ -411,27 +544,17 @@ export class ArchctxDaemon {
   async context(root: string, task: string, maxSymbols = 12): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const codeFacts = await this.codeFacts.ensureReady(session.workspace);
-    const model = await this.modelStore.validateModel(session.workspace);
-    const codeContext = await this.codeFacts.buildTaskContext({ task, maxSymbols, includeSource: false });
-    return okEnvelope("context", {
-      schemaVersion: "archcontext.task-context/v1",
+    const context = await compileTaskContext({
+      workspace: session.workspace,
       task,
-      posture: "normal",
-      architecturePressure: { level: "low", score: 0, signals: [] },
-      refactorConfidence: { level: "high", score: 80, coverage: ["codegraph-ready"] },
-      relevantNodes: [],
-      constraints: [],
-      decisions: [],
-      realConstraints: [],
-      unknowns: [],
-      recommendedTargetState: {},
-      requiredCheckpoints: ["before-task-complete"],
-      resources: [{ type: "codefacts", digest: codeFacts.schemaDigest }, { type: "model", digest: model.modelDigest }, { type: "code-context", digest: codeContext.digest }]
-    } as Json);
+      codeFacts: this.codeFacts,
+      modelStore: this.modelStore,
+      budget: { maxBytes: 12_288, maxItems: maxSymbols }
+    });
+    return okEnvelope("context", context as unknown as Json);
   }
 
-  async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12): Promise<JsonEnvelope> {
+  async prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId = "task_runtime"): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const result = await prepareTask({
@@ -441,7 +564,316 @@ export class ArchctxDaemon {
       modelStore: this.modelStore,
       budget: { maxBytes, maxItems }
     });
-    return okEnvelope("prepare", result as unknown as Json);
+    const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
+    const augmentedResult = context === result.context ? result : { ...result, context };
+    await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, {
+      schemaVersion: "archcontext.practice-checkpoint-snapshot/v1",
+      task,
+      headSha: session.workspace.headSha,
+      worktreeDigest: session.snapshot.worktreeDigest,
+      contextDigest: augmentedResult.context.extensions.digest,
+      practiceGuidanceDigest: augmentedResult.context.extensions.practiceGuidanceDigest,
+      catalogDigest: augmentedResult.context.practiceGuidance.catalogDigest,
+      matches: augmentedResult.context.practiceGuidance.matches
+    });
+    this.clearPracticeCheckpointCoalesced(session.workspace.repositoryId, taskSessionId);
+    return okEnvelope("prepare", augmentedResult as unknown as Json);
+  }
+
+  async checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const started = Date.now();
+    const session = await this.openSession(root);
+    const taskSessionId = input.taskSessionId ?? "task_runtime";
+    const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
+    const task = input.task ?? baseline?.task ?? "checkpoint";
+    const coalesceKey = this.practiceCheckpointCoalesceKey(session, taskSessionId, task, input, baseline);
+    const coalesced = this.checkpointCoalesced.get(coalesceKey);
+    if (coalesced) {
+      coalesced.eventCount += 1;
+      const cached = coalesced.data as Record<string, any>;
+      return okEnvelope("checkpoint", {
+        ...cached,
+        hook: {
+          ...cached.hook,
+          coalesced: true,
+          skippedAnalysis: true,
+          coalescedEventCount: coalesced.eventCount,
+          elapsedMs: Date.now() - started
+        }
+      } as Json);
+    }
+    const result = await checkpointTask({
+      workspace: session.workspace,
+      taskSessionId,
+      task,
+      event: input.event ?? "manual",
+      changedPaths: input.changedPaths ?? [],
+      toolCallId: input.toolCallId,
+      expectedHeadSha: input.expectedHeadSha,
+      expectedWorktreeDigest: input.expectedWorktreeDigest,
+      previous: baseline,
+      codeFacts: this.codeFacts,
+      modelStore: this.modelStore,
+      budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
+    });
+    await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
+    const data = {
+      ...result,
+      hook: {
+        ...result.hook,
+        coalesced: false,
+        skippedAnalysis: false,
+        coalescedEventCount: 1,
+        coalesceKey,
+        elapsedMs: Date.now() - started
+      }
+    } as unknown as Json;
+    this.checkpointCoalesced.set(coalesceKey, {
+      repositoryId: session.workspace.repositoryId,
+      taskSessionId,
+      data,
+      eventCount: 1
+    });
+    this.pruneCheckpointCoalesced();
+    return okEnvelope("checkpoint", data);
+  }
+
+  practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
+    this.assertRunning();
+    return practiceCatalogEnvelope(root, input);
+  }
+
+  practiceWaivers(root: string): JsonEnvelope {
+    this.assertRunning();
+    try {
+      const ownerRegistry = loadPracticeWaiverOwnerRegistry(root);
+      const waivers = loadPracticeWaivers(root);
+      return okEnvelope("practices.waivers", {
+        schemaVersion: "archcontext.practice-waiver-list/v1",
+        ownerRegistry,
+        count: waivers.length,
+        waivers: waivers.map((waiver) => ({
+          ...waiver,
+          waiverDigest: digestJson(waiver as unknown as Json)
+        }))
+      } as unknown as Json);
+    } catch (error) {
+      return errorEnvelope("practices.waivers", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const session = await this.openSession(root);
+    const model = await this.modelStore.validateModel(session.workspace);
+    let ownerRegistry: ReturnType<typeof loadPracticeWaiverOwnerRegistry>;
+    try {
+      ownerRegistry = loadPracticeWaiverOwnerRegistry(session.workspace.root);
+    } catch (error) {
+      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    const waiver: PracticeWaiverV1 = {
+      schemaVersion: "archcontext.practice-waiver/v1",
+      practiceId: input.practiceId,
+      ...(input.checkId === undefined ? {} : { checkId: input.checkId }),
+      scope: {
+        ...(input.pathGlobs && input.pathGlobs.length > 0 ? { pathGlobs: input.pathGlobs } : {}),
+        ...(input.subjects && input.subjects.length > 0 ? { subjects: input.subjects } : {})
+      },
+      owner: input.owner,
+      reason: input.reason,
+      createdAt: input.createdAt ?? this.clock(),
+      expiresAt: input.expiresAt,
+      evidenceDigest: input.evidenceDigest
+    };
+    let waiverId: string;
+    try {
+      validatePracticeWaiver(waiver, "practice waiver input", { allowedOwners: ownerRegistry.owners });
+      waiverId = safePracticeWaiverId(input.waiverId, waiver);
+    } catch (error) {
+      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    const path = `.archcontext/waivers/${waiverId}.json`;
+    const absolute = resolve(session.workspace.root, path);
+    const body = `${JSON.stringify(waiver, null, 2)}\n`;
+    const expectedHash = existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") }) : "missing";
+    const draft = this.changeSetEngine.plan({
+      id: input.id ?? `changeset.practice-waiver-${waiverId.replace(/[^A-Za-z0-9_-]/g, "-")}`,
+      base: {
+        headSha: session.workspace.headSha,
+        worktreeDigest: session.snapshot.worktreeDigest,
+        modelDigest: model.modelDigest
+      },
+      reason: { taskSessionId: input.taskSessionId ?? "task_runtime" },
+      operations: [{ op: "write_waiver", path, expectedHash, body }]
+    });
+    this.changesets.set(draft.id, draft);
+    return okEnvelope("practices.waive", {
+      schemaVersion: "archcontext.practice-waiver-plan/v1",
+      waiver,
+      waiverDigest: digestJson(waiver as unknown as Json),
+      ownerRegistry,
+      path,
+      draft,
+      preview: this.changeSetEngine.preview(session.workspace.root, draft)
+    } as unknown as Json);
+  }
+
+  async docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const provider = input.provider ?? "context7";
+    if (provider !== "context7") return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs provider must be context7");
+    const session = await this.openSession(root);
+    try {
+      if (input.command === "status") {
+        const lock = readContext7Lockfile(session.workspace.root);
+        const cached = await this.localStore.listExternalDocumentation("context7");
+        return okEnvelope("docs.status", {
+          schemaVersion: "archcontext.external-docs-status/v1",
+          provider: "context7",
+          health: await this.externalDocumentation.health(),
+          lock,
+          cacheEntries: cached.map((entry) => ({
+            provider: entry.provider,
+            libraryId: entry.libraryId,
+            version: entry.version,
+            queryDigest: entry.queryDigest,
+            contentDigest: entry.contentDigest,
+            retrievedAt: entry.retrievedAt,
+            expiresAt: entry.expiresAt,
+            stale: Date.parse(entry.expiresAt) <= Date.parse(this.clock())
+          })),
+          defaultPrepareEgress: "none"
+        } as unknown as Json);
+      }
+      if (input.command === "pin") {
+        if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
+        assertContext7LibraryId(input.libraryId);
+        assertContext7Version(input.version);
+        const lock = upsertContext7Pin(readContext7Lockfile(session.workspace.root), {
+          libraryId: input.libraryId,
+          version: input.version,
+          pinnedAt: this.clock(),
+          source: "manual"
+        });
+        if (!input.approved) {
+          return okEnvelope("docs.pin", {
+            schemaVersion: "archcontext.context7-pin-preview/v1",
+            approved: false,
+            path: CONTEXT7_LOCKFILE,
+            lock
+          } as unknown as Json);
+        }
+        writeContext7Lockfile(session.workspace.root, lock);
+        return okEnvelope("docs.pin", {
+          schemaVersion: "archcontext.context7-pin/v1",
+          approved: true,
+          path: CONTEXT7_LOCKFILE,
+          lock
+        } as unknown as Json);
+      }
+      if (input.command === "resolve") {
+        if (!input.allowNetwork) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --allow-network");
+        if (!input.libraryName || !input.query) return errorEnvelope("docs.resolve", "AC_SCHEMA_INVALID", "docs resolve requires --library and --query");
+        return okEnvelope("docs.resolve", await this.manualExternalDocumentation().resolve({
+          provider: "context7",
+          libraryName: input.libraryName,
+          query: input.query,
+          fast: true
+        }) as unknown as Json);
+      }
+      if (input.command === "fetch") {
+        if (!input.allowNetwork) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --allow-network");
+        if (!input.libraryId || !input.intent) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires --library-id and --intent");
+        assertContext7LibraryId(input.libraryId);
+        const lock = readContext7Lockfile(session.workspace.root);
+        const pinned = lock.libraries.find((library) => library.libraryId === input.libraryId);
+        if (!pinned) return errorEnvelope("docs.fetch", "AC_SCHEMA_INVALID", "docs fetch requires a pinned library in .archcontext/integrations/context7.lock.yaml");
+        const query = buildContext7Query({ intent: input.intent, query: input.query });
+        const queryDigest = digestJson({ provider: "context7", libraryId: input.libraryId, version: pinned.version, query });
+        const cached = await this.localStore.readExternalDocumentation({
+          provider: "context7",
+          libraryId: input.libraryId,
+          version: pinned.version,
+          queryDigest
+        });
+        if (cached && !input.forceRefresh && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
+          return okEnvelope("docs.fetch", {
+            schemaVersion: "archcontext.external-docs-fetch/v1",
+            provider: "context7",
+            cacheStatus: "fresh",
+            resource: { ...cached.resource, cacheStatus: "fresh" },
+            request: { libraryId: input.libraryId, version: pinned.version, queryDigest, intent: input.intent }
+          } as unknown as Json);
+        }
+        const result = await this.manualExternalDocumentation().fetch({
+          provider: "context7",
+          libraryId: input.libraryId,
+          version: pinned.version,
+          intent: input.intent,
+          ...(input.query ? { query: input.query } : {}),
+          forceRefresh: input.forceRefresh
+        } satisfies ExternalDocumentationFetchInput);
+        const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
+        await this.localStore.saveExternalDocumentation({
+          provider: "context7",
+          libraryId: input.libraryId,
+          version: pinned.version,
+          queryDigest,
+          contentDigest: resource.contentDigest,
+          resource,
+          retrievedAt: resource.retrievedAt,
+          expiresAt: resource.expiresAt
+        } satisfies ExternalDocumentationCacheEntry);
+        return okEnvelope("docs.fetch", {
+          ...result,
+          cacheStatus: "miss",
+          request: { ...result.request, queryDigest },
+          resource
+        } as unknown as Json);
+      }
+      if (input.command === "purge") {
+        const purged = await this.localStore.purgeExternalDocumentation({
+          provider: "context7",
+          ...(input.libraryId ? { libraryId: input.libraryId } : {}),
+          all: input.all
+        });
+        return okEnvelope("docs.purge", {
+          schemaVersion: "archcontext.external-docs-purge/v1",
+          purged
+        } as unknown as Json);
+      }
+      return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+    } catch (error) {
+      return errorEnvelope(`docs.${input.command}`, "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async readResource(root: string, uri: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.openSession(root);
+    const parsed = parseExternalDocumentationResourceUri(uri);
+    if (!parsed) {
+      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "unsupported resource URI");
+    }
+    const cached = await this.localStore.readExternalDocumentationByContentDigest(parsed);
+    if (!cached) {
+      return errorEnvelope("resource.read", "AC_SCHEMA_INVALID", "external documentation resource is not present in the local daemon cache");
+    }
+    const cacheStatus = Date.parse(cached.expiresAt) > Date.parse(this.clock()) ? "fresh" : "stale";
+    const resource: ExternalDocumentationResourceV1 = {
+      ...cached.resource,
+      uri,
+      cacheStatus
+    };
+    const result: RuntimeResourceReadResult = {
+      schemaVersion: "archcontext.resource-read/v1",
+      uri,
+      dataClassification: "external-unverified-documentation",
+      resource
+    };
+    return okEnvelope("resource.read", result as unknown as Json);
   }
 
   async planUpdate(root: string, input: {
@@ -481,8 +913,30 @@ export class ArchctxDaemon {
     }
     const model = await this.modelStore.validateModel(session.workspace);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
+    const taskSessionId = input.taskSessionId ?? "task_runtime";
+    const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
+    const practicePolicy = loadPracticeEnforcementPolicy(session.workspace.root);
+    const practiceEnforcement = practicePolicy.mode === "active"
+      ? evaluatePracticeEnforcement({
+        catalog: loadPracticeCatalog({ root: session.workspace.root }),
+        policy: practicePolicy,
+        waivers: loadPracticeWaivers(session.workspace.root),
+        matches: (await compileTaskContext({
+          workspace: session.workspace,
+          task: input.task ?? baseline?.task ?? taskSessionId,
+          codeFacts: this.codeFacts,
+          modelStore: this.modelStore,
+          budget: { maxBytes: 12_288, maxItems: 12 }
+        })).practiceGuidance.matches,
+        previousMatches: baseline?.matches,
+        compatibilityContract: input.compatibilityContract,
+        compatibilityPathIntroduced: input.compatibilityPathIntroduced,
+        ownerRegistry: loadPracticeWaiverOwnerRegistry(session.workspace.root),
+        now: this.clock()
+      })
+      : undefined;
     const reviewInput: CompleteTaskInput = {
-      taskSessionId: input.taskSessionId ?? "task_runtime",
+      taskSessionId,
       posture: input.posture ?? "normal",
       headSha: input.headSha ?? currentHeadSha!,
       currentHeadSha: currentHeadSha!,
@@ -492,11 +946,83 @@ export class ArchctxDaemon {
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
       ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
-      ...(input.cleanupCompleted === undefined ? {} : { cleanupCompleted: input.cleanupCompleted })
+      ...(input.cleanupCompleted === undefined ? {} : { cleanupCompleted: input.cleanupCompleted }),
+      ...(practiceEnforcement === undefined ? {} : { practiceEnforcement })
     };
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
+  }
+
+  private manualExternalDocumentation(): ExternalDocumentationPort {
+    if (this.externalDocumentationInjected) return this.externalDocumentation;
+    return new Context7ExternalDocumentationAdapter({
+      enabled: true,
+      mode: "manual",
+      clock: this.clock
+    });
+  }
+
+  private async augmentPrepareContextWithExternalDocs(
+    session: RepositorySession,
+    task: string,
+    context: PreparedTaskContext,
+    maxBytes: number
+  ): Promise<PreparedTaskContext> {
+    let health;
+    try {
+      health = await this.externalDocumentation.health();
+    } catch {
+      return context;
+    }
+    if (health.provider !== "context7" || !health.enabled || health.mode !== "prepare-unknowns") return context;
+    const lock = readContext7Lockfile(session.workspace.root);
+    const candidate = resolvePrepareUnknownsCandidate(session.workspace.root, task, context, lock);
+    if (!candidate) return context;
+    const resource = await this.readOrFetchPrepareExternalDocumentation(candidate);
+    if (!resource) return context;
+    return appendExternalDocumentationToContext(context, resource, candidate, maxBytes);
+  }
+
+  private async readOrFetchPrepareExternalDocumentation(candidate: PrepareUnknownsCandidate): Promise<ExternalDocumentationResourceV1 | undefined> {
+    const query = buildContext7Query({ intent: candidate.intent });
+    const queryDigest = digestJson({
+      provider: "context7",
+      libraryId: candidate.libraryId,
+      version: candidate.version,
+      query
+    });
+    const cached = await this.localStore.readExternalDocumentation({
+      provider: "context7",
+      libraryId: candidate.libraryId,
+      version: candidate.version,
+      queryDigest
+    });
+    if (cached && Date.parse(cached.expiresAt) > Date.parse(this.clock())) {
+      return { ...cached.resource, queryDigest, cacheStatus: "fresh" };
+    }
+    try {
+      const result = await this.externalDocumentation.fetch({
+        provider: "context7",
+        libraryId: candidate.libraryId,
+        version: candidate.version,
+        intent: candidate.intent
+      });
+      const resource = { ...result.resource, queryDigest, cacheStatus: "fresh" as const };
+      await this.localStore.saveExternalDocumentation({
+        provider: "context7",
+        libraryId: candidate.libraryId,
+        version: candidate.version,
+        queryDigest,
+        contentDigest: resource.contentDigest,
+        resource,
+        retrievedAt: resource.retrievedAt,
+        expiresAt: resource.expiresAt
+      });
+      return resource;
+    } catch {
+      return cached ? { ...cached.resource, queryDigest, cacheStatus: "stale" } : undefined;
+    }
   }
 
   async applyUpdate(root: string, input: {
@@ -567,7 +1093,7 @@ export class ArchctxDaemon {
       }
     };
     if (existsSync(paths.lockPath) || existsSync(paths.manifestPath)) {
-      rmSync(paths.runRoot, { recursive: true, force: true });
+      removePathWithRetry(paths.runRoot);
       throw new Error(`developer-review-run-already-active: ${input.challenge.challengeId}`);
     }
     let lockAcquired = false;
@@ -602,7 +1128,7 @@ export class ArchctxDaemon {
       if (lockAcquired) {
         this.cleanupDeveloperReviewRun(preparing);
       } else {
-        rmSync(paths.runRoot, { recursive: true, force: true });
+        removePathWithRetry(paths.runRoot);
       }
       throw error;
     }
@@ -645,7 +1171,7 @@ export class ArchctxDaemon {
     ] as const) {
       try {
         const existed = existsSync(path);
-        rmSync(path, { recursive: true, force: true });
+        removePathWithRetry(path);
         if (existed) removed.push(kind);
       } catch (error) {
         errors.push(cleanupErrorMessage(kind, error));
@@ -1112,6 +1638,69 @@ export class ArchctxDaemon {
     }
   }
 
+  private async savePracticeCheckpointBaseline(repositoryId: string, taskSessionId: string, snapshot: PracticeCheckpointSnapshotV1): Promise<void> {
+    this.checkpointBaselines.set(this.practiceCheckpointKey(repositoryId, taskSessionId), snapshot);
+    await this.localStore.saveTaskState(this.practiceCheckpointStateKey(repositoryId, taskSessionId), {
+      schemaVersion: "archcontext.practice-checkpoint-baseline/v1",
+      repositoryId,
+      taskSessionId,
+      snapshot,
+      updatedAt: this.clock()
+    } satisfies PersistedPracticeCheckpointBaseline);
+  }
+
+  private async readPracticeCheckpointBaseline(repositoryId: string, taskSessionId: string): Promise<PracticeCheckpointSnapshotV1 | undefined> {
+    const key = this.practiceCheckpointKey(repositoryId, taskSessionId);
+    const memory = this.checkpointBaselines.get(key);
+    if (memory) return memory;
+    const state = await this.localStore.readTaskState(this.practiceCheckpointStateKey(repositoryId, taskSessionId));
+    const persisted = parsePracticeCheckpointBaselineState(state, repositoryId, taskSessionId);
+    if (!persisted) return undefined;
+    this.checkpointBaselines.set(key, persisted.snapshot);
+    return persisted.snapshot;
+  }
+
+  private practiceCheckpointKey(repositoryId: string, taskSessionId: string): string {
+    return `${repositoryId}:${taskSessionId}`;
+  }
+
+  private practiceCheckpointStateKey(repositoryId: string, taskSessionId: string): string {
+    return `practice-checkpoint:${repositoryId}:${taskSessionId}`;
+  }
+
+  private practiceCheckpointCoalesceKey(session: RepositorySession, taskSessionId: string, task: string, input: RuntimeCheckpointInput, baseline?: PracticeCheckpointSnapshotV1): string {
+    return digestJson({
+      repositoryId: session.workspace.repositoryId,
+      headSha: session.workspace.headSha,
+      worktreeDigest: session.snapshot.worktreeDigest,
+      taskSessionId,
+      task,
+      previousContextDigest: baseline?.contextDigest,
+      previousPracticeGuidanceDigest: baseline?.practiceGuidanceDigest,
+      event: input.event ?? "manual",
+      changedPaths: normalizeCheckpointPaths(input.changedPaths ?? []),
+      toolCallId: input.toolCallId,
+      expectedHeadSha: input.expectedHeadSha,
+      expectedWorktreeDigest: input.expectedWorktreeDigest,
+      maxBytes: input.maxBytes ?? 12_288,
+      maxItems: input.maxItems ?? 12
+    } as Json);
+  }
+
+  private clearPracticeCheckpointCoalesced(repositoryId: string, taskSessionId: string): void {
+    for (const [key, entry] of this.checkpointCoalesced) {
+      if (entry.repositoryId === repositoryId && entry.taskSessionId === taskSessionId) this.checkpointCoalesced.delete(key);
+    }
+  }
+
+  private pruneCheckpointCoalesced(): void {
+    while (this.checkpointCoalesced.size > 128) {
+      const oldest = this.checkpointCoalesced.keys().next().value;
+      if (oldest === undefined) return;
+      this.checkpointCoalesced.delete(oldest);
+    }
+  }
+
   private assertRunning(): void {
     if (!this.running) throw new Error("archctxd is not running");
   }
@@ -1290,8 +1879,32 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("context", [root, task, maxSymbols]);
   }
 
-  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12) {
-    return this.call("prepare", [root, task, maxBytes, maxItems]);
+  prepare(root: string, task: string, maxBytes = 12_288, maxItems = 12, taskSessionId?: string) {
+    return this.call("prepare", [root, task, maxBytes, maxItems, taskSessionId]);
+  }
+
+  checkpoint(root: string, input: RuntimeCheckpointInput) {
+    return this.call("checkpoint", [root, input]);
+  }
+
+  docs(root: string, input: RuntimeDocsInput) {
+    return this.call("docs", [root, input]);
+  }
+
+  readResource(root: string, uri: string) {
+    return this.call("readResource", [root, uri]);
+  }
+
+  practices(root: string, input: PracticeCatalogCommandInput) {
+    return this.call("practices", [root, input]);
+  }
+
+  practiceWaivers(root: string) {
+    return this.call("practiceWaivers", [root]);
+  }
+
+  planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput) {
+    return this.call("planPracticeWaiver", [root, input]);
   }
 
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }) {
@@ -1528,7 +2141,19 @@ export class ArchctxRuntimeRpcServer {
       case "context":
         return this.daemon.context(params[0] as string, params[1] as string, params[2] as number | undefined);
       case "prepare":
-        return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined);
+        return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined, params[4] as string | undefined);
+      case "checkpoint":
+        return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
+      case "docs":
+        return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
+      case "readResource":
+        return this.daemon.readResource(params[0] as string, params[1] as string);
+      case "practices":
+        return this.daemon.practices(params[0] as string, params[1] as PracticeCatalogCommandInput);
+      case "practiceWaivers":
+        return this.daemon.practiceWaivers(params[0] as string);
+      case "planPracticeWaiver":
+        return this.daemon.planPracticeWaiver(params[0] as string, params[1] as RuntimePracticeWaiverInput);
       case "planUpdate":
         return this.daemon.planUpdate(params[0] as string, params[1] as any);
       case "completeTask":
@@ -1808,6 +2433,246 @@ function safeControlFileSegment(value: string): string {
   return sanitized.length > 0 ? sanitized : "developer-review";
 }
 
+function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiverV1): string {
+  const explicitTrimmed = explicit?.trim();
+  if (explicitTrimmed && (explicitTrimmed === "." || explicitTrimmed === ".." || explicitTrimmed.includes("/") || explicitTrimmed.includes("\\"))) {
+    throw new Error("practice-waiver-id-invalid");
+  }
+  const evidencePrefix = waiver.evidenceDigest.startsWith("sha256:")
+    ? waiver.evidenceDigest.slice("sha256:".length, "sha256:".length + 12)
+    : waiver.evidenceDigest.slice(0, 12);
+  const candidate = (explicitTrimmed || [waiver.practiceId.replace(/\./g, "-"), waiver.checkId ?? "all", evidencePrefix].join("-"))
+    .replace(/[^A-Za-z0-9_.-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+  if (!candidate || candidate === "." || candidate === ".." || candidate.includes("/") || candidate.includes("\\")) {
+    throw new Error("practice-waiver-id-invalid");
+  }
+  return candidate;
+}
+
+function resolvePrepareUnknownsCandidate(root: string, task: string, context: PreparedTaskContext, lock: Context7LockfileV1): PrepareUnknownsCandidate | undefined {
+  if (!prepareContextHasVersionRelatedUnknown(context)) return undefined;
+  for (const framework of CONTEXT7_PREPARE_FRAMEWORKS) {
+    if (!framework.scopePattern.test(task) || !framework.intentPattern.test(task)) continue;
+    const pinned = lock.libraries.find((library) => library.libraryId === framework.libraryId);
+    if (!pinned) continue;
+    const exactVersion = readExactPackageVersion(root, framework.packageName);
+    if (!exactVersion || exactVersion !== pinned.version) continue;
+    return {
+      packageName: framework.packageName,
+      libraryId: framework.libraryId,
+      version: exactVersion,
+      intent: framework.intent
+    };
+  }
+  return undefined;
+}
+
+function appendExternalDocumentationToContext(
+  context: PreparedTaskContext,
+  resource: ExternalDocumentationResourceV1,
+  candidate: PrepareUnknownsCandidate,
+  maxBytes: number
+): PreparedTaskContext {
+  const externalResource = {
+    type: "external-docs",
+    provider: resource.provider,
+    uri: resource.uri,
+    digest: resource.contentDigest,
+    libraryId: candidate.libraryId,
+    packageName: candidate.packageName,
+    version: candidate.version,
+    queryDigest: resource.queryDigest,
+    trust: resource.trust,
+    enforcement: resource.enforcement,
+    cacheStatus: resource.cacheStatus,
+    retrievedAt: resource.retrievedAt,
+    expiresAt: resource.expiresAt
+  } as Record<string, Json>;
+  const resources = context.resources.some((entry) => entry.uri === resource.uri)
+    ? context.resources
+    : [...context.resources, externalResource as any];
+  const unknown = `External documentation is advisory and untrusted for ${candidate.packageName}@${candidate.version}: ${candidate.intent}`;
+  const unknowns = context.unknowns.includes(unknown) ? context.unknowns : [...context.unknowns, unknown];
+  const extensionWithoutDigest = { ...context.extensions };
+  delete (extensionWithoutDigest as { digest?: string }).digest;
+  const withoutDigest = {
+    ...context,
+    unknowns,
+    resources,
+    recommendedTargetState: {
+      ...context.recommendedTargetState,
+      externalDocumentation: {
+        provider: resource.provider,
+        libraryId: candidate.libraryId,
+        packageName: candidate.packageName,
+        version: candidate.version,
+        intent: candidate.intent,
+        resourceUri: resource.uri,
+        contentDigest: resource.contentDigest,
+        trust: resource.trust,
+        enforcement: resource.enforcement
+      }
+    },
+    extensions: {
+      ...extensionWithoutDigest,
+      externalDocumentationDigest: digestJson({
+        provider: resource.provider,
+        libraryId: candidate.libraryId,
+        version: candidate.version,
+        queryDigest: resource.queryDigest,
+        contentDigest: resource.contentDigest,
+        cacheStatus: resource.cacheStatus
+      } as unknown as Json)
+    }
+  };
+  const byteLength = Buffer.byteLength(JSON.stringify(withoutDigest), "utf8");
+  const withMetadata = {
+    ...withoutDigest,
+    extensions: {
+      ...withoutDigest.extensions,
+      byteLength,
+      budgetExceeded: byteLength > maxBytes
+    }
+  };
+  return {
+    ...withMetadata,
+    extensions: {
+      ...withMetadata.extensions,
+      digest: digestJson(withMetadata as unknown as Json)
+    }
+  };
+}
+
+function prepareContextHasVersionRelatedUnknown(context: PreparedTaskContext): boolean {
+  const unknowns = context.unknowns.join(" ").toLowerCase();
+  if (/\b(version|dependency|dependencies|package|lockfile|runtime dependency|pinned)\b/.test(unknowns)) return true;
+  return context.architecturePressure.signals.includes("unpinned-runtime-dependency");
+}
+
+function readExactPackageVersion(root: string, packageName: string): string | undefined {
+  const lockVersion = readPackageLockExactVersion(root, packageName);
+  if (lockVersion) return lockVersion;
+  for (const manifestPath of packageManifestPaths(root)) {
+    const manifest = readJsonFile(manifestPath);
+    const version = exactVersionFromManifest(manifest, packageName);
+    if (version) return version;
+  }
+  return undefined;
+}
+
+function readPackageLockExactVersion(root: string, packageName: string): string | undefined {
+  const lock = readJsonFile(resolve(root, "package-lock.json"));
+  if (!lock || typeof lock !== "object" || Array.isArray(lock)) return undefined;
+  const packages = (lock as { packages?: Record<string, unknown> }).packages;
+  if (packages && typeof packages === "object") {
+    const entry = packages[`node_modules/${packageName}`] as { version?: unknown } | undefined;
+    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
+  }
+  const dependencies = (lock as { dependencies?: Record<string, unknown> }).dependencies;
+  if (dependencies && typeof dependencies === "object") {
+    const entry = dependencies[packageName] as { version?: unknown } | undefined;
+    if (typeof entry?.version === "string" && isExactPackageVersion(entry.version)) return entry.version;
+  }
+  return undefined;
+}
+
+function packageManifestPaths(root: string): string[] {
+  const paths = [resolve(root, "package.json")];
+  const rootManifest = readJsonFile(paths[0]);
+  for (const pattern of workspacePatternsFromManifest(rootManifest)) {
+    for (const path of expandWorkspacePackageJson(root, pattern)) paths.push(path);
+  }
+  return [...new Set(paths)];
+}
+
+function workspacePatternsFromManifest(manifest: unknown): string[] {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return [];
+  const workspaces = (manifest as { workspaces?: unknown }).workspaces;
+  if (Array.isArray(workspaces)) return workspaces.filter((item): item is string => typeof item === "string");
+  if (workspaces && typeof workspaces === "object" && Array.isArray((workspaces as { packages?: unknown }).packages)) {
+    return (workspaces as { packages: unknown[] }).packages.filter((item): item is string => typeof item === "string");
+  }
+  return [];
+}
+
+function expandWorkspacePackageJson(root: string, pattern: string): string[] {
+  if (pattern.includes("**") || pattern.startsWith("/") || pattern.includes("\\")) return [];
+  if (!pattern.includes("*")) {
+    const path = resolve(root, pattern, "package.json");
+    return existsSync(path) ? [path] : [];
+  }
+  if (!pattern.endsWith("/*")) return [];
+  const base = resolve(root, pattern.slice(0, -2));
+  if (!existsSync(base) || !statSync(base).isDirectory()) return [];
+  return readdirSync(base, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => resolve(base, entry.name, "package.json"))
+    .filter((path) => existsSync(path));
+}
+
+function exactVersionFromManifest(manifest: unknown, packageName: string): string | undefined {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) return undefined;
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"] as const) {
+    const dependencies = (manifest as Record<string, unknown>)[field];
+    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) continue;
+    const value = (dependencies as Record<string, unknown>)[packageName];
+    if (typeof value === "string" && isExactPackageVersion(value)) return value;
+  }
+  return undefined;
+}
+
+function readJsonFile(path: string): unknown {
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function isExactPackageVersion(value: string): boolean {
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(value);
+}
+
+function readContext7Lockfile(root: string): Context7LockfileV1 {
+  const path = resolve(root, CONTEXT7_LOCKFILE);
+  if (!existsSync(path)) {
+    return {
+      schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
+      provider: "context7",
+      libraries: []
+    };
+  }
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as Context7LockfileV1;
+  if (parsed.schemaVersion !== CONTEXT7_LOCKFILE_SCHEMA_VERSION || parsed.provider !== "context7" || !Array.isArray(parsed.libraries)) {
+    throw new Error("Invalid Context7 lockfile");
+  }
+  for (const library of parsed.libraries) {
+    assertContext7LibraryId(library.libraryId);
+    assertContext7Version(library.version);
+  }
+  return {
+    ...parsed,
+    libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+  };
+}
+
+function upsertContext7Pin(lock: Context7LockfileV1, pin: Context7LibraryPinV1): Context7LockfileV1 {
+  return {
+    schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
+    provider: "context7",
+    libraries: [...lock.libraries.filter((library) => library.libraryId !== pin.libraryId), pin]
+      .sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+  };
+}
+
+function writeContext7Lockfile(root: string, lock: Context7LockfileV1): void {
+  writePrivateJson(resolve(root, CONTEXT7_LOCKFILE), lock);
+}
+
 function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {
   writePrivateJson(manifest.manifestPath, manifest);
 }
@@ -1887,7 +2752,8 @@ function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMod
       codeGraphProviderFactory: deps.codeGraphProviderFactory ? "injected" : "codegraph-cli",
       modelStore: deps.modelStore ? "injected" : "yaml",
       localStore: deps.localStore ? "injected" : "sqlite",
-      changeSetEngine: deps.changeSetEngine ? "injected" : "default"
+      changeSetEngine: deps.changeSetEngine ? "injected" : "default",
+      externalDocumentation: deps.externalDocumentation ? "injected" : "context7"
     },
     localStorePath: deps.localStorePath,
     blockedProductionInjections: blocked
@@ -1901,6 +2767,7 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
     "modelStore",
     "localStore",
     "changeSetEngine",
+    "externalDocumentation",
     "clock"
   ].filter((key) => key in deps);
 }
@@ -1974,6 +2841,38 @@ function isProcessAlive(pid: number): boolean {
 
 function isLoopbackRemote(remoteAddress = ""): boolean {
   return ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remoteAddress);
+}
+
+function normalizeCheckpointPaths(paths: string[]): string[] {
+  return [...new Set(paths
+    .map((path) => path.trim().replaceAll("\\", "/"))
+    .filter((path) => path.length > 0 && !path.startsWith("/") && !path.includes(".."))
+  )].sort();
+}
+
+function parsePracticeCheckpointBaselineState(
+  state: unknown,
+  repositoryId: string,
+  taskSessionId: string
+): PersistedPracticeCheckpointBaseline | undefined {
+  if (!state || typeof state !== "object") return undefined;
+  const record = state as Partial<PersistedPracticeCheckpointBaseline>;
+  if (record.schemaVersion !== "archcontext.practice-checkpoint-baseline/v1") return undefined;
+  if (record.repositoryId !== repositoryId || record.taskSessionId !== taskSessionId) return undefined;
+  const snapshot = record.snapshot as Partial<PracticeCheckpointSnapshotV1> | undefined;
+  if (!snapshot || snapshot.schemaVersion !== "archcontext.practice-checkpoint-snapshot/v1") return undefined;
+  if (
+    typeof snapshot.task !== "string" ||
+    typeof snapshot.headSha !== "string" ||
+    typeof snapshot.worktreeDigest !== "string" ||
+    typeof snapshot.contextDigest !== "string" ||
+    typeof snapshot.practiceGuidanceDigest !== "string" ||
+    typeof snapshot.catalogDigest !== "string" ||
+    !Array.isArray(snapshot.matches)
+  ) {
+    return undefined;
+  }
+  return record as PersistedPracticeCheckpointBaseline;
 }
 
 function requestRpcVersionHeader(request: IncomingMessage): string | undefined {

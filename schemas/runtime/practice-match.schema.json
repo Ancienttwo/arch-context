@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/practice-match.schema.json",
+  "title": "PracticeMatch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "practiceId", "assetRevision", "assetDigest", "title", "category", "score", "confidence", "enforcement", "matchedBy", "evidence", "explanation", "sourceTrust"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-match/v1" },
+    "practiceId": { "type": "string" },
+    "assetRevision": { "type": "integer", "minimum": 1 },
+    "assetDigest": { "type": "string", "pattern": "^sha256:" },
+    "title": { "type": "string" },
+    "category": { "type": "string" },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "enforcement": { "type": "string", "enum": ["advisory", "checkpoint", "complete"] },
+    "matchedBy": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["retrieval", "scope", "signal", "predicate", "repo-policy"] }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "strength", "subject"],
+        "properties": {
+          "kind": { "type": "string" },
+          "strength": { "type": "string", "enum": ["heuristic", "declared", "observed", "verified"] },
+          "subject": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:" },
+          "observedAt": { "type": "string" }
+        }
+      }
+    },
+    "explanation": { "type": "array", "items": { "type": "string" } },
+    "sourceTrust": { "type": "string", "enum": ["repo-authored", "curated-static", "external-dynamic"] },
+    "suppressedReason": { "type": "string" }
+  }
+}

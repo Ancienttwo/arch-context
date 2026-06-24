@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "security.least-privilege",
+  "revision": 1,
+  "status": "active",
+  "title": "New credentials and integration scopes must be least-privilege",
+  "summary": "When a change adds credentials, tokens, cloud permissions, or integration scopes, the allowed operations must be narrower than the integration's full capability set.",
+  "category": "security",
+  "tags": ["security", "permissions", "credentials"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["src/**", "packages/**", "deploy/**", ".github/**"],
+    "nodeKinds": ["service", "resource", "policy"],
+    "negativePathGlobs": ["test/**", "docs/**"]
+  },
+  "triggers": {
+    "candidateTerms": ["token", "credential", "permission", "scope", "secret", "key"],
+    "pressureSignals": ["broad-permission-scope"],
+    "structuralPredicates": ["new-credential-scope-observed", "permission-expanded"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "heuristic",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff", "path"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["What operation does this credential need?", "Which permissions are explicitly forbidden?", "Where is rotation or revocation handled?"],
+    "preferred": ["Use named, narrow scopes.", "Keep secret material out of repository and logs."],
+    "avoid": ["Granting broad platform permissions for one API call.", "Persisting secret values in architecture or verification artifacts."]
+  },
+  "checks": [
+    {
+      "checkId": "least-privilege-required",
+      "mode": "deterministic",
+      "parameters": {
+        "forNewCredentialScopes": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "complete",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.adr.0036"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

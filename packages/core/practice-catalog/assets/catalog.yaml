@@ -1,0 +1,393 @@
+{
+  "schemaVersion": "archcontext.practice-catalog-manifest/v1",
+  "catalogVersion": "2026.06.0",
+  "productVersion": "0.1.3",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "entries": [
+    {
+      "id": "api.backward-compatible-error-shape",
+      "revision": 1,
+      "digest": "sha256:6c8449b8ed749dd799a0b18c7c18e5bd7419ee023ceb39220a4a5d14497620bc",
+      "sourceIds": [
+        "archcontext.adr.0010",
+        "twelve-factor"
+      ]
+    },
+    {
+      "id": "api.contract-before-implementation",
+      "revision": 1,
+      "digest": "sha256:a5037b6bee0bde83d7493185dd4cc42e5d935b7b4fae4c1357ab4a9550d1d935",
+      "sourceIds": [
+        "archcontext.adr.0012"
+      ]
+    },
+    {
+      "id": "api.idempotency-contract",
+      "revision": 1,
+      "digest": "sha256:f0227e27220720c3def141cb7ec0a52279e88a231ec16d6907831718f129b609",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "twelve-factor"
+      ]
+    },
+    {
+      "id": "api.schema-version-contract",
+      "revision": 1,
+      "digest": "sha256:558ffdcbe6bda5bbdeec983b94ee01228a5bb155d20c7e70a8bef3e658521930",
+      "sourceIds": [
+        "archcontext.adr.0012",
+        "structurizr.dsl"
+      ]
+    },
+    {
+      "id": "compatibility.deprecation-window",
+      "revision": 1,
+      "digest": "sha256:040265971f79b54d451146fab43f3a46373b17ef6f9a947753b64b4b9531a8f1",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "archcontext.adr.0010"
+      ]
+    },
+    {
+      "id": "compatibility.expiry-contract",
+      "revision": 1,
+      "digest": "sha256:3db0c50ccfaff92219ecb2830e03915f4e69d63fd797a27afaf87977080d8aba",
+      "sourceIds": [
+        "archcontext.adr.0010"
+      ]
+    },
+    {
+      "id": "compatibility.rollback-entrypoint",
+      "revision": 1,
+      "digest": "sha256:40bccd9b8691221ba3dfc443dcdf41181f4ffd31162460054c01cfa85df8d363",
+      "sourceIds": [
+        "azure.architecture",
+        "twelve-factor"
+      ]
+    },
+    {
+      "id": "compatibility.single-owner",
+      "revision": 1,
+      "digest": "sha256:52c1f1ed2128f56e0a3e4f07303efa34bda507da54bd0e7914d7cf17f6f27843",
+      "sourceIds": [
+        "archcontext.adr.0010",
+        "madr"
+      ]
+    },
+    {
+      "id": "data.event-version-lineage",
+      "revision": 1,
+      "digest": "sha256:cca5d1661791d76f7eaf4eb0afa8a98958ac2bf9de9e4e02f33ef2a6b9203a3d",
+      "sourceIds": [
+        "archcontext.adr.0010",
+        "kubernetes.docs"
+      ]
+    },
+    {
+      "id": "data.migration-backfill-evidence",
+      "revision": 1,
+      "digest": "sha256:12f11757903e72fb3839a9901b2aa950399f9a21b42a4d5e6ac04e32550c50b0",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "opentelemetry"
+      ]
+    },
+    {
+      "id": "data.schema-ownership-boundary",
+      "revision": 1,
+      "digest": "sha256:0173e7cf21315602254df946eabf36ff48e0daae175da0ac896ce236b990f902",
+      "sourceIds": [
+        "archcontext.adr.0008",
+        "backstage"
+      ]
+    },
+    {
+      "id": "data.single-authoritative-model",
+      "revision": 1,
+      "digest": "sha256:3aa691d353de1c5c7949d46fb222791fc95ec5974f0b902354672d1e769ae04e",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "archcontext.spec"
+      ]
+    },
+    {
+      "id": "decision.decision-review-date",
+      "revision": 1,
+      "digest": "sha256:66e27ef86c399ff45984826386e1eca9e183b848839d92644bd1def230f41341",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "madr"
+      ]
+    },
+    {
+      "id": "decision.record-significant-change",
+      "revision": 1,
+      "digest": "sha256:d95b84a2a42979a81158b523c8fa4975d3b98fdc500cfee570a55b92cd60acab",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "madr"
+      ]
+    },
+    {
+      "id": "decision.supersession-link",
+      "revision": 1,
+      "digest": "sha256:ccd67b3bf3b0642757c907a1b2c5c28a2ce88d49838a6b814e4cea280efabc91",
+      "sourceIds": [
+        "archcontext.adr.0012",
+        "madr"
+      ]
+    },
+    {
+      "id": "decision.tradeoff-options-recorded",
+      "revision": 1,
+      "digest": "sha256:1027090dcc8a87dcc647cdf905ab8f8fa72b462d602ff645ea538c51dd677a27",
+      "sourceIds": [
+        "archcontext.adr.0012",
+        "madr"
+      ]
+    },
+    {
+      "id": "migration.backfill-reconciliation",
+      "revision": 1,
+      "digest": "sha256:8a0eeb42bebb5abdaacd0a97d15a3e07bd1c846c7514e03e8a85f5a1cb3eb73d",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "archcontext.spec"
+      ]
+    },
+    {
+      "id": "migration.parallel-run-observability",
+      "revision": 1,
+      "digest": "sha256:2a4db10fa9b3eea976aa5c88c118146903eb3cda606c211008c45d98e1ddf6b1",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "opentelemetry"
+      ]
+    },
+    {
+      "id": "migration.rollback-plan",
+      "revision": 1,
+      "digest": "sha256:2948186128975b08ad8164c630d4ae7f5f7c36d43b1b1279809e3b785080e297",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "azure.architecture"
+      ]
+    },
+    {
+      "id": "migration.target-and-removal-state",
+      "revision": 1,
+      "digest": "sha256:c71b3d1428e70c83526870af03c08e0c76ed8f9943640d431af828870579e8ba",
+      "sourceIds": [
+        "archcontext.adr.0009",
+        "madr"
+      ]
+    },
+    {
+      "id": "modularity.layer-contract-declared",
+      "revision": 1,
+      "digest": "sha256:9f48437f90e17c6b518983e6f305022db0c18c7a7b5beb17a4cff5df57824bae",
+      "sourceIds": [
+        "archunit",
+        "structurizr.dsl"
+      ]
+    },
+    {
+      "id": "modularity.no-new-cycle",
+      "revision": 1,
+      "digest": "sha256:bf1daadfc73113350b8559edfb36614f424e64ebc31c348303b12ea0de5c46dd",
+      "sourceIds": [
+        "archunit"
+      ]
+    },
+    {
+      "id": "modularity.no-shared-internal-imports",
+      "revision": 1,
+      "digest": "sha256:19e99f0c9bc10ad6c96c219021f865191a05c6c3bcd38ae4ee0d9ad61de43332",
+      "sourceIds": [
+        "archcontext.adr.0012",
+        "archunit"
+      ]
+    },
+    {
+      "id": "modularity.respect-dependency-direction",
+      "revision": 1,
+      "digest": "sha256:b1ba78d5e52127130d1f14ea4f4e0ac7b5f2a269f33edea39d989bbb907ca784",
+      "sourceIds": [
+        "archcontext.spec",
+        "archunit"
+      ]
+    },
+    {
+      "id": "observability.boundary-telemetry",
+      "revision": 1,
+      "digest": "sha256:350c5a53f961911d9f29131f38ebdfacc099e05554c8e1ce0b23e9b0152fa105",
+      "sourceIds": [
+        "opentelemetry"
+      ]
+    },
+    {
+      "id": "observability.error-budget-signal",
+      "revision": 1,
+      "digest": "sha256:af034b7c1fee1653d551a710f155d48a0094ca3917779476b70529b9d23ed40d",
+      "sourceIds": [
+        "azure.architecture",
+        "opentelemetry"
+      ]
+    },
+    {
+      "id": "observability.queue-boundary-metrics",
+      "revision": 1,
+      "digest": "sha256:5323893611436bd10f21565731c3338f6e8fa8500bdab321ba1d3389b10fc427",
+      "sourceIds": [
+        "cncf.app-delivery",
+        "opentelemetry"
+      ]
+    },
+    {
+      "id": "observability.release-health-probe",
+      "revision": 1,
+      "digest": "sha256:eb5e957beea83b88b4edfb6e265c2f62fe35a69402799304f4abab87f59115d0",
+      "sourceIds": [
+        "kubernetes.docs",
+        "opentelemetry"
+      ]
+    },
+    {
+      "id": "ownership.escalation-contact",
+      "revision": 1,
+      "digest": "sha256:610f39e8e67e37abdc2b78079cef59c04adcbdbcc2773e69c5b703ddbf80b0fa",
+      "sourceIds": [
+        "backstage",
+        "cncf.app-delivery"
+      ]
+    },
+    {
+      "id": "ownership.explicit-lifecycle-owner",
+      "revision": 1,
+      "digest": "sha256:628e460457009e3f3c1c42bda8e88361d19b34afdf473d8f29f82938a8410d62",
+      "sourceIds": [
+        "archcontext.spec",
+        "backstage"
+      ]
+    },
+    {
+      "id": "ownership.operational-owner",
+      "revision": 1,
+      "digest": "sha256:d8fdacf11a8e9ee2e46eaf9a78f57a3b6d66c057e8a2bfcac29b3faac09a1f8f",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "backstage"
+      ]
+    },
+    {
+      "id": "ownership.service-catalog-entry",
+      "revision": 1,
+      "digest": "sha256:59d5562970fd857087bcf6243391b980d8d0d13f36be4396dc7af54b5a5f8197",
+      "sourceIds": [
+        "archcontext.spec",
+        "backstage"
+      ]
+    },
+    {
+      "id": "security.audit-log-redaction",
+      "revision": 1,
+      "digest": "sha256:921d52cfaa2d2a39ae1bd37c630ef55eef6a6f1248ddb23cbf4ece54cc7105db",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "archcontext.spec"
+      ]
+    },
+    {
+      "id": "security.external-permission-review",
+      "revision": 1,
+      "digest": "sha256:5dafe3a89389bfb95e75db79afe58d9894dd51c8fe02fd5a3756c47dc6ac4a59",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "openssf.scorecard"
+      ]
+    },
+    {
+      "id": "security.least-privilege",
+      "revision": 1,
+      "digest": "sha256:5f620bbf66beaad5a3eee70e13bf51fd003e95e9f06da9c4e37cc74ec5e49455",
+      "sourceIds": [
+        "archcontext.adr.0036"
+      ]
+    },
+    {
+      "id": "security.secret-material-never-enters-repo",
+      "revision": 1,
+      "digest": "sha256:0fd56ae3c4ee17575d9bb42af31d8a2febee4ba98b34fe3be56c4deb9e770cb1",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "openssf.scorecard"
+      ]
+    },
+    {
+      "id": "security.secret-redaction-old",
+      "revision": 1,
+      "digest": "sha256:14a71e065a55da1b7b8c4cdb24d15960d4ccd9fa5d5dcc36b2f185695bb02bd9",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "openssf.scorecard"
+      ]
+    },
+    {
+      "id": "supply-chain.dependency-update-review",
+      "revision": 1,
+      "digest": "sha256:6c7e92c1a9f898fc2eb771f083403b6289b01d125df3d56dd1391efca8845524",
+      "sourceIds": [
+        "archcontext.adr.0036",
+        "openssf.scorecard"
+      ]
+    },
+    {
+      "id": "supply-chain.pinned-dependencies",
+      "revision": 1,
+      "digest": "sha256:d091497c904baa5bc010eb77fbea202b5f3700ec9a0d5ee45db6d34c8a61e82b",
+      "sourceIds": [
+        "openssf.scorecard"
+      ]
+    },
+    {
+      "id": "supply-chain.release-artifact-digest",
+      "revision": 1,
+      "digest": "sha256:7b417cb099ae7c0d52193835bf9453380f374beb08feebf1d6aa3a194538e0ba",
+      "sourceIds": [
+        "openssf.scorecard",
+        "twelve-factor"
+      ]
+    },
+    {
+      "id": "supply-chain.sbom-manifest",
+      "revision": 1,
+      "digest": "sha256:c46fc62568baa386231f4ab57d311cdf2706c12b3f179e9a859c45b6d7e14f70",
+      "sourceIds": [
+        "cncf.app-delivery",
+        "openssf.scorecard"
+      ]
+    }
+  ],
+  "sourceIds": [
+    "arc42",
+    "archcontext.adr.0008",
+    "archcontext.adr.0009",
+    "archcontext.adr.0010",
+    "archcontext.adr.0012",
+    "archcontext.adr.0036",
+    "archcontext.spec",
+    "archunit",
+    "azure.architecture",
+    "backstage",
+    "cncf.app-delivery",
+    "google.sre",
+    "kubernetes.docs",
+    "madr",
+    "openssf.scorecard",
+    "opentelemetry",
+    "owasp.cheat-sheet-series",
+    "structurizr.dsl",
+    "twelve-factor"
+  ],
+  "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14"
+}

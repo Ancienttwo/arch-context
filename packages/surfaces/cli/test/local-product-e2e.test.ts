@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join, resolve } from "node:path";
 
@@ -60,6 +60,148 @@ describe("local product first-experience E2E", () => {
       const daemonStatus = await runArchctx(repo, "daemon", "status");
       expect(daemonStatus.ok).toBe(true);
       expect(daemonStatus.data.running).toBe(false);
+    } finally {
+      await stopDaemonAndWait(repo);
+      removeTempRoot(workspace);
+    }
+  }, 30_000);
+
+  test("installed hook checkpoint updates and reverts practice deltas through the daemon", async () => {
+    expect(existsSync(ARCHCTX_BIN)).toBe(true);
+    const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-delta-e2e-"));
+    const repo = join(workspace, "single-repo-basic");
+    const changedPath = "src/legacy-wrapper-v1.ts";
+    cpSync(SINGLE_REPO_FIXTURE_ROOT, repo, { recursive: true });
+    try {
+      git(repo, "init");
+      git(repo, "add", ".");
+      git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
+      runCodeGraph(repo, "init", repo);
+
+      const init = await runArchctx(repo, "init", "--name", "Hook Delta E2E");
+      expect(init.ok).toBe(true);
+
+      const prepared = await runArchctx(
+        repo,
+        "prepare",
+        "--task", "remove legacy compatibility wrapper",
+        "--task-session-id", "task_hook_delta",
+        "--max-items", "5"
+      );
+      expect(prepared.ok).toBe(true);
+      expect(practiceIds(prepared.data.context.practiceGuidance.matches)).toContain("compatibility.single-owner");
+
+      mkdirSync(join(repo, "src"), { recursive: true });
+      writeFileSync(join(repo, changedPath), "export function legacyWrapperV1() { return \"legacy\"; }\n", "utf8");
+
+      const edited = await runArchctx(
+        repo,
+        "hook", "checkpoint",
+        "--event", "post-edit",
+        "--path", changedPath,
+        "--task-session-id", "task_hook_delta",
+        "--tool-call-id", "edit",
+        "--max-items", "5"
+      );
+      expect(edited.ok).toBe(true);
+      expect(edited.requestId).toBe("hook.checkpoint");
+      expect(practiceIds(edited.data.delta.upgraded)).toContain("compatibility.single-owner");
+      expect(edited.data.hook.pathSummary).toMatchObject({
+        schemaVersion: "archcontext.checkpoint-path-summary/v1",
+        total: 1,
+        source: 1,
+        deleted: 0
+      });
+      expect(edited.data.hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-edit",
+        pathCount: 1,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify(edited.data.hookLog)).not.toContain(changedPath);
+
+      rmSync(join(repo, changedPath), { force: true });
+
+      const reverted = await runArchctx(
+        repo,
+        "hook", "checkpoint",
+        "--event", "post-edit",
+        "--path", changedPath,
+        "--task-session-id", "task_hook_delta",
+        "--tool-call-id", "revert",
+        "--max-items", "5"
+      );
+      expect(reverted.ok).toBe(true);
+      expect(reverted.requestId).toBe("hook.checkpoint");
+      expect(practiceIds(reverted.data.delta.downgraded)).toContain("compatibility.single-owner");
+      expect(reverted.data.hook.pathSummary).toMatchObject({
+        schemaVersion: "archcontext.checkpoint-path-summary/v1",
+        total: 1,
+        source: 0,
+        deleted: 1
+      });
+    } finally {
+      await stopDaemonAndWait(repo);
+      removeTempRoot(workspace);
+    }
+  }, 30_000);
+
+  test("installed hook checkpoint adds dependency direction guidance from a changed import edge", async () => {
+    expect(existsSync(ARCHCTX_BIN)).toBe(true);
+    const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-import-edge-e2e-"));
+    const repo = join(workspace, "single-repo-basic");
+    const changedPath = "src/web/page.ts";
+    cpSync(SINGLE_REPO_FIXTURE_ROOT, repo, { recursive: true });
+    try {
+      git(repo, "init");
+      git(repo, "add", ".");
+      git(repo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
+      runCodeGraph(repo, "init", repo);
+
+      const init = await runArchctx(repo, "init", "--name", "Import Edge E2E");
+      expect(init.ok).toBe(true);
+
+      const prepared = await runArchctx(
+        repo,
+        "prepare",
+        "--task", "review checkout page change",
+        "--task-session-id", "task_import_edge",
+        "--max-items", "5"
+      );
+      expect(prepared.ok).toBe(true);
+      expect(practiceIds(prepared.data.context.practiceGuidance.matches)).not.toContain("modularity.respect-dependency-direction");
+
+      mkdirSync(join(repo, "src", "domain"), { recursive: true });
+      mkdirSync(join(repo, "src", "web"), { recursive: true });
+      writeFileSync(join(repo, "src", "domain", "order-service.ts"), "export function placeOrder() { return \"ok\"; }\n", "utf8");
+      writeFileSync(join(repo, changedPath), "import { placeOrder } from \"../domain/order-service\";\nexport function renderPage() { return placeOrder(); }\n", "utf8");
+
+      const edited = await runArchctx(
+        repo,
+        "hook", "checkpoint",
+        "--event", "post-edit",
+        "--path", changedPath,
+        "--task-session-id", "task_import_edge",
+        "--tool-call-id", "edit",
+        "--max-items", "5"
+      );
+      expect(edited.ok).toBe(true);
+      expect(edited.requestId).toBe("hook.checkpoint");
+      expect(practiceIds(edited.data.delta.added)).toContain("modularity.respect-dependency-direction");
+      const dependencyDirection = edited.data.delta.added.find((match: any) => match.practiceId === "modularity.respect-dependency-direction");
+      expect(dependencyDirection.evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "import-edge",
+          subject: "file:src/web/page.ts->file:src/domain/order-service.ts"
+        })
+      ]));
+      expect(edited.data.hook.pathSummary).toMatchObject({
+        schemaVersion: "archcontext.checkpoint-path-summary/v1",
+        total: 1,
+        source: 1,
+        deleted: 0
+      });
     } finally {
       await stopDaemonAndWait(repo);
       removeTempRoot(workspace);
@@ -132,9 +274,12 @@ async function runFirstExperience(
     expect(status.data.worktreeDigest).toMatch(/^sha256:/);
     input.afterStatus?.(repo, status);
 
-    const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest);
+    const checkpoint = await runArchctx(repo, "checkpoint", "--expected-worktree-digest", status.data.worktreeDigest, "--max-items", "2");
     expect(checkpoint.ok).toBe(true);
     expect(checkpoint.data.fresh).toBe(true);
+    expect(checkpoint.data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+    expect(checkpoint.data.reasonCode).toBe("no-op");
+    expect(checkpoint.data.hook.egress).toBe("none");
 
     const complete = await runArchctx(
       repo,
@@ -162,6 +307,10 @@ function gitOut(repo: string, ...args: string[]): string {
 
 function runCodeGraph(repo: string, ...args: string[]): void {
   execFileSync(CODEGRAPH_BIN, args, { cwd: repo, env: testEnv(), stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function practiceIds(matches: any[]): string[] {
+  return matches.map((match) => match.practiceId);
 }
 
 function runArchctx(cwd: string, ...args: string[]): Promise<any> {

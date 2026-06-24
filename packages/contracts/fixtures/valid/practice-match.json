@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "archcontext.practice-match/v1",
+  "practiceId": "compatibility.single-owner",
+  "assetRevision": 1,
+  "assetDigest": "sha256:52c1f1ed2128f56e0a3e4f07303efa34bda507da54bd0e7914d7cf17f6f27843",
+  "title": "Compatibility paths require one lifecycle owner",
+  "category": "compatibility",
+  "score": 87,
+  "confidence": "high",
+  "enforcement": "checkpoint",
+  "matchedBy": ["predicate", "retrieval", "scope", "signal"],
+  "evidence": [
+    {
+      "kind": "symbol",
+      "strength": "observed",
+      "subject": "symbol.billingLegacyV1",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observedAt": "1970-01-01T00:00:00.000Z"
+    }
+  ],
+  "explanation": ["compatibility.single-owner: A compatibility path must have one accountable owner."],
+  "sourceTrust": "curated-static"
+}

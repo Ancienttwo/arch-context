@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/repo/practices/practice-policy.schema.json",
+  "title": "PracticeEnforcementPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "mode", "rules"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-enforcement-policy/v1" },
+    "mode": { "type": "string", "enum": ["advisory", "active"] },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["practiceId", "enforcement"],
+        "properties": {
+          "practiceId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
+          "enforcement": { "type": "string", "enum": ["advisory", "checkpoint", "complete"] },
+          "checkIds": { "type": "array", "items": { "type": "string" } },
+          "testEvidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "anyOf": [
+              { "required": ["commands"] },
+              { "required": ["subjects"] }
+            ],
+            "properties": {
+              "commands": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 },
+              "subjects": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1 }
+            }
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pathGlobs": { "type": "array", "items": { "type": "string" } },
+              "subjects": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

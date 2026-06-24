@@ -10,6 +10,7 @@ const REQUIRED_COMMANDS = [
   "mcp install",
   "init",
   "sync",
+  "practices validate",
   "context",
   "prepare",
   "status",
@@ -105,6 +106,7 @@ export function inspectFg6LocalNoCloud(recording: unknown): { ok: boolean; failu
   const egress = readRecord(local.egress);
   const mcp = readRecord(local.mcp);
   const taskLifecycle = readRecord(local.taskLifecycle);
+  const practices = readRecord(local.practices);
   const review = readRecord(local.review);
 
   if (record.schemaVersion !== "archcontext.fg6-local-no-cloud-readback/v1") failures.push("schemaVersion mismatch");
@@ -139,6 +141,11 @@ export function inspectFg6LocalNoCloud(recording: unknown): { ok: boolean; failu
   if (taskLifecycle.checkpointFresh !== true) failures.push("checkpoint must be fresh");
   if (taskLifecycle.completeSchemaVersion !== "archcontext.review/v1") failures.push("complete must return review schema");
   if (taskLifecycle.completeResult !== "pass") failures.push("complete result must be pass");
+  if (practices.validation !== "strict") failures.push("practice validation must be strict");
+  if (practices.valid !== true) failures.push("practice catalog must validate");
+  if (Number(practices.practiceCount ?? 0) < 40) failures.push("practice catalog must include S6 built-in assets");
+  if (Number(practices.sourceCount ?? 0) < 19) failures.push("practice source registry must be present");
+  if (!String(practices.catalogDigest ?? "").startsWith("sha256:")) failures.push("practice catalog digest must be present");
   if (review.schemaVersion !== "archcontext.review/v1") failures.push("review schema mismatch");
   if (review.result !== "pass") failures.push("review result must be pass");
   if (Number(review.errors) !== 0) failures.push("review errors must be 0");

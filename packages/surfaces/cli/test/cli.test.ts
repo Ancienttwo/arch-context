@@ -16,7 +16,9 @@ import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = 30_000;
+const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = 30_000;
+const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
 function runTestCli(command: string, args: string[], root: string) {
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
@@ -129,10 +131,23 @@ describe("archctx CLI", () => {
     try {
       const init = await runTestCli("init", ["--name", "CLI App"], root);
       expect(init.ok).toBe(true);
+      writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
+        "schemaVersion: archcontext.node/v1",
+        "id: module.waiver-owner",
+        "kind: module",
+        "name: Waiver Owner",
+        "status: active",
+        "summary: Owns waiver governance fixtures.",
+        "ownership:",
+        "  lifecycle: [\"team-architecture\"]",
+        ""
+      ].join("\n"), "utf8");
 
       const context = await runTestCli("context", ["--task", "add teams"], root);
       expect(context.ok).toBe(true);
       expect((context.data as any).task).toBe("add teams");
+      expect((context.data as any).practiceGuidance.schemaVersion).toBe("archcontext.practice-guidance/v1");
+      expect((context.data as any).practiceGuidance.catalogDigest).toMatch(/^sha256:/);
 
       const status = await runTestCli("status", [], root);
       expect(status.ok).toBe(true);
@@ -141,9 +156,80 @@ describe("archctx CLI", () => {
       const prepare = await runTestCli("prepare", ["--task", "remove legacy v1 wrapper", "--max-items", "1"], root);
       expect(prepare.ok).toBe(true);
       expect((prepare.data as any).posture).toBeTruthy();
+      expect((prepare.data as any).context.practiceGuidance.matches.length).toBeGreaterThan(0);
+
+      const practices = await runTestCli("practices", ["list", "--json"], root);
+      expect(practices.ok).toBe(true);
+      expect((practices.data as any).schemaVersion).toBe("archcontext.practice-list/v1");
+      expect((practices.data as any).count).toBeGreaterThanOrEqual(12);
+      expect((practices.data as any).catalogDigest).toMatch(/^sha256:/);
+
+      const practice = await runTestCli("practices", ["show", "compatibility.single-owner"], root);
+      expect(practice.ok).toBe(true);
+      expect((practice.data as any).practice.id).toBe("compatibility.single-owner");
+
+      const practiceValidation = await runTestCli("practices", ["validate", "--strict"], root);
+      expect((practiceValidation.data as any).valid).toBe(true);
+
+      const practiceSources = await runTestCli("practices", ["sources"], root);
+      expect((practiceSources.data as any).sources.some((source: any) => source.id === "madr")).toBe(true);
+
+      const waiverPlan = await runTestCli("practices", [
+        "waive",
+        "--practice-id", "modularity.no-new-cycle",
+        "--check-id", "no-new-cycle",
+        "--waiver-id", "cycle-waiver",
+        "--owner", "team-architecture",
+        "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--expires-at", "2026-07-24T00:00:00.000Z",
+        "--evidence-digest", `sha256:${"1".repeat(64)}`,
+        "--subject", "module.a->module.b"
+      ], root);
+      expect(waiverPlan.ok).toBe(true);
+      expect((waiverPlan.data as any).draft.operations[0]).toMatchObject({
+        op: "write_waiver",
+        path: ".archcontext/waivers/cycle-waiver.json"
+      });
+      expect((waiverPlan.data as any).preview.allowed).toBe(true);
+
+      const waiverList = await runTestCli("practices", ["waivers"], root);
+      expect(waiverList.ok).toBe(true);
+      expect((waiverList.data as any).count).toBe(0);
+      expect((waiverList.data as any).ownerRegistry.owners).toContain("team-architecture");
+
+      const unknownWaiverOwner = await runTestCli("practices", [
+        "waive",
+        "--practice-id", "modularity.no-new-cycle",
+        "--owner", "unknown-team",
+        "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--expires-at", "2026-07-24T00:00:00.000Z",
+        "--evidence-digest", `sha256:${"1".repeat(64)}`,
+        "--subject", "module.a->module.b"
+      ], root);
+      expect(unknownWaiverOwner.ok).toBe(false);
+      expect((unknownWaiverOwner as any).error.code).toBe("AC_SCHEMA_INVALID");
 
       const checkpoint = await runTestCli("checkpoint", ["--expected-worktree-digest", (status.data as any).worktreeDigest], root);
+      expect((checkpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.data as any).fresh).toBe(true);
+      expect(["fresh", "no-op", "no-baseline"]).toContain((checkpoint.data as any).reasonCode);
+      expect((checkpoint.data as any).hook.egress).toBe("none");
+      if ((checkpoint.data as any).reasonCode === "fresh") {
+        expect((checkpoint.data as any).previousPracticeGuidanceDigest).toMatch(/^sha256:/);
+      }
+
+      const hookCheckpoint = await runTestCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/example.ts"], root);
+      expect(hookCheckpoint.requestId).toBe("hook.checkpoint");
+      expect((hookCheckpoint.data as any).schemaVersion).toBe("archcontext.practice-checkpoint/v1");
+      expect((hookCheckpoint.data as any).hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-edit",
+        pathCount: 1,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect((hookCheckpoint.data as any).hookLog.changedPathDigest).toMatch(/^sha256:/);
+      expect(JSON.stringify((hookCheckpoint.data as any).hookLog)).not.toContain("src/example.ts");
 
       const complete = await runTestCli("complete", [
         "--task-session-id", "task_cli",
@@ -176,6 +262,15 @@ describe("archctx CLI", () => {
       expect(forgedDigest.ok).toBe(false);
       expect((forgedDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
       expect((forgedDigest as any).error.message).toContain("--model-digest");
+
+      const forgedPractice = await runTestCli("complete", [
+        "--task-session-id", "task_cli_forged_practice",
+        "--head-sha", "abc123",
+        "--practice-violations", "[]"
+      ], root);
+      expect(forgedPractice.ok).toBe(false);
+      expect((forgedPractice as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((forgedPractice as any).error.message).toContain("--practice-violations");
 
       const config = await runTestCli("config", [], root);
       expect((config.data as any).generic.transport).toBe("stdio");
@@ -274,6 +369,174 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
+  });
+
+  test("hook checkpoint fails open when runtime checkpoint is unavailable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-hook-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const result = await runCli("hook", ["checkpoint", "--event", "post-edit", "--path", "src/app.ts"], root, {
+        runtimeClient: {
+          checkpoint() {
+            throw new Error("runtime offline");
+          }
+        } as any
+      });
+      expect(result.ok).toBe(true);
+      expect(result.requestId).toBe("hook.checkpoint");
+      expect((result.data as any).schemaVersion).toBe("archcontext.hook-checkpoint-fail-open/v1");
+      expect((result.data as any).failOpen).toBe(true);
+      expect((result.data as any).egress).toBe("none");
+      expect((result.data as any).network).toBe("forbidden");
+      expect((result.data as any).hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-edit",
+        pathCount: 1,
+        reasonCode: "runtime-unavailable",
+        failOpen: true,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((result.data as any).hookLog)).not.toContain("src/app.ts");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI renders central hook adapter install status and remove configuration", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-hooks-host-"));
+    try {
+      const install = await runCli("hooks", ["install", "--host", "codex"], root);
+      expect(install.ok).toBe(true);
+      expect(install.requestId).toBe("hooks.install");
+      expect((install.data as any)).toMatchObject({
+        schemaVersion: "archcontext.hook-adapter/v1",
+        host: "codex",
+        adapterName: "repo-harness-hook",
+        ownership: "central-first",
+        repoLocalRuntime: "not-vendored",
+        writes: "manual-host-config",
+        installed: true
+      });
+      expect((install.data as any).entrypoint).toMatchObject({
+        command: "archctx",
+        args: ["hook", "checkpoint"],
+        failOpen: true,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect((install.data as any).configExample).toMatchObject({
+        configPath: "~/.codex/hooks.json",
+        adapter: { command: "repo-harness-hook" },
+        centralFirst: true,
+        repoHookSourceRequired: false
+      });
+      expect((install.data as any).logContract.allowedFields).toEqual([
+        "schemaVersion",
+        "event",
+        "elapsedMs",
+        "pathCount",
+        "changedPathDigest",
+        "reasonCode",
+        "failOpen",
+        "egress",
+        "network"
+      ]);
+      expect(JSON.stringify(install.data)).not.toContain("hook_source");
+      expect(JSON.stringify(install.data)).not.toContain("sourceBody");
+
+      const status = await runCli("hooks", ["status", "--host", "claude"], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any)).toMatchObject({
+        host: "claude",
+        installed: "config-ready",
+        adapterName: "repo-harness-hook",
+        writes: "manual-host-config"
+      });
+      expect((status.data as any).configExample.configPath).toBe("~/.claude/settings.json");
+
+      const remove = await runCli("hooks", ["remove", "--host", "generic"], root);
+      expect(remove.ok).toBe(true);
+      expect((remove.data as any).removeConfig).toMatchObject({
+        removeAdapter: "repo-harness-hook",
+        removeEntrypoint: "archctx hook checkpoint",
+        repoHookSourceRequired: false
+      });
+
+      const invalid = await runCli("hooks", ["install", "--host", "unknown"], root);
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const status = await runTestCli("docs", ["status"], root);
+      expect(status.ok).toBe(true);
+      expect((status.data as any)).toMatchObject({
+        schemaVersion: "archcontext.external-docs-status/v1",
+        provider: "context7",
+        defaultPrepareEgress: "none"
+      });
+      expect((status.data as any).health).toMatchObject({
+        enabled: false,
+        egress: "none"
+      });
+
+      const blockedResolve = await runTestCli("docs", ["resolve", "--library", "React", "--query", "state hooks"], root);
+      expect(blockedResolve.ok).toBe(false);
+      expect((blockedResolve as any).error.message).toContain("--allow-network");
+
+      const pinPreview = await runTestCli("docs", ["pin", "--library-id", "/facebook/react", "--version", "18.2.0"], root);
+      expect(pinPreview.ok).toBe(true);
+      expect((pinPreview.data as any).approved).toBe(false);
+      expect(existsSync(join(root, ".archcontext", "integrations", "context7.lock.yaml"))).toBe(false);
+
+      const pin = await runTestCli("docs", ["pin", "--library-id", "/facebook/react", "--version", "18.2.0", "--approved"], root);
+      expect(pin.ok).toBe(true);
+      expect((pin.data as any).approved).toBe(true);
+      const lockPath = join(root, ".archcontext", "integrations", "context7.lock.yaml");
+      expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({
+        schemaVersion: "archcontext.context7-lock/v1",
+        provider: "context7",
+        libraries: [{ libraryId: "/facebook/react", version: "18.2.0" }]
+      });
+
+      const blockedFetch = await runTestCli("docs", ["fetch", "--library-id", "/facebook/react", "--intent", "state hooks"], root);
+      expect(blockedFetch.ok).toBe(false);
+      expect((blockedFetch as any).error.message).toContain("--allow-network");
+    } finally {
+      removeTempRoot(root);
+    }
+  }, CLI_DOCS_TEST_TIMEOUT_MS);
+
+  test("first-party skills keep checkpoint SOP separate from practice logic", () => {
+    const skillFiles = [
+      "skills/archcontext-bootstrap/SKILL.md",
+      "skills/archcontext-develop/SKILL.md",
+      "skills/archcontext-intervene/SKILL.md",
+      "skills/archcontext-review/SKILL.md"
+    ];
+    const forbidden = [
+      "compatibility.single-owner",
+      "modularity.no-new-cycle",
+      "required-test-evidence",
+      "candidateTerms",
+      "structuralPredicates",
+      "matchPracticesForTask"
+    ];
+    for (const file of skillFiles) {
+      const body = readFileSync(join(process.cwd(), file), "utf8");
+      expect(body).toContain("SOP");
+      for (const token of forbidden) expect(body).not.toContain(token);
+    }
+    const develop = readFileSync(join(process.cwd(), "skills/archcontext-develop/SKILL.md"), "utf8");
+    expect(develop).toContain("archcontext_checkpoint");
+    expect(develop).toContain("added/upgraded");
+    expect(develop).toContain("removed/downgraded");
   });
 
   test("CLI discovers a running daemon RPC connection before embedded fallback", async () => {
@@ -383,7 +646,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  });
+  }, 15_000);
 
   test("github connect, status, and disconnect use control-plane credential refs without gh", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-"));
@@ -672,7 +935,7 @@ describe("archctx CLI", () => {
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
-  });
+  }, GITHUB_REVIEW_TEST_TIMEOUT_MS);
 
   test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-foreground-"));
@@ -929,7 +1192,7 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
       removeTempRoot(otherRoot);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI exports and imports interop projections without overwriting Native model", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));

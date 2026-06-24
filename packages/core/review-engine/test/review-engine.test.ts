@@ -2,11 +2,68 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { digestJson, type PracticeEnforcementEvaluationV1 } from "@archcontext/contracts";
 import { validateJsonSchema } from "@archcontext/contracts";
 import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const sha = `sha256:${"a".repeat(64)}`;
+const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
+  schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
+  catalogDigest: `sha256:${"b".repeat(64)}`,
+  policyDigest: `sha256:${"c".repeat(64)}`,
+  checkResultDigest: `sha256:${"d".repeat(64)}`,
+  results: [
+    {
+      schemaVersion: "archcontext.practice-check-result/v1",
+      practiceId: "modularity.no-new-cycle",
+      checkId: "no-new-cycle",
+      assetDigest: `sha256:${"e".repeat(64)}`,
+      enforcement: "complete",
+      status: "fail",
+      reasonCode: "violation",
+      deterministic: true,
+      subjects: ["module.a->module.b"],
+      subjectDigests: [digestJson({ subject: "module.a->module.b" })],
+      message: "Complete would introduce a new import cycle.",
+      remediation: { action: "remove-new-import-cycle-or-add-a-more-specific-boundary", paths: [] }
+    }
+  ],
+  violations: [],
+  waiversApplied: [],
+  actionsRequired: ["remove-new-import-cycle-or-add-a-more-specific-boundary"]
+};
+practiceEnforcement.violations = practiceEnforcement.results;
+
+const compatibilityPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
+  schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
+  catalogDigest: `sha256:${"1".repeat(64)}`,
+  policyDigest: `sha256:${"2".repeat(64)}`,
+  checkResultDigest: `sha256:${"3".repeat(64)}`,
+  results: [
+    {
+      schemaVersion: "archcontext.practice-check-result/v1",
+      practiceId: "compatibility.single-owner",
+      checkId: "compatibility-contract-required",
+      assetDigest: `sha256:${"4".repeat(64)}`,
+      enforcement: "complete",
+      status: "fail",
+      reasonCode: "violation",
+      deterministic: true,
+      subjects: ["compatibility-owner", "compatibility-reason"],
+      subjectDigests: [
+        digestJson({ subject: "compatibility-owner" }),
+        digestJson({ subject: "compatibility-reason" })
+      ],
+      message: "Compatibility path is missing a durable contract.",
+      remediation: { action: "add-compatibility-contract-owner-consumers-removal-and-review-date", paths: [] }
+    }
+  ],
+  violations: [],
+  waiversApplied: [],
+  actionsRequired: ["add-compatibility-contract-owner-consumers-removal-and-review-date"]
+};
+compatibilityPracticeEnforcement.violations = compatibilityPracticeEnforcement.results;
 
 function readJson(path: string) {
   return JSON.parse(readFileSync(join(root, path), "utf8"));
@@ -51,12 +108,100 @@ describe("@archcontext/core/review-engine", () => {
     );
   });
 
+  test("complete deterministic practice violations are reported with policy and check digests", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.test",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      practiceEnforcement
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.practiceViolations).toHaveLength(1);
+    expect(result.actionsRequired).toEqual(["remove-new-import-cycle-or-add-a-more-specific-boundary"]);
+    expect(result.findings.map((finding) => finding.id)).toContain("practice:modularity.no-new-cycle:no-new-cycle");
+    expect(result.snapshot).toMatchObject({
+      practiceCatalogDigest: practiceEnforcement.catalogDigest,
+      practicePolicyDigest: practiceEnforcement.policyDigest,
+      practiceCheckResultDigest: practiceEnforcement.checkResultDigest
+    });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("deduplicates compatibility contract findings already reported by practice enforcement", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.test",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      compatibilityPathIntroduced: true,
+      compatibilityContract: {
+        kind: "external-contract",
+        reason: "just in case",
+        consumers: ["external.client"],
+        removalConditions: ["external.client migrates"],
+        reviewAt: "2026-07-24T00:00:00.000Z"
+      },
+      practiceEnforcement: compatibilityPracticeEnforcement
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.practiceViolations).toHaveLength(1);
+    expect(result.findings.map((finding) => finding.id)).toEqual(["compatibility-reason", "compatibility-owner"]);
+    expect(result.summary.errors).toBe(2);
+    expect(result.findings.map((finding) => finding.id)).not.toContain("practice:compatibility.single-owner:compatibility-contract-required");
+    expect(result.extensions.suppressedPracticeFindings).toEqual([{
+      id: "practice:compatibility.single-owner:compatibility-contract-required",
+      reason: "duplicates-compatibility-contract-finding",
+      duplicateFindingIds: ["compatibility-owner", "compatibility-reason"]
+    }]);
+    expect(result.snapshot).toMatchObject({
+      practiceCatalogDigest: compatibilityPracticeEnforcement.catalogDigest,
+      practicePolicyDigest: compatibilityPracticeEnforcement.policyDigest,
+      practiceCheckResultDigest: compatibilityPracticeEnforcement.checkResultDigest
+    });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("stale context suppresses practice enforcement conclusions", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.test",
+      posture: "structural",
+      headSha: "old",
+      currentHeadSha: "new",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      practiceEnforcement
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.practiceViolations).toEqual([]);
+    expect(result.actionsRequired).toEqual([]);
+    expect(result.findings.map((finding) => finding.id)).toEqual(["stale-context"]);
+    expect(result.extensions.practiceChecksSkipped).toBe("stale-context");
+  });
+
   test("rejects caller-provided review conclusion and digest fields", () => {
     expect(CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS).toEqual([
       "result",
       "reviewDigest",
       "policyDigest",
-      "signature"
+      "signature",
+      "practiceEnforcement",
+      "practiceViolations",
+      "waiversApplied",
+      "actionsRequired",
+      "practiceCatalogDigest",
+      "practicePolicyDigest",
+      "practiceCheckResultDigest"
     ]);
     const base = {
       taskSessionId: "task.test",
@@ -72,7 +217,8 @@ describe("@archcontext/core/review-engine", () => {
       result: "pass",
       reviewDigest: sha,
       policyDigest: sha,
-      signature: { algorithm: "ed25519", value: "forged" }
+      signature: { algorithm: "ed25519", value: "forged" },
+      practiceViolations: []
     })) {
       expect(() => completeTaskGate({ ...base, [field]: value } as any), field).toThrow(`review-conclusion-field-forbidden: ${field}`);
     }

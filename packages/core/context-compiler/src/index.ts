@@ -4,9 +4,11 @@ import {
   type CrossRepoRelation,
   type Landscape
 } from "@archcontext/core/architecture-domain";
-import { digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext, type PracticeGuidanceResultV1, type WorkspaceRef } from "@archcontext/contracts";
 import type { ArchitecturePosture } from "@archcontext/core/architecture-domain";
-import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
+import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
+import { matchPracticesForTask } from "@archcontext/core/practice-engine";
+import { detectArchitecturePressure, type PressureSignal } from "@archcontext/core/pressure-engine";
 import { computeRefactorConfidence, decidePosture } from "@archcontext/core/refactor-decision";
 
 export interface ContextBudget {
@@ -36,10 +38,14 @@ export interface CompiledTaskContext {
   recommendedTargetState: Record<string, Json>;
   requiredCheckpoints: string[];
   resources: { type: string; uri: string; digest?: string }[];
+  practiceGuidance: PracticeGuidanceResultV1;
   extensions: {
     codeFactsDigest: string;
     modelDigest: string;
     codeContextDigest: string;
+    catalogDigest: string;
+    practiceGuidanceDigest: string;
+    pressureSignals?: PressureSignal[];
     landscapeDigest?: string;
     activeRepositories?: string[];
     crossRepoRelations?: string[];
@@ -66,18 +72,22 @@ export async function compileTaskContext(input: {
   codeFacts: CodeFactsPort;
   modelStore: ModelStorePort;
   budget: ContextBudget;
+  changedPaths?: string[];
 }): Promise<CompiledTaskContext> {
   const codeFacts = await input.codeFacts.ensureReady(input.workspace);
   const model = await input.modelStore.validateModel(input.workspace);
   const codeContext = await input.codeFacts.buildTaskContext({
     task: input.task,
     maxSymbols: input.budget.maxItems,
-    includeSource: false
+    includeSource: false,
+    changedPaths: input.changedPaths
   });
   const pressure = detectArchitecturePressure({
     task: input.task,
-    symbols: codeContext.symbols.map((symbol) => symbol.id),
-    files: [...new Set(codeContext.symbols.map((symbol) => symbol.path))]
+    symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+    files: [...new Set(codeContext.symbols.map((symbol) => symbol.path))],
+    edges: codeContext.edges,
+    observedEvidence: codeContext.evidence
   });
   const confidence = computeRefactorConfidence({
     callerCoverage: codeContext.symbols.length > 0 ? 1 : 0,
@@ -89,6 +99,14 @@ export async function compileTaskContext(input: {
     { type: "code-context", uri: `archcontext://code-context/${codeContext.digest}`, digest: codeContext.digest },
     { type: "model", uri: `archcontext://model/${model.modelDigest}`, digest: model.modelDigest }
   ];
+  const catalog = loadPracticeCatalog({ root: input.workspace.root });
+  const practiceGuidance = matchPracticesForTask({
+    task: input.task,
+    catalog,
+    codeContext,
+    pressure,
+    maxMatches: Math.min(5, Math.max(3, input.budget.maxItems))
+  });
   let context: Omit<CompiledTaskContext, "extensions"> = {
     schemaVersion: "archcontext.task-context/v1" as const,
     task: input.task,
@@ -104,26 +122,40 @@ export async function compileTaskContext(input: {
       coverage: confidence.coverage
     },
     relevantNodes: codeContext.symbols.map((symbol) => symbol.id).slice(0, input.budget.maxItems),
-    constraints: [],
-    decisions: [],
-    realConstraints: [],
-    unknowns: [],
-    recommendedTargetState: {},
-    requiredCheckpoints: ["before-task-complete"],
-    resources
+    constraints: practiceGuidance.constraints,
+    decisions: practiceGuidance.decisions,
+    realConstraints: practiceGuidance.realConstraints,
+    unknowns: practiceGuidance.unknowns,
+    recommendedTargetState: {
+      practiceCatalogDigest: practiceGuidance.catalogDigest,
+      topPracticeIds: practiceGuidance.matches.map((match) => match.practiceId)
+    } as Record<string, Json>,
+    requiredCheckpoints: unique(["before-task-complete", ...practiceGuidance.requiredCheckpoints]),
+    resources: [...resources, ...practiceGuidance.resources],
+    practiceGuidance
   };
   const byteLength = Buffer.byteLength(JSON.stringify(context), "utf8");
   if (byteLength > input.budget.maxBytes) {
+    const trimmedPracticeGuidance = trimPracticeGuidance(practiceGuidance, Math.max(1, Math.floor(input.budget.maxItems / 2)));
     context = {
       ...context,
       relevantNodes: context.relevantNodes.slice(0, Math.max(1, Math.floor(input.budget.maxItems / 2))),
-      resources: resources.slice(0, 1)
+      constraints: trimmedPracticeGuidance.constraints,
+      decisions: trimmedPracticeGuidance.decisions,
+      realConstraints: trimmedPracticeGuidance.realConstraints,
+      unknowns: trimmedPracticeGuidance.unknowns,
+      requiredCheckpoints: unique(["before-task-complete", ...trimmedPracticeGuidance.requiredCheckpoints]),
+      resources: [...resources.slice(0, 1), ...trimmedPracticeGuidance.resources],
+      practiceGuidance: trimmedPracticeGuidance
     };
   }
   return finalizeContext(context, {
     codeFactsDigest: codeFacts.schemaDigest,
     modelDigest: model.modelDigest,
     codeContextDigest: codeContext.digest,
+    catalogDigest: practiceGuidance.catalogDigest,
+    practiceGuidanceDigest: digestJson(practiceGuidance as unknown as Json),
+    pressureSignals: pressure.signals,
     maxBytes: input.budget.maxBytes
   });
 }
@@ -154,8 +186,10 @@ export async function compileLandscapeTaskContext(input: {
   });
   const pressure = detectArchitecturePressure({
     task: input.task,
-    symbols: codeContext.symbols.map((symbol) => symbol.id),
-    files: [...new Set(codeContext.symbols.map((symbol) => symbol.path))]
+    symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+    files: [...new Set(codeContext.symbols.map((symbol) => symbol.path))],
+    edges: codeContext.edges,
+    observedEvidence: codeContext.evidence
   });
   const confidence = computeRefactorConfidence({
     callerCoverage: codeContext.symbols.length > 0 ? 1 : 0,
@@ -169,6 +203,15 @@ export async function compileLandscapeTaskContext(input: {
     { type: "code-context", uri: `archcontext://code-context/${codeContext.digest}`, digest: codeContext.digest },
     { type: "model", uri: `archcontext://model/${model.modelDigest}`, digest: model.modelDigest }
   ];
+  const catalogRoot = (selectedWorkspaces[0] ?? input.workspaces[0]).root;
+  const catalog = loadPracticeCatalog({ root: catalogRoot });
+  const practiceGuidance = matchPracticesForTask({
+    task: input.task,
+    catalog,
+    codeContext,
+    pressure,
+    maxMatches: Math.min(5, Math.max(3, input.budget.maxItems))
+  });
   let context: Omit<CompiledTaskContext, "extensions"> = {
     schemaVersion: "archcontext.task-context/v1",
     task: input.task,
@@ -184,22 +227,31 @@ export async function compileLandscapeTaskContext(input: {
       coverage: confidence.coverage
     },
     relevantNodes: codeContext.symbols.map((symbol) => symbol.id).slice(0, input.budget.maxItems),
-    constraints: [],
-    decisions: [],
-    realConstraints: ["cross-repo-content-local-only", "git-worktree-is-collaboration-boundary"],
+    constraints: practiceGuidance.constraints,
+    decisions: practiceGuidance.decisions,
+    realConstraints: unique(["cross-repo-content-local-only", "git-worktree-is-collaboration-boundary", ...practiceGuidance.realConstraints]),
     unknowns: [],
     recommendedTargetState: {
-      activeRepositories: activeRepositoryIds
+      activeRepositories: activeRepositoryIds,
+      practiceCatalogDigest: practiceGuidance.catalogDigest,
+      topPracticeIds: practiceGuidance.matches.map((match) => match.practiceId)
     } as Record<string, Json>,
-    requiredCheckpoints: ["before-task-complete", "landscape-scope-review"],
-    resources
+    requiredCheckpoints: unique(["before-task-complete", "landscape-scope-review", ...practiceGuidance.requiredCheckpoints]),
+    resources: [...resources, ...practiceGuidance.resources],
+    practiceGuidance
   };
   const byteLength = Buffer.byteLength(JSON.stringify(context), "utf8");
   if (byteLength > input.budget.maxBytes) {
+    const trimmedPracticeGuidance = trimPracticeGuidance(practiceGuidance, Math.max(1, Math.floor(input.budget.maxItems / 2)));
     context = {
       ...context,
       relevantNodes: context.relevantNodes.slice(0, Math.max(1, Math.floor(input.budget.maxItems / 2))),
-      resources: resources.slice(0, 2)
+      constraints: trimmedPracticeGuidance.constraints,
+      decisions: trimmedPracticeGuidance.decisions,
+      realConstraints: unique(["cross-repo-content-local-only", "git-worktree-is-collaboration-boundary", ...trimmedPracticeGuidance.realConstraints]),
+      requiredCheckpoints: unique(["before-task-complete", "landscape-scope-review", ...trimmedPracticeGuidance.requiredCheckpoints]),
+      resources: [...resources.slice(0, 2), ...trimmedPracticeGuidance.resources],
+      practiceGuidance: trimmedPracticeGuidance
     };
   }
   return finalizeContext(context, {
@@ -209,6 +261,9 @@ export async function compileLandscapeTaskContext(input: {
     }),
     modelDigest: model.modelDigest,
     codeContextDigest: codeContext.digest,
+    catalogDigest: practiceGuidance.catalogDigest,
+    practiceGuidanceDigest: digestJson(practiceGuidance as unknown as Json),
+    pressureSignals: pressure.signals,
     landscapeDigest: landscapeHash,
     activeRepositories: activeRepositoryIds,
     crossRepoRelations: input.relations.map((relation) => relation.id),
@@ -222,6 +277,9 @@ function finalizeContext(
     codeFactsDigest: string;
     modelDigest: string;
     codeContextDigest: string;
+    catalogDigest: string;
+    practiceGuidanceDigest: string;
+    pressureSignals: PressureSignal[];
     landscapeDigest?: string;
     activeRepositories?: string[];
     crossRepoRelations?: string[];
@@ -235,6 +293,9 @@ function finalizeContext(
       codeFactsDigest: digests.codeFactsDigest,
       modelDigest: digests.modelDigest,
       codeContextDigest: digests.codeContextDigest,
+      catalogDigest: digests.catalogDigest,
+      practiceGuidanceDigest: digests.practiceGuidanceDigest,
+      pressureSignals: digests.pressureSignals,
       landscapeDigest: digests.landscapeDigest,
       activeRepositories: digests.activeRepositories,
       crossRepoRelations: digests.crossRepoRelations,
@@ -249,4 +310,22 @@ function finalizeContext(
       digest: digestJson(withMetadata as unknown as Json)
     }
   };
+}
+
+function trimPracticeGuidance(guidance: PracticeGuidanceResultV1, maxMatches: number): PracticeGuidanceResultV1 {
+  const matches = guidance.matches.slice(0, maxMatches);
+  return {
+    ...guidance,
+    matches,
+    constraints: guidance.constraints.slice(0, maxMatches),
+    decisions: guidance.decisions.slice(0, maxMatches),
+    realConstraints: guidance.realConstraints.slice(0, maxMatches * 2),
+    unknowns: guidance.unknowns.slice(0, maxMatches),
+    requiredCheckpoints: guidance.requiredCheckpoints.filter((checkpoint) => matches.some((match) => checkpoint.includes(match.practiceId))),
+    resources: guidance.resources.filter((resource) => matches.some((match) => resource.uri.includes(match.practiceId)))
+  };
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
 }

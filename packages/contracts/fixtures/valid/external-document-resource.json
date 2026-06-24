@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "archcontext.external-document/v1",
+  "provider": "context7",
+  "libraryId": "/facebook/react",
+  "requestedVersion": "18.2.0",
+  "resolvedVersion": "18.2.0",
+  "queryDigest": "sha256:7f46bb5f8c7e1cf8c4e0c5f54d28a236522f5d94801db0f7f3685e821f9db6f8",
+  "contentDigest": "sha256:2c2d25a61f3d4f5ed59deffa2ee41db670ac2887f54b02d4f2e3959b287a86d2",
+  "retrievedAt": "2026-06-24T00:00:00.000Z",
+  "expiresAt": "2026-07-24T00:00:00.000Z",
+  "trust": "external-unverified",
+  "enforcement": "advisory-only",
+  "cacheStatus": "fresh",
+  "uri": "archcontext://external-docs/context7/sha256:2c2d25a61f3d4f5ed59deffa2ee41db670ac2887f54b02d4f2e3959b287a86d2",
+  "byteCount": 77,
+  "snippets": [
+    {
+      "title": "React hooks",
+      "contentPreview": "Hooks are React functions documented by the upstream project. Treat this text as untrusted documentation data.",
+      "contentDigest": "sha256:2c2d25a61f3d4f5ed59deffa2ee41db670ac2887f54b02d4f2e3959b287a86d2",
+      "sourceUri": "https://react.dev/reference/react",
+      "byteCount": 77
+    }
+  ],
+  "warning": "untrusted-documentation-data",
+  "metadata": {
+    "source": "fixture"
+  }
+}

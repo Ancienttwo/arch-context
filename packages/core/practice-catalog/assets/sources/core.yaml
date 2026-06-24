@@ -1,0 +1,211 @@
+[
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archcontext.spec",
+    "name": "ArchContext Product Specification",
+    "sourceType": "archcontext",
+    "uri": "docs/spec.md",
+    "revision": "2026-06-23",
+    "licenseSpdx": "LicenseRef-ArchContext-Repo",
+    "licenseLevel": "A",
+    "usagePolicy": "repo-authored",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:1000000000000000000000000000000000000000000000000000000000000001",
+    "attribution": "ArchContext maintainers",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archcontext.adr.0008",
+    "name": "ADR-0008 Declared Observed Verified",
+    "sourceType": "archcontext",
+    "uri": "docs/adr/ADR-0008-declared-observed-verified.md",
+    "revision": "2026-06-23",
+    "licenseSpdx": "LicenseRef-ArchContext-Repo",
+    "licenseLevel": "A",
+    "usagePolicy": "repo-authored",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:1000000000000000000000000000000000000000000000000000000000000008",
+    "attribution": "ArchContext maintainers",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archcontext.adr.0009",
+    "name": "ADR-0009 Target State vs Migration State",
+    "sourceType": "archcontext",
+    "uri": "docs/adr/ADR-0009-target-state-vs-migration-state.md",
+    "revision": "2026-06-23",
+    "licenseSpdx": "LicenseRef-ArchContext-Repo",
+    "licenseLevel": "A",
+    "usagePolicy": "repo-authored",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:1000000000000000000000000000000000000000000000000000000000000009",
+    "attribution": "ArchContext maintainers",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archcontext.adr.0010",
+    "name": "ADR-0010 Compatibility Code Requires Contract",
+    "sourceType": "archcontext",
+    "uri": "docs/adr/ADR-0010-compatibility-code-requires-contract.md",
+    "revision": "2026-06-23",
+    "licenseSpdx": "LicenseRef-ArchContext-Repo",
+    "licenseLevel": "A",
+    "usagePolicy": "repo-authored",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:1000000000000000000000000000000000000000000000000000000000000010",
+    "attribution": "ArchContext maintainers",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archcontext.adr.0012",
+    "name": "ADR-0012 Changeset-only Architecture Writes",
+    "sourceType": "archcontext",
+    "uri": "docs/adr/ADR-0012-changeset-only-architecture-writes.md",
+    "revision": "2026-06-23",
+    "licenseSpdx": "LicenseRef-ArchContext-Repo",
+    "licenseLevel": "A",
+    "usagePolicy": "repo-authored",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:1000000000000000000000000000000000000000000000000000000000000012",
+    "attribution": "ArchContext maintainers",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archcontext.adr.0036",
+    "name": "ADR-0036 Deterministic Gate LLM Advisory",
+    "sourceType": "archcontext",
+    "uri": "docs/adr/ADR-0036-deterministic-gate-llm-advisory.md",
+    "revision": "2026-06-23",
+    "licenseSpdx": "LicenseRef-ArchContext-Repo",
+    "licenseLevel": "A",
+    "usagePolicy": "repo-authored",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:1000000000000000000000000000000000000000000000000000000000000036",
+    "attribution": "ArchContext maintainers",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "madr",
+    "name": "Markdown Architectural Decision Records",
+    "sourceType": "git",
+    "uri": "https://github.com/adr/madr",
+    "revision": "v4.0.0",
+    "licenseSpdx": "MIT OR CC0-1.0",
+    "licenseLevel": "A",
+    "usagePolicy": "builtin-with-attribution",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:2000000000000000000000000000000000000000000000000000000000000001",
+    "attribution": "MADR contributors",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "backstage",
+    "name": "Backstage Software Catalog",
+    "sourceType": "git",
+    "uri": "https://github.com/backstage/backstage",
+    "revision": "pinned-reference",
+    "licenseSpdx": "Apache-2.0",
+    "licenseLevel": "A",
+    "usagePolicy": "builtin-with-attribution",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:2000000000000000000000000000000000000000000000000000000000000002",
+    "attribution": "Backstage contributors",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "archunit",
+    "name": "ArchUnit",
+    "sourceType": "git",
+    "uri": "https://github.com/TNG/ArchUnit",
+    "revision": "pinned-reference",
+    "licenseSpdx": "Apache-2.0",
+    "licenseLevel": "A",
+    "usagePolicy": "builtin-with-attribution",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:2000000000000000000000000000000000000000000000000000000000000003",
+    "attribution": "ArchUnit contributors",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "opentelemetry",
+    "name": "OpenTelemetry Documentation",
+    "sourceType": "git",
+    "uri": "https://github.com/open-telemetry/opentelemetry.io",
+    "revision": "pinned-reference",
+    "licenseSpdx": "CC-BY-4.0",
+    "licenseLevel": "B",
+    "usagePolicy": "builtin-with-attribution",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:2000000000000000000000000000000000000000000000000000000000000004",
+    "attribution": "OpenTelemetry contributors",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-source/v1",
+    "id": "openssf.scorecard",
+    "name": "OpenSSF Scorecard",
+    "sourceType": "git",
+    "uri": "https://github.com/ossf/scorecard",
+    "revision": "pinned-reference",
+    "licenseSpdx": "Apache-2.0",
+    "licenseLevel": "A",
+    "usagePolicy": "builtin-with-attribution",
+    "retrievedAt": "2026-06-23T00:00:00Z",
+    "contentDigest": "sha256:2000000000000000000000000000000000000000000000000000000000000005",
+    "attribution": "OpenSSF Scorecard contributors",
+    "review": {
+      "status": "approved",
+      "reviewer": "archcontext-maintainers",
+      "reviewedAt": "2026-06-23"
+    }
+  }
+]

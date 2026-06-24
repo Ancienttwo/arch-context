@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "archcontext.practice-assets-s6-runtime-readback/v1",
+  "status": "verified",
+  "generatedAt": "2026-06-24T01:55:20.257Z",
+  "thresholds": {
+    "catalogWarmP95Ms": 50,
+    "matchingWarmP95Ms": 150,
+    "checkpointWarmP95Ms": 250
+  },
+  "summary": {
+    "syntheticPracticeCount": 100,
+    "effectivePracticeCount": 141,
+    "samples": 12,
+    "catalogDigest": "sha256:3b78810ee001c94c10f09707650c82f4e87b07f2d909523be9201f16a8701829"
+  },
+  "performance": {
+    "catalogDigest": "sha256:3b78810ee001c94c10f09707650c82f4e87b07f2d909523be9201f16a8701829",
+    "effectivePracticeCount": 141,
+    "samples": {
+      "catalogWarmMs": [
+        11.221,
+        13.734,
+        15.144,
+        16.362,
+        15.724,
+        11.634,
+        11.337,
+        10.79,
+        10.814,
+        10.731,
+        11.157,
+        11.281
+      ],
+      "matchingWarmMs": [
+        2.381,
+        2.117,
+        2.097,
+        2.296,
+        2.091,
+        1.997,
+        1.983,
+        2.012,
+        2.166,
+        1.895,
+        2.894,
+        2.018
+      ],
+      "checkpointWarmMs": [
+        25.992,
+        30.904,
+        24.614,
+        22.36,
+        22.393,
+        22.177,
+        22.212,
+        23.093,
+        22.395,
+        22.561,
+        22.269,
+        23.311
+      ]
+    },
+    "p95": {
+      "catalogWarmMs": 16.362,
+      "matchingWarmMs": 2.894,
+      "checkpointWarmMs": 30.904
+    },
+    "checkpointNoNetwork": true,
+    "checkpointCoalescedCount": 0
+  },
+  "reliability": {
+    "catalogCorruption": {
+      "typed": true,
+      "issueCodes": [
+        "practice-yaml-parse-failed",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-missing-field",
+        "practice-schema-version",
+        "practice-id-invalid",
+        "practice-revision-invalid",
+        "practice-provenance-missing"
+      ],
+      "recovered": true,
+      "silentDataError": false
+    },
+    "sqliteCorruption": {
+      "status": "target-incomplete",
+      "typed": true,
+      "recoveryAction": "repair-or-delete-corrupt-target",
+      "migrateError": "ArchContext runtime state target is not a valid SQLite database and no legacy store is available: <runtime.sqlite>",
+      "silentDataError": false
+    },
+    "migration": {
+      "preInspectStatus": "pending",
+      "forwardStatus": "migrated",
+      "migrated": true,
+      "postInspectStatus": "target-current",
+      "targetIntegrity": "ok",
+      "unknownTableIgnored": true,
+      "markerWritten": true,
+      "markerFile": "runtime.sqlite.migration.json"
+    },
+    "staleCatalog": {
+      "ok": true,
+      "fresh": false,
+      "reasonCode": "stale-catalog",
+      "staleReasons": [
+        "stale-catalog"
+      ],
+      "previousCatalogDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14",
+      "worktreeDigest": "sha256:fbbda6cce6132e2a3bf62f986f390055aca162ba2d66bf021d5c5145e47056a4",
+      "persistedBaselineKey": "practice-checkpoint:repo.3cc1a3f3976c43e6:task_s6_stale_catalog"
+    }
+  },
+  "assertions": {
+    "catalogWarmP95WithinLimit": true,
+    "matchingWarmP95WithinLimit": true,
+    "checkpointWarmP95WithinLimit": true,
+    "checkpointNoNetwork": true,
+    "catalogCorruptionTypedRecovery": true,
+    "sqliteCorruptionTypedRecovery": true,
+    "sqliteMigrationForwardAndBackwardCompatible": true,
+    "staleCatalogDetected": true
+  },
+  "readback": {
+    "command": "bun scripts/practice-assets-s6-runtime-readback.ts inspect --evidence docs/verification/practice-assets-s6-runtime-readback.json --json"
+  }
+}

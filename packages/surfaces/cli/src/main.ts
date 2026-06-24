@@ -3,10 +3,9 @@ import { spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CALLER_PROVIDED_ATTESTATION_FIELDS, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { checkpoint } from "@archcontext/core/application";
+import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -36,6 +35,10 @@ const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
 const NPM_VIEW_TIMEOUT_MS = 5_000;
+const HOOK_ADAPTER_SCHEMA_VERSION = "archcontext.hook-adapter/v1";
+const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
+const HOOK_ADAPTER_NAME = "repo-harness-hook";
+const HOOK_CHECKPOINT_TIMEOUT_MS = 5_000;
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -256,17 +259,21 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         cwd,
         task,
         Number(readFlag(args, "--max-bytes") ?? 12288),
-        Number(readFlag(args, "--max-items") ?? 12)
+        Number(readFlag(args, "--max-items") ?? 12),
+        readFlag(args, "--task-session-id") ?? "task_cli"
       );
       return result.ok ? { ...result, data: paginate(result.data, args) } : result;
     }
+    case "docs":
+      return runDocsCommand(args, cwd, await runtime());
+    case "practices":
+      return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
-      return {
-        schemaVersion: "archcontext.envelope/v1",
-        ok: true,
-        requestId: "checkpoint",
-        data: checkpoint({ root: cwd, expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(cwd) })
-      };
+      return runCheckpointCommand(args, cwd, await runtime(), "checkpoint");
+    case "hook":
+      return runHookCommand(args, cwd, runtime);
+    case "hooks":
+      return runHooksCommand(args);
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -275,6 +282,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       }
       const result = await (await runtime()).completeTask(cwd, {
         taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
+        task: readFlag(args, "--task"),
         posture: (readFlag(args, "--posture") as any) ?? "normal",
         headSha: readFlag(args, "--head-sha")
       });
@@ -381,14 +389,218 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "checkpoint", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
   } finally {
     for (const handle of runtimeHandles.reverse()) await handle.close();
   }
+}
+
+async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "status";
+  if (!["status", "resolve", "pin", "fetch", "purge"].includes(subcommand)) {
+    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+  }
+  if (subcommand === "status") {
+    return daemon.docs(cwd, { command: "status", provider: "context7" });
+  }
+  if (subcommand === "resolve") {
+    return daemon.docs(cwd, {
+      command: "resolve",
+      provider: "context7",
+      libraryName: readFlag(args, "--library") ?? args[1],
+      query: readFlag(args, "--query"),
+      allowNetwork: args.includes("--allow-network")
+    });
+  }
+  if (subcommand === "pin") {
+    return daemon.docs(cwd, {
+      command: "pin",
+      provider: "context7",
+      libraryId: readFlag(args, "--library-id") ?? args[1],
+      version: readFlag(args, "--version"),
+      approved: args.includes("--approved")
+    });
+  }
+  if (subcommand === "fetch") {
+    return daemon.docs(cwd, {
+      command: "fetch",
+      provider: "context7",
+      libraryId: readFlag(args, "--library-id") ?? args[1],
+      intent: readFlag(args, "--intent") ?? readFlag(args, "--query"),
+      query: readFlag(args, "--query"),
+      allowNetwork: args.includes("--allow-network"),
+      forceRefresh: args.includes("--force-refresh")
+    });
+  }
+  return daemon.docs(cwd, {
+    command: "purge",
+    provider: "context7",
+    libraryId: readFlag(args, "--library-id"),
+    all: args.includes("--all")
+  });
+}
+
+async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "list";
+  if (subcommand === "list") {
+    return daemon.practices(cwd, {
+      action: "list",
+      category: readFlag(args, "--category"),
+      source: readFlag(args, "--source")
+    });
+  }
+  if (subcommand === "show") {
+    const id = args[1] ?? readFlag(args, "--id");
+    if (!id) return errorEnvelope("practices.show", "AC_SCHEMA_INVALID", "practices show requires <id> or --id");
+    return daemon.practices(cwd, { action: "show", id });
+  }
+  if (subcommand === "validate") {
+    return daemon.practices(cwd, { action: "validate", strict: args.includes("--strict") });
+  }
+  if (subcommand === "sources") {
+    return daemon.practices(cwd, { action: "sources" });
+  }
+  if (subcommand === "waivers") {
+    return daemon.practiceWaivers(cwd);
+  }
+  if (subcommand === "waive") {
+    const required = ["--practice-id", "--owner", "--reason", "--expires-at", "--evidence-digest"];
+    const missing = required.filter((flag) => !readFlag(args, flag));
+    if (missing.length > 0) return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", `practices waive requires ${missing.join(", ")}`);
+    const subjects = readRepeatedFlag(args, "--subject");
+    const pathGlobs = readRepeatedFlag(args, "--path-glob");
+    if (subjects.length === 0 && pathGlobs.length === 0) {
+      return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", "practices waive requires --subject or --path-glob");
+    }
+    return daemon.planPracticeWaiver(cwd, {
+      ...(readFlag(args, "--id") === undefined ? {} : { id: readFlag(args, "--id")! }),
+      ...(readFlag(args, "--waiver-id") === undefined ? {} : { waiverId: readFlag(args, "--waiver-id")! }),
+      ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
+      practiceId: readFlag(args, "--practice-id")!,
+      ...(readFlag(args, "--check-id") === undefined ? {} : { checkId: readFlag(args, "--check-id")! }),
+      owner: readFlag(args, "--owner")!,
+      reason: readFlag(args, "--reason")!,
+      ...(readFlag(args, "--created-at") === undefined ? {} : { createdAt: readFlag(args, "--created-at")! }),
+      expiresAt: readFlag(args, "--expires-at")!,
+      evidenceDigest: readFlag(args, "--evidence-digest")!,
+      ...(subjects.length === 0 ? {} : { subjects }),
+      ...(pathGlobs.length === 0 ? {} : { pathGlobs })
+    });
+  }
+  return errorEnvelope("practices", "AC_SCHEMA_INVALID", "practices requires list|show|validate|sources|waivers|waive");
+}
+
+async function runCheckpointCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient, requestId: string) {
+  const task = readFlag(args, "--task");
+  const result = await daemon.checkpoint(cwd, {
+    taskSessionId: readFlag(args, "--task-session-id") ?? "task_cli",
+    ...(task === undefined ? {} : { task }),
+    event: (readFlag(args, "--event") as any) ?? "manual",
+    changedPaths: [...readRepeatedFlag(args, "--path"), ...readRepeatedFlag(args, "--changed")],
+    toolCallId: readFlag(args, "--tool-call-id"),
+    expectedHeadSha: readFlag(args, "--expected-head-sha") ?? readFlag(args, "--head-sha"),
+    expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest"),
+    maxBytes: Number(readFlag(args, "--max-bytes") ?? 12_288),
+    maxItems: Number(readFlag(args, "--max-items") ?? 12)
+  });
+  return { ...result, requestId };
+}
+
+async function runHookCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand !== "checkpoint") return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires checkpoint");
+  const checkpointArgs = args.slice(1);
+  const started = Date.now();
+  const event = readFlag(checkpointArgs, "--event") ?? "post-edit";
+  const changedPaths = [...readRepeatedFlag(checkpointArgs, "--path"), ...readRepeatedFlag(checkpointArgs, "--changed")];
+  try {
+    const result = await runCheckpointCommand(
+      [
+        "--event", event,
+        "--task-session-id", readFlag(checkpointArgs, "--task-session-id") ?? "task_cli",
+        ...copyOptionalFlag(checkpointArgs, "--task"),
+        ...copyOptionalFlag(checkpointArgs, "--tool-call-id"),
+        ...copyOptionalFlag(checkpointArgs, "--expected-head-sha"),
+        ...copyOptionalFlag(checkpointArgs, "--expected-worktree-digest"),
+        ...copyOptionalFlag(checkpointArgs, "--max-bytes"),
+        ...copyOptionalFlag(checkpointArgs, "--max-items"),
+        ...readRepeatedFlag(checkpointArgs, "--path").flatMap((path) => ["--path", path]),
+        ...readRepeatedFlag(checkpointArgs, "--changed").flatMap((path) => ["--changed", path])
+      ],
+      cwd,
+      await runtime(),
+      "hook.checkpoint"
+    );
+    if (!result.ok || typeof result.data !== "object" || result.data === null) return result;
+    return {
+      ...result,
+      data: {
+        ...(result.data as Record<string, Json>),
+        hookLog: hookLogRecord({
+          event,
+          changedPaths,
+          reasonCode: String((result.data as any).reasonCode ?? "unknown"),
+          elapsedMs: Date.now() - started,
+          failOpen: false
+        })
+      } as Json
+    };
+  } catch (error) {
+    return okEnvelope("hook.checkpoint", {
+      schemaVersion: "archcontext.hook-checkpoint-fail-open/v1",
+      accepted: false,
+      failOpen: true,
+      reasonCode: "runtime-unavailable",
+      event,
+      pathCount: changedPaths.length,
+      egress: "none",
+      network: "forbidden",
+      hookLog: hookLogRecord({
+        event,
+        changedPaths,
+        reasonCode: "runtime-unavailable",
+        elapsedMs: Date.now() - started,
+        failOpen: true
+      }),
+      message: error instanceof Error ? error.message : String(error)
+    } as Json);
+  }
+}
+
+function runHooksCommand(args: string[]) {
+  const subcommand = args[0] ?? "status";
+  if (!["install", "status", "remove"].includes(subcommand)) {
+    return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "hooks requires install|status|remove");
+  }
+  const host = readAgentHost(args);
+  if (!host) return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "--host must be codex, claude, or generic");
+  const adapter = hookAdapterContract(host);
+  if (subcommand === "install") {
+    return okEnvelope("hooks.install", {
+      ...adapter,
+      installed: true,
+      writes: "manual-host-config",
+      configExample: hookHostConfigExample(host)
+    } as any);
+  }
+  if (subcommand === "status") {
+    return okEnvelope("hooks.status", {
+      ...adapter,
+      installed: "config-ready",
+      writes: "manual-host-config",
+      configExample: hookHostConfigExample(host)
+    } as any);
+  }
+  return okEnvelope("hooks.remove", {
+    ...adapter,
+    installed: false,
+    writes: "manual-host-config",
+    removeConfig: hookHostRemoveConfig(host)
+  } as any);
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -953,6 +1165,88 @@ function runMcpCommand(args: string[]) {
   } as any);
 }
 
+function hookAdapterContract(host: AgentHost) {
+  return {
+    schemaVersion: HOOK_ADAPTER_SCHEMA_VERSION,
+    host,
+    adapterName: HOOK_ADAPTER_NAME,
+    ownership: "central-first",
+    hookRuntime: "external-user-level",
+    repoLocalRuntime: "not-vendored",
+    entrypoint: {
+      command: "archctx",
+      args: ["hook", "checkpoint"],
+      timeoutMs: HOOK_CHECKPOINT_TIMEOUT_MS,
+      failOpen: true,
+      egress: "none",
+      network: "forbidden"
+    },
+    acceptedInput: {
+      eventFlag: "--event",
+      changedPathFlags: ["--path", "--changed"],
+      toolCallIdFlag: "--tool-call-id",
+      taskSessionIdFlag: "--task-session-id"
+    },
+    output: {
+      checkpointSchemaVersion: "archcontext.practice-checkpoint/v1",
+      failOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
+    },
+    logContract: {
+      schemaVersion: HOOK_LOG_SCHEMA_VERSION,
+      allowedFields: ["schemaVersion", "event", "elapsedMs", "pathCount", "changedPathDigest", "reasonCode", "failOpen", "egress", "network"],
+      forbiddenContent: ["source", "diff", "patch", "symbolBody", "architectureModelBody", "secret"]
+    }
+  };
+}
+
+function hookHostConfigExample(host: AgentHost) {
+  return {
+    host,
+    configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
+    writes: "manual-host-config",
+    adapter: {
+      command: HOOK_ADAPTER_NAME,
+      args: ["archcontext-checkpoint"],
+      invokes: {
+        command: "archctx",
+        args: ["hook", "checkpoint", "--event", "post-edit"]
+      }
+    },
+    eventMap: {
+      postEdit: "archctx hook checkpoint --event post-edit --path <changed-path>",
+      postWrite: "archctx hook checkpoint --event post-write --path <changed-path>"
+    },
+    centralFirst: true,
+    repoHookSourceRequired: false
+  };
+}
+
+function hookHostRemoveConfig(host: AgentHost) {
+  return {
+    host,
+    configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
+    removeAdapter: HOOK_ADAPTER_NAME,
+    removeEntrypoint: "archctx hook checkpoint",
+    repoHookSourceRequired: false
+  };
+}
+
+function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCode: string; elapsedMs: number; failOpen: boolean }) {
+  return {
+    schemaVersion: HOOK_LOG_SCHEMA_VERSION,
+    event: input.event,
+    elapsedMs: input.elapsedMs,
+    pathCount: input.changedPaths.length,
+    changedPathDigest: digestJson({
+      paths: [...new Set(input.changedPaths)].sort()
+    }),
+    reasonCode: input.reasonCode,
+    failOpen: input.failOpen,
+    egress: "none",
+    network: "forbidden"
+  };
+}
+
 function readAgentHost(args: string[]): AgentHost | undefined {
   const host = readFlag(args, "--host") ?? "generic";
   return host === "codex" || host === "claude" || host === "generic" ? host : undefined;
@@ -1286,7 +1580,8 @@ function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
     "clock",
     "maxRepoSessions",
     "devicePrivateKeySigner",
-    "devicePrivateKeyStore"
+    "devicePrivateKeyStore",
+    "externalDocumentation"
   ].some((key) => key in deps);
 }
 
@@ -1619,6 +1914,11 @@ function requireFlag(args: string[], flag: string): string {
   const value = readFlag(args, flag);
   if (!value) throw new Error(`${flag} is required`);
   return value;
+}
+
+function copyOptionalFlag(args: string[], flag: string): string[] {
+  const value = readFlag(args, flag);
+  return value === undefined ? [] : [flag, value];
 }
 
 function readForbiddenAttestationFlags(args: string[]): string[] {

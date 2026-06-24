@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "archcontext.practice-context7-live-readback/v1",
+  "environment": "live-context7-public-fixture",
+  "status": "verified",
+  "generatedAt": "2026-06-24T00:29:17.738Z",
+  "fixture": {
+    "provider": "context7",
+    "packageName": "next",
+    "libraryName": "Next.js",
+    "libraryId": "/vercel/next.js",
+    "version": "v15.1.8",
+    "intent": "app router metadata api",
+    "publicPackage": true,
+    "sensitiveTask": false,
+    "rawTaskSent": false,
+    "fileContentsSent": false,
+    "diffSent": false,
+    "pathsSent": false,
+    "symbolsSent": false
+  },
+  "resolve": {
+    "provider": "context7",
+    "libraryName": "Next.js",
+    "queryDigest": "sha256:09aac85b32d83b9f0bf26eb1e48699c91aafee5d2541cef4a4dd617790fa14f8",
+    "candidateCount": 5,
+    "selectedLibraryId": "/vercel/next.js",
+    "selectedVersion": "v15.1.8",
+    "selectedVersionPresent": true,
+    "searchFilterApplied": false
+  },
+  "fetch": {
+    "provider": "context7",
+    "cacheStatus": "miss",
+    "request": {
+      "libraryId": "/vercel/next.js",
+      "version": "v15.1.8",
+      "intentDigest": "sha256:f4c98b851becb4634805fd04689bb509736043a89182e762a8295ca4462d8b0f",
+      "queryDigest": "sha256:7fab8852d380e4b5a34105a9cf68661c6a827c7c425a787e22ede65d9c399721"
+    },
+    "resourceSummary": {
+      "schemaVersion": "archcontext.external-document/v1",
+      "provider": "context7",
+      "libraryId": "/vercel/next.js",
+      "requestedVersion": "v15.1.8",
+      "resolvedVersion": "v15.1.8",
+      "queryDigest": "sha256:7fab8852d380e4b5a34105a9cf68661c6a827c7c425a787e22ede65d9c399721",
+      "contentDigest": "sha256:bc821a2263cfa08170f22ae4e181abaf3aff3d0e1fd25b7ee7d6b340fabdb6a5",
+      "trust": "external-unverified",
+      "enforcement": "advisory-only",
+      "warning": "untrusted-documentation-data",
+      "cacheStatus": "miss",
+      "retrievedAt": "2026-06-24T00:29:17.737Z",
+      "expiresAt": "2026-06-25T00:29:17.737Z",
+      "uriPrefix": "archcontext://external-docs/context7/",
+      "snippetCount": 2,
+      "byteCount": 1284
+    }
+  },
+  "providerTelemetry": {
+    "eventCount": 2,
+    "statuses": [
+      "success",
+      "success"
+    ],
+    "operations": [
+      "resolve",
+      "fetch"
+    ],
+    "resolveKeys": [
+      "byteCount",
+      "latencyMs",
+      "operation",
+      "provider",
+      "queryDigest",
+      "status"
+    ],
+    "fetchKeys": [
+      "byteCount",
+      "latencyMs",
+      "libraryId",
+      "operation",
+      "provider",
+      "queryDigest",
+      "status",
+      "version"
+    ],
+    "fetchLibraryId": "/vercel/next.js",
+    "fetchVersion": "v15.1.8",
+    "queryDigestsValid": true,
+    "byteCountsPositive": true,
+    "metadataOnly": true,
+    "rawQueryPresent": false,
+    "rawContentPresent": false,
+    "credentialPresent": false
+  },
+  "disclaimer": {
+    "communityContentUnverified": true,
+    "accuracyNotGuaranteed": true,
+    "notEndToEndAuditable": true,
+    "advisoryOnly": true,
+    "noHardGateAuthority": true,
+    "statement": "Context7 community documentation is external, unverified advisory data; ArchContext does not guarantee accuracy or completeness and this live readback is not end-to-end auditable."
+  },
+  "assertions": {
+    "exactLibraryIdRecorded": true,
+    "exactVersionRecorded": true,
+    "publicFixtureOnly": true,
+    "noSensitiveTaskFields": true,
+    "providerContentAdvisoryOnly": true,
+    "communityContentDisclaimerPresent": true,
+    "accuracyNotGuaranteed": true,
+    "doesNotClaimEndToEndAuditable": true,
+    "evidenceStoresDigestOnly": true
+  },
+  "readback": {
+    "command": "bun scripts/practice-context7-readback.ts inspect-live --evidence docs/verification/practice-context7-live-readback.json --json"
+  }
+}

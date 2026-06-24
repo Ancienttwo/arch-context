@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "name",
+    "sourceType",
+    "uri",
+    "revision",
+    "licenseSpdx",
+    "licenseLevel",
+    "usagePolicy",
+    "retrievedAt",
+    "contentDigest",
+    "attribution",
+    "review"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-source/v1" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "name": { "type": "string" },
+    "sourceType": { "enum": ["archcontext", "git", "website", "standard", "reference"] },
+    "uri": { "type": "string" },
+    "revision": { "type": "string" },
+    "licenseSpdx": { "type": "string" },
+    "licenseLevel": { "enum": ["A", "B", "C", "D", "E"] },
+    "usagePolicy": { "enum": ["builtin-with-attribution", "reference-only", "repo-authored"] },
+    "retrievedAt": { "type": "string" },
+    "contentDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "attribution": { "type": "string" },
+    "review": { "type": "object" }
+  },
+  "additionalProperties": false
+}

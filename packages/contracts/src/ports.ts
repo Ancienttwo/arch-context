@@ -80,7 +80,7 @@ export interface SourceSelector {
 export interface CodeFactsPort {
   ensureReady(workspace: WorkspaceRef): Promise<CodeFactsSnapshot>;
   sync(input: { workspace: WorkspaceRef; changedPaths?: string[] }): Promise<CodeFactsSnapshot>;
-  buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean }): Promise<NormalizedCodeContext>;
+  buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext>;
   findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]>;
   getImpact(input: ImpactQuery): Promise<NormalizedImpact>;
   getCallers(symbolId: string): Promise<NormalizedEdge[]>;

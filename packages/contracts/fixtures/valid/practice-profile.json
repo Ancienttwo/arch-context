@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "archcontext.practice-profile/v1",
+  "id": "profile.typescript.service",
+  "revision": 1,
+  "status": "active",
+  "title": "TypeScript service profile",
+  "repositoryKinds": ["service"],
+  "languages": ["typescript"],
+  "frameworks": [],
+  "includePracticeIds": ["compatibility.single-owner"],
+  "excludePracticeIds": [],
+  "provenance": {
+    "sourceKind": "archcontext-native",
+    "sourceRefs": [
+      {
+        "sourceId": "archcontext.spec"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  }
+}

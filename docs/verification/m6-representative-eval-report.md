@@ -12,10 +12,23 @@ This eval converts the four PRD §25.3 statistical targets from assertions into 
 | Target / gate | Metric | Threshold | Observed | Result |
 |---|---|---:|---:|:--:|
 | Unjustified Compatibility Recall | recall | ≥ 85.0% | 88.2% | ✅ PASS |
-| Architecture Drift Precision | precision | ≥ 90.0% | 95.7% | ✅ PASS |
+| Architecture Drift Precision | precision | ≥ 90.0% | 100.0% | ✅ PASS |
 | Context Constraint Recall | recall @ top-k 5 | ≥ 95.0% | 100.0% | ✅ PASS |
-| Context irrelevant ratio | ratio @ top-k 5 | ≤ 20.0% | 4.4% | ✅ PASS |
+| Context irrelevant ratio | ratio @ top-k 5 | ≤ 15.0% | 4.4% | ✅ PASS |
 | Chinese Jieba Retrieval Gate | recall / irrelevant ratio @ top-k 1 | 100.0% / 0.0% | 100.0% context, 100.0% constraint, 0.0% irrelevant | ✅ PASS |
+| Practice Top-3 recall | recall @ top-k 3 | ≥ 92.0% | 100.0% | ✅ PASS |
+| Practice dataset scale | positive / negative cases | ≥ 60 / ≥ 60 | 60 / 80 | ✅ PASS |
+| Practice Chinese scenario mix | Chinese ratio | ≥ 25.0% | 31.3% (50/160) | ✅ PASS |
+| Practice no-keyword structural cases | count | ≥ 30 | 30 | ✅ PASS |
+| Practice keyword-heavy benign cases | count | ≥ 30 | 30 | ✅ PASS |
+| Practice enforcement/waiver adversarial cases | count | ≥ 20 | 20 | ✅ PASS |
+| Practice budget/irrelevant resource cases | count | ≥ 20 | 20 | ✅ PASS |
+| Practice dataset labels | metadata / prohibited / evidence / ceiling violations | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 | ✅ PASS |
+| Practice benign precision | negative case precision | ≥ 95.0% | 100.0% | ✅ PASS |
+| Practice no-keyword structural recall | recall | ≥ 85.0% | 100.0% | ✅ PASS |
+| Practice heuristic-only hard-gate rate | hard-gate rate | 0.0% | 0.0% | ✅ PASS |
+| Practice dynamic-doc hard-gate rate | hard-gate rate | 0.0% | 0.0% | ✅ PASS |
+| Practice waiver invalid/tampered rejection | rejection rate | 100.0% | 100.0% | ✅ PASS |
 
 The deterministic target-vs-migration separation invariant: **✅ HOLD** (20/20).
 
@@ -28,6 +41,9 @@ The deterministic target-vs-migration separation invariant: **✅ HOLD** (20/20)
 | Context Constraint Recall | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
 | Context irrelevant ratio | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever`) | `evals/context-budget/{cases,documents}.jsonl` |
 | Chinese retrieval gate | `retrieval.runRetrievalEval` (`InMemoryLexicalRetriever` + jieba tokenizer) | `packages/core/retrieval.createChineseRetrievalEvalSet()` |
+| Practice Top-3 recall | `practice-engine.matchPracticesForTask` | `evals/practices/{structural-positive,no-keyword-structural-positive}.jsonl` |
+| Practice benign negatives | `pressure-engine.detectArchitecturePressure` + `practice-engine.matchPracticesForTask` | `evals/practices/{benign-negative,keyword-heavy-benign-negative,budget-irrelevant-resource}.jsonl` |
+| Practice enforcement adversarial | `practice-engine.evaluatePracticeEnforcement` + waiver validation | `evals/practices/enforcement-waiver-adversarial.jsonl` |
 | Target/migration invariant | `refactor-decision.createInterventionProposal` | `evals/target-vs-migration/cases.jsonl` |
 
 ### Correction vs. the original plan
@@ -46,16 +62,16 @@ The six other §25.3 targets (schema precision, stale interception, path-escape,
 
 ## Target 2 — Architecture Drift Precision
 
-- Drift precision (non-normal posture correctness): **95.7%** (22/23), threshold 90.0%.
+- Drift precision (non-normal posture correctness): **100.0%** (22/22), threshold 90.0%.
 - Drift recall (genuine drift detected): 100.0% (22/22).
-- Exact posture accuracy: 93.8% (30/32).
-- False positives (engine over-flagged drift): `fp-004` (keyword-false-trigger: expected normal, got structural).
+- Exact posture accuracy: 81.3% (26/32).
+- False positives (engine over-flagged drift): none.
 - False negatives (engine missed drift, incl. high-pressure/medium-confidence gap): none.
 
 ## Targets 3 & 4 — Context Constraint Recall + irrelevant ratio
 
 - Corpus: 20 constraint-tagged documents, 22 queries.
-- Gate at top-k 5: constraint recall **100.0%** (threshold 95.0%), irrelevant ratio **4.4%** (threshold ≤ 20.0%), context recall 96.2%.
+- Gate at top-k 5: constraint recall **100.0%** (threshold 95.0%), irrelevant ratio **4.4%** (threshold ≤ 15.0%), context recall 96.2%.
 - Budget sweep:
 
 | Top-k budget | Context recall | Constraint recall | Irrelevant ratio |
@@ -71,6 +87,21 @@ The six other §25.3 targets (schema precision, stale interception, path-escape,
 - Corpus: 3 Chinese architecture documents, 2 Chinese queries.
 - Gate at top-k 1: context recall **100.0%**, constraint recall **100.0%**, irrelevant ratio **0.0%**.
 - This gate exists because Chinese search must use jieba segmentation; English regex tokenization is not a valid fallback for Chinese queries.
+
+## Practice Assets Matching Gate
+
+- Positive corpus: 60 cases, 60 expected practice IDs.
+- Negative corpus: 80 benign/budget cases; adversarial corpus: 20 enforcement/waiver cases.
+- Scenario mix: 50/160 Chinese or mixed Chinese/English cases (31.3%), 30 no-keyword structural positives, 30 keyword-heavy benign negatives, 20 budget/irrelevant resource cases.
+- Top-3 recall: **100.0%** (60/60), threshold 92.0%.
+- Benign precision: **100.0%**, threshold 95.0%; non-advisory matches in benign negatives: **0**.
+- No-keyword structural recall: **100.0%**, threshold 85.0%.
+- Heuristic-only hard-gate rate: **0.0%** (0/4); dynamic-doc hard-gate rate: **0.0%** (0/4).
+- Invalid/tampered waiver rejection: **100.0%** (12/12).
+- Dataset metadata violations: none.
+- Evidence minimum violations: none.
+- Enforcement ceiling violations: none.
+- Missed positives: none.
 
 ## Prioritized engine-fix backlog
 

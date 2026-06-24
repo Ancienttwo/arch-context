@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "observability.boundary-telemetry",
+  "revision": 1,
+  "status": "active",
+  "title": "New runtime boundaries need telemetry at the boundary",
+  "summary": "When a change adds a runtime boundary, queue, external call, or long-lived job, add telemetry that identifies the boundary and failure mode.",
+  "category": "observability",
+  "tags": ["observability", "telemetry", "runtime-boundary"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["src/**", "packages/**", "services/**"],
+    "nodeKinds": ["service", "resource", "module"],
+    "negativePathGlobs": ["test/**", "docs/**"]
+  },
+  "triggers": {
+    "candidateTerms": ["queue", "worker", "external call", "telemetry", "trace", "metric", "log"],
+    "pressureSignals": ["runtime-boundary-without-observability"],
+    "structuralPredicates": ["runtime-boundary-added", "telemetry-evidence-missing"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "declared",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["diff", "runtime-check"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["What boundary can fail independently?", "Which signal identifies latency and failure?", "Where is service identity attached?"],
+    "preferred": ["Emit low-cardinality signals at ingress and egress.", "Tie telemetry names to stable architecture IDs where possible."],
+    "avoid": ["Adding logs only inside happy-path business logic.", "Using raw request payloads as telemetry fields."]
+  },
+  "checks": [
+    {
+      "checkId": "boundary-telemetry-required",
+      "mode": "deterministic",
+      "parameters": {
+        "forRuntimeBoundary": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "checkpoint",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "curated-open-source",
+    "sourceRefs": [
+      {
+        "sourceId": "opentelemetry",
+        "licenseSpdx": "CC-BY-4.0"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

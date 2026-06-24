@@ -25,11 +25,12 @@ describe("@archcontext/core/policy-engine", () => {
   });
 
   test("allows only repo-relative ArchContext paths", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-policy-"));
-    try {
-      expect(() => assertAllowedArchContextPath(root, ".archcontext/policies/review.yaml")).not.toThrow();
-      expect(evaluateChangeSetPaths(root, ["src/app.ts"])[0].id).toBe("path-denied:src/app.ts");
-      expect(() => assertAllowedArchContextPath(root, "../escape.yaml")).toThrow("Repository path");
+      const root = mkdtempSync(join(tmpdir(), "archctx-policy-"));
+      try {
+        expect(() => assertAllowedArchContextPath(root, ".archcontext/policies/review.yaml")).not.toThrow();
+        expect(() => assertAllowedArchContextPath(root, ".archcontext/practices/compatibility.yaml")).not.toThrow();
+        expect(evaluateChangeSetPaths(root, ["src/app.ts"])[0].id).toBe("path-denied:src/app.ts");
+        expect(() => assertAllowedArchContextPath(root, "../escape.yaml")).toThrow("Repository path");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -23,6 +23,7 @@ const DEFAULT_OUTPUT = "docs/verification/fg3-adversarial-review-conclusion.json
 const SHA = `sha256:${"a".repeat(64)}`;
 const FORGED_MARKER = "forged-adversarial-review-conclusion";
 const DENIED_FIELDS = [...CALLER_PROVIDED_ATTESTATION_FIELDS];
+const REVIEW_ENGINE_DENIED_FIELDS = DENIED_FIELDS.filter((field) => field !== "modelDigest" && field !== "practiceEnforcement");
 
 type DenialCase = {
   field: string;
@@ -79,16 +80,7 @@ export async function runFg3AdversarialReviewConclusion(config: ReturnType<typeo
       codeFactsDigest: SHA
     };
 
-    const contractForged = {
-      boundary: "agent",
-      result: "pass",
-      nested: {
-        reviewDigest: SHA,
-        policyDigest: SHA,
-        modelDigest: SHA,
-        signature: { algorithm: "ed25519", value: FORGED_MARKER }
-      }
-    };
+    const contractForged = Object.fromEntries(DENIED_FIELDS.map((field) => [field, forgedValueForField(field)]));
     const contractDeniedFields = findCallerProvidedAttestationFields(contractForged);
     let contractDenied = false;
     let contractMessage = "";
@@ -100,7 +92,7 @@ export async function runFg3AdversarialReviewConclusion(config: ReturnType<typeo
     }
 
     const legalReview = completeTaskGate(baseInput);
-    const reviewEngineDeniedCases = ["result", "reviewDigest", "policyDigest", "signature"].map((field) => {
+    const reviewEngineDeniedCases = REVIEW_ENGINE_DENIED_FIELDS.map((field) => {
       const value = field === "signature" ? { algorithm: "ed25519", value: FORGED_MARKER } : "pass";
       try {
         completeTaskGate({ ...baseInput, [field]: value } as any);
@@ -311,7 +303,7 @@ export function inspectFg3AdversarialReviewConclusion(recording: unknown): { ok:
 
   const reviewEngine = readRecord(evidence.reviewEngine);
   if (reviewEngine.legalResult !== "pass") failures.push("reviewEngine legal result must be pass");
-  assertCases(failures, "reviewEngine", reviewEngine.deniedCases, ["result", "reviewDigest", "policyDigest", "signature"]);
+  assertCases(failures, "reviewEngine", reviewEngine.deniedCases, REVIEW_ENGINE_DENIED_FIELDS);
 
   const runtime = readRecord(evidence.runtimeCompleteTask);
   if (runtime.legalResult !== "pass") failures.push("runtimeCompleteTask legal result must be pass");

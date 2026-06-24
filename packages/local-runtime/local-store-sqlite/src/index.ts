@@ -16,7 +16,7 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import type { LocalStorePort, RepositorySnapshot } from "@archcontext/contracts";
+import type { ExternalDocumentationCacheEntry, ExternalDocumentationProvider, LocalStorePort, RepositorySnapshot } from "@archcontext/contracts";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -31,7 +31,8 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "review_results",
   "landscapes",
   "cross_repo_edges",
-  "changeset_journal"
+  "changeset_journal",
+  "external_docs_cache"
 ] as const;
 
 export const SQLITE_PRAGMAS = [
@@ -134,6 +135,24 @@ export const LOCAL_SQLITE_MIGRATIONS = [
         completed_at TEXT
       )`,
       "CREATE INDEX IF NOT EXISTS idx_changeset_journal_status ON changeset_journal(status)"
+    ]
+  },
+  {
+    id: "0005_external_docs_cache",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS external_docs_cache (
+        provider TEXT NOT NULL,
+        library_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        query_digest TEXT NOT NULL,
+        content_digest TEXT NOT NULL,
+        resource_json TEXT NOT NULL,
+        retrieved_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        PRIMARY KEY (provider, library_id, version, query_digest)
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_external_docs_cache_expires ON external_docs_cache(provider, expires_at)",
+      "CREATE INDEX IF NOT EXISTS idx_external_docs_cache_library ON external_docs_cache(provider, library_id, version)"
     ]
   }
 ] as const;
@@ -382,6 +401,19 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   readLandscape(landscapeId: string): Promise<Landscape | undefined>;
   saveCrossRepoRelation(relation: CrossRepoRelation): Promise<void>;
   listCrossRepoRelations(landscape?: Landscape): Promise<CrossRepoRelation[]>;
+  saveExternalDocumentation(entry: ExternalDocumentationCacheEntry): Promise<void>;
+  readExternalDocumentation(input: {
+    provider: ExternalDocumentationProvider;
+    libraryId: string;
+    version: string;
+    queryDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined>;
+  readExternalDocumentationByContentDigest(input: {
+    provider: ExternalDocumentationProvider;
+    contentDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined>;
+  listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]>;
+  purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number>;
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
@@ -590,6 +622,91 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       .filter((relation) => !landscape || ids.has(relation.id));
   }
 
+  async saveExternalDocumentation(entry: ExternalDocumentationCacheEntry): Promise<void> {
+    const db = await this.database();
+    db.prepare(
+      `INSERT OR REPLACE INTO external_docs_cache
+        (provider, library_id, version, query_digest, content_digest, resource_json, retrieved_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      entry.provider,
+      entry.libraryId,
+      entry.version,
+      entry.queryDigest,
+      entry.contentDigest,
+      stableJson(entry.resource),
+      entry.retrievedAt,
+      entry.expiresAt
+    );
+  }
+
+  async readExternalDocumentation(input: {
+    provider: ExternalDocumentationProvider;
+    libraryId: string;
+    version: string;
+    queryDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT provider, library_id, version, query_digest, content_digest, resource_json, retrieved_at, expires_at
+        FROM external_docs_cache
+        WHERE provider = ? AND library_id = ? AND version = ? AND query_digest = ?`
+    ).get(input.provider, input.libraryId, input.version, input.queryDigest);
+    return row ? externalDocumentationEntryFromRow(row) : undefined;
+  }
+
+  async readExternalDocumentationByContentDigest(input: {
+    provider: ExternalDocumentationProvider;
+    contentDigest: string;
+  }): Promise<ExternalDocumentationCacheEntry | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT provider, library_id, version, query_digest, content_digest, resource_json, retrieved_at, expires_at
+        FROM external_docs_cache
+        WHERE provider = ? AND content_digest = ?
+        ORDER BY retrieved_at DESC, library_id ASC, version ASC, query_digest ASC
+        LIMIT 1`
+    ).get(input.provider, input.contentDigest);
+    return row ? externalDocumentationEntryFromRow(row) : undefined;
+  }
+
+  async listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]> {
+    const db = await this.database();
+    const rows = provider
+      ? db.prepare(
+        `SELECT provider, library_id, version, query_digest, content_digest, resource_json, retrieved_at, expires_at
+          FROM external_docs_cache
+          WHERE provider = ?
+          ORDER BY retrieved_at DESC, library_id ASC, version ASC, query_digest ASC`
+      ).all(provider)
+      : db.prepare(
+        `SELECT provider, library_id, version, query_digest, content_digest, resource_json, retrieved_at, expires_at
+          FROM external_docs_cache
+          ORDER BY retrieved_at DESC, provider ASC, library_id ASC, version ASC, query_digest ASC`
+      ).all();
+    return rows.map(externalDocumentationEntryFromRow);
+  }
+
+  async purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number> {
+    const db = await this.database();
+    if (input.all) {
+      const rows = db.prepare("SELECT COUNT(*) AS count FROM external_docs_cache").get();
+      db.prepare("DELETE FROM external_docs_cache").run();
+      return Number(rows?.count ?? 0);
+    }
+    if (input.provider && input.libraryId) {
+      const rows = db.prepare("SELECT COUNT(*) AS count FROM external_docs_cache WHERE provider = ? AND library_id = ?").get(input.provider, input.libraryId);
+      db.prepare("DELETE FROM external_docs_cache WHERE provider = ? AND library_id = ?").run(input.provider, input.libraryId);
+      return Number(rows?.count ?? 0);
+    }
+    if (input.provider) {
+      const rows = db.prepare("SELECT COUNT(*) AS count FROM external_docs_cache WHERE provider = ?").get(input.provider);
+      db.prepare("DELETE FROM external_docs_cache WHERE provider = ?").run(input.provider);
+      return Number(rows?.count ?? 0);
+    }
+    return 0;
+  }
+
   clearDerivedLandscapeState(): void {
     const db = this.requireOpenDatabase();
     db.prepare("DELETE FROM landscapes").run();
@@ -614,6 +731,19 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (!this.db) throw new Error("SQLite local store has not been migrated");
     return this.db;
   }
+}
+
+function externalDocumentationEntryFromRow(row: Record<string, unknown>): ExternalDocumentationCacheEntry {
+  return {
+    provider: row.provider as ExternalDocumentationProvider,
+    libraryId: String(row.library_id),
+    version: String(row.version),
+    queryDigest: String(row.query_digest),
+    contentDigest: String(row.content_digest),
+    resource: JSON.parse(String(row.resource_json)),
+    retrievedAt: String(row.retrieved_at),
+    expiresAt: String(row.expires_at)
+  };
 }
 
 export async function rebuildDerivedLandscapeState(store: RuntimeLocalStore, input: LandscapeRebuildInput): Promise<LandscapeRebuildResult> {

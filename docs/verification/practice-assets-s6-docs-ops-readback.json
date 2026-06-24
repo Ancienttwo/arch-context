@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "archcontext.practice-assets-s6-docs-ops-readback/v1",
+  "taskIds": [
+    "S6-34",
+    "S6-35",
+    "S6-36",
+    "S6-37",
+    "S6-38",
+    "S6-39",
+    "S6-40",
+    "S6-EG5",
+    "S6-EG6",
+    "S6-EG7"
+  ],
+  "environment": "local-release-readback",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-24T05:22:56.623Z",
+  "sources": {
+    "readme": "README.md",
+    "practiceRunbook": "docs/runbooks/practice-assets-v1.md",
+    "upgradeRollbackRunbook": "docs/runbooks/upgrade-rollback.md",
+    "hookReadme": ".ai/hooks/README.md",
+    "s4EnforcementGate": "docs/verification/practice-assets-s4-enforcement-gate.md",
+    "s5Context7Gate": "docs/verification/practice-assets-s5-context7-gate.md",
+    "s6ReleaseGate": "docs/verification/practice-assets-s6-release-gate.md",
+    "runtimeDaemonSource": "packages/local-runtime/runtime-daemon/src/index.ts",
+    "hookReadback": "docs/verification/practice-hook-egress-readback.json",
+    "context7Readback": "docs/verification/practice-context7-readback.json",
+    "catalogReadback": "docs/verification/practice-assets-s6-catalog-readback.json",
+    "runtimeReadback": "docs/verification/practice-assets-s6-runtime-readback.json",
+    "npmDryRunReadback": "docs/verification/fg6-npm-release-dry-run.json",
+    "localTarballReadback": "docs/verification/fg6-local-product-tarball-smoke.json",
+    "rollbackCompatReadback": "docs/verification/fg6-rollback-compat-readback.json",
+    "reportPath": "docs/verification/practice-assets-s6-docs-ops-readback.md"
+  },
+  "evidence": {
+    "documentation": {
+      "readmeStaticDynamicBoundary": true,
+      "readmeNoDataSentBoundary": true,
+      "repoPracticeHowTo": true,
+      "enforcementPromotionHowTo": true,
+      "waiverHowTo": true,
+      "centralHookHowTo": true,
+      "context7PinPrivacyHowTo": true,
+      "sourceUpdateRunbook": true,
+      "licenseIncidentRunbook": true,
+      "falsePositiveRollbackRunbook": true,
+      "quarterlyReviewOwner": true,
+      "featureFlagsRolloutReadback": true,
+      "releaseGateUpdated": true
+    },
+    "independentDisable": {
+      "enforcementAdvisoryModeDocumented": true,
+      "enforcementAdvisoryModeVerified": true,
+      "context7DefaultDisabled": true,
+      "context7FailureMatrixComplete": true,
+      "context7FailureMatrixLeavesLocalCoreUnchanged": true,
+      "context7AdvisoryOnly": true,
+      "context7ManualNetworkOnly": true
+    },
+    "centralHook": {
+      "hookReadbackVerified": true,
+      "codexHostCentralFirst": true,
+      "adapterIsRepoHarnessHook": true,
+      "hookEntrypointArchctxCheckpoint": true,
+      "hookZeroNetwork": true,
+      "hookNoRawChangedPathBody": true,
+      "hookReadmeCentralFirst": true
+    },
+    "operations": {
+      "catalogRevisionManifestVerified": true,
+      "releasePackageManifestVerified": true,
+      "localTarballLifecycleVerified": true,
+      "rollbackCompatibilityVerified": true,
+      "staleCatalogDetected": true,
+      "context7PurgeCommandImplemented": true,
+      "cachePurgeRunbookDocumented": true,
+      "upgradeRollbackRunbookCoversPracticeAssets": true
+    },
+    "assertions": {
+      "documentationComplete": true,
+      "independentDisableComplete": true,
+      "centralHookComplete": true,
+      "operationsComplete": true,
+      "noPrivateContent": true
+    }
+  },
+  "failures": []
+}

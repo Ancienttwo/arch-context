@@ -12,3 +12,9 @@ here by default because stale copies can be mistaken for the active hook path.
 
 Set `"hook_source": "repo"` in `.ai/harness/policy.json` only for self-hosted
 hook development or an explicitly reviewed repo-local hook override.
+
+Practice Assets hook readback is recorded in
+`docs/verification/practice-hook-egress-readback.json`. It verifies the Codex
+host adapter uses `repo-harness-hook`, calls `archctx hook checkpoint`, declares
+`egress: none`, forbids network access, fail-opens when the daemon is
+unavailable, and does not log raw changed paths or source bodies.

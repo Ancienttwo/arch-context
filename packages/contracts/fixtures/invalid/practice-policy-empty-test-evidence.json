@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "archcontext.practice-enforcement-policy/v1",
+  "mode": "active",
+  "rules": [
+    {
+      "practiceId": "api.contract-before-implementation",
+      "enforcement": "complete",
+      "checkIds": ["required-test-evidence"],
+      "testEvidence": {
+        "commands": [],
+        "subjects": []
+      }
+    }
+  ]
+}

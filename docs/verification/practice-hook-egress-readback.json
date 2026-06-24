@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "archcontext.practice-hook-egress-readback/v1",
+  "environment": "fixture",
+  "status": "verified",
+  "capturedAt": "2026-06-24T00:00:00.000Z",
+  "reason": "Hook checkpoint success, fail-open hook checkpoint, and central hook adapter contracts all declare local-only egress, while the packet capture contains zero network entries.",
+  "capture": {
+    "schemaVersion": "archcontext.local-egress-capture/v1",
+    "totalRequests": 0,
+    "entries": []
+  },
+  "hookCheckpoint": {
+    "schemaVersion": "archcontext.envelope/v1",
+    "ok": true,
+    "requestId": "hook.checkpoint",
+    "data": {
+      "schemaVersion": "archcontext.practice-checkpoint/v1",
+      "reasonCode": "fresh",
+      "hook": {
+        "egress": "none",
+        "network": "forbidden",
+        "pathSummary": {
+          "pathCount": 1,
+          "source": 1,
+          "generated": 0,
+          "ignored": 0,
+          "binary": 0,
+          "deleted": 0,
+          "renameHint": 0
+        }
+      },
+      "hookLog": {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 3,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:3f104fe1cd6368c3d911905fdf89c73f14630338847ef2c888a780fd27d2aef1",
+        "reasonCode": "fresh",
+        "failOpen": false,
+        "egress": "none",
+        "network": "forbidden"
+      }
+    }
+  },
+  "failOpenHook": {
+    "schemaVersion": "archcontext.envelope/v1",
+    "ok": true,
+    "requestId": "hook.checkpoint",
+    "data": {
+      "schemaVersion": "archcontext.hook-checkpoint-fail-open/v1",
+      "accepted": false,
+      "failOpen": true,
+      "reasonCode": "runtime-unavailable",
+      "event": "post-edit",
+      "pathCount": 1,
+      "egress": "none",
+      "network": "forbidden",
+      "hookLog": {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 1,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:1d4407a90815a1ad3a1eed098f584542953a9a19b6d72b6c11bcec51a338f8bc",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      }
+    }
+  },
+  "hookAdapter": {
+    "schemaVersion": "archcontext.envelope/v1",
+    "ok": true,
+    "requestId": "hooks.install",
+    "data": {
+      "schemaVersion": "archcontext.hook-adapter/v1",
+      "host": "codex",
+      "adapterName": "repo-harness-hook",
+      "ownership": "central-first",
+      "hookRuntime": "external-user-level",
+      "repoLocalRuntime": "not-vendored",
+      "entrypoint": {
+        "command": "archctx",
+        "args": [
+          "hook",
+          "checkpoint"
+        ],
+        "timeoutMs": 5000,
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      "acceptedInput": {
+        "eventFlag": "--event",
+        "changedPathFlags": [
+          "--path",
+          "--changed"
+        ],
+        "toolCallIdFlag": "--tool-call-id",
+        "taskSessionIdFlag": "--task-session-id"
+      },
+      "output": {
+        "checkpointSchemaVersion": "archcontext.practice-checkpoint/v1",
+        "failOpenSchemaVersion": "archcontext.hook-checkpoint-fail-open/v1"
+      },
+      "logContract": {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "allowedFields": [
+          "schemaVersion",
+          "event",
+          "elapsedMs",
+          "pathCount",
+          "changedPathDigest",
+          "reasonCode",
+          "failOpen",
+          "egress",
+          "network"
+        ]
+      },
+      "installed": true,
+      "writes": "manual-host-config"
+    }
+  },
+  "assertions": {
+    "zeroNetworkEntries": true,
+    "hookCheckpointDeclaresNoEgress": true,
+    "failOpenDeclaresNoEgress": true,
+    "adapterDeclaresNoEgress": true,
+    "rawChangedPathBodyAbsent": true,
+    "sourceBodyAbsent": true
+  },
+  "readback": {
+    "command": "node scripts/practice-hook-egress-readback.mjs readback --evidence docs/verification/practice-hook-egress-readback.json",
+    "jsonCommand": "node scripts/practice-hook-egress-readback.mjs readback --evidence docs/verification/practice-hook-egress-readback.json --json"
+  }
+}

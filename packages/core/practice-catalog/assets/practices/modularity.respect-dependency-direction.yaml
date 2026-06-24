@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "modularity.respect-dependency-direction",
+  "revision": 1,
+  "status": "active",
+  "title": "Dependency direction must follow declared layers",
+  "summary": "When a repository declares layers or package ownership, new imports must move in the allowed direction unless an explicit boundary contract exists.",
+  "category": "modularity",
+  "tags": ["modularity", "layers", "imports"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["packages/**", "src/**"],
+    "nodeKinds": ["module", "service", "package"],
+    "negativePathGlobs": ["test/**", "scripts/**"]
+  },
+  "triggers": {
+    "candidateTerms": ["layer", "boundary", "import", "dependency"],
+    "pressureSignals": ["boundary-crossing-import"],
+    "structuralPredicates": ["declared-layer-violation-observed", "cross-boundary-import-added"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "declared",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["import-edge", "architecture-model"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Which declared boundary is being crossed?", "Is the dependency direction part of a public contract?", "Can the call move behind a port?"],
+    "preferred": ["Use the existing package entrypoint or contract layer.", "Keep core and domain packages free of runtime or surface imports."],
+    "avoid": ["Relative imports across package boundaries.", "Adding a convenience import that weakens the layer graph."]
+  },
+  "checks": [
+    {
+      "checkId": "dependency-direction",
+      "mode": "deterministic",
+      "parameters": {
+        "requiresDeclaredProfile": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "complete",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "curated-open-source",
+    "sourceRefs": [
+      {
+        "sourceId": "archunit",
+        "licenseSpdx": "Apache-2.0"
+      },
+      {
+        "sourceId": "archcontext.spec"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

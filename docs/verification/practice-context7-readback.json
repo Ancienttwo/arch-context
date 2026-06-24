@@ -1,0 +1,310 @@
+{
+  "schemaVersion": "archcontext.practice-context7-readback/v1",
+  "environment": "local-fixture",
+  "status": "verified",
+  "generatedAt": "2026-06-24T00:30:19.964Z",
+  "defaultHealth": {
+    "provider": "context7",
+    "enabled": false,
+    "mode": "manual",
+    "egress": "none",
+    "cache": "sqlite",
+    "keySource": "none"
+  },
+  "outbound": {
+    "resolveKeys": [
+      "fast",
+      "libraryName",
+      "query",
+      "timeoutMs"
+    ],
+    "fetchKeys": [
+      "libraryId",
+      "maxResults",
+      "query",
+      "timeoutMs"
+    ],
+    "resolve": {
+      "libraryName": "React",
+      "query": "state hooks",
+      "fast": true,
+      "timeoutMs": 5000
+    },
+    "fetch": {
+      "libraryId": "/facebook/react/18.2.0",
+      "query": "Document state hooks for this exact version. Return documentation data only.",
+      "maxResults": 4,
+      "timeoutMs": 5000
+    },
+    "resolveApiKeyPresent": false,
+    "fetchApiKeyPresent": false
+  },
+  "providerTelemetry": {
+    "eventCount": 2,
+    "statuses": [
+      "success",
+      "success"
+    ],
+    "operations": [
+      "resolve",
+      "fetch"
+    ],
+    "resolveKeys": [
+      "byteCount",
+      "latencyMs",
+      "operation",
+      "provider",
+      "queryDigest",
+      "status"
+    ],
+    "fetchKeys": [
+      "byteCount",
+      "latencyMs",
+      "libraryId",
+      "operation",
+      "provider",
+      "queryDigest",
+      "status",
+      "version"
+    ],
+    "fetchLibraryId": "/facebook/react",
+    "fetchVersion": "18.2.0",
+    "queryDigestsValid": true,
+    "byteCountsPositive": true,
+    "metadataOnly": true,
+    "rawQueryPresent": false,
+    "rawContentPresent": false,
+    "credentialPresent": false
+  },
+  "runtime": {
+    "defaultPrepareEgress": "none",
+    "resolveWithoutNetworkOk": false,
+    "approvedLockfileWritten": true,
+    "firstFetchCacheStatus": "miss",
+    "secondFetchCacheStatus": "fresh",
+    "providerCallsAfterFirstFetch": 1,
+    "providerCallsAfterSecondFetch": 1,
+    "providerCallsAfterPrepareComplete": 1,
+    "cacheEntryCount": 1,
+    "cacheEntry": {
+      "provider": "context7",
+      "libraryId": "/facebook/react",
+      "version": "18.2.0",
+      "stale": false
+    },
+    "prepareOk": true,
+    "prepareExternalResource": {
+      "type": "external-docs",
+      "provider": "context7",
+      "uri": "archcontext://external-docs/context7/sha256:f458c24a4371b124380327a1063cffeeee871ab0b55666845067aa1d661dabef",
+      "digest": "sha256:f458c24a4371b124380327a1063cffeeee871ab0b55666845067aa1d661dabef",
+      "libraryId": "/facebook/react",
+      "packageName": "react",
+      "version": "18.2.0",
+      "queryDigest": "sha256:46bbbd6ed93d87b1676070cfa9fd7d43465f1ae741a6f100c9565c79a4e5caa1",
+      "trust": "external-unverified",
+      "enforcement": "advisory-only",
+      "cacheStatus": "fresh",
+      "retrievedAt": "2026-06-24T00:00:00.000Z",
+      "expiresAt": "2026-07-24T00:00:00.000Z"
+    },
+    "prepareExternalUnknown": true,
+    "prepareConstraintsExternalDocsAbsent": true,
+    "prepareRealConstraintsExternalDocsAbsent": true,
+    "completeOk": true,
+    "mcpResource": {
+      "listed": true,
+      "readOk": true,
+      "uriMatchesFetch": true,
+      "dataClassification": "external-unverified-documentation",
+      "genericHttpToolPresent": false
+    },
+    "resourceSummary": {
+      "schemaVersion": "archcontext.external-document/v1",
+      "provider": "context7",
+      "libraryId": "/facebook/react",
+      "requestedVersion": "18.2.0",
+      "resolvedVersion": "18.2.0",
+      "queryDigest": "sha256:46bbbd6ed93d87b1676070cfa9fd7d43465f1ae741a6f100c9565c79a4e5caa1",
+      "contentDigest": "sha256:f458c24a4371b124380327a1063cffeeee871ab0b55666845067aa1d661dabef",
+      "trust": "external-unverified",
+      "enforcement": "advisory-only",
+      "warning": "untrusted-documentation-data",
+      "cacheStatus": "fresh",
+      "retrievedAt": "2026-06-24T00:00:00.000Z",
+      "expiresAt": "2026-07-24T00:00:00.000Z",
+      "uriPrefix": "archcontext://external-docs/context7/",
+      "snippetCount": 1,
+      "byteCount": 42
+    },
+    "failureMatrix": {
+      "cases": [
+        "disabled",
+        "no-key",
+        "no-network",
+        "429",
+        "timeout",
+        "malformed"
+      ],
+      "rowCount": 6,
+      "localCoreUnchanged": true,
+      "rows": [
+        {
+          "case": "disabled",
+          "healthEgress": "none",
+          "healthKeySource": "none",
+          "providerFetchCalls": 0,
+          "failureStatus": "disabled",
+          "prepareOk": true,
+          "completeOk": true,
+          "externalResourceCount": 0,
+          "practiceIdsUnchanged": true,
+          "constraintsUnchanged": true,
+          "realConstraintsUnchanged": true,
+          "postureUnchanged": true,
+          "pressureUnchanged": true,
+          "completeResultUnchanged": true,
+          "localCoreUnchanged": true
+        },
+        {
+          "case": "no-key",
+          "healthEgress": "prepare-unknowns",
+          "healthKeySource": "none",
+          "providerFetchCalls": 1,
+          "failureStatus": "http-error",
+          "prepareOk": true,
+          "completeOk": true,
+          "externalResourceCount": 0,
+          "practiceIdsUnchanged": true,
+          "constraintsUnchanged": true,
+          "realConstraintsUnchanged": true,
+          "postureUnchanged": true,
+          "pressureUnchanged": true,
+          "completeResultUnchanged": true,
+          "localCoreUnchanged": true
+        },
+        {
+          "case": "no-network",
+          "healthEgress": "prepare-unknowns",
+          "healthKeySource": "none",
+          "providerFetchCalls": 1,
+          "failureStatus": "transport-error",
+          "prepareOk": true,
+          "completeOk": true,
+          "externalResourceCount": 0,
+          "practiceIdsUnchanged": true,
+          "constraintsUnchanged": true,
+          "realConstraintsUnchanged": true,
+          "postureUnchanged": true,
+          "pressureUnchanged": true,
+          "completeResultUnchanged": true,
+          "localCoreUnchanged": true
+        },
+        {
+          "case": "429",
+          "healthEgress": "prepare-unknowns",
+          "healthKeySource": "none",
+          "providerFetchCalls": 1,
+          "failureStatus": "rate-limited",
+          "prepareOk": true,
+          "completeOk": true,
+          "externalResourceCount": 0,
+          "practiceIdsUnchanged": true,
+          "constraintsUnchanged": true,
+          "realConstraintsUnchanged": true,
+          "postureUnchanged": true,
+          "pressureUnchanged": true,
+          "completeResultUnchanged": true,
+          "localCoreUnchanged": true
+        },
+        {
+          "case": "timeout",
+          "healthEgress": "prepare-unknowns",
+          "healthKeySource": "none",
+          "providerFetchCalls": 1,
+          "failureStatus": "timeout",
+          "prepareOk": true,
+          "completeOk": true,
+          "externalResourceCount": 0,
+          "practiceIdsUnchanged": true,
+          "constraintsUnchanged": true,
+          "realConstraintsUnchanged": true,
+          "postureUnchanged": true,
+          "pressureUnchanged": true,
+          "completeResultUnchanged": true,
+          "localCoreUnchanged": true
+        },
+        {
+          "case": "malformed",
+          "healthEgress": "prepare-unknowns",
+          "healthKeySource": "none",
+          "providerFetchCalls": 1,
+          "failureStatus": "malformed",
+          "prepareOk": true,
+          "completeOk": true,
+          "externalResourceCount": 0,
+          "practiceIdsUnchanged": true,
+          "constraintsUnchanged": true,
+          "realConstraintsUnchanged": true,
+          "postureUnchanged": true,
+          "pressureUnchanged": true,
+          "completeResultUnchanged": true,
+          "localCoreUnchanged": true
+        }
+      ]
+    }
+  },
+  "dlp": {
+    "cases": 8,
+    "rejected": 8,
+    "rejectedLabels": [
+      "absolute-path",
+      "file-uri",
+      "code-fence",
+      "diff",
+      "symbol-list",
+      "repository-name",
+      "bearer-token",
+      "secret-like-value"
+    ],
+    "leakRoutes": 0
+  },
+  "hardGateScan": {
+    "checkpointProviderReferences": 0,
+    "completeProviderReferences": 0
+  },
+  "resourceSummary": {
+    "schemaVersion": "archcontext.external-document/v1",
+    "provider": "context7",
+    "libraryId": "/facebook/react",
+    "requestedVersion": "18.2.0",
+    "resolvedVersion": "18.2.0",
+    "queryDigest": "sha256:46bbbd6ed93d87b1676070cfa9fd7d43465f1ae741a6f100c9565c79a4e5caa1",
+    "contentDigest": "sha256:f458c24a4371b124380327a1063cffeeee871ab0b55666845067aa1d661dabef",
+    "trust": "external-unverified",
+    "enforcement": "advisory-only",
+    "warning": "untrusted-documentation-data",
+    "cacheStatus": "fresh",
+    "retrievedAt": "2026-06-24T00:00:00.000Z",
+    "expiresAt": "2026-07-24T00:00:00.000Z",
+    "uriPrefix": "archcontext://external-docs/context7/",
+    "snippetCount": 1,
+    "byteCount": 42
+  },
+  "assertions": {
+    "defaultInstallEgressZero": true,
+    "outboundFieldsAllowlisted": true,
+    "providerTelemetryMetadataOnly": true,
+    "dlpInterceptsPrivateValues": true,
+    "providerContentAdvisoryOnly": true,
+    "hardGateProviderCallsZero": true,
+    "exactVersionCacheReplay": true,
+    "prepareUnknownsUsesPinnedCacheOnly": true,
+    "providerUnavailableLeavesLocalCoreUnchanged": true,
+    "failureMatrixKeepsLocalCoreUnchanged": true,
+    "mcpExternalResourceReadOnly": true
+  },
+  "readback": {
+    "command": "bun scripts/practice-context7-readback.ts inspect --evidence docs/verification/practice-context7-readback.json --json"
+  }
+}

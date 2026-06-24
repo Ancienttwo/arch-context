@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "archcontext.practice/v1",
+  "id": "modularity.no-new-cycle",
+  "revision": 1,
+  "status": "active",
+  "title": "Do not introduce new dependency cycles",
+  "summary": "A change that creates a new dependency cycle should be stopped or split until the directional boundary is restored.",
+  "category": "modularity",
+  "tags": ["modularity", "dependency", "cycle"],
+  "appliesTo": {
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "pathGlobs": ["packages/**", "src/**"],
+    "nodeKinds": ["module", "service", "package"],
+    "negativePathGlobs": ["test/**", "**/*.fixture.*"]
+  },
+  "triggers": {
+    "candidateTerms": ["cycle", "circular", "dependency"],
+    "pressureSignals": ["dependency-cycle"],
+    "structuralPredicates": ["new-import-cycle-observed", "new-package-cycle-observed"]
+  },
+  "evidencePolicy": {
+    "minimumStrengthForRecommendation": "observed",
+    "minimumStrengthForCheckpoint": "observed",
+    "minimumStrengthForEnforcement": "observed",
+    "requiredKindsForEnforcement": ["import-edge", "diff"],
+    "maxEnforcementWhenOnlyHeuristic": "advisory"
+  },
+  "guidance": {
+    "questions": ["Which new edge closed the cycle?", "Can the dependency invert through an interface or existing boundary?", "Is the cycle historical or introduced by this diff?"],
+    "preferred": ["Break the newest edge first.", "Move shared contracts to the existing lower-level package."],
+    "avoid": ["Adding a helper import that crosses back upward.", "Treating historical cycles and new cycles as the same remediation."]
+  },
+  "checks": [
+    {
+      "checkId": "no-new-cycle",
+      "mode": "deterministic",
+      "parameters": {
+        "onlyNewViolations": true
+      }
+    }
+  ],
+  "enforcement": {
+    "default": "advisory",
+    "promotableTo": "complete",
+    "repoOptInRequired": true
+  },
+  "provenance": {
+    "sourceKind": "curated-open-source",
+    "sourceRefs": [
+      {
+        "sourceId": "archunit",
+        "licenseSpdx": "Apache-2.0"
+      }
+    ],
+    "curator": "archcontext-maintainers",
+    "reviewedAt": "2026-06-23"
+  },
+  "lifecycle": {
+    "introducedAt": "2026-06-23",
+    "reviewAfter": "2027-06-23",
+    "supersedes": []
+  }
+}

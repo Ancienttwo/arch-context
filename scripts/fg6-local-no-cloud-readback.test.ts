@@ -33,7 +33,7 @@ function verifiedRecording() {
     evidence: {
       localEvidence: {
         schemaVersion: "archcontext.local-no-cloud-e2e/v1",
-        commands: ["doctor", "mcp install", "init", "sync", "context", "prepare", "status", "checkpoint", "complete", "review"],
+        commands: ["doctor", "mcp install", "init", "sync", "practices validate", "context", "prepare", "status", "checkpoint", "complete", "review"],
         providerEnvRemoved: ["GH_TOKEN", "OPENAI_API_KEY"],
         git: {
           headSha: "a".repeat(40)
@@ -54,6 +54,14 @@ function verifiedRecording() {
           checkpointFresh: true,
           completeSchemaVersion: "archcontext.review/v1",
           completeResult: "pass"
+        },
+        practices: {
+          validation: "strict",
+          valid: true,
+          practiceCount: 41,
+          sourceCount: 19,
+          profileCount: 8,
+          catalogDigest: `sha256:${"b".repeat(64)}`
         },
         review: {
           schemaVersion: "archcontext.review/v1",

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/external-document-resource.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "provider",
+    "libraryId",
+    "queryDigest",
+    "contentDigest",
+    "retrievedAt",
+    "expiresAt",
+    "trust",
+    "enforcement",
+    "cacheStatus",
+    "uri",
+    "byteCount",
+    "snippets",
+    "warning"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.external-document/v1" },
+    "provider": { "const": "context7" },
+    "libraryId": { "type": "string", "pattern": "^/[A-Za-z0-9._-]+/[A-Za-z0-9._/@-]+$" },
+    "requestedVersion": { "type": "string", "minLength": 1 },
+    "resolvedVersion": { "type": "string", "minLength": 1 },
+    "queryDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "contentDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "retrievedAt": { "type": "string" },
+    "expiresAt": { "type": "string" },
+    "trust": { "const": "external-unverified" },
+    "enforcement": { "const": "advisory-only" },
+    "cacheStatus": { "enum": ["fresh", "stale", "miss"] },
+    "uri": { "type": "string", "pattern": "^archcontext://external-docs/context7/sha256:[0-9a-f]{64}$" },
+    "byteCount": { "type": "integer", "minimum": 0 },
+    "snippets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "contentPreview", "contentDigest", "sourceUri", "byteCount"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "contentPreview": { "type": "string", "maxLength": 4000 },
+          "contentDigest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "sourceUri": { "type": "string", "pattern": "^https://.+" },
+          "byteCount": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "warning": { "const": "untrusted-documentation-data" },
+    "metadata": { "type": "object", "additionalProperties": true }
+  }
+}

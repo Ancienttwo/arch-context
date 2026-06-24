@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "id",
+    "revision",
+    "status",
+    "title",
+    "repositoryKinds",
+    "languages",
+    "frameworks",
+    "includePracticeIds",
+    "excludePracticeIds",
+    "provenance"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.practice-profile/v1" },
+    "id": { "type": "string", "pattern": "^profile\\.[a-z0-9-]+(\\.[a-z0-9-]+)*$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["active", "deprecated"] },
+    "title": { "type": "string" },
+    "repositoryKinds": { "type": "array", "items": { "type": "string" } },
+    "languages": { "type": "array", "items": { "type": "string" } },
+    "frameworks": { "type": "array", "items": { "type": "string" } },
+    "includePracticeIds": { "type": "array", "items": { "type": "string" } },
+    "excludePracticeIds": { "type": "array", "items": { "type": "string" } },
+    "provenance": { "type": "object" }
+  },
+  "additionalProperties": false
+}
