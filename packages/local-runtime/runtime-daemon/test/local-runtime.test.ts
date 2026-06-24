@@ -854,6 +854,163 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("dual architecture ledger mode appends an apply_update event after a successful ChangeSet", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "dual" },
+        clock: () => "2026-06-25T03:00:00.000Z"
+      });
+      await daemon.init(root, "Dual Ledger App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.dual-ledger-node",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.dual-ledger.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.dual-ledger\nkind: module\nname: Dual Ledger\nstatus: active\nsummary: Dual ledger node\n"
+        }]
+      });
+      expect(plan.ok).toBe(true);
+
+      const apply = await daemon.applyUpdate(root, {
+        id: "changeset.dual-ledger-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+
+      expect(apply.ok).toBe(true);
+      expect((apply.data as any)).toMatchObject({
+        status: "applied",
+        architectureLedger: {
+          rolloutMode: "dual",
+          readMode: "dual-compare",
+          writeMode: "dual",
+          readAuthority: "yaml",
+          append: {
+            status: "appended",
+            appendedEventCount: 1
+          }
+        }
+      });
+      expect(readText(join(root, ".archcontext/model/nodes/module.dual-ledger.yaml"))).toContain("module.dual-ledger");
+      expect(store.architectureEventAppends).toHaveLength(1);
+      const event = store.architectureEventAppends[0]!.events[0]!;
+      expect(event).toMatchObject({
+        eventType: "architecture.changeset.apply",
+        source: "apply_update",
+        actor: { kind: "daemon", id: "archctxd" }
+      });
+      expect((event.payload as any).operations.map((operation: any) => operation.entity?.entityId)).toContain("module.dual-ledger");
+      expect(JSON.stringify(event.payload)).not.toContain("schemaVersion: archcontext.node/v1");
+      expect((await daemon.runtimeStatus(root)).data).toMatchObject({
+        architectureLedger: {
+          rolloutMode: "dual",
+          readMode: "dual-compare",
+          writeMode: "dual"
+        }
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger-authoritative write mode appends an event while keeping Git projection updates reviewable", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T03:02:00.000Z"
+      });
+      await daemon.init(root, "Ledger Projection App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-projection-node",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.ledger-projection.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-projection\nkind: module\nname: Ledger Projection\nstatus: active\nsummary: Ledger projection node\n"
+        }]
+      });
+
+      const apply = await daemon.applyUpdate(root, {
+        id: "changeset.ledger-projection-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+
+      expect(apply.ok).toBe(true);
+      expect((apply.data as any).architectureLedger).toMatchObject({
+        rolloutMode: "ledger-authoritative",
+        readMode: "ledger",
+        writeMode: "ledger-with-projection",
+        readAuthority: "yaml",
+        writeAuthority: "ledger-with-projection",
+        append: {
+          status: "appended",
+          appendedEventCount: 1
+        }
+      });
+      expect(readText(join(root, ".archcontext/model/nodes/module.ledger-projection.yaml"))).toContain("module.ledger-projection");
+      expect(store.architectureEventAppends[0]!.events[0]!.payload).toMatchObject({
+        changeSet: {
+          id: "changeset.ledger-projection-node"
+        },
+        projectionState: {
+          path: ".archcontext",
+          writeMode: "ledger-with-projection"
+        }
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("dual architecture ledger mode rolls back YAML writes when ledger append fails before commit", async () => {
+    class FailingLedgerStore extends TestLocalStore {
+      async appendArchitectureEvents(input: Parameters<TestLocalStore["appendArchitectureEvents"]>[0]): ReturnType<TestLocalStore["appendArchitectureEvents"]> {
+        await super.appendArchitectureEvents(input);
+        throw new Error("ledger-append-down");
+      }
+    }
+    const root = tempRepo();
+    const store = new FailingLedgerStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "dual" },
+        clock: () => "2026-06-25T03:05:00.000Z"
+      });
+      await daemon.init(root, "Dual Ledger Rollback App");
+      const path = ".archcontext/model/nodes/module.dual-rollback.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.dual-ledger-rollback",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.dual-rollback\nkind: module\nname: Dual Rollback\nstatus: active\nsummary: Dual rollback node\n"
+        }]
+      });
+
+      await expect(daemon.applyUpdate(root, {
+        id: "changeset.dual-ledger-rollback",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      })).rejects.toThrow("ledger-append-down");
+
+      expect(existsSync(join(root, path))).toBe(false);
+      expect([...store.changeSetJournals.values()].some((journal) => journal.status === "aborted" && journal.reason === "ledger-append-down")).toBe(true);
+      expect(store.architectureEventAppends).toHaveLength(1);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("SQLite contract enables WAL, foreign keys, busy timeout, and stores no source bodies", () => {
     const sql = migrationSql();
     for (const pragma of SQLITE_PRAGMAS) expect(sql).toContain(pragma);

@@ -14,6 +14,7 @@ import {
   type RecommendationV2,
   type AgentJobV1
 } from "@archcontext/contracts";
+import type { ChangeSetDraft } from "../../changeset-engine/src/index";
 import { canonicalArchitectureYaml, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
 
 export type ArchitectureLedgerWriter = "runtime-daemon";
@@ -151,6 +152,14 @@ export interface ArchitectureLedgerYamlImportInput extends ArchitectureLedgerSco
   command?: string;
 }
 
+export interface ArchitectureLedgerChangeSetApplyInput extends ArchitectureLedgerScope {
+  draft: ChangeSetDraft;
+  files: ArchitectureLedgerModelFile[];
+  createdAt: string;
+  writeMode: "dual" | "ledger-with-projection";
+  command?: string;
+}
+
 export interface ArchitectureLedgerAppendInput {
   writer: ArchitectureLedgerWriter;
   events: ArchitectureEventV1[];
@@ -275,6 +284,53 @@ export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYaml
     projectedFiles,
     drift
   };
+}
+
+export function planChangeSetApplyToArchitectureLedgerEvent(input: ArchitectureLedgerChangeSetApplyInput): ArchitectureLedgerYamlImportPlan {
+  const command = input.command ?? "archctx apply";
+  const importPlan = planYamlToArchitectureLedgerImport({
+    repository: input.repository,
+    worktree: input.worktree,
+    files: input.files,
+    createdAt: input.createdAt,
+    command
+  });
+  const inputDigest = digestJson({
+    changeSetId: input.draft.id,
+    writeMode: input.writeMode,
+    sourceDigest: importPlan.sourceDigest,
+    graphDigest: importPlan.graphDigest
+  } as unknown as Json);
+  const payload = architectureLedgerPayload(importPlan.event);
+  const event = normalizeArchitectureLedgerEvent({
+    ...importPlan.event,
+    eventId: `architecture_event.changeset_apply.${digestSuffix(inputDigest)}`,
+    eventType: "architecture.changeset.apply",
+    source: "apply_update",
+    actor: { kind: "daemon", id: "archctxd" },
+    timestamp: input.createdAt,
+    idempotencyKey: `architecture-ledger-changeset-apply:${input.draft.id}:${input.writeMode}:${importPlan.sourceDigest}`,
+    provenance: {
+      producer: "architecture-ledger-runtime-dual-write",
+      command,
+      inputDigest
+    },
+    payload: {
+      ...payload,
+      summary: `ChangeSet ${input.draft.id} applied through ${input.writeMode} architecture ledger mode.`,
+      title: `ChangeSet ${input.draft.id} architecture ledger apply`,
+      changeSet: changeSetLedgerSummary(input.draft),
+      projectionState: {
+        projectionId: `projection.changeset.${digestSuffix(inputDigest)}`,
+        path: ".archcontext",
+        projectionDigest: importPlan.projectionDigest,
+        sourceDigest: importPlan.sourceDigest,
+        changeSetId: input.draft.id,
+        writeMode: input.writeMode
+      }
+    } as unknown as Json
+  }, null);
+  return { ...importPlan, event };
 }
 
 function stateFromOperations(operations: ArchitectureLedgerOperation[]): ArchitectureLedgerGraphState {
@@ -725,6 +781,24 @@ function pathSegment(id: string): string {
 
 function digestSuffix(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
+}
+
+function changeSetLedgerSummary(draft: ChangeSetDraft): Record<string, Json> {
+  return {
+    id: draft.id,
+    status: draft.status,
+    reason: draft.reason as unknown as Json,
+    base: draft.base as unknown as Json,
+    idempotencyKey: draft.idempotencyKey,
+    operationCount: draft.operations.length,
+    operations: draft.operations.map((operation) => ({
+      op: operation.op,
+      ...(operation.path ? { path: operation.path } : {}),
+      ...(operation.entityId ? { entityId: operation.entityId } : {}),
+      expectedHash: operation.expectedHash,
+      ...(operation.body ? { bodyDigest: digestJson({ body: operation.body } as unknown as Json) } : {})
+    } as unknown as Json))
+  };
 }
 
 function isRecord(value: Json | undefined): value is Record<string, Json> {

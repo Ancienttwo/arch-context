@@ -41,6 +41,7 @@ export interface ChangeSetDraft {
 export interface ApplyOptions {
   approved?: boolean;
   faultAfterOperations?: number;
+  afterModelValidatedBeforeCommit?: (input: { root: string; draft: ChangeSetDraft }) => Promise<void> | void;
 }
 
 export interface ProjectionRebuilderPort {
@@ -159,6 +160,7 @@ export class ChangeSetEngine {
       }
       this.rebuildGeneratedProjection(root, deps);
       await this.validateModel(root, draft, deps);
+      await options.afterModelValidatedBeforeCommit?.({ root, draft });
       if (journalId) {
         await deps.journal?.commitChangeSet(journalId);
         journalCommitted = true;

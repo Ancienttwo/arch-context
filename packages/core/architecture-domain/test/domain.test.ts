@@ -117,6 +117,29 @@ describe("@archcontext/core/architecture-domain", () => {
     expect(parseJsonOrStableYaml(yaml, ".archcontext/model/nodes/module.checkout.yaml")).toEqual(canonicalArchitectureJson(value as any));
   });
 
+  test("stable YAML parser accepts plain YAML scalars from hand-written model files", () => {
+    expect(parseJsonOrStableYaml([
+      "schemaVersion: archcontext.node/v1",
+      "id: module.checkout",
+      "kind: module",
+      "name: Checkout",
+      "status: active",
+      "metadata:",
+      "  score: 2",
+      "  beta: true"
+    ].join("\n"), ".archcontext/model/nodes/module.checkout.yaml")).toEqual({
+      schemaVersion: "archcontext.node/v1",
+      id: "module.checkout",
+      kind: "module",
+      name: "Checkout",
+      status: "active",
+      metadata: {
+        score: 2,
+        beta: true
+      }
+    });
+  });
+
   test("intervention ids are stable and bounded", () => {
     expect(createInterventionId("Unify Subscription & Payment State")).toBe(
       "intervention.unify-subscription-payment-state"

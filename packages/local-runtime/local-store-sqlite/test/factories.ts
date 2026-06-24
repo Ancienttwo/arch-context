@@ -1,6 +1,13 @@
 import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
-import type { ExternalDocumentationCacheEntry, ExternalDocumentationProvider, RepositorySnapshot } from "@archcontext/contracts";
+import {
+  architectureLedgerStateDigest,
+  emptyArchitectureLedgerState,
+  replayArchitectureLedgerEvents,
+  type ArchitectureLedgerAppendInput,
+  type ArchitectureLedgerAppendResult
+} from "@archcontext/core/architecture-ledger";
+import type { ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -13,6 +20,8 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly crossRepoEdges = new Map<string, CrossRepoRelation>();
   readonly externalDocumentation = new Map<string, ExternalDocumentationCacheEntry>();
   readonly changeSetJournals = new Map<string, { root: string; draft: ChangeSetDraft; files: ChangeSetJournalFile[]; status: "pending" | "committed" | "aborted" | "recovered"; reason?: string }>();
+  readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
+  readonly architectureEvents: ArchitectureEventV1[] = [];
 
   async migrate(): Promise<void> {
     for (const migration of LOCAL_SQLITE_MIGRATIONS) this.migrations.add(migration.id);
@@ -163,8 +172,18 @@ export class TestLocalStore implements RuntimeLocalStore {
     return purged;
   }
 
-  async appendArchitectureEvents(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult> {
+    this.architectureEventAppends.push(input);
+    this.architectureEvents.push(...input.events);
+    const state = input.events.length === 0 ? emptyArchitectureLedgerState() : replayArchitectureLedgerEvents(this.architectureEvents);
+    return {
+      appendedEvents: input.events,
+      duplicateEvents: [],
+      graphDigest: architectureLedgerStateDigest(state),
+      entityCount: state.entities.length,
+      relationCount: state.relations.length,
+      constraintCount: state.constraints.length
+    };
   }
 
   async createArchitectureLedgerSnapshot(): Promise<never> {

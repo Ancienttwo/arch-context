@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,6 +18,7 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { planChangeSetApplyToArchitectureLedgerEvent } from "@archcontext/core/architecture-ledger";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
@@ -27,12 +29,13 @@ import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/co
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 
 export interface RuntimeStatus {
   running: boolean;
   sessions: number;
   repositories: string[];
+  architectureLedger: RuntimeArchitectureLedgerModes;
 }
 
 export interface RepositorySession {
@@ -89,6 +92,19 @@ export interface RuntimePracticeWaiverInput {
   evidenceDigest: string;
   subjects?: string[];
   pathGlobs?: string[];
+}
+
+export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
+export type RuntimeArchitectureLedgerReadMode = "yaml" | "dual-compare" | "ledger-shadow" | "ledger";
+export type RuntimeArchitectureLedgerWriteMode = "yaml" | "dual" | "ledger-with-projection";
+
+export interface RuntimeArchitectureLedgerModes {
+  schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1";
+  rolloutMode: RuntimeArchitectureLedgerRolloutMode;
+  readMode: RuntimeArchitectureLedgerReadMode;
+  writeMode: RuntimeArchitectureLedgerWriteMode;
+  readAuthority: "yaml" | "ledger";
+  writeAuthority: "yaml" | "dual" | "ledger-with-projection";
 }
 
 interface CheckpointCoalesceEntry {
@@ -205,6 +221,7 @@ export interface RuntimeDeps {
   changeSetEngine?: ChangeSetEngine;
   externalDocumentation?: ExternalDocumentationPort;
   devicePrivateKeySigner?: DevicePrivateKeySignerPort;
+  architectureLedger?: Partial<Pick<RuntimeArchitectureLedgerModes, "rolloutMode" | "readMode" | "writeMode">>;
   localStorePath?: string;
   clock?: () => string;
   maxRepoSessions?: number;
@@ -229,6 +246,7 @@ export interface RuntimeCompositionReport {
     changeSetEngine: "default" | "injected";
     externalDocumentation: "context7" | "injected";
   };
+  architectureLedger: RuntimeArchitectureLedgerModes;
   localStorePath?: string;
   blockedProductionInjections: string[];
 }
@@ -446,6 +464,7 @@ export class ArchctxDaemon {
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
+  private readonly architectureLedger: RuntimeArchitectureLedgerModes;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -470,6 +489,7 @@ export class ArchctxDaemon {
       journal: this.localStore
     });
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
+    this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
@@ -478,7 +498,7 @@ export class ArchctxDaemon {
     });
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
-    this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
+    this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
   }
 
   async start(): Promise<void> {
@@ -502,7 +522,8 @@ export class ArchctxDaemon {
     return {
       running: this.running,
       sessions: this.sessions.size,
-      repositories: [...this.sessions.keys()].sort()
+      repositories: [...this.sessions.keys()].sort(),
+      architectureLedger: this.architectureLedger
     };
   }
 
@@ -1031,14 +1052,67 @@ export class ArchctxDaemon {
     expectedWorktreeDigest: string;
   }): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (!input.expectedWorktreeDigest) throw new Error("apply_update requires expectedWorktreeDigest");
-    const current = computeWorktreeDigest(root);
-    if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
-    const draft = this.changesets.get(input.id);
-    if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
-    const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
-    const result = await this.changeSetEngine.apply(root, approved, { approved: input.approved });
-    return okEnvelope("apply_update", result as unknown as Json);
+    return this.withWriter(async () => {
+      if (!input.expectedWorktreeDigest) throw new Error("apply_update requires expectedWorktreeDigest");
+      const current = computeWorktreeDigest(root);
+      if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
+      const session = await this.openSession(root);
+      const draft = this.changesets.get(input.id);
+      if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
+      const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
+      let ledgerAppend: Json | undefined;
+      const writesLedger = architectureLedgerWriteAppendsEvents(this.architectureLedger.writeMode);
+      const result = await this.changeSetEngine.apply(root, approved, {
+        approved: input.approved,
+        afterModelValidatedBeforeCommit: writesLedger
+          ? async () => {
+            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved);
+            ledgerAppend = {
+              status: "appended",
+              appendedEventCount: appended.appendedEvents.length,
+              duplicateEventCount: appended.duplicateEvents.length,
+              graphDigest: appended.graphDigest,
+              entityCount: appended.entityCount,
+              relationCount: appended.relationCount,
+              constraintCount: appended.constraintCount
+            };
+          }
+          : undefined
+      });
+      return okEnvelope("apply_update", {
+        ...result,
+        architectureLedger: {
+          ...this.architectureLedger,
+          append: writesLedger ? ledgerAppend ?? { status: "not-appended" } : { status: "not-applicable" }
+        }
+      } as unknown as Json);
+    });
+  }
+
+  private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft) {
+    const paths = runtimeStatePaths(root);
+    const plan = planChangeSetApplyToArchitectureLedgerEvent({
+      repository: {
+        repositoryId: session.workspace.repositoryId,
+        storageRepositoryId: paths.storageRepositoryId
+      },
+      worktree: {
+        workspaceId: paths.workspaceId,
+        storageWorkspaceId: paths.storageWorkspaceId,
+        branch: readCurrentBranch(root),
+        headSha: session.workspace.headSha,
+        worktreeDigest: computeWorktreeDigest(root)
+      },
+      draft,
+      files: listModelFiles(root),
+      createdAt: this.clock(),
+      writeMode: this.architectureLedger.writeMode === "ledger-with-projection" ? "ledger-with-projection" : "dual",
+      command: "archctx apply"
+    });
+    return this.localStore.appendArchitectureEvents({
+      writer: "runtime-daemon",
+      events: [plan.event]
+    });
   }
 
   prepareDeveloperReviewWorktree(input: {
@@ -1571,7 +1645,7 @@ export class ArchctxDaemon {
       repositoryId,
       headSha: session?.workspace.headSha ?? readHeadSha(root),
       worktreeDigest: session?.snapshot.worktreeDigest ?? computeWorktreeDigest(root)
-    } as Json);
+    } as unknown as Json);
   }
 
   async openSession(root: string): Promise<RepositorySession> {
@@ -2742,7 +2816,11 @@ export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
   }
 }
 
-function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMode): RuntimeCompositionReport {
+function runtimeCompositionReport(
+  deps: RuntimeDeps,
+  mode: RuntimeCompositionMode,
+  architectureLedger: RuntimeArchitectureLedgerModes
+): RuntimeCompositionReport {
   const blocked = blockedProductionInjections(deps);
   return {
     mode,
@@ -2755,9 +2833,74 @@ function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMod
       changeSetEngine: deps.changeSetEngine ? "injected" : "default",
       externalDocumentation: deps.externalDocumentation ? "injected" : "context7"
     },
+    architectureLedger,
     localStorePath: deps.localStorePath,
     blockedProductionInjections: blocked
   };
+}
+
+function runtimeArchitectureLedgerModes(input: RuntimeDeps["architectureLedger"] = {}): RuntimeArchitectureLedgerModes {
+  const rolloutMode = readRuntimeArchitectureLedgerRolloutMode(input.rolloutMode ?? process.env.ARCHCONTEXT_LEDGER_MODE ?? "yaml");
+  const defaults = architectureLedgerDefaultsForRolloutMode(rolloutMode);
+  const readMode = readRuntimeArchitectureLedgerReadMode(input.readMode ?? process.env.ARCHCONTEXT_LEDGER_READ_MODE ?? defaults.readMode);
+  const writeMode = readRuntimeArchitectureLedgerWriteMode(input.writeMode ?? process.env.ARCHCONTEXT_LEDGER_WRITE_MODE ?? defaults.writeMode);
+  return {
+    schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1",
+    rolloutMode,
+    readMode,
+    writeMode,
+    // Read authority stays YAML until ledger-backed current-state reads land.
+    readAuthority: "yaml",
+    writeAuthority: writeMode
+  };
+}
+
+function architectureLedgerDefaultsForRolloutMode(
+  mode: RuntimeArchitectureLedgerRolloutMode
+): Pick<RuntimeArchitectureLedgerModes, "readMode" | "writeMode"> {
+  switch (mode) {
+    case "yaml":
+      return { readMode: "yaml", writeMode: "yaml" };
+    case "dual":
+      return { readMode: "dual-compare", writeMode: "dual" };
+    case "ledger-shadow":
+      return { readMode: "ledger-shadow", writeMode: "dual" };
+    case "ledger-authoritative":
+      return { readMode: "ledger", writeMode: "ledger-with-projection" };
+  }
+}
+
+function readRuntimeArchitectureLedgerRolloutMode(value: string): RuntimeArchitectureLedgerRolloutMode {
+  if (value === "yaml" || value === "dual" || value === "ledger-shadow" || value === "ledger-authoritative") return value;
+  if (value === "ledger") return "ledger-authoritative";
+  throw new Error(`invalid ARCHCONTEXT_LEDGER_MODE: ${value}`);
+}
+
+function readRuntimeArchitectureLedgerReadMode(value: string): RuntimeArchitectureLedgerReadMode {
+  if (value === "yaml" || value === "dual-compare" || value === "ledger-shadow" || value === "ledger") return value;
+  throw new Error(`invalid architecture ledger read mode: ${value}`);
+}
+
+function readRuntimeArchitectureLedgerWriteMode(value: string): RuntimeArchitectureLedgerWriteMode {
+  if (value === "yaml" || value === "dual" || value === "ledger-with-projection") return value;
+  throw new Error(`invalid architecture ledger write mode: ${value}`);
+}
+
+function architectureLedgerWriteAppendsEvents(mode: RuntimeArchitectureLedgerWriteMode): boolean {
+  return mode === "dual" || mode === "ledger-with-projection";
+}
+
+function readCurrentBranch(root: string): string {
+  try {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return branch === "HEAD" ? "detached" : branch;
+  } catch {
+    return "unknown";
+  }
 }
 
 function blockedProductionInjections(deps: RuntimeDeps): string[] {

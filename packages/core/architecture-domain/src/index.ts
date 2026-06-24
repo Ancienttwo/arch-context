@@ -562,5 +562,8 @@ class StableYamlParser {
 function parseScalar(value: string): Json {
   if (value === "[]") return [];
   if (value === "{}") return {};
-  return JSON.parse(value) as Json;
+  if (value === "true" || value === "false" || value === "null") return JSON.parse(value) as Json;
+  if (/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return Number(value);
+  if (/^["[{]/.test(value)) return JSON.parse(value) as Json;
+  return value;
 }
