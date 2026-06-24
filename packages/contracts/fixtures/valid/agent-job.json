@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "archcontext.agent-job/v1",
+  "jobId": "agent_job.al0_investigate",
+  "status": "queued",
+  "runnerPort": "codex",
+  "repository": {
+    "repositoryId": "repo.archcontext",
+    "storageRepositoryId": "storage-repo.archcontext"
+  },
+  "worktree": {
+    "workspaceId": "workspace.main",
+    "storageWorkspaceId": "storage-workspace.main",
+    "branch": "codex/architecture-ledger-al0",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "fingerprint": "sha256:1212121212121212121212121212121212121212121212121212121212121212",
+  "trigger": {
+    "source": "checkpoint",
+    "reason": "medium risk with unresolved evidence coverage"
+  },
+  "budget": {
+    "maxRunsPerTask": 1,
+    "maxRunsPerRepositoryPerDay": 3
+  },
+  "inputDigest": "sha256:1313131313131313131313131313131313131313131313131313131313131313",
+  "promptTemplateDigest": "sha256:1414141414141414141414141414141414141414141414141414141414141414",
+  "stalePolicy": "cancel-on-head-change",
+  "directMutationAllowed": false,
+  "queuedAt": "2026-06-25T00:00:00.000Z",
+  "updatedAt": "2026-06-25T00:00:00.000Z"
+}

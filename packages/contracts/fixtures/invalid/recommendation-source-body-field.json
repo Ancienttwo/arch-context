@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "archcontext.recommendation/v2",
+  "recommendationId": "rec.invalid.source-body",
+  "runId": "rec_run.al0_contract",
+  "fingerprint": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "subject": "relation.module-api-imports-runtime",
+  "status": "open",
+  "confidence": "medium",
+  "enforcement": "advisory",
+  "risk": "medium",
+  "uncertainty": "low",
+  "evidenceBindingIds": ["binding.evidence.al0.boundary-import"],
+  "explanation": ["Invalid recommendation includes source body."],
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "updatedAt": "2026-06-25T00:00:00.000Z",
+  "sourceBody": "private code"
+}

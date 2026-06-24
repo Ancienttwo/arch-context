@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "archcontext.evidence-binding/v1",
+  "bindingId": "binding.evidence.al0.context-only",
+  "evidenceId": "evidence.al0.boundary-import",
+  "target": {
+    "kind": "event",
+    "id": "arch_event.al0_contract_freeze"
+  },
+  "bindingReason": "change-cursor",
+  "authorityEffect": "context-only",
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "provenance": {
+    "producer": "runtime-daemon",
+    "command": "checkpoint",
+    "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "extensions": {
+    "note": "context-only evidence cannot promote recommendation enforcement"
+  }
+}

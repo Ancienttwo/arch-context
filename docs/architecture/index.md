@@ -2,6 +2,9 @@
 
 > Umbrella architecture ledger for current boundaries, drift requests, snapshots, and diagrams.
 
+AL0 ledger authority is frozen in
+[`architecture-ledger-authority-matrix.md`](architecture-ledger-authority-matrix.md).
+
 ## Current Snapshot
 
 - Latest snapshot: (none yet)

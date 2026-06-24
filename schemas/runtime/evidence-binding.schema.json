@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/evidence-binding.schema.json",
+  "title": "EvidenceBinding",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "bindingId", "evidenceId", "target", "bindingReason", "authorityEffect", "createdAt", "provenance"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.evidence-binding/v1" },
+    "bindingId": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" },
+    "evidenceId": { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot"] },
+        "id": { "type": "string" }
+      }
+    },
+    "bindingReason": { "enum": ["direct-selector", "predicate-subject", "change-cursor", "human-attestation", "deterministic-check", "subagent-proposal"] },
+    "authorityEffect": { "enum": ["context-only", "ranking", "checkpoint-eligible", "complete-eligible"] },
+    "createdAt": { "type": "string" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "command", "inputDigest"],
+      "properties": {
+        "producer": { "type": "string" },
+        "command": { "type": "string" },
+        "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "traceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

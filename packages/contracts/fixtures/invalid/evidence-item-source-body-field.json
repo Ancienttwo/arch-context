@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "archcontext.evidence-item/v2",
+  "evidenceId": "evidence.invalid.source-body",
+  "kind": "import-edge-added",
+  "strength": "observed",
+  "polarity": "positive",
+  "origin": "codegraph",
+  "subject": "relation.module-api-imports-runtime",
+  "selector": {
+    "kind": "relation",
+    "id": "relation.module-api-imports-runtime"
+  },
+  "summary": "Invalid evidence includes source body.",
+  "coverage": {
+    "level": "partial",
+    "scope": "changed-paths"
+  },
+  "supports": ["recommendation"],
+  "provenance": {
+    "producer": "codegraph-adapter",
+    "command": "codegraph explore",
+    "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sourceBody": "private code"
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/evidence-item.schema.json",
+  "title": "EvidenceItem",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidenceId", "kind", "strength", "polarity", "origin", "subject", "selector", "summary", "coverage", "supports", "provenance", "createdAt", "digest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.evidence-item/v2" },
+    "evidenceId": { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" },
+    "kind": { "type": "string" },
+    "strength": { "enum": ["heuristic", "declared", "observed", "verified"] },
+    "polarity": { "enum": ["positive", "absence", "declaration"] },
+    "origin": { "enum": ["codegraph", "model-store-yaml", "checkpoint", "runtime-daemon", "user", "subagent", "external-doc"] },
+    "subject": { "type": "string" },
+    "selector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["repository", "path", "symbol", "relation", "constraint", "practice", "event", "snapshot"] },
+        "id": { "type": "string" },
+        "path": { "type": "string" },
+        "startLine": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "summary": { "type": "string" },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "scope"],
+      "properties": {
+        "level": { "enum": ["complete", "partial", "unknown"] },
+        "scope": { "type": "string" }
+      }
+    },
+    "supports": {
+      "type": "array",
+      "items": { "enum": ["recommendation", "checkpoint", "complete"] }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "command", "inputDigest"],
+      "properties": {
+        "producer": { "type": "string" },
+        "command": { "type": "string" },
+        "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "traceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "createdAt": { "type": "string" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -2,7 +2,7 @@
 
 ## Scope
 
-ArchContext MVP plus Sprint 2 spans a local runtime, repository `.archcontext/` files, CodeGraph adapter, multi-repo landscape metadata, CLI/MCP surfaces, ChatGPT tunnel, Cloudflare control plane, GitHub App, Stripe webhooks, signed developer attestations, and customer-controlled runner attestations.
+ArchContext MVP plus Sprint 2 spans a local runtime, repository `.archcontext/` files, CodeGraph adapter, multi-repo landscape metadata, CLI/MCP surfaces, ChatGPT tunnel, Cloudflare control plane, GitHub App, Stripe webhooks, signed developer attestations, customer-controlled runner attestations, and the AL0 hybrid architecture-ledger contract.
 
 Out of scope: generic source code security review, customer CI hardening beyond runner identity binding, Slack, hosted code analysis, SSO, SCIM, centralized policy distribution, and organization billing administration.
 
@@ -12,7 +12,8 @@ Out of scope: generic source code security review, customer CI hardening beyond 
 |---|---|
 | Source code, diffs, symbols, CodeGraph output | Local only |
 | `.archcontext/` model, ADRs, policies | Repository Git |
-| SQLite derived state | Local app data |
+| SQLite runtime and future architecture ledger | Local app data |
+| Architecture ledger events, snapshots, evidence bindings, recommendation runs, and agent jobs | Local app data; rebuildable or reconcilable from Git projections and observed code facts until authority promotion |
 | Device private key | OS keychain only |
 | Org runner private key | Customer-controlled runner only |
 | Attestation challenge and public proof | SaaS D1 |
@@ -43,6 +44,10 @@ Out of scope: generic source code security review, customer CI hardening beyond 
 | GitHub SDK/API drift | Typed calls start reaching files, contents, blob, tree, diff, or patch data | `GitHubGovernancePort`, method/path allowlist, forbidden endpoint denylist, diff/patch media denylist, static contract audit, egress readback guard |
 | GitHub webhook replay or forgery | Duplicate or forged event creates stale challenge/check side effects | Raw-byte HMAC-SHA256 verification before projection, provider/delivery ID ledger, event/action allowlist, idempotent replay response |
 | GitHub governance logs leak raw payload or code-adjacent data | Source, diff, filenames, symbols, model bodies, or findings leave the local boundary | Immediate minimal projection, raw webhook body retention of 0 days, structured log/trace/queue/error allowlists, bait fixture privacy tests |
+| Direct ledger database edit | Bypasses stale HEAD/worktree, ChangeSet, idempotency, and audit controls | Daemon-owned single writer, agent contract prohibition, schema fixtures, future DB integrity checks |
+| SQL ledger becomes unrecoverable sole truth too early | User cannot recover architecture state from Git review artifacts | Hybrid mode sequence, YAML rollback path, projection digests, rebuild requirement before promotion |
+| Evidence binding forgery or free-text practice matching | Unsupported advice is promoted to checkpoint/complete authority | `EvidenceItem/v2` plus `EvidenceBinding/v1`, binding reason allowlist, no free-text binding authority |
+| Subagent direct write | Non-deterministic output mutates architecture authority | Agent job/report contracts require `directMutationAllowed: false`; proposals must pass deterministic validation and ChangeSet |
 
 ## FG2 GitHub Governance Trace
 
@@ -67,3 +72,6 @@ Input source of truth is the GitHub webhook raw body plus `X-Hub-Signature-256`,
 9. GitHub App permission changes require manifest, ADR, install-page, and evidence updates before release.
 10. GitHub governance code cannot use a generic GitHub client or forbidden endpoint/media type.
 11. Duplicate GitHub delivery IDs cannot create new challenge or check side effects.
+12. Ledger-affecting writes are ChangeSet or daemon-owned event append only.
+13. Raw source bodies, raw diffs, prompt/completion bodies, full CodeGraph output, secrets, credentials, and private keys are not ledger payloads.
+14. Subagent output is proposal evidence, not architecture authority.

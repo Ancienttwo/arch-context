@@ -29,7 +29,7 @@
     }
   },
   "schemas": {
-    "schemaSetVersion": "2026-06-20.fg1",
+    "schemaSetVersion": "2026-06-25.al0-ledger",
     "contractsPackageVersion": "0.1.3",
     "reviewChallenge": "archcontext.review-challenge/v2",
     "attestation": "archcontext.attestation/v2",

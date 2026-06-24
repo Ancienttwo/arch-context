@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-snapshot.schema.json",
+  "title": "ArchitectureSnapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "snapshotId", "repository", "worktree", "sourceMode", "eventCursor", "graphDigest", "projectionDigest", "entityCount", "relationCount", "constraintCount", "inputDigests", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-snapshot/v1" },
+    "snapshotId": { "type": "string", "pattern": "^arch_snapshot\\.[a-zA-Z0-9_-]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "sourceMode": { "enum": ["yaml", "dual", "ledger-shadow", "ledger-authoritative"] },
+    "eventCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lastEventId", "lastEventHash"],
+      "properties": {
+        "lastEventId": { "type": "string", "pattern": "^arch_event\\.[a-zA-Z0-9_-]+$" },
+        "lastEventHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "projectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "entityCount": { "type": "integer", "minimum": 0 },
+    "relationCount": { "type": "integer", "minimum": 0 },
+    "constraintCount": { "type": "integer", "minimum": 0 },
+    "inputDigests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelDigest"],
+      "properties": {
+        "modelDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "policyDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "catalogDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "createdAt": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

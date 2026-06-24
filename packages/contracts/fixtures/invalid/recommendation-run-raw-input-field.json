@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "archcontext.recommendation-run/v1",
+  "runId": "rec_run.invalid_raw_input",
+  "repository": {
+    "repositoryId": "repo.archcontext",
+    "storageRepositoryId": "storage-repo.archcontext"
+  },
+  "worktree": {
+    "workspaceId": "workspace.main",
+    "storageWorkspaceId": "storage-workspace.main",
+    "branch": "main",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "trigger": {
+    "level": "L1",
+    "source": "checkpoint"
+  },
+  "engineVersion": "0.1.3",
+  "catalogDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "inputDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "outputDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "policyMode": "advisory",
+  "status": "succeeded",
+  "startedAt": "2026-06-25T00:00:00.000Z",
+  "recommendationIds": ["rec.al0.boundary-import"],
+  "metrics": {
+    "matchCount": 1,
+    "evidenceBindingCount": 1,
+    "unboundEvidenceCount": 0
+  },
+  "rawInput": "private prompt"
+}

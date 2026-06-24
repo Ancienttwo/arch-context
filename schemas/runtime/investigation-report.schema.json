@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/investigation-report.schema.json",
+  "title": "InvestigationReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "reportId", "jobId", "status", "findings", "outputDigest", "createdAt", "directMutationAllowed"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.investigation-report/v1" },
+    "reportId": { "type": "string", "pattern": "^investigation_report\\.[a-zA-Z0-9_-]+$" },
+    "jobId": { "type": "string", "pattern": "^agent_job\\.[a-zA-Z0-9_-]+$" },
+    "status": { "enum": ["succeeded", "failed", "partial"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["findingId", "hypothesis", "evidenceBindingIds", "unknowns", "falsifier", "confidence"],
+        "properties": {
+          "findingId": { "type": "string" },
+          "hypothesis": { "type": "string" },
+          "evidenceBindingIds": { "type": "array", "items": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" } },
+          "unknowns": { "type": "array", "items": { "type": "string" } },
+          "falsifier": { "type": "string" },
+          "proposedDeltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "confidence": { "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
+    "outputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "createdAt": { "type": "string" },
+    "directMutationAllowed": { "const": false },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

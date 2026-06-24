@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "archcontext.architecture-event/v1",
+  "eventId": "arch_event.al0_extension",
+  "eventType": "authority.contract.freeze",
+  "payloadVersion": "v1",
+  "repository": {
+    "repositoryId": "repo.archcontext",
+    "storageRepositoryId": "storage-repo.archcontext"
+  },
+  "worktree": {
+    "workspaceId": "workspace.main",
+    "storageWorkspaceId": "storage-workspace.main",
+    "branch": "main",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "baseDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "resultingDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "actor": {
+    "kind": "system",
+    "id": "schema-fixture"
+  },
+  "source": "manual",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "idempotencyKey": "al0-extension-boundary",
+  "provenance": {
+    "producer": "contracts-test",
+    "command": "fixture",
+    "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "payload": {
+    "kind": "authority-contract",
+    "subjectIds": ["adr.0040.hybrid-architecture-ledger"],
+    "summary": "Boundary fixture keeps forward-compatible data under extensions.",
+    "changesDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "extensions": {
+    "futureField": "allowed only here"
+  }
+}

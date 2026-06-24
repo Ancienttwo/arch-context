@@ -1,8 +1,9 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Proposed
+> **Status**: Executing - AL0 complete
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
+> **Updated**: 2026-06-25
 > **Target location**: `plans/sprints/archctx-architecture-ledger-sprint.md`
 > **Relationship to current roadmap**: follow-up workstream after the existing M0–M6 scaffold; may start in parallel with remaining M6 launch evidence where dependencies permit.
 > **Goal**: turn architecture knowledge into a durable, queryable, reviewable ledger that passively follows code evolution, serves LLMs through CLI/MCP, and invokes subagents only when deterministic analysis cannot close an important uncertainty.
@@ -115,7 +116,7 @@ These are target gates, not claims about current performance.
 
 | Sprint | Outcome | Priority | Depends on | Status |
 |---|---|---:|---|---|
-| AL0 | Authority, contracts and ADR freeze | P0 | Existing M0–M3 | ◻ |
+| AL0 | Authority, contracts and ADR freeze | P0 | Existing M0–M3 | ☑ |
 | AL1 | Recommendation evidence correctness | P0 | AL0 | ◻ |
 | AL2 | SQLite architecture ledger foundation | P0 | AL0 | ◻ |
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ◻ |
@@ -138,34 +139,60 @@ These are target gates, not claims about current performance.
 
 ### Tasks
 
-- [ ] **AL0-01 · P0 · `docs/adr`** — Write `ADR-0026 Hybrid Architecture Ledger`.
+- [x] **AL0-01 · P0 · `docs/adr`** — Write `ADR-0040 Hybrid Architecture Ledger`.
   - Acceptance: declares operational authority, Git collaboration boundary, projection semantics and promotion conditions.
-- [ ] **AL0-02 · P0 · `architecture-domain`** — Publish an authority matrix for declared, observed, verified, proposed and projected facts.
+  - Evidence: `docs/adr/ADR-0040-hybrid-architecture-ledger.md`.
+  - Note: the checklist draft named ADR-0026, but ADR-0026 is already assigned to Multi-repo Architecture Context; ADR-0040 preserves unique ADR IDs.
+- [x] **AL0-02 · P0 · `architecture-domain`** — Publish an authority matrix for declared, observed, verified, proposed and projected facts.
   - Acceptance: every fact kind has one writer, one canonical ID rule and an explicit conflict policy.
-- [ ] **AL0-03 · P0 · `contracts`** — Define `ArchitectureEvent/v1`.
+  - Evidence: `docs/architecture/architecture-ledger-authority-matrix.md`, `packages/contracts/src/ledger.ts`.
+- [x] **AL0-03 · P0 · `contracts`** — Define `ArchitectureEvent/v1`.
   - Required fields: event ID, repository/worktree identity, base and resulting digest, HEAD SHA, actor, source, timestamp, idempotency key, payload version and provenance.
-- [ ] **AL0-04 · P0 · `contracts`** — Define `ArchitectureSnapshot/v1` and snapshot digest rules.
-- [ ] **AL0-05 · P0 · `contracts`** — Define `EvidenceItem/v2` and typed `EvidenceBinding/v1`.
+  - Evidence: `schemas/runtime/architecture-event.schema.json`, `packages/contracts/fixtures/valid/architecture-event.json`.
+- [x] **AL0-04 · P0 · `contracts`** — Define `ArchitectureSnapshot/v1` and snapshot digest rules.
+  - Evidence: `schemas/runtime/architecture-snapshot.schema.json`, `packages/contracts/src/ledger.ts`.
+- [x] **AL0-05 · P0 · `contracts`** — Define `EvidenceItem/v2` and typed `EvidenceBinding/v1`.
   - Acceptance: evidence is bound to entity, relation, constraint, recommendation or practice; free-text matching cannot grant authority.
-- [ ] **AL0-06 · P0 · `contracts`** — Define `RecommendationRun/v1`, `Recommendation/v2` and lifecycle statuses.
-- [ ] **AL0-07 · P0 · `contracts`** — Define `AgentJob/v1` and typed `InvestigationReport/v1`.
-- [ ] **AL0-08 · P0 · `runtime-daemon`** — Define repository, branch and worktree scoping rules.
+  - Evidence: `schemas/runtime/evidence-item.schema.json`, `schemas/runtime/evidence-binding.schema.json`.
+- [x] **AL0-06 · P0 · `contracts`** — Define `RecommendationRun/v1`, `Recommendation/v2` and lifecycle statuses.
+  - Evidence: `schemas/runtime/recommendation-run.schema.json`, `schemas/runtime/recommendation.schema.json`.
+- [x] **AL0-07 · P0 · `contracts`** — Define `AgentJob/v1` and typed `InvestigationReport/v1`.
+  - Evidence: `schemas/runtime/agent-job.schema.json`, `schemas/runtime/investigation-report.schema.json`.
+- [x] **AL0-08 · P0 · `runtime-daemon`** — Define repository, branch and worktree scoping rules.
   - Acceptance: branch switches and multiple worktrees cannot contaminate one another.
-- [ ] **AL0-09 · P0 · `changeset-engine`** — Confirm that all ledger-affecting mutations pass through ChangeSet or an equivalent transactional event append owned by the daemon.
-- [ ] **AL0-10 · P0 · `security`** — Extend the threat model for local database tampering, malicious repository content, prompt injection, hook recursion and agent output forgery.
-- [ ] **AL0-11 · P1 · `docs/spec`** — Update product truth and remove contradictory wording about YAML versus SQL authority.
-- [ ] **AL0-12 · P1 · `AGENTS.md` / `CLAUDE.md`** — Add the ledger read/write contract and prohibit direct DB editing by coding agents.
-- [ ] **AL0-13 · P1 · `scripts`** — Capture baseline timings for current `init`, `sync`, `context`, `checkpoint` and `complete` paths.
-- [ ] **AL0-14 · P1 · `contracts`** — Add JSON Schema fixtures for forward compatibility, unknown fields and version rejection.
-- [ ] **AL0-15 · P1 · `docs/runbooks`** — Write feature-flag and rollback strategy: `yaml`, `dual`, `ledger-shadow`, `ledger-authoritative`.
+- [x] **AL0-09 · P0 · `changeset-engine`** — Confirm that all ledger-affecting mutations pass through ChangeSet or an equivalent transactional event append owned by the daemon.
+  - Evidence: `docs/adr/ADR-0040-hybrid-architecture-ledger.md`, `docs/architecture/architecture-ledger-authority-matrix.md`.
+- [x] **AL0-10 · P0 · `security`** — Extend the threat model for local database tampering, malicious repository content, prompt injection, hook recursion and agent output forgery.
+  - Evidence: `docs/security/threat-model-v1.md`.
+- [x] **AL0-11 · P1 · `docs/spec`** — Update product truth and remove contradictory wording about YAML versus SQL authority.
+  - Evidence: `docs/spec.md`.
+- [x] **AL0-12 · P1 · `AGENTS.md` / `CLAUDE.md`** — Add the ledger read/write contract and prohibit direct DB editing by coding agents.
+  - Evidence: `AGENTS.md`, `CLAUDE.md`.
+- [x] **AL0-13 · P1 · `scripts`** — Capture baseline timings for current `init`, `sync`, `context`, `checkpoint` and `complete` paths.
+  - Evidence: `docs/verification/architecture-ledger-al0-baseline.md`.
+- [x] **AL0-14 · P1 · `contracts`** — Add JSON Schema fixtures for forward compatibility, unknown fields and version rejection.
+  - Evidence: `packages/contracts/fixtures/valid/`, `packages/contracts/fixtures/invalid/`, `packages/contracts/fixtures/boundary/`, `packages/contracts/test/contracts.test.ts`.
+- [x] **AL0-15 · P1 · `docs/runbooks`** — Write feature-flag and rollback strategy: `yaml`, `dual`, `ledger-shadow`, `ledger-authoritative`.
+  - Evidence: `docs/runbooks/architecture-ledger-rollout.md`.
 
 ### Exit gate
 
-- [ ] **AL0-EG1** — ADR and authority matrix approved.
-- [ ] **AL0-EG2** — All new schemas have positive, negative and boundary fixtures.
-- [ ] **AL0-EG3** — No unresolved “which store wins?” case remains.
-- [ ] **AL0-EG4** — Branch/worktree identity and stale-write semantics are testable.
-- [ ] **AL0-EG5** — Product spec, CLI contract and agent contract agree.
+- [x] **AL0-EG1** — ADR and authority matrix approved.
+  - Evidence: `docs/adr/ADR-0040-hybrid-architecture-ledger.md`, `docs/architecture/architecture-ledger-authority-matrix.md`.
+- [x] **AL0-EG2** — All new schemas have positive, negative and boundary fixtures.
+  - Evidence: `bun test packages/contracts/test/contracts.test.ts` passed with 134 tests.
+- [x] **AL0-EG3** — No unresolved “which store wins?” case remains.
+  - Evidence: ADR-0040 mode sequence keeps `.archcontext/` as current review boundary and SQLite as operational state until explicit promotion.
+- [x] **AL0-EG4** — Branch/worktree identity and stale-write semantics are testable.
+  - Evidence: ledger schemas require repository/worktree identity, HEAD SHA and worktree digest; AL0 matrix defines stale job behavior.
+- [x] **AL0-EG5** — Product spec, CLI contract and agent contract agree.
+  - Evidence: `docs/spec.md`, `docs/runbooks/schema-upgrade-guide.md`, `AGENTS.md`, `CLAUDE.md`.
+
+### AL0 execution log
+
+- 2026-06-25: Completed AL0 authority/contracts freeze on branch `codex/architecture-ledger-al0`.
+- 2026-06-25: Contract verification passed: `bun test packages/contracts/test/contracts.test.ts` (134 pass, 0 fail).
+- 2026-06-25: Baseline timing readback captured in `docs/verification/architecture-ledger-al0-baseline.md`.
 
 ---
 

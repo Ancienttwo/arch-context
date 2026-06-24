@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "archcontext.investigation-report/v1",
+  "reportId": "investigation_report.al0_investigate",
+  "jobId": "agent_job.al0_investigate",
+  "status": "succeeded",
+  "findings": [
+    {
+      "findingId": "finding.boundary-import",
+      "hypothesis": "The changed import may cross a declared architecture boundary.",
+      "evidenceBindingIds": ["binding.evidence.al0.boundary-import"],
+      "unknowns": ["Whether the target module is inside the same declared layer."],
+      "falsifier": "A declared relation allowing this dependency exists at the same HEAD.",
+      "proposedDeltaDigest": "sha256:1515151515151515151515151515151515151515151515151515151515151515",
+      "confidence": "medium"
+    }
+  ],
+  "outputDigest": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "directMutationAllowed": false
+}

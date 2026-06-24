@@ -3,7 +3,7 @@ export const ARCHCONTEXT_PRODUCT_VERSION = "0.1.3";
 export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.3.10";
 export const ARCHCONTEXT_NODE_RANGE = ">=24 <26";
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v1";
-export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-06-20.fg1";
+export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-06-25.al0-ledger";
 
 export interface ProductVersionManifest {
   schemaVersion: "archcontext.product-version-manifest/v1";

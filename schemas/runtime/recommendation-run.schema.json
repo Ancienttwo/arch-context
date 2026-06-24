@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/recommendation-run.schema.json",
+  "title": "RecommendationRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "repository", "worktree", "trigger", "engineVersion", "catalogDigest", "inputDigest", "outputDigest", "policyMode", "status", "startedAt", "recommendationIds", "metrics"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.recommendation-run/v1" },
+    "runId": { "type": "string", "pattern": "^rec_run\\.[a-zA-Z0-9_-]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "source"],
+      "properties": {
+        "level": { "enum": ["L0", "L1", "L2", "L3", "L4"] },
+        "source": { "enum": ["prepare_task", "checkpoint", "plan_update", "apply_update", "complete_task", "git_hook", "yaml_import", "projection_reconcile", "migration", "manual"] }
+      }
+    },
+    "engineVersion": { "type": "string" },
+    "catalogDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "outputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "policyMode": { "enum": ["advisory", "checkpoint", "complete"] },
+    "status": { "enum": ["queued", "running", "succeeded", "failed", "superseded"] },
+    "startedAt": { "type": "string" },
+    "completedAt": { "type": "string" },
+    "recommendationIds": { "type": "array", "items": { "type": "string" } },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matchCount", "evidenceBindingCount", "unboundEvidenceCount"],
+      "properties": {
+        "matchCount": { "type": "integer", "minimum": 0 },
+        "evidenceBindingCount": { "type": "integer", "minimum": 0 },
+        "unboundEvidenceCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

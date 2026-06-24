@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "archcontext.evidence-binding/v1",
+  "bindingId": "binding.invalid.summary-substring",
+  "evidenceId": "evidence.al0.boundary-import",
+  "target": {
+    "kind": "practice",
+    "id": "modularity.respect-dependency-direction"
+  },
+  "bindingReason": "summary-substring",
+  "authorityEffect": "complete-eligible",
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "provenance": {
+    "producer": "practice-engine",
+    "command": "matchPracticesForTask",
+    "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  }
+}

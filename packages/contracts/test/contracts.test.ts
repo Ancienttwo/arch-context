@@ -43,6 +43,11 @@ import {
   type ReviewChallengeV2
 } from "../src/github-governance";
 import {
+  LEDGER_AUTHORITY_MATRIX,
+  architectureEventHash,
+  architectureSnapshotDigest
+} from "../src/ledger";
+import {
   ARCHCONTEXT_PACKAGE_MANAGER,
   ARCHCONTEXT_PRODUCT_VERSION,
   ARCHCONTEXT_SCHEMA_SET_VERSION,
@@ -73,6 +78,14 @@ const schemaByFixture: Record<string, string> = {
   "explorer-service": "schemas/runtime/explorer-service.schema.json",
   "product-version-manifest": "schemas/runtime/product-version-manifest.schema.json",
   "external-document-resource": "schemas/runtime/external-document-resource.schema.json",
+  "architecture-event": "schemas/runtime/architecture-event.schema.json",
+  "architecture-snapshot": "schemas/runtime/architecture-snapshot.schema.json",
+  "evidence-item": "schemas/runtime/evidence-item.schema.json",
+  "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
+  "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
+  "recommendation": "schemas/runtime/recommendation.schema.json",
+  "agent-job": "schemas/runtime/agent-job.schema.json",
+  "investigation-report": "schemas/runtime/investigation-report.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
   "practice-match": "schemas/runtime/practice-match.schema.json",
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",
@@ -316,6 +329,29 @@ describe("JSON schema contracts", () => {
     expect(fixture.thresholds.minContextRecallLift).toBeGreaterThan(0);
     expect(fixture.decision).toBe("keep-lexical");
   });
+
+  test("architecture ledger contracts freeze authority and digest rules", () => {
+    expect(LEDGER_AUTHORITY_MATRIX.declared.writer).toContain("ChangeSet-approved Git projection");
+    expect(LEDGER_AUTHORITY_MATRIX.observed.conflictPolicy).toContain("cannot overwrite declared facts");
+    expect(LEDGER_AUTHORITY_MATRIX.proposed.conflictPolicy).toContain("non-authoritative");
+    expect(LEDGER_AUTHORITY_MATRIX.projected.conflictPolicy).toContain("drift");
+
+    const event = readJson("packages/contracts/fixtures/valid/architecture-event.json") as any;
+    expect(architectureEventHash({ ...event, eventHash: `sha256:${"f".repeat(64)}` })).toBe(architectureEventHash(event));
+
+    const snapshot = readJson("packages/contracts/fixtures/valid/architecture-snapshot.json") as any;
+    expect(architectureSnapshotDigest({
+      ...snapshot,
+      snapshotId: "arch_snapshot.different_id",
+      createdAt: "2026-06-25T01:00:00.000Z"
+    })).toBe(architectureSnapshotDigest(snapshot));
+  });
+
+  test("architecture ledger schemas reject unsupported versions", () => {
+    const schema = readJson("schemas/runtime/architecture-event.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/architecture-event.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, { ...fixture, schemaVersion: "archcontext.architecture-event/v2" }).valid).toBe(false);
+  });
 });
 
 function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
@@ -343,6 +379,14 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.explorer-service/v1": "explorer-service",
     "archcontext.product-version-manifest/v1": "product-version-manifest",
     "archcontext.practice-catalog-manifest/v1": "practice-catalog-manifest",
+    "archcontext.architecture-event/v1": "architecture-event",
+    "archcontext.architecture-snapshot/v1": "architecture-snapshot",
+    "archcontext.evidence-item/v2": "evidence-item",
+    "archcontext.evidence-binding/v1": "evidence-binding",
+    "archcontext.recommendation-run/v1": "recommendation-run",
+    "archcontext.recommendation/v2": "recommendation",
+    "archcontext.agent-job/v1": "agent-job",
+    "archcontext.investigation-report/v1": "investigation-report",
     "archcontext.retrieval-config/v1": "retrieval-config",
     "archcontext.retrieval-eval/v1": "retrieval-eval",
     "archcontext.retrieval-decision/v1": "retrieval-decision",

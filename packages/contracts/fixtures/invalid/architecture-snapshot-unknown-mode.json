@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "archcontext.architecture-snapshot/v1",
+  "snapshotId": "arch_snapshot.invalid_mode",
+  "repository": {
+    "repositoryId": "repo.archcontext",
+    "storageRepositoryId": "storage-repo.archcontext"
+  },
+  "worktree": {
+    "workspaceId": "workspace.main",
+    "storageWorkspaceId": "storage-workspace.main",
+    "branch": "main",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "sourceMode": "sql-only",
+  "eventCursor": {
+    "lastEventId": "arch_event.al0_contract_freeze",
+    "lastEventHash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "graphDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "projectionDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "entityCount": 12,
+  "relationCount": 8,
+  "constraintCount": 4,
+  "inputDigests": {
+    "modelDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "createdAt": "2026-06-25T00:00:00.000Z"
+}

@@ -54,3 +54,5 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0036 | Deterministic Gate, LLM Advisory |
 | ADR-0037 | Runtime State Placement and Identity |
 | ADR-0038 | Versioned Architecture Practice Assets |
+| ADR-0039 | External Documentation Is Advisory and Untrusted |
+| ADR-0040 | Hybrid Architecture Ledger |

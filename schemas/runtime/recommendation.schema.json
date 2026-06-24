@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/recommendation.schema.json",
+  "title": "Recommendation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "recommendationId", "runId", "fingerprint", "subject", "status", "confidence", "enforcement", "risk", "uncertainty", "evidenceBindingIds", "explanation", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.recommendation/v2" },
+    "recommendationId": { "type": "string", "pattern": "^rec\\.[a-zA-Z0-9_.-]+$" },
+    "runId": { "type": "string", "pattern": "^rec_run\\.[a-zA-Z0-9_-]+$" },
+    "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "subject": { "type": "string" },
+    "practiceId": { "type": "string" },
+    "status": { "enum": ["open", "acknowledged", "accepted", "rejected", "deferred", "waived", "resolved", "superseded", "expired"] },
+    "confidence": { "enum": ["low", "medium", "high"] },
+    "enforcement": { "enum": ["advisory", "checkpoint", "complete"] },
+    "risk": { "enum": ["low", "medium", "high"] },
+    "uncertainty": { "enum": ["low", "medium", "high"] },
+    "evidenceBindingIds": { "type": "array", "items": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" } },
+    "explanation": { "type": "array", "items": { "type": "string" } },
+    "createdAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

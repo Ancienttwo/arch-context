@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-event.schema.json",
+  "title": "ArchitectureEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "eventId", "eventType", "payloadVersion", "repository", "worktree", "baseDigest", "resultingDigest", "headSha", "actor", "source", "timestamp", "idempotencyKey", "provenance", "payload"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-event/v1" },
+    "eventId": { "type": "string", "pattern": "^arch_event\\.[a-zA-Z0-9_-]+$" },
+    "eventType": { "type": "string" },
+    "payloadVersion": { "type": "string", "pattern": "^v[0-9]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "baseDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "resultingDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["developer", "daemon", "hook", "cli", "mcp", "subagent", "migration", "system"] },
+        "id": { "type": "string" }
+      }
+    },
+    "source": { "enum": ["prepare_task", "checkpoint", "plan_update", "apply_update", "complete_task", "git_hook", "yaml_import", "projection_reconcile", "migration", "manual"] },
+    "timestamp": { "type": "string" },
+    "idempotencyKey": { "type": "string" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "command", "inputDigest"],
+      "properties": {
+        "producer": { "type": "string" },
+        "command": { "type": "string" },
+        "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "traceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "subjectIds", "summary", "changesDigest"],
+      "properties": {
+        "kind": { "type": "string" },
+        "subjectIds": { "type": "array", "items": { "type": "string" } },
+        "summary": { "type": "string" },
+        "changesDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "metadata": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "previousEventHash": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+    "eventHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

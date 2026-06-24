@@ -1,10 +1,11 @@
 # Product Spec: ArchContext
 
 > **Status**: Active
-> **Last Updated**: 2026-06-20
+> **Last Updated**: 2026-06-25
 > **Owner**: Planner
 > **Full PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Follow-up PRD**: `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`
+> **Architecture Ledger PRD**: `plans/prds/Deep Research Report on ArchContext.md`
 
 ## Product Outcome
 
@@ -33,7 +34,7 @@ GitHub App is an optional governance bridge. It handles installation, PR metadat
 
 ## Constraints
 
-- **Technical**: TypeScript + Node.js 24 LTS + Bun workspaces；CodeGraph 为产品硬依赖，仅经 `CodeFacts` Adapter 软耦合、精确锁版本、禁止读取其内部 DB；本地 SQLite（`node:sqlite` + WAL + FTS5）默认位于 OS 用户数据目录中的 `repositories/<storage-repository-id>/worktrees/<storage-workspace-id>/runtime.sqlite`，不用 PGlite；架构事实源是 Git 中 `.archcontext/` 的结构化 YAML，Markdown/图表为生成投影；一个版本一致的 `archctx` 本地产品交付 CLI、`archctxd`、MCP stdio adapter、local RPC schema、SQLite migrations 和 runtime build provenance；CLI/MCP 为薄适配层共享 Daemon RPC；MCP 默认仅暴露 5 个 `archcontext_*` 工具（`prepare_task` / `checkpoint` / `plan_update` / `apply_update` / `complete_task`）。
+- **Technical**: TypeScript + Node.js 24 LTS + Bun workspaces；CodeGraph 为产品硬依赖，仅经 `CodeFacts` Adapter 软耦合、精确锁版本、禁止读取其内部 DB；本地 SQLite（`node:sqlite` + WAL + FTS5）默认位于 OS 用户数据目录中的 `repositories/<storage-repository-id>/worktrees/<storage-workspace-id>/runtime.sqlite`，不用 PGlite；当前架构事实源是 Git 中 `.archcontext/` 的结构化 YAML，Markdown/图表为生成投影；Architecture Ledger 采用 ADR-0040 的 hybrid 模式：SQLite ledger 是 operational architecture state，`.archcontext/` 仍是 review/collaboration boundary，必须先经过 `yaml` → `dual` → `ledger-shadow` → `ledger-authoritative` 的可回滚晋级；一个版本一致的 `archctx` 本地产品交付 CLI、`archctxd`、MCP stdio adapter、local RPC schema、SQLite migrations 和 runtime build provenance；CLI/MCP 为薄适配层共享 Daemon RPC；MCP 默认仅暴露 5 个 `archcontext_*` 工具（`prepare_task` / `checkpoint` / `plan_update` / `apply_update` / `complete_task`）。
 - **Compliance**: SaaS 代码内容路由数必须为 0。ArchContext Cloud 不请求、不调用、不处理、不存储 Repository Contents、PR Diff/Patch、文件名、Symbol、CodeGraph、架构模型正文、Prompt/Completion 或详细 Finding；该边界由 GitHub API allowlist、Diff/Patch media type denylist、DTO allowlist、日志投影、egress recorder、D1/Queue schema audit 和 CI Privacy Contract Test 共同守护。GitHub App 默认无 Contents 权限，但不得把权限文案写成“技术上绝对无法读取代码”。ChatGPT Secure MCP Tunnel 场景必须明示数据会进入 OpenAI，不得宣称"数据永不离开本地"。
 - **Delivery**: 公开仓库免费；个人 Pro $5/月，覆盖该开发者可访问的全部私有仓库，不按仓库/Seat/Token/调用计费。MVP 以"可闭环的 Agentic Coding 架构 SOP"为完成标准，而非功能数量；里程碑 M0（契约冻结）→ M6（Beta 加固）。
 

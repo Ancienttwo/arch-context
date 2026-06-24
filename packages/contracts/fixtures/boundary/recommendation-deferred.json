@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "archcontext.recommendation/v2",
+  "recommendationId": "rec.al0.deferred",
+  "runId": "rec_run.al0_contract",
+  "fingerprint": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "subject": "constraint.payment-boundary",
+  "status": "deferred",
+  "confidence": "low",
+  "enforcement": "advisory",
+  "risk": "high",
+  "uncertainty": "high",
+  "evidenceBindingIds": ["binding.evidence.al0.context-only"],
+  "explanation": ["Deferred because evidence remains context-only and cannot promote enforcement."],
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "updatedAt": "2026-06-25T00:00:00.000Z",
+  "extensions": {
+    "deferUntil": "2026-07-01T00:00:00.000Z"
+  }
+}
