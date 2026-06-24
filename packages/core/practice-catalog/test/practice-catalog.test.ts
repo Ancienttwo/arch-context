@@ -136,6 +136,37 @@ describe("@archcontext/core/practice-catalog", () => {
     }
   });
 
+  test("repo overlay rejects expired overrides and revision rollback", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-practices-expired-"));
+    const builtIns = mkdtempSync(join(tmpdir(), "archctx-practices-builtins-"));
+    try {
+      writeSource(builtIns, sourceRecord("archcontext.spec"));
+      writePractice(builtIns, { ...practice("compatibility.single-owner"), revision: 3 });
+      writeRepoPractice(root, {
+        ...practice("compatibility.single-owner"),
+        revision: 4,
+        overlay: {
+          mode: "replace",
+          extends: "compatibility.single-owner",
+          expiresAt: "2026-06-23T00:00:00.000Z"
+        }
+      });
+      let catalog = loadPracticeCatalog({ root, builtInAssetsDir: builtIns, now: "2026-06-24T00:00:00.000Z" });
+      expect(catalog.errors.map((issue) => issue.code)).toContain("practice-overlay-expired");
+
+      writeRepoPractice(root, {
+        ...practice("compatibility.single-owner"),
+        revision: 2,
+        overlay: { mode: "replace", extends: "compatibility.single-owner" }
+      });
+      catalog = loadPracticeCatalog({ root, builtInAssetsDir: builtIns, now: "2026-06-24T00:00:00.000Z" });
+      expect(catalog.errors.map((issue) => issue.code)).toContain("practice-revision-rollback");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(builtIns, { recursive: true, force: true });
+    }
+  });
+
   test("repo overlay rejects symlinked catalog files", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-practices-symlink-"));
     const outside = mkdtempSync(join(tmpdir(), "archctx-practices-outside-"));

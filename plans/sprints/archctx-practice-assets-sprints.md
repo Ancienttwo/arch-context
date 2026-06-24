@@ -1,6 +1,6 @@
 # Sprint Plan：ArchContext Architecture Practice Assets
 
-> Status: Executing — S3 checkpoint-hook exit gates completed through hook egress audit
+> Status: Complete — Practice Assets v1 Release Verified
 > Created: 2026-06-23
 > Target repository: `Ancienttwo/arch-context`
 > Suggested path after review: `plans/sprints/archctx-practice-assets-sprints.md`
@@ -560,15 +560,15 @@ interface ExternalDocumentationResource {
 - [x] S1-03 在 `schemas/repo/practices/` 增加对应 JSON Schema 与 valid/invalid/boundary fixtures。
 - [x] S1-04 定义 asset ID、revision、status、category、tags、scope、triggers、evidencePolicy、guidance、checks、enforcement、provenance、lifecycle 字段。
 - [x] S1-05 定义 canonical JSON/YAML normalization、稳定排序与 digest 算法。
-- [~] S1-06 冻结 overlay 优先级：built-in < repo profile < repo exact override；禁止 silent duplicate ID。（S1 实现 built-in + repo exact add/replace/disable；profile precedence 保留到 S2/S6 profile slice。）
-- [~] S1-07 定义 `extends`、`supersedes`、`disabledWithReason` 和过期时间语义。（字段已冻结；expired override hard gate 未进入 S1。）
+- [x] S1-06 冻结 overlay 优先级：built-in < repo profile < repo exact override；禁止 silent duplicate ID。（repo profile scope 与 repo exact override 在 Practice Engine/Catalog current head 补齐。）
+- [x] S1-07 定义 `extends`、`supersedes`、`disabledWithReason` 和过期时间语义。（`overlay.expiresAt` 已进入 contract/schema，expired overlay hard gate 已覆盖。）
 - [x] S1-08 定义 source license 等级 A–E 和发布阻断策略。
 
 ### Catalog 实现
 
 - [x] S1-09 新建 `packages/core/practice-catalog`，实现 built-in loader、repo loader、validator、merger、digest builder。
 - [x] S1-10 Loader 只允许读取 package assets 与 `.archcontext/practices/`，拒绝 symlink/path traversal/repo escape。
-- [~] S1-11 对 duplicate ID、revision rollback、unknown field、invalid glob、unknown checkId 返回 typed error 与用户操作提示。（duplicate、silent duplicate、unknown field、invalid glob、unknown checkId 已覆盖；revision rollback strictness 留到 profile/attestation hardening。）
+- [x] S1-11 对 duplicate ID、revision rollback、unknown field、invalid glob、unknown checkId 返回 typed error 与用户操作提示。（`practice-revision-rollback` 与现有 schema/glob/check errors 已覆盖。）
 - [x] S1-12 Catalog 合并结果按 ID 稳定排序，在不同 OS 和 YAML key 顺序下产生相同 digest。
 - [x] S1-13 建立 `catalog.yaml` manifest，列出每个 asset ID、revision、digest、source IDs 和 package build version。
 - [x] S1-14 将 catalog 作为 production composition 的只读依赖注入 daemon；不得在 CLI 直接创建第二套 loader。
@@ -603,7 +603,7 @@ interface ExternalDocumentationResource {
 ### 测试与打包
 
 - [x] S1-24 Contract tests 覆盖 valid/invalid/boundary/forward-compatible fixtures。
-- [~] S1-25 Catalog tests 覆盖 duplicate、override、disable、supersede、expired override、path escape 和 deterministic digest。（覆盖 duplicate、override、disable、symlink/path escape、manifest、license、glob、deterministic digest；expired override 留到 enforcement/profile slice。）
+- [x] S1-25 Catalog tests 覆盖 duplicate、override、disable、supersede、expired override、path escape 和 deterministic digest。（新增 expired overlay 与 revision rollback regression。）
 - [x] S1-26 Packaged CLI smoke 验证 tarball/分发物包含 assets，不能只在 checkout 中工作。
 - [x] S1-27 Windows/macOS/Linux 路径与换行差异不改变 catalog digest。
 - [x] S1-28 `bun run verify` 加入 source registry 与 catalog manifest audit。
@@ -613,7 +613,7 @@ interface ExternalDocumentationResource {
 
 - [x] S1-EG1 无网络、无 LLM、无 Context7 时，CLI 可 list/show/validate built-in 和 repo assets。
 - [x] S1-EG2 同一 catalog 在至少两个 OS fixture 上产生相同 digest。
-- [~] S1-EG3 非法 override、未知许可、路径逃逸和 duplicate ID 被 100% 拒绝。（当前覆盖 silent duplicate、unknown check、invalid glob、blocked license、symlink/path escape；expired override 留到后续。）
+- [x] S1-EG3 非法 override、未知许可、路径逃逸和 duplicate ID 被 100% 拒绝。（silent duplicate、unknown check、invalid glob、blocked license、symlink/path escape、expired overlay、revision rollback 均有 regression。）
 - [x] S1-EG4 npm/tarball smoke 中 assets 存在且 digest 与 checkout 一致。
 - [x] S1-EG5 此 PR 不改变现有 `prepare` posture 与 `complete` 结论。
 
@@ -682,7 +682,7 @@ bun run verify
 - [x] S2-10 新建 `packages/core/practice-engine`。
 - [x] S2-11 将 PracticeAsset 映射为现有 `RetrievalDocument`，复用英文归一化与 Jieba tokenizer。
 - [x] S2-12 Candidate retrieval 只做召回；scope filter 和 evidence matcher 决定最终匹配，不允许只按 lexical score 输出。
-- [~] S2-13 实现 scope 过滤：repository kind、language、framework、path glob、node kind。（S2 实装 path / negative path / node evidence；profile-driven repository kind、language、framework 留到后续 profile slice。）
+- [x] S2-13 实现 scope 过滤：repository kind、language、framework、path glob、node kind。（Practice Engine current head 对 asset scope 与 matching profile include/exclude 执行 language/framework/repository kind 收窄。）
 - [x] S2-14 实现 structural predicates registry，未知 predicate 必须 fail validation，不能静默忽略。
 - [x] S2-15 实现 deterministic re-rank：retrieval、scope、observed evidence、repo policy、negative scope 分别计分。
 - [x] S2-16 实现 Top-K 去重、同 category 限额和 context budget trimming。
@@ -704,7 +704,7 @@ bun run verify
 - [x] S2-26 增加至少 30 个 structural positive cases，其中一半不包含触发关键词。
 - [x] S2-27 增加中英文 practice retrieval eval，记录 Top-1/Top-3 recall、constraint recall、irrelevant ratio。
 - [x] S2-28 增加 budget eval：12KB/12 items 下保留最关键 constraint 与 checkpoint。
-- [~] S2-29 将 practice gates 接入 `evals/run.ts --check` 和 acceptance ledger。（practice gates 已接入 `evals/run.ts --check`；历史 FG acceptance ledger 保持不扩展，证据落入 S2 verification doc。）
+- [x] S2-29 将 practice gates 接入 `evals/run.ts --check` 和 acceptance ledger。（Practice Assets 专用 ledger 为 `docs/verification/practice-assets-acceptance-ledger.json`，由 `node scripts/verify-practice-assets-acceptance-ledger.mjs` 校验，并纳入 `bun run verify`。）
 - [x] S2-30 编写 `docs/verification/practice-assets-s2-matching-gate.md`。
 
 ## 10.3 Exit Gates
@@ -1281,6 +1281,7 @@ bun evals/run.ts --check
 bun run e2e:local-no-cloud
 bun run e2e:local-product-tarball
 bun run verify:acceptance-ledger
+bun run verify:practice-assets-acceptance-ledger
 bun run readback:s6:docs-ops
 bun run verify
 ```
@@ -1452,6 +1453,30 @@ S6-01 through S6-40 and S6-EG1 through S6-EG7 are complete for Practice Assets
 v1. This does not claim design-partner, opt-in beta, or team collaboration
 rollout telemetry; those require separate external rollout packets.
 
+## 14.11 Execution Record — 2026-06-24
+
+Completed the residual S1/S2 evidence gaps that prevented the sprint ledger
+from serving as final completion evidence.
+
+- Catalog overlay hard gates: `PracticeOverlayV1` and
+  `schemas/repo/practices/practice.schema.json` now include
+  `overlay.expiresAt`; `loadPracticeCatalog` rejects expired overlays with
+  `practice-overlay-expired` and repo exact override revision rollback with
+  `practice-revision-rollback`.
+- Profile/scope filtering: `matchPracticesForTask` now scopes candidate assets
+  by asset `repositoryKinds`, `languages`, `frameworks`, path/node scope, and
+  matching profile include/exclude sets before retrieval scoring.
+- Acceptance ledger: `docs/verification/practice-assets-acceptance-ledger.json`
+  records Practice Assets S1-S6 and S6-EG1 through S6-EG7 evidence, and
+  `scripts/verify-practice-assets-acceptance-ledger.mjs` verifies the ledger.
+- Verified: `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`,
+  `bun test packages/core/practice-engine/test/practice-engine.test.ts`, and
+  `bun run verify:practice-assets-acceptance-ledger`.
+
+All active sprint task breakdown items and exit gates are now `[x]`. The
+remaining unchecked lists in sections 3.3, 6.5, 8.1, 18, and 19 are normative
+templates or future backlog checklists, not active task-breakdown items.
+
 ---
 
 ## 15. 跨 Sprint 依赖图
@@ -1616,16 +1641,16 @@ S1 + S2 + S3 + S4 + S5
 
 Practice Assets v1 只有在以下全部满足时才可宣称完成：
 
-- [ ] Static catalog 在 packaged product 中可离线使用并可验证 digest。
-- [ ] Repo overlay 可显式扩展/禁用/晋升规则，无 silent override。
-- [ ] `prepare` 返回有结构证据和 provenance 的 practice guidance。
-- [ ] `checkpoint` 能根据真实编辑增量更新，而不是重复关键词分析。
-- [ ] `complete` 只接受 deterministic checker 的 repo-opt-in enforcement。
-- [ ] Context7 默认关闭、advisory-only、无 Hook egress、无 hard-gate 路径。
-- [ ] 许可与来源审计覆盖 100% 发布资产。
-- [ ] 中英文 eval、负样本、无关键词结构正样本和 adversarial cases 达标。
-- [ ] 三大 OS 打包和本地 E2E 通过。
-- [ ] Feature flags、回滚、cache purge、catalog pin 与旧 attestation 验证路径实跑完成。
+- [x] Static catalog 在 packaged product 中可离线使用并可验证 digest。
+- [x] Repo overlay 可显式扩展/禁用/晋升规则，无 silent override。
+- [x] `prepare` 返回有结构证据和 provenance 的 practice guidance。
+- [x] `checkpoint` 能根据真实编辑增量更新，而不是重复关键词分析。
+- [x] `complete` 只接受 deterministic checker 的 repo-opt-in enforcement。
+- [x] Context7 默认关闭、advisory-only、无 Hook egress、无 hard-gate 路径。
+- [x] 许可与来源审计覆盖 100% 发布资产。
+- [x] 中英文 eval、负样本、无关键词结构正样本和 adversarial cases 达标。
+- [x] 三大 OS 打包和本地 E2E 通过。
+- [x] Feature flags、回滚、cache purge、catalog pin 与旧 attestation 验证路径实跑完成。
 
 ---
 

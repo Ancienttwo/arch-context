@@ -1,4 +1,4 @@
-import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1 } from "@archcontext/contracts";
+import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1, type PracticeProfileV1 } from "@archcontext/contracts";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { InMemoryLexicalRetriever, type RetrievalDocument } from "@archcontext/core/retrieval";
 export * from "./check-registry";
@@ -8,6 +8,7 @@ export interface PracticeEngineCatalog {
   catalogDigest: string;
   overlayDigest: string;
   effectiveAssets: EffectivePracticeAssetV1[];
+  profiles?: PracticeProfileV1[];
 }
 
 export interface PracticeMatchInput {
@@ -55,15 +56,27 @@ export const SUPPORTED_STRUCTURAL_PREDICATES: Record<string, PredicateMatcher> =
 
 export function matchPracticesForTask(input: PracticeMatchInput): PracticeGuidanceResultV1 {
   validatePracticeEngineCatalog(input.catalog.effectiveAssets);
-  const documents = input.catalog.effectiveAssets
+  const profileScope = resolveProfileScope(input);
+  const scopedAssets = input.catalog.effectiveAssets
     .filter((asset) => asset.asset.status === "active")
+    .filter((asset) => scopeAllows(asset, input, profileScope));
+  const documents = scopedAssets
     .map(toRetrievalDocument);
+  const assetById = new Map(scopedAssets.map((asset) => [asset.asset.id, asset]));
   const query = buildQuery(input);
   const retrievalHits = new InMemoryLexicalRetriever().search(query, documents, Math.max(12, input.maxMatches ?? 5));
   const hitScore = new Map(retrievalHits.map((hit) => [hit.id, hit.score]));
+  const retrievalIds = new Set(retrievalHits.map((hit) => hit.id));
+  const exactAssets = scopedAssets.filter((asset) => exactPracticeEvidence(asset.asset.id, input).length > 0);
+  for (const asset of exactAssets) {
+    if (!hitScore.has(asset.asset.id)) hitScore.set(asset.asset.id, 10);
+  }
   const pressureTypes = new Set(input.pressure.signals.map((signal) => signal.type));
-  const matches = retrievalHits
-    .map((hit) => input.catalog.effectiveAssets.find((asset) => asset.asset.id === hit.id))
+  const candidateAssets = [
+    ...retrievalHits.map((hit) => assetById.get(hit.id)).filter((asset): asset is EffectivePracticeAssetV1 => Boolean(asset)),
+    ...exactAssets.filter((asset) => !retrievalIds.has(asset.asset.id))
+  ];
+  const matches = candidateAssets
     .filter((asset): asset is EffectivePracticeAssetV1 => Boolean(asset))
     .map((asset) => scoreAsset(asset, input, hitScore.get(asset.asset.id) ?? 0, pressureTypes))
     .filter((match): match is PracticeMatchV1 => Boolean(match))
@@ -119,6 +132,11 @@ function scoreAsset(
     matchedBy.add("predicate");
     evidence.push(...predicateEvidence);
   }
+  const exactEvidence = exactPracticeEvidence(asset.id, input);
+  if (exactEvidence.length > 0) {
+    matchedBy.add("predicate");
+    evidence.push(...exactEvidence);
+  }
   const sourceEvidence = input.codeContext.evidence.map((item) =>
     practiceEvidence(item.selector.symbolId ? "symbol" : "path", item.confidence, item.selector.symbolId ?? item.selector.path)
   );
@@ -129,8 +147,9 @@ function scoreAsset(
   const observedBonus = bestStrength === "verified" ? 25 : bestStrength === "observed" ? 18 : bestStrength === "declared" ? 10 : 0;
   const signalBonus = matchingSignals.length * 18;
   const predicateBonus = predicateEvidence.length > 0 ? 24 : 0;
+  const exactEvidenceBonus = exactEvidence.length > 0 ? 48 : 0;
   const scopeBonus = scopeMatches(asset.appliesTo.pathGlobs, input) ? 12 : 0;
-  const score = Math.min(100, retrievalScore * 10 + signalBonus + predicateBonus + observedBonus + scopeBonus);
+  const score = Math.min(100, retrievalScore * 10 + signalBonus + predicateBonus + exactEvidenceBonus + observedBonus + scopeBonus);
   if (score <= 0) return undefined;
   const enforcement = enforcementFor(asset, bestStrength);
   return {
@@ -165,6 +184,10 @@ function toRetrievalDocument(entry: EffectivePracticeAssetV1): RetrievalDocument
       ...asset.triggers.candidateTerms,
       ...asset.triggers.pressureSignals,
       ...asset.triggers.structuralPredicates,
+      ...asset.appliesTo.repositoryKinds,
+      ...asset.appliesTo.languages,
+      ...asset.appliesTo.frameworks,
+      ...asset.appliesTo.nodeKinds,
       ...asset.guidance.questions,
       ...asset.guidance.preferred,
       ...asset.guidance.avoid
@@ -225,6 +248,17 @@ function edgePredicate(kind: "imports" | "calls" | "reads" | "writes" | "impleme
     .map((edge) => practiceEvidence(kind === "imports" ? "import-edge" : kind === "calls" ? "call-edge" : "data-edge", "observed", `${edge.source}->${edge.target}`));
 }
 
+function exactPracticeEvidence(practiceId: string, input: PracticeMatchInput): PracticeEvidenceV1[] {
+  const exact = practiceId.toLowerCase();
+  const hyphenated = exact.replace(/\./g, "-");
+  return input.codeContext.evidence
+    .filter((item) => {
+      const haystack = `${item.id} ${item.summary}`.toLowerCase();
+      return haystack.includes(exact) || haystack.includes(hyphenated);
+    })
+    .map((item) => practiceEvidence(item.selector.symbolId ? "symbol" : "path", item.confidence, item.selector.symbolId ?? item.selector.path));
+}
+
 function cyclePredicate(input: PracticeMatchInput): PracticeEvidenceV1[] {
   const imports = new Set(input.codeContext.edges.filter((edge) => edge.kind === "imports").map((edge) => `${edge.source}->${edge.target}`));
   return [...imports].flatMap((edge) => {
@@ -241,6 +275,109 @@ function parallelVersionPredicate(input: PracticeMatchInput): PracticeEvidenceV1
 function scopeMatches(globs: string[], input: PracticeMatchInput): boolean {
   if (globs.length === 0 || globs.includes("**/*")) return true;
   return input.codeContext.symbols.some((symbol) => globs.some((glob) => globMatches(glob, symbol.path)));
+}
+
+interface ResolvedProfileScope {
+  includePracticeIds: Set<string>;
+  excludePracticeIds: Set<string>;
+}
+
+function resolveProfileScope(input: PracticeMatchInput): ResolvedProfileScope {
+  const includePracticeIds = new Set<string>();
+  const excludePracticeIds = new Set<string>();
+  for (const profile of input.catalog.profiles ?? []) {
+    if (profile.status !== "active" || !profileMatches(profile, input)) continue;
+    for (const id of profile.includePracticeIds) includePracticeIds.add(id);
+    for (const id of profile.excludePracticeIds) excludePracticeIds.add(id);
+  }
+  return { includePracticeIds, excludePracticeIds };
+}
+
+function profileMatches(profile: PracticeProfileV1, input: PracticeMatchInput): boolean {
+  return dimensionMatches(profile.repositoryKinds, contextRepositoryKinds(input)) &&
+    dimensionMatches(profile.languages, contextLanguages(input)) &&
+    dimensionMatches(profile.frameworks, contextFrameworks(input));
+}
+
+function scopeAllows(entry: EffectivePracticeAssetV1, input: PracticeMatchInput, profileScope: ResolvedProfileScope): boolean {
+  const asset = entry.asset;
+  if (profileScope.excludePracticeIds.has(asset.id)) return false;
+  if (exactPracticeEvidence(asset.id, input).length > 0) return true;
+  if (!dimensionMatches(asset.appliesTo.repositoryKinds, contextRepositoryKinds(input))) return false;
+  if (!dimensionMatches(asset.appliesTo.languages, contextLanguages(input))) return false;
+  if (!dimensionMatches(asset.appliesTo.frameworks, contextFrameworks(input))) return false;
+  if (!nodeKindMatches(asset.appliesTo.nodeKinds, contextNodeKinds(input))) return false;
+  return profileScope.includePracticeIds.has(asset.id) || scopeMatches(asset.appliesTo.pathGlobs, input);
+}
+
+function dimensionMatches(required: string[], observed: Set<string>): boolean {
+  if (required.length === 0 || observed.size === 0) return true;
+  return required.some((item) => observed.has(item.toLowerCase()));
+}
+
+function contextRepositoryKinds(input: PracticeMatchInput): Set<string> {
+  const haystack = contextText(input);
+  const kinds = new Set<string>();
+  if (/\b(library|sdk|package)\b/i.test(haystack)) kinds.add("library");
+  if (/\b(service|api|server|worker|controller|route|endpoint)\b/i.test(haystack)) {
+    kinds.add("service");
+    kinds.add("application");
+  }
+  if (/\b(monorepo|workspace|workspaces|packages\/)\b/i.test(haystack)) kinds.add("monorepo");
+  if (/\b(application|app)\b/i.test(haystack)) kinds.add("application");
+  return kinds;
+}
+
+function contextLanguages(input: PracticeMatchInput): Set<string> {
+  const languages = new Set<string>();
+  for (const symbol of input.codeContext.symbols) {
+    if (/\.(ts|tsx|mts|cts)$/.test(symbol.path)) languages.add("typescript");
+    if (/\.(js|jsx|mjs|cjs)$/.test(symbol.path)) languages.add("javascript");
+    if (/\.java$/.test(symbol.path)) languages.add("java");
+    if (/\.kt$/.test(symbol.path)) languages.add("kotlin");
+    if (/\.go$/.test(symbol.path)) languages.add("go");
+    if (/\.rs$/.test(symbol.path)) languages.add("rust");
+    if (/\.py$/.test(symbol.path)) languages.add("python");
+  }
+  return languages;
+}
+
+function contextFrameworks(input: PracticeMatchInput): Set<string> {
+  const haystack = contextText(input).toLowerCase();
+  const frameworks = new Set<string>();
+  for (const framework of ["kubernetes", "opentelemetry", "backstage", "archunit", "structurizr", "asyncapi", "openapi"]) {
+    if (haystack.includes(framework)) frameworks.add(framework);
+  }
+  if (/\b(k8s|helm|deployment|serviceaccount|pod|clusterrole)\b/i.test(haystack)) frameworks.add("kubernetes");
+  return frameworks;
+}
+
+function contextNodeKinds(input: PracticeMatchInput): Set<string> {
+  const kinds = new Set<string>();
+  for (const symbol of input.codeContext.symbols) {
+    const kind = symbol.kind.toLowerCase();
+    if (["module", "service", "public-api", "component", "resource", "package"].includes(kind)) {
+      kinds.add(kind);
+    }
+    if (["route", "controller", "handler", "endpoint"].includes(kind)) {
+      kinds.add("public-api");
+    }
+  }
+  return kinds;
+}
+
+function nodeKindMatches(required: string[], observed: Set<string>): boolean {
+  if (required.length === 0 || observed.size === 0) return true;
+  return required.some((item) => observed.has(item.toLowerCase()));
+}
+
+function contextText(input: PracticeMatchInput): string {
+  return [
+    input.task,
+    ...input.codeContext.symbols.flatMap((symbol) => [symbol.id, symbol.name, symbol.kind, symbol.path]),
+    ...input.codeContext.edges.flatMap((edge) => [edge.kind, edge.source, edge.target]),
+    ...input.codeContext.evidence.flatMap((evidence) => [evidence.summary, evidence.selector.path, evidence.selector.symbolId ?? ""])
+  ].join(" ");
 }
 
 function negativeScopeEvidence(globs: string[], input: PracticeMatchInput): PracticeEvidenceV1[] {

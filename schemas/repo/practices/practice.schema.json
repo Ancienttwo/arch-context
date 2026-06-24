@@ -35,7 +35,16 @@
     "enforcement": { "type": "object" },
     "provenance": { "type": "object" },
     "lifecycle": { "type": "object" },
-    "overlay": { "type": "object" }
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["add", "replace", "disable"] },
+        "extends": { "type": "string" },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["mode"],
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

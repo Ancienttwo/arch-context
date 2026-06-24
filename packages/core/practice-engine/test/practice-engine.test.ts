@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEnforcementPolicyV1, type PracticeMatchV1, type PracticeWaiverV1 } from "@archcontext/contracts";
+import { digestJson, type EffectivePracticeAssetV1, type Json, type NormalizedCodeContext, type PracticeAssetV1, type PracticeEnforcementPolicyV1, type PracticeMatchV1, type PracticeProfileV1, type PracticeWaiverV1 } from "@archcontext/contracts";
 import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { evaluatePracticeEnforcement, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, matchPracticesForTask, practiceWaiverEvidenceDigest, validatePracticeEnforcementPolicy, validatePracticeEngineCatalog, validatePracticeWaiver } from "../src/index";
@@ -240,6 +240,129 @@ describe("@archcontext/core/practice-engine", () => {
     expect(pressure.level).toBe("low");
     expect(pressure.signals.every((signal) => signal.severity !== "high")).toBe(true);
     expect(guidance.matches.every((match) => match.enforcement === "advisory")).toBe(true);
+  });
+
+  test("filters practice scope by language and includes matching profile practices", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const base = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
+    const scopedAsset = (id: string, title: string, languages: string[] = []): EffectivePracticeAssetV1 => {
+      const asset: PracticeAssetV1 = {
+        ...base.asset,
+        id,
+        revision: 1,
+        title,
+        summary: title,
+        category: "scope",
+        tags: ["scope", ...languages],
+        appliesTo: {
+          ...base.asset.appliesTo,
+          repositoryKinds: [],
+          languages,
+          frameworks: [],
+          pathGlobs: ["**/*"],
+          nodeKinds: ["module"]
+        },
+        triggers: {
+          candidateTerms: [title, ...languages],
+          pressureSignals: [],
+          structuralPredicates: []
+        },
+        checks: [],
+        enforcement: {
+          default: "advisory",
+          promotableTo: "advisory",
+          repoOptInRequired: true
+        }
+      };
+      return {
+        asset,
+        assetDigest: digestJson({ asset } as unknown as Json),
+        sourceTrust: "curated-static",
+        originPath: `test/${id}.yaml`,
+        overrideChain: []
+      };
+    };
+    const typescriptAsset = scopedAsset("scope.typescript-only", "TypeScript deployment practice", ["typescript"]);
+    const javaAsset = scopedAsset("scope.java-only", "Java deployment practice", ["java"]);
+    const profileAsset = scopedAsset("scope.kubernetes-profile", "Kubernetes profile practice");
+    const profile: PracticeProfileV1 = {
+      schemaVersion: "archcontext.practice-profile/v1",
+      id: "profile.kubernetes-test",
+      revision: 1,
+      status: "active",
+      title: "Kubernetes Test",
+      repositoryKinds: [],
+      languages: [],
+      frameworks: ["kubernetes"],
+      includePracticeIds: [profileAsset.asset.id],
+      excludePracticeIds: [],
+      provenance: {
+        sourceKind: "archcontext-native",
+        sourceRefs: [{ sourceId: "archcontext.spec" }],
+        curator: "archcontext-maintainers",
+        reviewedAt: "2026-06-24"
+      }
+    };
+    const codeContext: NormalizedCodeContext = {
+      task: "update TypeScript Kubernetes service deployment",
+      symbols: [{ id: "symbol.service", name: "service", kind: "module", path: "src/service.ts" }],
+      edges: [],
+      evidence: [],
+      digest: `sha256:${"f".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path)
+    });
+
+    const guidance = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: {
+        catalogDigest: catalog.catalogDigest,
+        overlayDigest: catalog.overlayDigest,
+        effectiveAssets: [typescriptAsset, javaAsset, profileAsset],
+        profiles: [profile]
+      },
+      codeContext,
+      pressure,
+      maxMatches: 5
+    });
+
+    expect(guidance.matches.map((match) => match.practiceId)).toContain("scope.typescript-only");
+    expect(guidance.matches.map((match) => match.practiceId)).toContain("scope.kubernetes-profile");
+    expect(guidance.matches.map((match) => match.practiceId)).not.toContain("scope.java-only");
+  });
+
+  test("keeps exact observed practice evidence from being filtered by inferred scope", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const codeContext: NormalizedCodeContext = {
+      task: "tighten token scope inside a package module without expanding permissions",
+      symbols: [{ id: "symbol.secretModule", name: "secretModule", kind: "module", path: "src/security/token.ts" }],
+      edges: [],
+      evidence: [{
+        id: "evidence.security.least-privilege",
+        selector: { path: "src/security/token.ts", symbolId: "symbol.secretModule" },
+        summary: "observed security.least-privilege scope expansion risk",
+        confidence: "observed",
+        snapshot: {
+          repositoryId: "repo.test",
+          headSha: "abc",
+          worktreeDigest: `sha256:${"a".repeat(64)}`
+        }
+      }],
+      digest: `sha256:${"a".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path),
+      observedEvidence: codeContext.evidence
+    });
+
+    const guidance = matchPracticesForTask({ task: codeContext.task, catalog, codeContext, pressure, maxMatches: 3 });
+
+    expect(guidance.matches.map((match) => match.practiceId)).toContain("security.least-privilege");
   });
 
   test("rejects unknown structural predicates instead of silently ignoring them", () => {

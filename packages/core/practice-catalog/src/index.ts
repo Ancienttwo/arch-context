@@ -89,6 +89,7 @@ export interface PracticeCatalogLoadOptions {
   root?: string;
   builtInAssetsDir?: string;
   includeRepoOverlay?: boolean;
+  now?: string;
 }
 
 export interface PracticeCatalog {
@@ -136,7 +137,7 @@ export function loadPracticeCatalog(options: PracticeCatalogLoadOptions = {}): P
   const overlays = options.includeRepoOverlay === false
     ? []
     : loadRepoOverlayAssets(root, errors);
-  const merged = mergeCatalogAssets(builtIn, overlays, errors);
+  const merged = mergeCatalogAssets(builtIn, overlays, errors, options.now ?? new Date().toISOString());
   const sourceIds = new Set(sources.map((source) => source.id));
 
   for (const effective of merged.assets) {
@@ -366,7 +367,7 @@ function loadRepoOverlayAssets(root: string, errors: PracticeCatalogIssue[]): Lo
   return out;
 }
 
-function mergeCatalogAssets(builtIn: LoadedAsset[], overlays: LoadedAsset[], errors: PracticeCatalogIssue[]): {
+function mergeCatalogAssets(builtIn: LoadedAsset[], overlays: LoadedAsset[], errors: PracticeCatalogIssue[], now: string): {
   assets: EffectivePracticeAssetV1[];
   disabled: DisabledOverlay[];
   overlayDigestInput: Json;
@@ -386,6 +387,19 @@ function mergeCatalogAssets(builtIn: LoadedAsset[], overlays: LoadedAsset[], err
     overlayDigestInput.push({ id: overlay.asset.id, path: overlay.path, digest: practiceAssetDigest(overlay.asset) } as unknown as Json);
     const existing = byId.get(overlay.asset.id);
     const mode = overlay.asset.overlay?.mode ?? (overlay.asset.status === "disabled" ? "disable" : "add");
+    const expiresAt = overlay.asset.overlay?.expiresAt;
+    if (expiresAt) {
+      const expiresAtMs = Date.parse(expiresAt);
+      const nowMs = Date.parse(now);
+      if (Number.isNaN(expiresAtMs) || Number.isNaN(nowMs)) {
+        errors.push({ code: "practice-overlay-expiry-invalid", path: overlay.path, practiceId: overlay.asset.id, message: `Invalid overlay expiry: ${expiresAt}` });
+        continue;
+      }
+      if (expiresAtMs <= nowMs) {
+        errors.push({ code: "practice-overlay-expired", path: overlay.path, practiceId: overlay.asset.id, message: `Repo overlay expired at ${expiresAt}: ${overlay.asset.id}` });
+        continue;
+      }
+    }
     if (mode === "disable") {
       if (!existing) {
         errors.push({ code: "practice-disable-missing-target", path: overlay.path, practiceId: overlay.asset.id, message: `Cannot disable unknown practice: ${overlay.asset.id}` });
@@ -402,6 +416,10 @@ function mergeCatalogAssets(builtIn: LoadedAsset[], overlays: LoadedAsset[], err
       }
       if (overlay.asset.overlay?.extends && overlay.asset.overlay.extends !== overlay.asset.id) {
         errors.push({ code: "practice-replace-extends-mismatch", path: overlay.path, practiceId: overlay.asset.id, message: `Overlay extends ${overlay.asset.overlay.extends}, expected ${overlay.asset.id}` });
+        continue;
+      }
+      if (overlay.asset.revision < existing.asset.revision) {
+        errors.push({ code: "practice-revision-rollback", path: overlay.path, practiceId: overlay.asset.id, message: `Repo overlay revision ${overlay.asset.revision} is older than effective revision ${existing.asset.revision}.` });
         continue;
       }
       byId.set(overlay.asset.id, toEffective(overlay, [...existing.overrideChain, overlay.path]));

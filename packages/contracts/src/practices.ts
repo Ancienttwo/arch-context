@@ -119,6 +119,7 @@ export interface PracticeLifecycleV1 {
 export interface PracticeOverlayV1 {
   mode: PracticeOverlayMode;
   extends?: string;
+  expiresAt?: string;
 }
 
 export interface PracticeAssetV1 {

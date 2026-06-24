@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "archcontext.acceptance-ledger/v1",
+  "sprint": "archctx-practice-assets",
+  "updatedAt": "2026-06-24T02:45:00Z",
+  "entries": [
+    {
+      "id": "S1",
+      "kind": "waypoint",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s1-catalog-gate.md",
+        "packages/core/practice-catalog/test/practice-catalog.test.ts"
+      ]
+    },
+    {
+      "id": "S2",
+      "kind": "waypoint",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s2-matching-gate.md",
+        "packages/core/practice-engine/test/practice-engine.test.ts",
+        "evals/run.ts"
+      ]
+    },
+    {
+      "id": "S2-29",
+      "kind": "task",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s2-matching-gate.md",
+        "docs/verification/practice-assets-acceptance-ledger.json",
+        "evals/run.ts",
+        "scripts/verify-practice-assets-acceptance-ledger.mjs"
+      ]
+    },
+    {
+      "id": "S3",
+      "kind": "waypoint",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s3-checkpoint-gate.md",
+        "docs/verification/practice-hook-egress-readback.json"
+      ]
+    },
+    {
+      "id": "S4",
+      "kind": "waypoint",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s4-enforcement-gate.md",
+        "packages/core/practice-engine/test/practice-engine.test.ts"
+      ]
+    },
+    {
+      "id": "S5",
+      "kind": "waypoint",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s5-context7-gate.md",
+        "docs/verification/practice-context7-readback.json"
+      ]
+    },
+    {
+      "id": "S6",
+      "kind": "waypoint",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s6-release-gate.md",
+        "docs/verification/practice-assets-s6-catalog-readback.json",
+        "docs/verification/practice-assets-s6-eval-readback.json",
+        "docs/verification/practice-assets-s6-runtime-readback.json",
+        "docs/verification/practice-assets-s6-docs-ops-readback.json"
+      ]
+    },
+    {
+      "id": "S6-EG1",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s6-eval-readback.json",
+        "evals/run.ts"
+      ]
+    },
+    {
+      "id": "S6-EG2",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s6-catalog-readback.json",
+        "docs/verification/fg6-npm-release-dry-run.json"
+      ]
+    },
+    {
+      "id": "S6-EG3",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/fg6-local-product-tarball-smoke.json",
+        "docs/verification/fg6-local-no-cloud-readback.json"
+      ]
+    },
+    {
+      "id": "S6-EG4",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-hook-egress-readback.json",
+        "docs/verification/practice-context7-readback.json",
+        "docs/verification/fg6-local-no-cloud-readback.json"
+      ]
+    },
+    {
+      "id": "S6-EG5",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s6-docs-ops-readback.json",
+        "docs/verification/practice-assets-s4-enforcement-gate.md",
+        "docs/verification/practice-context7-readback.json"
+      ]
+    },
+    {
+      "id": "S6-EG6",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-hook-egress-readback.json",
+        ".ai/hooks/README.md"
+      ]
+    },
+    {
+      "id": "S6-EG7",
+      "kind": "exit-gate",
+      "status": "completed",
+      "target": "E4",
+      "evidence": [
+        "docs/verification/practice-assets-s6-docs-ops-readback.json",
+        "docs/runbooks/practice-assets-v1.md",
+        "docs/runbooks/upgrade-rollback.md",
+        "docs/verification/fg6-rollback-compat-readback.json"
+      ]
+    }
+  ]
+}

@@ -160,11 +160,11 @@ minimum checks, enforcement ceiling checks, and non-advisory negative counting.
 
 ### Verified Metrics
 
-- Practice Top-3 recall: 100.0%, threshold >= 92.0%.
+- Practice Top-3 recall: 93.3%, threshold >= 92.0%.
 - Context constraint recall: 100.0%, threshold >= 95.0%.
 - Context irrelevant ratio: 4.4%, threshold <= 15.0%.
 - Benign precision: 100.0%, threshold >= 95.0%.
-- No-keyword structural recall: 100.0%, threshold >= 85.0%.
+- No-keyword structural recall: 96.7%, threshold >= 85.0%.
 - Heuristic-only hard-gate rate: 0.0%.
 - Dynamic-doc hard-gate rate: 0.0%.
 - Invalid/tampered waiver rejection: 100.0%.
@@ -411,9 +411,26 @@ bounded rollback path. The chosen gate makes docs executable enough to fail
 closed while reusing existing runtime/readback evidence, which is the smallest
 coherent change because it does not add another policy engine or rollout system.
 
+## Residual S1/S2 Closure
+
+The final release branch also closes the earlier scoped partials that were left
+in the sprint ledger:
+
+- `PracticeOverlayV1` and `schemas/repo/practices/practice.schema.json` now
+  include `overlay.expiresAt`.
+- `loadPracticeCatalog` rejects expired repo overlays and exact override
+  revision rollback with typed errors.
+- `matchPracticesForTask` filters candidate assets by asset repository kind,
+  language, framework, path/node scope, and matching profile include/exclude
+  sets before retrieval scoring.
+- `docs/verification/practice-assets-acceptance-ledger.json` records Practice
+  Assets sprint acceptance evidence and is verified by
+  `scripts/verify-practice-assets-acceptance-ledger.mjs`.
+
 ## Verified Commands
 
 - `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`
+- `bun test packages/core/practice-engine/test/practice-engine.test.ts`
 - `bun test scripts/practice-assets-s6-catalog-readback.test.ts`
 - `bun test scripts/practice-assets-s6-eval-readback.test.ts`
 - `bun test scripts/practice-assets-s6-runtime-readback.test.ts`
@@ -428,6 +445,7 @@ coherent change because it does not add another policy engine or rollout system.
 - `bun run readback:s6:runtime`
 - `bun run record:s6:docs-ops`
 - `bun run readback:s6:docs-ops`
+- `bun run verify:practice-assets-acceptance-ledger`
 - `bun run readback:fg6:npm-release-dry-run`
 - `bun scripts/fg6-npm-release-dry-run.ts inspect --evidence docs/verification/fg6-npm-release-dry-run.json --json`
 - `bun run readback:fg6:local-no-cloud`
