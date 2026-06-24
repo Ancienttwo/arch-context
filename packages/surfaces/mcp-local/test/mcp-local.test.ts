@@ -157,9 +157,15 @@ describe("local MCP server", () => {
         action: "list",
         maxBytes: 12_288
       });
-      expect((result.content as any).ok).toBe(true);
-      expect((result.content as any).data.schemaVersion).toBe("archcontext.practice-list/v1");
-      expect((result.content as any).data.practices.map((practice: any) => practice.id)).toContain("compatibility.single-owner");
+      const envelope = (result.content as any).ok === true
+        ? result.content as any
+        : await server.readResource((result.content as any).resourceUri, root) as any;
+      if ((result.content as any).schemaVersion === "archcontext.resource-summary/v1") {
+        expect((result.content as any).resourceUri).toBe(result.resourceUri);
+      }
+      expect(envelope.ok).toBe(true);
+      expect(envelope.data.schemaVersion).toBe("archcontext.practice-list/v1");
+      expect(envelope.data.practices.map((practice: any) => practice.id)).toContain("compatibility.single-owner");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

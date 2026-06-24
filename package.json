@@ -36,6 +36,8 @@
     "readback:s5:context7": "bun scripts/practice-context7-readback.ts inspect --evidence docs/verification/practice-context7-readback.json --json",
     "record:s5:context7:live": "bun scripts/practice-context7-readback.ts live --out docs/verification/practice-context7-live-readback.json --json",
     "readback:s5:context7:live": "bun scripts/practice-context7-readback.ts inspect-live --evidence docs/verification/practice-context7-live-readback.json --json",
+    "record:s6:catalog": "bun scripts/practice-assets-s6-catalog-readback.ts run --out docs/verification/practice-assets-s6-catalog-readback.json --json",
+    "readback:s6:catalog": "bun scripts/practice-assets-s6-catalog-readback.ts inspect --evidence docs/verification/practice-assets-s6-catalog-readback.json --json",
     "readback:fg2:egress": "node scripts/github-egress-recording-readback.mjs readback --allow-pending",
     "readback:fg2:staging": "node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json --allow-pending --json",
     "readback:fg2:install-revoke": "node scripts/fg2-install-revoke-readback.mjs run --env-file _ops/env/fg2-staging.env --packet docs/verification/fg2-staging-evidence.json --out docs/verification/fg2-install-revoke-readback.json --confirm-suspend --json",

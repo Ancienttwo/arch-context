@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadPracticeCatalog, practiceAssetDigest, practiceCatalogEnvelope } from "../src/index";
-import type { PracticeAssetV1, PracticeSourceRecordV1 } from "@archcontext/contracts";
+import type { PracticeAssetV1, PracticeProfileV1, PracticeSourceRecordV1 } from "@archcontext/contracts";
 
 describe("@archcontext/core/practice-catalog", () => {
   test("loads the built-in catalog with deterministic digests", () => {
@@ -13,11 +13,37 @@ describe("@archcontext/core/practice-catalog", () => {
     expect(catalog.catalogVersion).toBe("2026.06.0");
     expect(catalog.catalogDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(catalog.overlayDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
-    expect(catalog.effectiveAssets).toHaveLength(12);
+    expect(catalog.effectiveAssets).toHaveLength(41);
+    expect(catalog.effectiveAssets.filter((asset) => asset.asset.status === "active")).toHaveLength(40);
+    expect(catalog.profiles).toHaveLength(8);
+    expect(catalog.sources).toHaveLength(19);
     expect(catalog.manifest.entries.map((entry) => entry.id)).toEqual(catalog.manifest.entries.map((entry) => entry.id).sort());
     expect(catalog.effectiveAssets.every((asset) => asset.asset.enforcement.default === "advisory")).toBe(true);
     expect(catalog.effectiveAssets.map((asset) => asset.asset.id)).toContain("compatibility.single-owner");
+    expect(catalog.profiles.map((profile) => profile.id)).toContain("profile.security-sensitive");
     expect(catalog.manifest).toEqual(staticManifest);
+  });
+
+  test("validates built-in profile practice and source references", () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-practice-profiles-invalid-"));
+    try {
+      writeSource(dir, sourceRecord("archcontext.spec"));
+      writePractice(dir, practice("compatibility.valid-practice"));
+      writeProfile(dir, {
+        ...profile("profile.invalid"),
+        includePracticeIds: ["compatibility.valid-practice", "compatibility.missing-practice"],
+        provenance: {
+          ...profile("profile.invalid").provenance,
+          sourceRefs: [{ sourceId: "missing.source" }]
+        }
+      });
+
+      const catalog = loadPracticeCatalog({ builtInAssetsDir: dir, includeRepoOverlay: false });
+      expect(catalog.errors.map((issue) => issue.code)).toContain("practice-profile-practice-missing");
+      expect(catalog.errors.map((issue) => issue.code)).toContain("practice-profile-source-missing");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("validates source records and rejects unsupported checks", () => {
@@ -173,6 +199,12 @@ function writeSource(root: string, source: PracticeSourceRecordV1): void {
   writeFileSync(join(dir, `${source.id}.yaml`), JSON.stringify(source, null, 2), "utf8");
 }
 
+function writeProfile(root: string, item: PracticeProfileV1): void {
+  const dir = join(root, "profiles");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${item.id}.yaml`), JSON.stringify(item, null, 2), "utf8");
+}
+
 function sourceRecord(id: string): PracticeSourceRecordV1 {
   return {
     schemaVersion: "archcontext.practice-source/v1",
@@ -251,6 +283,27 @@ function practice(id: string): PracticeAssetV1 {
       introducedAt: "2026-06-23",
       reviewAfter: "2027-06-23",
       supersedes: []
+    }
+  };
+}
+
+function profile(id: string): PracticeProfileV1 {
+  return {
+    schemaVersion: "archcontext.practice-profile/v1",
+    id,
+    revision: 1,
+    status: "active",
+    title: id,
+    repositoryKinds: ["application"],
+    languages: [],
+    frameworks: [],
+    includePracticeIds: ["compatibility.valid-practice"],
+    excludePracticeIds: [],
+    provenance: {
+      sourceKind: "archcontext-native",
+      sourceRefs: [{ sourceId: "archcontext.spec" }],
+      curator: "archcontext-maintainers",
+      reviewedAt: "2026-06-24"
     }
   };
 }

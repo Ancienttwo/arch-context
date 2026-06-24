@@ -3,6 +3,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PRACTICE_CATALOG_MANIFEST_SCHEMA_VERSION,
+  PRACTICE_PROFILE_SCHEMA_VERSION,
   PRACTICE_SCHEMA_VERSION,
   PRACTICE_SOURCE_SCHEMA_VERSION,
   digestJson,
@@ -16,6 +17,7 @@ import {
   type PracticeCatalogManifestV1,
   type PracticeCatalogManifestEntryV1,
   type PracticeCheckV1,
+  type PracticeProfileV1,
   type PracticeSourceRecordV1
 } from "@archcontext/contracts";
 import { assertRepoRelativePath } from "@archcontext/core/architecture-domain";
@@ -97,6 +99,7 @@ export interface PracticeCatalog {
   overlayDigest: string;
   manifest: PracticeCatalogManifestV1;
   effectiveAssets: EffectivePracticeAssetV1[];
+  profiles: PracticeProfileV1[];
   sources: PracticeSourceRecordV1[];
   errors: PracticeCatalogIssue[];
   warnings: PracticeCatalogIssue[];
@@ -128,6 +131,7 @@ export function loadPracticeCatalog(options: PracticeCatalogLoadOptions = {}): P
   const errors: PracticeCatalogIssue[] = [];
   const warnings: PracticeCatalogIssue[] = [];
   const builtIn = loadAssetFiles(resolve(builtInAssetsDir, "practices"), "curated-static", errors);
+  const profiles = loadProfileFiles(resolve(builtInAssetsDir, "profiles"), errors);
   const sources = loadSourceFiles(resolve(builtInAssetsDir, "sources"), errors);
   const overlays = options.includeRepoOverlay === false
     ? []
@@ -143,6 +147,27 @@ export function loadPracticeCatalog(options: PracticeCatalogLoadOptions = {}): P
           path: effective.originPath,
           practiceId: effective.asset.id,
           message: `Unknown practice source: ${sourceRef.sourceId}`
+        });
+      }
+    }
+  }
+  const profileAssetIds = new Set(builtIn.map((loaded) => loaded.asset.id));
+  for (const profile of profiles) {
+    for (const practiceId of profile.includePracticeIds) {
+      if (!profileAssetIds.has(practiceId)) {
+        errors.push({
+          code: "practice-profile-practice-missing",
+          practiceId: profile.id,
+          message: `Practice profile references unknown practice: ${practiceId}`
+        });
+      }
+    }
+    for (const sourceRef of profile.provenance.sourceRefs) {
+      if (!sourceIds.has(sourceRef.sourceId)) {
+        errors.push({
+          code: "practice-profile-source-missing",
+          practiceId: profile.id,
+          message: `Unknown practice profile source: ${sourceRef.sourceId}`
         });
       }
     }
@@ -178,6 +203,7 @@ export function loadPracticeCatalog(options: PracticeCatalogLoadOptions = {}): P
     overlayDigest,
     manifest,
     effectiveAssets: merged.assets,
+    profiles,
     sources,
     errors,
     warnings
@@ -261,6 +287,7 @@ function validationPayload(catalog: PracticeCatalog, strict: boolean): Record<st
     overlayDigest: catalog.overlayDigest,
     manifest: catalog.manifest as unknown as Json,
     sourceCount: catalog.sources.length,
+    profileCount: catalog.profiles.length,
     practiceCount: catalog.effectiveAssets.length
   };
 }
@@ -289,6 +316,19 @@ function loadSourceFiles(dir: string, errors: PracticeCatalogIssue[]): PracticeS
     }
   }
   return sources.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function loadProfileFiles(dir: string, errors: PracticeCatalogIssue[]): PracticeProfileV1[] {
+  const profiles: PracticeProfileV1[] = [];
+  for (const path of listDataFiles(dir, dir, errors)) {
+    const value = parseDataFile(path, errors);
+    const values = Array.isArray(value) ? value : [value];
+    for (const candidate of values) {
+      const profile = validateProfile(candidate, path, errors);
+      if (profile) profiles.push(profile);
+    }
+  }
+  return profiles.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function loadRepoOverlayAssets(root: string, errors: PracticeCatalogIssue[]): LoadedAsset[] {
@@ -508,6 +548,55 @@ function validateSourceRecord(value: unknown, path: string, errors: PracticeCata
     }
   }
   return source;
+}
+
+function validateProfile(value: unknown, path: string, errors: PracticeCatalogIssue[]): PracticeProfileV1 | undefined {
+  if (!isRecord(value)) {
+    errors.push({ code: "practice-profile-invalid-shape", path: displayPath(path), message: "Practice profile must be an object." });
+    return undefined;
+  }
+  const profile = value as unknown as PracticeProfileV1;
+  const required: Array<keyof PracticeProfileV1> = [
+    "schemaVersion",
+    "id",
+    "revision",
+    "status",
+    "title",
+    "repositoryKinds",
+    "languages",
+    "frameworks",
+    "includePracticeIds",
+    "excludePracticeIds",
+    "provenance"
+  ];
+  let invalid = false;
+  for (const key of required) {
+    if (!(key in value)) {
+      errors.push({ code: "practice-profile-missing-field", path: displayPath(path), message: `Practice profile missing field: ${String(key)}` });
+      invalid = true;
+    }
+  }
+  if (profile.schemaVersion !== PRACTICE_PROFILE_SCHEMA_VERSION) {
+    errors.push({ code: "practice-profile-schema-version", path: displayPath(path), practiceId: maybeString(value.id), message: `Unsupported practice profile schemaVersion: ${String(profile.schemaVersion)}` });
+    invalid = true;
+  }
+  if (!/^profile\.[a-z0-9-]+(\.[a-z0-9-]+)*$/.test(String(profile.id))) {
+    errors.push({ code: "practice-profile-id-invalid", path: displayPath(path), message: `Invalid practice profile ID: ${String(profile.id)}` });
+    invalid = true;
+  }
+  if (!Number.isInteger(profile.revision) || profile.revision < 1) {
+    errors.push({ code: "practice-profile-revision-invalid", path: displayPath(path), practiceId: maybeString(value.id), message: "Practice profile revision must be a positive integer." });
+    invalid = true;
+  }
+  if (!Array.isArray(profile.includePracticeIds) || profile.includePracticeIds.length === 0) {
+    errors.push({ code: "practice-profile-empty", path: displayPath(path), practiceId: maybeString(value.id), message: "Practice profile requires at least one included practice." });
+    invalid = true;
+  }
+  if (!Array.isArray(profile.provenance?.sourceRefs) || profile.provenance.sourceRefs.length === 0) {
+    errors.push({ code: "practice-profile-provenance-missing", path: displayPath(path), practiceId: maybeString(value.id), message: "Practice profile requires at least one sourceRef." });
+    invalid = true;
+  }
+  return invalid ? undefined : profile;
 }
 
 function listDataFiles(dir: string, allowedRoot: string, errors: PracticeCatalogIssue[]): string[] {

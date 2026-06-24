@@ -1,0 +1,194 @@
+[
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.generic-service",
+    "revision": 1,
+    "status": "active",
+    "title": "Generic Service",
+    "repositoryKinds": ["service", "application"],
+    "languages": [],
+    "frameworks": [],
+    "includePracticeIds": [
+      "api.contract-before-implementation",
+      "api.schema-version-contract",
+      "observability.release-health-probe",
+      "ownership.service-catalog-entry",
+      "security.external-permission-review"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.spec" }, { "sourceId": "backstage" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.library",
+    "revision": 1,
+    "status": "active",
+    "title": "Reusable Library",
+    "repositoryKinds": ["library"],
+    "languages": [],
+    "frameworks": [],
+    "includePracticeIds": [
+      "api.contract-before-implementation",
+      "api.backward-compatible-error-shape",
+      "modularity.layer-contract-declared",
+      "supply-chain.release-artifact-digest",
+      "decision.tradeoff-options-recorded"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.spec" }, { "sourceId": "madr" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.typescript",
+    "revision": 1,
+    "status": "active",
+    "title": "TypeScript Project",
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": ["typescript"],
+    "frameworks": [],
+    "includePracticeIds": [
+      "api.schema-version-contract",
+      "modularity.no-shared-internal-imports",
+      "supply-chain.dependency-update-review",
+      "security.audit-log-redaction",
+      "data.event-version-lineage"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.spec" }, { "sourceId": "openssf.scorecard" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.java",
+    "revision": 1,
+    "status": "active",
+    "title": "Java Project",
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": ["java"],
+    "frameworks": [],
+    "includePracticeIds": [
+      "modularity.respect-dependency-direction",
+      "modularity.layer-contract-declared",
+      "modularity.no-shared-internal-imports",
+      "api.idempotency-contract",
+      "data.schema-ownership-boundary"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "archunit" }, { "sourceId": "archcontext.spec" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.kubernetes",
+    "revision": 1,
+    "status": "active",
+    "title": "Kubernetes Service",
+    "repositoryKinds": ["service", "application"],
+    "languages": [],
+    "frameworks": ["kubernetes"],
+    "includePracticeIds": [
+      "observability.release-health-probe",
+      "observability.error-budget-signal",
+      "ownership.escalation-contact",
+      "compatibility.rollback-entrypoint",
+      "supply-chain.sbom-manifest"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "kubernetes.docs" }, { "sourceId": "opentelemetry" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.event-driven",
+    "revision": 1,
+    "status": "active",
+    "title": "Event Driven Service",
+    "repositoryKinds": ["service", "application"],
+    "languages": [],
+    "frameworks": [],
+    "includePracticeIds": [
+      "api.idempotency-contract",
+      "data.event-version-lineage",
+      "observability.queue-boundary-metrics",
+      "migration.parallel-run-observability",
+      "compatibility.deprecation-window"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0009" }, { "sourceId": "opentelemetry" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.monorepo",
+    "revision": 1,
+    "status": "active",
+    "title": "Monorepo",
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "includePracticeIds": [
+      "modularity.no-new-cycle",
+      "modularity.no-shared-internal-imports",
+      "ownership.operational-owner",
+      "supply-chain.dependency-update-review",
+      "decision.supersession-link"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.spec" }, { "sourceId": "backstage" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  },
+  {
+    "schemaVersion": "archcontext.practice-profile/v1",
+    "id": "profile.security-sensitive",
+    "revision": 1,
+    "status": "active",
+    "title": "Security Sensitive Repository",
+    "repositoryKinds": ["application", "service", "library"],
+    "languages": [],
+    "frameworks": [],
+    "includePracticeIds": [
+      "security.least-privilege",
+      "security.secret-material-never-enters-repo",
+      "security.audit-log-redaction",
+      "security.external-permission-review",
+      "supply-chain.release-artifact-digest"
+    ],
+    "excludePracticeIds": [],
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0036" }, { "sourceId": "openssf.scorecard" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    }
+  }
+]

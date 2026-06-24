@@ -1,0 +1,1278 @@
+[
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "api.schema-version-contract",
+    "revision": 1,
+    "status": "active",
+    "title": "Version public schemas before consumers depend on them",
+    "summary": "Public request, response, event, or configuration schemas should carry an explicit version before downstream code depends on the new shape.",
+    "category": "api",
+    "tags": ["api", "schema", "version"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "schemas/**", "openapi/**"],
+      "nodeKinds": ["public-api", "service", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "**/*.md"]
+    },
+    "triggers": {
+      "candidateTerms": ["schema version", "api version", "contract version", "event version"],
+      "pressureSignals": ["schema-version-missing"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which public shape changed?", "Where is the version recorded?"],
+      "preferred": ["Version the boundary before implementation code depends on it."],
+      "avoid": ["Treating implementation tests as the only contract."]
+    },
+    "checks": [{ "checkId": "compatibility-contract-required", "mode": "deterministic", "parameters": { "scope": "schema-version" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "structurizr.dsl" }, { "sourceId": "archcontext.adr.0012" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "api.backward-compatible-error-shape",
+    "revision": 1,
+    "status": "active",
+    "title": "Preserve public error shape compatibility",
+    "summary": "API error codes, envelopes, and machine-readable fields should remain compatible unless the contract declares a breaking version.",
+    "category": "api",
+    "tags": ["api", "compatibility", "errors"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "routes/**", "openapi/**"],
+      "nodeKinds": ["public-api", "service"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["error shape", "error code", "api error", "problem details"],
+      "pressureSignals": ["error-contract-changed"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which clients parse this error?", "Is the breaking version explicit?"],
+      "preferred": ["Add compatibility tests for public error envelopes."],
+      "avoid": ["Renaming machine-readable fields without a version boundary."]
+    },
+    "checks": [{ "checkId": "compatibility-contract-required", "mode": "deterministic", "parameters": { "scope": "error-shape" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "twelve-factor" }, { "sourceId": "archcontext.adr.0010" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "api.idempotency-contract",
+    "revision": 1,
+    "status": "active",
+    "title": "Declare idempotency for retried public operations",
+    "summary": "Public mutation endpoints and jobs that can be retried should declare the idempotency key, replay behavior, and duplicate side-effect policy.",
+    "category": "api",
+    "tags": ["api", "idempotency", "retries"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "routes/**", "workers/**"],
+      "nodeKinds": ["service", "job", "public-api"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["idempotency", "retry", "replay", "dedupe"],
+      "pressureSignals": ["retryable-mutation"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What prevents duplicate side effects?", "How is replay observed?"],
+      "preferred": ["Document the idempotency key and test duplicate delivery."],
+      "avoid": ["Assuming clients will not retry."]
+    },
+    "checks": [{ "checkId": "required-test-evidence", "mode": "deterministic", "parameters": { "scope": "idempotency" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "twelve-factor" }, { "sourceId": "archcontext.adr.0036" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "compatibility.deprecation-window",
+    "revision": 1,
+    "status": "active",
+    "title": "Give deprecated compatibility paths a dated removal window",
+    "summary": "Compatibility code should declare a deprecation date, removal condition, and owner before the old path can be removed.",
+    "category": "compatibility",
+    "tags": ["compatibility", "deprecation", "removal"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "migrations/**"],
+      "nodeKinds": ["module", "service"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["deprecated", "compatibility path", "removal window", "sunset"],
+      "pressureSignals": ["compatibility-removal"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "human-attestation"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Who owns removal?", "What date or signal ends the compatibility path?"],
+      "preferred": ["Attach deprecation metadata near the compatibility branch."],
+      "avoid": ["Leaving compatibility code without a removal owner."]
+    },
+    "checks": [{ "checkId": "migration-removal-condition", "mode": "deterministic", "parameters": { "scope": "compatibility-path" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0009" }, { "sourceId": "archcontext.adr.0010" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "compatibility.rollback-entrypoint",
+    "revision": 1,
+    "status": "active",
+    "title": "Keep a rollback entrypoint for compatibility changes",
+    "summary": "Compatibility-sensitive releases should identify the entrypoint that can restore the previous behavior without a broad refactor.",
+    "category": "compatibility",
+    "tags": ["compatibility", "rollback", "release"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "deploy/**", ".github/**"],
+      "nodeKinds": ["service", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["rollback", "restore previous behavior", "feature flag", "compatibility"],
+      "pressureSignals": ["compatibility-risk"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "runtime-check"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What command or flag restores the old behavior?", "Who can execute it?"],
+      "preferred": ["Keep rollback evidence close to the release change."],
+      "avoid": ["Using a revert as the only rollback plan."]
+    },
+    "checks": [{ "checkId": "observed-before-enforced", "mode": "deterministic", "parameters": { "scope": "rollback-entrypoint" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "twelve-factor" }, { "sourceId": "azure.architecture" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "data.schema-ownership-boundary",
+    "revision": 1,
+    "status": "active",
+    "title": "Assign one owner to shared data schemas",
+    "summary": "Shared tables, events, and data contracts should name the owner that can approve shape and semantic changes.",
+    "category": "data",
+    "tags": ["data", "schema", "ownership"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "schemas/**", "migrations/**"],
+      "nodeKinds": ["data-model", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["shared schema", "table owner", "data contract", "schema ownership"],
+      "pressureSignals": ["data-schema-shared"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "human-attestation"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Who owns the schema semantics?", "Where is approval recorded?"],
+      "preferred": ["Record the owning service or team with the schema."],
+      "avoid": ["Letting every consumer modify shared data shape."]
+    },
+    "checks": [{ "checkId": "single-authoritative-model", "mode": "deterministic", "parameters": { "scope": "shared-data-schema" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0008" }, { "sourceId": "backstage" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "data.migration-backfill-evidence",
+    "revision": 1,
+    "status": "active",
+    "title": "Backfills need reconciliation evidence",
+    "summary": "Data migrations that backfill or rewrite existing records should include deterministic reconciliation evidence before enforcement.",
+    "category": "data",
+    "tags": ["data", "migration", "backfill"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "migrations/**", "scripts/**"],
+      "nodeKinds": ["job", "data-model"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["backfill", "reconcile", "migration evidence", "record count"],
+      "pressureSignals": ["data-backfill"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What proves old and new records reconcile?", "What is the rollback for partial backfill?"],
+      "preferred": ["Capture counts or sampled checks as runtime evidence."],
+      "avoid": ["Trusting a successful job exit without data reconciliation."]
+    },
+    "checks": [{ "checkId": "required-test-evidence", "mode": "deterministic", "parameters": { "scope": "backfill-reconciliation" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0009" }, { "sourceId": "opentelemetry" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "data.event-version-lineage",
+    "revision": 1,
+    "status": "active",
+    "title": "Event data changes should preserve version lineage",
+    "summary": "Event payload changes should record the old and new versions, consumers affected, and compatibility expectations.",
+    "category": "data",
+    "tags": ["data", "events", "versioning"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "events/**", "schemas/**"],
+      "nodeKinds": ["public-api", "data-model"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["event version", "payload version", "consumer lineage", "schema evolution"],
+      "pressureSignals": ["event-schema-changed"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which consumers read this event?", "What is the old-to-new lineage?"],
+      "preferred": ["Record the version lineage in the schema or catalog."],
+      "avoid": ["Changing event semantics without consumer-visible metadata."]
+    },
+    "checks": [{ "checkId": "compatibility-contract-required", "mode": "deterministic", "parameters": { "scope": "event-lineage" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "kubernetes.docs" }, { "sourceId": "archcontext.adr.0010" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "decision.tradeoff-options-recorded",
+    "revision": 1,
+    "status": "active",
+    "title": "Record alternatives for significant architectural decisions",
+    "summary": "Architecture changes should capture rejected alternatives and the tradeoff that made the selected option acceptable.",
+    "category": "decisions",
+    "tags": ["decision", "adr", "tradeoff"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["docs/**", "adr/**", "plans/**", "src/**", "packages/**"],
+      "nodeKinds": ["module", "service"],
+      "negativePathGlobs": ["test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["tradeoff", "alternative", "ADR", "decision"],
+      "pressureSignals": ["architecture-decision"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["human-attestation", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What alternatives were considered?", "What constraint selected this option?"],
+      "preferred": ["Keep rejected alternatives with the decision record."],
+      "avoid": ["Recording only the chosen design."]
+    },
+    "checks": [{ "checkId": "context-stale-completion", "mode": "deterministic", "parameters": { "scope": "decision-record" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "madr" }, { "sourceId": "archcontext.adr.0012" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "decision.decision-review-date",
+    "revision": 1,
+    "status": "active",
+    "title": "Time-bound decisions need a review date",
+    "summary": "Decisions made under uncertainty should include the date, owner, or signal that reopens the decision.",
+    "category": "decisions",
+    "tags": ["decision", "review", "lifecycle"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["docs/**", "adr/**", "plans/**", "src/**", "packages/**"],
+      "nodeKinds": ["module", "service"],
+      "negativePathGlobs": ["test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["review date", "revisit", "decision expiry", "temporary decision"],
+      "pressureSignals": ["time-bound-decision"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["human-attestation", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What condition invalidates this decision?", "Who owns the review?"],
+      "preferred": ["Attach reviewAfter or an equivalent decision review signal."],
+      "avoid": ["Leaving temporary decisions with permanent force."]
+    },
+    "checks": [{ "checkId": "migration-review-date", "mode": "deterministic", "parameters": { "scope": "decision-lifecycle" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "madr" }, { "sourceId": "archcontext.adr.0009" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "decision.supersession-link",
+    "revision": 1,
+    "status": "active",
+    "title": "Superseded decisions should link to their replacement",
+    "summary": "When a decision is replaced, the old record should identify the new record so readers do not follow stale architecture guidance.",
+    "category": "decisions",
+    "tags": ["decision", "supersession", "adr"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["docs/**", "adr/**", "plans/**", "src/**", "packages/**"],
+      "nodeKinds": ["module", "service"],
+      "negativePathGlobs": ["test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["superseded", "replaced by", "decision lineage", "ADR supersedes"],
+      "pressureSignals": ["decision-superseded"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "human-attestation"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which decision replaces this one?", "Is stale guidance clearly marked?"],
+      "preferred": ["Keep the supersession link in both old and new records."],
+      "avoid": ["Deleting the old decision history."]
+    },
+    "checks": [{ "checkId": "context-stale-completion", "mode": "deterministic", "parameters": { "scope": "decision-supersession" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "madr" }, { "sourceId": "archcontext.adr.0012" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "migration.parallel-run-observability",
+    "revision": 1,
+    "status": "active",
+    "title": "Parallel migrations need observable old and new paths",
+    "summary": "A migration that runs old and new behavior in parallel should emit comparable telemetry for both paths before cutover.",
+    "category": "migration",
+    "tags": ["migration", "observability", "parallel-run"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "migrations/**", "workers/**"],
+      "nodeKinds": ["service", "job", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["parallel run", "dual write", "cutover", "shadow"],
+      "pressureSignals": ["migration-parallel-run"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Can old and new path behavior be compared?", "What stops the cutover?"],
+      "preferred": ["Emit paired metrics during the overlap window."],
+      "avoid": ["Cutting over without comparable telemetry."]
+    },
+    "checks": [{ "checkId": "boundary-telemetry-required", "mode": "deterministic", "parameters": { "scope": "parallel-migration" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0009" }, { "sourceId": "opentelemetry" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "migration.backfill-reconciliation",
+    "revision": 1,
+    "status": "active",
+    "title": "Migration backfills need explicit reconciliation",
+    "summary": "Backfill migrations should record the reconciliation check that proves target state matches source intent.",
+    "category": "migration",
+    "tags": ["migration", "backfill", "reconciliation"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "migrations/**", "scripts/**"],
+      "nodeKinds": ["job", "data-model"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["backfill reconciliation", "migration count", "target state", "source state"],
+      "pressureSignals": ["migration-backfill"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What proves the target state is complete?", "How are mismatches handled?"],
+      "preferred": ["Capture reconciliation output as evidence."],
+      "avoid": ["Treating migration execution as proof of correctness."]
+    },
+    "checks": [{ "checkId": "migration-removal-condition", "mode": "deterministic", "parameters": { "scope": "backfill-reconciliation" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0009" }, { "sourceId": "archcontext.spec" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "migration.rollback-plan",
+    "revision": 1,
+    "status": "active",
+    "title": "Stateful migrations need a rollback or containment plan",
+    "summary": "Stateful migration slices should record whether rollback is possible and, if not, how forward repair is contained.",
+    "category": "migration",
+    "tags": ["migration", "rollback", "state"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "migrations/**", "deploy/**"],
+      "nodeKinds": ["job", "service", "data-model"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["rollback plan", "forward repair", "stateful migration", "irreversible"],
+      "pressureSignals": ["stateful-migration"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["human-attestation", "runtime-check"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Is rollback possible after writes?", "What contains forward repair risk?"],
+      "preferred": ["Document rollback or containment before cutover."],
+      "avoid": ["Relying on database backups as the only plan."]
+    },
+    "checks": [{ "checkId": "observed-before-enforced", "mode": "deterministic", "parameters": { "scope": "stateful-migration" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0009" }, { "sourceId": "azure.architecture" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "modularity.layer-contract-declared",
+    "revision": 1,
+    "status": "active",
+    "title": "Declare layer contracts before enforcing dependency direction",
+    "summary": "Layering rules should point to the module contract they protect, not only to forbidden import edges.",
+    "category": "modularity",
+    "tags": ["modularity", "layers", "contracts"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "apps/**", "services/**"],
+      "nodeKinds": ["module", "package"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["layer contract", "dependency direction", "module boundary", "architecture rule"],
+      "pressureSignals": ["layer-rule-added"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "architecture-model"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which contract does this layer protect?", "Where is allowed direction declared?"],
+      "preferred": ["Tie dependency checks to named layer contracts."],
+      "avoid": ["Adding import bans without explaining the protected boundary."]
+    },
+    "checks": [{ "checkId": "dependency-direction", "mode": "deterministic", "parameters": { "scope": "layer-contract" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "archunit" }, { "sourceId": "structurizr.dsl" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "modularity.no-shared-internal-imports",
+    "revision": 1,
+    "status": "active",
+    "title": "Shared internals should not become cross-boundary imports",
+    "summary": "Internal modules should stay private to their owning boundary unless promoted to a public contract.",
+    "category": "modularity",
+    "tags": ["modularity", "internal", "imports"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "apps/**", "services/**"],
+      "nodeKinds": ["module", "package"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["internal import", "shared internals", "private module", "boundary import"],
+      "pressureSignals": ["internal-import-cross-boundary"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["import-edge", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Is this import part of a public contract?", "Which package owns the internal module?"],
+      "preferred": ["Promote shared behavior through an explicit public boundary."],
+      "avoid": ["Depending on another module's internal path."]
+    },
+    "checks": [{ "checkId": "dependency-direction", "mode": "deterministic", "parameters": { "scope": "internal-import" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "archunit" }, { "sourceId": "archcontext.adr.0012" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "observability.error-budget-signal",
+    "revision": 1,
+    "status": "active",
+    "title": "Operational changes should expose an error-budget signal",
+    "summary": "Changes that affect runtime reliability should identify the metric or signal that shows whether the error budget is being consumed.",
+    "category": "observability",
+    "tags": ["observability", "slo", "error-budget"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "services/**", "deploy/**"],
+      "nodeKinds": ["service", "job"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["error budget", "SLO", "latency objective", "availability"],
+      "pressureSignals": ["runtime-reliability-risk"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which signal shows budget burn?", "Where is it observed after deploy?"],
+      "preferred": ["Bind release readiness to a named reliability signal."],
+      "avoid": ["Shipping reliability-affecting changes without an observable guardrail."]
+    },
+    "checks": [{ "checkId": "boundary-telemetry-required", "mode": "deterministic", "parameters": { "scope": "error-budget" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "opentelemetry" }, { "sourceId": "azure.architecture" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "observability.release-health-probe",
+    "revision": 1,
+    "status": "active",
+    "title": "Release health probes should cover the changed boundary",
+    "summary": "Release readiness checks should probe the user-visible or integration boundary affected by the change.",
+    "category": "observability",
+    "tags": ["observability", "release", "health"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "deploy/**", ".github/**"],
+      "nodeKinds": ["service", "public-api"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["health probe", "release check", "synthetic check", "readiness"],
+      "pressureSignals": ["release-health-risk"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What boundary does the probe exercise?", "How is failure surfaced?"],
+      "preferred": ["Keep release health checks aligned with changed behavior."],
+      "avoid": ["Using a generic liveness check as feature readiness evidence."]
+    },
+    "checks": [{ "checkId": "observed-before-enforced", "mode": "deterministic", "parameters": { "scope": "release-health" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "kubernetes.docs" }, { "sourceId": "opentelemetry" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "observability.queue-boundary-metrics",
+    "revision": 1,
+    "status": "active",
+    "title": "Queue boundaries need lag and failure metrics",
+    "summary": "Async boundaries should expose queue lag, retry, and dead-letter signals before they become release gates.",
+    "category": "observability",
+    "tags": ["observability", "queue", "async"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "workers/**", "services/**"],
+      "nodeKinds": ["job", "service"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["queue lag", "dead letter", "retry metric", "async boundary"],
+      "pressureSignals": ["async-boundary-added"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["What shows backlog growth?", "How are poison messages surfaced?"],
+      "preferred": ["Emit queue lag, retry, and failure metrics at the boundary."],
+      "avoid": ["Observing only the producer or only the consumer."]
+    },
+    "checks": [{ "checkId": "boundary-telemetry-required", "mode": "deterministic", "parameters": { "scope": "queue-boundary" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "opentelemetry" }, { "sourceId": "cncf.app-delivery" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "ownership.escalation-contact",
+    "revision": 1,
+    "status": "active",
+    "title": "Runtime ownership needs an escalation contact",
+    "summary": "Operationally relevant services and jobs should identify the escalation path for incident or release-blocking decisions.",
+    "category": "ownership",
+    "tags": ["ownership", "operations", "escalation"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "services/**", "deploy/**"],
+      "nodeKinds": ["service", "job"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["escalation", "oncall", "operational owner", "incident contact"],
+      "pressureSignals": ["runtime-owner-needed"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["human-attestation", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Who answers incident questions?", "Where is escalation recorded?"],
+      "preferred": ["Store escalation contact in the service catalog or owner metadata."],
+      "avoid": ["Depending on tribal knowledge for runtime ownership."]
+    },
+    "checks": [{ "checkId": "owner-required", "mode": "deterministic", "parameters": { "scope": "runtime-escalation" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "backstage" }, { "sourceId": "cncf.app-delivery" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "ownership.service-catalog-entry",
+    "revision": 1,
+    "status": "active",
+    "title": "Deployable components should have a service catalog entry",
+    "summary": "A deployable component should have catalog metadata for owner, lifecycle, and runtime classification before governance relies on it.",
+    "category": "ownership",
+    "tags": ["ownership", "catalog", "service"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "services/**", "catalog/**"],
+      "nodeKinds": ["service", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["service catalog", "catalog-info", "component owner", "lifecycle"],
+      "pressureSignals": ["deployable-component"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "human-attestation"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Where is this component cataloged?", "Does the catalog identify lifecycle and owner?"],
+      "preferred": ["Keep ownership metadata machine-readable."],
+      "avoid": ["Using README text as the only component inventory."]
+    },
+    "checks": [{ "checkId": "owner-required", "mode": "deterministic", "parameters": { "scope": "service-catalog" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "backstage" }, { "sourceId": "archcontext.spec" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "ownership.operational-owner",
+    "revision": 1,
+    "status": "active",
+    "title": "Jobs and automations need an operational owner",
+    "summary": "Scheduled, async, or automated work should identify the person or team accountable for failures and stale behavior.",
+    "category": "ownership",
+    "tags": ["ownership", "jobs", "automation"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "scripts/**", "workers/**", ".github/**"],
+      "nodeKinds": ["job", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["scheduled job", "automation owner", "workflow owner", "operational owner"],
+      "pressureSignals": ["automation-owner-needed"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["human-attestation", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Who handles failure alerts?", "Where is stale automation reviewed?"],
+      "preferred": ["Attach owner metadata to scheduled and async work."],
+      "avoid": ["Letting automation outlive its owner."]
+    },
+    "checks": [{ "checkId": "owner-required", "mode": "deterministic", "parameters": { "scope": "automation-owner" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0036" }, { "sourceId": "backstage" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "security.secret-redaction-old",
+    "revision": 1,
+    "status": "deprecated",
+    "title": "Deprecated secret redaction checklist",
+    "summary": "Legacy secret redaction guidance is retained for migration lineage and superseded by the repo-ingress secret material practice.",
+    "category": "security",
+    "tags": ["security", "secrets", "deprecated"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "scripts/**"],
+      "nodeKinds": ["module", "service"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["secret redaction", "token redaction", "legacy secret scan"],
+      "pressureSignals": ["secret-redaction"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["diff", "runtime-check"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Is this legacy guidance still referenced?", "Which active practice replaces it?"],
+      "preferred": ["Use security.secret-material-never-enters-repo for new work."],
+      "avoid": ["Adding new policy against deprecated guidance."]
+    },
+    "checks": [{ "checkId": "least-privilege-required", "mode": "deterministic", "parameters": { "scope": "legacy-secret-redaction" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "advisory", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0036" }, { "sourceId": "openssf.scorecard" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "security.secret-material-never-enters-repo",
+    "revision": 1,
+    "status": "active",
+    "title": "Secret material should never enter repository artifacts",
+    "summary": "Secrets, tokens, and credential-bearing payloads should be blocked before they enter source, logs, fixtures, or verification packets.",
+    "category": "security",
+    "tags": ["security", "secrets", "dlp"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "scripts/**", "docs/verification/**"],
+      "nodeKinds": ["module", "service", "job"],
+      "negativePathGlobs": ["test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["secret material", "credential", "token", "DLP"],
+      "pressureSignals": ["secret-material-risk"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Where is secret ingress blocked?", "What proves the evidence packet is metadata-only?"],
+      "preferred": ["Reject secret-like content before persistence."],
+      "avoid": ["Relying on redaction after secrets are already stored."]
+    },
+    "checks": [{ "checkId": "least-privilege-required", "mode": "deterministic", "parameters": { "scope": "secret-ingress" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0036" }, { "sourceId": "openssf.scorecard" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": ["security.secret-redaction-old"] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "security.audit-log-redaction",
+    "revision": 1,
+    "status": "active",
+    "title": "Audit logs should redact sensitive payload fields",
+    "summary": "Security and governance audit logs should keep metadata needed for replay while excluding credentials, raw prompts, source bodies, and private paths.",
+    "category": "security",
+    "tags": ["security", "audit", "privacy"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "scripts/**", "docs/verification/**"],
+      "nodeKinds": ["service", "module"],
+      "negativePathGlobs": ["test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["audit log", "redaction", "metadata-only", "private path"],
+      "pressureSignals": ["audit-payload-persisted"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which fields are persisted?", "Does the packet contain source or secrets?"],
+      "preferred": ["Persist digests and typed metadata instead of raw sensitive values."],
+      "avoid": ["Saving full request bodies as audit evidence."]
+    },
+    "checks": [{ "checkId": "least-privilege-required", "mode": "deterministic", "parameters": { "scope": "audit-log-redaction" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "archcontext-native",
+      "sourceRefs": [{ "sourceId": "archcontext.adr.0036" }, { "sourceId": "archcontext.spec" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "security.external-permission-review",
+    "revision": 1,
+    "status": "active",
+    "title": "External integration permissions need least-privilege review",
+    "summary": "New external providers, apps, or webhooks should record the scopes requested and the least-privilege reason for each scope.",
+    "category": "security",
+    "tags": ["security", "permissions", "external"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["src/**", "packages/**", "deploy/**", ".github/**"],
+      "nodeKinds": ["service", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["permission scope", "webhook permission", "external app", "least privilege"],
+      "pressureSignals": ["external-permission-added"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["human-attestation", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which scopes are requested?", "Can any scope be narrowed?"],
+      "preferred": ["Record permission rationale with the integration config."],
+      "avoid": ["Requesting broad scopes for future convenience."]
+    },
+    "checks": [{ "checkId": "least-privilege-required", "mode": "deterministic", "parameters": { "scope": "external-permission" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "openssf.scorecard" }, { "sourceId": "archcontext.adr.0036" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "supply-chain.sbom-manifest",
+    "revision": 1,
+    "status": "active",
+    "title": "Release artifacts should have an SBOM or dependency manifest",
+    "summary": "Published artifacts should carry a dependency inventory that can be tied back to the released digest.",
+    "category": "supply-chain",
+    "tags": ["supply-chain", "sbom", "release"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["package.json", "packages/**", "src/**", "dist/**", ".github/**"],
+      "nodeKinds": ["package", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["SBOM", "dependency manifest", "release artifact", "software bill of materials"],
+      "pressureSignals": ["artifact-release"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["package-manifest", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which manifest describes the artifact?", "Can the manifest be tied to the released digest?"],
+      "preferred": ["Record dependency inventory with release evidence."],
+      "avoid": ["Publishing artifacts without inventory."]
+    },
+    "checks": [{ "checkId": "pinned-dependencies-required", "mode": "deterministic", "parameters": { "scope": "sbom" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "openssf.scorecard" }, { "sourceId": "cncf.app-delivery" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "supply-chain.release-artifact-digest",
+    "revision": 1,
+    "status": "active",
+    "title": "Release artifacts should record immutable digests",
+    "summary": "Release evidence should store artifact digests so consumers can verify the bytes that were reviewed and shipped.",
+    "category": "supply-chain",
+    "tags": ["supply-chain", "digest", "release"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["package.json", "packages/**", "dist/**", "release/**", ".github/**"],
+      "nodeKinds": ["package", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["artifact digest", "sha256", "release digest", "provenance"],
+      "pressureSignals": ["artifact-release"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["runtime-check", "diff"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Which digest identifies the shipped artifact?", "Where is digest verification recorded?"],
+      "preferred": ["Persist immutable artifact digests in release evidence."],
+      "avoid": ["Reviewing one artifact and publishing another without digest linkage."]
+    },
+    "checks": [{ "checkId": "observed-before-enforced", "mode": "deterministic", "parameters": { "scope": "artifact-digest" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "openssf.scorecard" }, { "sourceId": "twelve-factor" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  },
+  {
+    "schemaVersion": "archcontext.practice/v1",
+    "id": "supply-chain.dependency-update-review",
+    "revision": 1,
+    "status": "active",
+    "title": "Dependency updates should include intent and risk review",
+    "summary": "Dependency updates that affect runtime or tooling should record why the update is needed and what compatibility risk was checked.",
+    "category": "supply-chain",
+    "tags": ["supply-chain", "dependencies", "review"],
+    "appliesTo": {
+      "repositoryKinds": ["application", "service", "library"],
+      "languages": [],
+      "frameworks": [],
+      "pathGlobs": ["package.json", "bun.lock", "packages/**", "src/**"],
+      "nodeKinds": ["package", "module"],
+      "negativePathGlobs": ["docs/**", "test/**", "tests/**", "fixtures/**"]
+    },
+    "triggers": {
+      "candidateTerms": ["dependency update", "lockfile", "package upgrade", "supply chain"],
+      "pressureSignals": ["dependency-updated"],
+      "structuralPredicates": []
+    },
+    "evidencePolicy": {
+      "minimumStrengthForRecommendation": "declared",
+      "minimumStrengthForCheckpoint": "observed",
+      "minimumStrengthForEnforcement": "observed",
+      "requiredKindsForEnforcement": ["package-manifest", "test"],
+      "maxEnforcementWhenOnlyHeuristic": "advisory"
+    },
+    "guidance": {
+      "questions": ["Why is the dependency changing?", "What compatibility or security risk was reviewed?"],
+      "preferred": ["Pair lockfile changes with intent and verification evidence."],
+      "avoid": ["Landing broad dependency churn without review context."]
+    },
+    "checks": [{ "checkId": "pinned-dependencies-required", "mode": "deterministic", "parameters": { "scope": "dependency-update" } }],
+    "enforcement": { "default": "advisory", "promotableTo": "checkpoint", "repoOptInRequired": true },
+    "provenance": {
+      "sourceKind": "curated-reference",
+      "sourceRefs": [{ "sourceId": "openssf.scorecard" }, { "sourceId": "archcontext.adr.0036" }],
+      "curator": "archcontext-maintainers",
+      "reviewedAt": "2026-06-24"
+    },
+    "lifecycle": { "introducedAt": "2026-06-24", "reviewAfter": "2026-09-24", "supersedes": [] }
+  }
+]

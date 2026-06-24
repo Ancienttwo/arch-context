@@ -1,0 +1,213 @@
+{
+  "schemaVersion": "archcontext.practice-assets-s6-catalog-readback/v1",
+  "status": "verified",
+  "generatedAt": "2026-06-24T01:09:21.626Z",
+  "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14",
+  "manifestDigest": "sha256:6c69be55df18562432237f479d8801ecc815dfdc16fba0527929ea64c69e1b95",
+  "staticManifestDigest": "sha256:6c69be55df18562432237f479d8801ecc815dfdc16fba0527929ea64c69e1b95",
+  "summary": {
+    "practiceCount": 41,
+    "activePracticeCount": 40,
+    "profileCount": 8,
+    "sourceCount": 19,
+    "categoryCounts": {
+      "api": 4,
+      "compatibility": 4,
+      "data": 4,
+      "decisions": 4,
+      "migration": 4,
+      "modularity": 4,
+      "observability": 4,
+      "ownership": 4,
+      "security": 4,
+      "supply-chain": 4
+    },
+    "categoryNegativeScope": {
+      "api": true,
+      "compatibility": true,
+      "data": true,
+      "decisions": true,
+      "migration": true,
+      "modularity": true,
+      "observability": true,
+      "ownership": true,
+      "security": true,
+      "supply-chain": true
+    },
+    "requiredSourceIdsPresent": [
+      "madr",
+      "backstage",
+      "archunit",
+      "structurizr.dsl",
+      "twelve-factor",
+      "opentelemetry",
+      "kubernetes.docs",
+      "openssf.scorecard"
+    ],
+    "missingRequiredSourceIds": [],
+    "referenceOnlySources": [
+      {
+        "id": "arc42",
+        "licenseSpdx": "CC-BY-SA-4.0",
+        "licenseLevel": "C",
+        "usagePolicy": "reference-only",
+        "reviewStatus": "reference-only",
+        "usedByPracticeIds": []
+      },
+      {
+        "id": "google.sre",
+        "licenseSpdx": "CC-BY-NC-ND-4.0",
+        "licenseLevel": "C",
+        "usagePolicy": "reference-only",
+        "reviewStatus": "reference-only",
+        "usedByPracticeIds": []
+      },
+      {
+        "id": "owasp.cheat-sheet-series",
+        "licenseSpdx": "CC-BY-SA-4.0",
+        "licenseLevel": "C",
+        "usagePolicy": "reference-only",
+        "reviewStatus": "reference-only",
+        "usedByPracticeIds": []
+      }
+    ],
+    "deprecatedAssets": [
+      "security.secret-redaction-old"
+    ],
+    "supersededDeprecatedAssets": [
+      "security.secret-redaction-old"
+    ],
+    "provenanceGapCount": 0
+  },
+  "catalogErrors": [],
+  "catalogWarnings": [],
+  "sourceUsage": {
+    "archcontext.adr.0008": [
+      "data.schema-ownership-boundary"
+    ],
+    "archcontext.adr.0009": [
+      "compatibility.deprecation-window",
+      "data.migration-backfill-evidence",
+      "data.single-authoritative-model",
+      "decision.decision-review-date",
+      "migration.backfill-reconciliation",
+      "migration.parallel-run-observability",
+      "migration.rollback-plan",
+      "migration.target-and-removal-state"
+    ],
+    "archcontext.adr.0010": [
+      "api.backward-compatible-error-shape",
+      "compatibility.deprecation-window",
+      "compatibility.expiry-contract",
+      "compatibility.single-owner",
+      "data.event-version-lineage"
+    ],
+    "archcontext.adr.0012": [
+      "api.contract-before-implementation",
+      "api.schema-version-contract",
+      "decision.supersession-link",
+      "decision.tradeoff-options-recorded",
+      "modularity.no-shared-internal-imports"
+    ],
+    "archcontext.adr.0036": [
+      "api.idempotency-contract",
+      "decision.record-significant-change",
+      "ownership.operational-owner",
+      "security.audit-log-redaction",
+      "security.external-permission-review",
+      "security.least-privilege",
+      "security.secret-material-never-enters-repo",
+      "security.secret-redaction-old",
+      "supply-chain.dependency-update-review"
+    ],
+    "archcontext.spec": [
+      "data.single-authoritative-model",
+      "migration.backfill-reconciliation",
+      "modularity.respect-dependency-direction",
+      "ownership.explicit-lifecycle-owner",
+      "ownership.service-catalog-entry",
+      "security.audit-log-redaction"
+    ],
+    "archunit": [
+      "modularity.layer-contract-declared",
+      "modularity.no-new-cycle",
+      "modularity.no-shared-internal-imports",
+      "modularity.respect-dependency-direction"
+    ],
+    "azure.architecture": [
+      "compatibility.rollback-entrypoint",
+      "migration.rollback-plan",
+      "observability.error-budget-signal"
+    ],
+    "backstage": [
+      "data.schema-ownership-boundary",
+      "ownership.escalation-contact",
+      "ownership.explicit-lifecycle-owner",
+      "ownership.operational-owner",
+      "ownership.service-catalog-entry"
+    ],
+    "cncf.app-delivery": [
+      "observability.queue-boundary-metrics",
+      "ownership.escalation-contact",
+      "supply-chain.sbom-manifest"
+    ],
+    "kubernetes.docs": [
+      "data.event-version-lineage",
+      "observability.release-health-probe"
+    ],
+    "madr": [
+      "compatibility.single-owner",
+      "decision.decision-review-date",
+      "decision.record-significant-change",
+      "decision.supersession-link",
+      "decision.tradeoff-options-recorded",
+      "migration.target-and-removal-state"
+    ],
+    "openssf.scorecard": [
+      "security.external-permission-review",
+      "security.secret-material-never-enters-repo",
+      "security.secret-redaction-old",
+      "supply-chain.dependency-update-review",
+      "supply-chain.pinned-dependencies",
+      "supply-chain.release-artifact-digest",
+      "supply-chain.sbom-manifest"
+    ],
+    "opentelemetry": [
+      "data.migration-backfill-evidence",
+      "migration.parallel-run-observability",
+      "observability.boundary-telemetry",
+      "observability.error-budget-signal",
+      "observability.queue-boundary-metrics",
+      "observability.release-health-probe"
+    ],
+    "structurizr.dsl": [
+      "api.schema-version-contract",
+      "modularity.layer-contract-declared"
+    ],
+    "twelve-factor": [
+      "api.backward-compatible-error-shape",
+      "api.idempotency-contract",
+      "compatibility.rollback-entrypoint",
+      "supply-chain.release-artifact-digest"
+    ]
+  },
+  "provenanceGaps": [],
+  "assertions": {
+    "catalogClean": true,
+    "practiceCountInRange": true,
+    "activePracticeCountAtLeast40": true,
+    "categoryMinimumSatisfied": true,
+    "negativeScopePerCategory": true,
+    "profileCountInRange": true,
+    "profileReferencesValid": true,
+    "requiredSourcesPresent": true,
+    "referenceOnlySourcesUnused": true,
+    "shareAlikeSourcesReferenceOnly": true,
+    "provenanceCompleteness": true,
+    "deprecatedAssetsRetainedAndSuperseded": true,
+    "manifestMatchesStaticCatalog": true
+  },
+  "readback": {
+    "command": "bun scripts/practice-assets-s6-catalog-readback.ts inspect --evidence docs/verification/practice-assets-s6-catalog-readback.json --json"
+  }
+}

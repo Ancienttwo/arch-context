@@ -1206,13 +1206,13 @@ evaluation, packaging, and release gates.
 
 ### Catalog 扩展
 
-- [ ] S6-01 将 built-in catalog 扩展到 40–60 条高质量 practice，不追求数量超过质量。
-- [ ] S6-02 每个 category 至少 3 条，且包括至少一个 negative-scope fixture。
-- [ ] S6-03 建立 6–10 个 profiles：generic-service、library、typescript、java、kubernetes、event-driven、monorepo 等。
-- [ ] S6-04 对 MADR、Backstage、ArchUnit、Structurizr DSL、Twelve-Factor、OpenTelemetry、Kubernetes、OpenSSF 完成 pinned source records。
-- [ ] S6-05 OWASP/arc42 未完成 ShareAlike 分发评审前保持 reference-only，不进入默认 package。
-- [ ] S6-06 所有 assets 的 provenance、license policy、curator、review date、revision、digest 完整率 = 100%。
-- [ ] S6-07 建立 asset deprecation/supersession 流程，不允许删除仍被 policy/attestation 引用的历史 revision。
+- [x] S6-01 将 built-in catalog 扩展到 40–60 条高质量 practice，不追求数量超过质量。
+- [x] S6-02 每个 category 至少 3 条，且包括至少一个 negative-scope fixture。
+- [x] S6-03 建立 6–10 个 profiles：generic-service、library、typescript、java、kubernetes、event-driven、monorepo 等。
+- [x] S6-04 对 MADR、Backstage、ArchUnit、Structurizr DSL、Twelve-Factor、OpenTelemetry、Kubernetes、OpenSSF 完成 pinned source records。
+- [x] S6-05 OWASP/arc42 未完成 ShareAlike 分发评审前保持 reference-only，不进入默认 package。
+- [x] S6-06 所有 assets 的 provenance、license policy、curator、review date、revision、digest 完整率 = 100%。
+- [x] S6-07 建立 asset deprecation/supersession 流程，不允许删除仍被 policy/attestation 引用的历史 revision。
 
 ### Eval 数据集
 
@@ -1292,6 +1292,35 @@ bun run verify
 4. **Phase D — Repo opt-in enforcement**：S4 合并，默认仍不阻断。
 5. **Phase E — Opt-in Context7**：S5 合并，默认关闭。
 6. **Phase F — v1 release**：S6 指标和跨平台 Gate 全绿后，宣告 Practice Assets v1。
+
+## 14.6 Execution Record — 2026-06-24
+
+Completed the S6 catalog-scale slice on branch
+`codex/practice-assets-s6-catalog-scale`.
+
+- Catalog: 41 total built-in practices, 40 active practices, 10 categories with
+  at least 4 active practices each, and category-level negative scope coverage.
+- Profiles: 8 built-in profiles covering generic-service, library, typescript,
+  java, kubernetes, event-driven, monorepo, and security-sensitive repositories.
+- Sources: 19 source records, including required pins for MADR, Backstage,
+  ArchUnit, Structurizr DSL, Twelve-Factor, OpenTelemetry, Kubernetes, and
+  OpenSSF. OWASP and arc42 remain reference-only and unused by built-in
+  practices.
+- Provenance: S6 readback records zero provenance gaps across practice assets,
+  profiles, and source records.
+- Deprecation: `security.secret-redaction-old` is retained as deprecated and is
+  superseded by active `security.secret-material-never-enters-repo`.
+- Evidence: `docs/verification/practice-assets-s6-release-gate.md` and
+  `docs/verification/practice-assets-s6-catalog-readback.json`.
+- Verified: `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`,
+  `bun test scripts/practice-assets-s6-catalog-readback.test.ts`,
+  `bun run record:s6:catalog`, `bun run readback:s6:catalog`,
+  `bun packages/surfaces/cli/src/main.ts practices validate --strict`,
+  `bun run verify:practices`, `bun evals/run.ts --check`, `bun run typecheck`,
+  `git diff --check`, and `bun run verify`.
+
+S6-01 through S6-07 are complete. S6-08 through S6-40 and S6-EG1 through S6-EG7
+remain open.
 
 ---
 
