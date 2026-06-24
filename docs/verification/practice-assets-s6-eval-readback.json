@@ -1,25 +1,27 @@
 {
   "schemaVersion": "archcontext.practice-assets-s6-eval-readback/v1",
   "status": "verified",
-  "generatedAt": "2026-06-24T05:21:21.569Z",
-  "evalDigest": "sha256:d711df3b039a1fafd08428a3956fcaa41f687e8a737b84828efd051f57107fd3",
+  "generatedAt": "2026-06-24T09:07:58.255Z",
+  "evalDigest": "sha256:1890828a1d05ae9e86a7d6538b7fad32ab1e6c9e13e395208fc047996130d5b1",
   "summary": {
     "positiveCases": 60,
     "negativeCases": 80,
     "adversarialCases": 20,
-    "totalScenarios": 160,
-    "chineseCases": 50,
-    "chineseRatio": 0.3125,
+    "totalScenarios": 190,
+    "chineseCases": 65,
+    "chineseRatio": 0.3421,
     "noKeywordStructuralPositiveCases": 30,
+    "directPracticeReferenceCases": 30,
     "keywordHeavyBenignNegativeCases": 30,
     "enforcementWaiverAdversarialCases": 20,
     "budgetIrrelevantResourceCases": 20,
     "contextBudgetQueries": 22,
-    "top3Recall": 0.9333,
+    "top3Recall": 1,
     "contextConstraintRecall": 1,
     "contextIrrelevantRatio": 0.044,
     "benignPrecision": 1,
-    "noKeywordStructuralRecall": 0.9667,
+    "noKeywordStructuralRecall": 1,
+    "directPracticeReferenceRecall": 1,
     "heuristicOnlyHardGateRate": 0,
     "dynamicDocHardGateRate": 0,
     "waiverRejectedRate": 1,
@@ -27,52 +29,8 @@
     "prohibitedMatchIds": [],
     "evidenceMinimumViolations": [],
     "enforcementCeilingViolations": [],
-    "missedPositiveIds": [
-      {
-        "id": "practice-pos-008",
-        "expected": [
-          "ownership.explicit-lifecycle-owner"
-        ],
-        "actual": [
-          "compatibility.single-owner",
-          "data.single-authoritative-model",
-          "migration.target-and-removal-state"
-        ]
-      },
-      {
-        "id": "practice-pos-010",
-        "expected": [
-          "migration.target-and-removal-state"
-        ],
-        "actual": [
-          "compatibility.single-owner",
-          "data.single-authoritative-model",
-          "migration.parallel-run-observability"
-        ]
-      },
-      {
-        "id": "practice-pos-011",
-        "expected": [
-          "modularity.no-new-cycle"
-        ],
-        "actual": [
-          "compatibility.single-owner",
-          "data.single-authoritative-model",
-          "decision.record-significant-change"
-        ]
-      },
-      {
-        "id": "practice-no-keyword-pos-011",
-        "expected": [
-          "ownership.explicit-lifecycle-owner"
-        ],
-        "actual": [
-          "data.schema-ownership-boundary",
-          "data.single-authoritative-model",
-          "decision.record-significant-change"
-        ]
-      }
-    ],
+    "missedPositiveIds": [],
+    "missedDirectReferenceIds": [],
     "negativeNonAdvisoryCaseIds": [],
     "waiverRejectionMissIds": [],
     "hardGateMissIds": []
@@ -117,7 +75,7 @@
       "target": "Practice Top-3 recall",
       "metric": "recall @ top-k 3",
       "threshold": "≥ 92.0%",
-      "observed": "93.3%",
+      "observed": "100.0%",
       "pass": true
     },
     {
@@ -131,11 +89,18 @@
       "target": "Practice Chinese scenario mix",
       "metric": "Chinese ratio",
       "threshold": "≥ 25.0%",
-      "observed": "31.3% (50/160)",
+      "observed": "34.2% (65/190)",
       "pass": true
     },
     {
       "target": "Practice no-keyword structural cases",
+      "metric": "count",
+      "threshold": "≥ 30",
+      "observed": "30",
+      "pass": true
+    },
+    {
+      "target": "Practice direct-reference cases",
       "metric": "count",
       "threshold": "≥ 30",
       "observed": "30",
@@ -180,7 +145,14 @@
       "target": "Practice no-keyword structural recall",
       "metric": "recall",
       "threshold": "≥ 85.0%",
-      "observed": "96.7%",
+      "observed": "100.0%",
+      "pass": true
+    },
+    {
+      "target": "Practice direct-reference recall",
+      "metric": "recall",
+      "threshold": "≥ 100.0%",
+      "observed": "100.0%",
       "pass": true
     },
     {
@@ -212,6 +184,7 @@
     "negativeCaseMinimum": true,
     "chineseScenarioRatio": true,
     "noKeywordStructuralCaseMinimum": true,
+    "directPracticeReferenceCaseMinimum": true,
     "keywordHeavyBenignCaseMinimum": true,
     "enforcementWaiverAdversarialCaseMinimum": true,
     "budgetIrrelevantResourceCaseMinimum": true,
@@ -221,6 +194,7 @@
     "contextIrrelevantRatio": true,
     "benignPrecision": true,
     "noKeywordStructuralRecall": true,
+    "directPracticeReferenceRecall": true,
     "heuristicOnlyHardGateRate": true,
     "dynamicDocHardGateRate": true,
     "waiverRejectedRate": true,
@@ -239,6 +213,8 @@
     "waiverRejectedRate": 1,
     "positivePracticeCases": 60,
     "negativePracticeCases": 60,
+    "directPracticeReferenceCases": 30,
+    "directPracticeReferenceRecall": 1,
     "chineseScenarioRatio": 0.25,
     "noKeywordStructuralPositiveCases": 30,
     "keywordHeavyBenignNegativeCases": 30,

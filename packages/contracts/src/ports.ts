@@ -42,6 +42,13 @@ export interface ObservedEvidence {
   summary: string;
   confidence: "heuristic" | "observed" | "verified";
   snapshot: RepositorySnapshot;
+  practiceBindings?: PracticeEvidenceBinding[];
+}
+
+export interface PracticeEvidenceBinding {
+  practiceId: string;
+  triggerId?: string;
+  subject?: string;
 }
 
 export interface NormalizedCodeContext {

@@ -147,7 +147,7 @@ describe("local product first-experience E2E", () => {
     }
   }, 30_000);
 
-  test("installed hook checkpoint adds dependency direction guidance from a changed import edge", async () => {
+  test("installed hook checkpoint keeps plain import edges advisory until a declared boundary violation exists", async () => {
     expect(existsSync(ARCHCTX_BIN)).toBe(true);
     const workspace = mkdtempSync(join(tmpdir(), "archctx-hook-import-edge-e2e-"));
     const repo = join(workspace, "single-repo-basic");
@@ -188,14 +188,7 @@ describe("local product first-experience E2E", () => {
       );
       expect(edited.ok).toBe(true);
       expect(edited.requestId).toBe("hook.checkpoint");
-      expect(practiceIds(edited.data.delta.added)).toContain("modularity.respect-dependency-direction");
-      const dependencyDirection = edited.data.delta.added.find((match: any) => match.practiceId === "modularity.respect-dependency-direction");
-      expect(dependencyDirection.evidence).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          kind: "import-edge",
-          subject: "file:src/web/page.ts->file:src/domain/order-service.ts"
-        })
-      ]));
+      expect(practiceIds(edited.data.delta.added)).not.toContain("modularity.respect-dependency-direction");
       expect(edited.data.hook.pathSummary).toMatchObject({
         schemaVersion: "archcontext.checkpoint-path-summary/v1",
         total: 1,

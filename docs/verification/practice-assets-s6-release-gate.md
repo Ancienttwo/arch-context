@@ -138,10 +138,11 @@ The verified path is:
 The output side effects are
 `docs/verification/m6-representative-eval-report.md` and
 `docs/verification/practice-assets-s6-eval-readback.json`. The readback records
-60 positive cases, 80 negative cases, 20 adversarial cases, 160 total
-scenarios, 50 Chinese or mixed Chinese/English cases, 30 no-keyword structural
-positives, 30 keyword-heavy benign negatives, 20 budget/irrelevant resource
-cases, and zero dataset metadata/evidence/enforcement-ceiling violations.
+60 positive cases, 80 negative cases, 20 adversarial cases, 190 total
+scenarios, 65 Chinese or mixed Chinese/English cases, 30 no-keyword structural
+positives, 30 direct-practice-reference cases, 30 keyword-heavy benign
+negatives, 20 budget/irrelevant resource cases, and zero dataset
+metadata/evidence/enforcement-ceiling violations.
 
 ### P3 Decision
 
@@ -160,11 +161,19 @@ minimum checks, enforcement ceiling checks, and non-advisory negative counting.
 
 ### Verified Metrics
 
-- Practice Top-3 recall: 93.3%, threshold >= 92.0%.
+Earlier gate runs reported Top-3 recall 93.3% and no-keyword structural recall
+96.7%. Those figures were inflated by practice-label leakage in the dataset and
+string-match evidence injection in the matcher. After moving to typed
+practice-binding evidence, de-leaking the no-keyword corpus, and splitting
+direct-practice-reference cases into their own dataset, the figures below are the
+corrected, leakage-free measurements.
+
+- Practice Top-3 recall: 100.0%, threshold >= 92.0%.
 - Context constraint recall: 100.0%, threshold >= 95.0%.
 - Context irrelevant ratio: 4.4%, threshold <= 15.0%.
 - Benign precision: 100.0%, threshold >= 95.0%.
-- No-keyword structural recall: 96.7%, threshold >= 85.0%.
+- No-keyword structural recall: 100.0%, threshold >= 85.0%.
+- Direct-practice-reference recall: 100.0%, threshold >= 100.0%.
 - Heuristic-only hard-gate rate: 0.0%.
 - Dynamic-doc hard-gate rate: 0.0%.
 - Invalid/tampered waiver rejection: 100.0%.

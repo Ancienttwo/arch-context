@@ -69,6 +69,7 @@ export function buildPracticeAssetsS6EvalReadbackPacket(result: RepresentativeEv
     chineseCases: result.practices.chineseCases,
     chineseRatio: result.practices.chineseRatio,
     noKeywordStructuralPositiveCases: result.practices.noKeywordStructuralPositiveCases,
+    directPracticeReferenceCases: result.practices.directPracticeReferenceCases,
     keywordHeavyBenignNegativeCases: result.practices.keywordHeavyBenignNegativeCases,
     enforcementWaiverAdversarialCases: result.practices.enforcementWaiverAdversarialCases,
     budgetIrrelevantResourceCases: result.practices.budgetIrrelevantResourceCases,
@@ -78,6 +79,7 @@ export function buildPracticeAssetsS6EvalReadbackPacket(result: RepresentativeEv
     contextIrrelevantRatio: result.retrieval.irrelevantRatio,
     benignPrecision: result.practices.benignPrecision,
     noKeywordStructuralRecall: result.practices.noKeywordStructuralRecall,
+    directPracticeReferenceRecall: result.practices.directPracticeReferenceRecall,
     heuristicOnlyHardGateRate: result.practices.heuristicOnlyHardGateRate,
     dynamicDocHardGateRate: result.practices.dynamicDocHardGateRate,
     waiverRejectedRate: result.practices.waiverRejectedRate,
@@ -86,6 +88,7 @@ export function buildPracticeAssetsS6EvalReadbackPacket(result: RepresentativeEv
     evidenceMinimumViolations: result.practices.evidenceMinimumViolations,
     enforcementCeilingViolations: result.practices.enforcementCeilingViolations,
     missedPositiveIds: result.practices.missedPositiveIds,
+    missedDirectReferenceIds: result.practices.missedDirectReferenceIds,
     negativeNonAdvisoryCaseIds: result.practices.negativeNonAdvisoryCaseIds,
     waiverRejectionMissIds: result.practices.waiverRejectionMissIds,
     hardGateMissIds: result.practices.hardGateMissIds
@@ -97,6 +100,7 @@ export function buildPracticeAssetsS6EvalReadbackPacket(result: RepresentativeEv
     negativeCaseMinimum: summary.negativeCases >= THRESHOLDS.negativePracticeCases,
     chineseScenarioRatio: summary.chineseRatio >= THRESHOLDS.chineseScenarioRatio,
     noKeywordStructuralCaseMinimum: summary.noKeywordStructuralPositiveCases >= THRESHOLDS.noKeywordStructuralPositiveCases,
+    directPracticeReferenceCaseMinimum: summary.directPracticeReferenceCases >= THRESHOLDS.directPracticeReferenceCases,
     keywordHeavyBenignCaseMinimum: summary.keywordHeavyBenignNegativeCases >= THRESHOLDS.keywordHeavyBenignNegativeCases,
     enforcementWaiverAdversarialCaseMinimum: summary.enforcementWaiverAdversarialCases >= THRESHOLDS.enforcementWaiverAdversarialCases,
     budgetIrrelevantResourceCaseMinimum: summary.budgetIrrelevantResourceCases >= THRESHOLDS.budgetIrrelevantResourceCases,
@@ -106,6 +110,7 @@ export function buildPracticeAssetsS6EvalReadbackPacket(result: RepresentativeEv
     contextIrrelevantRatio: summary.contextIrrelevantRatio <= THRESHOLDS.contextIrrelevantRatio,
     benignPrecision: summary.benignPrecision >= THRESHOLDS.benignPrecision,
     noKeywordStructuralRecall: summary.noKeywordStructuralRecall >= THRESHOLDS.noKeywordStructuralRecall,
+    directPracticeReferenceRecall: summary.directPracticeReferenceRecall >= THRESHOLDS.directPracticeReferenceRecall,
     heuristicOnlyHardGateRate: summary.heuristicOnlyHardGateRate === THRESHOLDS.heuristicOnlyHardGateRate,
     dynamicDocHardGateRate: summary.dynamicDocHardGateRate === THRESHOLDS.dynamicDocHardGateRate,
     waiverRejectedRate: summary.waiverRejectedRate >= THRESHOLDS.waiverRejectedRate,
@@ -141,6 +146,7 @@ export function inspectPracticeAssetsS6EvalReadback(packet: any) {
   if (summary.negativeCases < THRESHOLDS.negativePracticeCases) failures.push("summary.negativeCases below S6 minimum");
   if (summary.chineseRatio < THRESHOLDS.chineseScenarioRatio) failures.push("summary.chineseRatio below S6 minimum");
   if (summary.noKeywordStructuralPositiveCases < THRESHOLDS.noKeywordStructuralPositiveCases) failures.push("summary.noKeywordStructuralPositiveCases below S6 minimum");
+  if (summary.directPracticeReferenceCases < THRESHOLDS.directPracticeReferenceCases) failures.push("summary.directPracticeReferenceCases below S6 minimum");
   if (summary.keywordHeavyBenignNegativeCases < THRESHOLDS.keywordHeavyBenignNegativeCases) failures.push("summary.keywordHeavyBenignNegativeCases below S6 minimum");
   if (summary.enforcementWaiverAdversarialCases < THRESHOLDS.enforcementWaiverAdversarialCases) failures.push("summary.enforcementWaiverAdversarialCases below S6 minimum");
   if (summary.budgetIrrelevantResourceCases < THRESHOLDS.budgetIrrelevantResourceCases) failures.push("summary.budgetIrrelevantResourceCases below S6 minimum");
@@ -149,6 +155,7 @@ export function inspectPracticeAssetsS6EvalReadback(packet: any) {
   if (summary.contextIrrelevantRatio > THRESHOLDS.contextIrrelevantRatio) failures.push("summary.contextIrrelevantRatio above threshold");
   if (summary.benignPrecision < THRESHOLDS.benignPrecision) failures.push("summary.benignPrecision below threshold");
   if (summary.noKeywordStructuralRecall < THRESHOLDS.noKeywordStructuralRecall) failures.push("summary.noKeywordStructuralRecall below threshold");
+  if (summary.directPracticeReferenceRecall < THRESHOLDS.directPracticeReferenceRecall) failures.push("summary.directPracticeReferenceRecall below threshold");
   if (summary.heuristicOnlyHardGateRate !== THRESHOLDS.heuristicOnlyHardGateRate) failures.push("summary.heuristicOnlyHardGateRate must be 0");
   if (summary.dynamicDocHardGateRate !== THRESHOLDS.dynamicDocHardGateRate) failures.push("summary.dynamicDocHardGateRate must be 0");
   if (summary.waiverRejectedRate < THRESHOLDS.waiverRejectedRate) failures.push("summary.waiverRejectedRate below threshold");

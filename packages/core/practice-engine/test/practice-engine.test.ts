@@ -58,6 +58,16 @@ function completePolicy(practiceId: string, checkId: string): PracticeEnforcemen
   };
 }
 
+function derivedPracticeEntry(base: EffectivePracticeAssetV1, asset: PracticeAssetV1): EffectivePracticeAssetV1 {
+  return {
+    asset,
+    assetDigest: digestJson({ asset } as unknown as Json),
+    sourceTrust: "curated-static",
+    originPath: `test/${asset.id}.json`,
+    overrideChain: []
+  };
+}
+
 function cycleMatch(assetDigest: string, subjects: string[], strength: "heuristic" | "observed" = "observed"): PracticeMatchV1 {
   return {
     schemaVersion: "archcontext.practice-match/v1",
@@ -345,6 +355,7 @@ describe("@archcontext/core/practice-engine", () => {
         selector: { path: "src/security/token.ts", symbolId: "symbol.secretModule" },
         summary: "observed security.least-privilege scope expansion risk",
         confidence: "observed",
+        practiceBindings: [{ practiceId: "security.least-privilege", triggerId: "permission-expanded" }],
         snapshot: {
           repositoryId: "repo.test",
           headSha: "abc",
@@ -363,6 +374,238 @@ describe("@archcontext/core/practice-engine", () => {
     const guidance = matchPracticesForTask({ task: codeContext.task, catalog, codeContext, pressure, maxMatches: 3 });
 
     expect(guidance.matches.map((match) => match.practiceId)).toContain("security.least-privilege");
+  });
+
+  test("requires typed practice binding before observed context evidence can promote a candidate", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const base = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
+    const asset: PracticeAssetV1 = {
+      ...base.asset,
+      id: "test.bound-evidence-required",
+      title: "Bound evidence required",
+      summary: "Bound evidence required for checkpoint promotion",
+      category: "test",
+      tags: ["bound-evidence"],
+      appliesTo: {
+        ...base.asset.appliesTo,
+        repositoryKinds: [],
+        pathGlobs: ["src/**"],
+        nodeKinds: ["module"],
+        negativePathGlobs: []
+      },
+      triggers: {
+        candidateTerms: ["bound-evidence"],
+        pressureSignals: [],
+        structuralPredicates: []
+      },
+      evidencePolicy: {
+        ...base.asset.evidencePolicy,
+        minimumStrengthForRecommendation: "observed",
+        minimumStrengthForCheckpoint: "observed"
+      },
+      enforcement: {
+        default: "advisory",
+        promotableTo: "checkpoint",
+        repoOptInRequired: true
+      }
+    };
+    const entry = derivedPracticeEntry(base, asset);
+    const codeContext: NormalizedCodeContext = {
+      task: "apply bound-evidence practice",
+      symbols: [{ id: "symbol.service", name: "service", kind: "module", path: "src/service.ts" }],
+      edges: [],
+      evidence: [{
+        id: "evidence.test.bound-evidence-required",
+        selector: { path: "src/service.ts", symbolId: "symbol.service" },
+        summary: "observed test.bound-evidence-required applicability",
+        confidence: "observed",
+        snapshot: {
+          repositoryId: "repo.test",
+          headSha: "abc",
+          worktreeDigest: `sha256:${"2".repeat(64)}`
+        }
+      }],
+      digest: `sha256:${"2".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path),
+      observedEvidence: codeContext.evidence
+    });
+    const unbound = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [entry] },
+      codeContext,
+      pressure,
+      maxMatches: 3
+    });
+    const boundContext: NormalizedCodeContext = {
+      ...codeContext,
+      evidence: [{
+        ...codeContext.evidence[0],
+        practiceBindings: [{ practiceId: asset.id, triggerId: "unit-test" }]
+      }]
+    };
+    const bound = matchPracticesForTask({
+      task: boundContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [entry] },
+      codeContext: boundContext,
+      pressure,
+      maxMatches: 3
+    });
+
+    expect(unbound.matches.map((match) => match.practiceId)).not.toContain(asset.id);
+    expect(bound.matches.find((match) => match.practiceId === asset.id)).toMatchObject({
+      enforcement: "checkpoint"
+    });
+  });
+
+  test("filters negative scopes per subject instead of suppressing mixed source and test changes", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
+    const mixedContext: NormalizedCodeContext = {
+      task: "remove legacy v1 wrapper and update matching test fixture",
+      symbols: [
+        { id: "symbol.billingLegacyV1", name: "billingLegacyV1", kind: "public-api", path: "src/billing/legacy-v1.ts" },
+        { id: "symbol.billingLegacyTest", name: "billingLegacyTest", kind: "function", path: "test/billing/legacy-v1.test.ts" }
+      ],
+      edges: [],
+      evidence: [],
+      digest: `sha256:${"3".repeat(64)}`
+    };
+    const testOnlyContext: NormalizedCodeContext = {
+      ...mixedContext,
+      symbols: [{ id: "symbol.billingLegacyTest", name: "billingLegacyTest", kind: "function", path: "test/billing/legacy-v1.test.ts" }],
+      digest: `sha256:${"4".repeat(64)}`
+    };
+    const match = (codeContext: NormalizedCodeContext) => {
+      const pressure = detectArchitecturePressure({
+        task: codeContext.task,
+        symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+        files: codeContext.symbols.map((symbol) => symbol.path)
+      });
+      return matchPracticesForTask({
+        task: codeContext.task,
+        catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [asset] },
+        codeContext,
+        pressure,
+        maxMatches: 3
+      });
+    };
+
+    expect(match(mixedContext).matches.map((item) => item.practiceId)).toContain("compatibility.single-owner");
+    expect(match(testOnlyContext).matches.map((item) => item.practiceId)).not.toContain("compatibility.single-owner");
+  });
+
+  test("plain import edges do not prove declared layer violations during recommendation", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.respect-dependency-direction")!;
+    const codeContext: NormalizedCodeContext = {
+      task: "repair dependency direction after module import change",
+      symbols: [
+        { id: "symbol.domainModel", name: "domainModel", kind: "module", path: "packages/domain/model.ts" },
+        { id: "symbol.adapterClient", name: "adapterClient", kind: "module", path: "packages/adapter/client.ts" }
+      ],
+      edges: [{ source: "symbol.domainModel", target: "symbol.adapterClient", kind: "imports", confidence: "high" }],
+      evidence: [],
+      digest: `sha256:${"5".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path),
+      edges: codeContext.edges
+    });
+
+    const guidance = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [asset] },
+      codeContext,
+      pressure,
+      maxMatches: 3
+    });
+
+    expect(guidance.matches.map((match) => match.practiceId)).not.toContain("modularity.respect-dependency-direction");
+  });
+
+  test("unproved absence evidence keeps telemetry recommendations advisory", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "observability.boundary-telemetry")!;
+    const codeContext: NormalizedCodeContext = {
+      task: "add worker queue runtime boundary",
+      symbols: [{ id: "symbol.invoiceWorker", name: "invoiceWorker", kind: "service", path: "src/workers/invoice-worker.ts" }],
+      edges: [],
+      evidence: [],
+      digest: `sha256:${"6".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path)
+    });
+
+    const guidance = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [asset] },
+      codeContext,
+      pressure,
+      maxMatches: 3
+    });
+    const match = guidance.matches.find((item) => item.practiceId === "observability.boundary-telemetry");
+
+    expect(match?.enforcement).toBe("advisory");
+    expect(match?.evidence).toContainEqual(expect.objectContaining({
+      kind: "runtime-check",
+      strength: "heuristic",
+      subject: "unproven-absence:telemetry|trace|metric|log"
+    }));
+    expect(match?.evidence).not.toContainEqual(expect.objectContaining({
+      kind: "runtime-check",
+      strength: "observed",
+      subject: "missing:telemetry|trace|metric|log"
+    }));
+  });
+
+  test("detects import cycles longer than two nodes", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const codeContext: NormalizedCodeContext = {
+      task: "stop dependency cycle in package graph",
+      symbols: [
+        { id: "symbol.cycleA", name: "cycleA", kind: "module", path: "packages/a/src/index.ts" },
+        { id: "symbol.cycleB", name: "cycleB", kind: "module", path: "packages/b/src/index.ts" },
+        { id: "symbol.cycleC", name: "cycleC", kind: "module", path: "packages/c/src/index.ts" }
+      ],
+      edges: [
+        { source: "symbol.cycleA", target: "symbol.cycleB", kind: "imports", confidence: "high" },
+        { source: "symbol.cycleB", target: "symbol.cycleC", kind: "imports", confidence: "high" },
+        { source: "symbol.cycleC", target: "symbol.cycleA", kind: "imports", confidence: "high" }
+      ],
+      evidence: [],
+      digest: `sha256:${"7".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path),
+      edges: codeContext.edges
+    });
+
+    const guidance = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [asset] },
+      codeContext,
+      pressure,
+      maxMatches: 3
+    });
+    const match = guidance.matches.find((item) => item.practiceId === "modularity.no-new-cycle");
+
+    expect(match?.evidence).toContainEqual(expect.objectContaining({
+      kind: "import-edge",
+      strength: "observed",
+      subject: "cycle:symbol.cycleA->symbol.cycleB->symbol.cycleC->symbol.cycleA"
+    }));
   });
 
   test("rejects unknown structural predicates instead of silently ignoring them", () => {
@@ -907,5 +1150,85 @@ describe("@archcontext/core/practice-engine", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("recommendations follow the typed practice binding, not stale label text in evidence", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const base = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "compatibility.single-owner")!;
+    const derive = (id: string): EffectivePracticeAssetV1 => {
+      const asset: PracticeAssetV1 = {
+        ...base.asset,
+        id,
+        title: id,
+        summary: id,
+        category: "test",
+        tags: [id],
+        appliesTo: {
+          ...base.asset.appliesTo,
+          repositoryKinds: [],
+          pathGlobs: ["src/**"],
+          nodeKinds: ["module"],
+          negativePathGlobs: []
+        },
+        triggers: {
+          candidateTerms: ["governed", id],
+          pressureSignals: [],
+          structuralPredicates: []
+        },
+        evidencePolicy: {
+          ...base.asset.evidencePolicy,
+          minimumStrengthForRecommendation: "observed",
+          minimumStrengthForCheckpoint: "observed"
+        },
+        enforcement: {
+          default: "advisory",
+          promotableTo: "checkpoint",
+          repoOptInRequired: true
+        }
+      };
+      return derivedPracticeEntry(base, asset);
+    };
+    // Both assets are retrieval candidates (shared "governed" term). The context evidence's
+    // free-text summary/id names `labelled`, but its typed binding points at `bound-target`.
+    // A string-match matcher would promote `labelled`; a binding-driven matcher must not.
+    const labelled = derive("test.labelled-but-unbound");
+    const boundTarget = derive("test.bound-target");
+    const codeContext: NormalizedCodeContext = {
+      task: "apply governed module change",
+      symbols: [{ id: "symbol.service", name: "service", kind: "module", path: "src/service.ts" }],
+      edges: [],
+      evidence: [{
+        id: "evidence.test.labelled-but-unbound",
+        selector: { path: "src/service.ts", symbolId: "symbol.service" },
+        summary: "observed test.labelled-but-unbound applicability",
+        confidence: "observed",
+        practiceBindings: [{ practiceId: "test.bound-target", triggerId: "unit-test" }],
+        snapshot: {
+          repositoryId: "repo.test",
+          headSha: "abc",
+          worktreeDigest: `sha256:${"9".repeat(64)}`
+        }
+      }],
+      digest: `sha256:${"9".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path),
+      observedEvidence: codeContext.evidence
+    });
+
+    const guidance = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [labelled, boundTarget] },
+      codeContext,
+      pressure,
+      maxMatches: 5
+    });
+    const ids = guidance.matches.map((match) => match.practiceId);
+
+    expect(ids).toContain("test.bound-target");
+    expect(ids).not.toContain("test.labelled-but-unbound");
+    expect(guidance.matches.find((match) => match.practiceId === "test.bound-target")?.enforcement).toBe("checkpoint");
   });
 });
