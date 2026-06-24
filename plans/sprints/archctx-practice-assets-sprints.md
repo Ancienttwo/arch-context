@@ -1237,12 +1237,12 @@ evaluation, packaging, and release gates.
 
 ### 性能与可靠性
 
-- [ ] S6-23 100 assets catalog warm load p95 ≤ 50ms。
-- [ ] S6-24 Practice matching 增量给 prepare 增加的 warm p95 ≤ 150ms。
-- [ ] S6-25 Hook checkpoint warm p95 ≤ 250ms，且不依赖网络。
-- [ ] S6-26 Catalog/cache corruption 返回 typed recovery path，不导致数据静默错误。
-- [ ] S6-27 SQLite migration 可前滚/回滚，旧 daemon 对未知表安全忽略或给版本错误。
-- [ ] S6-28 Daemon upgrade 后旧 session 明确 stale 或迁移，不混用不同 catalog digest。
+- [x] S6-23 100 assets catalog warm load p95 ≤ 50ms。
+- [x] S6-24 Practice matching 增量给 prepare 增加的 warm p95 ≤ 150ms。
+- [x] S6-25 Hook checkpoint warm p95 ≤ 250ms，且不依赖网络。
+- [x] S6-26 Catalog/cache corruption 返回 typed recovery path，不导致数据静默错误。
+- [x] S6-27 SQLite migration 可前滚/回滚，旧 daemon 对未知表安全忽略或给版本错误。
+- [x] S6-28 Daemon upgrade 后旧 session 明确 stale 或迁移，不混用不同 catalog digest。
 
 ### 打包与跨平台
 
@@ -1264,7 +1264,7 @@ evaluation, packaging, and release gates.
 
 ## 14.3 Exit Gates
 
-- [ ] S6-EG1 所有质量与性能 KPI 通过 `bun evals/run.ts --check` 或独立 gate 脚本。
+- [x] S6-EG1 所有质量与性能 KPI 通过 `bun evals/run.ts --check` 或独立 gate 脚本。
 - [ ] S6-EG2 所有发布 assets provenance/license/digest 完整率 = 100%。
 - [ ] S6-EG3 三大 OS packaged product E2E 全绿。
 - [ ] S6-EG4 默认配置保持 static-only、zero-egress、advisory-first。
@@ -1350,6 +1350,38 @@ Completed the S6 eval dataset and quality-gate slice on branch
 
 S6-01 through S6-22 are complete. S6-23 through S6-40 and S6-EG1 through
 S6-EG7 remain open.
+
+## 14.8 Execution Record — 2026-06-24
+
+Completed the S6 performance and reliability gate slice on branch
+`codex/practice-assets-s6-runtime-gates`.
+
+- Performance: 100 repo overlay practice assets plus the built-in catalog
+  produce 141 effective practices. Runtime readback records catalog warm p95
+  16.362ms, practice matching warm p95 2.894ms, and hook checkpoint warm p95
+  30.904ms against the 50ms, 150ms, and 250ms thresholds.
+- Hook boundary: checkpoint samples execute analysis with unique hook tool call
+  IDs and verify `egress:"none"` plus `network:"forbidden"`.
+- Corruption recovery: invalid repo practice overlay returns typed catalog
+  issues and recovers cleanly after removal; invalid `runtime.sqlite` returns
+  `target-incomplete` with a repair/delete recovery action rather than silent
+  data acceptance.
+- Migration compatibility: legacy SQLite migrates forward to the current schema;
+  an unknown future table is ignored safely and the target remains
+  `target-current`.
+- Daemon upgrade/session safety: checkpoint contract now exposes
+  `stale-catalog` and `previousCatalogDigest`; restarted daemon readback with a
+  persisted older catalog digest returns `fresh:false` and
+  `reasonCode:"stale-catalog"`.
+- Evidence: `docs/verification/practice-assets-s6-runtime-readback.json` and
+  `docs/verification/practice-assets-s6-release-gate.md`.
+- Verified: `bun test scripts/practice-assets-s6-runtime-readback.test.ts`,
+  `bun test packages/core/application/test/control-loop.test.ts packages/contracts/test/contracts.test.ts`,
+  `bun run record:s6:runtime`, `bun run readback:s6:runtime`, and
+  `bun run typecheck`.
+
+S6-01 through S6-28 and S6-EG1 are complete. S6-29 through S6-40 and S6-EG2
+through S6-EG7 remain open.
 
 ---
 

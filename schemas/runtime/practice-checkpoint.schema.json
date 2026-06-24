@@ -32,14 +32,15 @@
     "worktreeDigest": { "type": "string", "pattern": "^sha256:" },
     "expectedWorktreeDigest": { "type": "string", "pattern": "^sha256:" },
     "fresh": { "type": "boolean" },
-    "reasonCode": { "enum": ["fresh", "stale-head", "stale-worktree", "no-baseline", "no-op"] },
+    "reasonCode": { "enum": ["fresh", "stale-head", "stale-worktree", "stale-catalog", "no-baseline", "no-op"] },
     "staleReasons": {
       "type": "array",
-      "items": { "enum": ["fresh", "stale-head", "stale-worktree", "no-baseline", "no-op"] }
+      "items": { "enum": ["fresh", "stale-head", "stale-worktree", "stale-catalog", "no-baseline", "no-op"] }
     },
     "changedPaths": { "type": "array", "items": { "type": "string" } },
     "toolCallId": { "type": "string" },
     "catalogDigest": { "type": "string", "pattern": "^sha256:" },
+    "previousCatalogDigest": { "type": "string", "pattern": "^sha256:" },
     "contextDigest": { "type": "string", "pattern": "^sha256:" },
     "previousContextDigest": { "type": "string", "pattern": "^sha256:" },
     "practiceGuidanceDigest": { "type": "string", "pattern": "^sha256:" },

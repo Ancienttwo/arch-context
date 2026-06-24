@@ -110,7 +110,8 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
   };
   const staleReasons = [
     ...(input.expectedHeadSha && input.expectedHeadSha !== input.workspace.headSha ? ["stale-head" as const] : []),
-    ...(input.expectedWorktreeDigest && input.expectedWorktreeDigest !== worktreeDigest ? ["stale-worktree" as const] : [])
+    ...(input.expectedWorktreeDigest && input.expectedWorktreeDigest !== worktreeDigest ? ["stale-worktree" as const] : []),
+    ...(input.previous?.catalogDigest && input.previous.catalogDigest !== nextSnapshot.catalogDigest ? ["stale-catalog" as const] : [])
   ];
   const delta = practiceDelta(input.previous?.matches ?? [], nextSnapshot.matches);
   const noBaseline = input.previous === undefined;
@@ -131,6 +132,7 @@ export async function checkpointTask(input: CheckpointTaskInput): Promise<Practi
     changedPaths,
     ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
     catalogDigest: nextSnapshot.catalogDigest,
+    ...(input.previous?.catalogDigest === undefined ? {} : { previousCatalogDigest: input.previous.catalogDigest }),
     contextDigest: nextSnapshot.contextDigest,
     ...(input.previous?.contextDigest === undefined ? {} : { previousContextDigest: input.previous.contextDigest }),
     practiceGuidanceDigest: nextSnapshot.practiceGuidanceDigest,

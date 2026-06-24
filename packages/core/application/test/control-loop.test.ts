@@ -245,6 +245,24 @@ describe("M2 architecture control loop", () => {
       expect(stale.fresh).toBe(false);
       expect(stale.staleReasons).toContain("stale-worktree");
 
+      const staleCatalog = await checkpointTask({
+        workspace,
+        taskSessionId: "task_test",
+        task: prepared.context.task,
+        event: "post-edit",
+        expectedWorktreeDigest: baseline.worktreeDigest,
+        previous: {
+          ...baseline,
+          catalogDigest: `sha256:${"9".repeat(64)}`
+        },
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+      expect(staleCatalog.fresh).toBe(false);
+      expect(staleCatalog.reasonCode).toBe("stale-catalog");
+      expect(staleCatalog.previousCatalogDigest).toBe(`sha256:${"9".repeat(64)}`);
+      expect(staleCatalog.staleReasons).toContain("stale-catalog");
+
       const normalizedPaths = await checkpointTask({
         workspace,
         taskSessionId: "task_test",

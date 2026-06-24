@@ -2,9 +2,9 @@
 
 ## Status
 
-This document is the S6 release-gate evidence ledger. The catalog-scale and
-eval/quality gates are verified; performance, packaging, cross-platform, docs,
-rollout, and release gates remain pending.
+This document is the S6 release-gate evidence ledger. The catalog-scale,
+eval/quality, and performance/reliability gates are verified; packaging,
+cross-platform, docs, rollout, and release gates remain pending.
 
 ## Catalog Scale Gate
 
@@ -166,15 +166,100 @@ minimum checks, enforcement ceiling checks, and non-advisory negative counting.
 - Dynamic-doc hard-gate rate: 0.0%.
 - Invalid/tampered waiver rejection: 100.0%.
 
+## Performance And Reliability Gate
+
+### P1 Map
+
+The S6 runtime gate proves the local practice runtime path under 100 repo
+overlay assets. It is not a dynamic documentation, hosted service, or cloud
+control-plane gate.
+
+- Catalog loader: `packages/core/practice-catalog/src/index.ts`
+- Practice matcher: `packages/core/practice-engine/src/index.ts`
+- Context compiler path:
+  `packages/core/context-compiler/src/index.ts`
+- Checkpoint path:
+  `packages/core/application/src/index.ts` and
+  `packages/local-runtime/runtime-daemon/src/index.ts`
+- SQLite state path:
+  `packages/local-runtime/local-store-sqlite/src/index.ts`
+- Contract and schema:
+  `packages/contracts/src/practices.ts` and
+  `schemas/runtime/practice-checkpoint.schema.json`
+- Readback surface:
+  `scripts/practice-assets-s6-runtime-readback.ts` and
+  `docs/verification/practice-assets-s6-runtime-readback.json`
+
+Out of scope for this slice: packaged tarball manifests, OS install/uninstall
+matrices, local no-cloud product E2E, Context7 optional packaging, rollout
+flags, and runbook drills.
+
+### P2 Trace
+
+The verified path is:
+
+1. The readback creates a temporary repo with 100 repo overlay practices plus
+   the built-in catalog, producing 141 effective practices.
+2. `loadPracticeCatalog({ root })` is warmed and sampled 12 times. The p95 is
+   recorded against the S6 50ms threshold.
+3. `matchPracticesForTask` is run against a fixed observed code context and
+   pressure signal. The p95 is recorded against the S6 150ms threshold.
+4. `createStartedDaemon(...mock codegraph...)` runs `init -> prepare ->
+   checkpoint` with unique hook tool call IDs so each sample executes analysis
+   instead of using coalescing. The checkpoint hook must report
+   `egress:"none"` and `network:"forbidden"`.
+5. Catalog corruption is reproduced with an invalid repo overlay. The catalog
+   validation surface returns typed practice issues and recovers after removing
+   the invalid file.
+6. SQLite cache/store corruption is reproduced with an invalid target
+   `runtime.sqlite`. Migration inspection returns `target-incomplete`; migration
+   fails with a clear repair/delete recovery action instead of silently reading
+   corrupted state.
+7. Legacy SQLite migration starts from a valid legacy DB, migrates forward to
+   the current schema, then adds an unknown future table. The current daemon
+   migration path safely ignores the unknown table and still reports
+   `target-current`.
+8. Daemon stale-catalog behavior is reproduced through persisted checkpoint
+   state: prepare stores a baseline, the stored baseline is changed to an older
+   catalog digest, and a restarted daemon checkpoint returns
+   `reasonCode:"stale-catalog"` with `fresh:false`.
+
+The output side effect is
+`docs/verification/practice-assets-s6-runtime-readback.json`, which records
+catalog warm p95 16.362ms, matching warm p95 2.894ms, checkpoint warm p95
+30.904ms, zero network dependency, typed catalog/cache recovery, forward and
+backward-compatible SQLite migration behavior, and explicit stale-catalog
+detection.
+
+### P3 Decision
+
+The existing runtime intentionally recomputes catalog guidance during prepare
+and checkpoint instead of treating guidance as a long-lived daemon-global
+cache. The S6 gate preserves that correctness shape and adds a contract-level
+staleness reason for the only missing state transition: same worktree and head,
+but changed catalog digest after daemon upgrade.
+
+At 10x scale, the first failure point would be synchronous catalog file loading
+or repeated matcher document construction inside checkpoint. The chosen gate
+measures those costs separately before measuring the complete hook path, so a
+future regression fails at the responsible boundary. The `stale-catalog`
+extension is the smallest coherent contract change because checkpoint already
+records both current and baseline catalog digests; it only makes the mismatch
+machine-visible.
+
 ## Verified Commands
 
 - `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`
 - `bun test scripts/practice-assets-s6-catalog-readback.test.ts`
 - `bun test scripts/practice-assets-s6-eval-readback.test.ts`
+- `bun test scripts/practice-assets-s6-runtime-readback.test.ts`
+- `bun test packages/core/application/test/control-loop.test.ts packages/contracts/test/contracts.test.ts`
 - `bun run record:s6:catalog`
 - `bun run readback:s6:catalog`
 - `bun run record:s6:eval`
 - `bun run readback:s6:eval`
+- `bun run record:s6:runtime`
+- `bun run readback:s6:runtime`
 - `bun packages/surfaces/cli/src/main.ts practices validate --strict`
 - `bun run verify:practices`
 - `bun evals/run.ts --check`
@@ -184,7 +269,6 @@ minimum checks, enforcement ceiling checks, and non-advisory negative counting.
 
 ## Pending S6 Gates
 
-- Performance and reliability gates: S6-23 through S6-28.
 - Packaging and cross-platform gates: S6-29 through S6-33.
 - Documentation, operations, rollout, and final release signoff: S6-34 through
-  S6-40 and S6-EG1 through S6-EG7.
+  S6-40 and S6-EG2 through S6-EG7.

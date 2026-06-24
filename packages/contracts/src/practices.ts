@@ -34,6 +34,7 @@ export type PracticeCheckpointReasonCode =
   | "fresh"
   | "stale-head"
   | "stale-worktree"
+  | "stale-catalog"
   | "no-baseline"
   | "no-op";
 export type PracticeCheckStatus = "pass" | "fail" | "waived" | "not_applicable";
@@ -359,6 +360,7 @@ export interface PracticeCheckpointResultV1 {
   changedPaths: string[];
   toolCallId?: string;
   catalogDigest: string;
+  previousCatalogDigest?: string;
   contextDigest: string;
   previousContextDigest?: string;
   practiceGuidanceDigest: string;

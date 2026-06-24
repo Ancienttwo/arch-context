@@ -40,6 +40,8 @@
     "readback:s6:catalog": "bun scripts/practice-assets-s6-catalog-readback.ts inspect --evidence docs/verification/practice-assets-s6-catalog-readback.json --json",
     "record:s6:eval": "bun scripts/practice-assets-s6-eval-readback.ts run --out docs/verification/practice-assets-s6-eval-readback.json --json",
     "readback:s6:eval": "bun scripts/practice-assets-s6-eval-readback.ts inspect --evidence docs/verification/practice-assets-s6-eval-readback.json --json",
+    "record:s6:runtime": "bun scripts/practice-assets-s6-runtime-readback.ts run --out docs/verification/practice-assets-s6-runtime-readback.json --json",
+    "readback:s6:runtime": "bun scripts/practice-assets-s6-runtime-readback.ts inspect --evidence docs/verification/practice-assets-s6-runtime-readback.json --json",
     "readback:fg2:egress": "node scripts/github-egress-recording-readback.mjs readback --allow-pending",
     "readback:fg2:staging": "node scripts/fg2-staging-evidence-readback.mjs readback --packet docs/verification/fg2-staging-evidence.json --allow-pending --json",
     "readback:fg2:install-revoke": "node scripts/fg2-install-revoke-readback.mjs run --env-file _ops/env/fg2-staging.env --packet docs/verification/fg2-staging-evidence.json --out docs/verification/fg2-install-revoke-readback.json --confirm-suspend --json",
