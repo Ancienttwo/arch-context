@@ -15,6 +15,7 @@ import {
 } from "@archcontext/contracts";
 import {
   Context7ExternalDocumentationAdapter,
+  Context7ProviderError,
   assertSafeOutboundText,
   type Context7ContextRequest,
   type Context7ProviderTelemetryEvent,
@@ -31,6 +32,16 @@ const NOW = "2026-06-24T00:00:00.000Z";
 const LIBRARY_ID = "/facebook/react";
 const VERSION = "18.2.0";
 const INTENT = "state hooks";
+const FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
+type FailureMatrixCase = typeof FAILURE_MATRIX_CASES[number];
+const FAILURE_MATRIX_EXPECTED_STATUS: Record<FailureMatrixCase, string> = {
+  disabled: "disabled",
+  "no-key": "http-error",
+  "no-network": "transport-error",
+  "429": "rate-limited",
+  timeout: "timeout",
+  malformed: "malformed"
+};
 
 const PRIVATE_VALUE_CASES = [
   { label: "absolute-path", value: "/Users/alice/Projects/private/src/app.ts" },
@@ -216,7 +227,8 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
         uriMatchesFetch: true,
         dataClassification: "external-unverified-documentation",
         genericHttpToolPresent: false
-      }
+      },
+      failureMatrix: verifiedFailureMatrixFixture()
     },
     dlp: {
       cases: PRIVATE_VALUE_CASES.length,
@@ -256,6 +268,7 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
       exactVersionCacheReplay: true,
       prepareUnknownsUsesPinnedCacheOnly: true,
       providerUnavailableLeavesLocalCoreUnchanged: true,
+      failureMatrixKeepsLocalCoreUnchanged: true,
       mcpExternalResourceReadOnly: true
     },
     readback: {
@@ -265,9 +278,38 @@ export function verifiedPracticeContext7Fixture(overrides: Record<string, unknow
   };
 }
 
+function verifiedFailureMatrixFixture() {
+  const rows = FAILURE_MATRIX_CASES.map((label) => ({
+    case: label,
+    healthEgress: label === "disabled" ? "none" : "prepare-unknowns",
+    healthKeySource: "none",
+    providerFetchCalls: label === "disabled" ? 0 : 1,
+    failureStatus: FAILURE_MATRIX_EXPECTED_STATUS[label],
+    prepareOk: true,
+    completeOk: true,
+    externalResourceCount: 0,
+    practiceIdsUnchanged: true,
+    constraintsUnchanged: true,
+    realConstraintsUnchanged: true,
+    postureUnchanged: true,
+    pressureUnchanged: true,
+    completeResultUnchanged: true,
+    localCoreUnchanged: true
+  }));
+  return {
+    cases: [...FAILURE_MATRIX_CASES],
+    rowCount: rows.length,
+    localCoreUnchanged: true,
+    rows
+  };
+}
+
 async function buildPracticeContext7ReadbackPacket(root: string) {
   const adapter = await captureAdapterReadback();
-  const runtime = await captureRuntimeReadback();
+  const runtime = {
+    ...(await captureRuntimeReadback()),
+    failureMatrix: await captureFailureMatrixReadback()
+  };
   const dlp = captureDlpReadback();
   const hardGateScan = captureHardGateScan(root);
   const resourceSummary = runtime.resourceSummary ?? adapter.resourceSummary;
@@ -310,6 +352,9 @@ async function buildPracticeContext7ReadbackPacket(root: string) {
       providerUnavailableLeavesLocalCoreUnchanged: runtime.resolveWithoutNetworkOk === false
         && runtime.prepareOk === true
         && runtime.completeOk === true,
+      failureMatrixKeepsLocalCoreUnchanged: runtime.failureMatrix?.localCoreUnchanged === true
+        && Array.isArray(runtime.failureMatrix?.rows)
+        && runtime.failureMatrix.rows.every((row: any) => row.localCoreUnchanged === true),
       mcpExternalResourceReadOnly: runtime.mcpResource?.listed === true
         && runtime.mcpResource?.readOk === true
         && runtime.mcpResource?.uriMatchesFetch === true
@@ -482,6 +527,164 @@ async function captureRuntimeReadback() {
   }
 }
 
+async function captureFailureMatrixReadback() {
+  const tempRoot = mkdtempSync(join(tmpdir(), "archctx-context7-failure-matrix-"));
+  try {
+    initGitRepo(tempRoot);
+    const baseline = await captureLocalCoreProjection(tempRoot, "static");
+    const rows = [];
+    for (const label of FAILURE_MATRIX_CASES) {
+      const provider = context7FailureMatrixProvider(label);
+      const actual = await captureLocalCoreProjection(tempRoot, label, provider.port);
+      const comparison = compareLocalCoreProjection(actual, baseline);
+      const localCoreUnchanged = actual.prepareOk === true
+        && actual.completeOk === true
+        && actual.externalResourceCount === 0
+        && Object.values(comparison).every(Boolean);
+      rows.push({
+        case: label,
+        healthEgress: actual.health?.egress,
+        healthKeySource: actual.health?.keySource,
+        providerFetchCalls: provider.fetchCalls,
+        failureStatus: label === "disabled" ? "disabled" : provider.statuses.at(-1),
+        prepareOk: actual.prepareOk,
+        completeOk: actual.completeOk,
+        externalResourceCount: actual.externalResourceCount,
+        ...comparison,
+        localCoreUnchanged
+      });
+    }
+    return {
+      cases: [...FAILURE_MATRIX_CASES],
+      rowCount: rows.length,
+      localCoreUnchanged: rows.every((row) => row.localCoreUnchanged === true),
+      rows
+    };
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+async function captureLocalCoreProjection(root: string, label: string, externalDocumentation?: ExternalDocumentationPort) {
+  let daemon: Awaited<ReturnType<typeof createStartedDaemon>> | undefined;
+  try {
+    daemon = await createStartedDaemon({
+      codeFacts: fakeCodeFacts(),
+      ...(externalDocumentation ? { externalDocumentation } : {}),
+      localStorePath: join(root, ".archcontext", `runtime-${label.replace(/[^a-z0-9-]/gi, "-")}.sqlite`),
+      clock: () => NOW
+    });
+    await daemon.init(root, `Context7 Failure Matrix ${label}`);
+    if (externalDocumentation) {
+      await daemon.docs(root, {
+        command: "pin",
+        libraryId: LIBRARY_ID,
+        version: VERSION,
+        approved: true
+      });
+    }
+    const task = "Use React state hooks and confirm package version unknowns";
+    const taskSessionId = `task_context7_matrix_${label.replace(/[^a-z0-9-]/gi, "_")}`;
+    const prepare = await daemon.prepare(root, task, 12_288, 12, taskSessionId);
+    const complete = await daemon.completeTask(root, { taskSessionId, task });
+    const context = (prepare.data as any)?.context;
+    return {
+      health: externalDocumentation ? await externalDocumentation.health() : undefined,
+      prepareOk: prepare.ok,
+      completeOk: complete.ok,
+      practiceIds: (context?.practiceGuidance?.matches ?? []).map((match: any) => match.practiceId),
+      constraints: context?.constraints,
+      realConstraints: context?.realConstraints,
+      posture: (prepare.data as any)?.posture,
+      pressure: (prepare.data as any)?.pressure,
+      externalResourceCount: (context?.resources ?? []).filter((resource: any) => resource.type === "external-docs").length,
+      completeResult: {
+        result: (complete.data as any)?.result,
+        summary: (complete.data as any)?.summary,
+        findings: (complete.data as any)?.findings,
+        practiceViolations: (complete.data as any)?.practiceViolations,
+        actionsRequired: (complete.data as any)?.actionsRequired,
+        cleanup: (complete.data as any)?.cleanup
+      }
+    };
+  } finally {
+    if (daemon) await daemon.stop();
+  }
+}
+
+function compareLocalCoreProjection(actual: any, expected: any) {
+  return {
+    practiceIdsUnchanged: deepEqual(actual.practiceIds, expected.practiceIds),
+    constraintsUnchanged: deepEqual(actual.constraints, expected.constraints),
+    realConstraintsUnchanged: deepEqual(actual.realConstraints, expected.realConstraints),
+    postureUnchanged: deepEqual(actual.posture, expected.posture),
+    pressureUnchanged: deepEqual(actual.pressure, expected.pressure),
+    completeResultUnchanged: deepEqual(actual.completeResult, expected.completeResult)
+  };
+}
+
+function context7FailureMatrixProvider(label: FailureMatrixCase) {
+  let fetchCalls = 0;
+  const statuses: string[] = [];
+  const adapter = new Context7ExternalDocumentationAdapter({
+    enabled: label !== "disabled",
+    mode: "prepare-unknowns",
+    retryBudget: 0,
+    rateLimit: false,
+    circuitBreaker: false,
+    clock: () => NOW,
+    telemetry: { record: (event) => { statuses.push(event.status); } },
+    transport: context7FailureMatrixTransport(label)
+  });
+  return {
+    port: {
+      health: () => adapter.health(),
+      resolve: (input: ExternalDocumentationResolveInput) => adapter.resolve(input),
+      async fetch(input: ExternalDocumentationFetchInput) {
+        fetchCalls++;
+        return adapter.fetch(input);
+      }
+    } satisfies ExternalDocumentationPort,
+    get fetchCalls() {
+      return fetchCalls;
+    },
+    get statuses() {
+      return statuses;
+    }
+  };
+}
+
+function context7FailureMatrixTransport(label: FailureMatrixCase): Context7Transport {
+  return {
+    async search() {
+      return {
+        searchFilterApplied: true,
+        results: [{
+          id: LIBRARY_ID,
+          title: "React",
+          versions: [VERSION]
+        }]
+      };
+    },
+    async getContext(input) {
+      if (label === "no-key" && !input.apiKey) {
+        throw new Context7ProviderError("http-error", "Context7 provider rejected missing API key", { statusCode: 401, retryable: false });
+      }
+      if (label === "no-network") throw new TypeError("fetch failed");
+      if (label === "429") {
+        throw new Context7ProviderError("rate-limited", "Context7 provider rate limited request", { statusCode: 429, retryable: false });
+      }
+      if (label === "timeout") {
+        throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: false });
+      }
+      if (label === "malformed") {
+        throw new Context7ProviderError("malformed", "Context7 provider returned malformed response", { retryable: false });
+      }
+      throw new Error(`unexpected Context7 failure matrix case: ${label}`);
+    }
+  };
+}
+
 function captureDlpReadback() {
   const rejectedLabels: string[] = [];
   for (const item of PRIVATE_VALUE_CASES) {
@@ -595,6 +798,56 @@ function inspectRuntime(runtime: any, failures: string[]) {
     failures.push("runtime.mcpResource.dataClassification must be external-unverified-documentation");
   }
   if (runtime.mcpResource?.genericHttpToolPresent !== false) failures.push("runtime.mcpResource.genericHttpToolPresent must be false");
+  inspectFailureMatrix(runtime.failureMatrix, failures);
+}
+
+function inspectFailureMatrix(matrix: any, failures: string[]) {
+  if (!matrix || typeof matrix !== "object" || Array.isArray(matrix)) {
+    failures.push("runtime.failureMatrix must be an object");
+    return;
+  }
+  if (!sameArray(matrix.cases, [...FAILURE_MATRIX_CASES])) {
+    failures.push(`runtime.failureMatrix.cases must be ${FAILURE_MATRIX_CASES.join(",")}`);
+  }
+  if (matrix.rowCount !== FAILURE_MATRIX_CASES.length) {
+    failures.push(`runtime.failureMatrix.rowCount must be ${FAILURE_MATRIX_CASES.length}`);
+  }
+  if (matrix.localCoreUnchanged !== true) failures.push("runtime.failureMatrix.localCoreUnchanged must be true");
+  if (!Array.isArray(matrix.rows)) {
+    failures.push("runtime.failureMatrix.rows must be an array");
+    return;
+  }
+  for (const label of FAILURE_MATRIX_CASES) {
+    const row = matrix.rows.find((item: any) => item?.case === label);
+    if (!row) {
+      failures.push(`runtime.failureMatrix missing case ${label}`);
+      continue;
+    }
+    if (row.healthEgress !== (label === "disabled" ? "none" : "prepare-unknowns")) {
+      failures.push(`runtime.failureMatrix.${label}.healthEgress must be ${label === "disabled" ? "none" : "prepare-unknowns"}`);
+    }
+    if (row.healthKeySource !== "none") failures.push(`runtime.failureMatrix.${label}.healthKeySource must be none`);
+    if (row.providerFetchCalls !== (label === "disabled" ? 0 : 1)) {
+      failures.push(`runtime.failureMatrix.${label}.providerFetchCalls must be ${label === "disabled" ? 0 : 1}`);
+    }
+    if (row.failureStatus !== FAILURE_MATRIX_EXPECTED_STATUS[label]) {
+      failures.push(`runtime.failureMatrix.${label}.failureStatus must be ${FAILURE_MATRIX_EXPECTED_STATUS[label]}`);
+    }
+    for (const key of [
+      "prepareOk",
+      "completeOk",
+      "practiceIdsUnchanged",
+      "constraintsUnchanged",
+      "realConstraintsUnchanged",
+      "postureUnchanged",
+      "pressureUnchanged",
+      "completeResultUnchanged",
+      "localCoreUnchanged"
+    ]) {
+      if (row[key] !== true) failures.push(`runtime.failureMatrix.${label}.${key} must be true`);
+    }
+    if (row.externalResourceCount !== 0) failures.push(`runtime.failureMatrix.${label}.externalResourceCount must be 0`);
+  }
 }
 
 function inspectDlp(dlp: any, failures: string[]) {
@@ -663,6 +916,7 @@ function inspectAssertions(assertions: any, failures: string[]) {
     "exactVersionCacheReplay",
     "prepareUnknownsUsesPinnedCacheOnly",
     "providerUnavailableLeavesLocalCoreUnchanged",
+    "failureMatrixKeepsLocalCoreUnchanged",
     "mcpExternalResourceReadOnly"
   ]) {
     if (assertions[key] !== true) failures.push(`assertions.${key} must be true`);
@@ -901,6 +1155,10 @@ function isSearchRequest(input: Context7SearchRequest | Context7ContextRequest):
 
 function sameArray(value: unknown, expected: string[]): boolean {
   return Array.isArray(value) && value.length === expected.length && value.every((item, index) => item === expected[index]);
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function failureResult(failures: string[]) {

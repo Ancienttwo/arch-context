@@ -65,6 +65,10 @@ The concrete path is:
    realConstraints, or practiceGuidance resources.
 9. `complete` runs after the fetch/prepare path without increasing provider
    call count.
+10. The failure matrix reruns the same task against disabled, no-key,
+    no-network, 429, timeout, and malformed provider shapes. Disabled short
+    circuits before fetch; the other cases fail during provider fetch and fall
+    back to the static Local Core result.
 
 The pressure points were cache ownership and provider failure shape. The daemon
 writes cache records using the daemon-computed sanitized query digest rather
@@ -104,12 +108,15 @@ Observed readbacks:
   circuit breaker, TTL projection, and malformed response classification.
 - Runtime daemon test proves manual pin/fetch cache replay and no provider calls
   from complete; prepare-unknowns uses pinned exact versions, cache replay, and
-  stale cache fallback when provider fetch fails after TTL expiry.
+  stale cache fallback when provider fetch fails after TTL expiry. The failure
+  matrix proves disabled/no-key/no-network/429/timeout/malformed cases keep
+  practice IDs, constraints, real constraints, posture, pressure, and complete
+  output unchanged with zero external-docs resources added.
 - MCP tests prove external-docs resources list/read through daemon cache and
   loopback RPC, while unsupported external URIs are not fetched.
 - CLI test proves docs commands require explicit approval and `--allow-network`.
 - S5 readback evidence proves default egress zero, allowlisted outbound fields,
   metadata-only provider telemetry, DLP interception, exact-version cache
   replay, prepare-unknowns advisory-only resource insertion, provider failure
-  fallback, MCP read-only external resource access, no generic HTTP tool, and
-  zero hard-gate provider references.
+  fallback, full provider failure matrix invariance, MCP read-only external
+  resource access, no generic HTTP tool, and zero hard-gate provider references.

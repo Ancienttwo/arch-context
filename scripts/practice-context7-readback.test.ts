@@ -72,6 +72,39 @@ describe("practice-context7-readback", () => {
     expect(result.failures).toContain("assertions.prepareUnknownsUsesPinnedCacheOnly must be true");
   });
 
+  test("rejects incomplete Context7 failure matrix", () => {
+    const packet = verifiedPracticeContext7Fixture({
+      runtime: {
+        ...verifiedPracticeContext7Fixture().runtime,
+        failureMatrix: {
+          ...(verifiedPracticeContext7Fixture().runtime as any).failureMatrix,
+          rowCount: 5,
+          localCoreUnchanged: false,
+          rows: [
+            ...(verifiedPracticeContext7Fixture().runtime as any).failureMatrix.rows.slice(0, 5),
+            {
+              ...(verifiedPracticeContext7Fixture().runtime as any).failureMatrix.rows[5],
+              localCoreUnchanged: false,
+              externalResourceCount: 1
+            }
+          ]
+        }
+      },
+      assertions: {
+        ...verifiedPracticeContext7Fixture().assertions,
+        failureMatrixKeepsLocalCoreUnchanged: false
+      }
+    });
+
+    const result = inspectPracticeContext7Readback(packet);
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain("runtime.failureMatrix.rowCount must be 6");
+    expect(result.failures).toContain("runtime.failureMatrix.localCoreUnchanged must be true");
+    expect(result.failures).toContain("runtime.failureMatrix.malformed.localCoreUnchanged must be true");
+    expect(result.failures).toContain("runtime.failureMatrix.malformed.externalResourceCount must be 0");
+    expect(result.failures).toContain("assertions.failureMatrixKeepsLocalCoreUnchanged must be true");
+  });
+
   test("rejects packet-level private source, diff, path, and secret markers", () => {
     const packet = verifiedPracticeContext7Fixture({
       leaked: {

@@ -1030,7 +1030,7 @@ bun run verify
 - [x] S5-28 Unit tests 使用 fake transport 验证 request minimization、redaction、TTL、stale 和 circuit breaker。
 - [x] S5-29 DLP packet fixture 验证源码、Diff、路径、symbol、secret 路由数 = 0。
 - [ ] S5-30 真实 Context7 readback 使用公开 fixture package 与无敏感 task，记录 exact library ID/version。
-- [ ] S5-31 验证 Context7 关闭、无 key、无网络、429、timeout、malformed response 时 Local Core 结果不变。
+- [x] S5-31 验证 Context7 关闭、无 key、无网络、429、timeout、malformed response 时 Local Core 结果不变。
 - [x] S5-32 编写 `docs/verification/practice-assets-s5-context7-gate.md`。
 
 ## 13.3 Exit Gates
@@ -1140,7 +1140,28 @@ Remaining S5 work is intentionally not marked complete: live real Context7
 provider readback and the full disabled/no-key/no-network/429/timeout/malformed
 Local Core failure matrix.
 
-## 13.9 Rollback
+## 13.9 Execution Record — 2026-06-24
+
+Completed S5 provider failure matrix module on branch
+`codex/context7-failure-matrix`.
+
+- Runtime tests: `prepare-unknowns` now has an explicit six-case matrix for
+  disabled provider, no key, no network, 429, timeout, and malformed response.
+  Each case compares prepare/complete Local Core projection against the static
+  no-provider baseline.
+- Evidence: `docs/verification/practice-context7-readback.json` now records
+  `runtime.failureMatrix` with `rowCount=6`, all failure statuses, zero
+  external-docs resources added, and unchanged practice IDs, constraints, real
+  constraints, posture, pressure, and complete output.
+- Inspector: `scripts/practice-context7-readback.ts` rejects missing/incomplete
+  matrix rows, unexpected failure statuses, nonzero external-docs resources, and
+  false `failureMatrixKeepsLocalCoreUnchanged` assertions.
+- Verified: `bun test packages/local-runtime/context7-adapter/test/context7-adapter.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts scripts/practice-context7-readback.test.ts --timeout 20000`, `bun run record:s5:context7`, `bun run readback:s5:context7`, `node scripts/sprint-status-check.mjs`, `bun run typecheck`, `git diff --check`, and `bun run verify`.
+
+Remaining S5 work is intentionally not marked complete: live real Context7
+provider readback and S5-EG6 community-content disclaimer readback.
+
+## 13.10 Rollback
 
 - `externalDocs.context7.enabled: false` 完全禁用 Provider；缓存可保留或显式 purge。
 - Adapter 不可用不得影响 daemon 启动、prepare、checkpoint、complete 或 attestation。

@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
+import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS } from "@archcontext/local-runtime/local-store-sqlite";
@@ -28,6 +29,8 @@ import {
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
+const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
+type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
 
 afterAll(() => {
@@ -202,6 +205,83 @@ function fakeExternalDocumentation(
           warning: "untrusted-documentation-data"
         }
       };
+    }
+  };
+}
+
+function context7FailureMatrixProvider(label: Context7FailureMatrixCase): { port: ExternalDocumentationPort; fetchCalls: () => number } {
+  let fetchCalls = 0;
+  const adapter = new Context7ExternalDocumentationAdapter({
+    enabled: label !== "disabled",
+    mode: "prepare-unknowns",
+    retryBudget: 0,
+    rateLimit: false,
+    circuitBreaker: false,
+    transport: context7FailureMatrixTransport(label),
+    clock: () => "2026-06-24T00:00:00.000Z"
+  });
+  return {
+    port: {
+      health: () => adapter.health(),
+      resolve: (input) => adapter.resolve(input),
+      async fetch(input) {
+        fetchCalls += 1;
+        return adapter.fetch(input);
+      }
+    },
+    fetchCalls: () => fetchCalls
+  };
+}
+
+function context7FailureMatrixTransport(label: Context7FailureMatrixCase): Context7Transport {
+  return {
+    async search() {
+      return {
+        searchFilterApplied: true,
+        results: [{
+          id: "/facebook/react",
+          title: "React",
+          versions: ["18.2.0"]
+        }]
+      };
+    },
+    async getContext(input) {
+      if (label === "no-key" && !input.apiKey) {
+        throw new Context7ProviderError("http-error", "Context7 provider rejected missing API key", { statusCode: 401, retryable: false });
+      }
+      if (label === "no-network") throw new TypeError("fetch failed");
+      if (label === "429") {
+        throw new Context7ProviderError("rate-limited", "Context7 provider rate limited request", { statusCode: 429, retryable: false });
+      }
+      if (label === "timeout") {
+        throw new Context7ProviderError("timeout", "Context7 provider request timed out", { retryable: false });
+      }
+      if (label === "malformed") {
+        throw new Context7ProviderError("malformed", "Context7 provider returned malformed response", { retryable: false });
+      }
+      throw new Error(`unexpected failure matrix case: ${label}`);
+    }
+  };
+}
+
+function projectLocalCorePrepareComplete(prepare: any, complete: any) {
+  const context = prepare.data?.context;
+  return {
+    prepareOk: prepare.ok,
+    completeOk: complete.ok,
+    practiceIds: (context?.practiceGuidance?.matches ?? []).map((match: any) => match.practiceId),
+    constraints: context?.constraints,
+    realConstraints: context?.realConstraints,
+    posture: prepare.data?.posture,
+    pressure: prepare.data?.pressure,
+    externalResourceCount: (context?.resources ?? []).filter((resource: any) => resource.type === "external-docs").length,
+    complete: {
+      result: complete.data?.result,
+      summary: complete.data?.summary,
+      findings: complete.data?.findings,
+      practiceViolations: complete.data?.practiceViolations,
+      actionsRequired: complete.data?.actionsRequired,
+      cleanup: complete.data?.cleanup
     }
   };
 }
@@ -594,54 +674,50 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("prepare-unknowns provider failure leaves static prepare result unchanged", async () => {
+  test("prepare-unknowns failure matrix leaves static Local Core result unchanged", async () => {
     const root = tempRepo();
     writeFileSync(join(root, "package.json"), JSON.stringify({
       name: "react-docs-app",
       dependencies: { react: "18.2.0" }
     }, null, 2), "utf8");
-    let failingCalls = 0;
     const staticDaemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
-    const failingDaemon = await createStartedTestDaemon({
-      clock: () => "2026-06-24T00:00:00.000Z",
-      externalDocumentation: fakeExternalDocumentation(() => failingCalls++, "prepare-unknowns", { failFetch: true })
-    });
+    const failureDaemons: Array<Awaited<ReturnType<typeof createStartedTestDaemon>>> = [];
     try {
       await staticDaemon.init(root, "React Docs App");
-      await failingDaemon.init(root, "React Docs App");
-      await failingDaemon.docs(root, {
-        command: "pin",
-        libraryId: "/facebook/react",
-        version: "18.2.0",
-        approved: true
-      });
-
       const staticPrepare = await staticDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_static");
-      const failingPrepare = await failingDaemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, "task_failing");
-      expect(staticPrepare.ok).toBe(true);
-      expect(failingPrepare.ok).toBe(true);
-      const staticContext = (staticPrepare.data as any).context;
-      const failingContext = (failingPrepare.data as any).context;
-      expect((failingContext.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(false);
-      expect(failingContext.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(staticContext.practiceGuidance.matches.map((match: any) => match.practiceId));
-      expect(failingContext.constraints).toEqual(staticContext.constraints);
-      expect(failingContext.realConstraints).toEqual(staticContext.realConstraints);
-      expect((failingPrepare.data as any).posture).toEqual((staticPrepare.data as any).posture);
-      expect((failingPrepare.data as any).pressure).toEqual((staticPrepare.data as any).pressure);
       const staticComplete = await staticDaemon.completeTask(root, { taskSessionId: "task_static", task: "Use React state hooks and confirm package version unknowns" });
-      const failingComplete = await failingDaemon.completeTask(root, { taskSessionId: "task_failing", task: "Use React state hooks and confirm package version unknowns" });
-      expect(staticComplete.ok).toBe(true);
-      expect(failingComplete.ok).toBe(true);
-      expect((failingComplete.data as any).result).toEqual((staticComplete.data as any).result);
-      expect((failingComplete.data as any).summary).toEqual((staticComplete.data as any).summary);
-      expect((failingComplete.data as any).findings).toEqual((staticComplete.data as any).findings);
-      expect((failingComplete.data as any).practiceViolations).toEqual((staticComplete.data as any).practiceViolations);
-      expect((failingComplete.data as any).actionsRequired).toEqual((staticComplete.data as any).actionsRequired);
-      expect((failingComplete.data as any).cleanup).toEqual((staticComplete.data as any).cleanup);
-      expect(failingCalls).toBe(1);
+      const staticProjection = projectLocalCorePrepareComplete(staticPrepare, staticComplete);
+      expect(staticProjection.prepareOk).toBe(true);
+      expect(staticProjection.completeOk).toBe(true);
+
+      for (const label of CONTEXT7_FAILURE_MATRIX_CASES) {
+        const provider = context7FailureMatrixProvider(label);
+        const daemon = await createStartedTestDaemon({
+          clock: () => "2026-06-24T00:00:00.000Z",
+          externalDocumentation: provider.port
+        });
+        failureDaemons.push(daemon);
+        await daemon.init(root, `React Docs App ${label}`);
+        await daemon.docs(root, {
+          command: "pin",
+          libraryId: "/facebook/react",
+          version: "18.2.0",
+          approved: true
+        });
+
+        const prepare = await daemon.prepare(root, "Use React state hooks and confirm package version unknowns", 12_288, 12, `task_context7_${label}`);
+        const complete = await daemon.completeTask(root, {
+          taskSessionId: `task_context7_${label}`,
+          task: "Use React state hooks and confirm package version unknowns"
+        });
+        const projection = projectLocalCorePrepareComplete(prepare, complete);
+
+        expect(projection).toEqual(staticProjection);
+        expect(provider.fetchCalls()).toBe(label === "disabled" ? 0 : 1);
+      }
     } finally {
       await staticDaemon.stop();
-      await failingDaemon.stop();
+      await Promise.all(failureDaemons.map((daemon) => daemon.stop()));
       removeTempRepo(root);
     }
   });
