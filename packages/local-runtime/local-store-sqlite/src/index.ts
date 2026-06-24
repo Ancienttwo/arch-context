@@ -15,8 +15,30 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
+import {
+  architectureLedgerPayload,
+  architectureLedgerSnapshotFromState,
+  architectureLedgerStateDigest,
+  emptyArchitectureLedgerState,
+  normalizeArchitectureLedgerEvent,
+  replayArchitectureLedgerEvents,
+  validateArchitectureLedgerEvent,
+  type ArchitectureLedgerAppendInput,
+  type ArchitectureLedgerAppendResult,
+  type ArchitectureLedgerConstraintRecord,
+  type ArchitectureLedgerEntityRecord,
+  type ArchitectureLedgerEventPayload,
+  type ArchitectureLedgerGraphState,
+  type ArchitectureLedgerIntegrityResult,
+  type ArchitectureLedgerRelationRecord,
+  type ArchitectureLedgerReplayInput,
+  type ArchitectureLedgerReplayResult,
+  type ArchitectureLedgerReplayVerification,
+  type ArchitectureLedgerScope,
+  type ArchitectureLedgerSnapshotInput
+} from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import type { ExternalDocumentationCacheEntry, ExternalDocumentationProvider, LocalStorePort, RepositorySnapshot } from "@archcontext/contracts";
+import { digestJson, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -32,7 +54,23 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "landscapes",
   "cross_repo_edges",
   "changeset_journal",
-  "external_docs_cache"
+  "external_docs_cache",
+  "architecture_events",
+  "architecture_snapshots",
+  "architecture_entities_current",
+  "architecture_relations_current",
+  "architecture_constraints_current",
+  "evidence_items",
+  "evidence_bindings",
+  "recommendation_runs",
+  "recommendations",
+  "recommendation_feedback",
+  "agent_jobs",
+  "projection_state",
+  "source_cursors",
+  "waivers",
+  "architecture_ledger_operations",
+  "architecture_ledger_fts"
 ] as const;
 
 export const SQLITE_PRAGMAS = [
@@ -153,6 +191,324 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_external_docs_cache_expires ON external_docs_cache(provider, expires_at)",
       "CREATE INDEX IF NOT EXISTS idx_external_docs_cache_library ON external_docs_cache(provider, library_id, version)"
+    ]
+  },
+  {
+    id: "0006_architecture_ledger",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS architecture_events (
+        event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL UNIQUE,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        worktree_digest TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_version TEXT NOT NULL,
+        source TEXT NOT NULL,
+        actor_kind TEXT NOT NULL,
+        actor_id TEXT NOT NULL,
+        base_digest TEXT NOT NULL,
+        resulting_digest TEXT NOT NULL,
+        previous_event_hash TEXT,
+        event_hash TEXT NOT NULL UNIQUE,
+        idempotency_key TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        event_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        compacted_by_snapshot_id TEXT,
+        UNIQUE(storage_repository_id, storage_workspace_id, idempotency_key)
+      )`,
+      `CREATE TABLE IF NOT EXISTS architecture_snapshots (
+        snapshot_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        worktree_digest TEXT NOT NULL,
+        source_mode TEXT NOT NULL,
+        last_event_id TEXT NOT NULL,
+        last_event_hash TEXT NOT NULL,
+        graph_digest TEXT NOT NULL,
+        projection_digest TEXT NOT NULL,
+        entity_count INTEGER NOT NULL,
+        relation_count INTEGER NOT NULL,
+        constraint_count INTEGER NOT NULL,
+        input_digests_json TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS architecture_entities_current (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        worktree_digest TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        canonical_name TEXT NOT NULL,
+        status TEXT NOT NULL,
+        path TEXT,
+        summary TEXT,
+        metadata_json TEXT NOT NULL,
+        last_event_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id, entity_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS architecture_relations_current (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        relation_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        worktree_digest TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        source_entity_id TEXT NOT NULL,
+        target_entity_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT,
+        metadata_json TEXT NOT NULL,
+        last_event_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id, relation_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS architecture_constraints_current (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        constraint_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        worktree_digest TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        subject_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        severity TEXT,
+        summary TEXT,
+        metadata_json TEXT NOT NULL,
+        last_event_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id, constraint_id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS evidence_items (
+        evidence_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        strength TEXT NOT NULL,
+        polarity TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        selector_json TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        coverage_json TEXT NOT NULL,
+        supports_json TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        evidence_json TEXT NOT NULL,
+        digest TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS evidence_bindings (
+        binding_id TEXT PRIMARY KEY,
+        evidence_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        binding_reason TEXT NOT NULL,
+        authority_effect TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        binding_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
+        FOREIGN KEY(evidence_id) REFERENCES evidence_items(evidence_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS recommendation_runs (
+        run_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        catalog_digest TEXT NOT NULL,
+        input_digest TEXT NOT NULL,
+        output_digest TEXT NOT NULL,
+        metrics_json TEXT NOT NULL,
+        run_json TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS recommendations (
+        recommendation_id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        practice_id TEXT,
+        status TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        enforcement TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        uncertainty TEXT NOT NULL,
+        evidence_binding_ids_json TEXT NOT NULL,
+        explanation_json TEXT NOT NULL,
+        recommendation_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
+        FOREIGN KEY(run_id) REFERENCES recommendation_runs(run_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS recommendation_feedback (
+        feedback_id TEXT PRIMARY KEY,
+        recommendation_id TEXT NOT NULL,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        feedback_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT,
+        FOREIGN KEY(recommendation_id) REFERENCES recommendations(recommendation_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS agent_jobs (
+        job_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        runner_port TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        input_digest TEXT NOT NULL,
+        output_digest TEXT,
+        stale_policy TEXT NOT NULL,
+        job_json TEXT NOT NULL,
+        queued_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS projection_state (
+        projection_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        projection_digest TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS source_cursors (
+        cursor_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        cursor_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS waivers (
+        waiver_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        waiver_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS architecture_ledger_operations (
+        operation_id TEXT PRIMARY KEY,
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        operation_kind TEXT NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        row_count INTEGER NOT NULL,
+        rebuild_reason TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_architecture_events_scope_sequence ON architecture_events(storage_repository_id, storage_workspace_id, event_sequence)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_events_head ON architecture_events(storage_repository_id, storage_workspace_id, head_sha)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_snapshots_scope_created ON architecture_snapshots(storage_repository_id, storage_workspace_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_entities_kind ON architecture_entities_current(storage_repository_id, storage_workspace_id, kind)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_relations_source ON architecture_relations_current(storage_repository_id, storage_workspace_id, source_entity_id)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_relations_target ON architecture_relations_current(storage_repository_id, storage_workspace_id, target_entity_id)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_constraints_subject ON architecture_constraints_current(storage_repository_id, storage_workspace_id, subject_id)",
+      "CREATE INDEX IF NOT EXISTS idx_evidence_items_subject ON evidence_items(storage_repository_id, storage_workspace_id, subject)",
+      "CREATE INDEX IF NOT EXISTS idx_evidence_bindings_target ON evidence_bindings(storage_repository_id, storage_workspace_id, target_kind, target_id)",
+      "CREATE INDEX IF NOT EXISTS idx_recommendations_status ON recommendations(storage_repository_id, storage_workspace_id, status)",
+      "CREATE INDEX IF NOT EXISTS idx_agent_jobs_status ON agent_jobs(storage_repository_id, storage_workspace_id, status)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_ledger_operations_scope_created ON architecture_ledger_operations(storage_repository_id, storage_workspace_id, created_at)",
+      `CREATE VIRTUAL TABLE IF NOT EXISTS architecture_ledger_fts USING fts5(
+        kind,
+        summary,
+        rationale,
+        title,
+        evidence_summary,
+        content=''
+      )`,
+      `CREATE VIEW IF NOT EXISTS architecture_current_graph_view AS
+        SELECT storage_repository_id, storage_workspace_id, entity_id AS graph_id, 'entity' AS graph_kind,
+          kind, canonical_name AS label, status, path, summary, last_event_id, updated_at
+        FROM architecture_entities_current
+        UNION ALL
+        SELECT storage_repository_id, storage_workspace_id, relation_id AS graph_id, 'relation' AS graph_kind,
+          kind, source_entity_id || ' -> ' || target_entity_id AS label, status, NULL AS path, summary, last_event_id, updated_at
+        FROM architecture_relations_current
+        UNION ALL
+        SELECT storage_repository_id, storage_workspace_id, constraint_id AS graph_id, 'constraint' AS graph_kind,
+          kind, subject_id AS label, status, NULL AS path, summary, last_event_id, updated_at
+        FROM architecture_constraints_current`,
+      `CREATE VIEW IF NOT EXISTS open_recommendations_view AS
+        SELECT recommendation_id, run_id, storage_repository_id, storage_workspace_id, subject, practice_id, status,
+          confidence, enforcement, risk, uncertainty, updated_at
+        FROM recommendations
+        WHERE status IN ('open', 'acknowledged', 'accepted', 'deferred')`,
+      `CREATE VIEW IF NOT EXISTS recent_architecture_changes_view AS
+        SELECT event_sequence, event_id, storage_repository_id, storage_workspace_id, branch, head_sha, event_type,
+          source, actor_kind, actor_id, previous_event_hash, event_hash, created_at
+        FROM architecture_events
+        ORDER BY event_sequence DESC`,
+      `CREATE VIEW IF NOT EXISTS unresolved_evidence_view AS
+        SELECT evidence_items.evidence_id, evidence_items.storage_repository_id, evidence_items.storage_workspace_id,
+          evidence_items.kind, evidence_items.strength, evidence_items.polarity, evidence_items.origin,
+          evidence_items.subject, evidence_items.summary, evidence_items.created_at
+        FROM evidence_items
+        LEFT JOIN evidence_bindings ON evidence_bindings.evidence_id = evidence_items.evidence_id
+        WHERE evidence_bindings.binding_id IS NULL`
     ]
   }
 ] as const;
@@ -414,6 +770,15 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   }): Promise<ExternalDocumentationCacheEntry | undefined>;
   listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]>;
   purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number>;
+  appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
+  createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
+  readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
+  replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult>;
+  verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification>;
+  rebuildArchitectureLedgerCurrentState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerReplayResult>;
+  compactArchitectureLedger(input: ArchitectureLedgerScope & { beforeSnapshotId: string }): Promise<{ snapshotId: string; compactedEventCount: number }>;
+  checkArchitectureLedgerIntegrity(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerIntegrityResult>;
+  backupArchitectureLedger(input: { backupPath: string }): Promise<{ backupPath: string; integrity: string }>;
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
@@ -707,6 +1072,226 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     return 0;
   }
 
+  async appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult> {
+    if (input.writer !== "runtime-daemon") throw new Error("architecture-ledger-writer-must-be-runtime-daemon");
+    for (const event of input.events) validateArchitectureLedgerEvent(event);
+    const db = await this.database();
+    const startedAt = Date.now();
+    const appendedEvents: ArchitectureEventV1[] = [];
+    const duplicateEvents: ArchitectureEventV1[] = [];
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      let processed = 0;
+      for (const event of input.events) {
+        const duplicate = architectureEventByIdempotency(db, event);
+        if (duplicate) {
+          const expectedDuplicateHash = normalizeArchitectureLedgerEvent(event, duplicate.previousEventHash).eventHash;
+          if (expectedDuplicateHash !== duplicate.event.eventHash) {
+            throw new Error(`architecture-ledger-idempotency-conflict: ${event.idempotencyKey}`);
+          }
+          duplicateEvents.push(duplicate.event);
+          continue;
+        }
+        const previousEventHash = latestArchitectureEventHash(db, event.repository.storageRepositoryId, event.worktree.storageWorkspaceId);
+        const normalized = normalizeArchitectureLedgerEvent(event, previousEventHash);
+        insertArchitectureEvent(db, normalized);
+        persistArchitectureLedgerArtifacts(db, normalized);
+        materializeArchitectureLedgerEvent(db, normalized);
+        appendedEvents.push(normalized);
+        processed += 1;
+        if (input.faultAfterEvents !== undefined && processed >= input.faultAfterEvents) throw new Error("architecture-ledger-fault-injection");
+      }
+      const scope = architectureScopeFromEvent(input.events[0] ?? duplicateEvents[0]);
+      const state = scope ? readArchitectureLedgerStateFromDb(db, scope) : emptyArchitectureLedgerState();
+      if (scope) {
+        recordArchitectureLedgerOperation(db, {
+          scope,
+          operationKind: "append_events",
+          durationMs: Date.now() - startedAt,
+          rowCount: appendedEvents.length,
+          rebuildReason: null
+        });
+      }
+      db.exec("COMMIT");
+      return {
+        appendedEvents,
+        duplicateEvents,
+        graphDigest: architectureLedgerStateDigest(state),
+        entityCount: state.entities.length,
+        relationCount: state.relations.length,
+        constraintCount: state.constraints.length
+      };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1> {
+    const db = await this.database();
+    const startedAt = Date.now();
+    const latest = latestArchitectureEvent(db, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+    if (!latest) throw new Error("architecture-ledger-snapshot-requires-event");
+    const state = readArchitectureLedgerStateFromDb(db, input);
+    const snapshot = architectureLedgerSnapshotFromState({
+      ...input,
+      lastEventId: latest.event.eventId,
+      lastEventHash: latest.event.eventHash ?? latest.eventHash,
+      state
+    });
+    db.prepare(
+      `INSERT INTO architecture_snapshots
+        (snapshot_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha, worktree_digest,
+          source_mode, last_event_id, last_event_hash, graph_digest, projection_digest, entity_count, relation_count,
+          constraint_count, input_digests_json, snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      snapshot.snapshotId,
+      snapshot.repository.repositoryId,
+      snapshot.repository.storageRepositoryId,
+      snapshot.worktree.workspaceId,
+      snapshot.worktree.storageWorkspaceId,
+      snapshot.worktree.branch,
+      snapshot.worktree.headSha,
+      snapshot.worktree.worktreeDigest,
+      snapshot.sourceMode,
+      snapshot.eventCursor.lastEventId,
+      snapshot.eventCursor.lastEventHash,
+      snapshot.graphDigest,
+      snapshot.projectionDigest,
+      snapshot.entityCount,
+      snapshot.relationCount,
+      snapshot.constraintCount,
+      stableJson(snapshot.inputDigests),
+      stableJson(snapshot),
+      snapshot.createdAt
+    );
+    recordArchitectureLedgerOperation(db, {
+      scope: input,
+      operationKind: "create_snapshot",
+      durationMs: Date.now() - startedAt,
+      rowCount: 1,
+      rebuildReason: null
+    });
+    return snapshot;
+  }
+
+  async readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState> {
+    const db = await this.database();
+    return readArchitectureLedgerStateFromDb(db, input);
+  }
+
+  async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
+    const db = await this.database();
+    const events = architectureEventsForReplay(db, input);
+    const state = replayArchitectureLedgerEvents(events);
+    return { events, state, graphDigest: architectureLedgerStateDigest(state) };
+  }
+
+  async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {
+    const materialized = await this.readArchitectureLedgerState(input);
+    const replayed = await this.replayArchitectureLedger(input);
+    const materializedDigest = architectureLedgerStateDigest(materialized);
+    const mismatches = materializedDigest === replayed.graphDigest && stableJson(materialized) === stableJson(replayed.state)
+      ? []
+      : ["materialized-current-state-does-not-match-replay"];
+    return {
+      ok: mismatches.length === 0,
+      materializedDigest,
+      replayedDigest: replayed.graphDigest,
+      eventCount: replayed.events.length,
+      mismatches
+    };
+  }
+
+  async rebuildArchitectureLedgerCurrentState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerReplayResult> {
+    const db = await this.database();
+    const startedAt = Date.now();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      deleteArchitectureCurrentState(db, input);
+      const events = architectureEventsForReplay(db, input);
+      for (const event of events) materializeArchitectureLedgerEvent(db, event);
+      const state = readArchitectureLedgerStateFromDb(db, input);
+      recordArchitectureLedgerOperation(db, {
+        scope: input,
+        operationKind: "rebuild_current_state",
+        durationMs: Date.now() - startedAt,
+        rowCount: events.length,
+        rebuildReason: "manual-current-state-rebuild"
+      });
+      db.exec("COMMIT");
+      return { events, state, graphDigest: architectureLedgerStateDigest(state) };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async compactArchitectureLedger(input: ArchitectureLedgerScope & { beforeSnapshotId: string }): Promise<{ snapshotId: string; compactedEventCount: number }> {
+    const db = await this.database();
+    const startedAt = Date.now();
+    const snapshot = db.prepare(
+      `SELECT last_event_id FROM architecture_snapshots
+        WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+    ).get(input.beforeSnapshotId, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+    if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.beforeSnapshotId}`);
+    const cursor = db.prepare("SELECT event_sequence FROM architecture_events WHERE event_id = ?").get(String(snapshot.last_event_id));
+    if (!cursor) throw new Error(`architecture-ledger-snapshot-cursor-not-found: ${String(snapshot.last_event_id)}`);
+    const before = Number(db.prepare(
+      `SELECT COUNT(*) AS count FROM architecture_events
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
+    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, Number(cursor.event_sequence))?.count ?? 0);
+    db.prepare(
+      `UPDATE architecture_events SET compacted_by_snapshot_id = ?
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
+    ).run(input.beforeSnapshotId, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, Number(cursor.event_sequence));
+    recordArchitectureLedgerOperation(db, {
+      scope: input,
+      operationKind: "compact_events",
+      durationMs: Date.now() - startedAt,
+      rowCount: before,
+      rebuildReason: null
+    });
+    return { snapshotId: input.beforeSnapshotId, compactedEventCount: before };
+  }
+
+  async checkArchitectureLedgerIntegrity(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerIntegrityResult> {
+    const db = await this.database();
+    const startedAt = Date.now();
+    const failures: string[] = [];
+    const integrity = sqliteIntegrityCheckOpenDatabase(db, this.databasePath);
+    if (integrity !== "ok") failures.push(`sqlite-integrity:${integrity}`);
+    const replay = await this.verifyArchitectureLedgerReplay(input);
+    if (!replay.ok) failures.push(...replay.mismatches);
+    const snapshotCount = Number(db.prepare(
+      "SELECT COUNT(*) AS count FROM architecture_snapshots WHERE storage_repository_id = ? AND storage_workspace_id = ?"
+    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId)?.count ?? 0);
+    const result = {
+      ok: failures.length === 0,
+      graphDigest: replay.materializedDigest,
+      eventCount: replay.eventCount,
+      snapshotCount,
+      failures
+    };
+    recordArchitectureLedgerOperation(db, {
+      scope: input,
+      operationKind: "integrity_check",
+      durationMs: Date.now() - startedAt,
+      rowCount: replay.eventCount,
+      rebuildReason: null
+    });
+    return result;
+  }
+
+  async backupArchitectureLedger(input: { backupPath: string }): Promise<{ backupPath: string; integrity: string }> {
+    const db = await this.database();
+    ensurePrivateDir(dirname(input.backupPath));
+    if (existsSync(input.backupPath)) rmSync(input.backupPath, { force: true });
+    db.exec(`VACUUM INTO ${sqliteStringLiteral(input.backupPath)}`);
+    return { backupPath: input.backupPath, integrity: assertSqliteIntegrity(input.backupPath) };
+  }
+
   clearDerivedLandscapeState(): void {
     const db = this.requireOpenDatabase();
     db.prepare("DELETE FROM landscapes").run();
@@ -731,6 +1316,526 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (!this.db) throw new Error("SQLite local store has not been migrated");
     return this.db;
   }
+}
+
+function architectureScopeFromEvent(event: ArchitectureEventV1 | undefined): ArchitectureLedgerScope | undefined {
+  return event ? { repository: event.repository, worktree: event.worktree } : undefined;
+}
+
+function architectureEventByIdempotency(db: SqliteDatabase, event: ArchitectureEventV1): { event: ArchitectureEventV1; previousEventHash: string | null } | undefined {
+  const row = db.prepare(
+    `SELECT event_json, previous_event_hash FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND idempotency_key = ?`
+  ).get(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, event.idempotencyKey);
+  return row ? {
+    event: JSON.parse(String(row.event_json)) as ArchitectureEventV1,
+    previousEventHash: row.previous_event_hash === null || row.previous_event_hash === undefined ? null : String(row.previous_event_hash)
+  } : undefined;
+}
+
+function latestArchitectureEventHash(db: SqliteDatabase, storageRepositoryId: string, storageWorkspaceId: string): string | null {
+  return latestArchitectureEvent(db, storageRepositoryId, storageWorkspaceId)?.eventHash ?? null;
+}
+
+function latestArchitectureEvent(db: SqliteDatabase, storageRepositoryId: string, storageWorkspaceId: string): { event: ArchitectureEventV1; eventHash: string } | undefined {
+  const row = db.prepare(
+    `SELECT event_json, event_hash FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+      ORDER BY event_sequence DESC LIMIT 1`
+  ).get(storageRepositoryId, storageWorkspaceId);
+  return row ? { event: JSON.parse(String(row.event_json)) as ArchitectureEventV1, eventHash: String(row.event_hash) } : undefined;
+}
+
+function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1): void {
+  db.prepare(
+    `INSERT INTO architecture_events
+      (event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha, worktree_digest,
+        event_type, payload_version, source, actor_kind, actor_id, base_digest, resulting_digest, previous_event_hash,
+        event_hash, idempotency_key, payload_json, provenance_json, event_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    event.eventId,
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.worktree.branch,
+    event.worktree.headSha,
+    event.worktree.worktreeDigest,
+    event.eventType,
+    event.payloadVersion,
+    event.source,
+    event.actor.kind,
+    event.actor.id,
+    event.baseDigest,
+    event.resultingDigest,
+    event.previousEventHash ?? null,
+    event.eventHash,
+    event.idempotencyKey,
+    stableJson(event.payload),
+    stableJson(event.provenance),
+    stableJson(event),
+    event.timestamp
+  );
+  insertArchitectureLedgerFts(db, "event", architectureLedgerPayload(event).summary ?? "", architectureLedgerPayload(event).rationale ?? "", architectureLedgerPayload(event).title ?? "", "");
+}
+
+function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: ArchitectureEventV1): void {
+  const payload = architectureLedgerPayload(event);
+  for (const evidence of payload.evidenceItems ?? []) {
+    db.prepare(
+      `INSERT OR REPLACE INTO evidence_items
+        (evidence_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, kind, strength,
+          polarity, origin, subject, selector_json, summary, coverage_json, supports_json, provenance_json, evidence_json, digest, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      evidence.evidenceId,
+      event.repository.repositoryId,
+      event.repository.storageRepositoryId,
+      event.worktree.workspaceId,
+      event.worktree.storageWorkspaceId,
+      event.eventId,
+      evidence.kind,
+      evidence.strength,
+      evidence.polarity,
+      evidence.origin,
+      evidence.subject,
+      stableJson(evidence.selector),
+      evidence.summary,
+      stableJson(evidence.coverage),
+      stableJson(evidence.supports),
+      stableJson(evidence.provenance),
+      stableJson(evidence),
+      evidence.digest,
+      evidence.createdAt
+    );
+    insertArchitectureLedgerFts(db, "evidence", evidence.summary, "", "", evidence.summary);
+  }
+  for (const binding of payload.evidenceBindings ?? []) {
+    db.prepare(
+      `INSERT OR REPLACE INTO evidence_bindings
+        (binding_id, evidence_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id,
+          target_kind, target_id, binding_reason, authority_effect, provenance_json, binding_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      binding.bindingId,
+      binding.evidenceId,
+      event.repository.repositoryId,
+      event.repository.storageRepositoryId,
+      event.worktree.workspaceId,
+      event.worktree.storageWorkspaceId,
+      event.eventId,
+      binding.target.kind,
+      binding.target.id,
+      binding.bindingReason,
+      binding.authorityEffect,
+      stableJson(binding.provenance),
+      stableJson(binding),
+      binding.createdAt
+    );
+  }
+  for (const run of payload.recommendationRuns ?? []) persistRecommendationRun(db, event, run);
+  for (const recommendation of payload.recommendations ?? []) persistRecommendation(db, event, recommendation);
+  for (const job of payload.agentJobs ?? []) persistAgentJob(db, event, job);
+  for (const feedback of payload.feedback ?? []) persistGenericLedgerJson(db, event, "recommendation_feedback", "feedback_id", "feedback_json", feedback, "feedback");
+  for (const waiver of payload.waivers ?? []) persistGenericLedgerJson(db, event, "waivers", "waiver_id", "waiver_json", waiver, "waiver");
+  for (const cursor of payload.sourceCursors ?? []) persistSourceCursor(db, event, cursor);
+  if (payload.projectionState) persistProjectionState(db, event, payload.projectionState);
+}
+
+function persistRecommendationRun(db: SqliteDatabase, event: ArchitectureEventV1, run: NonNullable<ArchitectureLedgerEventPayload["recommendationRuns"]>[number]): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO recommendation_runs
+      (run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, status, catalog_digest,
+        input_digest, output_digest, metrics_json, run_json, started_at, completed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    run.runId,
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.eventId,
+    run.status,
+    run.catalogDigest,
+    run.inputDigest,
+    run.outputDigest,
+    stableJson(run.metrics),
+    stableJson(run),
+    run.startedAt,
+    run.completedAt ?? null
+  );
+}
+
+function persistRecommendation(db: SqliteDatabase, event: ArchitectureEventV1, recommendation: NonNullable<ArchitectureLedgerEventPayload["recommendations"]>[number]): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO recommendations
+      (recommendation_id, run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, fingerprint,
+        subject, practice_id, status, confidence, enforcement, risk, uncertainty, evidence_binding_ids_json, explanation_json,
+        recommendation_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    recommendation.recommendationId,
+    recommendation.runId,
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.eventId,
+    recommendation.fingerprint,
+    recommendation.subject,
+    recommendation.practiceId ?? null,
+    recommendation.status,
+    recommendation.confidence,
+    recommendation.enforcement,
+    recommendation.risk,
+    recommendation.uncertainty,
+    stableJson(recommendation.evidenceBindingIds),
+    stableJson(recommendation.explanation),
+    stableJson(recommendation),
+    recommendation.createdAt,
+    recommendation.updatedAt
+  );
+  insertArchitectureLedgerFts(db, "recommendation", recommendation.explanation.join("\n"), "", recommendation.subject, recommendation.explanation.join("\n"));
+}
+
+function persistAgentJob(db: SqliteDatabase, event: ArchitectureEventV1, job: NonNullable<ArchitectureLedgerEventPayload["agentJobs"]>[number]): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO agent_jobs
+      (job_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, status, runner_port,
+        fingerprint, input_digest, output_digest, stale_policy, job_json, queued_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    job.jobId,
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.eventId,
+    job.status,
+    job.runnerPort,
+    job.fingerprint,
+    job.inputDigest,
+    job.outputDigest ?? null,
+    job.stalePolicy,
+    stableJson(job),
+    job.queuedAt,
+    job.updatedAt
+  );
+}
+
+function persistProjectionState(db: SqliteDatabase, event: ArchitectureEventV1, state: Record<string, Json>): void {
+  const path = String(state.path ?? "projection");
+  const projectionDigest = typeof state.projectionDigest === "string" ? state.projectionDigest : digestJson(state);
+  db.prepare(
+    `INSERT OR REPLACE INTO projection_state
+      (projection_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, path, projection_digest, state_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    String(state.projectionId ?? stableLedgerId("projection", event.eventId, path)),
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.eventId,
+    path,
+    projectionDigest,
+    stableJson(state),
+    event.timestamp
+  );
+}
+
+function persistSourceCursor(db: SqliteDatabase, event: ArchitectureEventV1, cursor: Record<string, Json>): void {
+  const source = String(cursor.source ?? event.source);
+  db.prepare(
+    `INSERT OR REPLACE INTO source_cursors
+      (cursor_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, source, cursor_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    String(cursor.cursorId ?? stableLedgerId("cursor", event.eventId, source)),
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    source,
+    stableJson(cursor),
+    event.timestamp
+  );
+}
+
+function persistGenericLedgerJson(
+  db: SqliteDatabase,
+  event: ArchitectureEventV1,
+  table: "recommendation_feedback" | "waivers",
+  idColumn: "feedback_id" | "waiver_id",
+  jsonColumn: "feedback_json" | "waiver_json",
+  value: Record<string, Json>,
+  prefix: string
+): void {
+  const id = String(value[idColumn] ?? value.id ?? stableLedgerId(prefix, event.eventId, stableJson(value)));
+  if (table === "recommendation_feedback") {
+    db.prepare(
+      `INSERT OR REPLACE INTO recommendation_feedback
+        (feedback_id, recommendation_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, feedback_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      String(value.recommendationId ?? value.recommendation_id ?? "unknown"),
+      event.repository.repositoryId,
+      event.repository.storageRepositoryId,
+      event.worktree.workspaceId,
+      event.worktree.storageWorkspaceId,
+      event.eventId,
+      stableJson(value),
+      String(value.createdAt ?? event.timestamp)
+    );
+    return;
+  }
+  db.prepare(
+    `INSERT OR REPLACE INTO waivers
+      (waiver_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, target_kind, target_id, waiver_json, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.eventId,
+    String(value.targetKind ?? value.target_kind ?? "unknown"),
+    String(value.targetId ?? value.target_id ?? "unknown"),
+    stableJson(value),
+    String(value.createdAt ?? event.timestamp),
+    value.expiresAt ? String(value.expiresAt) : null
+  );
+}
+
+function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: ArchitectureEventV1): void {
+  const payload = architectureLedgerPayload(event);
+  for (const operation of payload.operations ?? []) {
+    switch (operation.op) {
+      case "upsert_entity":
+        upsertArchitectureEntity(db, event, operation.entity);
+        break;
+      case "delete_entity":
+        db.prepare("DELETE FROM architecture_entities_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND entity_id = ?")
+          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.entityId);
+        db.prepare("DELETE FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND (source_entity_id = ? OR target_entity_id = ?)")
+          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.entityId, operation.entityId);
+        break;
+      case "upsert_relation":
+        upsertArchitectureRelation(db, event, operation.relation);
+        break;
+      case "delete_relation":
+        db.prepare("DELETE FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND relation_id = ?")
+          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.relationId);
+        break;
+      case "upsert_constraint":
+        upsertArchitectureConstraint(db, event, operation.constraint);
+        break;
+      case "delete_constraint":
+        db.prepare("DELETE FROM architecture_constraints_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND constraint_id = ?")
+          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.constraintId);
+        break;
+    }
+  }
+}
+
+function upsertArchitectureEntity(db: SqliteDatabase, event: ArchitectureEventV1, entity: ArchitectureLedgerEntityRecord): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO architecture_entities_current
+      (storage_repository_id, storage_workspace_id, entity_id, repository_id, workspace_id, branch, head_sha, worktree_digest,
+        kind, canonical_name, status, path, summary, metadata_json, last_event_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    event.repository.storageRepositoryId,
+    event.worktree.storageWorkspaceId,
+    entity.entityId,
+    event.repository.repositoryId,
+    event.worktree.workspaceId,
+    event.worktree.branch,
+    event.worktree.headSha,
+    event.worktree.worktreeDigest,
+    entity.kind,
+    entity.canonicalName,
+    entity.status,
+    entity.path ?? null,
+    entity.summary ?? null,
+    stableJson(entity.metadata ?? {}),
+    event.eventId,
+    event.timestamp
+  );
+  insertArchitectureLedgerFts(db, "entity", entity.summary ?? "", "", entity.canonicalName, "");
+}
+
+function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEventV1, relation: ArchitectureLedgerRelationRecord): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO architecture_relations_current
+      (storage_repository_id, storage_workspace_id, relation_id, repository_id, workspace_id, branch, head_sha, worktree_digest,
+        kind, source_entity_id, target_entity_id, status, summary, metadata_json, last_event_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    event.repository.storageRepositoryId,
+    event.worktree.storageWorkspaceId,
+    relation.relationId,
+    event.repository.repositoryId,
+    event.worktree.workspaceId,
+    event.worktree.branch,
+    event.worktree.headSha,
+    event.worktree.worktreeDigest,
+    relation.kind,
+    relation.sourceEntityId,
+    relation.targetEntityId,
+    relation.status,
+    relation.summary ?? null,
+    stableJson(relation.metadata ?? {}),
+    event.eventId,
+    event.timestamp
+  );
+  insertArchitectureLedgerFts(db, "relation", relation.summary ?? "", "", relation.relationId, "");
+}
+
+function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEventV1, constraint: ArchitectureLedgerConstraintRecord): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO architecture_constraints_current
+      (storage_repository_id, storage_workspace_id, constraint_id, repository_id, workspace_id, branch, head_sha, worktree_digest,
+        kind, subject_id, status, severity, summary, metadata_json, last_event_id, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    event.repository.storageRepositoryId,
+    event.worktree.storageWorkspaceId,
+    constraint.constraintId,
+    event.repository.repositoryId,
+    event.worktree.workspaceId,
+    event.worktree.branch,
+    event.worktree.headSha,
+    event.worktree.worktreeDigest,
+    constraint.kind,
+    constraint.subjectId,
+    constraint.status,
+    constraint.severity ?? null,
+    constraint.summary ?? null,
+    stableJson(constraint.metadata ?? {}),
+    event.eventId,
+    event.timestamp
+  );
+  insertArchitectureLedgerFts(db, "constraint", constraint.summary ?? "", "", constraint.constraintId, "");
+}
+
+function readArchitectureLedgerStateFromDb(db: SqliteDatabase, scope: ArchitectureLedgerScope): ArchitectureLedgerGraphState {
+  const scopeParams = [scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId];
+  const entities = db.prepare(
+    `SELECT entity_id, kind, canonical_name, status, path, summary, metadata_json
+      FROM architecture_entities_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+      ORDER BY entity_id`
+  ).all(...scopeParams).map((row) => ({
+    entityId: String(row.entity_id),
+    kind: String(row.kind),
+    canonicalName: String(row.canonical_name),
+    status: row.status as ArchitectureLedgerEntityRecord["status"],
+    ...(row.path ? { path: String(row.path) } : {}),
+    ...(row.summary ? { summary: String(row.summary) } : {}),
+    ...optionalJsonMetadata(row.metadata_json)
+  }));
+  const relations = db.prepare(
+    `SELECT relation_id, kind, source_entity_id, target_entity_id, status, summary, metadata_json
+      FROM architecture_relations_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+      ORDER BY relation_id`
+  ).all(...scopeParams).map((row) => ({
+    relationId: String(row.relation_id),
+    kind: String(row.kind),
+    sourceEntityId: String(row.source_entity_id),
+    targetEntityId: String(row.target_entity_id),
+    status: row.status as ArchitectureLedgerRelationRecord["status"],
+    ...(row.summary ? { summary: String(row.summary) } : {}),
+    ...optionalJsonMetadata(row.metadata_json)
+  }));
+  const constraints = db.prepare(
+    `SELECT constraint_id, kind, subject_id, status, severity, summary, metadata_json
+      FROM architecture_constraints_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+      ORDER BY constraint_id`
+  ).all(...scopeParams).map((row) => ({
+    constraintId: String(row.constraint_id),
+    kind: String(row.kind),
+    subjectId: String(row.subject_id),
+    status: row.status as ArchitectureLedgerConstraintRecord["status"],
+    ...(row.severity ? { severity: row.severity as ArchitectureLedgerConstraintRecord["severity"] } : {}),
+    ...(row.summary ? { summary: String(row.summary) } : {}),
+    ...optionalJsonMetadata(row.metadata_json)
+  }));
+  return { entities, relations, constraints };
+}
+
+function optionalJsonMetadata(value: unknown): { metadata?: Record<string, Json> } {
+  const metadata = JSON.parse(String(value)) as Record<string, Json>;
+  return Object.keys(metadata).length > 0 ? { metadata } : {};
+}
+
+function architectureEventsForReplay(db: SqliteDatabase, input: ArchitectureLedgerReplayInput): ArchitectureEventV1[] {
+  let untilEventId = input.untilEventId;
+  if (input.snapshotId) {
+    const snapshot = db.prepare(
+      `SELECT last_event_id FROM architecture_snapshots
+        WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+    ).get(input.snapshotId, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+    if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.snapshotId}`);
+    untilEventId = String(snapshot.last_event_id);
+  }
+  const rows = db.prepare(
+    `SELECT event_id, event_json FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+      ORDER BY event_sequence`
+  ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+  const events: ArchitectureEventV1[] = [];
+  for (const row of rows) {
+    const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
+    events.push(event);
+    if (untilEventId && String(row.event_id) === untilEventId) break;
+  }
+  return events;
+}
+
+function deleteArchitectureCurrentState(db: SqliteDatabase, scope: ArchitectureLedgerScope): void {
+  for (const table of ["architecture_entities_current", "architecture_relations_current", "architecture_constraints_current"]) {
+    db.prepare(`DELETE FROM ${table} WHERE storage_repository_id = ? AND storage_workspace_id = ?`)
+      .run(scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId);
+  }
+}
+
+function insertArchitectureLedgerFts(db: SqliteDatabase, kind: string, summary: string, rationale: string, title: string, evidenceSummary: string): void {
+  db.prepare(
+    "INSERT INTO architecture_ledger_fts(kind, summary, rationale, title, evidence_summary) VALUES (?, ?, ?, ?, ?)"
+  ).run(kind, summary, rationale, title, evidenceSummary);
+}
+
+function recordArchitectureLedgerOperation(db: SqliteDatabase, input: {
+  scope: ArchitectureLedgerScope;
+  operationKind: string;
+  durationMs: number;
+  rowCount: number;
+  rebuildReason: string | null;
+}): void {
+  db.prepare(
+    `INSERT INTO architecture_ledger_operations
+      (operation_id, storage_repository_id, storage_workspace_id, operation_kind, duration_ms, row_count, rebuild_reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    `ledger_operation_${randomUUID()}`,
+    input.scope.repository.storageRepositoryId,
+    input.scope.worktree.storageWorkspaceId,
+    input.operationKind,
+    Math.max(0, Math.trunc(input.durationMs)),
+    input.rowCount,
+    input.rebuildReason,
+    nowIso()
+  );
+}
+
+function stableLedgerId(prefix: string, ...parts: string[]): string {
+  return `${prefix}.${createHash("sha256").update(parts.join("\0")).digest("hex").slice(0, 24)}`;
 }
 
 function externalDocumentationEntryFromRow(row: Record<string, unknown>): ExternalDocumentationCacheEntry {

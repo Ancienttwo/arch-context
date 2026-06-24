@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
+import { digestJson, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import {
   LOCAL_SQLITE_MIGRATIONS,
   SQLITE_PRAGMAS,
@@ -28,11 +29,15 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0002_indexes",
       "0003_landscape_state",
       "0004_changeset_journal",
-      "0005_external_docs_cache"
+      "0005_external_docs_cache",
+      "0006_architecture_ledger"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
     expect(sql.some((statement) => statement.includes("external_docs_cache"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_events"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_ledger_operations"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_current_graph_view"))).toBe(true);
     expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
   });
 
@@ -288,7 +293,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0002_indexes",
       "0003_landscape_state",
       "0004_changeset_journal",
-      "0005_external_docs_cache"
+      "0005_external_docs_cache",
+      "0006_architecture_ledger"
     ]);
 
     const snapshot = {
@@ -607,7 +613,298 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("architecture ledger appends, replays, snapshots, compacts, and exposes metadata-only query surfaces", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const backupPath = join(root, "ledger-backup.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const events = Array.from({ length: 1000 }, (_, index) => architectureLedgerEvent(index));
+      const appended = await store.appendArchitectureEvents({ writer: "runtime-daemon", events });
+      expect(appended.appendedEvents).toHaveLength(1000);
+      expect(appended.duplicateEvents).toHaveLength(0);
+      expect(appended.entityCount).toBe(1000);
+      expect(appended.relationCount).toBe(1);
+      expect(appended.constraintCount).toBe(1);
+
+      const duplicate = await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [events[0]!] });
+      expect(duplicate.appendedEvents).toHaveLength(0);
+      expect(duplicate.duplicateEvents).toHaveLength(1);
+      expect(duplicate.entityCount).toBe(1000);
+
+      const materialized = await store.readArchitectureLedgerState(ARCHITECTURE_LEDGER_SCOPE);
+      expect(materialized.entities).toHaveLength(1000);
+      expect(materialized.relations).toHaveLength(1);
+      expect(materialized.constraints).toHaveLength(1);
+      const replayed = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      expect(replayed.events).toHaveLength(1000);
+      expect(replayed.graphDigest).toBe(appended.graphDigest);
+      await expect(store.verifyArchitectureLedgerReplay(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
+        ok: true,
+        eventCount: 1000,
+        mismatches: []
+      });
+
+      const rebuilt = await store.rebuildArchitectureLedgerCurrentState(ARCHITECTURE_LEDGER_SCOPE);
+      expect(rebuilt.graphDigest).toBe(appended.graphDigest);
+      const snapshot = await store.createArchitectureLedgerSnapshot({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        sourceMode: "ledger-shadow",
+        projectionDigest: digestJson({ projection: "test" } as unknown as Json),
+        inputDigests: { modelDigest: digestJson({ model: "test" } as unknown as Json) },
+        createdAt: "2026-06-25T00:30:00.000Z"
+      });
+      expect(snapshot.graphDigest).toBe(appended.graphDigest);
+      await expect(store.compactArchitectureLedger({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        beforeSnapshotId: snapshot.snapshotId
+      })).resolves.toEqual({ snapshotId: snapshot.snapshotId, compactedEventCount: 1000 });
+      await expect(store.checkArchitectureLedgerIntegrity(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
+        ok: true,
+        eventCount: 1000,
+        snapshotCount: 1,
+        failures: []
+      });
+      await expect(store.backupArchitectureLedger({ backupPath })).resolves.toMatchObject({ backupPath, integrity: "ok" });
+      expect(existsSync(backupPath)).toBe(true);
+      store.close();
+
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_current_graph_view")).toBe(1002);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM open_recommendations_view")).toBe(1);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM recent_architecture_changes_view")).toBe(1000);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM unresolved_evidence_view")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_fts WHERE architecture_ledger_fts MATCH 'root'")).toBeGreaterThan(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations")).toBeGreaterThanOrEqual(5);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations WHERE rebuild_reason IS NOT NULL")).toBe(1);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events WHERE compacted_by_snapshot_id IS NOT NULL")).toBe(1000);
+      expect(await sqliteScalar(backupPath, "PRAGMA integrity_check")).toBe("ok");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("architecture ledger rolls back a failed event batch without partial materialization", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-rollback-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      await expect(store.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [architectureLedgerEvent(0), architectureLedgerEvent(1)],
+        faultAfterEvents: 1
+      })).rejects.toThrow("architecture-ledger-fault-injection");
+      await expect(store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
+        events: [],
+        state: { entities: [], relations: [], constraints: [] }
+      });
+      store.close();
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_entities_current")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations")).toBe(0);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
+
+const ARCHITECTURE_LEDGER_SCOPE = {
+  repository: {
+    repositoryId: "repo.architecture-ledger-test",
+    storageRepositoryId: "repo.storage.architecture-ledger-test"
+  },
+  worktree: {
+    workspaceId: "workspace.architecture-ledger-test",
+    storageWorkspaceId: "workspace.storage.architecture-ledger-test",
+    branch: "main",
+    headSha: "abc123ledger",
+    worktreeDigest: digestJson({ worktree: "architecture-ledger-test" } as unknown as Json)
+  }
+};
+
+function architectureLedgerEvent(index: number): ArchitectureEventV1 {
+  const operations: Record<string, Json>[] = [{
+    op: "upsert_entity",
+    entity: {
+      entityId: `entity.${index}`,
+      kind: "module",
+      canonicalName: index === 0 ? "root module" : `module ${index}`,
+      status: "active",
+      path: `src/module-${index}.ts`,
+      summary: index === 0 ? "root architecture entrypoint" : `module ${index} summary`,
+      metadata: { index }
+    }
+  }];
+  if (index === 1) {
+    operations.push(
+      {
+        op: "upsert_relation",
+        relation: {
+          relationId: "relation.root-to-worker",
+          kind: "calls",
+          sourceEntityId: "entity.0",
+          targetEntityId: "entity.1",
+          status: "active",
+          summary: "root delegates to worker",
+          metadata: { route: "checkpoint" }
+        }
+      },
+      {
+        op: "upsert_constraint",
+        constraint: {
+          constraintId: "constraint.root-owned",
+          kind: "ownership",
+          subjectId: "entity.0",
+          status: "active",
+          severity: "warning",
+          summary: "root module has an explicit owner",
+          metadata: { owner: "runtime" }
+        }
+      }
+    );
+  }
+
+  const provenance = {
+    producer: "local-store-sqlite.test",
+    command: "bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts",
+    inputDigest: digestJson({ event: index } as unknown as Json)
+  };
+  const payload: Record<string, Json> = {
+    summary: index === 0 ? "Append root architecture fact" : `Append architecture fact ${index}`,
+    title: index === 0 ? "Root Architecture Decision" : `Architecture Event ${index}`,
+    rationale: "Exercise append-only ledger replay without storing source bodies.",
+    operations
+  };
+  if (index === 0) {
+    const evidenceDigest = digestJson({ evidence: "root" } as unknown as Json);
+    payload.evidenceItems = [{
+      schemaVersion: "archcontext.evidence-item/v2",
+      evidenceId: "evidence.root",
+      kind: "codegraph-summary",
+      strength: "observed",
+      polarity: "positive",
+      origin: "codegraph",
+      subject: "entity.0",
+      selector: { kind: "symbol", id: "entity.0", path: "src/module-0.ts", startLine: 1, endLine: 12 },
+      summary: "root module is observed as the architecture entrypoint",
+      coverage: { level: "complete", scope: "architecture-ledger-test" },
+      supports: ["recommendation", "checkpoint"],
+      provenance,
+      createdAt: "2026-06-25T00:00:00.000Z",
+      digest: evidenceDigest
+    }];
+    payload.evidenceBindings = [{
+      schemaVersion: "archcontext.evidence-binding/v1",
+      bindingId: "binding.root",
+      evidenceId: "evidence.root",
+      target: { kind: "entity", id: "entity.0" },
+      bindingReason: "direct-selector",
+      authorityEffect: "checkpoint-eligible",
+      createdAt: "2026-06-25T00:00:01.000Z",
+      provenance
+    }];
+    payload.recommendationRuns = [{
+      schemaVersion: "archcontext.recommendation-run/v1",
+      runId: "recommendation-run.root",
+      repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+      worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      trigger: { level: "L2", source: "checkpoint" },
+      engineVersion: "test",
+      catalogDigest: digestJson({ catalog: "test" } as unknown as Json),
+      inputDigest: digestJson({ input: "test" } as unknown as Json),
+      outputDigest: digestJson({ output: "test" } as unknown as Json),
+      policyMode: "checkpoint",
+      status: "succeeded",
+      startedAt: "2026-06-25T00:00:02.000Z",
+      completedAt: "2026-06-25T00:00:03.000Z",
+      recommendationIds: ["recommendation.root"],
+      metrics: { matchCount: 1, evidenceBindingCount: 1, unboundEvidenceCount: 0 }
+    }];
+    payload.recommendations = [{
+      schemaVersion: "archcontext.recommendation/v2",
+      recommendationId: "recommendation.root",
+      runId: "recommendation-run.root",
+      fingerprint: "fingerprint.root",
+      subject: "entity.0",
+      practiceId: "decision.record-significant-change",
+      status: "open",
+      confidence: "high",
+      enforcement: "checkpoint",
+      risk: "medium",
+      uncertainty: "low",
+      evidenceBindingIds: ["binding.root"],
+      explanation: ["Root architecture decision needs durable evidence."],
+      createdAt: "2026-06-25T00:00:04.000Z",
+      updatedAt: "2026-06-25T00:00:05.000Z"
+    }];
+    payload.agentJobs = [{
+      schemaVersion: "archcontext.agent-job/v1",
+      jobId: "agent-job.root",
+      status: "queued",
+      runnerPort: "codex",
+      repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+      worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      fingerprint: "agent-job-root",
+      trigger: { source: "checkpoint", reason: "architecture-ledger-test" },
+      budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
+      inputDigest: digestJson({ agentInput: "root" } as unknown as Json),
+      promptTemplateDigest: digestJson({ prompt: "root" } as unknown as Json),
+      stalePolicy: "cancel-on-head-change",
+      directMutationAllowed: false,
+      queuedAt: "2026-06-25T00:00:06.000Z",
+      updatedAt: "2026-06-25T00:00:07.000Z"
+    }];
+    payload.projectionState = {
+      projectionId: "projection.root",
+      path: ".archcontext/architecture/root.json",
+      projectionDigest: digestJson({ projection: "root" } as unknown as Json)
+    };
+    payload.sourceCursors = [{
+      cursorId: "cursor.root",
+      source: "codegraph",
+      digest: digestJson({ cursor: "root" } as unknown as Json)
+    }];
+    payload.waivers = [{
+      waiverId: "waiver.root",
+      targetKind: "recommendation",
+      targetId: "recommendation.root",
+      reason: "fixture"
+    }];
+  }
+
+  return {
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.${String(index).padStart(4, "0")}`,
+    eventType: "architecture.graph.update",
+    payloadVersion: "archcontext.architecture-ledger-payload/v1",
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    baseDigest: digestJson({ base: index } as unknown as Json),
+    resultingDigest: digestJson({ result: index } as unknown as Json),
+    headSha: ARCHITECTURE_LEDGER_SCOPE.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "checkpoint",
+    timestamp: `2026-06-25T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+    idempotencyKey: `architecture-ledger-test-${index}`,
+    provenance,
+    payload: payload as unknown as Json
+  };
+}
+
+async function sqliteScalar(databasePath: string, sql: string): Promise<any> {
+  const bunSqlite = await import("bun:sqlite");
+  const db = new (bunSqlite as any).Database(databasePath, { readonly: true });
+  try {
+    const row = db.query(sql).get() as Record<string, unknown> | undefined;
+    return row ? Object.values(row)[0] : undefined;
+  } finally {
+    db.close();
+  }
+}
 
 async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
   const store = new SqliteLocalStore(databasePath);

@@ -163,6 +163,42 @@ export class TestLocalStore implements RuntimeLocalStore {
     return purged;
   }
 
+  async appendArchitectureEvents(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async createArchitectureLedgerSnapshot(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async readArchitectureLedgerState(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async replayArchitectureLedger(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async verifyArchitectureLedgerReplay(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async rebuildArchitectureLedgerCurrentState(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async compactArchitectureLedger(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async checkArchitectureLedgerIntegrity(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
+  async backupArchitectureLedger(): Promise<never> {
+    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  }
+
   clearDerivedLandscapeState(): void {
     this.landscapes.clear();
     this.crossRepoEdges.clear();

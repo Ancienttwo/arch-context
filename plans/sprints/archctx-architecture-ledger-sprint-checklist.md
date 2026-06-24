@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 and AL1 complete
+> **Status**: Executing - AL0, AL1 and AL2 complete
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -118,7 +118,7 @@ These are target gates, not claims about current performance.
 |---|---|---:|---|---|
 | AL0 | Authority, contracts and ADR freeze | P0 | Existing M0–M3 | ☑ |
 | AL1 | Recommendation evidence correctness | P0 | AL0 | ☑ |
-| AL2 | SQLite architecture ledger foundation | P0 | AL0 | ◻ |
+| AL2 | SQLite architecture ledger foundation | P0 | AL0 | ☑ |
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ◻ |
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ◻ |
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ◻ |
@@ -276,49 +276,58 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 
 ### Minimum schema checklist
 
-- [ ] `architecture_events`
-- [ ] `architecture_snapshots`
-- [ ] `architecture_entities_current`
-- [ ] `architecture_relations_current`
-- [ ] `architecture_constraints_current`
-- [ ] `evidence_items`
-- [ ] `evidence_bindings`
-- [ ] `recommendation_runs`
-- [ ] `recommendations`
-- [ ] `recommendation_feedback`
-- [ ] `agent_jobs`
-- [ ] `projection_state`
-- [ ] `source_cursors`
-- [ ] `waivers`
+- [x] `architecture_events`
+- [x] `architecture_snapshots`
+- [x] `architecture_entities_current`
+- [x] `architecture_relations_current`
+- [x] `architecture_constraints_current`
+- [x] `evidence_items`
+- [x] `evidence_bindings`
+- [x] `recommendation_runs`
+- [x] `recommendations`
+- [x] `recommendation_feedback`
+- [x] `agent_jobs`
+- [x] `projection_state`
+- [x] `source_cursors`
+- [x] `waivers`
 
 ### Tasks
 
-- [ ] **AL2-01 · P0 · `local-store-sqlite`** — Add forward-only migrations for all ledger tables.
-- [ ] **AL2-02 · P0 · `local-store-sqlite`** — Scope every mutable row by repository and worktree identity; include branch/HEAD where semantically required.
-- [ ] **AL2-03 · P0 · `architecture-ledger`** — Implement append-only event writes with unique idempotency keys.
-- [ ] **AL2-04 · P0 · `architecture-ledger`** — Add `previous_event_hash` and canonical `event_hash` for tamper-evident sequencing.
-- [ ] **AL2-05 · P0 · `architecture-ledger`** — Materialize current entity, relation and constraint tables in the same transaction as accepted event append.
-- [ ] **AL2-06 · P0 · `architecture-ledger`** — Implement snapshot creation and canonical graph digest.
-- [ ] **AL2-07 · P0 · `architecture-ledger`** — Implement replay from an empty database to a selected event or snapshot.
-- [ ] **AL2-08 · P0 · `architecture-ledger`** — Verify replayed current state equals materialized current state byte-for-byte after canonicalization.
-- [ ] **AL2-09 · P0 · `local-store-sqlite`** — Add foreign keys, uniqueness constraints and indexes for temporal and graph queries.
-- [ ] **AL2-10 · P1 · `local-store-sqlite`** — Add FTS5 over summaries, rationale, decision titles and evidence summaries; exclude source body.
-- [ ] **AL2-11 · P0 · `local-store-sqlite`** — Add source-storage schema guard for new tables.
-- [ ] **AL2-12 · P0 · `architecture-ledger`** — Implement event batch transaction and rollback on any invalid payload.
-- [ ] **AL2-13 · P0 · `runtime-daemon`** — Enforce single-writer ownership for event append and snapshot creation.
-- [ ] **AL2-14 · P1 · `architecture-ledger`** — Add safe compaction: snapshot old events without losing auditability or rebuild ability.
-- [ ] **AL2-15 · P1 · `local-store-sqlite`** — Add backup, integrity check and corruption recovery commands.
-- [ ] **AL2-16 · P1 · `tests`** — Run the same migration/replay fixtures through Node `node:sqlite` and Bun SQLite adapters.
-- [ ] **AL2-17 · P1 · `architecture-ledger`** — Add views for current graph, open recommendations, recent changes and unresolved evidence.
-- [ ] **AL2-18 · P1 · `observability`** — Record local operation duration, row counts and rebuild reason without recording code content.
+- [x] **AL2-01 · P0 · `local-store-sqlite`** — Add forward-only migrations for all ledger tables.
+- [x] **AL2-02 · P0 · `local-store-sqlite`** — Scope every mutable row by repository and worktree identity; include branch/HEAD where semantically required.
+- [x] **AL2-03 · P0 · `architecture-ledger`** — Implement append-only event writes with unique idempotency keys.
+- [x] **AL2-04 · P0 · `architecture-ledger`** — Add `previous_event_hash` and canonical `event_hash` for tamper-evident sequencing.
+- [x] **AL2-05 · P0 · `architecture-ledger`** — Materialize current entity, relation and constraint tables in the same transaction as accepted event append.
+- [x] **AL2-06 · P0 · `architecture-ledger`** — Implement snapshot creation and canonical graph digest.
+- [x] **AL2-07 · P0 · `architecture-ledger`** — Implement replay from an empty database to a selected event or snapshot.
+- [x] **AL2-08 · P0 · `architecture-ledger`** — Verify replayed current state equals materialized current state byte-for-byte after canonicalization.
+- [x] **AL2-09 · P0 · `local-store-sqlite`** — Add foreign keys, uniqueness constraints and indexes for temporal and graph queries.
+- [x] **AL2-10 · P1 · `local-store-sqlite`** — Add FTS5 over summaries, rationale, decision titles and evidence summaries; exclude source body.
+- [x] **AL2-11 · P0 · `local-store-sqlite`** — Add source-storage schema guard for new tables.
+- [x] **AL2-12 · P0 · `architecture-ledger`** — Implement event batch transaction and rollback on any invalid payload.
+- [x] **AL2-13 · P0 · `runtime-daemon`** — Enforce single-writer ownership for event append and snapshot creation.
+- [x] **AL2-14 · P1 · `architecture-ledger`** — Add safe compaction: snapshot old events without losing auditability or rebuild ability.
+- [x] **AL2-15 · P1 · `local-store-sqlite`** — Add backup, integrity check and corruption recovery commands.
+- [x] **AL2-16 · P1 · `tests`** — Run the same migration/replay fixtures through Node `node:sqlite` and Bun SQLite adapters.
+- [x] **AL2-17 · P1 · `architecture-ledger`** — Add views for current graph, open recommendations, recent changes and unresolved evidence.
+- [x] **AL2-18 · P1 · `observability`** — Record local operation duration, row counts and rebuild reason without recording code content.
 
 ### Exit gate
 
-- [ ] **AL2-EG1** — 1,000-event replay yields the expected graph and identical digest on repeated runs.
-- [ ] **AL2-EG2** — Duplicate event retries do not create duplicate state.
-- [ ] **AL2-EG3** — Injected failure at every transaction step leaves no partial graph mutation.
-- [ ] **AL2-EG4** — Schema audit confirms no source or diff body columns.
-- [ ] **AL2-EG5** — Database deletion and rebuild path is documented and tested.
+- [x] **AL2-EG1** — 1,000-event replay yields the expected graph and identical digest on repeated runs.
+- [x] **AL2-EG2** — Duplicate event retries do not create duplicate state.
+- [x] **AL2-EG3** — Injected failure at every transaction step leaves no partial graph mutation.
+- [x] **AL2-EG4** — Schema audit confirms no source or diff body columns.
+- [x] **AL2-EG5** — Database deletion and rebuild path is documented and tested.
+
+### AL2 execution log
+
+- 2026-06-25: Completed SQLite architecture ledger foundation on branch `codex/architecture-ledger-al2`.
+- 2026-06-25: Focused SQLite tests passed: `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 30000` (21 pass, 0 fail).
+- 2026-06-25: Node/Bun adapter readback passed: `node scripts/architecture-ledger-sqlite-adapter-readback.mjs` with matching graph digest `sha256:0b526aeac5b37b8153a608d0bda661ac52c9027cd50f7670cae6a76b62da16f1`.
+- 2026-06-25: Typecheck passed: `bun run typecheck`.
+- 2026-06-25: Package boundary and sprint status checks passed: `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`.
+- 2026-06-25: AL2 verification note captured in `docs/verification/architecture-ledger-al2-sqlite-foundation.md`.
 
 ---
 

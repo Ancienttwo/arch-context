@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./application": "./application/src/index.ts",
+    "./architecture-ledger": "./architecture-ledger/src/index.ts",
     "./architecture-domain": "./architecture-domain/src/index.ts",
     "./changeset-engine": "./changeset-engine/src/index.ts",
     "./context-compiler": "./context-compiler/src/index.ts",
