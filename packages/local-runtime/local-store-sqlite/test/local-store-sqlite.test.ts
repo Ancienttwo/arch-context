@@ -682,9 +682,9 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(await sqliteScalar(backupPath, "PRAGMA integrity_check")).toBe("ok");
     } finally {
       store.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
-  });
+  }, LEGACY_SQLITE_MIGRATION_TIMEOUT_MS);
 
   test("architecture ledger rolls back a failed event batch without partial materialization", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-rollback-"));
@@ -707,9 +707,9 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations")).toBe(0);
     } finally {
       store.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRoot(root);
     }
-  });
+  }, LEGACY_SQLITE_MIGRATION_TIMEOUT_MS);
 });
 
 const ARCHITECTURE_LEDGER_SCOPE = {
@@ -904,6 +904,36 @@ async function sqliteScalar(databasePath: string, sql: string): Promise<any> {
   } finally {
     db.close();
   }
+}
+
+function removeTempRoot(root: string): void {
+  const maxAttempts = process.platform === "win32" ? 20 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (process.platform !== "win32" || !isTransientWindowsCleanupError(error)) {
+        throw error;
+      }
+      sleepSync(100 + attempt * 50);
+    }
+  }
+  if (isTransientWindowsCleanupError(lastError)) {
+    return;
+  }
+  throw lastError;
+}
+
+function isTransientWindowsCleanupError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY";
+}
+
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
 async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {

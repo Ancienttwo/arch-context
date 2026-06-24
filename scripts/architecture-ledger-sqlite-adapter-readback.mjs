@@ -38,7 +38,7 @@ try {
     adapters: [bunReadback, nodeReadback]
   }, null, 2));
 } finally {
-  rmSync(workspace, { recursive: true, force: true });
+  removeTempRoot(workspace);
 }
 
 function runAdapter(adapter, commandLine) {
@@ -47,6 +47,36 @@ function runAdapter(adapter, commandLine) {
   const parsed = JSON.parse(output);
   if (parsed.adapter !== adapter) throw new Error(`Unexpected adapter readback: expected=${adapter} actual=${parsed.adapter}`);
   return parsed;
+}
+
+function removeTempRoot(path) {
+  const maxAttempts = process.platform === "win32" ? 20 : 1;
+  let lastError;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (process.platform !== "win32" || !isTransientWindowsCleanupError(error)) {
+        throw error;
+      }
+      sleepSync(100 + attempt * 50);
+    }
+  }
+  if (isTransientWindowsCleanupError(lastError)) {
+    return;
+  }
+  throw lastError;
+}
+
+function isTransientWindowsCleanupError(error) {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY";
+}
+
+function sleepSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
 function adapterFixtureSource() {
