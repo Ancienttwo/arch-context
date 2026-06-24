@@ -1246,11 +1246,11 @@ evaluation, packaging, and release gates.
 
 ### 打包与跨平台
 
-- [ ] S6-29 packaged CLI/tarball 包含 catalog、source registry、schemas 和必要 attribution。
+- [x] S6-29 packaged CLI/tarball 包含 catalog、source registry、schemas 和必要 attribution。
 - [ ] S6-30 Linux/macOS/Windows 安装、升级、卸载与 data retention matrix 通过。
-- [ ] S6-31 `npm pack --dry-run`/产品分发 manifest 明确列出 assets，防止 `.npmignore` 漏包。
-- [ ] S6-32 本地无云 E2E 覆盖 `init → sync → practices validate → prepare → checkpoint → complete`。
-- [ ] S6-33 Context7 作为 optional dependency/capability，不扩大 Local Core 的强制安装面。
+- [x] S6-31 `npm pack --dry-run`/产品分发 manifest 明确列出 assets，防止 `.npmignore` 漏包。
+- [x] S6-32 本地无云 E2E 覆盖 `init → sync → practices validate → prepare → checkpoint → complete`。
+- [x] S6-33 Context7 作为 optional dependency/capability，不扩大 Local Core 的强制安装面。
 
 ### 文档与运营
 
@@ -1265,9 +1265,9 @@ evaluation, packaging, and release gates.
 ## 14.3 Exit Gates
 
 - [x] S6-EG1 所有质量与性能 KPI 通过 `bun evals/run.ts --check` 或独立 gate 脚本。
-- [ ] S6-EG2 所有发布 assets provenance/license/digest 完整率 = 100%。
+- [x] S6-EG2 所有发布 assets provenance/license/digest 完整率 = 100%。
 - [ ] S6-EG3 三大 OS packaged product E2E 全绿。
-- [ ] S6-EG4 默认配置保持 static-only、zero-egress、advisory-first。
+- [x] S6-EG4 默认配置保持 static-only、zero-egress、advisory-first。
 - [ ] S6-EG5 enforcement 与 Context7 均可独立关闭，关闭后旧 Local Core 行为保持兼容。
 - [ ] S6-EG6 至少一个真实 Agent host 的 central Hook readback 完成。
 - [ ] S6-EG7 发布、回滚、catalog revision、session stale 和 cache purge runbook 实跑通过。
@@ -1382,6 +1382,42 @@ Completed the S6 performance and reliability gate slice on branch
 
 S6-01 through S6-28 and S6-EG1 are complete. S6-29 through S6-40 and S6-EG2
 through S6-EG7 remain open.
+
+## 14.9 Execution Record — 2026-06-24
+
+Completed the S6 packaging and local product gate slice on branch
+`codex/practice-assets-s6-packaging-gates`.
+
+- Release package: the generated `archctx` stage now ships `assets/`,
+  `schemas/`, and `NOTICE.md` in addition to `bin/` and `README.md`.
+  `@node-rs/jieba` remains an explicit npm dependency for native tokenizer
+  resolution; Context7 is not a required release dependency.
+- Dry-run manifest: `npm pack --json` plus `npm pack --dry-run --json` records
+  66 tarball entries, including 13 practice files, 1 profile file, 19 source
+  records, 43 schema files, and zero missing attribution/license/digest fields.
+- Installed tarball smoke: the package installs into a temporary npm project,
+  runs without Bun on `PATH`, validates the installed practice catalog, starts
+  the loopback daemon, exposes MCP tools, simulates reinstall upgrade, and
+  verifies uninstall leaves runtime state outside the package install dir.
+- Local no-cloud E2E: the first-experience chain now covers
+  `init -> sync -> practices validate -> prepare -> checkpoint -> complete`
+  with GitHub, Cloud, and LLM provider env removed; readback records 41
+  practices, 19 sources, 8 profiles, and local-only egress.
+- Evidence: `docs/verification/fg6-npm-release-dry-run.json`,
+  `docs/verification/fg6-local-product-tarball-smoke.json`,
+  `docs/verification/fg6-local-no-cloud-readback.json`, and
+  `docs/verification/practice-assets-s6-release-gate.md`.
+- Verified: `bun test scripts/fg6-npm-release-dry-run.test.ts scripts/fg6-local-no-cloud-readback.test.ts`,
+  `bun run readback:fg6:npm-release-dry-run`,
+  `bun scripts/fg6-npm-release-dry-run.ts inspect --evidence docs/verification/fg6-npm-release-dry-run.json --json`,
+  `bun run readback:fg6:local-no-cloud`,
+  `bun scripts/fg6-local-no-cloud-readback.ts inspect --evidence docs/verification/fg6-local-no-cloud-readback.json --json`,
+  and `bun run readback:fg6:local-product-tarball`.
+
+S6-01 through S6-29, S6-31 through S6-33, S6-EG1, S6-EG2, and S6-EG4 are
+complete. S6-30, S6-34 through S6-40, S6-EG3, and S6-EG5 through S6-EG7 remain
+open. S6-30/S6-EG3 are intentionally left open until this branch's PR CI proves
+the packaged product E2E on Linux, macOS, and Windows.
 
 ---
 

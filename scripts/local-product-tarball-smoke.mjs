@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
@@ -16,8 +17,25 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const rootManifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const coreManifest = JSON.parse(readFileSync(join(root, "packages/core/package.json"), "utf8"));
 const releasePackageName = "archctx";
 const releaseHomeUrl = "https://archcontext.repoharness.com";
+const releaseAssetFiles = [
+  "assets/catalog.yaml",
+  "assets/practices/s6-expanded.yaml",
+  "assets/profiles/s6.yaml",
+  "assets/sources/core.yaml",
+  "assets/sources/s6.yaml"
+];
+const releaseSchemaFiles = [
+  "schemas/repo/practices/practice.schema.json",
+  "schemas/repo/practices/practice-source.schema.json",
+  "schemas/repo/practices/practice-profile.schema.json",
+  "schemas/runtime/practice-catalog-manifest.schema.json",
+  "schemas/runtime/practice-match.schema.json",
+  "schemas/runtime/practice-guidance.schema.json",
+  "schemas/runtime/practice-checkpoint.schema.json"
+];
 const args = parseArgs(process.argv.slice(2));
 const PROCESS_TIMEOUT_MS = Number(args["timeout-ms"] ?? 30_000);
 const cleanupRoots = [];
@@ -31,9 +49,12 @@ try {
   const binDir = join(installDir, "node_modules", ".bin");
   const archctxBin = resolveArchctxBin(binDir);
   assert(existsSync(archctxBin), `installed archctx bin missing: ${archctxBin}`);
+  const installedPackageDir = join(installDir, "node_modules", releasePackageName);
+  assertReleaseSupportFiles(installedPackageDir);
 
   const repo = createGitFixture();
-  const env = nodeOnlyRuntimeEnv(binDir);
+  const stateRoot = mkdtempTracked("archctx-local-product-state-");
+  const env = nodeOnlyRuntimeEnv(binDir, stateRoot);
   const bunProbe = await runOptional("bun", ["--version"], { cwd: repo, env });
   assert(bunProbe.code !== 0, "tarball smoke runtime PATH must not expose bun");
 
@@ -57,6 +78,12 @@ try {
   assert(sync.ok === true, "sync must succeed with installed codegraph dependency");
   assert(/^sha256:/.test(String(sync.data?.codeFactsDigest)), "sync must return a code facts digest");
 
+  const practiceValidation = await runArchctx(archctxBin, ["practices", "validate", "--strict"], { cwd: repo, env });
+  assert(practiceValidation.ok === true, "practices validate must succeed from installed tarball");
+  assert(practiceValidation.data?.valid === true, "installed practice catalog must validate");
+  assert(Number(practiceValidation.data?.practiceCount ?? 0) >= 40, "installed practice catalog must include S6 built-in assets");
+  assert(Number(practiceValidation.data?.sourceCount ?? 0) >= 19, "installed practice catalog must include source registry");
+
   const prepared = await runArchctx(archctxBin, ["prepare", "--task", "inspect tarball smoke", "--max-items", "2"], { cwd: repo, env });
   assert(prepared.ok === true, "prepare must succeed through installed daemon");
 
@@ -73,6 +100,21 @@ try {
   const stopped = await runArchctx(archctxBin, ["daemon", "stop"], { cwd: repo, env });
   assert(stopped.ok === true, "daemon stop must succeed from installed tarball");
   activeDaemon = undefined;
+  const pathsBeforeUpgrade = await runArchctx(archctxBin, ["paths"], { cwd: repo, env });
+  assert(pathsBeforeUpgrade.ok === true, "paths must succeed before reinstall upgrade");
+  assert(existsSync(pathsBeforeUpgrade.data?.localStorePath), "runtime state must exist before reinstall upgrade");
+
+  await run("npm", ["install", "--no-audit", "--no-fund", tarballPath], { cwd: installDir, env: process.env });
+  const upgradedBin = resolveArchctxBin(binDir);
+  assert(existsSync(upgradedBin), "archctx bin must remain available after reinstall upgrade");
+  const upgradedValidation = await runArchctx(upgradedBin, ["practices", "validate", "--strict"], { cwd: repo, env });
+  assert(upgradedValidation.ok === true && upgradedValidation.data?.valid === true, "practice catalog must validate after reinstall upgrade");
+  const pathsAfterUpgrade = await runArchctx(upgradedBin, ["paths"], { cwd: repo, env });
+  assert(pathsAfterUpgrade.data?.localStorePath === pathsBeforeUpgrade.data?.localStorePath, "reinstall upgrade must retain runtime store path");
+
+  await run("npm", ["uninstall", "--no-audit", "--no-fund", releasePackageName], { cwd: installDir, env: process.env });
+  assert(!existsSync(upgradedBin), "archctx bin must be removed after uninstall");
+  assert(existsSync(pathsBeforeUpgrade.data?.localStorePath), "uninstall must retain user runtime state outside package install dir");
 
   const evidence = {
     schemaVersion: "archcontext.local-product-tarball-smoke/v1",
@@ -101,14 +143,34 @@ try {
       codeGraph: {
         dependency: rootManifest.dependencies?.["@colbymchenry/codegraph"],
         digest: sync.data?.codeFactsDigest
+      },
+      practices: {
+        validation: "strict",
+        valid: practiceValidation.data?.valid,
+        practiceCount: practiceValidation.data?.practiceCount,
+        sourceCount: practiceValidation.data?.sourceCount,
+        profileCount: practiceValidation.data?.profileCount,
+        catalogDigest: practiceValidation.data?.catalogDigest
       }
     },
     product: {
       distribution: doctor.data?.product?.product?.distribution,
       version: doctor.data?.product?.product?.version,
       rpcSchemaVersion: doctor.data?.version?.rpcSchemaVersion
+    },
+    lifecycle: {
+      install: "passed",
+      upgrade: "reinstall-retained-state",
+      uninstall: "package-removed-state-retained",
+      retainedStore: displayPath(pathsBeforeUpgrade.data?.localStorePath),
+      stateRoot: displayPath(stateRoot)
     }
   };
+  if (args.out) {
+    const outPath = resolve(String(args.out));
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+  }
   console.log(JSON.stringify(evidence, null, 2));
 } finally {
   if (activeDaemon) {
@@ -133,13 +195,18 @@ async function buildLocalProductTarball(artifactDir) {
     "packages/surfaces/cli/src/main.ts",
     "--target=node",
     "--format=esm",
-    "--outfile",
-    binPath
+    "--outdir",
+    binDir,
+    "--entry-naming",
+    "archctx.mjs",
+    "--external=@node-rs/jieba",
+    "--external=@node-rs/jieba/dict.js"
   ], { cwd: root, env: process.env });
   rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
   writeCodeGraphShim(codeGraphBinPath);
   chmodSync(codeGraphBinPath, 0o755);
+  copyReleaseSupportFiles(stageDir);
 
   writeFileSync(join(stageDir, "README.md"), [
     "# archctx",
@@ -169,13 +236,18 @@ async function buildLocalProductTarball(artifactDir) {
     engines: rootManifest.engines,
     files: [
       "bin",
+      "assets",
+      "schemas",
+      "NOTICE.md",
       "README.md"
     ],
     dependencies: {
-      "@colbymchenry/codegraph": rootManifest.dependencies?.["@colbymchenry/codegraph"]
+      "@colbymchenry/codegraph": rootManifest.dependencies?.["@colbymchenry/codegraph"],
+      "@node-rs/jieba": coreManifest.dependencies?.["@node-rs/jieba"]
     }
   }, null, 2), "utf8");
   assertNodeOnlyReleaseRuntime(stageDir, binPath);
+  assertReleaseSupportFiles(stageDir);
 
   const output = await run("npm", ["pack", "--silent", "--pack-destination", artifactDir], {
     cwd: stageDir,
@@ -184,6 +256,24 @@ async function buildLocalProductTarball(artifactDir) {
   const tarballName = output.stdout.trim().split("\n").at(-1);
   assert(tarballName, "npm pack did not return a tarball name");
   return { tarballPath: join(artifactDir, tarballName), stageDir };
+}
+
+function copyReleaseSupportFiles(stageDir) {
+  cpSync(join(root, "packages/core/practice-catalog/assets"), join(stageDir, "assets"), { recursive: true });
+  cpSync(join(root, "schemas"), join(stageDir, "schemas"), { recursive: true });
+  writeFileSync(join(stageDir, "NOTICE.md"), renderNotice(stageDir), "utf8");
+}
+
+function renderNotice(stageDir) {
+  const sources = readSourceRecords(join(stageDir, "assets", "sources"));
+  return [
+    "# archctx Notices",
+    "",
+    "This package includes curated architecture practice assets. The source registry bundled in `assets/sources/` is the authoritative provenance record.",
+    "",
+    ...sources.map((source) => `- ${String(source.name ?? source.id)} (${String(source.id ?? "unknown")}): ${String(source.licenseSpdx ?? "unknown license")}; ${String(source.attribution ?? "missing attribution")}; revision ${String(source.revision ?? "unknown")}.`),
+    ""
+  ].join("\n");
 }
 
 async function installTarball(tarballPath) {
@@ -335,12 +425,14 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
   assert(manifest.engines?.node === rootManifest.engines?.node, "release package must declare the root node engine");
   assert(!("bun" in (manifest.engines ?? {})), "release package must not declare a bun engine");
   assert(manifest.bin?.codegraph === "./bin/codegraph.mjs", "release package must expose the bundled codegraph shim");
+  assert(manifest.dependencies?.["@node-rs/jieba"] === coreManifest.dependencies?.["@node-rs/jieba"], "release package must declare native tokenizer dependency");
 }
 
-function nodeOnlyRuntimeEnv(binDir) {
+function nodeOnlyRuntimeEnv(binDir, stateRoot) {
   return {
     ...process.env,
     DO_NOT_TRACK: "1",
+    ARCHCONTEXT_STATE_DIR: stateRoot,
     PATH: [
       binDir,
       dirname(process.execPath),
@@ -350,6 +442,38 @@ function nodeOnlyRuntimeEnv(binDir) {
       "/sbin"
     ].join(delimiter)
   };
+}
+
+function assertReleaseSupportFiles(packageDir) {
+  for (const file of [...releaseAssetFiles, ...releaseSchemaFiles, "NOTICE.md"]) {
+    assert(existsSync(join(packageDir, file)), `release package missing ${file}`);
+  }
+  const sources = readSourceRecords(join(packageDir, "assets", "sources"));
+  assert(sources.length >= 19, "release package source registry must include S6 sources");
+  const notice = readFileSync(join(packageDir, "NOTICE.md"), "utf8");
+  for (const source of sources) {
+    assert(String(source.contentDigest ?? "").startsWith("sha256:"), `source ${source.id} missing digest`);
+    assert(Boolean(source.licenseSpdx), `source ${source.id} missing license`);
+    assert(Boolean(source.attribution), `source ${source.id} missing attribution`);
+    assert(notice.includes(String(source.attribution)), `NOTICE.md missing attribution for ${source.id}`);
+  }
+}
+
+function readSourceRecords(dir) {
+  return listFiles(dir)
+    .filter((path) => path.endsWith(".yaml") || path.endsWith(".json"))
+    .flatMap((path) => {
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      return Array.isArray(parsed) ? parsed : [parsed];
+    });
+}
+
+function listFiles(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? listFiles(path) : [path];
+  });
 }
 
 function parseArgs(argv) {

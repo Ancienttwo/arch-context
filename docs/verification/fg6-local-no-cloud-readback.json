@@ -4,16 +4,18 @@
   "environment": "local-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-21T18:22:55.345Z",
+  "generatedAt": "2026-06-24T02:09:12.836Z",
   "command": "node scripts/local-no-cloud-e2e.mjs",
   "evidence": {
     "localEvidence": {
       "schemaVersion": "archcontext.local-no-cloud-e2e/v1",
       "commands": [
         "doctor",
+        "paths",
         "mcp install",
         "init",
         "sync",
+        "practices validate",
         "context",
         "prepare",
         "status",
@@ -27,7 +29,7 @@
         "OPENAI_BASE_URL"
       ],
       "git": {
-        "headSha": "66a7baa18b1c49cf4bb14ea2ff04780ce70295e7"
+        "headSha": "f8665bd4948848c3ffed18aaa4834495a72ce4fb"
       },
       "egress": {
         "ok": true,
@@ -58,6 +60,14 @@
         "completeSchemaVersion": "archcontext.review/v1",
         "completeResult": "pass"
       },
+      "practices": {
+        "validation": "strict",
+        "valid": true,
+        "practiceCount": 41,
+        "sourceCount": 19,
+        "profileCount": 8,
+        "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14"
+      },
       "review": {
         "schemaVersion": "archcontext.review/v1",
         "result": "pass",
@@ -65,8 +75,13 @@
         "warnings": 0
       },
       "paths": {
-        "repo": "$TMPDIR/archctx-local-no-cloud-cWz6MB/single-repo-basic",
-        "bin": "/Users/chris/Projects/arch-context/packages/surfaces/cli/bin/archctx"
+        "repo": "$TMPDIR/archctx-local-no-cloud-DvLf5Q/single-repo-basic",
+        "bin": "/Users/ancienttwo/Projects/arch-context/packages/surfaces/cli/src/main.ts",
+        "runtimeStateRoot": "$TMPDIR/archctx-local-no-cloud-DvLf5Q/archcontext-state",
+        "storageRepositoryId": "repo.1258e542f580cd93",
+        "storageWorkspaceId": "ws.17f8ec9803416732",
+        "localStorePath": "$TMPDIR/archctx-local-no-cloud-DvLf5Q/archcontext-state/repositories/repo.1258e542f580cd93/worktrees/ws.17f8ec9803416732/runtime.sqlite",
+        "npmGlobalInstallState": "forbidden"
       }
     },
     "assertions": {

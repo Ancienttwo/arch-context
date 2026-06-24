@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   buildNpmReleaseDryRunReadback,
   inspectNpmReleaseDryRun
@@ -6,6 +9,7 @@ import {
 
 describe("fg6 npm release dry-run", () => {
   test("accepts a publishable archctx dry-run artifact", () => {
+    const stageDir = createReleaseStageFixture();
     const recording = buildNpmReleaseDryRunReadback({
       rootManifest: {
         name: "archcontext",
@@ -20,9 +24,13 @@ describe("fg6 npm release dry-run", () => {
         license: "UNLICENSED",
         engines: { node: ">=24 <26" },
         bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
+        dependencies: {
+          "@colbymchenry/codegraph": "1.0.1",
+          "@node-rs/jieba": "^2.0.1"
+        },
         publishConfig: { registry: "https://registry.npmjs.org/" }
       },
-      stageDir: "/tmp/archctx-stage",
+      stageDir,
       artifactDir: "/tmp/archctx-artifact",
       pack: [
         {
@@ -38,10 +46,23 @@ describe("fg6 npm release dry-run", () => {
         shasum: "abc",
         size: 100,
         unpackedSize: 200,
-        entryCount: 4,
+        entryCount: 16,
         files: [
           { path: "bin/archctx.mjs" },
           { path: "bin/codegraph.mjs" },
+          { path: "assets/catalog.yaml" },
+          { path: "assets/practices/s6-expanded.yaml" },
+          { path: "assets/profiles/s6.yaml" },
+          { path: "assets/sources/core.yaml" },
+          { path: "assets/sources/s6.yaml" },
+          { path: "schemas/repo/practices/practice.schema.json" },
+          { path: "schemas/repo/practices/practice-source.schema.json" },
+          { path: "schemas/repo/practices/practice-profile.schema.json" },
+          { path: "schemas/runtime/practice-catalog-manifest.schema.json" },
+          { path: "schemas/runtime/practice-match.schema.json" },
+          { path: "schemas/runtime/practice-guidance.schema.json" },
+          { path: "schemas/runtime/practice-checkpoint.schema.json" },
+          { path: "NOTICE.md" },
           { path: "README.md" },
           { path: "package.json" }
         ]
@@ -52,8 +73,10 @@ describe("fg6 npm release dry-run", () => {
     expect(recording.status).toBe("verified");
     expect(recording.ok).toBe(true);
     expect(recording.package.name).toBe("archctx");
+    expect(recording.releaseAssets.sourceRecordCount).toBe(1);
     expect(recording.rollout.postPublishInstallCommand).toBe("npm install -g archctx@0.1.0");
     expect(inspectNpmReleaseDryRun(recording)).toEqual({ ok: true, failures: [] });
+    rmSync(stageDir, { recursive: true, force: true });
   });
 
   test("rejects repository source publication and wrong package name", () => {
@@ -72,6 +95,9 @@ describe("fg6 npm release dry-run", () => {
         engines: { node: ">=24 <26", bun: ">=1.3.10" },
         repository: { type: "git", url: "git+https://github.com/Ancienttwo/arch-context.git" },
         bin: { archctx: "./bin/archctx.mjs" },
+        dependencies: {
+          "@colbymchenry/codegraph": "1.0.1"
+        },
         publishConfig: { registry: "https://registry.npmjs.org/" }
       },
       stageDir: "/tmp/archctx-stage",
@@ -105,3 +131,37 @@ describe("fg6 npm release dry-run", () => {
     expect(result.failures).toContain("dry-run must be verified ok");
   });
 });
+
+function createReleaseStageFixture() {
+  const stageDir = mkdtempSync(join(tmpdir(), "archctx-release-stage-test-"));
+  const files = [
+    "assets/practices/s6-expanded.yaml",
+    "assets/profiles/s6.yaml",
+    "schemas/repo/practices/practice.schema.json",
+    "schemas/repo/practices/practice-source.schema.json",
+    "schemas/repo/practices/practice-profile.schema.json",
+    "schemas/runtime/practice-catalog-manifest.schema.json",
+    "schemas/runtime/practice-match.schema.json",
+    "schemas/runtime/practice-guidance.schema.json",
+    "schemas/runtime/practice-checkpoint.schema.json"
+  ];
+  for (const file of files) {
+    mkdirSync(join(stageDir, file, ".."), { recursive: true });
+    writeFileSync(join(stageDir, file), "{}\n", "utf8");
+  }
+  mkdirSync(join(stageDir, "assets", "sources"), { recursive: true });
+  writeFileSync(join(stageDir, "assets", "catalog.yaml"), "{}\n", "utf8");
+  writeFileSync(join(stageDir, "assets", "sources", "core.yaml"), JSON.stringify([{
+    id: "archcontext.spec",
+    name: "ArchContext Product Specification",
+    revision: "2026-06-23",
+    licenseSpdx: "LicenseRef-ArchContext-Repo",
+    licenseLevel: "A",
+    usagePolicy: "repo-authored",
+    contentDigest: `sha256:${"1".repeat(64)}`,
+    attribution: "ArchContext maintainers"
+  }], null, 2), "utf8");
+  writeFileSync(join(stageDir, "assets", "sources", "s6.yaml"), "[]\n", "utf8");
+  writeFileSync(join(stageDir, "NOTICE.md"), "ArchContext maintainers\n", "utf8");
+  return stageDir;
+}

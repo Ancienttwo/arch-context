@@ -4,7 +4,7 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-23T10:07:41.772Z",
+  "generatedAt": "2026-06-24T02:11:46.841Z",
   "package": {
     "name": "archctx",
     "version": "0.1.3",
@@ -19,6 +19,10 @@
       "archctx": "./bin/archctx.mjs",
       "codegraph": "./bin/codegraph.mjs"
     },
+    "dependencies": {
+      "@colbymchenry/codegraph": "1.0.1",
+      "@node-rs/jieba": "^2.0.1"
+    },
     "publishConfig": {
       "registry": "https://registry.npmjs.org/"
     }
@@ -27,17 +31,157 @@
     "artifactDir": "_ops/npm/fg6-release-dry-run",
     "tarball": "archctx-0.1.3.tgz",
     "publishDryRunId": "archctx@0.1.3",
-    "integrity": "sha512-wdq0y+Z5uQ55BTg2yuzenjo7yPJg/pU5IAL3EAC4Cb/KPOwJxN8hQgRyf18yAHesPjSMoJa2kRXc/4SAzajHIA==",
-    "shasum": "900efadb8f3e148b67876eeda37ddffebd466d71",
-    "size": 103813,
-    "unpackedSize": 511024,
-    "entryCount": 4,
+    "integrity": "sha512-0W1TxUAe61mPogrAKPIjCooiepNmK4YW8XFNiXiyhmIeQFF/4hvW1qbHH097zzY9vEhgsOb31oduuKn/1iHz4g==",
+    "shasum": "f7f7d7764bdedc907ed123d5492fa5a7897171b3",
+    "size": 178484,
+    "unpackedSize": 910918,
+    "entryCount": 66,
     "files": [
+      "NOTICE.md",
       "README.md",
+      "assets/catalog.yaml",
+      "assets/practices/api.contract-before-implementation.yaml",
+      "assets/practices/compatibility.expiry-contract.yaml",
+      "assets/practices/compatibility.single-owner.yaml",
+      "assets/practices/data.single-authoritative-model.yaml",
+      "assets/practices/decision.record-significant-change.yaml",
+      "assets/practices/migration.target-and-removal-state.yaml",
+      "assets/practices/modularity.no-new-cycle.yaml",
+      "assets/practices/modularity.respect-dependency-direction.yaml",
+      "assets/practices/observability.boundary-telemetry.yaml",
+      "assets/practices/ownership.explicit-lifecycle-owner.yaml",
+      "assets/practices/s6-expanded.yaml",
+      "assets/practices/security.least-privilege.yaml",
+      "assets/practices/supply-chain.pinned-dependencies.yaml",
+      "assets/profiles/s6.yaml",
+      "assets/README.md",
+      "assets/sources/core.yaml",
+      "assets/sources/s6.yaml",
       "bin/archctx.mjs",
       "bin/codegraph.mjs",
-      "package.json"
+      "package.json",
+      "schemas/cloud/attestation-v2.schema.json",
+      "schemas/cloud/attestation.schema.json",
+      "schemas/cloud/check-delivery.schema.json",
+      "schemas/cloud/cloud-egress-envelope.schema.json",
+      "schemas/cloud/device-identity.schema.json",
+      "schemas/cloud/entitlement.schema.json",
+      "schemas/cloud/governance-key-status.schema.json",
+      "schemas/cloud/org-runner-identity.schema.json",
+      "schemas/cloud/review-challenge-v2.schema.json",
+      "schemas/cloud/runner-identity.schema.json",
+      "schemas/integrations/adapter-fidelity.schema.json",
+      "schemas/integrations/chatgpt-ga-tool.schema.json",
+      "schemas/integrations/likec4-mapping.schema.json",
+      "schemas/integrations/structurizr-mapping.schema.json",
+      "schemas/repo/architecture-intervention.schema.json",
+      "schemas/repo/architecture-node.schema.json",
+      "schemas/repo/architecture-relation.schema.json",
+      "schemas/repo/compatibility-contract.schema.json",
+      "schemas/repo/constraint.schema.json",
+      "schemas/repo/cross-repo-relation.schema.json",
+      "schemas/repo/landscape.schema.json",
+      "schemas/repo/practices/practice-policy.schema.json",
+      "schemas/repo/practices/practice-profile.schema.json",
+      "schemas/repo/practices/practice-source.schema.json",
+      "schemas/repo/practices/practice-waiver.schema.json",
+      "schemas/repo/practices/practice.schema.json",
+      "schemas/runtime/changeset.schema.json",
+      "schemas/runtime/explorer-projection.schema.json",
+      "schemas/runtime/explorer-service.schema.json",
+      "schemas/runtime/external-document-resource.schema.json",
+      "schemas/runtime/notification-event.schema.json",
+      "schemas/runtime/notification-provider.schema.json",
+      "schemas/runtime/practice-catalog-manifest.schema.json",
+      "schemas/runtime/practice-check-result.schema.json",
+      "schemas/runtime/practice-checkpoint.schema.json",
+      "schemas/runtime/practice-guidance.schema.json",
+      "schemas/runtime/practice-match.schema.json",
+      "schemas/runtime/product-version-manifest.schema.json",
+      "schemas/runtime/retrieval-config.schema.json",
+      "schemas/runtime/retrieval-decision.schema.json",
+      "schemas/runtime/retrieval-eval.schema.json",
+      "schemas/runtime/review-result.schema.json",
+      "schemas/runtime/task-context.schema.json"
     ]
+  },
+  "releaseAssets": {
+    "assetRoot": "assets",
+    "schemaRoot": "schemas",
+    "practiceFileCount": 13,
+    "profileFileCount": 1,
+    "sourceFileCount": 2,
+    "sourceRecordCount": 19,
+    "schemaFileCount": 43,
+    "requiredAssetFiles": [
+      {
+        "path": "assets/catalog.yaml",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "assets/practices/s6-expanded.yaml",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "assets/profiles/s6.yaml",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "assets/sources/core.yaml",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "assets/sources/s6.yaml",
+        "packaged": true,
+        "staged": true
+      }
+    ],
+    "requiredSchemaFiles": [
+      {
+        "path": "schemas/repo/practices/practice.schema.json",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "schemas/repo/practices/practice-source.schema.json",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "schemas/repo/practices/practice-profile.schema.json",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "schemas/runtime/practice-catalog-manifest.schema.json",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "schemas/runtime/practice-match.schema.json",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "schemas/runtime/practice-guidance.schema.json",
+        "packaged": true,
+        "staged": true
+      },
+      {
+        "path": "schemas/runtime/practice-checkpoint.schema.json",
+        "packaged": true,
+        "staged": true
+      }
+    ],
+    "sourcesMissingAttribution": [],
+    "sourcesMissingDigest": [],
+    "sourcesMissingLicense": [],
+    "noticeFile": "NOTICE.md",
+    "noticeMentionsAllAttribution": true
   },
   "rollout": {
     "postPublishInstallCommand": "npm install -g archctx@0.1.3",
@@ -49,6 +193,7 @@
     "packagePublishable": true,
     "nodeRuntimeDeclared": true,
     "noBunRuntimeDeclared": true,
+    "nativeTokenizerDependencyDeclared": true,
     "homeUrlCorrect": true,
     "noSourceRepositoryUrl": true,
     "binExposesArchctx": true,
@@ -56,6 +201,11 @@
     "publishRegistryCorrect": true,
     "npmPackProducedTarball": true,
     "publishDryRunSucceeded": true,
+    "packageContentsIncludePracticeCatalog": true,
+    "packageContentsIncludePracticeSchemas": true,
+    "packageContentsIncludeAttributionNotice": true,
+    "releaseAssetsProvenanceComplete": true,
+    "context7OptionalNotRequired": true,
     "packageContentsBounded": true
   },
   "failures": []

@@ -3,8 +3,9 @@
 ## Status
 
 This document is the S6 release-gate evidence ledger. The catalog-scale,
-eval/quality, and performance/reliability gates are verified; packaging,
-cross-platform, docs, rollout, and release gates remain pending.
+eval/quality, performance/reliability, package-manifest, local no-cloud, and
+local tarball lifecycle gates are verified; cross-platform CI matrix, docs,
+rollout, and final release gates remain pending.
 
 ## Catalog Scale Gate
 
@@ -247,12 +248,87 @@ extension is the smallest coherent contract change because checkpoint already
 records both current and baseline catalog digests; it only makes the mismatch
 machine-visible.
 
+## Packaging And Local Product Gate
+
+### P1 Map
+
+The packaging boundary is the generated one-package `archctx` tarball, not the
+workspace checkout or private workspace packages.
+
+- Release stage builder:
+  `scripts/fg6-npm-release-dry-run.ts`
+- Installed product smoke:
+  `scripts/local-product-tarball-smoke.mjs`
+- Local no-cloud first-experience readback:
+  `scripts/fg6-local-no-cloud-readback.ts` and
+  `scripts/local-no-cloud-e2e.mjs`
+- Practice assets:
+  `packages/core/practice-catalog/assets/`
+- JSON schemas:
+  `schemas/`
+- Release evidence:
+  `docs/verification/fg6-npm-release-dry-run.json`,
+  `docs/verification/fg6-local-product-tarball-smoke.json`, and
+  `docs/verification/fg6-local-no-cloud-readback.json`
+
+Out of scope for this slice: README/runbook docs, rollout flags, live npm
+publish, and final three-OS PR CI readback.
+
+### P2 Trace
+
+The verified path is:
+
+1. The release stage builds `packages/surfaces/cli/src/main.ts` into
+   `bin/archctx.mjs` with a Node shebang. `@node-rs/jieba` is externalized and
+   declared as a runtime dependency so native tokenizer bindings resolve from
+   npm rather than from the checkout.
+2. The stage copies the built-in practice catalog to `assets/`, copies JSON
+   schemas to `schemas/`, and generates `NOTICE.md` from the bundled source
+   registry.
+3. `npm pack --json` and `npm pack --dry-run --json` produce the distribution
+   manifest. The inspector fails if catalog files, source registry files,
+   required schemas, attribution notice, source license, source digest, or
+   source attribution are missing.
+4. The installed tarball smoke installs the generated tarball into a temporary
+   npm project, hides Bun from `PATH`, runs the installed `archctx` bin, starts
+   the loopback daemon, runs `init -> sync -> practices validate -> prepare`,
+   exercises MCP tools, reinstalls the tarball as an upgrade simulation, then
+   uninstalls the package while verifying runtime state remains outside the
+   package install directory.
+5. The local no-cloud E2E runs
+   `doctor -> paths -> mcp install -> init -> sync -> practices validate ->
+   context -> prepare -> status -> checkpoint -> complete -> review` with
+   GitHub, Cloud, and LLM provider env removed.
+
+The output side effects record 66 release tarball entries, 13 practice files, 1
+profile file, 19 source records, 43 schema files, zero missing attribution,
+zero missing digests, zero missing license records, strict installed catalog
+validation with 41 practices / 19 sources / 8 profiles, and retained runtime
+state after uninstall.
+
+### P3 Decision
+
+The product boundary is a Node-only local CLI distribution. It must not depend
+on the workspace, Bun, GitHub App, Cloud account, LLM provider, or Context7 for
+Local Core. The non-obvious packaging constraint is the native Chinese
+tokenizer: bundling it into one file breaks platform native binding resolution,
+so the release keeps `@node-rs/jieba` as an explicit npm dependency while still
+excluding Context7 from required dependencies.
+
+At 10x scale, the first packaging failure would be a manifest omission: a
+checkout smoke could pass while the tarball lacks assets, schemas, or notices.
+The chosen gate makes the tarball manifest authoritative and checks installed
+runtime behavior from the generated package, which is the smallest coherent
+change because it reuses the existing release stage instead of adding a second
+packaging path.
+
 ## Verified Commands
 
 - `bun test packages/core/practice-catalog/test/practice-catalog.test.ts`
 - `bun test scripts/practice-assets-s6-catalog-readback.test.ts`
 - `bun test scripts/practice-assets-s6-eval-readback.test.ts`
 - `bun test scripts/practice-assets-s6-runtime-readback.test.ts`
+- `bun test scripts/fg6-npm-release-dry-run.test.ts scripts/fg6-local-no-cloud-readback.test.ts`
 - `bun test packages/core/application/test/control-loop.test.ts packages/contracts/test/contracts.test.ts`
 - `bun run record:s6:catalog`
 - `bun run readback:s6:catalog`
@@ -260,6 +336,11 @@ machine-visible.
 - `bun run readback:s6:eval`
 - `bun run record:s6:runtime`
 - `bun run readback:s6:runtime`
+- `bun run readback:fg6:npm-release-dry-run`
+- `bun scripts/fg6-npm-release-dry-run.ts inspect --evidence docs/verification/fg6-npm-release-dry-run.json --json`
+- `bun run readback:fg6:local-no-cloud`
+- `bun scripts/fg6-local-no-cloud-readback.ts inspect --evidence docs/verification/fg6-local-no-cloud-readback.json --json`
+- `bun run readback:fg6:local-product-tarball`
 - `bun packages/surfaces/cli/src/main.ts practices validate --strict`
 - `bun run verify:practices`
 - `bun evals/run.ts --check`
@@ -269,6 +350,6 @@ machine-visible.
 
 ## Pending S6 Gates
 
-- Packaging and cross-platform gates: S6-29 through S6-33.
+- Cross-platform PR CI matrix: S6-30 and S6-EG3.
 - Documentation, operations, rollout, and final release signoff: S6-34 through
-  S6-40 and S6-EG2 through S6-EG7.
+  S6-40 and S6-EG5 through S6-EG7.

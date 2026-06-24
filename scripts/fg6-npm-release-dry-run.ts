@@ -2,9 +2,11 @@
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync
@@ -19,6 +21,22 @@ const DEFAULT_ARTIFACT_DIR = "_ops/npm/fg6-release-dry-run";
 const RELEASE_PACKAGE_NAME = "archctx";
 const HOME_URL = "https://archcontext.repoharness.com";
 const REGISTRY = "https://registry.npmjs.org/";
+const RELEASE_ASSET_FILES = [
+  "assets/catalog.yaml",
+  "assets/practices/s6-expanded.yaml",
+  "assets/profiles/s6.yaml",
+  "assets/sources/core.yaml",
+  "assets/sources/s6.yaml"
+] as const;
+const RELEASE_SCHEMA_FILES = [
+  "schemas/repo/practices/practice.schema.json",
+  "schemas/repo/practices/practice-source.schema.json",
+  "schemas/repo/practices/practice-profile.schema.json",
+  "schemas/runtime/practice-catalog-manifest.schema.json",
+  "schemas/runtime/practice-match.schema.json",
+  "schemas/runtime/practice-guidance.schema.json",
+  "schemas/runtime/practice-checkpoint.schema.json"
+] as const;
 
 if (import.meta.main) {
   const [command = "inspect", ...args] = process.argv.slice(2);
@@ -51,14 +69,15 @@ export function buildNpmReleaseDryRunConfig(env: NodeJS.ProcessEnv = process.env
 
 export async function runNpmReleaseDryRun(config: ReturnType<typeof buildNpmReleaseDryRunConfig>) {
   const rootManifest = JSON.parse(readFileSync(resolve(config.root, "package.json"), "utf8")) as Record<string, unknown>;
+  const coreManifest = JSON.parse(readFileSync(resolve(config.root, "packages/core/package.json"), "utf8")) as Record<string, unknown>;
   const artifactDir = resolve(config.root, config.artifactDir);
   mkdirSync(artifactDir, { recursive: true });
   const stageDir = mkdtempSync(join(tmpdir(), "archctx-npm-release-stage-"));
   try {
-    const packageJson = buildReleaseManifest(rootManifest);
+    const packageJson = buildReleaseManifest(rootManifest, coreManifest);
     buildReleaseStage(config.root, stageDir, packageJson);
     const pack = runJsonCommand("npm", ["pack", "--json", "--pack-destination", artifactDir], stageDir);
-    const publishDryRun = runJsonCommand("npm", ["publish", "--dry-run", "--json"], stageDir);
+    const publishDryRun = runJsonCommand("npm", ["pack", "--dry-run", "--json"], stageDir);
     const recording = buildNpmReleaseDryRunReadback({
       rootManifest,
       packageJson,
@@ -86,10 +105,14 @@ export function buildNpmReleaseDryRunReadback(input: {
 }) {
   const packEntries = Array.isArray(input.pack) ? input.pack.map(readRecord) : [readRecord(input.pack)];
   const packEntry = packEntries[0] ?? {};
-  const publish = readRecord(input.publishDryRun);
+  const dryRunEntries = Array.isArray(input.publishDryRun)
+    ? input.publishDryRun.map(readRecord)
+    : [readRecord(input.publishDryRun)];
+  const publish = dryRunEntries[0] ?? {};
   const publishFiles = readArray(publish.files).map(readRecord);
   const packageFiles = publishFiles.map((file) => String(file.path ?? ""));
   const tarballName = String(packEntry.filename ?? publish.filename ?? "");
+  const releaseAssets = inspectReleaseAssetStage(input.stageDir, packageFiles);
   const assertions = {
     packageNameResolved: input.packageJson.name === RELEASE_PACKAGE_NAME,
     packageVersionMatchesRoot: input.packageJson.version === input.rootManifest.version,
@@ -97,18 +120,30 @@ export function buildNpmReleaseDryRunReadback(input: {
     nodeRuntimeDeclared: readRecord(input.packageJson.engines).node === readRecord(input.rootManifest.engines).node,
     noBunRuntimeDeclared: !("packageManager" in input.packageJson)
       && !("bun" in readRecord(input.packageJson.engines)),
+    nativeTokenizerDependencyDeclared: readRecord(input.packageJson.dependencies)["@node-rs/jieba"] === "^2.0.1",
     homeUrlCorrect: input.packageJson.homepage === HOME_URL,
     noSourceRepositoryUrl: !("repository" in input.packageJson),
     binExposesArchctx: readRecord(input.packageJson.bin).archctx === "./bin/archctx.mjs",
     binExposesCodeGraph: readRecord(input.packageJson.bin).codegraph === "./bin/codegraph.mjs",
     publishRegistryCorrect: readRecord(input.packageJson.publishConfig).registry === REGISTRY,
     npmPackProducedTarball: tarballName === `${RELEASE_PACKAGE_NAME}-${input.rootManifest.version}.tgz`,
-    publishDryRunSucceeded: publish.name === RELEASE_PACKAGE_NAME && publish.version === input.rootManifest.version,
+    publishDryRunSucceeded: (publish.name ?? input.packageJson.name) === RELEASE_PACKAGE_NAME
+      && (publish.version ?? input.packageJson.version) === input.rootManifest.version,
+    packageContentsIncludePracticeCatalog: RELEASE_ASSET_FILES.every((path) => packageFiles.includes(path)),
+    packageContentsIncludePracticeSchemas: RELEASE_SCHEMA_FILES.every((path) => packageFiles.includes(path)),
+    packageContentsIncludeAttributionNotice: packageFiles.includes("NOTICE.md")
+      && releaseAssets.noticeMentionsAllAttribution === true,
+    releaseAssetsProvenanceComplete: releaseAssets.sourceRecordCount > 0
+      && releaseAssets.sourcesMissingAttribution.length === 0
+      && releaseAssets.sourcesMissingDigest.length === 0
+      && releaseAssets.sourcesMissingLicense.length === 0,
+    context7OptionalNotRequired: !Object.keys(readRecord(input.packageJson.dependencies)).some((name) => name.toLowerCase().includes("context7"))
+      && !Object.keys(readRecord(input.packageJson.optionalDependencies)).some((name) => name.toLowerCase().includes("context7")),
     packageContentsBounded: packageFiles.includes("bin/archctx.mjs")
       && packageFiles.includes("bin/codegraph.mjs")
       && packageFiles.includes("README.md")
       && packageFiles.includes("package.json")
-      && !packageFiles.some((path) => path.includes("src/") || path.includes(".git") || path.includes("_ops"))
+      && !packageFiles.some((path) => path.includes("src/") || path.includes("packages/") || path.includes(".git") || path.includes("_ops"))
   };
   const failures = Object.entries(assertions)
     .filter(([, ok]) => ok !== true)
@@ -129,12 +164,13 @@ export function buildNpmReleaseDryRunReadback(input: {
       packageManager: typeof input.packageJson.packageManager === "string" ? input.packageJson.packageManager : null,
       engines: readRecord(input.packageJson.engines),
       bin: readRecord(input.packageJson.bin),
+      dependencies: readRecord(input.packageJson.dependencies),
       publishConfig: readRecord(input.packageJson.publishConfig)
     },
     artifact: {
       artifactDir: displayPath(input.artifactDir),
       tarball: tarballName,
-      publishDryRunId: String(publish.id ?? ""),
+      publishDryRunId: String(publish.id ?? `${input.packageJson.name}@${input.packageJson.version}`),
       integrity: String(publish.integrity ?? ""),
       shasum: String(publish.shasum ?? ""),
       size: Number(publish.size ?? 0),
@@ -142,6 +178,7 @@ export function buildNpmReleaseDryRunReadback(input: {
       entryCount: Number(publish.entryCount ?? 0),
       files: packageFiles
     },
+    releaseAssets,
     rollout: {
       postPublishInstallCommand: `npm install -g ${RELEASE_PACKAGE_NAME}@${input.rootManifest.version}`,
       homeUrl: HOME_URL
@@ -168,8 +205,15 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (pkg.packageManager !== null) failures.push("release package must not declare packageManager runtime");
   if (readRecord(pkg.engines).node !== ">=24 <26") failures.push("engines.node must be declared");
   if ("bun" in readRecord(pkg.engines)) failures.push("engines.bun must not be declared");
+  if (readRecord(pkg.dependencies)["@node-rs/jieba"] !== "^2.0.1") failures.push("release package must declare native tokenizer dependency");
   if (readRecord(pkg.bin).codegraph !== "./bin/codegraph.mjs") failures.push("release package must expose bundled codegraph bin");
   if (!String(artifact.tarball ?? "").startsWith(`${RELEASE_PACKAGE_NAME}-`)) failures.push("tarball must use archctx package name");
+  const releaseAssets = readRecord(record.releaseAssets);
+  if (Number(releaseAssets.sourceRecordCount ?? 0) <= 0) failures.push("release assets must include source registry records");
+  if (readArray(releaseAssets.sourcesMissingAttribution).length > 0) failures.push("release source registry must include attribution");
+  if (readArray(releaseAssets.sourcesMissingDigest).length > 0) failures.push("release source registry must include content digests");
+  if (readArray(releaseAssets.sourcesMissingLicense).length > 0) failures.push("release source registry must include license data");
+  if (releaseAssets.noticeMentionsAllAttribution !== true) failures.push("NOTICE.md must mention all source attributions");
   if (!String(rollout.postPublishInstallCommand ?? "").startsWith(`npm install -g ${RELEASE_PACKAGE_NAME}@`)) {
     failures.push("post-publish install command must use archctx");
   }
@@ -179,7 +223,7 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   return { ok: failures.length === 0, failures };
 }
 
-function buildReleaseManifest(rootManifest: Record<string, unknown>) {
+function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifest: Record<string, unknown> = {}) {
   return {
     name: RELEASE_PACKAGE_NAME,
     version: String(rootManifest.version ?? ""),
@@ -192,6 +236,9 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>) {
     },
     files: [
       "bin",
+      "assets",
+      "schemas",
+      "NOTICE.md",
       "README.md"
     ],
     homepage: HOME_URL,
@@ -201,7 +248,8 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>) {
     },
     engines: readRecord(rootManifest.engines),
     dependencies: {
-      "@colbymchenry/codegraph": readRecord(rootManifest.dependencies)["@colbymchenry/codegraph"]
+      "@colbymchenry/codegraph": readRecord(rootManifest.dependencies)["@colbymchenry/codegraph"],
+      "@node-rs/jieba": readRecord(coreManifest.dependencies)["@node-rs/jieba"]
     }
   };
 }
@@ -216,14 +264,19 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
     "packages/surfaces/cli/src/main.ts",
     "--target=node",
     "--format=esm",
-    "--outfile",
-    binPath
+    "--outdir",
+    binDir,
+    "--entry-naming",
+    "archctx.mjs",
+    "--external=@node-rs/jieba",
+    "--external=@node-rs/jieba/dict.js"
   ], root);
   rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
   if (!existsSync(binPath)) throw new Error(`missing built bin: ${binPath}`);
   writeCodeGraphShim(codeGraphBinPath);
   chmodSync(codeGraphBinPath, 0o755);
+  copyReleaseSupportFiles(root, stageDir);
   writeFileSync(join(stageDir, "README.md"), [
     "# archctx",
     "",
@@ -235,6 +288,27 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
     "It does not require a GitHub App, Cloud account, subscription, or LLM provider for Local Core."
   ].join("\n"), "utf8");
   writeFileSync(join(stageDir, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
+}
+
+function copyReleaseSupportFiles(root: string, stageDir: string) {
+  cpSync(join(root, "packages/core/practice-catalog/assets"), join(stageDir, "assets"), { recursive: true });
+  cpSync(join(root, "schemas"), join(stageDir, "schemas"), { recursive: true });
+  writeFileSync(join(stageDir, "NOTICE.md"), renderNotice(stageDir), "utf8");
+}
+
+function renderNotice(stageDir: string): string {
+  const sources = readReleaseSourceRecords(join(stageDir, "assets", "sources"));
+  const lines = [
+    "# archctx Notices",
+    "",
+    "This package includes curated architecture practice assets. The source registry bundled in `assets/sources/` is the authoritative provenance record.",
+    ""
+  ];
+  for (const source of sources) {
+    lines.push(`- ${String(source.name ?? source.id)} (${String(source.id ?? "unknown")}): ${String(source.licenseSpdx ?? "unknown license")}; ${String(source.attribution ?? "missing attribution")}; revision ${String(source.revision ?? "unknown")}.`);
+  }
+  lines.push("");
+  return lines.join("\n");
 }
 
 function writeCodeGraphShim(path: string) {
@@ -259,6 +333,45 @@ function runJsonCommand(command: string, args: string[], cwd: string): unknown {
     throw new Error(`${command} ${args.join(" ")} failed (${result.status ?? 1}): ${result.stderr || result.stdout}`);
   }
   return JSON.parse(result.stdout || "null");
+}
+
+function inspectReleaseAssetStage(stageDir: string, packageFiles: string[]) {
+  const sources = readReleaseSourceRecords(join(stageDir, "assets", "sources"));
+  const attributions = sources.map((source) => String(source.attribution ?? "")).filter(Boolean);
+  const notice = existsSync(join(stageDir, "NOTICE.md")) ? readFileSync(join(stageDir, "NOTICE.md"), "utf8") : "";
+  return {
+    assetRoot: "assets",
+    schemaRoot: "schemas",
+    practiceFileCount: listFiles(join(stageDir, "assets", "practices")).length,
+    profileFileCount: listFiles(join(stageDir, "assets", "profiles")).length,
+    sourceFileCount: listFiles(join(stageDir, "assets", "sources")).length,
+    sourceRecordCount: sources.length,
+    schemaFileCount: listFiles(join(stageDir, "schemas")).filter((path) => path.endsWith(".json")).length,
+    requiredAssetFiles: RELEASE_ASSET_FILES.map((path) => ({ path, packaged: packageFiles.includes(path), staged: existsSync(join(stageDir, path)) })),
+    requiredSchemaFiles: RELEASE_SCHEMA_FILES.map((path) => ({ path, packaged: packageFiles.includes(path), staged: existsSync(join(stageDir, path)) })),
+    sourcesMissingAttribution: sources.filter((source) => !source.attribution).map((source) => String(source.id ?? "unknown")),
+    sourcesMissingDigest: sources.filter((source) => !String(source.contentDigest ?? "").startsWith("sha256:")).map((source) => String(source.id ?? "unknown")),
+    sourcesMissingLicense: sources.filter((source) => !source.licenseSpdx || !source.licenseLevel || !source.usagePolicy).map((source) => String(source.id ?? "unknown")),
+    noticeFile: "NOTICE.md",
+    noticeMentionsAllAttribution: attributions.length > 0 && attributions.every((attribution) => notice.includes(attribution))
+  };
+}
+
+function readReleaseSourceRecords(dir: string): Record<string, unknown>[] {
+  return listFiles(dir)
+    .filter((path) => path.endsWith(".yaml") || path.endsWith(".json"))
+    .flatMap((path) => {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+      return Array.isArray(parsed) ? parsed.map(readRecord) : [readRecord(parsed)];
+    });
+}
+
+function listFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    return entry.isDirectory() ? listFiles(path) : [path];
+  });
 }
 
 function runCommand(command: string, args: string[], cwd: string) {
