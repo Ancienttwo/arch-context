@@ -1216,24 +1216,24 @@ evaluation, packaging, and release gates.
 
 ### Eval 数据集
 
-- [ ] S6-08 建立至少 120 个代表性场景：正例 ≥ 60、负例 ≥ 60。
-- [ ] S6-09 中文场景占比 ≥ 25%，包含自然语言改写、同义词和混合中英文代码词。
-- [ ] S6-10 至少 30 个 no-keyword structural positives。
-- [ ] S6-11 至少 30 个 keyword-heavy benign negatives。
-- [ ] S6-12 至少 20 个 enforcement/waiver adversarial cases。
-- [ ] S6-13 至少 20 个 budget/irrelevant resource cases。
-- [ ] S6-14 数据集记录 expected practice IDs、expected evidence minimum、prohibited IDs、expected enforcement ceiling。
+- [x] S6-08 建立至少 120 个代表性场景：正例 ≥ 60、负例 ≥ 60。
+- [x] S6-09 中文场景占比 ≥ 25%，包含自然语言改写、同义词和混合中英文代码词。
+- [x] S6-10 至少 30 个 no-keyword structural positives。
+- [x] S6-11 至少 30 个 keyword-heavy benign negatives。
+- [x] S6-12 至少 20 个 enforcement/waiver adversarial cases。
+- [x] S6-13 至少 20 个 budget/irrelevant resource cases。
+- [x] S6-14 数据集记录 expected practice IDs、expected evidence minimum、prohibited IDs、expected enforcement ceiling。
 
 ### 质量指标
 
-- [ ] S6-15 Practice Top-3 recall ≥ 92%。
-- [ ] S6-16 Constraint recall ≥ 95%。
-- [ ] S6-17 Irrelevant ratio ≤ 15%。
-- [ ] S6-18 Benign precision ≥ 95%。
-- [ ] S6-19 No-keyword structural recall ≥ 85%。
-- [ ] S6-20 Heuristic-only hard-gate rate = 0%。
-- [ ] S6-21 Dynamic-doc hard-gate rate = 0%。
-- [ ] S6-22 Waiver invalid/tampered rejection = 100%。
+- [x] S6-15 Practice Top-3 recall ≥ 92%。
+- [x] S6-16 Constraint recall ≥ 95%。
+- [x] S6-17 Irrelevant ratio ≤ 15%。
+- [x] S6-18 Benign precision ≥ 95%。
+- [x] S6-19 No-keyword structural recall ≥ 85%。
+- [x] S6-20 Heuristic-only hard-gate rate = 0%。
+- [x] S6-21 Dynamic-doc hard-gate rate = 0%。
+- [x] S6-22 Waiver invalid/tampered rejection = 100%。
 
 ### 性能与可靠性
 
@@ -1319,8 +1319,37 @@ Completed the S6 catalog-scale slice on branch
   `bun run verify:practices`, `bun evals/run.ts --check`, `bun run typecheck`,
   `git diff --check`, and `bun run verify`.
 
-S6-01 through S6-07 are complete. S6-08 through S6-40 and S6-EG1 through S6-EG7
-remain open.
+At the end of the catalog-scale slice, S6-01 through S6-07 were complete and
+S6-08 through S6-40 plus S6-EG1 through S6-EG7 remained open.
+
+## 14.7 Execution Record — 2026-06-24
+
+Completed the S6 eval dataset and quality-gate slice on branch
+`codex/practice-assets-s6-eval-dataset`.
+
+- Dataset: 60 positive practice cases, 80 negative practice cases, and 20
+  enforcement/waiver adversarial cases.
+- Coverage: 50/160 scenarios are Chinese or mixed Chinese/English; the dataset
+  includes 30 no-keyword structural positives, 30 keyword-heavy benign
+  negatives, 20 budget/irrelevant resource cases, and 20 enforcement/waiver
+  adversarial cases.
+- Labels: every practice dataset record carries expected practice IDs, expected
+  evidence minimum, prohibited IDs, and expected enforcement ceiling. Readback
+  records zero metadata, prohibited-ID, evidence-minimum, and
+  enforcement-ceiling violations.
+- Quality metrics: Practice Top-3 recall 100.0%, context constraint recall
+  100.0%, irrelevant ratio 4.4%, benign precision 100.0%, no-keyword structural
+  recall 100.0%, heuristic-only hard-gate rate 0.0%, dynamic-doc hard-gate rate
+  0.0%, and invalid/tampered waiver rejection 100.0%.
+- Evidence: `docs/verification/m6-representative-eval-report.md`,
+  `docs/verification/practice-assets-s6-eval-readback.json`, and
+  `docs/verification/practice-assets-s6-release-gate.md`.
+- Verified: `bun test scripts/practice-assets-s6-eval-readback.test.ts`,
+  `bun run record:s6:eval`, `bun run readback:s6:eval`, and
+  `bun evals/run.ts --check`.
+
+S6-01 through S6-22 are complete. S6-23 through S6-40 and S6-EG1 through
+S6-EG7 remain open.
 
 ---
 

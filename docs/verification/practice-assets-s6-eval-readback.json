@@ -1,0 +1,207 @@
+{
+  "schemaVersion": "archcontext.practice-assets-s6-eval-readback/v1",
+  "status": "verified",
+  "generatedAt": "2026-06-24T01:33:18.905Z",
+  "evalDigest": "sha256:0a608ee91917d3250adb2fa55d0134ae0b4063bcbd5a5659f7ee2f5fdd7383a6",
+  "summary": {
+    "positiveCases": 60,
+    "negativeCases": 80,
+    "adversarialCases": 20,
+    "totalScenarios": 160,
+    "chineseCases": 50,
+    "chineseRatio": 0.3125,
+    "noKeywordStructuralPositiveCases": 30,
+    "keywordHeavyBenignNegativeCases": 30,
+    "enforcementWaiverAdversarialCases": 20,
+    "budgetIrrelevantResourceCases": 20,
+    "contextBudgetQueries": 22,
+    "top3Recall": 1,
+    "contextConstraintRecall": 1,
+    "contextIrrelevantRatio": 0.044,
+    "benignPrecision": 1,
+    "noKeywordStructuralRecall": 1,
+    "heuristicOnlyHardGateRate": 0,
+    "dynamicDocHardGateRate": 0,
+    "waiverRejectedRate": 1,
+    "datasetMetadataViolations": [],
+    "prohibitedMatchIds": [],
+    "evidenceMinimumViolations": [],
+    "enforcementCeilingViolations": [],
+    "missedPositiveIds": [],
+    "negativeNonAdvisoryCaseIds": [],
+    "waiverRejectionMissIds": [],
+    "hardGateMissIds": []
+  },
+  "gates": [
+    {
+      "target": "Unjustified Compatibility Recall",
+      "metric": "recall",
+      "threshold": "≥ 85.0%",
+      "observed": "88.2%",
+      "pass": true
+    },
+    {
+      "target": "Architecture Drift Precision",
+      "metric": "precision",
+      "threshold": "≥ 90.0%",
+      "observed": "100.0%",
+      "pass": true
+    },
+    {
+      "target": "Context Constraint Recall",
+      "metric": "recall @ top-k 5",
+      "threshold": "≥ 95.0%",
+      "observed": "100.0%",
+      "pass": true
+    },
+    {
+      "target": "Context irrelevant ratio",
+      "metric": "ratio @ top-k 5",
+      "threshold": "≤ 15.0%",
+      "observed": "4.4%",
+      "pass": true
+    },
+    {
+      "target": "Chinese Jieba Retrieval Gate",
+      "metric": "recall / irrelevant ratio @ top-k 1",
+      "threshold": "100.0% / 0.0%",
+      "observed": "100.0% context, 100.0% constraint, 0.0% irrelevant",
+      "pass": true
+    },
+    {
+      "target": "Practice Top-3 recall",
+      "metric": "recall @ top-k 3",
+      "threshold": "≥ 92.0%",
+      "observed": "100.0%",
+      "pass": true
+    },
+    {
+      "target": "Practice dataset scale",
+      "metric": "positive / negative cases",
+      "threshold": "≥ 60 / ≥ 60",
+      "observed": "60 / 80",
+      "pass": true
+    },
+    {
+      "target": "Practice Chinese scenario mix",
+      "metric": "Chinese ratio",
+      "threshold": "≥ 25.0%",
+      "observed": "31.3% (50/160)",
+      "pass": true
+    },
+    {
+      "target": "Practice no-keyword structural cases",
+      "metric": "count",
+      "threshold": "≥ 30",
+      "observed": "30",
+      "pass": true
+    },
+    {
+      "target": "Practice keyword-heavy benign cases",
+      "metric": "count",
+      "threshold": "≥ 30",
+      "observed": "30",
+      "pass": true
+    },
+    {
+      "target": "Practice enforcement/waiver adversarial cases",
+      "metric": "count",
+      "threshold": "≥ 20",
+      "observed": "20",
+      "pass": true
+    },
+    {
+      "target": "Practice budget/irrelevant resource cases",
+      "metric": "count",
+      "threshold": "≥ 20",
+      "observed": "20",
+      "pass": true
+    },
+    {
+      "target": "Practice dataset labels",
+      "metric": "metadata / prohibited / evidence / ceiling violations",
+      "threshold": "0 / 0 / 0 / 0",
+      "observed": "0 / 0 / 0 / 0",
+      "pass": true
+    },
+    {
+      "target": "Practice benign precision",
+      "metric": "negative case precision",
+      "threshold": "≥ 95.0%",
+      "observed": "100.0%",
+      "pass": true
+    },
+    {
+      "target": "Practice no-keyword structural recall",
+      "metric": "recall",
+      "threshold": "≥ 85.0%",
+      "observed": "100.0%",
+      "pass": true
+    },
+    {
+      "target": "Practice heuristic-only hard-gate rate",
+      "metric": "hard-gate rate",
+      "threshold": "0.0%",
+      "observed": "0.0%",
+      "pass": true
+    },
+    {
+      "target": "Practice dynamic-doc hard-gate rate",
+      "metric": "hard-gate rate",
+      "threshold": "0.0%",
+      "observed": "0.0%",
+      "pass": true
+    },
+    {
+      "target": "Practice waiver invalid/tampered rejection",
+      "metric": "rejection rate",
+      "threshold": "100.0%",
+      "observed": "100.0%",
+      "pass": true
+    }
+  ],
+  "failedGates": [],
+  "assertions": {
+    "allEvalGatesPass": true,
+    "positiveCaseMinimum": true,
+    "negativeCaseMinimum": true,
+    "chineseScenarioRatio": true,
+    "noKeywordStructuralCaseMinimum": true,
+    "keywordHeavyBenignCaseMinimum": true,
+    "enforcementWaiverAdversarialCaseMinimum": true,
+    "budgetIrrelevantResourceCaseMinimum": true,
+    "labelsComplete": true,
+    "practiceTop3Recall": true,
+    "contextConstraintRecall": true,
+    "contextIrrelevantRatio": true,
+    "benignPrecision": true,
+    "noKeywordStructuralRecall": true,
+    "heuristicOnlyHardGateRate": true,
+    "dynamicDocHardGateRate": true,
+    "waiverRejectedRate": true,
+    "noFailedGates": true
+  },
+  "thresholds": {
+    "compatibilityRecall": 0.85,
+    "driftPrecision": 0.9,
+    "contextConstraintRecall": 0.95,
+    "contextIrrelevantRatio": 0.15,
+    "practiceTop3Recall": 0.92,
+    "benignPrecision": 0.95,
+    "noKeywordStructuralRecall": 0.85,
+    "heuristicOnlyHardGateRate": 0,
+    "dynamicDocHardGateRate": 0,
+    "waiverRejectedRate": 1,
+    "positivePracticeCases": 60,
+    "negativePracticeCases": 60,
+    "chineseScenarioRatio": 0.25,
+    "noKeywordStructuralPositiveCases": 30,
+    "keywordHeavyBenignNegativeCases": 30,
+    "enforcementWaiverAdversarialCases": 20,
+    "budgetIrrelevantResourceCases": 20
+  },
+  "readback": {
+    "command": "bun scripts/practice-assets-s6-eval-readback.ts inspect --evidence docs/verification/practice-assets-s6-eval-readback.json --json",
+    "evalCommand": "bun evals/run.ts --check"
+  }
+}
