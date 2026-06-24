@@ -1,4 +1,5 @@
-import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1, type PracticeProfileV1 } from "@archcontext/contracts";
+import { digestJson, type EffectivePracticeAssetV1, type NormalizedCodeContext, type PracticeEvidenceBinding, type PracticeEvidenceStrength, type PracticeEvidenceV1, type PracticeGuidanceResultV1, type PracticeMatchReason, type PracticeMatchV1, type PracticeProfileV1 } from "@archcontext/contracts";
+import { isArchitectureDirectionViolationSubject, isArchitectureDirectionalEdgeViolationSubject, parseArchitectureDirectionViolationSubject, type ArchitectureDirectionViolationKind } from "@archcontext/core/architecture-domain";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { InMemoryLexicalRetriever, type RetrievalDocument } from "@archcontext/core/retrieval";
 export * from "./check-registry";
@@ -43,6 +44,7 @@ export const SUPPORTED_STRUCTURAL_PREDICATES: Record<string, PredicateMatcher> =
   "parallel-public-api-observed": parallelVersionPredicate,
   "parallel-data-shape-observed": termPredicate(/dto|entity|schema|model|v1|v2/i, "symbol"),
   "mapper-symbol-added": termPredicate(/mapper|adapter|convert|transform/i, "symbol"),
+  "import-edge-added": importEdgePredicate,
   "new-import-cycle-observed": cyclePredicate,
   "new-package-cycle-observed": cyclePredicate,
   "declared-layer-violation-observed": explicitImportPredicate([
@@ -66,11 +68,11 @@ export const SUPPORTED_STRUCTURAL_PREDICATES: Record<string, PredicateMatcher> =
   "old-and-new-path-coexist": parallelVersionPredicate,
   "migration-cleanup-missing": termPredicate(/migration|cleanup|temporary|legacy/i, "symbol"),
   "runtime-boundary-added": termPredicate(/queue|worker|client|server|route|external/i, "symbol"),
-  "telemetry-evidence-missing": missingTermPredicate(/telemetry|trace|metric|log/i),
+  "telemetry-evidence-missing": missingTermPredicate(/telemetry|trace|metric|log/i, "telemetry-evidence-missing"),
   "new-credential-scope-observed": termPredicate(/token|credential|secret|key|permission|scope/i, "symbol"),
   "permission-expanded": termPredicate(/permission|scope|admin|write|readwrite/i, "symbol"),
   "runtime-dependency-added": termPredicate(/package|dependency|runtime|node_modules/i, "path"),
-  "lockfile-not-updated": missingTermPredicate(/lockfile|bun.lock|package-lock|pnpm-lock|yarn.lock/i)
+  "lockfile-not-updated": missingTermPredicate(/lockfile|bun.lock|package-lock|pnpm-lock|yarn.lock/i, "lockfile-not-updated")
 };
 
 export function matchPracticesForTask(input: PracticeMatchInput): PracticeGuidanceResultV1 {
@@ -183,6 +185,7 @@ function scoreAsset(
     evidence: dedupedEvidence.sort(compareEvidence),
     explanation: [
       `${asset.id}: ${asset.summary}`,
+      ...recommendationEvidenceExplanation(asset.id, predicateEvidence, exactEvidence, scopedInput),
       ...asset.guidance.preferred.slice(0, 2)
     ],
     sourceTrust: entry.sourceTrust
@@ -248,26 +251,54 @@ function termPredicate(pattern: RegExp, kind: PracticeEvidenceV1["kind"]): Predi
     .map((symbol) => practiceEvidence(kind, "observed", symbol.id));
 }
 
-function missingTermPredicate(pattern: RegExp): PredicateMatcher {
+function missingTermPredicate(pattern: RegExp, triggerId: string): PredicateMatcher {
   return (input) => {
+    const typedAbsenceEvidence = typedAbsenceProbeEvidence(input, triggerId);
+    if (typedAbsenceEvidence.length > 0) return typedAbsenceEvidence;
     const haystack = [
       input.task,
       ...input.codeContext.symbols.flatMap((symbol) => [symbol.name, symbol.path]),
-      ...input.codeContext.evidence.map((evidence) => evidence.summary)
+      ...input.codeContext.evidence
+        .filter((evidence) => evidence.polarity !== "absence")
+        .map((evidence) => evidence.summary)
     ].join(" ");
     return pattern.test(haystack) ? [] : [practiceEvidence("runtime-check", "heuristic", `unproven-absence:${pattern.source}`)];
   };
 }
 
+function typedAbsenceProbeEvidence(input: PracticeMatchInput, triggerId: string): PracticeEvidenceV1[] {
+  return input.codeContext.evidence.flatMap((item) => {
+    if (item.polarity !== "absence") return [];
+    if (item.coverage?.level !== "complete") return [];
+    if (!(item.supports ?? []).includes("recommendation")) return [];
+    return (item.practiceBindings ?? [])
+      .filter(isAuthoritativePracticeEvidenceBinding)
+      .filter((binding) => binding.triggerId === triggerId)
+      .map((binding) => {
+        const strength = item.supports?.includes("checkpoint") ? item.confidence : minStrength(item.confidence, "declared");
+        return practiceEvidence("runtime-check", strength, `absence:${triggerId}:${evidenceSubjectForBinding(binding, item.selector)}`);
+      });
+  });
+}
+
 function explicitImportPredicate(prefixes: string[]): PredicateMatcher {
+  const acceptedKinds = new Set(prefixes.map((prefix) => prefix.slice(0, -1) as ArchitectureDirectionViolationKind));
   return (input) => {
     const edgeEvidence = input.codeContext.edges
       .map((edge) => `${edge.source}->${edge.target}`)
-      .filter((subject) => prefixes.some((prefix) => subject.startsWith(prefix)))
+      .filter((subject) => {
+        const parsed = parseArchitectureDirectionViolationSubject(subject);
+        return Boolean(parsed?.target && acceptedKinds.has(parsed.kind));
+      })
       .map((subject) => practiceEvidence("import-edge", "observed", subject));
     const boundEvidence = input.codeContext.evidence.flatMap((item) =>
       (item.practiceBindings ?? [])
-        .filter((binding) => binding.subject && prefixes.some((prefix) => binding.subject!.startsWith(prefix)))
+        .filter((binding): binding is PracticeEvidenceBinding => isAuthoritativeEvidenceBindingForItem(item, binding))
+        .filter((binding) => {
+          if (!binding.subject || !isArchitectureDirectionalEdgeViolationSubject(binding.subject)) return false;
+          const parsed = parseArchitectureDirectionViolationSubject(binding.subject);
+          return Boolean(parsed && acceptedKinds.has(parsed.kind));
+        })
         .map((binding) => practiceEvidence("architecture-model", item.confidence, binding.subject!))
     );
     return [...edgeEvidence, ...boundEvidence];
@@ -277,6 +308,7 @@ function explicitImportPredicate(prefixes: string[]): PredicateMatcher {
 function boundPracticeEvidence(practiceId: string, input: PracticeMatchInput): PracticeEvidenceV1[] {
   return input.codeContext.evidence.flatMap((item) =>
     (item.practiceBindings ?? [])
+      .filter((binding): binding is PracticeEvidenceBinding => isAuthoritativeEvidenceBindingForItem(item, binding))
       .filter((binding) => binding.practiceId === practiceId)
       .map((binding) => practiceEvidence(evidenceKindForBinding(binding, item.selector), item.confidence, evidenceSubjectForBinding(binding, item.selector)))
   );
@@ -285,6 +317,12 @@ function boundPracticeEvidence(practiceId: string, input: PracticeMatchInput): P
 function cyclePredicate(input: PracticeMatchInput): PracticeEvidenceV1[] {
   return importCycleSubjects(input.codeContext.edges.filter((edge) => edge.kind === "imports").map((edge) => `${edge.source}->${edge.target}`))
     .map((subject) => practiceEvidence("import-edge", "observed", subject));
+}
+
+function importEdgePredicate(input: PracticeMatchInput): PracticeEvidenceV1[] {
+  return input.codeContext.edges
+    .filter((edge) => edge.kind === "imports")
+    .map((edge) => practiceEvidence("import-edge", "observed", `${edge.source}->${edge.target}`));
 }
 
 function parallelVersionPredicate(input: PracticeMatchInput): PracticeEvidenceV1[] {
@@ -486,11 +524,56 @@ function evidenceKindForBinding(
   selector: { path: string; symbolId?: string }
 ): PracticeEvidenceV1["kind"] {
   const subject = evidenceSubjectForBinding(binding, selector);
-  if (/^(boundary-violation|cross-boundary-import|cross-boundary-import-added|declared-layer-violation|declared-layer-violation-observed|dependency-direction-violation|layer-violation):/.test(subject)) {
+  if (isArchitectureDirectionViolationSubject(subject)) {
     return "architecture-model";
   }
   if (subject.includes("->") || binding.triggerId?.includes("import") || binding.triggerId?.includes("cycle")) return "import-edge";
   return selector.symbolId ? "symbol" : "path";
+}
+
+function isCompletePracticeEvidenceBinding(binding: Partial<PracticeEvidenceBinding>): binding is PracticeEvidenceBinding {
+  return typeof binding.practiceId === "string" &&
+    binding.practiceId.length > 0 &&
+    typeof binding.provenance === "string" &&
+    typeof binding.coverage?.level === "string" &&
+    ["complete", "partial", "unknown"].includes(binding.coverage.level) &&
+    typeof binding.coverage.scope === "string" &&
+    binding.coverage.scope.length > 0;
+}
+
+function isAuthoritativePracticeEvidenceBinding(binding: Partial<PracticeEvidenceBinding>): binding is PracticeEvidenceBinding {
+  return isCompletePracticeEvidenceBinding(binding) && binding.coverage.level === "complete";
+}
+
+function isAuthoritativeEvidenceBindingForItem(
+  item: NormalizedCodeContext["evidence"][number],
+  binding: Partial<PracticeEvidenceBinding>
+): binding is PracticeEvidenceBinding {
+  if (!isAuthoritativePracticeEvidenceBinding(binding)) return false;
+  if (item.polarity !== "absence") return true;
+  return item.coverage?.level === "complete" && (item.supports ?? []).includes("recommendation");
+}
+
+function recommendationEvidenceExplanation(
+  practiceId: string,
+  predicateEvidence: PracticeEvidenceV1[],
+  exactEvidence: PracticeEvidenceV1[],
+  input: PracticeMatchInput
+): string[] {
+  const predicateSubjects = predicateEvidence.map((evidence) => `${evidence.kind}:${evidence.subject}`).slice(0, 3);
+  const bindingSubjects = input.codeContext.evidence.flatMap((item) =>
+    (item.practiceBindings ?? [])
+      .filter((binding): binding is PracticeEvidenceBinding => isAuthoritativeEvidenceBindingForItem(item, binding))
+      .filter((binding) => binding.practiceId === practiceId)
+      .map((binding) => {
+        const subject = evidenceSubjectForBinding(binding, item.selector);
+        return `${binding.triggerId ?? "binding"}:${subject}:${binding.provenance}:${binding.coverage.level}`;
+      })
+  ).slice(0, 3);
+  const lines: string[] = [];
+  if (predicateSubjects.length > 0) lines.push(`Predicate evidence: ${predicateSubjects.join(", ")}`);
+  if (exactEvidence.length > 0) lines.push(`Evidence binding: ${bindingSubjects.join(", ")}`);
+  return lines;
 }
 
 function importCycleSubjects(edges: string[]): string[] {

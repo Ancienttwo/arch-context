@@ -83,7 +83,7 @@ function verifiedEvalResult(): any {
       budgetIrrelevantResourceCases: 20,
       top3Recall: 0.92,
       benignPrecision: 0.95,
-      noKeywordStructuralRecall: 0.85,
+      noKeywordStructuralRecall: 0.9,
       directPracticeReferenceRecall: 1,
       heuristicOnlyHardGateRate: 0,
       dynamicDocHardGateRate: 0,

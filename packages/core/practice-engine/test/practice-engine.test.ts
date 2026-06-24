@@ -68,6 +68,16 @@ function derivedPracticeEntry(base: EffectivePracticeAssetV1, asset: PracticeAss
   };
 }
 
+function practiceBinding(practiceId: string, triggerId: string, subject?: string) {
+  return {
+    practiceId,
+    triggerId,
+    subject,
+    provenance: "checkpoint" as const,
+    coverage: { level: "complete" as const, scope: "test-context" }
+  };
+}
+
 function cycleMatch(assetDigest: string, subjects: string[], strength: "heuristic" | "observed" = "observed"): PracticeMatchV1 {
   return {
     schemaVersion: "archcontext.practice-match/v1",
@@ -355,7 +365,7 @@ describe("@archcontext/core/practice-engine", () => {
         selector: { path: "src/security/token.ts", symbolId: "symbol.secretModule" },
         summary: "observed security.least-privilege scope expansion risk",
         confidence: "observed",
-        practiceBindings: [{ practiceId: "security.least-privilege", triggerId: "permission-expanded" }],
+        practiceBindings: [practiceBinding("security.least-privilege", "permission-expanded")],
         snapshot: {
           repositoryId: "repo.test",
           headSha: "abc",
@@ -440,11 +450,25 @@ describe("@archcontext/core/practice-engine", () => {
       pressure,
       maxMatches: 3
     });
+    const incompleteBindingContext: NormalizedCodeContext = {
+      ...codeContext,
+      evidence: [{
+        ...codeContext.evidence[0],
+        practiceBindings: [{ practiceId: asset.id, triggerId: "legacy-binding" } as any]
+      }]
+    };
+    const incomplete = matchPracticesForTask({
+      task: incompleteBindingContext.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [entry] },
+      codeContext: incompleteBindingContext,
+      pressure,
+      maxMatches: 3
+    });
     const boundContext: NormalizedCodeContext = {
       ...codeContext,
       evidence: [{
         ...codeContext.evidence[0],
-        practiceBindings: [{ practiceId: asset.id, triggerId: "unit-test" }]
+        practiceBindings: [practiceBinding(asset.id, "unit-test")]
       }]
     };
     const bound = matchPracticesForTask({
@@ -456,6 +480,7 @@ describe("@archcontext/core/practice-engine", () => {
     });
 
     expect(unbound.matches.map((match) => match.practiceId)).not.toContain(asset.id);
+    expect(incomplete.matches.map((match) => match.practiceId)).not.toContain(asset.id);
     expect(bound.matches.find((match) => match.practiceId === asset.id)).toMatchObject({
       enforcement: "checkpoint"
     });
@@ -565,6 +590,54 @@ describe("@archcontext/core/practice-engine", () => {
       strength: "observed",
       subject: "missing:telemetry|trace|metric|log"
     }));
+
+    const typedAbsenceContext: NormalizedCodeContext = {
+      ...codeContext,
+      evidence: [{
+        id: "evidence.telemetry-absence-complete",
+        selector: { path: "src/workers/invoice-worker.ts", symbolId: "symbol.invoiceWorker" },
+        summary: "complete telemetry absence probe for invoice worker",
+        confidence: "observed",
+        polarity: "absence",
+        coverage: { level: "complete", scope: "src/workers/invoice-worker.ts" },
+        supports: ["recommendation", "checkpoint"],
+        practiceBindings: [practiceBinding("observability.boundary-telemetry", "telemetry-evidence-missing")],
+        snapshot: {
+          repositoryId: "repo.test",
+          headSha: "abc",
+          worktreeDigest: `sha256:${"6".repeat(64)}`
+        }
+      }]
+    };
+    const partialAbsenceContext: NormalizedCodeContext = {
+      ...typedAbsenceContext,
+      evidence: [{
+        ...typedAbsenceContext.evidence[0],
+        id: "evidence.telemetry-absence-partial",
+        coverage: { level: "partial", scope: "src/workers/invoice-worker.ts" }
+      }]
+    };
+    const matchWithContext = (context: NormalizedCodeContext) => matchPracticesForTask({
+      task: context.task,
+      catalog: { catalogDigest: catalog.catalogDigest, overlayDigest: catalog.overlayDigest, effectiveAssets: [asset] },
+      codeContext: context,
+      pressure,
+      maxMatches: 3
+    }).matches.find((item) => item.practiceId === "observability.boundary-telemetry");
+    const completeAbsence = matchWithContext(typedAbsenceContext);
+    const partialAbsence = matchWithContext(partialAbsenceContext);
+
+    expect(completeAbsence?.enforcement).toBe("checkpoint");
+    expect(completeAbsence?.evidence).toContainEqual(expect.objectContaining({
+      kind: "runtime-check",
+      strength: "observed",
+      subject: "absence:telemetry-evidence-missing:symbol.invoiceWorker"
+    }));
+    expect(partialAbsence?.enforcement).toBe("advisory");
+    expect(partialAbsence?.evidence).not.toContainEqual(expect.objectContaining({
+      strength: "observed",
+      subject: "absence:telemetry-evidence-missing:symbol.invoiceWorker"
+    }));
   });
 
   test("detects import cycles longer than two nodes", () => {
@@ -605,6 +678,89 @@ describe("@archcontext/core/practice-engine", () => {
       kind: "import-edge",
       strength: "observed",
       subject: "cycle:symbol.cycleA->symbol.cycleB->symbol.cycleC->symbol.cycleA"
+    }));
+  });
+
+  test("splits generic import-edge evidence from typed boundary violation predicates", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const base = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const dependencyDirectionBase = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.respect-dependency-direction")!;
+    const dependencyDirection = derivedPracticeEntry(dependencyDirectionBase, {
+      ...dependencyDirectionBase.asset,
+      triggers: {
+        ...dependencyDirectionBase.asset.triggers,
+        pressureSignals: []
+      }
+    });
+    const importEdgeAsset = derivedPracticeEntry(base, {
+      ...base.asset,
+      id: "test.import-edge-added",
+      title: "Import edge added",
+      summary: "Import edge added",
+      appliesTo: {
+        ...base.asset.appliesTo,
+        repositoryKinds: [],
+        pathGlobs: ["src/**"],
+        nodeKinds: ["module"],
+        negativePathGlobs: []
+      },
+      triggers: {
+        candidateTerms: ["import"],
+        pressureSignals: [],
+        structuralPredicates: ["import-edge-added"]
+      },
+      evidencePolicy: {
+        ...base.asset.evidencePolicy,
+        minimumStrengthForRecommendation: "observed",
+        minimumStrengthForCheckpoint: "observed"
+      }
+    });
+    const codeContext: NormalizedCodeContext = {
+      task: "enforce declared layer import boundary",
+      symbols: [
+        { id: "symbol.ui", name: "ui", kind: "module", path: "src/ui.ts" },
+        { id: "symbol.persistence", name: "persistence", kind: "module", path: "src/persistence.ts" }
+      ],
+      edges: [
+        { source: "symbol.ui", target: "symbol.persistence", kind: "imports", confidence: "high" },
+        { source: "declared-layer-violation:symbol.ui", target: "symbol.persistence", kind: "imports", confidence: "high" }
+      ],
+      evidence: [],
+      digest: `sha256:${"8".repeat(64)}`
+    };
+    const pressure = detectArchitecturePressure({
+      task: codeContext.task,
+      symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
+      files: codeContext.symbols.map((symbol) => symbol.path),
+      edges: codeContext.edges
+    });
+
+    const guidance = matchPracticesForTask({
+      task: codeContext.task,
+      catalog: {
+        catalogDigest: catalog.catalogDigest,
+        overlayDigest: catalog.overlayDigest,
+        effectiveAssets: [dependencyDirection, importEdgeAsset]
+      },
+      codeContext,
+      pressure,
+      maxMatches: 5
+    });
+    const generic = guidance.matches.find((match) => match.practiceId === "test.import-edge-added");
+    const typed = guidance.matches.find((match) => match.practiceId === "modularity.respect-dependency-direction");
+
+    expect(generic?.evidence).toContainEqual(expect.objectContaining({
+      kind: "import-edge",
+      strength: "observed",
+      subject: "symbol.ui->symbol.persistence"
+    }));
+    expect(typed?.evidence).toContainEqual(expect.objectContaining({
+      kind: "import-edge",
+      strength: "observed",
+      subject: "declared-layer-violation:symbol.ui->symbol.persistence"
+    }));
+    expect(typed?.evidence).not.toContainEqual(expect.objectContaining({
+      subject: "symbol.ui->symbol.persistence"
     }));
   });
 
@@ -1202,7 +1358,7 @@ describe("@archcontext/core/practice-engine", () => {
         selector: { path: "src/service.ts", symbolId: "symbol.service" },
         summary: "observed test.labelled-but-unbound applicability",
         confidence: "observed",
-        practiceBindings: [{ practiceId: "test.bound-target", triggerId: "unit-test" }],
+        practiceBindings: [practiceBinding("test.bound-target", "unit-test")],
         snapshot: {
           repositoryId: "repo.test",
           headSha: "abc",
@@ -1230,5 +1386,8 @@ describe("@archcontext/core/practice-engine", () => {
     expect(ids).toContain("test.bound-target");
     expect(ids).not.toContain("test.labelled-but-unbound");
     expect(guidance.matches.find((match) => match.practiceId === "test.bound-target")?.enforcement).toBe("checkpoint");
+    expect(guidance.matches.find((match) => match.practiceId === "test.bound-target")?.explanation).toContain(
+      "Evidence binding: unit-test:symbol.service:checkpoint:complete"
+    );
   });
 });

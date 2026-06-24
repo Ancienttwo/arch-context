@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 complete
+> **Status**: Executing - AL0 and AL1 complete
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -117,7 +117,7 @@ These are target gates, not claims about current performance.
 | Sprint | Outcome | Priority | Depends on | Status |
 |---|---|---:|---|---|
 | AL0 | Authority, contracts and ADR freeze | P0 | Existing M0–M3 | ☑ |
-| AL1 | Recommendation evidence correctness | P0 | AL0 | ◻ |
+| AL1 | Recommendation evidence correctness | P0 | AL0 | ☑ |
 | AL2 | SQLite architecture ledger foundation | P0 | AL0 | ◻ |
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ◻ |
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ◻ |
@@ -202,30 +202,59 @@ These are target gates, not claims about current performance.
 
 ### Tasks
 
-- [ ] **AL1-01 · P0 · `practice-engine`** — Replace globally shared context evidence with practice-bound evidence.
-- [ ] **AL1-02 · P0 · `contracts`** — Add `practiceId`, `triggerId`, `subject`, `provenance` and `coverage` to bound evidence.
-- [ ] **AL1-03 · P0 · `practice-engine`** — Ensure unrelated `observed` or `verified` evidence cannot raise another practice’s score or enforcement level.
-- [ ] **AL1-04 · P0 · `practice-engine`** — Remove practice identification through evidence ID or summary substring matching.
-- [ ] **AL1-05 · P0 · `practice-engine`** — Split predicates into `import-edge-added`, `cross-boundary-import-added` and `declared-layer-violation-observed`.
-- [ ] **AL1-06 · P0 · `architecture-domain`** — Add explicit boundary membership and direction evaluation required by layer-violation evidence.
-- [ ] **AL1-07 · P0 · `practice-engine`** — Replace `missingTermPredicate` authority with typed absence probes and complete/partial/unknown coverage.
-- [ ] **AL1-08 · P0 · `practice-engine`** — Apply negative path rules to individual subjects instead of suppressing an entire practice.
-- [ ] **AL1-09 · P0 · `pressure-engine`** — Detect arbitrary-length cycles with SCC/DFS and distinguish new cycles from baseline cycles.
-- [ ] **AL1-10 · P0 · `evals`** — Add no-label structural fixtures that prohibit practice IDs, aliases and titles in task, path, symbol and evidence text.
-- [ ] **AL1-11 · P0 · `evals`** — Add evidence-shuffle mutation tests.
+- [x] **AL1-01 · P0 · `practice-engine`** — Replace globally shared context evidence with practice-bound evidence.
+  - Evidence: `packages/core/practice-engine/src/index.ts` uses typed `practiceBindings` through `boundPracticeEvidence`; `bun test packages/core/practice-engine/test/practice-engine.test.ts`.
+- [x] **AL1-02 · P0 · `contracts`** — Add `practiceId`, `triggerId`, `subject`, `provenance` and `coverage` to bound evidence.
+  - Evidence: `packages/contracts/src/ports.ts`; direct-reference fixtures in `evals/practices/direct-practice-reference.jsonl`.
+- [x] **AL1-03 · P0 · `practice-engine`** — Ensure unrelated `observed` or `verified` evidence cannot raise another practice’s score or enforcement level.
+  - Evidence: `requires typed practice binding before observed context evidence can promote a candidate` test.
+- [x] **AL1-04 · P0 · `practice-engine`** — Remove practice identification through evidence ID or summary substring matching.
+  - Evidence: `recommendations follow the typed practice binding, not stale label text in evidence` test.
+- [x] **AL1-05 · P0 · `practice-engine`** — Split predicates into `import-edge-added`, `cross-boundary-import-added` and `declared-layer-violation-observed`.
+  - Evidence: `splits generic import-edge evidence from typed boundary violation predicates` test.
+- [x] **AL1-06 · P0 · `architecture-domain`** — Add explicit boundary membership and direction evaluation required by layer-violation evidence.
+  - Evidence: `parseArchitectureDirectionViolationSubject` and `isArchitectureDirectionalEdgeViolationSubject` in `packages/core/architecture-domain/src/index.ts`; domain test covers membership and `source->target` direction.
+- [x] **AL1-07 · P0 · `practice-engine`** — Replace `missingTermPredicate` authority with typed absence probes and complete/partial/unknown coverage.
+  - Evidence: `typedAbsenceProbeEvidence` in `packages/core/practice-engine/src/index.ts`; telemetry absence test proves complete coverage can promote and partial coverage remains advisory.
+- [x] **AL1-08 · P0 · `practice-engine`** — Apply negative path rules to individual subjects instead of suppressing an entire practice.
+  - Evidence: `inputForEligibleSubjects` and `filters negative scopes per subject instead of suppressing mixed source and test changes` test.
+- [x] **AL1-09 · P0 · `practice-engine` / `check-registry`** — Detect arbitrary-length cycles with DFS and distinguish new cycles from baseline cycles.
+  - Evidence: `detects import cycles longer than two nodes` and `registered complete checker blocks only new cycle evidence` tests. Implementation lives in practice structural evidence and deterministic checker; `pressure-engine` remains a broad signal source.
+- [x] **AL1-10 · P0 · `evals`** — Add no-label structural fixtures that prohibit practice IDs, aliases and titles in task, path, symbol and evidence text.
+  - Evidence: `evals/practices/no-keyword-structural-positive.jsonl`; gate reports 30 cases and 100.0% recall.
+- [x] **AL1-11 · P0 · `evals`** — Add evidence-shuffle mutation tests.
   - Acceptance: expected recommendation labels do not move with unrelated evidence payloads.
-- [ ] **AL1-12 · P1 · `evals`** — Report precision@3, recall@3, benign advisory false-positive rate, per-practice support and confidence calibration.
-- [ ] **AL1-13 · P0 · `policy-engine`** — Keep automatic checkpoint promotion disabled until all AL1 gates pass.
-- [ ] **AL1-14 · P1 · `practice-engine`** — Add recommendation explanation output showing exact predicate, subject and evidence binding.
+  - Evidence: `scorePracticeEvidenceShuffle` in `evals/run.ts`; gate reports 0.0% contamination.
+- [x] **AL1-12 · P1 · `evals`** — Report precision@3, recall@3, benign advisory false-positive rate, per-practice support and confidence calibration.
+  - Evidence: `docs/verification/m6-representative-eval-report.md`.
+- [x] **AL1-13 · P0 · `policy-engine`** — Keep automatic checkpoint promotion disabled until all AL1 gates pass.
+  - Evidence: `docs/runbooks/architecture-ledger-rollout.md` enabling rule 3; enforcement remains repo policy opt-in in `packages/core/practice-engine/src/enforcement.ts` and tests cover policy-disabled advisory behavior.
+- [x] **AL1-14 · P1 · `practice-engine`** — Add recommendation explanation output showing exact predicate, subject and evidence binding.
+  - Evidence: `recommendationEvidenceExplanation` in `packages/core/practice-engine/src/index.ts`; typed binding test asserts `Evidence binding: unit-test:symbol.service:checkpoint:complete`.
 
 ### Exit gate
 
-- [ ] **AL1-EG1** — Unrelated evidence escalation is blocked in 100% of tests.
-- [ ] **AL1-EG2** — Plain import edges never prove a declared layer violation.
-- [ ] **AL1-EG3** — Incomplete context never produces observed absence.
-- [ ] **AL1-EG4** — Three-node and longer new cycles are detected; pre-existing cycles are not reported as new.
-- [ ] **AL1-EG5** — No-label structural Top-3 recall ≥ 90% and held-out precision@3 ≥ 80%.
-- [ ] **AL1-EG6** — Hard-gate false positives = 0.
+- [x] **AL1-EG1** — Unrelated evidence escalation is blocked in 100% of tests.
+  - Evidence: `bun test packages/core/practice-engine/test/practice-engine.test.ts` (23 pass, 0 fail).
+- [x] **AL1-EG2** — Plain import edges never prove a declared layer violation.
+  - Evidence: `plain import edges do not prove declared layer violations during recommendation` test.
+- [x] **AL1-EG3** — Incomplete context never produces observed absence.
+  - Evidence: telemetry absence test covers heuristic fallback and partial-coverage advisory behavior.
+- [x] **AL1-EG4** — Three-node and longer new cycles are detected; pre-existing cycles are not reported as new.
+  - Evidence: cycle DFS and baseline comparison tests in `packages/core/practice-engine/test/practice-engine.test.ts`.
+- [x] **AL1-EG5** — No-label structural Top-3 recall ≥ 90% and held-out precision@3 ≥ 80%.
+  - Evidence: `bun evals/run.ts --check` reports 100.0% no-keyword structural recall and 100.0% recommendation precision@3.
+- [x] **AL1-EG6** — Hard-gate false positives = 0.
+  - Evidence: `bun evals/run.ts --check` reports heuristic-only hard-gate rate 0.0% and dynamic-doc hard-gate rate 0.0%.
+
+### AL1 execution log
+
+- 2026-06-25: Completed AL1 recommendation evidence correctness on branch `codex/architecture-ledger-al1`.
+- 2026-06-25: Focused tests passed: `bun test packages/core/architecture-domain/test/domain.test.ts` (10 pass, 0 fail) and `bun test packages/core/practice-engine/test/practice-engine.test.ts` (23 pass, 0 fail).
+- 2026-06-25: Eval gate passed: `bun evals/run.ts --check` with Top-3 recall 100.0%, evidence-bound non-advisory precision@3 100.0%, no-keyword structural recall 100.0%, evidence-shuffle contamination 0.0%, hard-gate false positives 0.0%.
+- 2026-06-25: Typecheck passed: `bun run typecheck`.
+- 2026-06-25: Full verification passed: `bun run verify` exited 0 after 688 tests, package-boundary/privacy/readback ledgers, sprint-status check, and representative eval. Non-fatal local daemon diagnostic observed for an existing user-data `runtime.sqlite`.
+- 2026-06-25: AL1 verification note captured in `docs/verification/architecture-ledger-al1-evidence-correctness.md`; representative eval report refreshed in `docs/verification/m6-representative-eval-report.md`.
 
 ---
 
@@ -749,8 +778,8 @@ Use this on every PR in the workstream:
 
 For the smallest valuable sequence, start here:
 
-1. [ ] AL0 authority and schemas.
-2. [ ] AL1 evidence correctness before further enforcement work.
+1. [x] AL0 authority and schemas.
+2. [x] AL1 evidence correctness before further enforcement work.
 3. [ ] AL2 event, snapshot, current graph and evidence-binding tables.
 4. [ ] AL3 YAML import/export and dual-compare mode.
 5. [ ] AL4 thin post-commit queue plus stale-job cancellation.

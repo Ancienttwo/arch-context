@@ -17,6 +17,7 @@ import {
   landscapeYaml,
   listRepoFiles,
   parseCrossRepoRelationFile,
+  parseArchitectureDirectionViolationSubject,
   parseLandscapeFile,
   parseRepoScopedArchitectureId,
   repoScopedArchitectureId,
@@ -24,6 +25,8 @@ import {
   validateLandscape,
   repositoryFingerprint,
   assertAdapterDoesNotOverwriteNativeCore,
+  isArchitectureDirectionViolationSubject,
+  isArchitectureDirectionalEdgeViolationSubject,
   stripAdapterProtectedNativeFields
 } from "../src/index";
 
@@ -109,6 +112,28 @@ describe("@archcontext/core/architecture-domain", () => {
     expect(id).toBe("repo.checkout::module.billing-api");
     expect(parseRepoScopedArchitectureId(id)).toEqual({ repositoryId: "repo.checkout", nodeId: "module.billing-api" });
     expect(() => parseRepoScopedArchitectureId("module.billing-api")).toThrow("repo-scoped");
+  });
+
+  test("direction violation subjects bind boundary membership and edge direction", () => {
+    const subject = "declared-layer-violation:module.web->module.persistence";
+
+    expect(parseArchitectureDirectionViolationSubject(subject)).toEqual({
+      kind: "declared-layer-violation",
+      subject: "module.web->module.persistence",
+      source: "module.web",
+      target: "module.persistence"
+    });
+    expect(parseArchitectureDirectionViolationSubject("boundary-violation:module.api")).toEqual({
+      kind: "boundary-violation",
+      subject: "module.api",
+      source: "module.api"
+    });
+    expect(isArchitectureDirectionViolationSubject("cross-boundary-import-added:module.ui->module.data")).toBe(true);
+    expect(isArchitectureDirectionalEdgeViolationSubject("cross-boundary-import-added:module.ui->module.data")).toBe(true);
+    expect(isArchitectureDirectionalEdgeViolationSubject("cross-boundary-import-added:module.ui")).toBe(false);
+    expect(isArchitectureDirectionViolationSubject("cycle:module.a->module.b->module.a")).toBe(false);
+    expect(isArchitectureDirectionViolationSubject("declared-layer-violation:")).toBe(false);
+    expect(isArchitectureDirectionalEdgeViolationSubject("declared-layer-violation:module.a->module.b->module.c")).toBe(false);
   });
 
   test("landscape registration validates cross-repo edges and exposes metadata-only SaaS summary", () => {

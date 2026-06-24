@@ -36,19 +36,48 @@ export interface NormalizedEdge {
   confidence: "low" | "medium" | "high";
 }
 
+export type ObservedEvidencePolarity = "positive" | "absence" | "declaration";
+export type ObservedEvidenceSupport = "recommendation" | "checkpoint" | "complete";
+
+export interface ObservedEvidenceCoverage {
+  level: PracticeEvidenceBindingCoverageLevel;
+  scope: string;
+}
+
 export interface ObservedEvidence {
   id: string;
   selector: SourceSelector;
   summary: string;
   confidence: "heuristic" | "observed" | "verified";
+  polarity?: ObservedEvidencePolarity;
+  coverage?: ObservedEvidenceCoverage;
+  supports?: ObservedEvidenceSupport[];
   snapshot: RepositorySnapshot;
   practiceBindings?: PracticeEvidenceBinding[];
+}
+
+export type PracticeEvidenceBindingProvenance =
+  | "codegraph"
+  | "model-store-yaml"
+  | "checkpoint"
+  | "runtime-daemon"
+  | "user"
+  | "subagent"
+  | "external-doc";
+
+export type PracticeEvidenceBindingCoverageLevel = "complete" | "partial" | "unknown";
+
+export interface PracticeEvidenceBindingCoverage {
+  level: PracticeEvidenceBindingCoverageLevel;
+  scope: string;
 }
 
 export interface PracticeEvidenceBinding {
   practiceId: string;
   triggerId?: string;
   subject?: string;
+  provenance: PracticeEvidenceBindingProvenance;
+  coverage: PracticeEvidenceBindingCoverage;
 }
 
 export interface NormalizedCodeContext {

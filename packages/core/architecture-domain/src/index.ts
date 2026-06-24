@@ -180,6 +180,50 @@ export function normalizeDottedId(value: string): string {
     .join(".");
 }
 
+export const ARCHITECTURE_DIRECTION_VIOLATION_KINDS = [
+  "boundary-violation",
+  "cross-boundary-import",
+  "cross-boundary-import-added",
+  "declared-layer-violation",
+  "declared-layer-violation-observed",
+  "dependency-direction-violation",
+  "layer-violation"
+] as const;
+
+export type ArchitectureDirectionViolationKind = typeof ARCHITECTURE_DIRECTION_VIOLATION_KINDS[number];
+
+export interface ArchitectureDirectionViolationSubject {
+  kind: ArchitectureDirectionViolationKind;
+  subject: string;
+  source: string;
+  target?: string;
+}
+
+export const ARCHITECTURE_DIRECTION_VIOLATION_PREFIXES = ARCHITECTURE_DIRECTION_VIOLATION_KINDS.map((kind) => `${kind}:`);
+
+export function parseArchitectureDirectionViolationSubject(subject: string): ArchitectureDirectionViolationSubject | undefined {
+  const prefix = ARCHITECTURE_DIRECTION_VIOLATION_PREFIXES.find((candidate) => subject.startsWith(candidate));
+  if (!prefix) return undefined;
+  const body = subject.slice(prefix.length).trim();
+  if (!body) return undefined;
+  const kind = prefix.slice(0, -1) as ArchitectureDirectionViolationKind;
+  const separator = body.indexOf("->");
+  if (separator < 0) return { kind, subject: body, source: body };
+
+  const source = body.slice(0, separator).trim();
+  const target = body.slice(separator + 2).trim();
+  if (!source || !target || target.includes("->")) return undefined;
+  return { kind, subject: body, source, target };
+}
+
+export function isArchitectureDirectionViolationSubject(subject: string): boolean {
+  return parseArchitectureDirectionViolationSubject(subject) !== undefined;
+}
+
+export function isArchitectureDirectionalEdgeViolationSubject(subject: string): boolean {
+  return parseArchitectureDirectionViolationSubject(subject)?.target !== undefined;
+}
+
 export function repoScopedArchitectureId(repositoryId: string, nodeId: string): string {
   return `${normalizeDottedId(repositoryId)}::${normalizeDottedId(nodeId)}`;
 }
