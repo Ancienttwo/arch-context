@@ -1143,6 +1143,10 @@ describe("local runtime foundation", () => {
 
       const drift = await daemon.ledgerDrift(root);
       expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.schemaVersion).toBe("archcontext.architecture-ledger-reconcile/v1");
+      expect((drift.data as any).reconcile.ledgerToGit.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.gitToLedger.reasonCodes).toContain("semantic-drift");
+      expect((drift.data as any).reconcile.reconcileActions.map((action: any) => action.authority)).toContain("ledger");
       const status = await daemon.runtimeStatus(root);
       const project = await daemon.ledgerProject(root, {
         dryRun: false,
@@ -1152,8 +1156,11 @@ describe("local runtime foundation", () => {
       expect(project.ok).toBe(true);
       expect((project.data as any).writes).toBe("git-projection");
       expect((project.data as any).writtenPaths).toContain(path);
+      expect((project.data as any).reconcile.ok).toBe(true);
       expect(readText(join(root, path))).toContain("module.ledger-project");
-      expect(((await daemon.ledgerDrift(root)).data as any).drift.ok).toBe(true);
+      const cleanDrift = await daemon.ledgerDrift(root);
+      expect((cleanDrift.data as any).drift.ok).toBe(true);
+      expect((cleanDrift.data as any).reconcile.ok).toBe(true);
     } finally {
       removeTempRepo(root);
     }

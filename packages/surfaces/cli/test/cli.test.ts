@@ -1272,6 +1272,10 @@ describe("archctx CLI", () => {
       const drift = await runTestCli("ledger", ["drift", "--json"], root);
       expect(drift.ok).toBe(true);
       expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.schemaVersion).toBe("archcontext.architecture-ledger-reconcile/v1");
+      expect((drift.data as any).reconcile.ledgerToGit.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.gitToLedger.reasonCodes).toContain("semantic-drift");
+      expect((drift.data as any).reconcile.reconcileActions.map((action: any) => action.authority)).toContain("ledger");
 
       status = await runTestCli("status", [], root);
       const project = await runTestCli("ledger", [
@@ -1284,10 +1288,12 @@ describe("archctx CLI", () => {
       expect(project.ok).toBe(true);
       expect((project.data as any).writes).toBe("git-projection");
       expect((project.data as any).writtenPaths).toContain(projectionPath);
+      expect((project.data as any).reconcile.ok).toBe(true);
       expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture-context");
 
       const clean = await runTestCli("ledger", ["drift", "--json"], root);
       expect((clean.data as any).drift.ok).toBe(true);
+      expect((clean.data as any).reconcile.ok).toBe(true);
     } finally {
       removeTempRoot(root);
     }

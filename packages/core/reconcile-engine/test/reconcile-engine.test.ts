@@ -3,13 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeArchContextModel, rebuildGeneratedProjection } from "../../../local-runtime/model-store-yaml/src/index";
-import { assertNoHumanEditableGeneratedSection, reconcileCrossRepoEvidence, reconcileGeneratedProjection } from "../src/index";
+import { assertNoHumanEditableGeneratedSection, reconcileArchitectureLedgerDrift, reconcileCrossRepoEvidence, reconcileGeneratedProjection } from "../src/index";
 
 const projection = { rebuildGeneratedProjection };
 
 describe("@archcontext/core/reconcile-engine", () => {
   test("rebuilds generated projection when no human section exists", () => {
-      const root = mkdtempSync(join(tmpdir(), "archctx-reconcile-"));
+    const root = mkdtempSync(join(tmpdir(), "archctx-reconcile-"));
     try {
       initializeArchContextModel(root, "Reconcile Test");
       expect(reconcileGeneratedProjection(root, projection)).toEqual({ rebuilt: true, preservedHumanSections: true });
@@ -62,5 +62,123 @@ describe("@archcontext/core/reconcile-engine", () => {
     });
     expect(result.verified).toEqual(["relation.web-calls-api"]);
     expect(result.missingEvidence).toEqual([]);
+  });
+
+  test("maps clean architecture ledger drift into a bidirectional reconcile report", () => {
+    const report = reconcileArchitectureLedgerDrift({
+      drift: {
+        schemaVersion: "archcontext.architecture-ledger-drift/v1",
+        ok: true,
+        semanticDrift: false,
+        sourceGraphDigest: "sha256:ledger",
+        projectedGraphDigest: "sha256:ledger",
+        projectionDigest: "sha256:projection",
+        reasonCodes: [],
+        unsupportedFiles: [],
+        ignoredFiles: [],
+        projectionDiffs: []
+      }
+    });
+
+    expect(report).toMatchObject({
+      schemaVersion: "archcontext.architecture-ledger-reconcile/v1",
+      ok: true,
+      reconcileRequired: false,
+      reasonCodes: [],
+      ledgerToGit: {
+        direction: "ledger-to-git-projection",
+        ok: true,
+        status: "clean",
+        sourceGraphDigest: "sha256:ledger",
+        expectedProjectionDigest: "sha256:projection",
+        diffCount: 0
+      },
+      gitToLedger: {
+        direction: "git-to-ledger-state",
+        ok: true,
+        status: "clean",
+        sourceGraphDigest: "sha256:ledger",
+        targetGraphDigest: "sha256:ledger",
+        unsupportedFileCount: 0
+      },
+      reconcileActions: []
+    });
+  });
+
+  test("separates ledger-to-Git projection drift from Git-to-ledger semantic drift", () => {
+    const report = reconcileArchitectureLedgerDrift({
+      drift: {
+        schemaVersion: "archcontext.architecture-ledger-drift/v1",
+        ok: false,
+        semanticDrift: true,
+        sourceGraphDigest: "sha256:ledger",
+        projectedGraphDigest: "sha256:git-yaml",
+        projectionDigest: "sha256:ledger-projection",
+        reasonCodes: ["projection-file-missing", "semantic-drift", "unsupported-yaml-file"],
+        unsupportedFiles: [{
+          path: ".archcontext/model/nodes/module.bad.yaml",
+          schemaVersion: "archcontext.node/v1",
+          reasonCode: "parse-error",
+          message: "expected object"
+        }],
+        ignoredFiles: [],
+        projectionDiffs: [{
+          path: ".archcontext/model/nodes/module.checkout.yaml",
+          reasonCode: "projection-file-missing",
+          expectedDigest: "sha256:expected",
+          targetKind: "entity",
+          targetId: "module.checkout"
+        }]
+      }
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.reconcileRequired).toBe(true);
+    expect(report.reasonCodes).toEqual(["projection-file-missing", "semantic-drift", "unsupported-yaml-file"]);
+    expect(report.ledgerToGit).toMatchObject({
+      ok: false,
+      status: "drift",
+      sourceGraphDigest: "sha256:ledger",
+      expectedProjectionDigest: "sha256:ledger-projection",
+      reasonCodes: ["projection-file-missing"],
+      diffCount: 1
+    });
+    expect(report.gitToLedger).toMatchObject({
+      ok: false,
+      status: "drift",
+      sourceGraphDigest: "sha256:git-yaml",
+      targetGraphDigest: "sha256:ledger",
+      reasonCodes: ["semantic-drift", "unsupported-yaml-file"],
+      unsupportedFileCount: 1
+    });
+    expect(report.reconcileActions.map((action) => action.kind)).toEqual([
+      "fix-unsupported-yaml",
+      "rebuild-ledger-from-git",
+      "project-ledger-to-git"
+    ]);
+    expect(report.reconcileActions.map((action) => action.authority)).toEqual(["manual", "git-yaml", "ledger"]);
+  });
+
+  test("preserves raw drift reason codes not yet split into a direction", () => {
+    const report = reconcileArchitectureLedgerDrift({
+      drift: {
+        schemaVersion: "archcontext.architecture-ledger-drift/v1",
+        ok: false,
+        semanticDrift: false,
+        sourceGraphDigest: "sha256:ledger",
+        projectedGraphDigest: "sha256:ledger",
+        projectionDigest: "sha256:projection",
+        reasonCodes: ["future-drift-reason"],
+        unsupportedFiles: [],
+        ignoredFiles: [],
+        projectionDiffs: []
+      }
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.reconcileRequired).toBe(true);
+    expect(report.reasonCodes).toEqual(["future-drift-reason"]);
+    expect(report.ledgerToGit.ok).toBe(true);
+    expect(report.gitToLedger.ok).toBe(true);
   });
 });

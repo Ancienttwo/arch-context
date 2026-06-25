@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge, runtime write/read-mode contract, ledger readback CLI, ChangeSet dual-write recovery and import completeness gates complete
+> **Status**: Executing - AL0, AL1, AL2 and AL3 complete; AL3 now has deterministic YAML import/export, runtime read/write modes, ledger readback CLI, ChangeSet dual-write recovery, import completeness gates and reconcile-engine drift integration
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -119,7 +119,7 @@ These are target gates, not claims about current performance.
 | AL0 | Authority, contracts and ADR freeze | P0 | Existing M0–M3 | ☑ |
 | AL1 | Recommendation evidence correctness | P0 | AL0 | ☑ |
 | AL2 | SQLite architecture ledger foundation | P0 | AL0 | ☑ |
-| AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ◐ |
+| AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ☑ |
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ◻ |
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ◻ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ◻ |
@@ -344,8 +344,8 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Evidence: `projectArchitectureLedgerStateToYamlFiles` in `packages/core/architecture-ledger/src/index.ts`; daemon/CLI `ledger project --to-git` tests restore missing Git projection files from SQLite current state.
 - [x] **AL3-03 · P0 · `architecture-domain`** — Define one canonical ordering and serialization for IDs, collections, metadata and timestamps.
   - Evidence: `canonicalArchitectureJson`, `canonicalArchitectureYaml`, and exported `parseJsonOrStableYaml` in `packages/core/architecture-domain/src/index.ts`.
-- [ ] **AL3-04 · P0 · `reconcile-engine`** — Add bidirectional digest comparison and a typed drift report.
-  - Progress: typed drift report and reason-code tests exist in `architecture-ledger`; `archctx ledger drift --json` exposes ledger-vs-Git projection reasons; reconcile-engine integration remains.
+- [x] **AL3-04 · P0 · `reconcile-engine`** — Add bidirectional digest comparison and a typed drift report.
+  - Evidence: `reconcileArchitectureLedgerDrift` emits `archcontext.architecture-ledger-reconcile/v1` with ledger-to-Git projection and Git-to-ledger semantic digest directions; daemon and CLI `ledger drift --json` expose the typed reconcile report with authority-scoped candidate reconcile actions.
 - [x] **AL3-05 · P0 · `runtime-daemon`** — Add read modes: `yaml`, `dual-compare`, `ledger-shadow`, `ledger`.
   - Evidence: `RuntimeArchitectureLedgerModes` now reports real read authority; ledger-authoritative runtime reads use a daemon-owned ledger-backed `ModelStore` for `validate`, `context`, `prepare`, `checkpoint`, `complete`, landscape context and explorer projection while ChangeSet writes still validate against YAML before ledger append.
 - [x] **AL3-06 · P0 · `runtime-daemon`** — Add write modes: `yaml`, `dual`, `ledger-with-projection`.
@@ -418,7 +418,9 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - 2026-06-25: Focused import-completeness verification passed: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "SQLite deletion|ledger|rollback|worktree|merge|cursor" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; real repo `ledger migrate --from-yaml --dry-run` imported 44 records, including 40 ADR metadata records, with 0 unsupported files and clean drift.
 - 2026-06-25: Full import-completeness module verification passed with isolated runtime state: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; full test suite passed with 717 tests, packaged CLI smoke, privacy/security/readback ledgers, sprint-status check and representative eval.
 - 2026-06-25: Remote PR #49 Windows readback exposed `EBUSY` when the SQLite deletion fixture removed `runtime.sqlite` immediately after daemon shutdown; the fixture now retries transient Windows cleanup errors while preserving the real SQLite deletion/rebuild assertion. Local focused test and full isolated `bun run verify` passed after the fix.
-- 2026-06-25: Remaining AL3 scope is reconcile-engine integration.
+- 2026-06-25: Added AL3 reconcile-engine integration: `reconcileArchitectureLedgerDrift` wraps the existing architecture-ledger drift facts into a bidirectional typed report, and runtime/CLI ledger drift/project/rollback/rebuild outputs now include `reconcile` alongside the raw drift report.
+- 2026-06-25: Focused reconcile verification passed: `bun test packages/core/reconcile-engine/test/reconcile-engine.test.ts --timeout 30000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger project restores" --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "CLI rebuilds ledger" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `git diff --check`.
+- 2026-06-25: Full AL3 reconcile module verification passed with isolated runtime state: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; full test suite passed with 720 tests, packaged CLI smoke, privacy/security/readback ledgers, sprint-status check and representative eval.
 
 ---
 
@@ -846,8 +848,8 @@ For the smallest valuable sequence, start here:
 
 1. [x] AL0 authority and schemas.
 2. [x] AL1 evidence correctness before further enforcement work.
-3. [ ] AL2 event, snapshot, current graph and evidence-binding tables.
-4. [ ] AL3 YAML import/export and dual-compare mode.
+3. [x] AL2 event, snapshot, current graph and evidence-binding tables.
+4. [x] AL3 YAML import/export and dual-compare mode.
 5. [ ] AL4 thin post-commit queue plus stale-job cancellation.
 6. [ ] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
 7. [ ] AL7 `book status/query/diff` CLI.

@@ -38,6 +38,7 @@ import {
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
+import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
@@ -1251,7 +1252,8 @@ export class ArchctxDaemon {
       worktree: readback.worktree,
       ledger: readback.ledger,
       yaml: readback.yaml,
-      drift: readback.drift
+      drift: readback.drift,
+      reconcile: readback.reconcile
     } as unknown as Json);
   }
 
@@ -1270,6 +1272,7 @@ export class ArchctxDaemon {
         createdAt: this.clock(),
         command: "archctx ledger project --to-git"
       });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
       return okEnvelope("ledger.project", {
         schemaVersion: "archcontext.runtime-architecture-ledger-project/v1",
         architectureLedger: this.architectureLedger,
@@ -1282,7 +1285,8 @@ export class ArchctxDaemon {
         graphDigest: architectureLedgerStateDigest(state),
         writtenPaths: writes ? projectedFiles.map((file) => file.path) : [],
         projectedFiles: writes ? undefined : projectedFiles,
-        drift
+        drift,
+        reconcile
       } as unknown as Json);
     };
     return writes ? this.withWriter(project) : project();
@@ -1308,6 +1312,7 @@ export class ArchctxDaemon {
         createdAt: this.clock(),
         command: "archctx ledger rollback --to-yaml"
       });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
       return okEnvelope("ledger.rollback", {
         schemaVersion: "archcontext.runtime-architecture-ledger-rollback/v1",
         architectureLedger: this.architectureLedger,
@@ -1325,6 +1330,7 @@ export class ArchctxDaemon {
         removedPaths: writeResult.removedPaths,
         projectedFiles: writes ? undefined : projectedFiles,
         drift,
+        reconcile,
         recommendedEnvironment: {
           ARCHCONTEXT_LEDGER_MODE: "yaml"
         }
@@ -1417,6 +1423,13 @@ export class ArchctxDaemon {
         rebuildStatus = previousStateEmpty ? "rebuilt" : "external-projection-accepted";
       }
       const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
+      const drift = compareArchitectureLedgerStateToYaml({
+        state: replay.state,
+        files: listModelFiles(root),
+        createdAt: this.clock(),
+        command: "archctx ledger rebuild --from-git"
+      });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
       return okEnvelope("ledger.rebuild", {
         schemaVersion: "archcontext.runtime-architecture-ledger-rebuild/v1",
         architectureLedger: this.architectureLedger,
@@ -1445,12 +1458,8 @@ export class ArchctxDaemon {
         imported: plan.imported,
         ignoredFiles: plan.ignoredFiles,
         unsupportedFiles: plan.unsupportedFiles,
-        drift: compareArchitectureLedgerStateToYaml({
-          state: replay.state,
-          files: listModelFiles(root),
-          createdAt: this.clock(),
-          command: "archctx ledger rebuild --from-git"
-        })
+        drift,
+        reconcile
       } as unknown as Json);
     });
   }
@@ -1472,6 +1481,7 @@ export class ArchctxDaemon {
       createdAt: this.clock(),
       command: "archctx ledger drift --json"
     });
+    const reconcile = reconcileArchitectureLedgerDrift({ drift });
     const readAuthority = this.architectureLedger.readMode === "ledger" ? "ledger" : "yaml";
     const state = readAuthority === "ledger" ? ledgerState : yamlPlan.state;
     const graphDigest = readAuthority === "ledger" ? ledgerGraphDigest : yamlPlan.graphDigest;
@@ -1499,7 +1509,8 @@ export class ArchctxDaemon {
         ignoredFileCount: yamlPlan.ignoredFiles.length,
         unsupportedFileCount: yamlPlan.unsupportedFiles.length
       },
-      drift
+      drift,
+      reconcile
     };
   }
 
