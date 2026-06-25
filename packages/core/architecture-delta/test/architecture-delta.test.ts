@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { architectureCandidateDeltaDigest, architectureSubjectSelectorDigest, digestJson, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "../src/index";
+import {
+  representativeArchitectureChangeScenarios,
+  representativeArchitectureCodeContext,
+  representativeArchitectureDeclaredGraph,
+  representativeArchitectureGitPaths
+} from "./fixtures/representative-architecture-changes";
 
 const repository = {
   repositoryId: "repo.checkout",
@@ -220,6 +226,91 @@ describe("@archcontext/core/architecture-delta", () => {
       reason: "pre-existing-baseline-candidate"
     }));
     expect(attribution.taskIntroducedCandidateChangeIds).toEqual(withBaseline.candidateChanges.map((change) => change.candidateChangeId).sort());
+  });
+
+  test("covers representative architecture change fixtures without unmapped churn", () => {
+    const delta = buildArchitectureCandidateDelta({
+      repository,
+      worktree,
+      git: gitChange(representativeArchitectureGitPaths),
+      codeContext: representativeArchitectureCodeContext,
+      declaredGraph: representativeArchitectureDeclaredGraph,
+      createdAt: "2026-06-26T04:00:00.000Z"
+    });
+
+    expect(representativeArchitectureChangeScenarios.map((scenario) => scenario.scenarioId).sort()).toEqual([
+      "mapper-removal",
+      "monolith-to-service",
+      "package-layer",
+      "payment-webhook",
+      "persistence-boundary",
+      "public-api"
+    ]);
+    expect(delta.mappingAmbiguities).toEqual([]);
+    expect(delta.summary.unresolved).toBe(0);
+    expect(delta.summary.ambiguous).toBe(0);
+    expect(delta.summary.mapped).toBe(delta.declaredSubjectMappings.length);
+    expect(delta.changedSubjects).toHaveLength(representativeArchitectureGitPaths.length + representativeArchitectureCodeContext.symbols.length + representativeArchitectureCodeContext.edges.length);
+
+    for (const scenario of representativeArchitectureChangeScenarios) {
+      expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
+        kind: scenario.expectedCandidate.kind,
+        target: expect.objectContaining(scenario.expectedCandidate.target),
+        stateDimension: scenario.expectedCandidate.stateDimension,
+        changeKind: scenario.expectedCandidate.changeKind
+      }));
+    }
+
+    expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
+      kind: "migration-state-moved",
+      target: {
+        kind: "migration-state",
+        id: "module.order-service:migration-state",
+        parentId: "module.order-service"
+      },
+      stateDimension: "migration-state",
+      changeKind: "moved"
+    }));
+    expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
+      kind: "relation-materially-changed",
+      target: { kind: "relation", id: "relation.public-api-order-service" },
+      changeKind: "materially_changed"
+    }));
+    expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
+      kind: "relation-materially-changed",
+      target: { kind: "relation", id: "relation.payment-webhook-order-service" },
+      changeKind: "materially_changed"
+    }));
+    expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
+      kind: "relation-materially-changed",
+      target: { kind: "relation", id: "relation.order-service-persistence" },
+      changeKind: "materially_changed"
+    }));
+    expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
+      kind: "relation-materially-changed",
+      target: { kind: "relation", id: "relation.orders-package-service" },
+      changeKind: "materially_changed"
+    }));
+
+    expect(delta.declaredSubjectMappings).toContainEqual(expect.objectContaining({
+      target: { kind: "entity", id: "module.order-service" },
+      matchReason: "declared-path-prefix"
+    }));
+    expect(delta.declaredSubjectMappings).toContainEqual(expect.objectContaining({
+      target: { kind: "relation", id: "relation.public-api-order-service" },
+      matchReason: "declared-relation-endpoints"
+    }));
+    expect(delta.evidenceBindings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ target: { kind: "entity", id: "module.order-service" } }),
+      expect.objectContaining({ target: { kind: "entity", id: "module.order-persistence" } }),
+      expect.objectContaining({ target: { kind: "entity", id: "api.public-orders" } }),
+      expect.objectContaining({ target: { kind: "entity", id: "module.payment-webhook" } }),
+      expect.objectContaining({ target: { kind: "entity", id: "module.order-mapper" } }),
+      expect.objectContaining({ target: { kind: "entity", id: "package.orders" } }),
+      expect.objectContaining({ target: { kind: "relation", id: "relation.public-api-order-service" } })
+    ]));
+    expect(delta.evidenceBindings.every((binding) => binding.authorityEffect === "context-only")).toBe(true);
+    expect(delta.deltaDigest).toBe(architectureCandidateDeltaDigest(delta));
   });
 });
 
