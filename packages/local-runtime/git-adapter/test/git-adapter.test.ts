@@ -4,11 +4,15 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  computeGitChangeFingerprint,
   isTrackedWorktreeClean,
   prepareDetachedReviewWorktree,
+  readCommitChangeMetadata,
   readTrackedTreeEntries,
   readRepositoryBinding,
   readHeadSha,
+  readStagedChangeMetadata,
+  readWorktreeChangeMetadata,
   findRepositoryRoot,
   removeDetachedReviewWorktree,
   verifyDetachedReviewWorktree
@@ -37,6 +41,81 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     } finally {
       removeTempRoot(root);
     }
+  });
+
+  test("reads commit, staged, and worktree change metadata without source or diff bodies", () => {
+    const root = createGitFixture();
+    try {
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const commit = readCommitChangeMetadata(root);
+      expect(commit).toMatchObject({
+        source: "commit",
+        baseSha: "root",
+        headSha,
+        pathCount: 1,
+        paths: [{ path: "tracked.txt", status: "added", rawStatus: "A" }]
+      });
+
+      writeFileSync(join(root, "staged.ts"), "export const staged = true;\n");
+      git(root, "add", "staged.ts");
+      const staged = readStagedChangeMetadata(root);
+      expect(staged).toMatchObject({
+        source: "staged",
+        baseSha: headSha,
+        headSha,
+        paths: [{ path: "staged.ts", status: "added", rawStatus: "A" }]
+      });
+
+      writeFileSync(join(root, "tracked.txt"), "dirty source checkout\n");
+      writeFileSync(join(root, "untracked.ts"), "export const untracked = true;\n");
+      const worktree = readWorktreeChangeMetadata(root);
+      expect(worktree.source).toBe("worktree");
+      expect(worktree.headSha).toBe(headSha);
+      expect(worktree.paths).toEqual([
+        { path: "tracked.txt", rawStatus: "M", status: "modified" },
+        { path: "untracked.ts", rawStatus: "??", status: "added" }
+      ]);
+
+      const encoded = JSON.stringify({ commit, staged, worktree });
+      expect(encoded).not.toContain("dirty source checkout");
+      expect(encoded).not.toContain("export const");
+      expect(commit.metadataDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(staged.metadataDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(worktree.metadataDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("computes stable change fingerprints from repository, revisions, paths, analysis kind, and CodeGraph digest", () => {
+    const first = computeGitChangeFingerprint({
+      repositoryId: "repo.test",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      paths: ["src/b.ts", "src/a.ts", "src/a.ts"],
+      codeFactsDigest: `sha256:${"1".repeat(64)}`,
+      analysisKind: "architecture-delta"
+    });
+    const reordered = computeGitChangeFingerprint({
+      repositoryId: "repo.test",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      paths: [{ path: "src/a.ts", status: "modified", rawStatus: "M" }, { path: "src/b.ts", status: "added", rawStatus: "A" }],
+      codeFactsDigest: `sha256:${"1".repeat(64)}`,
+      analysisKind: "architecture-delta"
+    });
+    const differentFacts = computeGitChangeFingerprint({
+      repositoryId: "repo.test",
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      paths: ["src/a.ts", "src/b.ts"],
+      codeFactsDigest: `sha256:${"2".repeat(64)}`,
+      analysisKind: "architecture-delta"
+    });
+
+    expect(first).toBe(reordered);
+    expect(first).not.toBe(differentFacts);
+    expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
   test("creates a detached temporary worktree at an exact clean commit", () => {

@@ -432,6 +432,57 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs enqueue Git metadata through daemon boundary and claim a lease", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:00:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const first = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.runtime-test",
+        maxAttempts: 2
+      });
+      const duplicate = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.runtime-test",
+        maxAttempts: 2
+      });
+      expect(first.ok).toBe(true);
+      expect(duplicate.ok).toBe(true);
+      expect((first.data as any).enqueued).toBe(true);
+      expect((duplicate.data as any).deduplicated).toBe(true);
+      expect((first.data as any).change.paths).toEqual([{ path: "src/changed.ts", status: "added", rawStatus: "??" }]);
+      expect(JSON.stringify(first.data)).not.toContain("export const changed");
+
+      const list = await daemon.jobsList(root, { statuses: ["queued"] });
+      expect((list.data as any).count).toBe(1);
+      expect((list.data as any).jobs[0].job.trigger).toMatchObject({ source: "git_hook", reason: "post-edit" });
+
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.al4",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:00:01.000Z"
+      });
+      expect((claim.data as any).job).toMatchObject({
+        job: { status: "running" },
+        attemptCount: 1,
+        leaseOwner: "worker.al4"
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("checkpoint restores persisted baseline after daemon restart", async () => {
     const root = tempRepo();
     const facts = mutableCycleFacts();

@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2 and AL3 complete; AL3 now has deterministic YAML import/export, runtime read/write modes, ledger readback CLI, ChangeSet dual-write recovery, import completeness gates and reconcile-engine drift integration
+> **Status**: Executing - AL0, AL1, AL2 and AL3 complete; AL4 queue foundation is in progress with Git change metadata, stable fingerprints, persistent runtime jobs and stale-job cancellation
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -120,7 +120,7 @@ These are target gates, not claims about current performance.
 | AL1 | Recommendation evidence correctness | P0 | AL0 | ☑ |
 | AL2 | SQLite architecture ledger foundation | P0 | AL0 | ☑ |
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ☑ |
-| AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ◻ |
+| AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ◐ |
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ◻ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ◻ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◻ |
@@ -444,16 +444,23 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 
 ### Tasks
 
-- [ ] **AL4-01 · P0 · `git-adapter`** — Normalize commit, staged and worktree change metadata without persisting diff body.
-- [ ] **AL4-02 · P0 · `git-adapter`** — Compute stable change fingerprints from repository ID, base SHA, head SHA, path set and CodeGraph digest.
-- [ ] **AL4-03 · P0 · `runtime-daemon`** — Add a persistent local job queue backed by `agent_jobs` or a separate typed runtime queue table.
-- [ ] **AL4-04 · P0 · `runtime-daemon`** — Implement enqueue, claim, lease, retry, cancel and dead-letter semantics.
-- [ ] **AL4-05 · P0 · `runtime-daemon`** — Add debounce and coalescing for rapid file saves and sequential commits.
-- [ ] **AL4-06 · P0 · `runtime-daemon`** — Deduplicate jobs by change fingerprint and analysis kind.
+- [x] **AL4-01 · P0 · `git-adapter`** — Normalize commit, staged and worktree change metadata without persisting diff body.
+  - Evidence: `packages/local-runtime/git-adapter/src/index.ts`; `bun test packages/local-runtime/git-adapter/test/git-adapter.test.ts --timeout 30000`.
+- [x] **AL4-02 · P0 · `git-adapter`** — Compute stable change fingerprints from repository ID, base SHA, head SHA, path set and CodeGraph digest.
+  - Evidence: `computeGitChangeFingerprint`; stable/reordered path test in `packages/local-runtime/git-adapter/test/git-adapter.test.ts`.
+- [x] **AL4-03 · P0 · `runtime-daemon`** — Add a persistent local job queue backed by `agent_jobs` or a separate typed runtime queue table.
+  - Evidence: `0007_runtime_job_queue` migration in `packages/local-runtime/local-store-sqlite/src/index.ts`; `runtime_job_queue` intentionally separates mutable operational queue state from immutable ledger `agent_jobs`.
+- [x] **AL4-04 · P0 · `runtime-daemon`** — Implement enqueue, claim, lease, retry, cancel and dead-letter semantics.
+  - Evidence: SQLite queue lifecycle tests in `packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts`.
+- [x] **AL4-05 · P0 · `runtime-daemon`** — Add debounce and coalescing for rapid file saves and sequential commits.
+  - Evidence: `enqueueRuntimeAgentJob` coalesces queued jobs by `coalesceKey`; covered by `runtime job queue deduplicates fingerprints and coalesces queued jobs`.
+- [x] **AL4-06 · P0 · `runtime-daemon`** — Deduplicate jobs by change fingerprint and analysis kind.
+  - Evidence: queue partial unique index and daemon boundary test `runtime jobs enqueue Git metadata through daemon boundary and claim a lease`.
 - [ ] **AL4-07 · P0 · `cli`** — Add `archctx hooks install`, `uninstall`, `status` and `doctor`.
 - [ ] **AL4-08 · P0 · `hooks`** — Install thin wrappers that only validate runtime availability and enqueue work.
 - [ ] **AL4-09 · P0 · `hooks`** — Add recursion guard so ArchContext-generated projection commits do not trigger an infinite loop.
-- [ ] **AL4-10 · P0 · `runtime-daemon`** — Attach every job to HEAD SHA and worktree digest; cancel or supersede stale jobs.
+- [x] **AL4-10 · P0 · `runtime-daemon`** — Attach every job to HEAD SHA and worktree digest; cancel or supersede stale jobs.
+  - Evidence: `jobsEnqueueGitHook` attaches current scope and calls `cancelStaleRuntimeAgentJobs`; stale cancellation covered in `runtime job queue expires stale head or worktree jobs before new analysis can append`.
 - [ ] **AL4-11 · P1 · `policy-engine`** — Define advisory fail-open behavior and explicit fail-closed policy modes.
 - [ ] **AL4-12 · P1 · `runtime-daemon`** — Add backpressure: queue cap, per-repository concurrency, priority and stale-job eviction.
 - [ ] **AL4-13 · P1 · `cli`** — Add `archctx jobs list/show/cancel/retry` with structured JSON.
@@ -468,6 +475,16 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - [ ] **AL4-EG3** — No duplicate or lost jobs in the stress fixture.
 - [ ] **AL4-EG4** — Stale jobs cannot append events or update projections.
 - [ ] **AL4-EG5** — Existing user hooks remain chained and functional.
+
+### Execution log
+
+- 2026-06-25 — AL4 queue foundation completed as one reviewable module:
+  - Git metadata readers: commit, staged and worktree paths/statuses only; no source body or diff body persisted.
+  - Stable fingerprint: repository/storage identity, base/head SHA, normalized path set, CodeGraph digest and analysis kind.
+  - Runtime queue: separate `runtime_job_queue` table with enqueue, claim, lease, retry, cancel, dead-letter, debounce/coalescing, fingerprint dedupe and stale HEAD/worktree expiry.
+  - Daemon boundary: `jobsEnqueueGitHook`, `jobsList`, `jobsClaim`, `jobsComplete`, `jobsRetry`, `jobsCancel`.
+  - Verification: `bun test packages/local-runtime/git-adapter/test/git-adapter.test.ts --timeout 30000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`.
+  - Explicitly still out of scope: hook install/wrappers, recursion guard, jobs CLI, stress fixture, hook latency benchmark and user hook chaining gate.
 
 ---
 
@@ -851,6 +868,7 @@ For the smallest valuable sequence, start here:
 3. [x] AL2 event, snapshot, current graph and evidence-binding tables.
 4. [x] AL3 YAML import/export and dual-compare mode.
 5. [ ] AL4 thin post-commit queue plus stale-job cancellation.
+   - Queue foundation and stale-job cancellation are complete; thin post-commit hook wrapper remains open.
 6. [ ] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
 7. [ ] AL7 `book status/query/diff` CLI.
 8. [ ] AL9 deterministic architecture changelog projection.

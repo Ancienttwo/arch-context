@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
-import { digestJson, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import {
   LOCAL_SQLITE_MIGRATIONS,
   SQLITE_PRAGMAS,
@@ -30,13 +30,15 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0003_landscape_state",
       "0004_changeset_journal",
       "0005_external_docs_cache",
-      "0006_architecture_ledger"
+      "0006_architecture_ledger",
+      "0007_runtime_job_queue"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
     expect(sql.some((statement) => statement.includes("external_docs_cache"))).toBe(true);
     expect(sql.some((statement) => statement.includes("architecture_events"))).toBe(true);
     expect(sql.some((statement) => statement.includes("architecture_ledger_operations"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("runtime_job_queue"))).toBe(true);
     expect(sql.some((statement) => statement.includes("architecture_current_graph_view"))).toBe(true);
     expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
   });
@@ -294,7 +296,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0003_landscape_state",
       "0004_changeset_journal",
       "0005_external_docs_cache",
-      "0006_architecture_ledger"
+      "0006_architecture_ledger",
+      "0007_runtime_job_queue"
     ]);
 
     const snapshot = {
@@ -312,6 +315,148 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
 
     await store.beginSnapshot(snapshot);
     expect(store.recoverPendingSnapshots()).toBe(1);
+  });
+
+  test("runtime job queue deduplicates fingerprints and coalesces queued jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-queue-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const first = runtimeAgentJob("alpha", {
+        fingerprint: "fingerprint.same",
+        queuedAt: "2026-06-25T01:00:00.000Z"
+      });
+      const duplicate = runtimeAgentJob("duplicate", {
+        fingerprint: "fingerprint.same",
+        queuedAt: "2026-06-25T01:00:01.000Z"
+      });
+      const newer = runtimeAgentJob("newer", {
+        fingerprint: "fingerprint.newer",
+        queuedAt: "2026-06-25T01:00:02.000Z"
+      });
+
+      await expect(store.enqueueRuntimeAgentJob({
+        job: first,
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.scope",
+        maxAttempts: 2
+      })).resolves.toMatchObject({ enqueued: true, deduplicated: false, supersededJobIds: [] });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: duplicate,
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.scope"
+      })).resolves.toMatchObject({ enqueued: false, deduplicated: true, record: { job: { jobId: first.jobId } } });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: newer,
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.scope"
+      })).resolves.toMatchObject({ enqueued: true, deduplicated: false, supersededJobIds: [first.jobId] });
+
+      const jobs = await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE);
+      expect(jobs.map((job) => [job.job.jobId, job.job.status, job.supersededByJobId])).toEqual([
+        [first.jobId, "superseded", newer.jobId],
+        [newer.jobId, "queued", undefined]
+      ]);
+      expect(JSON.stringify(jobs)).not.toContain("diff --git");
+      store.close();
+      expect(await sqliteScalar(join(root, "runtime.sqlite"), "SELECT COUNT(*) FROM runtime_job_queue")).toBe(2);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime job queue claims leases, retries failures, and dead-letters exhausted jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-lease-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const job = runtimeAgentJob("lease", { queuedAt: "2026-06-25T01:10:00.000Z" });
+      await store.enqueueRuntimeAgentJob({ job, analysisKind: "architecture-delta", maxAttempts: 2 });
+
+      const firstClaim = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.one",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:10:01.000Z"
+      });
+      expect(firstClaim).toMatchObject({
+        job: { jobId: job.jobId, status: "running" },
+        attemptCount: 1,
+        leaseOwner: "worker.one"
+      });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.two",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:10:02.000Z"
+      })).resolves.toBeUndefined();
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.one",
+        status: "failed",
+        now: "2026-06-25T01:10:03.000Z",
+        error: "fixture-failure"
+      })).resolves.toMatchObject({ job: { status: "failed" }, attemptCount: 1, deadLetteredAt: undefined });
+      await expect(store.retryRuntimeAgentJob({
+        jobId: job.jobId,
+        now: "2026-06-25T01:10:04.000Z",
+        reason: "retry-fixture"
+      })).resolves.toMatchObject({ job: { status: "queued" }, attemptCount: 1 });
+
+      const secondClaim = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.two",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:10:05.000Z"
+      });
+      expect(secondClaim).toMatchObject({ job: { status: "running" }, attemptCount: 2, leaseOwner: "worker.two" });
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.two",
+        status: "failed",
+        now: "2026-06-25T01:10:06.000Z",
+        error: "fixture-failure-two"
+      })).resolves.toMatchObject({
+        job: { status: "failed" },
+        attemptCount: 2,
+        deadLetteredAt: "2026-06-25T01:10:06.000Z"
+      });
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime job queue expires stale head or worktree jobs before new analysis can append", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-stale-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const stale = runtimeAgentJob("stale", {
+        queuedAt: "2026-06-25T01:20:00.000Z",
+        headSha: "0".repeat(40)
+      });
+      const current = runtimeAgentJob("current", {
+        queuedAt: "2026-06-25T01:20:01.000Z"
+      });
+      await store.enqueueRuntimeAgentJob({ job: stale, analysisKind: "architecture-delta", coalesceKey: "stale-a" });
+      await store.enqueueRuntimeAgentJob({ job: current, analysisKind: "architecture-delta", coalesceKey: "stale-b" });
+
+      await expect(store.cancelStaleRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        headSha: ARCHITECTURE_LEDGER_SCOPE.worktree.headSha,
+        worktreeDigest: ARCHITECTURE_LEDGER_SCOPE.worktree.worktreeDigest,
+        now: "2026-06-25T01:20:02.000Z"
+      })).resolves.toMatchObject([{ job: { jobId: stale.jobId, status: "expired" } }]);
+      expect((await store.listRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        statuses: ["queued"]
+      })).map((record) => record.job.jobId)).toEqual([current.jobId]);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("sqlite changeset journal recovers pending temp writes after reopen", async () => {
@@ -775,6 +920,38 @@ const ARCHITECTURE_LEDGER_SCOPE = {
     worktreeDigest: digestJson({ worktree: "architecture-ledger-test" } as unknown as Json)
   }
 };
+
+function runtimeAgentJob(suffix: string, input: {
+  fingerprint?: string;
+  queuedAt?: string;
+  headSha?: string;
+  worktreeDigest?: string;
+} = {}): AgentJobV1 {
+  const queuedAt = input.queuedAt ?? "2026-06-25T01:00:00.000Z";
+  const headSha = input.headSha ?? ARCHITECTURE_LEDGER_SCOPE.worktree.headSha;
+  const worktreeDigest = input.worktreeDigest ?? ARCHITECTURE_LEDGER_SCOPE.worktree.worktreeDigest;
+  return {
+    schemaVersion: "archcontext.agent-job/v1",
+    jobId: `agent_job.${suffix}`,
+    status: "queued",
+    runnerPort: "codex",
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: {
+      ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+      headSha,
+      worktreeDigest
+    },
+    fingerprint: input.fingerprint ?? `fingerprint.${suffix}`,
+    trigger: { source: "git_hook", reason: "runtime-job-queue-test" },
+    budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
+    inputDigest: digestJson({ agentInput: suffix } as unknown as Json),
+    promptTemplateDigest: digestJson({ prompt: "runtime-job-queue-test" } as unknown as Json),
+    stalePolicy: "cancel-on-head-change",
+    directMutationAllowed: false,
+    queuedAt,
+    updatedAt: queuedAt
+  };
+}
 
 function architectureLedgerEvent(index: number): ArchitectureEventV1 {
   const operations: Record<string, Json>[] = [{

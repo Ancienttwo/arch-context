@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
+import { digestJson, type Json } from "@archcontext/contracts";
 
 export function findRepositoryRoot(start: string): string {
   try {
@@ -38,6 +39,79 @@ export function readHeadSha(root: string): string {
 export function readRepositoryBinding(start: string): RepositoryBinding {
   const root = findRepositoryRoot(start);
   return bindRepository(root, readHeadSha(root));
+}
+
+export type GitChangeSource = "commit" | "staged" | "worktree";
+export type GitPathChangeStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "typechanged" | "unmerged" | "unknown";
+
+export interface GitPathChange {
+  path: string;
+  previousPath?: string;
+  status: GitPathChangeStatus;
+  rawStatus: string;
+}
+
+export interface GitChangeMetadata {
+  schemaVersion: "archcontext.git-change-metadata/v1";
+  source: GitChangeSource;
+  baseSha?: string;
+  headSha: string;
+  paths: GitPathChange[];
+  pathCount: number;
+  metadataDigest: string;
+}
+
+export interface GitChangeFingerprintInput {
+  schemaVersion?: "archcontext.git-change-fingerprint-input/v1";
+  repositoryId: string;
+  baseSha: string;
+  headSha: string;
+  paths: Array<string | GitPathChange>;
+  codeFactsDigest: string;
+  analysisKind?: string;
+}
+
+export function readCommitChangeMetadata(root: string, ref = "HEAD"): GitChangeMetadata {
+  const headSha = runGit(root, ["rev-parse", ref]).trim();
+  const parentLine = runGit(root, ["rev-list", "--parents", "-n", "1", ref]).trim();
+  const baseSha = parentLine.split(/\s+/)[1] ?? "root";
+  const paths = parseNameStatusZ(runGit(root, ["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", ref]));
+  return gitChangeMetadata({ source: "commit", baseSha, headSha, paths });
+}
+
+export function readStagedChangeMetadata(root: string, baseRef = "HEAD"): GitChangeMetadata {
+  const headSha = readHeadSha(root);
+  const baseSha = gitSucceeds(root, ["rev-parse", "--verify", baseRef])
+    ? runGit(root, ["rev-parse", baseRef]).trim()
+    : "unborn";
+  const paths = parseNameStatusZ(runGit(root, ["diff", "--cached", "--name-status", "-z", "--"]));
+  return gitChangeMetadata({ source: "staged", baseSha, headSha, paths });
+}
+
+export function readWorktreeChangeMetadata(root: string): GitChangeMetadata {
+  const headSha = readHeadSha(root);
+  const tracked = parseNameStatusZ(runGit(root, ["diff", "--name-status", "-z", "--"]));
+  const untracked = runGit(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+    .split("\0")
+    .filter(Boolean)
+    .map((path) => ({ path, status: "added" as const, rawStatus: "??" }));
+  return gitChangeMetadata({ source: "worktree", baseSha: headSha, headSha, paths: dedupeGitPathChanges([...tracked, ...untracked]) });
+}
+
+export function computeGitChangeFingerprint(input: GitChangeFingerprintInput): string {
+  const paths = input.paths
+    .map((item) => typeof item === "string" ? item : item.path)
+    .filter(Boolean)
+    .sort();
+  return digestJson({
+    schemaVersion: "archcontext.git-change-fingerprint-input/v1",
+    repositoryId: input.repositoryId,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    paths: [...new Set(paths)],
+    codeFactsDigest: input.codeFactsDigest,
+    analysisKind: input.analysisKind ?? "architecture-change"
+  } as unknown as Json);
 }
 
 export type DetachedReviewWorktreeReason =
@@ -221,6 +295,68 @@ function parseLsTreeEntry(entry: string): GitTrackedTreeEntry {
     objectId: match[3],
     path: match[4]
   };
+}
+
+function parseNameStatusZ(output: string): GitPathChange[] {
+  const tokens = output.split("\0").filter(Boolean);
+  const changes: GitPathChange[] = [];
+  for (let index = 0; index < tokens.length;) {
+    const rawStatus = tokens[index++] ?? "";
+    if (!rawStatus) continue;
+    if (rawStatus.startsWith("R") || rawStatus.startsWith("C")) {
+      const previousPath = tokens[index++];
+      const path = tokens[index++];
+      if (!path || !previousPath) throw new Error(`git-name-status-invalid: ${rawStatus}`);
+      changes.push({ path, previousPath, rawStatus, status: statusFromNameStatus(rawStatus) });
+      continue;
+    }
+    const path = tokens[index++];
+    if (!path) throw new Error(`git-name-status-invalid: ${rawStatus}`);
+    changes.push({ path, rawStatus, status: statusFromNameStatus(rawStatus) });
+  }
+  return dedupeGitPathChanges(changes);
+}
+
+function statusFromNameStatus(status: string): GitPathChangeStatus {
+  const code = status[0];
+  if (code === "A") return "added";
+  if (code === "M") return "modified";
+  if (code === "D") return "deleted";
+  if (code === "R") return "renamed";
+  if (code === "C") return "copied";
+  if (code === "T") return "typechanged";
+  if (code === "U") return "unmerged";
+  return "unknown";
+}
+
+function gitChangeMetadata(input: {
+  source: GitChangeSource;
+  baseSha?: string;
+  headSha: string;
+  paths: GitPathChange[];
+}): GitChangeMetadata {
+  const paths = dedupeGitPathChanges(input.paths);
+  const payload = {
+    schemaVersion: "archcontext.git-change-metadata/v1" as const,
+    source: input.source,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+    paths,
+    pathCount: paths.length
+  };
+  return {
+    ...payload,
+    metadataDigest: digestJson(payload as unknown as Json)
+  };
+}
+
+function dedupeGitPathChanges(changes: GitPathChange[]): GitPathChange[] {
+  return [...new Map(changes
+    .sort((left, right) =>
+      left.path.localeCompare(right.path)
+      || (left.previousPath ?? "").localeCompare(right.previousPath ?? "")
+      || left.rawStatus.localeCompare(right.rawStatus))
+    .map((change) => [`${change.rawStatus}\0${change.previousPath ?? ""}\0${change.path}`, change])).values()];
 }
 
 function readDetachedWorktreeObserved(worktreeRoot: string): DetachedReviewWorktreeVerification["observed"] {

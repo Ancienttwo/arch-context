@@ -43,8 +43,8 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
-import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 
@@ -73,6 +73,48 @@ export interface RuntimeCheckpointInput {
   expectedWorktreeDigest?: string;
   maxBytes?: number;
   maxItems?: number;
+}
+
+export interface RuntimeAgentJobEnqueueGitInput {
+  source?: GitChangeSource;
+  ref?: string;
+  baseRef?: string;
+  event?: string;
+  analysisKind?: string;
+  coalesceKey?: string;
+  debounceUntil?: string;
+  maxAttempts?: number;
+  runnerPort?: AgentJobV1["runnerPort"];
+  codeFactsDigest?: string;
+}
+
+export interface RuntimeAgentJobClaimRpcInput {
+  workerId: string;
+  leaseMs?: number;
+  now?: string;
+}
+
+export interface RuntimeAgentJobCompleteRpcInput {
+  jobId: string;
+  status: Extract<AgentJobV1["status"], "succeeded" | "failed">;
+  workerId?: string;
+  outputDigest?: string;
+  error?: string;
+  now?: string;
+}
+
+export interface RuntimeAgentJobRetryRpcInput {
+  jobId: string;
+  reason?: string;
+  now?: string;
+}
+
+export interface RuntimeAgentJobCancelRpcInput {
+  jobId: string;
+  status?: Extract<AgentJobV1["status"], "cancelled" | "superseded" | "expired">;
+  reason?: string;
+  supersededByJobId?: string;
+  now?: string;
 }
 
 export interface RuntimeDocsInput {
@@ -373,6 +415,12 @@ export interface RuntimeDaemonClient {
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
   checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsEnqueueGitHook(root: string, input?: RuntimeAgentJobEnqueueGitInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsList(root: string, input?: { statuses?: AgentJobV1["status"][] }): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
   docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
   readResource(root: string, uri: string): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -777,6 +825,143 @@ export class ArchctxDaemon {
     });
     this.pruneCheckpointCoalesced();
     return okEnvelope("checkpoint", data);
+  }
+
+  async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    const session = await this.openSession(repositoryRoot);
+    const scope = await this.architectureLedgerScope(repositoryRoot);
+    const source = input.source ?? "worktree";
+    const metadata = readGitChangeMetadata(repositoryRoot, source, input);
+    const analysisKind = input.analysisKind ?? "architecture-delta";
+    const now = this.clock();
+    const codeFactsDigestValue = input.codeFactsDigest
+      ?? session.codeFactsDigest
+      ?? digestJson({
+        schemaVersion: "archcontext.git-hook-codefacts-fallback/v1",
+        source,
+        headSha: metadata.headSha,
+        metadataDigest: metadata.metadataDigest
+      } as unknown as Json);
+    const fingerprint = computeGitChangeFingerprint({
+      repositoryId: scope.repository.storageRepositoryId,
+      baseSha: metadata.baseSha ?? scope.worktree.headSha,
+      headSha: metadata.headSha,
+      paths: metadata.paths,
+      codeFactsDigest: codeFactsDigestValue,
+      analysisKind
+    });
+    const inputDigest = digestJson({
+      schemaVersion: "archcontext.runtime-agent-job-input/v1",
+      source,
+      event: input.event ?? source,
+      analysisKind,
+      metadataDigest: metadata.metadataDigest,
+      codeFactsDigest: codeFactsDigestValue
+    } as unknown as Json);
+    const job: AgentJobV1 = {
+      schemaVersion: "archcontext.agent-job/v1",
+      jobId: runtimeAgentJobId(fingerprint, inputDigest, now),
+      status: "queued",
+      runnerPort: input.runnerPort ?? "codex",
+      repository: scope.repository,
+      worktree: {
+        ...scope.worktree,
+        headSha: metadata.headSha
+      },
+      fingerprint,
+      trigger: { source: "git_hook", reason: input.event ?? source },
+      budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
+      inputDigest,
+      promptTemplateDigest: digestJson({
+        schemaVersion: "archcontext.runtime-agent-job-prompt-template/v1",
+        analysisKind
+      } as unknown as Json),
+      stalePolicy: "cancel-on-head-change",
+      directMutationAllowed: false,
+      queuedAt: now,
+      updatedAt: now
+    };
+    const expired = await this.localStore.cancelStaleRuntimeAgentJobs({
+      ...scope,
+      headSha: scope.worktree.headSha,
+      worktreeDigest: scope.worktree.worktreeDigest,
+      now,
+      reason: "enqueue-newer-git-hook-job"
+    });
+    const enqueue = await this.localStore.enqueueRuntimeAgentJob({
+      job,
+      analysisKind,
+      coalesceKey: input.coalesceKey,
+      maxAttempts: input.maxAttempts,
+      debounceUntil: input.debounceUntil
+    });
+    return okEnvelope("jobs.enqueueGitHook", {
+      ...enqueue,
+      change: metadata,
+      codeFactsDigest: codeFactsDigestValue,
+      analysisKind,
+      expiredJobIds: expired.map((record) => record.job.jobId)
+    } as unknown as Json);
+  }
+
+  async jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    const jobs = await this.localStore.listRuntimeAgentJobs({ ...scope, statuses: input.statuses });
+    return okEnvelope("jobs.list", { jobs, count: jobs.length } as unknown as Json);
+  }
+
+  async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.workerId) return errorEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs.claim requires workerId");
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.claimRuntimeAgentJob({
+      ...scope,
+      workerId: input.workerId,
+      leaseMs: input.leaseMs ?? 60_000,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.claim", { job } as unknown as Json);
+  }
+
+  async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.completeRuntimeAgentJob({
+      jobId: input.jobId,
+      status: input.status,
+      workerId: input.workerId,
+      outputDigest: input.outputDigest,
+      error: input.error,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.complete", { job } as unknown as Json);
+  }
+
+  async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.retryRuntimeAgentJob({
+      jobId: input.jobId,
+      reason: input.reason,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.retry", { job } as unknown as Json);
+  }
+
+  async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.cancelRuntimeAgentJob({
+      jobId: input.jobId,
+      status: input.status ?? "cancelled",
+      reason: input.reason,
+      supersededByJobId: input.supersededByJobId,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.cancel", { job } as unknown as Json);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
@@ -2384,6 +2569,30 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("checkpoint", [root, input]);
   }
 
+  jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}) {
+    return this.call("jobsEnqueueGitHook", [root, input]);
+  }
+
+  jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}) {
+    return this.call("jobsList", [root, input]);
+  }
+
+  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput) {
+    return this.call("jobsClaim", [root, input]);
+  }
+
+  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput) {
+    return this.call("jobsComplete", [root, input]);
+  }
+
+  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput) {
+    return this.call("jobsRetry", [root, input]);
+  }
+
+  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput) {
+    return this.call("jobsCancel", [root, input]);
+  }
+
   docs(root: string, input: RuntimeDocsInput) {
     return this.call("docs", [root, input]);
   }
@@ -2661,6 +2870,18 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined, params[4] as string | undefined);
       case "checkpoint":
         return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
+      case "jobsEnqueueGitHook":
+        return this.daemon.jobsEnqueueGitHook(params[0] as string, params[1] as RuntimeAgentJobEnqueueGitInput | undefined);
+      case "jobsList":
+        return this.daemon.jobsList(params[0] as string, params[1] as { statuses?: AgentJobV1["status"][] } | undefined);
+      case "jobsClaim":
+        return this.daemon.jobsClaim(params[0] as string, params[1] as RuntimeAgentJobClaimRpcInput);
+      case "jobsComplete":
+        return this.daemon.jobsComplete(params[0] as string, params[1] as RuntimeAgentJobCompleteRpcInput);
+      case "jobsRetry":
+        return this.daemon.jobsRetry(params[0] as string, params[1] as RuntimeAgentJobRetryRpcInput);
+      case "jobsCancel":
+        return this.daemon.jobsCancel(params[0] as string, params[1] as RuntimeAgentJobCancelRpcInput);
       case "docs":
         return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
       case "readResource":
@@ -2856,6 +3077,23 @@ function modelFileDigestSummary(value: unknown): { path: string; digest: string 
   const record = value as { path?: unknown; digest?: unknown };
   if (typeof record.path !== "string" || typeof record.digest !== "string") return undefined;
   return { path: record.path, digest: record.digest };
+}
+
+function readGitChangeMetadata(root: string, source: GitChangeSource, input: RuntimeAgentJobEnqueueGitInput): GitChangeMetadata {
+  const repositoryRoot = findRepositoryRoot(root);
+  if (source === "commit") return readCommitChangeMetadata(repositoryRoot, input.ref ?? "HEAD");
+  if (source === "staged") return readStagedChangeMetadata(repositoryRoot, input.baseRef ?? "HEAD");
+  return readWorktreeChangeMetadata(repositoryRoot);
+}
+
+function runtimeAgentJobId(fingerprint: string, inputDigest: string, queuedAt: string): string {
+  return `agent_job.${digestJson({
+    schemaVersion: "archcontext.runtime-agent-job-id/v1",
+    fingerprint,
+    inputDigest,
+    queuedAt,
+    nonce: randomBytes(6).toString("hex")
+  } as unknown as Json).replace(/^sha256:/, "").slice(0, 32)}`;
 }
 
 function codeFactsDigest(snapshot: CodeFactsSnapshot): string {

@@ -14,8 +14,8 @@ import {
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import type { ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeLocalStore } from "../src/index";
+import type { AgentJobV1, ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
+import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -26,6 +26,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly landscapes = new Map<string, Landscape>();
   readonly crossRepoEdges = new Map<string, CrossRepoRelation>();
   readonly externalDocumentation = new Map<string, ExternalDocumentationCacheEntry>();
+  readonly runtimeAgentJobs = new Map<string, RuntimeAgentJobRecord>();
   readonly changeSetJournals = new Map<string, {
     root: string;
     draft: ChangeSetDraft;
@@ -75,6 +76,165 @@ export class TestLocalStore implements RuntimeLocalStore {
     return [...this.repositorySessions.values()].sort((a, b) =>
       a.updatedAt.localeCompare(b.updatedAt) || a.repositoryId.localeCompare(b.repositoryId)
     );
+  }
+
+  async enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult> {
+    if (input.job.status !== "queued") throw new Error("runtime-agent-job-enqueue-requires-queued-status");
+    const coalesceKey = input.coalesceKey ?? testRuntimeAgentJobDefaultCoalesceKey(input.job, input.analysisKind);
+    const duplicate = [...this.runtimeAgentJobs.values()]
+      .filter((record) => testRuntimeAgentJobMatchesScope(record, input.job)
+        && record.analysisKind === input.analysisKind
+        && record.job.fingerprint === input.job.fingerprint
+        && (record.job.status === "queued" || record.job.status === "running"))
+      .sort(testRuntimeAgentJobSort)[0];
+    if (duplicate) {
+      return { record: duplicate, enqueued: false, deduplicated: true, supersededJobIds: [] };
+    }
+
+    const superseded = [...this.runtimeAgentJobs.values()]
+      .filter((record) => testRuntimeAgentJobMatchesScope(record, input.job)
+        && record.analysisKind === input.analysisKind
+        && record.coalesceKey === coalesceKey
+        && record.job.status === "queued")
+      .sort(testRuntimeAgentJobSort);
+    for (const record of superseded) {
+      this.runtimeAgentJobs.set(record.job.jobId, {
+        ...record,
+        job: testRuntimeAgentJobWithStatus(record.job, "superseded", input.job.queuedAt),
+        lastError: "coalesced-by-newer-job",
+        supersededByJobId: input.job.jobId
+      });
+    }
+
+    const record: RuntimeAgentJobRecord = {
+      job: input.job,
+      analysisKind: input.analysisKind,
+      coalesceKey,
+      attemptCount: 0,
+      maxAttempts: Math.max(1, Math.trunc(input.maxAttempts ?? 3)),
+      debounceUntil: input.debounceUntil
+    };
+    this.runtimeAgentJobs.set(input.job.jobId, record);
+    return {
+      record,
+      enqueued: true,
+      deduplicated: false,
+      supersededJobIds: superseded.map((job) => job.job.jobId)
+    };
+  }
+
+  async listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]> {
+    const statuses = new Set(input.statuses);
+    return [...this.runtimeAgentJobs.values()]
+      .filter((record) => record.job.repository.storageRepositoryId === input.repository.storageRepositoryId
+        && record.job.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+        && (!input.statuses || statuses.has(record.job.status)))
+      .sort(testRuntimeAgentJobSort);
+  }
+
+  async claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined> {
+    const record = [...this.runtimeAgentJobs.values()]
+      .filter((candidate) => candidate.job.repository.storageRepositoryId === input.repository.storageRepositoryId
+        && candidate.job.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+        && ((candidate.job.status === "queued" && (!candidate.debounceUntil || candidate.debounceUntil <= input.now))
+          || (candidate.job.status === "running" && !!candidate.leaseExpiresAt && candidate.leaseExpiresAt <= input.now)))
+      .sort(testRuntimeAgentJobSort)[0];
+    if (!record) return undefined;
+    const attemptCount = record.attemptCount + 1;
+    if (attemptCount > record.maxAttempts) {
+      this.runtimeAgentJobs.set(record.job.jobId, {
+        ...record,
+        job: testRuntimeAgentJobWithStatus(record.job, "failed", input.now),
+        attemptCount,
+        leaseOwner: undefined,
+        leasedAt: undefined,
+        leaseExpiresAt: undefined,
+        lastError: "max-attempts-exhausted",
+        deadLetteredAt: input.now
+      });
+      return undefined;
+    }
+    const leaseExpiresAt = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
+    const claimed = {
+      ...record,
+      job: testRuntimeAgentJobWithStatus(record.job, "running", input.now),
+      attemptCount,
+      leaseOwner: input.workerId,
+      leasedAt: input.now,
+      leaseExpiresAt,
+      lastError: undefined
+    };
+    this.runtimeAgentJobs.set(record.job.jobId, claimed);
+    return claimed;
+  }
+
+  async completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord> {
+    const record = this.requiredRuntimeAgentJob(input.jobId);
+    if (input.workerId && record.leaseOwner && record.leaseOwner !== input.workerId) {
+      throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
+    }
+    const updated = {
+      ...record,
+      job: testRuntimeAgentJobWithStatus(record.job, input.status, input.now, input.outputDigest),
+      leaseOwner: undefined,
+      leasedAt: undefined,
+      leaseExpiresAt: undefined,
+      lastError: input.error,
+      deadLetteredAt: input.status === "failed" && record.attemptCount >= record.maxAttempts ? input.now : record.deadLetteredAt
+    };
+    this.runtimeAgentJobs.set(input.jobId, updated);
+    return updated;
+  }
+
+  async retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord> {
+    const record = this.requiredRuntimeAgentJob(input.jobId);
+    const maxed = record.attemptCount >= record.maxAttempts;
+    const updated = {
+      ...record,
+      job: testRuntimeAgentJobWithStatus(record.job, maxed ? "failed" : "queued", input.now),
+      leaseOwner: undefined,
+      leasedAt: undefined,
+      leaseExpiresAt: undefined,
+      lastError: input.reason,
+      deadLetteredAt: maxed ? input.now : undefined
+    };
+    this.runtimeAgentJobs.set(input.jobId, updated);
+    return updated;
+  }
+
+  async cancelRuntimeAgentJob(input: RuntimeAgentJobCancelInput): Promise<RuntimeAgentJobRecord> {
+    const record = this.requiredRuntimeAgentJob(input.jobId);
+    const updated = {
+      ...record,
+      job: testRuntimeAgentJobWithStatus(record.job, input.status, input.now),
+      leaseOwner: undefined,
+      leasedAt: undefined,
+      leaseExpiresAt: undefined,
+      lastError: input.reason,
+      supersededByJobId: input.supersededByJobId ?? record.supersededByJobId
+    };
+    this.runtimeAgentJobs.set(input.jobId, updated);
+    return updated;
+  }
+
+  async cancelStaleRuntimeAgentJobs(input: RuntimeAgentJobStaleCancellationInput): Promise<RuntimeAgentJobRecord[]> {
+    const stale = [...this.runtimeAgentJobs.values()]
+      .filter((record) => record.job.repository.storageRepositoryId === input.repository.storageRepositoryId
+        && record.job.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+        && (record.job.status === "queued" || record.job.status === "running")
+        && record.job.stalePolicy === "cancel-on-head-change"
+        && (record.job.worktree.headSha !== input.headSha || record.job.worktree.worktreeDigest !== input.worktreeDigest))
+      .sort(testRuntimeAgentJobSort);
+    const cancelled: RuntimeAgentJobRecord[] = [];
+    for (const record of stale) {
+      cancelled.push(await this.cancelRuntimeAgentJob({
+        jobId: record.job.jobId,
+        status: "expired",
+        now: input.now,
+        reason: input.reason ?? "stale-head-or-worktree"
+      }));
+    }
+    return cancelled;
   }
 
   async beginChangeSet(root: string, draft: ChangeSetDraft): Promise<string> {
@@ -294,6 +454,12 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   close(): void {}
 
+  private requiredRuntimeAgentJob(jobId: string): RuntimeAgentJobRecord {
+    const record = this.runtimeAgentJobs.get(jobId);
+    if (!record) throw new Error(`runtime-agent-job-not-found: ${jobId}`);
+    return record;
+  }
+
   private stateForScope(scope: ArchitectureLedgerScope): ArchitectureLedgerGraphState {
     return replayArchitectureLedgerEvents(this.eventsForScope(scope));
   }
@@ -330,4 +496,29 @@ function externalDocumentationKey(input: {
   queryDigest: string;
 }): string {
   return [input.provider, input.libraryId, input.version, input.queryDigest].join("\0");
+}
+
+function testRuntimeAgentJobDefaultCoalesceKey(job: AgentJobV1, analysisKind: string): string {
+  return [
+    job.repository.storageRepositoryId,
+    job.worktree.storageWorkspaceId,
+    analysisKind,
+    job.trigger.source,
+    job.trigger.reason
+  ].join("\0");
+}
+
+function testRuntimeAgentJobMatchesScope(record: RuntimeAgentJobRecord, job: AgentJobV1): boolean {
+  return record.job.repository.storageRepositoryId === job.repository.storageRepositoryId
+    && record.job.worktree.storageWorkspaceId === job.worktree.storageWorkspaceId;
+}
+
+function testRuntimeAgentJobSort(left: RuntimeAgentJobRecord, right: RuntimeAgentJobRecord): number {
+  return left.job.queuedAt.localeCompare(right.job.queuedAt) || left.job.jobId.localeCompare(right.job.jobId);
+}
+
+function testRuntimeAgentJobWithStatus(job: AgentJobV1, status: RuntimeAgentJobStatus, updatedAt: string, outputDigest?: string): AgentJobV1 {
+  const next: AgentJobV1 = { ...job, status, updatedAt };
+  if (outputDigest) next.outputDigest = outputDigest;
+  return next;
 }

@@ -38,7 +38,7 @@ import {
   type ArchitectureLedgerSnapshotInput
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { digestJson, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -66,6 +66,7 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "recommendations",
   "recommendation_feedback",
   "agent_jobs",
+  "runtime_job_queue",
   "projection_state",
   "source_cursors",
   "waivers",
@@ -510,6 +511,44 @@ export const LOCAL_SQLITE_MIGRATIONS = [
         LEFT JOIN evidence_bindings ON evidence_bindings.evidence_id = evidence_items.evidence_id
         WHERE evidence_bindings.binding_id IS NULL`
     ]
+  },
+  {
+    id: "0007_runtime_job_queue",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS runtime_job_queue (
+        job_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        analysis_kind TEXT NOT NULL,
+        coalesce_key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        runner_port TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        input_digest TEXT NOT NULL,
+        prompt_template_digest TEXT NOT NULL,
+        output_digest TEXT,
+        stale_policy TEXT NOT NULL,
+        job_json TEXT NOT NULL,
+        queued_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL,
+        max_attempts INTEGER NOT NULL,
+        lease_owner TEXT,
+        leased_at TEXT,
+        lease_expires_at TEXT,
+        last_error TEXT,
+        dead_lettered_at TEXT,
+        debounce_until TEXT,
+        superseded_by_job_id TEXT
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_runtime_job_queue_scope_status ON runtime_job_queue(storage_repository_id, storage_workspace_id, status, queued_at)",
+      "CREATE INDEX IF NOT EXISTS idx_runtime_job_queue_coalesce ON runtime_job_queue(storage_repository_id, storage_workspace_id, analysis_kind, coalesce_key)",
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_job_queue_active_fingerprint
+        ON runtime_job_queue(storage_repository_id, storage_workspace_id, analysis_kind, fingerprint)
+        WHERE status IN ('queued', 'running')`
+    ]
   }
 ] as const;
 
@@ -749,10 +788,86 @@ export interface LandscapeRebuildResult {
   digest: string;
 }
 
+export type RuntimeAgentJobStatus = AgentJobV1["status"];
+export type RuntimeAgentJobTerminalStatus = Extract<RuntimeAgentJobStatus, "succeeded" | "failed" | "cancelled" | "superseded" | "expired">;
+
+export interface RuntimeAgentJobRecord {
+  job: AgentJobV1;
+  analysisKind: string;
+  coalesceKey: string;
+  attemptCount: number;
+  maxAttempts: number;
+  leaseOwner?: string;
+  leasedAt?: string;
+  leaseExpiresAt?: string;
+  lastError?: string;
+  deadLetteredAt?: string;
+  debounceUntil?: string;
+  supersededByJobId?: string;
+}
+
+export interface RuntimeAgentJobEnqueueInput {
+  job: AgentJobV1;
+  analysisKind: string;
+  coalesceKey?: string;
+  maxAttempts?: number;
+  debounceUntil?: string;
+}
+
+export interface RuntimeAgentJobEnqueueResult {
+  record: RuntimeAgentJobRecord;
+  enqueued: boolean;
+  deduplicated: boolean;
+  supersededJobIds: string[];
+}
+
+export interface RuntimeAgentJobClaimInput extends ArchitectureLedgerScope {
+  workerId: string;
+  leaseMs: number;
+  now: string;
+}
+
+export interface RuntimeAgentJobCompleteInput {
+  jobId: string;
+  status: Extract<RuntimeAgentJobStatus, "succeeded" | "failed">;
+  now: string;
+  workerId?: string;
+  outputDigest?: string;
+  error?: string;
+}
+
+export interface RuntimeAgentJobRetryInput {
+  jobId: string;
+  now: string;
+  reason?: string;
+}
+
+export interface RuntimeAgentJobCancelInput {
+  jobId: string;
+  status: Extract<RuntimeAgentJobStatus, "cancelled" | "superseded" | "expired">;
+  now: string;
+  reason?: string;
+  supersededByJobId?: string;
+}
+
+export interface RuntimeAgentJobStaleCancellationInput extends ArchitectureLedgerScope {
+  headSha: string;
+  worktreeDigest: string;
+  now: string;
+  reason?: string;
+}
+
 export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort {
   recoverPendingSnapshots(): number;
   saveRepositorySession(session: PersistedRepositorySession): Promise<void>;
   listRepositorySessions(): Promise<PersistedRepositorySession[]>;
+  enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult>;
+  listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]>;
+  claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined>;
+  completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord>;
+  retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord>;
+  cancelRuntimeAgentJob(input: RuntimeAgentJobCancelInput): Promise<RuntimeAgentJobRecord>;
+  cancelStaleRuntimeAgentJobs(input: RuntimeAgentJobStaleCancellationInput): Promise<RuntimeAgentJobRecord[]>;
   saveLandscape(landscape: Landscape): Promise<void>;
   readLandscape(landscapeId: string): Promise<Landscape | undefined>;
   saveCrossRepoRelation(relation: CrossRepoRelation): Promise<void>;
@@ -868,6 +983,238 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       worktreeDigest: String(row.worktree_digest),
       updatedAt: String(row.updated_at)
     }));
+  }
+
+  async enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult> {
+    if (input.job.status !== "queued") throw new Error("runtime-agent-job-enqueue-requires-queued-status");
+    if (input.job.directMutationAllowed !== false) throw new Error("runtime-agent-job-direct-mutation-forbidden");
+    const db = await this.database();
+    const coalesceKey = input.coalesceKey ?? runtimeAgentJobDefaultCoalesceKey(input.job, input.analysisKind);
+    const maxAttempts = Math.max(1, Math.trunc(input.maxAttempts ?? 3));
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const duplicate = db.prepare(
+        `SELECT * FROM runtime_job_queue
+          WHERE storage_repository_id = ?
+            AND storage_workspace_id = ?
+            AND analysis_kind = ?
+            AND fingerprint = ?
+            AND status IN ('queued', 'running')
+          ORDER BY queued_at ASC, job_id ASC
+          LIMIT 1`
+      ).get(
+        input.job.repository.storageRepositoryId,
+        input.job.worktree.storageWorkspaceId,
+        input.analysisKind,
+        input.job.fingerprint
+      );
+      if (duplicate) {
+        db.exec("COMMIT");
+        return {
+          record: runtimeAgentJobRecordFromRow(duplicate),
+          enqueued: false,
+          deduplicated: true,
+          supersededJobIds: []
+        };
+      }
+
+      const supersededRows = db.prepare(
+        `SELECT * FROM runtime_job_queue
+          WHERE storage_repository_id = ?
+            AND storage_workspace_id = ?
+            AND analysis_kind = ?
+            AND coalesce_key = ?
+            AND status = 'queued'
+          ORDER BY queued_at ASC, job_id ASC`
+      ).all(
+        input.job.repository.storageRepositoryId,
+        input.job.worktree.storageWorkspaceId,
+        input.analysisKind,
+        coalesceKey
+      );
+      for (const row of supersededRows) {
+        const record = runtimeAgentJobRecordFromRow(row);
+        const job = runtimeAgentJobWithPatch(record.job, { status: "superseded", updatedAt: input.job.queuedAt });
+        db.prepare(
+          `UPDATE runtime_job_queue
+            SET status = ?, job_json = ?, updated_at = ?, last_error = ?, superseded_by_job_id = ?
+            WHERE job_id = ?`
+        ).run("superseded", stableJson(job), input.job.queuedAt, "coalesced-by-newer-job", input.job.jobId, record.job.jobId);
+      }
+
+      insertRuntimeAgentJob(db, {
+        job: input.job,
+        analysisKind: input.analysisKind,
+        coalesceKey,
+        maxAttempts,
+        debounceUntil: input.debounceUntil
+      });
+      const inserted = runtimeAgentJobById(db, input.job.jobId);
+      if (!inserted) throw new Error(`runtime-agent-job-insert-failed: ${input.job.jobId}`);
+      db.exec("COMMIT");
+      return {
+        record: inserted,
+        enqueued: true,
+        deduplicated: false,
+        supersededJobIds: supersededRows.map((row) => String(row.job_id))
+      };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]> {
+    const db = await this.database();
+    const statuses = input.statuses ?? [];
+    const statusClause = statuses.length > 0 ? `AND status IN (${statuses.map(() => "?").join(", ")})` : "";
+    return db.prepare(
+      `SELECT * FROM runtime_job_queue
+        WHERE storage_repository_id = ?
+          AND storage_workspace_id = ?
+          ${statusClause}
+        ORDER BY queued_at ASC, job_id ASC`
+    ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, ...statuses)
+      .map(runtimeAgentJobRecordFromRow);
+  }
+
+  async claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined> {
+    const db = await this.database();
+    const leaseExpiresAt = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare(
+        `SELECT * FROM runtime_job_queue
+          WHERE storage_repository_id = ?
+            AND storage_workspace_id = ?
+            AND (
+              (status = 'queued' AND (debounce_until IS NULL OR debounce_until <= ?))
+              OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
+            )
+          ORDER BY queued_at ASC, job_id ASC
+          LIMIT 1`
+      ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.now, input.now);
+      if (!row) {
+        db.exec("COMMIT");
+        return undefined;
+      }
+      const record = runtimeAgentJobRecordFromRow(row);
+      const nextAttempt = record.attemptCount + 1;
+      if (nextAttempt > record.maxAttempts) {
+        const failed = runtimeAgentJobWithPatch(record.job, { status: "failed", updatedAt: input.now });
+        db.prepare(
+          `UPDATE runtime_job_queue
+            SET status = ?, job_json = ?, updated_at = ?, attempt_count = ?, lease_owner = NULL,
+              leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?
+            WHERE job_id = ?`
+        ).run("failed", stableJson(failed), input.now, nextAttempt, "max-attempts-exhausted", input.now, record.job.jobId);
+        db.exec("COMMIT");
+        return undefined;
+      }
+
+      const running = runtimeAgentJobWithPatch(record.job, { status: "running", updatedAt: input.now });
+      db.prepare(
+        `UPDATE runtime_job_queue
+          SET status = ?, job_json = ?, updated_at = ?, attempt_count = ?, lease_owner = ?,
+            leased_at = ?, lease_expires_at = ?, last_error = NULL
+          WHERE job_id = ?`
+      ).run("running", stableJson(running), input.now, nextAttempt, input.workerId, input.now, leaseExpiresAt, record.job.jobId);
+      const claimed = runtimeAgentJobById(db, record.job.jobId);
+      if (!claimed) throw new Error(`runtime-agent-job-not-found: ${record.job.jobId}`);
+      db.exec("COMMIT");
+      return claimed;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord> {
+    const db = await this.database();
+    const record = runtimeAgentJobById(db, input.jobId);
+    if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    if (input.workerId && record.leaseOwner && record.leaseOwner !== input.workerId) {
+      throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
+    }
+    const deadLetteredAt = input.status === "failed" && record.attemptCount >= record.maxAttempts ? input.now : undefined;
+    const job = runtimeAgentJobWithPatch(record.job, { status: input.status, updatedAt: input.now, outputDigest: input.outputDigest });
+    db.prepare(
+      `UPDATE runtime_job_queue
+        SET status = ?, job_json = ?, updated_at = ?, output_digest = ?, lease_owner = NULL,
+          leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = COALESCE(?, dead_lettered_at)
+        WHERE job_id = ?`
+    ).run(input.status, stableJson(job), input.now, input.outputDigest ?? record.job.outputDigest ?? null, input.error ?? null, deadLetteredAt ?? null, input.jobId);
+    const updated = runtimeAgentJobById(db, input.jobId);
+    if (!updated) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    return updated;
+  }
+
+  async retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord> {
+    const db = await this.database();
+    const record = runtimeAgentJobById(db, input.jobId);
+    if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    if (record.attemptCount >= record.maxAttempts) {
+      const failed = runtimeAgentJobWithPatch(record.job, { status: "failed", updatedAt: input.now });
+      db.prepare(
+        `UPDATE runtime_job_queue
+          SET status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
+            leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?
+          WHERE job_id = ?`
+      ).run("failed", stableJson(failed), input.now, input.reason ?? "max-attempts-exhausted", input.now, input.jobId);
+    } else {
+      const queued = runtimeAgentJobWithPatch(record.job, { status: "queued", updatedAt: input.now });
+      db.prepare(
+        `UPDATE runtime_job_queue
+          SET status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
+            leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = NULL
+          WHERE job_id = ?`
+      ).run("queued", stableJson(queued), input.now, input.reason ?? null, input.jobId);
+    }
+    const updated = runtimeAgentJobById(db, input.jobId);
+    if (!updated) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    return updated;
+  }
+
+  async cancelRuntimeAgentJob(input: RuntimeAgentJobCancelInput): Promise<RuntimeAgentJobRecord> {
+    const db = await this.database();
+    const record = runtimeAgentJobById(db, input.jobId);
+    if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    const job = runtimeAgentJobWithPatch(record.job, { status: input.status, updatedAt: input.now });
+    db.prepare(
+      `UPDATE runtime_job_queue
+        SET status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
+          leased_at = NULL, lease_expires_at = NULL, last_error = ?, superseded_by_job_id = COALESCE(?, superseded_by_job_id)
+        WHERE job_id = ?`
+    ).run(input.status, stableJson(job), input.now, input.reason ?? null, input.supersededByJobId ?? null, input.jobId);
+    const updated = runtimeAgentJobById(db, input.jobId);
+    if (!updated) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    return updated;
+  }
+
+  async cancelStaleRuntimeAgentJobs(input: RuntimeAgentJobStaleCancellationInput): Promise<RuntimeAgentJobRecord[]> {
+    const db = await this.database();
+    const staleRows = db.prepare(
+      `SELECT * FROM runtime_job_queue
+        WHERE storage_repository_id = ?
+          AND storage_workspace_id = ?
+          AND status IN ('queued', 'running')
+          AND stale_policy = 'cancel-on-head-change'
+        ORDER BY queued_at ASC, job_id ASC`
+    ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId)
+      .map(runtimeAgentJobRecordFromRow)
+      .filter((record) =>
+        record.job.worktree.headSha !== input.headSha
+        || record.job.worktree.worktreeDigest !== input.worktreeDigest);
+    const cancelled: RuntimeAgentJobRecord[] = [];
+    for (const record of staleRows) {
+      cancelled.push(await this.cancelRuntimeAgentJob({
+        jobId: record.job.jobId,
+        status: "expired",
+        now: input.now,
+        reason: input.reason ?? "stale-head-or-worktree"
+      }));
+    }
+    return cancelled;
   }
 
   async beginChangeSet(root: string, draft: ChangeSetDraft): Promise<string> {
@@ -2316,6 +2663,95 @@ function stableStorageId(prefix: "repo" | "ws", value: string): string {
 
 function stableJson(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function runtimeAgentJobDefaultCoalesceKey(job: AgentJobV1, analysisKind: string): string {
+  return digestJson({
+    schemaVersion: "archcontext.runtime-agent-job-coalesce-key/v1",
+    repositoryId: job.repository.storageRepositoryId,
+    workspaceId: job.worktree.storageWorkspaceId,
+    analysisKind,
+    trigger: job.trigger,
+    stalePolicy: job.stalePolicy
+  } as unknown as Json);
+}
+
+function insertRuntimeAgentJob(db: SqliteDatabase, input: {
+  job: AgentJobV1;
+  analysisKind: string;
+  coalesceKey: string;
+  maxAttempts: number;
+  debounceUntil?: string;
+}): void {
+  db.prepare(
+    `INSERT INTO runtime_job_queue
+      (job_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, analysis_kind,
+        coalesce_key, status, runner_port, fingerprint, input_digest, prompt_template_digest, output_digest,
+        stale_policy, job_json, queued_at, updated_at, attempt_count, max_attempts, lease_owner, leased_at,
+        lease_expires_at, last_error, dead_lettered_at, debounce_until, superseded_by_job_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL)`
+  ).run(
+    input.job.jobId,
+    input.job.repository.repositoryId,
+    input.job.repository.storageRepositoryId,
+    input.job.worktree.workspaceId,
+    input.job.worktree.storageWorkspaceId,
+    input.analysisKind,
+    input.coalesceKey,
+    input.job.status,
+    input.job.runnerPort,
+    input.job.fingerprint,
+    input.job.inputDigest,
+    input.job.promptTemplateDigest,
+    input.job.outputDigest ?? null,
+    input.job.stalePolicy,
+    stableJson(input.job),
+    input.job.queuedAt,
+    input.job.updatedAt,
+    0,
+    input.maxAttempts,
+    input.debounceUntil ?? null
+  );
+}
+
+function runtimeAgentJobById(db: SqliteDatabase, jobId: string): RuntimeAgentJobRecord | undefined {
+  const row = db.prepare("SELECT * FROM runtime_job_queue WHERE job_id = ?").get(jobId);
+  return row ? runtimeAgentJobRecordFromRow(row) : undefined;
+}
+
+function runtimeAgentJobRecordFromRow(row: Record<string, unknown>): RuntimeAgentJobRecord {
+  return {
+    job: JSON.parse(String(row.job_json)) as AgentJobV1,
+    analysisKind: String(row.analysis_kind),
+    coalesceKey: String(row.coalesce_key),
+    attemptCount: Number(row.attempt_count),
+    maxAttempts: Number(row.max_attempts),
+    leaseOwner: nullableString(row.lease_owner),
+    leasedAt: nullableString(row.leased_at),
+    leaseExpiresAt: nullableString(row.lease_expires_at),
+    lastError: nullableString(row.last_error),
+    deadLetteredAt: nullableString(row.dead_lettered_at),
+    debounceUntil: nullableString(row.debounce_until),
+    supersededByJobId: nullableString(row.superseded_by_job_id)
+  };
+}
+
+function runtimeAgentJobWithPatch(job: AgentJobV1, patch: {
+  status: RuntimeAgentJobStatus;
+  updatedAt: string;
+  outputDigest?: string;
+}): AgentJobV1 {
+  const next: AgentJobV1 = {
+    ...job,
+    status: patch.status,
+    updatedAt: patch.updatedAt
+  };
+  if (patch.outputDigest) next.outputDigest = patch.outputDigest;
+  return next;
+}
+
+function nullableString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function nowIso(): string {
