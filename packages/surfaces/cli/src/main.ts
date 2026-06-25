@@ -4,7 +4,7 @@ import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, ope
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
+import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planYamlToArchitectureLedgerImport } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
@@ -23,6 +23,7 @@ import {
   runtimeRpcCompatibilityIssue,
   type RuntimeRpcCompatibilityIssue,
   type RuntimeDaemonClient,
+  type RuntimeAgentJobEnqueueGitInput,
   type RuntimeDeps
 } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
@@ -41,6 +42,9 @@ const HOOK_ADAPTER_SCHEMA_VERSION = "archcontext.hook-adapter/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
 const HOOK_ADAPTER_NAME = "repo-harness-hook";
 const HOOK_CHECKPOINT_TIMEOUT_MS = 5_000;
+const HOOK_ENQUEUE_TIMEOUT_MS = 5_000;
+const RUNTIME_AGENT_JOB_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled", "superseded", "expired"] as const;
+type RuntimeAgentJobStatus = AgentJobV1["status"];
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -278,6 +282,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runHookCommand(args, cwd, runtime);
     case "hooks":
       return runHooksCommand(args);
+    case "jobs":
+      return runJobsCommand(args, cwd, await runtime());
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -393,8 +399,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -610,9 +616,13 @@ async function runCheckpointCommand(args: string[], cwd: string, daemon: Runtime
 }
 
 async function runHookCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
-  const subcommand = args[0] ?? "status";
-  if (subcommand !== "checkpoint") return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires checkpoint");
-  const checkpointArgs = args.slice(1);
+  const subcommand = args[0] ?? "enqueue";
+  if (subcommand === "checkpoint") return runHookCheckpointCommand(args.slice(1), cwd, runtime);
+  if (subcommand === "enqueue") return runHookEnqueueCommand(args.slice(1), cwd, runtime);
+  return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires enqueue|checkpoint");
+}
+
+async function runHookCheckpointCommand(checkpointArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const started = Date.now();
   const event = readFlag(checkpointArgs, "--event") ?? "post-edit";
   const changedPaths = [...readRepeatedFlag(checkpointArgs, "--path"), ...readRepeatedFlag(checkpointArgs, "--changed")];
@@ -670,10 +680,99 @@ async function runHookCommand(args: string[], cwd: string, runtime: () => Promis
   }
 }
 
+async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
+  const started = Date.now();
+  const event = readFlag(enqueueArgs, "--event") ?? "post-edit";
+  const changedPaths = [...readRepeatedFlag(enqueueArgs, "--path"), ...readRepeatedFlag(enqueueArgs, "--changed")];
+  const sourceResult = readHookGitChangeSource(enqueueArgs, event);
+  if (!sourceResult.ok) return sourceResult.envelope;
+  const maxAttemptsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-attempts", "hook.enqueue");
+  if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
+  const generatedProjection = enqueueArgs.includes("--generated-projection");
+  if (shouldSkipGeneratedProjectionHook(enqueueArgs, changedPaths)) {
+    return okEnvelope("hook.enqueue", {
+      schemaVersion: "archcontext.hook-enqueue-skipped/v1",
+      accepted: false,
+      enqueued: false,
+      skipped: true,
+      failOpen: false,
+      reasonCode: "archcontext-generated-projection",
+      event,
+      source: sourceResult.source,
+      pathCount: changedPaths.length,
+      egress: "none",
+      network: "forbidden",
+      hookLog: hookLogRecord({
+        event,
+        changedPaths,
+        reasonCode: "archcontext-generated-projection",
+        elapsedMs: Date.now() - started,
+        failOpen: false
+      })
+    } as Json);
+  }
+
+  const input: RuntimeAgentJobEnqueueGitInput = {
+    source: sourceResult.source,
+    event,
+    analysisKind: readFlag(enqueueArgs, "--analysis-kind") ?? "architecture-delta",
+    ...(readFlag(enqueueArgs, "--ref") === undefined ? {} : { ref: readFlag(enqueueArgs, "--ref")! }),
+    ...(readFlag(enqueueArgs, "--base-ref") === undefined ? {} : { baseRef: readFlag(enqueueArgs, "--base-ref")! }),
+    ...(readFlag(enqueueArgs, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(enqueueArgs, "--coalesce-key")! }),
+    ...(readFlag(enqueueArgs, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(enqueueArgs, "--debounce-until")! }),
+    ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
+    ...(readFlag(enqueueArgs, "--runner-port") === undefined ? {} : { runnerPort: readFlag(enqueueArgs, "--runner-port")! as any }),
+    ...(readFlag(enqueueArgs, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(enqueueArgs, "--code-facts-digest")! }),
+    generatedProjection,
+    skipGeneratedProjection: !enqueueArgs.includes("--no-generated-projection-guard")
+  };
+
+  try {
+    const result = await (await runtime()).jobsEnqueueGitHook(cwd, input);
+    if (!result.ok || typeof result.data !== "object" || result.data === null) return result;
+    const data = result.data as Record<string, Json>;
+    return {
+      ...result,
+      requestId: "hook.enqueue",
+      data: {
+        ...data,
+        hookLog: hookLogRecord({
+          event,
+          changedPaths,
+          reasonCode: hookEnqueueReasonCode(data),
+          elapsedMs: Date.now() - started,
+          failOpen: false
+        })
+      } as Json
+    };
+  } catch (error) {
+    return okEnvelope("hook.enqueue", {
+      schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
+      accepted: false,
+      enqueued: false,
+      failOpen: true,
+      reasonCode: "runtime-unavailable",
+      event,
+      source: sourceResult.source,
+      pathCount: changedPaths.length,
+      egress: "none",
+      network: "forbidden",
+      hookLog: hookLogRecord({
+        event,
+        changedPaths,
+        reasonCode: "runtime-unavailable",
+        elapsedMs: Date.now() - started,
+        failOpen: true
+      }),
+      message: error instanceof Error ? error.message : String(error)
+    } as Json);
+  }
+}
+
 function runHooksCommand(args: string[]) {
   const subcommand = args[0] ?? "status";
-  if (!["install", "status", "remove"].includes(subcommand)) {
-    return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "hooks requires install|status|remove");
+  if (!["install", "status", "remove", "uninstall", "doctor"].includes(subcommand)) {
+    return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "hooks requires install|status|remove|uninstall|doctor");
   }
   const host = readAgentHost(args);
   if (!host) return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "--host must be codex, claude, or generic");
@@ -694,12 +793,69 @@ function runHooksCommand(args: string[]) {
       configExample: hookHostConfigExample(host)
     } as any);
   }
-  return okEnvelope("hooks.remove", {
+  if (subcommand === "doctor") {
+    return okEnvelope("hooks.doctor", {
+      ...adapter,
+      installed: "config-ready",
+      writes: "manual-host-config",
+      checks: [
+        { id: "entrypoint", status: "pass", command: "archctx hook enqueue" },
+        { id: "fail-open", status: "pass", schemaVersion: "archcontext.hook-enqueue-fail-open/v1" },
+        { id: "egress", status: "pass", egress: "none", network: "forbidden" },
+        { id: "recursion-guard", status: "pass", generatedProjectionFlag: "--generated-projection" }
+      ]
+    } as any);
+  }
+  return okEnvelope(subcommand === "uninstall" ? "hooks.uninstall" : "hooks.remove", {
     ...adapter,
     installed: false,
     writes: "manual-host-config",
     removeConfig: hookHostRemoveConfig(host)
   } as any);
+}
+
+async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "list";
+  if (subcommand === "list") {
+    const statusResult = readRuntimeAgentJobStatuses(args, "jobs.list");
+    if (!statusResult.ok) return statusResult.envelope;
+    return daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+  }
+  if (subcommand === "show") {
+    const jobId = readFlag(args, "--job-id") ?? args[1];
+    if (!jobId) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", "jobs show requires <job-id> or --job-id");
+    const statusResult = readRuntimeAgentJobStatuses(args, "jobs.show");
+    if (!statusResult.ok) return statusResult.envelope;
+    const list = await daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+    if (!list.ok || typeof list.data !== "object" || list.data === null) return list;
+    const jobs = Array.isArray((list.data as any).jobs) ? (list.data as any).jobs : [];
+    const job = jobs.find((record: any) => record?.job?.jobId === jobId);
+    if (!job) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", `runtime agent job not found: ${jobId}`);
+    return okEnvelope("jobs.show", { job, found: true } as unknown as Json);
+  }
+  if (subcommand === "cancel") {
+    const jobId = readFlag(args, "--job-id") ?? args[1];
+    if (!jobId) return errorEnvelope("jobs.cancel", "AC_SCHEMA_INVALID", "jobs cancel requires <job-id> or --job-id");
+    const status = readFlag(args, "--status");
+    if (status !== undefined && !["cancelled", "superseded", "expired"].includes(status)) {
+      return errorEnvelope("jobs.cancel", "AC_SCHEMA_INVALID", "jobs cancel --status must be cancelled, superseded, or expired");
+    }
+    return daemon.jobsCancel(cwd, {
+      jobId,
+      ...(status === undefined ? {} : { status: status as Extract<RuntimeAgentJobStatus, "cancelled" | "superseded" | "expired"> }),
+      ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! }),
+      ...(readFlag(args, "--superseded-by-job-id") === undefined ? {} : { supersededByJobId: readFlag(args, "--superseded-by-job-id")! })
+    });
+  }
+  if (subcommand === "retry") {
+    const jobId = readFlag(args, "--job-id") ?? args[1];
+    if (!jobId) return errorEnvelope("jobs.retry", "AC_SCHEMA_INVALID", "jobs retry requires <job-id> or --job-id");
+    return daemon.jobsRetry(cwd, {
+      jobId,
+      ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! })
+    });
+  }
+  return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|show|cancel|retry");
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -1274,6 +1430,14 @@ function hookAdapterContract(host: AgentHost) {
     repoLocalRuntime: "not-vendored",
     entrypoint: {
       command: "archctx",
+      args: ["hook", "enqueue"],
+      timeoutMs: HOOK_ENQUEUE_TIMEOUT_MS,
+      failOpen: true,
+      egress: "none",
+      network: "forbidden"
+    },
+    fallbackEntrypoint: {
+      command: "archctx",
       args: ["hook", "checkpoint"],
       timeoutMs: HOOK_CHECKPOINT_TIMEOUT_MS,
       failOpen: true,
@@ -1283,12 +1447,19 @@ function hookAdapterContract(host: AgentHost) {
     acceptedInput: {
       eventFlag: "--event",
       changedPathFlags: ["--path", "--changed"],
+      sourceFlag: "--source",
+      generatedProjectionFlag: "--generated-projection",
       toolCallIdFlag: "--tool-call-id",
       taskSessionIdFlag: "--task-session-id"
     },
     output: {
+      successRequestId: "hook.enqueue",
+      queueRequestId: "jobs.enqueueGitHook",
+      successData: "runtime-agent-job-record",
+      skipSchemaVersion: "archcontext.hook-enqueue-skipped/v1",
+      failOpenSchemaVersion: "archcontext.hook-enqueue-fail-open/v1",
       checkpointSchemaVersion: "archcontext.practice-checkpoint/v1",
-      failOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
+      checkpointFailOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
     },
     logContract: {
       schemaVersion: HOOK_LOG_SCHEMA_VERSION,
@@ -1305,15 +1476,16 @@ function hookHostConfigExample(host: AgentHost) {
     writes: "manual-host-config",
     adapter: {
       command: HOOK_ADAPTER_NAME,
-      args: ["archcontext-checkpoint"],
+      args: ["archcontext-enqueue"],
       invokes: {
         command: "archctx",
-        args: ["hook", "checkpoint", "--event", "post-edit"]
+        args: ["hook", "enqueue", "--event", "post-edit"]
       }
     },
     eventMap: {
-      postEdit: "archctx hook checkpoint --event post-edit --path <changed-path>",
-      postWrite: "archctx hook checkpoint --event post-write --path <changed-path>"
+      postEdit: "archctx hook enqueue --event post-edit --path <changed-path>",
+      postWrite: "archctx hook enqueue --event post-write --path <changed-path>",
+      generatedProjection: "archctx hook enqueue --event post-write --generated-projection --path .archcontext/generated/<file>"
     },
     centralFirst: true,
     repoHookSourceRequired: false
@@ -1325,7 +1497,8 @@ function hookHostRemoveConfig(host: AgentHost) {
     host,
     configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
     removeAdapter: HOOK_ADAPTER_NAME,
-    removeEntrypoint: "archctx hook checkpoint",
+    removeEntrypoint: "archctx hook enqueue",
+    compatibilityEntrypoint: "archctx hook checkpoint",
     repoHookSourceRequired: false
   };
 }
@@ -1344,6 +1517,69 @@ function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCod
     egress: "none",
     network: "forbidden"
   };
+}
+
+function readHookGitChangeSource(args: string[], event: string):
+  | { ok: true; source: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const requested = readFlag(args, "--source") ?? defaultHookGitChangeSource(event);
+  if (requested === "worktree" || requested === "staged" || requested === "commit") {
+    return { ok: true, source: requested };
+  }
+  return {
+    ok: false,
+    envelope: errorEnvelope("hook.enqueue", "AC_SCHEMA_INVALID", "hook enqueue --source must be worktree, staged, or commit")
+  };
+}
+
+function defaultHookGitChangeSource(event: string): NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> {
+  if (event === "post-commit") return "commit";
+  if (event === "pre-commit") return "staged";
+  return "worktree";
+}
+
+function readOptionalPositiveIntegerFlag(args: string[], flag: string, requestId: string):
+  | { ok: true; value?: number }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return { ok: true };
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be a positive integer`) };
+  }
+  return { ok: true, value };
+}
+
+function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[]): boolean {
+  if (args.includes("--no-generated-projection-guard")) return false;
+  if (args.includes("--generated-projection")) return true;
+  return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
+}
+
+function isArchContextGeneratedProjectionPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
+}
+
+function hookEnqueueReasonCode(data: Record<string, Json>): string {
+  if (data.reasonCode !== undefined) return String(data.reasonCode);
+  if (data.skipped === true) return "skipped";
+  if (data.deduplicated === true) return "deduplicated";
+  if (data.enqueued === true) return "enqueued";
+  return "unknown";
+}
+
+function readRuntimeAgentJobStatuses(args: string[], requestId: string):
+  | { ok: true; statuses: RuntimeAgentJobStatus[] }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const statuses = readRepeatedFlag(args, "--status")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = statuses.find((status) => !(RUNTIME_AGENT_JOB_STATUSES as readonly string[]).includes(status));
+  if (invalid) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `unknown runtime agent job status: ${invalid}`) };
+  }
+  return { ok: true, statuses: statuses as RuntimeAgentJobStatus[] };
 }
 
 function readAgentHost(args: string[]): AgentHost | undefined {

@@ -456,14 +456,18 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Evidence: `enqueueRuntimeAgentJob` coalesces queued jobs by `coalesceKey`; covered by `runtime job queue deduplicates fingerprints and coalesces queued jobs`.
 - [x] **AL4-06 · P0 · `runtime-daemon`** — Deduplicate jobs by change fingerprint and analysis kind.
   - Evidence: queue partial unique index and daemon boundary test `runtime jobs enqueue Git metadata through daemon boundary and claim a lease`.
-- [ ] **AL4-07 · P0 · `cli`** — Add `archctx hooks install`, `uninstall`, `status` and `doctor`.
-- [ ] **AL4-08 · P0 · `hooks`** — Install thin wrappers that only validate runtime availability and enqueue work.
-- [ ] **AL4-09 · P0 · `hooks`** — Add recursion guard so ArchContext-generated projection commits do not trigger an infinite loop.
+- [x] **AL4-07 · P0 · `cli`** — Add `archctx hooks install`, `uninstall`, `status` and `doctor`.
+  - Evidence: `runHooksCommand` now supports install/status/remove/uninstall/doctor; `CLI renders central hook adapter install status and remove configuration` covers install, status, remove, uninstall and doctor.
+- [x] **AL4-08 · P0 · `hooks`** — Install thin wrappers that only validate runtime availability and enqueue work.
+  - Evidence: hook adapter contract now points to `archctx hook enqueue`; `hook enqueue uses the runtime job queue with fail-open and generated projection guards` proves the wrapper calls `jobsEnqueueGitHook`, returns fail-open on runtime outage, records only hashed hook logs, and declares `egress: none`.
+- [x] **AL4-09 · P0 · `hooks`** — Add recursion guard so ArchContext-generated projection commits do not trigger an infinite loop.
+  - Evidence: CLI skips `.archcontext/generated/**` hook paths before runtime; daemon `jobsEnqueueGitHook` also returns `archcontext.runtime-agent-job-skip/v1` without queue insertion for generated projection-only metadata.
 - [x] **AL4-10 · P0 · `runtime-daemon`** — Attach every job to HEAD SHA and worktree digest; cancel or supersede stale jobs.
   - Evidence: `jobsEnqueueGitHook` attaches current scope and calls `cancelStaleRuntimeAgentJobs`; stale cancellation covered in `runtime job queue expires stale head or worktree jobs before new analysis can append`.
 - [ ] **AL4-11 · P1 · `policy-engine`** — Define advisory fail-open behavior and explicit fail-closed policy modes.
 - [ ] **AL4-12 · P1 · `runtime-daemon`** — Add backpressure: queue cap, per-repository concurrency, priority and stale-job eviction.
-- [ ] **AL4-13 · P1 · `cli`** — Add `archctx jobs list/show/cancel/retry` with structured JSON.
+- [x] **AL4-13 · P1 · `cli`** — Add `archctx jobs list/show/cancel/retry` with structured JSON.
+  - Evidence: `runJobsCommand` exposes list/show/cancel/retry over daemon RPC; `CLI exposes runtime agent jobs list show cancel and retry operations` covers status filters, job lookup, cancel reason and retry reason.
 - [ ] **AL4-14 · P1 · `observability`** — Record local queue depth, enqueue latency, coalescing ratio and failure reason.
 - [ ] **AL4-15 · P1 · `tests`** — Simulate 100 rapid commits, amend, rebase, reset and branch switches.
 - [ ] **AL4-16 · P1 · `docs/runbooks`** — Document shell compatibility, hook chaining and recovery when another tool owns hooks.
@@ -485,6 +489,13 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Daemon boundary: `jobsEnqueueGitHook`, `jobsList`, `jobsClaim`, `jobsComplete`, `jobsRetry`, `jobsCancel`.
   - Verification: `bun test packages/local-runtime/git-adapter/test/git-adapter.test.ts --timeout 30000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`.
   - Explicitly still out of scope: hook install/wrappers, recursion guard, jobs CLI, stress fixture, hook latency benchmark and user hook chaining gate.
+- 2026-06-25 — AL4 hook queue integration completed as one reviewable module:
+  - Hook surface: `archctx hooks install/status/remove/uninstall/doctor` now advertises queue-first `archctx hook enqueue` while retaining `hook checkpoint` as compatibility fallback.
+  - Thin wrapper: `archctx hook enqueue` maps hook events to commit/staged/worktree metadata, calls `jobsEnqueueGitHook`, returns fail-open on runtime outage, and emits only hashed hook logs with `egress: none` / `network: forbidden`.
+  - Recursion guard: CLI skips explicit or path-only `.archcontext/generated/**` changes before runtime, and daemon repeats the guard before queue insertion for direct RPC callers.
+  - Jobs CLI: `archctx jobs list/show/cancel/retry` provides structured daemon-backed queue operations.
+  - Verification: `bun test packages/surfaces/cli/test/cli.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/local-product-e2e.test.ts --timeout 120000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`.
+  - Explicitly still out of scope: backpressure policy, observability metrics, 100-commit stress fixture, hook latency benchmark and user hook chaining gate.
 
 ---
 
@@ -867,8 +878,8 @@ For the smallest valuable sequence, start here:
 2. [x] AL1 evidence correctness before further enforcement work.
 3. [x] AL2 event, snapshot, current graph and evidence-binding tables.
 4. [x] AL3 YAML import/export and dual-compare mode.
-5. [ ] AL4 thin post-commit queue plus stale-job cancellation.
-   - Queue foundation and stale-job cancellation are complete; thin post-commit hook wrapper remains open.
+5. [x] AL4 thin post-commit queue plus stale-job cancellation.
+   - Queue foundation, stale-job cancellation, queue-first hook wrapper, recursion guard and jobs CLI are complete; remaining AL4 work is stress/backpressure/observability/chaining hardening.
 6. [ ] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
 7. [ ] AL7 `book status/query/diff` CLI.
 8. [ ] AL9 deterministic architecture changelog projection.

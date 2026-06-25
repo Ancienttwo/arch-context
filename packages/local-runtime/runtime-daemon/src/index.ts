@@ -86,6 +86,8 @@ export interface RuntimeAgentJobEnqueueGitInput {
   maxAttempts?: number;
   runnerPort?: AgentJobV1["runnerPort"];
   codeFactsDigest?: string;
+  generatedProjection?: boolean;
+  skipGeneratedProjection?: boolean;
 }
 
 export interface RuntimeAgentJobClaimRpcInput {
@@ -835,6 +837,24 @@ export class ArchctxDaemon {
     const source = input.source ?? "worktree";
     const metadata = readGitChangeMetadata(repositoryRoot, source, input);
     const analysisKind = input.analysisKind ?? "architecture-delta";
+    if (shouldSkipGeneratedProjectionJob(metadata, input)) {
+      return okEnvelope("jobs.enqueueGitHook", {
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        event: input.event ?? source,
+        source,
+        change: metadata,
+        analysisKind,
+        expiredJobIds: [],
+        hook: {
+          failOpen: false,
+          egress: "none",
+          network: "forbidden"
+        }
+      } as unknown as Json);
+    }
     const now = this.clock();
     const codeFactsDigestValue = input.codeFactsDigest
       ?? session.codeFactsDigest
@@ -3084,6 +3104,16 @@ function readGitChangeMetadata(root: string, source: GitChangeSource, input: Run
   if (source === "commit") return readCommitChangeMetadata(repositoryRoot, input.ref ?? "HEAD");
   if (source === "staged") return readStagedChangeMetadata(repositoryRoot, input.baseRef ?? "HEAD");
   return readWorktreeChangeMetadata(repositoryRoot);
+}
+
+function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: RuntimeAgentJobEnqueueGitInput): boolean {
+  if (input.skipGeneratedProjection === false) return false;
+  if (input.generatedProjection === true) return true;
+  return metadata.paths.length > 0 && metadata.paths.every((path) => isArchContextGeneratedProjectionPath(path.path));
+}
+
+function isArchContextGeneratedProjectionPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
 }
 
 function runtimeAgentJobId(fingerprint: string, inputDigest: string, queuedAt: string): string {

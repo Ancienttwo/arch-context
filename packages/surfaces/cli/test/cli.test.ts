@@ -437,6 +437,106 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("hook enqueue uses the runtime job queue with fail-open and generated projection guards", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-hook-enqueue-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const queued = await runCli("hook", [
+        "enqueue",
+        "--event", "post-commit",
+        "--path", "src/app.ts",
+        "--coalesce-key", "hook.post-commit",
+        "--max-attempts", "2"
+      ], root, {
+        runtimeClient: {
+          jobsEnqueueGitHook(runtimeRoot: string, input: any) {
+            calls.push({ runtimeRoot, input });
+            return {
+              schemaVersion: "archcontext.envelope/v1",
+              ok: true,
+              requestId: "jobs.enqueueGitHook",
+              data: {
+                enqueued: true,
+                deduplicated: false,
+                record: { job: { jobId: "agent_job.hook_test", status: "queued" } }
+              }
+            };
+          }
+        } as any
+      });
+      expect(queued.ok).toBe(true);
+      expect(queued.requestId).toBe("hook.enqueue");
+      expect((queued.data as any).enqueued).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].runtimeRoot).toBe(root);
+      expect(calls[0].input).toMatchObject({
+        source: "commit",
+        event: "post-commit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "hook.post-commit",
+        maxAttempts: 2,
+        generatedProjection: false,
+        skipGeneratedProjection: true
+      });
+      expect((queued.data as any).hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-commit",
+        pathCount: 1,
+        reasonCode: "enqueued",
+        failOpen: false,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((queued.data as any).hookLog)).not.toContain("src/app.ts");
+
+      const failOpen = await runCli("hook", ["enqueue", "--event", "post-edit", "--path", "src/offline.ts"], root, {
+        runtimeClient: {
+          jobsEnqueueGitHook() {
+            throw new Error("runtime offline");
+          }
+        } as any
+      });
+      expect(failOpen.ok).toBe(true);
+      expect(failOpen.requestId).toBe("hook.enqueue");
+      expect((failOpen.data as any)).toMatchObject({
+        schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
+        failOpen: true,
+        reasonCode: "runtime-unavailable",
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((failOpen.data as any).hookLog)).not.toContain("src/offline.ts");
+
+      let generatedProjectionCalled = false;
+      const skipped = await runCli("hook", [
+        "enqueue",
+        "--event", "post-write",
+        "--path", ".archcontext/generated/ARCHITECTURE.md"
+      ], root, {
+        runtimeClient: {
+          jobsEnqueueGitHook() {
+            generatedProjectionCalled = true;
+            throw new Error("guard should skip before runtime");
+          }
+        } as any
+      });
+      expect(skipped.ok).toBe(true);
+      expect(generatedProjectionCalled).toBe(false);
+      expect((skipped.data as any)).toMatchObject({
+        schemaVersion: "archcontext.hook-enqueue-skipped/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((skipped.data as any).hookLog)).not.toContain(".archcontext/generated/ARCHITECTURE.md");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI renders central hook adapter install status and remove configuration", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-hooks-host-"));
     try {
@@ -454,7 +554,7 @@ describe("archctx CLI", () => {
       });
       expect((install.data as any).entrypoint).toMatchObject({
         command: "archctx",
-        args: ["hook", "checkpoint"],
+        args: ["hook", "enqueue"],
         failOpen: true,
         egress: "none",
         network: "forbidden"
@@ -493,15 +593,99 @@ describe("archctx CLI", () => {
       expect(remove.ok).toBe(true);
       expect((remove.data as any).removeConfig).toMatchObject({
         removeAdapter: "repo-harness-hook",
-        removeEntrypoint: "archctx hook checkpoint",
+        removeEntrypoint: "archctx hook enqueue",
+        compatibilityEntrypoint: "archctx hook checkpoint",
         repoHookSourceRequired: false
       });
+
+      const uninstall = await runCli("hooks", ["uninstall", "--host", "generic"], root);
+      expect(uninstall.ok).toBe(true);
+      expect(uninstall.requestId).toBe("hooks.uninstall");
+      expect((uninstall.data as any).removeConfig.removeEntrypoint).toBe("archctx hook enqueue");
+
+      const doctor = await runCli("hooks", ["doctor", "--host", "codex"], root);
+      expect(doctor.ok).toBe(true);
+      expect(doctor.requestId).toBe("hooks.doctor");
+      expect((doctor.data as any).checks).toContainEqual(expect.objectContaining({
+        id: "entrypoint",
+        status: "pass",
+        command: "archctx hook enqueue"
+      }));
 
       const invalid = await runCli("hooks", ["install", "--host", "unknown"], root);
       expect(invalid.ok).toBe(false);
       expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
     } finally {
       removeTempRoot(root);
+    }
+  });
+
+  test("CLI exposes runtime agent jobs list show cancel and retry operations", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-jobs-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const queuedJob = {
+        job: { jobId: "agent_job.cli_test", status: "queued" },
+        attemptCount: 0
+      };
+      const runtimeClient = {
+        jobsList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.list",
+            data: { jobs: [queuedJob], count: 1 }
+          };
+        },
+        jobsCancel(_root: string, input: any) {
+          calls.push({ method: "cancel", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.cancel",
+            data: { job: { ...queuedJob, job: { ...queuedJob.job, status: input.status ?? "cancelled" } } }
+          };
+        },
+        jobsRetry(_root: string, input: any) {
+          calls.push({ method: "retry", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.retry",
+            data: { job: queuedJob }
+          };
+        }
+      };
+
+      const list = await runCli("jobs", ["list", "--status", "queued,failed"], root, { runtimeClient: runtimeClient as any });
+      expect(list.ok).toBe(true);
+      expect(list.requestId).toBe("jobs.list");
+      expect(calls[0]).toEqual({ method: "list", input: { statuses: ["queued", "failed"] } });
+
+      const show = await runCli("jobs", ["show", "agent_job.cli_test"], root, { runtimeClient: runtimeClient as any });
+      expect(show.ok).toBe(true);
+      expect(show.requestId).toBe("jobs.show");
+      expect((show.data as any).job.job.jobId).toBe("agent_job.cli_test");
+
+      const cancel = await runCli("jobs", ["cancel", "agent_job.cli_test", "--reason", "manual"], root, { runtimeClient: runtimeClient as any });
+      expect(cancel.ok).toBe(true);
+      expect(cancel.requestId).toBe("jobs.cancel");
+      expect(calls.find((call) => call.method === "cancel").input).toMatchObject({
+        jobId: "agent_job.cli_test",
+        reason: "manual"
+      });
+
+      const retry = await runCli("jobs", ["retry", "agent_job.cli_test", "--reason", "transient"], root, { runtimeClient: runtimeClient as any });
+      expect(retry.ok).toBe(true);
+      expect(retry.requestId).toBe("jobs.retry");
+      expect(calls.find((call) => call.method === "retry").input).toMatchObject({
+        jobId: "agent_job.cli_test",
+        reason: "transient"
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
