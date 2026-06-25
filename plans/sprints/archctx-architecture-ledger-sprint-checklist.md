@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 runtime context guards complete, AL6-07+ remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 typed output validation complete, AL6-09+ remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -681,8 +681,13 @@ A subagent is eligible only when all conditions are true:
   - Evidence: `buildInvestigationContextBundleFromLedgerQuery` selects bounded ledger refs, evidence binding IDs and candidate change IDs by stable order; `investigationContextBundle` rejects raw source, diff, prompt and completion payload fields; `jobsEnqueueGitHook` persists only bounded investigation context, Git path metadata and digests in the queued job.
   - Verification artifact: `docs/verification/architecture-ledger-al6-runtime-context-guards.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`.
-- [ ] **AL6-07 · P0 · `contracts`** — Require typed output: finding, hypothesis, evidence references, unknowns, falsifier, proposed delta and confidence.
-- [ ] **AL6-08 · P0 · `agent-orchestrator`** — Validate output schema and reject unknown entity IDs or unverifiable evidence references.
+- [x] **AL6-07 · P0 · `contracts`** — Require typed output: finding, hypothesis, evidence references, unknowns, falsifier, proposed delta and confidence.
+  - Evidence: `InvestigationReport/v1` findings now require non-empty evidence binding references, unknowns, falsifier, confidence, and a typed `ArchitectureCandidateChange/v1` `proposedDelta` with matching digest; schema fixtures include valid typed output and missing-proposed-delta rejection.
+  - Verification: `bun test packages/contracts/test/contracts.test.ts --timeout 90000`; `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`.
+- [x] **AL6-08 · P0 · `agent-orchestrator`** — Validate output schema and reject unknown entity IDs or unverifiable evidence references.
+  - Evidence: `validateInvestigationReport` rejects job mismatch, direct mutation, malformed findings, missing proposed deltas, unknown evidence bindings, proposed-delta targets outside the bounded ledger context, proposed-delta parent IDs outside known entities, unverifiable proposed-delta evidence IDs and digest mismatch; `runInvestigationThroughPort` rejects invalid reports before returning them to callers.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-output-validation.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/contracts/test/contracts.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`.
 - [ ] **AL6-09 · P0 · `security`** — Treat repository text and model output as untrusted; add prompt-injection and tool-escape tests.
 - [ ] **AL6-10 · P0 · `changeset-engine`** — Prohibit direct agent write; agent output can only create a proposal awaiting deterministic validation.
 - [ ] **AL6-11 · P1 · `adapters`** — Implement Claude Code adapter behind the port.
@@ -700,7 +705,8 @@ A subagent is eligible only when all conditions are true:
   - Evidence: default policy hard-caps `maxRunsPerTask` at 1 and the budget path rejects `taskRuns: 1` before job creation.
 - [x] **AL6-EG3** — Agent cannot mutate ledger, YAML or docs directly.
   - Evidence: contracts keep `AgentJob/v1.directMutationAllowed` and `InvestigationReport/v1.directMutationAllowed` as `false`; runner capabilities require `canMutateRepository: false`; tests reject direct-mutation reports.
-- [ ] **AL6-EG4** — Stale or malformed outputs are rejected with actionable reason codes.
+- [x] **AL6-EG4** — Stale or malformed outputs are rejected with actionable reason codes.
+  - Evidence: stale runtime job completion is rejected with `AC_CONTEXT_STALE`; malformed/hallucinated investigation reports are rejected with stable `investigation-report-invalid: <reason-codes>` values including `proposed-delta-required`, `evidence-binding-reference-unverifiable`, `proposed-delta-target-unknown`, `proposed-delta-evidence-reference-unverifiable` and `direct-mutation-forbidden`.
 - [x] **AL6-EG5** — Provider adapter can be removed without changing domain behavior.
   - Evidence: orchestration tests use a fake provider through `InvestigationRunnerPort`; spawn eligibility, state transitions and budget decisions do not depend on Claude or Codex adapter code.
 
@@ -718,6 +724,12 @@ A subagent is eligible only when all conditions are true:
   - Context safety: ledger-derived context bundles include bounded refs and IDs, not repository source bodies or diff bodies; raw source, diff, prompt and completion fields are rejected before persistence.
   - Verification artifact: `docs/verification/architecture-ledger-al6-runtime-context-guards.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-26 — AL6 typed output validation module completed:
+  - Contracts: `InvestigationReport/v1` now requires typed `proposedDelta` payloads instead of digest-only proposals, while preserving finding, hypothesis, evidence reference, unknown, falsifier and confidence fields.
+  - Core: `validateInvestigationReport` checks runner output against the running job and bounded context before `runInvestigationThroughPort` returns it.
+  - Rejection: malformed, direct-mutation and hallucinated-reference reports fail with stable reason codes for missing proposed delta, unverifiable evidence binding, unknown proposed-delta target, unverifiable proposed-delta evidence and digest mismatch.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-output-validation.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/contracts/test/contracts.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
 
 ---
 

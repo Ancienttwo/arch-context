@@ -10,6 +10,24 @@
       "evidenceBindingIds": ["binding.evidence.al0.boundary-import"],
       "unknowns": ["Whether the target module is inside the same declared layer."],
       "falsifier": "A declared relation allowing this dependency exists at the same HEAD.",
+      "proposedDelta": {
+        "candidateChangeId": "candidate_change.al0.boundary-import",
+        "kind": "node-materially-changed",
+        "target": {
+          "kind": "node",
+          "id": "module.checkout"
+        },
+        "stateDimension": "target-state",
+        "changeKind": "materially_changed",
+        "subjectSelectorIds": ["subject.path.src-checkout-service"],
+        "mappingIds": ["mapping.checkout-service"],
+        "ambiguityIds": [],
+        "evidenceIds": ["evidence.al0.boundary-import"],
+        "confidence": "medium",
+        "heuristic": true,
+        "summary": "The checkout module may be materially changed by the observed boundary import.",
+        "digest": "sha256:1515151515151515151515151515151515151515151515151515151515151515"
+      },
       "proposedDeltaDigest": "sha256:1515151515151515151515151515151515151515151515151515151515151515",
       "confidence": "medium"
     }

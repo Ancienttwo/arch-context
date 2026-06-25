@@ -1,7 +1,9 @@
 import {
   AGENT_JOB_SCHEMA_VERSION,
+  INVESTIGATION_REPORT_SCHEMA_VERSION,
   digestJson,
   type AgentJobV1,
+  type ArchitectureCandidateChangeV1,
   type ArchitectureEventSource,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
@@ -205,6 +207,49 @@ export interface PlanRuntimeAgentQueueControlsInput {
   maxQueuedJobs?: number;
   maxRunningJobs?: number;
   priority?: number;
+}
+
+export type InvestigationReportValidationReasonCode =
+  | "report-not-object"
+  | "schema-version-invalid"
+  | "report-id-invalid"
+  | "report-job-mismatch"
+  | "status-invalid"
+  | "direct-mutation-forbidden"
+  | "findings-invalid"
+  | "finding-not-object"
+  | "finding-id-invalid"
+  | "hypothesis-invalid"
+  | "evidence-binding-reference-required"
+  | "evidence-binding-reference-unverifiable"
+  | "unknowns-invalid"
+  | "falsifier-invalid"
+  | "proposed-delta-required"
+  | "proposed-delta-id-invalid"
+  | "proposed-delta-target-unknown"
+  | "proposed-delta-parent-unknown"
+  | "proposed-delta-evidence-reference-required"
+  | "proposed-delta-evidence-reference-unverifiable"
+  | "proposed-delta-digest-mismatch"
+  | "confidence-invalid"
+  | "output-digest-invalid"
+  | "created-at-invalid"
+  | "raw-report-payload-forbidden";
+
+export interface InvestigationReportValidationIssue {
+  reasonCode: InvestigationReportValidationReasonCode;
+  path: string;
+  message: string;
+}
+
+export type InvestigationReportValidationResult =
+  | { valid: true; issues: [] }
+  | { valid: false; issues: InvestigationReportValidationIssue[] };
+
+export interface ValidateInvestigationReportInput {
+  report: unknown;
+  job: AgentJobV1;
+  context: InvestigationContextBundle;
 }
 
 export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
@@ -454,6 +499,59 @@ export function planRuntimeAgentQueueControls(input: PlanRuntimeAgentQueueContro
   };
 }
 
+export function validateInvestigationReport(input: ValidateInvestigationReportInput): InvestigationReportValidationResult {
+  const issues: InvestigationReportValidationIssue[] = [];
+  const references = investigationReportReferenceSet(input.context);
+  try {
+    assertNoRawRepositoryPayload(input.report);
+  } catch (error) {
+    issues.push({
+      reasonCode: "raw-report-payload-forbidden",
+      path: "$",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (!isRecord(input.report)) {
+    issues.push({ reasonCode: "report-not-object", path: "$", message: "Investigation report must be an object." });
+    return invalidIfNeeded(issues);
+  }
+
+  if (input.report.schemaVersion !== INVESTIGATION_REPORT_SCHEMA_VERSION) {
+    issues.push({ reasonCode: "schema-version-invalid", path: "$.schemaVersion", message: "Unsupported investigation report schema version." });
+  }
+  if (!matchesPattern(input.report.reportId, /^investigation_report\.[a-zA-Z0-9_-]+$/)) {
+    issues.push({ reasonCode: "report-id-invalid", path: "$.reportId", message: "Investigation report ID is invalid." });
+  }
+  if (input.report.jobId !== input.job.jobId) {
+    issues.push({ reasonCode: "report-job-mismatch", path: "$.jobId", message: "Investigation report job ID does not match the running job." });
+  }
+  if (!["succeeded", "failed", "partial"].includes(String(input.report.status))) {
+    issues.push({ reasonCode: "status-invalid", path: "$.status", message: "Investigation report status is invalid." });
+  }
+  if (input.report.directMutationAllowed !== false) {
+    issues.push({ reasonCode: "direct-mutation-forbidden", path: "$.directMutationAllowed", message: "Investigation report cannot request direct mutation." });
+  }
+  if (!matchesDigest(input.report.outputDigest)) {
+    issues.push({ reasonCode: "output-digest-invalid", path: "$.outputDigest", message: "Investigation report output digest is invalid." });
+  }
+  if (typeof input.report.createdAt !== "string" || Number.isNaN(Date.parse(input.report.createdAt))) {
+    issues.push({ reasonCode: "created-at-invalid", path: "$.createdAt", message: "Investigation report timestamp is invalid." });
+  }
+
+  if (!Array.isArray(input.report.findings)) {
+    issues.push({ reasonCode: "findings-invalid", path: "$.findings", message: "Investigation report findings must be an array." });
+    return invalidIfNeeded(issues);
+  }
+  input.report.findings.forEach((finding, index) => validateInvestigationFinding({
+    finding,
+    index,
+    references,
+    issues
+  }));
+
+  return invalidIfNeeded(issues);
+}
+
 export async function runInvestigationThroughPort(input: {
   runner: InvestigationRunnerPort;
   job: AgentJobV1;
@@ -471,8 +569,10 @@ export async function runInvestigationThroughPort(input: {
     maxOutputBytes: input.maxOutputBytes,
     signal: input.signal
   });
-  if (report.jobId !== input.job.jobId) throw new Error(`investigation-report-job-mismatch: ${report.jobId}`);
-  if (report.directMutationAllowed !== false) throw new Error("investigation-report-direct-mutation-forbidden");
+  const validation = validateInvestigationReport({ report, job: input.job, context: input.context });
+  if (!validation.valid) {
+    throw new Error(`investigation-report-invalid: ${validation.issues.map((issue) => issue.reasonCode).join(",")}`);
+  }
   return report;
 }
 
@@ -521,6 +621,185 @@ function positiveInteger(value: number, field: string): number {
 function integer(value: number, field: string): number {
   if (!Number.isFinite(value)) throw new Error(`agent-orchestration-${field}-invalid`);
   return Math.trunc(value);
+}
+
+function validateInvestigationFinding(input: {
+  finding: unknown;
+  index: number;
+  references: InvestigationReportReferenceSet;
+  issues: InvestigationReportValidationIssue[];
+}): void {
+  const path = `$.findings[${input.index}]`;
+  if (!isRecord(input.finding)) {
+    input.issues.push({ reasonCode: "finding-not-object", path, message: "Investigation finding must be an object." });
+    return;
+  }
+  if (typeof input.finding.findingId !== "string" || input.finding.findingId.trim().length === 0) {
+    input.issues.push({ reasonCode: "finding-id-invalid", path: `${path}.findingId`, message: "Investigation finding ID is invalid." });
+  }
+  if (typeof input.finding.hypothesis !== "string" || input.finding.hypothesis.trim().length === 0) {
+    input.issues.push({ reasonCode: "hypothesis-invalid", path: `${path}.hypothesis`, message: "Investigation finding hypothesis is required." });
+  }
+  const evidenceBindingIds = input.finding.evidenceBindingIds;
+  if (!Array.isArray(evidenceBindingIds) || evidenceBindingIds.length === 0 || evidenceBindingIds.some((id) => typeof id !== "string")) {
+    input.issues.push({
+      reasonCode: "evidence-binding-reference-required",
+      path: `${path}.evidenceBindingIds`,
+      message: "Investigation finding must reference at least one evidence binding."
+    });
+  } else {
+    for (const bindingId of evidenceBindingIds) {
+      if (!input.references.evidenceBindingIds.has(bindingId)) {
+        input.issues.push({
+          reasonCode: "evidence-binding-reference-unverifiable",
+          path: `${path}.evidenceBindingIds`,
+          message: `Evidence binding is not present in the investigation context: ${bindingId}`
+        });
+      }
+    }
+  }
+  if (!Array.isArray(input.finding.unknowns) || input.finding.unknowns.some((unknown) => typeof unknown !== "string")) {
+    input.issues.push({ reasonCode: "unknowns-invalid", path: `${path}.unknowns`, message: "Investigation finding unknowns must be strings." });
+  }
+  if (typeof input.finding.falsifier !== "string" || input.finding.falsifier.trim().length === 0) {
+    input.issues.push({ reasonCode: "falsifier-invalid", path: `${path}.falsifier`, message: "Investigation finding falsifier is required." });
+  }
+  if (!["low", "medium", "high"].includes(String(input.finding.confidence))) {
+    input.issues.push({ reasonCode: "confidence-invalid", path: `${path}.confidence`, message: "Investigation finding confidence is invalid." });
+  }
+  validateProposedDelta({
+    proposedDelta: input.finding.proposedDelta,
+    proposedDeltaDigest: input.finding.proposedDeltaDigest,
+    path: `${path}.proposedDelta`,
+    references: input.references,
+    issues: input.issues
+  });
+}
+
+function validateProposedDelta(input: {
+  proposedDelta: unknown;
+  proposedDeltaDigest: unknown;
+  path: string;
+  references: InvestigationReportReferenceSet;
+  issues: InvestigationReportValidationIssue[];
+}): void {
+  if (!isRecord(input.proposedDelta)) {
+    input.issues.push({ reasonCode: "proposed-delta-required", path: input.path, message: "Investigation finding must include a typed proposed delta." });
+    return;
+  }
+  const proposed = input.proposedDelta as Partial<ArchitectureCandidateChangeV1>;
+  if (!matchesPattern(proposed.candidateChangeId, /^candidate_change\.[a-zA-Z0-9_.-]+$/)) {
+    input.issues.push({ reasonCode: "proposed-delta-id-invalid", path: `${input.path}.candidateChangeId`, message: "Proposed delta ID is invalid." });
+  }
+  if (typeof input.proposedDeltaDigest !== "string" || input.proposedDeltaDigest !== proposed.digest || !matchesDigest(proposed.digest)) {
+    input.issues.push({
+      reasonCode: "proposed-delta-digest-mismatch",
+      path: `${input.path}Digest`,
+      message: "Proposed delta digest must match the typed proposed delta digest."
+    });
+  }
+  validateProposedDeltaTarget(proposed, input.path, input.references, input.issues);
+  const evidenceIds = proposed.evidenceIds;
+  if (!Array.isArray(evidenceIds) || evidenceIds.length === 0 || evidenceIds.some((id) => typeof id !== "string")) {
+    input.issues.push({
+      reasonCode: "proposed-delta-evidence-reference-required",
+      path: `${input.path}.evidenceIds`,
+      message: "Proposed delta must reference at least one evidence item."
+    });
+  } else {
+    for (const evidenceId of evidenceIds) {
+      if (!input.references.evidenceIds.has(evidenceId)) {
+        input.issues.push({
+          reasonCode: "proposed-delta-evidence-reference-unverifiable",
+          path: `${input.path}.evidenceIds`,
+          message: `Proposed delta evidence is not present in the investigation context: ${evidenceId}`
+        });
+      }
+    }
+  }
+}
+
+function validateProposedDeltaTarget(
+  proposed: Partial<ArchitectureCandidateChangeV1>,
+  path: string,
+  references: InvestigationReportReferenceSet,
+  issues: InvestigationReportValidationIssue[]
+): void {
+  if (!isRecord(proposed.target) || typeof proposed.target.id !== "string" || typeof proposed.target.kind !== "string") {
+    issues.push({ reasonCode: "proposed-delta-target-unknown", path: `${path}.target`, message: "Proposed delta target is invalid." });
+    return;
+  }
+  const targetIds = targetReferenceIds(proposed.target.kind, references);
+  if (!targetIds.has(proposed.target.id)) {
+    issues.push({
+      reasonCode: "proposed-delta-target-unknown",
+      path: `${path}.target.id`,
+      message: `Proposed delta target is not present in the investigation context: ${proposed.target.id}`
+    });
+  }
+  if (proposed.target.parentId && !references.entityIds.has(proposed.target.parentId)) {
+    issues.push({
+      reasonCode: "proposed-delta-parent-unknown",
+      path: `${path}.target.parentId`,
+      message: `Proposed delta parent is not present in the investigation context: ${proposed.target.parentId}`
+    });
+  }
+}
+
+interface InvestigationReportReferenceSet {
+  entityIds: Set<string>;
+  relationIds: Set<string>;
+  constraintIds: Set<string>;
+  evidenceBindingIds: Set<string>;
+  evidenceIds: Set<string>;
+}
+
+function investigationReportReferenceSet(context: InvestigationContextBundle): InvestigationReportReferenceSet {
+  const selected = isRecord(context.extensions?.ledgerContext)
+    && isRecord(context.extensions.ledgerContext.selected)
+    ? context.extensions.ledgerContext.selected
+    : {};
+  const evidenceBindings = recordsFromUnknown(selected.evidenceBindings);
+  return {
+    entityIds: new Set(recordsFromUnknown(selected.entities).map((entity) => entity.entityId).filter(isString)),
+    relationIds: new Set(recordsFromUnknown(selected.relations).map((relation) => relation.relationId).filter(isString)),
+    constraintIds: new Set(recordsFromUnknown(selected.constraints).map((constraint) => constraint.constraintId).filter(isString)),
+    evidenceBindingIds: new Set([
+      ...context.evidenceBindingIds,
+      ...evidenceBindings.map((binding) => binding.bindingId).filter(isString)
+    ]),
+    evidenceIds: new Set(evidenceBindings.map((binding) => binding.evidenceId).filter(isString))
+  };
+}
+
+function targetReferenceIds(targetKind: string, references: InvestigationReportReferenceSet): Set<string> {
+  if (targetKind === "relation") return references.relationIds;
+  if (targetKind === "constraint") return references.constraintIds;
+  return references.entityIds;
+}
+
+function invalidIfNeeded(issues: InvestigationReportValidationIssue[]): InvestigationReportValidationResult {
+  return issues.length === 0 ? { valid: true, issues: [] } : { valid: false, issues };
+}
+
+function matchesPattern(value: unknown, pattern: RegExp): value is string {
+  return typeof value === "string" && pattern.test(value);
+}
+
+function matchesDigest(value: unknown): value is string {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/.test(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function recordsFromUnknown(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 function assertNoRawRepositoryPayload(value: unknown, path = "$"): void {

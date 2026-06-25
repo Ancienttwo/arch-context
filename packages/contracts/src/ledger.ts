@@ -507,7 +507,8 @@ export interface InvestigationReportV1 {
     evidenceBindingIds: string[];
     unknowns: string[];
     falsifier: string;
-    proposedDeltaDigest?: string;
+    proposedDelta: ArchitectureCandidateChangeV1;
+    proposedDeltaDigest: string;
     confidence: "low" | "medium" | "high";
   }[];
   outputDigest: string;

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "archcontext.investigation-report/v1",
+  "reportId": "investigation_report.invalid_missing_delta",
+  "jobId": "agent_job.al0_investigate",
+  "status": "succeeded",
+  "findings": [
+    {
+      "findingId": "finding.boundary-import",
+      "hypothesis": "Invalid report omits the typed proposed delta.",
+      "evidenceBindingIds": ["binding.evidence.al0.boundary-import"],
+      "unknowns": [],
+      "falsifier": "A declared relation allowing this dependency exists at the same HEAD.",
+      "confidence": "medium"
+    }
+  ],
+  "outputDigest": "sha256:1616161616161616161616161616161616161616161616161616161616161616",
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "directMutationAllowed": false
+}

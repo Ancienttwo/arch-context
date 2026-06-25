@@ -14,7 +14,8 @@ import {
   investigationContextBundle,
   planRuntimeAgentQueueControls,
   runInvestigationThroughPort,
-  transitionAgentJobStatus
+  transitionAgentJobStatus,
+  validateInvestigationReport
 } from "../src/index";
 
 const repository = {
@@ -165,18 +166,7 @@ describe("@archcontext/core/agent-orchestrator", () => {
 
   test("runs through a provider-neutral port and rejects direct-mutation reports", async () => {
     const running = transitionAgentJobStatus(agentJob(), { status: "running", now: "2026-06-26T08:01:00.000Z" });
-    const context = investigationContextBundle({
-      repository,
-      worktree,
-      taskSessionId: "task.al6",
-      fingerprint,
-      trigger: { source: "checkpoint", reason: "medium risk with unresolved evidence" },
-      risk: "medium",
-      uncertainty: "high",
-      summary: "Investigate a boundary change from typed evidence.",
-      evidenceBindingIds: ["binding.evidence.al6.boundary"],
-      candidateChangeIds: ["candidate_change.al6.boundary"]
-    });
+    const context = validInvestigationContext();
     const report = investigationReport(running);
     const runner: InvestigationRunnerPort = {
       runnerId: "runner.fake",
@@ -199,8 +189,64 @@ describe("@archcontext/core/agent-orchestrator", () => {
       } as unknown as InvestigationReportV1)
     };
     await expect(runInvestigationThroughPort({ runner: mutatingRunner, job: running, context })).rejects.toThrow(
-      "investigation-report-direct-mutation-forbidden"
+      "investigation-report-invalid: direct-mutation-forbidden"
     );
+  });
+
+  test("validates typed investigation reports against context evidence and ledger refs", () => {
+    const running = transitionAgentJobStatus(agentJob(), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const report = investigationReport(running);
+
+    expect(validateInvestigationReport({ report, job: running, context })).toEqual({ valid: true, issues: [] });
+
+    expect(validateInvestigationReport({
+      report: {
+        ...report,
+        findings: [{ ...report.findings[0], proposedDelta: undefined }]
+      },
+      job: running,
+      context
+    }).issues.map((issue) => issue.reasonCode)).toContain("proposed-delta-required");
+
+    expect(validateInvestigationReport({
+      report: {
+        ...report,
+        findings: [{ ...report.findings[0], evidenceBindingIds: ["binding.evidence.al6.unknown"] }]
+      },
+      job: running,
+      context
+    }).issues.map((issue) => issue.reasonCode)).toContain("evidence-binding-reference-unverifiable");
+
+    expect(validateInvestigationReport({
+      report: {
+        ...report,
+        findings: [{
+          ...report.findings[0],
+          proposedDelta: {
+            ...report.findings[0].proposedDelta,
+            target: { kind: "node" as const, id: "module.unknown" }
+          }
+        }]
+      },
+      job: running,
+      context
+    }).issues.map((issue) => issue.reasonCode)).toContain("proposed-delta-target-unknown");
+
+    expect(validateInvestigationReport({
+      report: {
+        ...report,
+        findings: [{
+          ...report.findings[0],
+          proposedDelta: {
+            ...report.findings[0].proposedDelta,
+            evidenceIds: ["evidence.al6.unknown"]
+          }
+        }]
+      },
+      job: running,
+      context
+    }).issues.map((issue) => issue.reasonCode)).toContain("proposed-delta-evidence-reference-unverifiable");
   });
 
   test("builds a bounded investigation context from ledger refs without repository body or diff payloads", () => {
@@ -350,7 +396,61 @@ function agentJob(): AgentJobV1 {
   });
 }
 
+function validInvestigationContext() {
+  return buildInvestigationContextBundleFromLedgerQuery({
+    repository,
+    worktree,
+    taskSessionId: "task.al6",
+    fingerprint,
+    trigger: { source: "checkpoint", reason: "medium risk with unresolved evidence" },
+    risk: "medium",
+    uncertainty: "high",
+    summary: "Investigate a boundary change from typed evidence.",
+    ledger: {
+      graphDigest: digestJson({ graph: "al6.report" } as unknown as Json),
+      entities: [
+        { entityId: "module.al6.boundary", kind: "module", status: "active", path: "src/al6/boundary.ts" }
+      ],
+      relations: [],
+      constraints: [],
+      evidenceBindings: [
+        {
+          bindingId: "binding.evidence.al6.boundary",
+          evidenceId: "evidence.al6.boundary",
+          target: { kind: "entity", id: "module.al6.boundary" }
+        }
+      ],
+      candidateChanges: [
+        {
+          candidateChangeId: "candidate_change.al6.boundary",
+          kind: "node-materially-changed",
+          target: { kind: "node", id: "module.al6.boundary" },
+          stateDimension: "target-state",
+          changeKind: "materially_changed",
+          confidence: "medium",
+          evidenceIds: ["evidence.al6.boundary"]
+        }
+      ]
+    }
+  });
+}
+
 function investigationReport(job: AgentJobV1): InvestigationReportV1 {
+  const proposedDelta = {
+    candidateChangeId: "candidate_change.al6.boundary",
+    kind: "node-materially-changed" as const,
+    target: { kind: "node" as const, id: "module.al6.boundary" },
+    stateDimension: "target-state" as const,
+    changeKind: "materially_changed" as const,
+    subjectSelectorIds: ["subject.path.src-al6-boundary"],
+    mappingIds: ["mapping.al6.boundary"],
+    ambiguityIds: [],
+    evidenceIds: ["evidence.al6.boundary"],
+    confidence: "medium" as const,
+    heuristic: true as const,
+    summary: "Declared architecture node module.al6.boundary may be materially changed by the investigated code.",
+    digest: digestJson({ proposed: "delta" } as unknown as Json)
+  };
   const report = {
     schemaVersion: "archcontext.investigation-report/v1" as const,
     reportId: "investigation_report.al6",
@@ -363,7 +463,8 @@ function investigationReport(job: AgentJobV1): InvestigationReportV1 {
         evidenceBindingIds: ["binding.evidence.al6.boundary"],
         unknowns: ["Whether the declared relation already allows this edge."],
         falsifier: "The ledger contains an allowed relation for this dependency at the same HEAD.",
-        proposedDeltaDigest: digestJson({ proposed: "delta" } as unknown as Json),
+        proposedDelta,
+        proposedDeltaDigest: proposedDelta.digest,
         confidence: "medium" as const
       }
     ],
