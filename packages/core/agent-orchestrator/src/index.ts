@@ -92,6 +92,7 @@ export type AgentSpawnDecision =
     };
 
 export interface CreateInvestigationAgentJobInput extends AgentSpawnEligibilityInput {
+  jobId?: string;
   runnerPort: AgentRunnerPortId;
   inputDigest: string;
   promptTemplateDigest: string;
@@ -101,6 +102,109 @@ export interface AgentJobStatusTransition {
   status: AgentJobStatus;
   now: string;
   outputDigest?: string;
+}
+
+export interface InvestigationLedgerContextEntityRef {
+  entityId: string;
+  kind: string;
+  status: string;
+  path?: string;
+  summary?: string;
+}
+
+export interface InvestigationLedgerContextRelationRef {
+  relationId: string;
+  kind: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  status: string;
+  summary?: string;
+}
+
+export interface InvestigationLedgerContextConstraintRef {
+  constraintId: string;
+  kind: string;
+  subjectId: string;
+  status: string;
+  severity?: string;
+  summary?: string;
+}
+
+export interface InvestigationLedgerContextEvidenceBindingRef {
+  bindingId: string;
+  evidenceId: string;
+  target: {
+    kind: string;
+    id: string;
+  };
+}
+
+export interface InvestigationLedgerContextCandidateChangeRef {
+  candidateChangeId: string;
+  kind: string;
+  target: {
+    kind: string;
+    id: string;
+    parentId?: string;
+  };
+  stateDimension: string;
+  changeKind: string;
+  confidence: "low" | "medium" | "high";
+  evidenceIds: string[];
+  summary?: string;
+}
+
+export interface InvestigationLedgerContextQueryResult {
+  graphDigest: string;
+  entities?: InvestigationLedgerContextEntityRef[];
+  relations?: InvestigationLedgerContextRelationRef[];
+  constraints?: InvestigationLedgerContextConstraintRef[];
+  evidenceBindings?: InvestigationLedgerContextEvidenceBindingRef[];
+  candidateChanges?: InvestigationLedgerContextCandidateChangeRef[];
+  maxItems?: number;
+}
+
+export interface BuildInvestigationContextBundleFromLedgerQueryInput {
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  taskSessionId: string;
+  fingerprint: string;
+  trigger: AgentSpawnEligibilityInput["trigger"];
+  risk: InvestigationContextRisk;
+  uncertainty: InvestigationContextUncertainty;
+  summary: string;
+  ledger: InvestigationLedgerContextQueryResult;
+  extensions?: Record<string, Json>;
+}
+
+export interface RuntimeAgentQueueControlPlan {
+  schemaVersion: "archcontext.runtime-agent-queue-control-plan/v1";
+  enqueue: {
+    analysisKind: string;
+    coalesceKey: string;
+    debounceUntil?: string;
+    maxQueuedJobs: number;
+    priority: number;
+  };
+  claim: {
+    maxRunningJobs: number;
+  };
+  staleCancellation: {
+    headSha: string;
+    worktreeDigest: string;
+    reason: string;
+  };
+}
+
+export interface PlanRuntimeAgentQueueControlsInput {
+  job: AgentJobV1;
+  analysisKind: string;
+  now: string;
+  coalesceKey?: string;
+  cooldownMs?: number;
+  maxQueuedJobs?: number;
+  maxRunningJobs?: number;
+  priority?: number;
 }
 
 export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
@@ -113,6 +217,10 @@ export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
   maxAutomaticRunsForLowRisk: 0,
   cooldownMs: 0
 };
+
+export const DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY = 1;
+export const DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS = 32;
+export const DEFAULT_AGENT_QUEUE_PRIORITY = 0;
 
 export const AGENT_JOB_STATE_TRANSITIONS: Record<AgentJobStatus, AgentJobStatus[]> = {
   queued: ["running", "cancelled", "superseded", "expired"],
@@ -207,7 +315,7 @@ export function createInvestigationAgentJob(input: CreateInvestigationAgentJobIn
   }
   return {
     schemaVersion: AGENT_JOB_SCHEMA_VERSION,
-    jobId: investigationJobId(input.taskSessionId, input.fingerprint),
+    jobId: input.jobId ?? investigationJobId(input.taskSessionId, input.fingerprint),
     status: "queued",
     runnerPort: input.runnerPort,
     repository: input.repository,
@@ -229,6 +337,53 @@ export function createInvestigationAgentJob(input: CreateInvestigationAgentJobIn
       policyDigest: digestJson(decision.policy as unknown as Json)
     }
   };
+}
+
+export function buildInvestigationContextBundleFromLedgerQuery(input: BuildInvestigationContextBundleFromLedgerQueryInput): InvestigationContextBundle {
+  const maxItems = Math.max(1, Math.trunc(input.ledger.maxItems ?? 12));
+  const entities = [...(input.ledger.entities ?? [])].sort((left, right) => left.entityId.localeCompare(right.entityId)).slice(0, maxItems);
+  const relations = [...(input.ledger.relations ?? [])].sort((left, right) => left.relationId.localeCompare(right.relationId)).slice(0, maxItems);
+  const constraints = [...(input.ledger.constraints ?? [])].sort((left, right) => left.constraintId.localeCompare(right.constraintId)).slice(0, maxItems);
+  const evidenceBindings = [...(input.ledger.evidenceBindings ?? [])]
+    .sort((left, right) => left.bindingId.localeCompare(right.bindingId))
+    .slice(0, maxItems);
+  const candidateChanges = [...(input.ledger.candidateChanges ?? [])]
+    .sort((left, right) => left.candidateChangeId.localeCompare(right.candidateChangeId))
+    .slice(0, maxItems);
+  const ledgerContext = {
+    schemaVersion: "archcontext.investigation-ledger-context/v1" as const,
+    graphDigest: input.ledger.graphDigest,
+    selected: {
+      entities,
+      relations,
+      constraints,
+      evidenceBindings,
+      candidateChanges
+    },
+    omitted: {
+      entities: Math.max(0, (input.ledger.entities?.length ?? 0) - entities.length),
+      relations: Math.max(0, (input.ledger.relations?.length ?? 0) - relations.length),
+      constraints: Math.max(0, (input.ledger.constraints?.length ?? 0) - constraints.length),
+      evidenceBindings: Math.max(0, (input.ledger.evidenceBindings?.length ?? 0) - evidenceBindings.length),
+      candidateChanges: Math.max(0, (input.ledger.candidateChanges?.length ?? 0) - candidateChanges.length)
+    }
+  };
+  return investigationContextBundle({
+    repository: input.repository,
+    worktree: input.worktree,
+    taskSessionId: input.taskSessionId,
+    fingerprint: input.fingerprint,
+    trigger: input.trigger,
+    risk: input.risk,
+    uncertainty: input.uncertainty,
+    summary: input.summary,
+    evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId),
+    candidateChangeIds: candidateChanges.map((change) => change.candidateChangeId),
+    extensions: {
+      ...(input.extensions ?? {}),
+      ledgerContext: ledgerContext as unknown as Json
+    }
+  });
 }
 
 export function investigationContextBundle(input: {
@@ -271,7 +426,32 @@ export function investigationContextBundle(input: {
     } as unknown as Json),
     ...(input.extensions ? { extensions: input.extensions } : {})
   };
+  assertNoRawRepositoryPayload(context);
   return context;
+}
+
+export function planRuntimeAgentQueueControls(input: PlanRuntimeAgentQueueControlsInput): RuntimeAgentQueueControlPlan {
+  const maxQueuedJobs = input.maxQueuedJobs ?? DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS;
+  const maxRunningJobs = input.maxRunningJobs ?? DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY;
+  const cooldownMs = input.cooldownMs ?? 0;
+  return {
+    schemaVersion: "archcontext.runtime-agent-queue-control-plan/v1",
+    enqueue: {
+      analysisKind: input.analysisKind,
+      coalesceKey: input.coalesceKey ?? agentJobCoalesceKey(input.job, input.analysisKind),
+      ...(cooldownMs > 0 ? { debounceUntil: new Date(Date.parse(input.now) + cooldownMs).toISOString() } : {}),
+      maxQueuedJobs: positiveInteger(maxQueuedJobs, "maxQueuedJobs"),
+      priority: integer(input.priority ?? DEFAULT_AGENT_QUEUE_PRIORITY, "priority")
+    },
+    claim: {
+      maxRunningJobs: positiveInteger(maxRunningJobs, "maxRunningJobs")
+    },
+    staleCancellation: {
+      headSha: input.job.worktree.headSha,
+      worktreeDigest: input.job.worktree.worktreeDigest,
+      reason: "stale-head-or-worktree"
+    }
+  };
 }
 
 export async function runInvestigationThroughPort(input: {
@@ -302,6 +482,15 @@ function hasEquivalentJob(fingerprint: string, jobs: EquivalentAgentJob[]): bool
     && !["expired", "superseded"].includes(job.status));
 }
 
+function agentJobCoalesceKey(job: AgentJobV1, analysisKind: string): string {
+  return [
+    job.repository.storageRepositoryId,
+    job.worktree.storageWorkspaceId,
+    analysisKind,
+    job.fingerprint
+  ].join("\0");
+}
+
 function investigationJobId(taskSessionId: string, fingerprint: string): string {
   return `agent_job.${sanitizeJobIdPart(taskSessionId)}_${shortDigest(fingerprint)}`;
 }
@@ -322,3 +511,45 @@ function nonNegativeInteger(value: number, field: string): number {
   if (!Number.isFinite(value) || value < 0) throw new Error(`agent-orchestration-${field}-invalid`);
   return Math.trunc(value);
 }
+
+function positiveInteger(value: number, field: string): number {
+  const next = integer(value, field);
+  if (next < 1) throw new Error(`agent-orchestration-${field}-invalid`);
+  return next;
+}
+
+function integer(value: number, field: string): number {
+  if (!Number.isFinite(value)) throw new Error(`agent-orchestration-${field}-invalid`);
+  return Math.trunc(value);
+}
+
+function assertNoRawRepositoryPayload(value: unknown, path = "$"): void {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string") {
+    if (value.includes("diff --git")) throw new Error(`investigation-context-raw-diff-forbidden: ${path}`);
+    return;
+  }
+  if (typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoRawRepositoryPayload(item, `${path}[${index}]`));
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (RAW_REPOSITORY_PAYLOAD_KEYS.has(key)) {
+      throw new Error(`investigation-context-raw-field-forbidden: ${path}.${key}`);
+    }
+    assertNoRawRepositoryPayload(child, `${path}.${key}`);
+  }
+}
+
+const RAW_REPOSITORY_PAYLOAD_KEYS = new Set([
+  "body",
+  "sourceBody",
+  "sourceCode",
+  "rawSource",
+  "diff",
+  "diffBody",
+  "patch",
+  "prompt",
+  "completion"
+]);

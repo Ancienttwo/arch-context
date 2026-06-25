@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 foundation complete, AL6-05+ remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 runtime context guards complete, AL6-07+ remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -674,8 +674,13 @@ A subagent is eligible only when all conditions are true:
   - Evidence: `evaluateInvestigationSpawn` enforces task, repository-day and total-day budgets; `AgentJob/v1.budget` now allows `maxRunsPerDay`; covered by `agent-orchestrator.test.ts` and `contracts.test.ts`.
 - [x] **AL6-04 · P0 · `agent-orchestrator`** — Set safe defaults: maximum one investigative spawn per task and zero automatic spawns for low-risk changes.
   - Evidence: `DEFAULT_AGENT_ORCHESTRATION_POLICY` sets `maxRunsPerTask: 1` and `maxAutomaticRunsForLowRisk: 0`; tests verify low-risk automatic changes are denied and medium-risk defaults remain capped at one task run.
-- [ ] **AL6-05 · P0 · `agent-orchestrator`** — Add cooldown, deduplication, concurrency one per repository and cancellation on stale HEAD.
-- [ ] **AL6-06 · P0 · `agent-orchestrator`** — Build a minimal context bundle from ledger query results and evidence references; do not dump the whole repository.
+- [x] **AL6-05 · P0 · `agent-orchestrator`** — Add cooldown, deduplication, concurrency one per repository and cancellation on stale HEAD.
+  - Evidence: `planRuntimeAgentQueueControls` defines deterministic cooldown debounce, coalescing, queue cap, priority, one-running-job claim policy and stale HEAD/worktree cancellation metadata; `jobsEnqueueGitHook` uses the plan at enqueue time, `jobsClaim` defaults to `maxRunningJobs: 1`, and `local-store-sqlite` enforces that limit inside the claim transaction.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test --timeout 90000`.
+- [x] **AL6-06 · P0 · `agent-orchestrator`** — Build a minimal context bundle from ledger query results and evidence references; do not dump the whole repository.
+  - Evidence: `buildInvestigationContextBundleFromLedgerQuery` selects bounded ledger refs, evidence binding IDs and candidate change IDs by stable order; `investigationContextBundle` rejects raw source, diff, prompt and completion payload fields; `jobsEnqueueGitHook` persists only bounded investigation context, Git path metadata and digests in the queued job.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-runtime-context-guards.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`.
 - [ ] **AL6-07 · P0 · `contracts`** — Require typed output: finding, hypothesis, evidence references, unknowns, falsifier, proposed delta and confidence.
 - [ ] **AL6-08 · P0 · `agent-orchestrator`** — Validate output schema and reject unknown entity IDs or unverifiable evidence references.
 - [ ] **AL6-09 · P0 · `security`** — Treat repository text and model output as untrusted; add prompt-injection and tool-escape tests.
@@ -707,6 +712,12 @@ A subagent is eligible only when all conditions are true:
   - Safety: low-risk automatic changes spawn zero agents by default; created jobs and runner reports cannot request direct architecture mutation.
   - Verification artifact: `docs/verification/architecture-ledger-al6-orchestrator-foundation.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`.
+- 2026-06-26 — AL6 runtime context guards module completed:
+  - Queue controls: core now emits a stable runtime queue control plan covering cooldown debounce, coalescing, max queued jobs, priority, one-running-job claim policy and stale HEAD/worktree cancellation metadata.
+  - Runtime path: daemon Git hook enqueue now builds jobs through `createInvestigationAgentJob`, attaches the bounded investigation context by digest, skips clean worktrees, and keeps claim concurrency at one running job per repository by default.
+  - Context safety: ledger-derived context bundles include bounded refs and IDs, not repository source bodies or diff bodies; raw source, diff, prompt and completion fields are rejected before persistence.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-runtime-context-guards.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
 
 ---
 

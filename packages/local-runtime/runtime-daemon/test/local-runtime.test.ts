@@ -446,16 +446,22 @@ describe("local runtime foundation", () => {
       const first = await daemon.jobsEnqueueGitHook(root, {
         source: "worktree",
         event: "post-edit",
+        taskSessionId: "task.runtime-agent",
         analysisKind: "architecture-delta",
         coalesceKey: "coalesce.runtime-test",
-        maxAttempts: 2
+        maxAttempts: 2,
+        cooldownMs: 1_000,
+        contextMaxItems: 2
       });
       const duplicate = await daemon.jobsEnqueueGitHook(root, {
         source: "worktree",
         event: "post-edit",
+        taskSessionId: "task.runtime-agent",
         analysisKind: "architecture-delta",
         coalesceKey: "coalesce.runtime-test",
-        maxAttempts: 2
+        maxAttempts: 2,
+        cooldownMs: 1_000,
+        contextMaxItems: 2
       });
       expect(first.ok).toBe(true);
       expect(duplicate.ok).toBe(true);
@@ -467,7 +473,35 @@ describe("local runtime foundation", () => {
 
       const list = await daemon.jobsList(root, { statuses: ["queued"] });
       expect((list.data as any).count).toBe(1);
-      expect((list.data as any).jobs[0].job.trigger).toMatchObject({ source: "git_hook", reason: "post-edit" });
+      const queued = (list.data as any).jobs[0];
+      expect(queued.job.trigger).toMatchObject({ source: "git_hook", reason: "post-edit" });
+      expect(queued.debounceUntil).toBe("2026-06-25T02:00:01.000Z");
+      expect(queued.job.inputDigest).toBe(queued.job.extensions.investigationContext.inputDigest);
+      expect(queued.job.extensions.investigationContext).toMatchObject({
+        schemaVersion: "archcontext.investigation-context-bundle/v1",
+        taskSessionId: "task.runtime-agent",
+        fingerprint: queued.job.fingerprint,
+        extensions: {
+          ledgerContext: {
+            schemaVersion: "archcontext.investigation-ledger-context/v1",
+            selected: {
+              entities: [],
+              relations: [],
+              constraints: [],
+              evidenceBindings: [],
+              candidateChanges: []
+            }
+          },
+          gitChange: {
+            pathCount: 1,
+            changedPaths: [{ path: "src/changed.ts", status: "added", rawStatus: "??" }]
+          },
+          analysisKind: "architecture-delta"
+        }
+      });
+      expect(queued.job.extensions.queuePlanDigest).toMatch(/^sha256:/);
+      expect(JSON.stringify(queued.job.extensions)).not.toContain("export const changed");
+      expect(JSON.stringify(queued.job.extensions)).not.toContain("diff --git");
 
       const claim = await daemon.jobsClaim(root, {
         workerId: "worker.al4",
@@ -572,6 +606,36 @@ describe("local runtime foundation", () => {
         { path: ".archcontext/generated/ARCHITECTURE.md", status: "added", rawStatus: "??" }
       ]);
       expect(JSON.stringify(skipped.data)).not.toContain("Do not edit by hand");
+
+      const list = await daemon.jobsList(root);
+      expect((list.data as any).count).toBe(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs skip clean hook changes without enqueueing", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:11:00.000Z"
+      });
+
+      const skipped = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-write"
+      });
+      expect(skipped.ok).toBe(true);
+      expect((skipped.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "no-changed-paths",
+        source: "worktree",
+        analysisKind: "architecture-delta"
+      });
 
       const list = await daemon.jobsList(root);
       expect((list.data as any).count).toBe(0);

@@ -36,6 +36,11 @@ import {
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
+import {
+  buildInvestigationContextBundleFromLedgerQuery,
+  createInvestigationAgentJob,
+  planRuntimeAgentQueueControls
+} from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
@@ -84,8 +89,11 @@ export interface RuntimeAgentJobEnqueueGitInput {
   ref?: string;
   baseRef?: string;
   event?: string;
+  taskSessionId?: string;
   analysisKind?: string;
   coalesceKey?: string;
+  contextMaxItems?: number;
+  cooldownMs?: number;
   debounceUntil?: string;
   maxAttempts?: number;
   priority?: number;
@@ -863,6 +871,24 @@ export class ArchctxDaemon {
         }
       } as unknown as Json);
     }
+    if (metadata.paths.length === 0) {
+      return okEnvelope("jobs.enqueueGitHook", {
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "no-changed-paths",
+        event: input.event ?? source,
+        source,
+        change: metadata,
+        analysisKind,
+        expiredJobIds: [],
+        hook: {
+          failOpen: false,
+          egress: "none",
+          network: "forbidden"
+        }
+      } as unknown as Json);
+    }
     const now = this.clock();
     const codeFactsDigestValue = input.codeFactsDigest
       ?? session.codeFactsDigest
@@ -880,36 +906,89 @@ export class ArchctxDaemon {
       codeFactsDigest: codeFactsDigestValue,
       analysisKind
     });
-    const inputDigest = digestJson({
-      schemaVersion: "archcontext.runtime-agent-job-input/v1",
-      source,
-      event: input.event ?? source,
-      analysisKind,
-      metadataDigest: metadata.metadataDigest,
-      codeFactsDigest: codeFactsDigestValue
-    } as unknown as Json);
-    const job: AgentJobV1 = {
-      schemaVersion: "archcontext.agent-job/v1",
-      jobId: runtimeAgentJobId(fingerprint, inputDigest, now),
-      status: "queued",
-      runnerPort: input.runnerPort ?? "codex",
+    const jobWorktree = {
+      ...scope.worktree,
+      headSha: metadata.headSha
+    };
+    const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
+    const taskSessionId = input.taskSessionId ?? "task_runtime_agent";
+    const trigger = { source: "git_hook" as const, reason: input.event ?? source };
+    const context = buildInvestigationContextBundleFromLedgerQuery({
       repository: scope.repository,
-      worktree: {
-        ...scope.worktree,
-        headSha: metadata.headSha
-      },
+      worktree: jobWorktree,
+      taskSessionId,
       fingerprint,
-      trigger: { source: "git_hook", reason: input.event ?? source },
-      budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
-      inputDigest,
-      promptTemplateDigest: digestJson({
+      trigger,
+      risk: metadata.paths.length > 0 ? "medium" : "low",
+      uncertainty: "high",
+      summary: `${analysisKind} investigation for ${metadata.paths.length} changed path(s).`,
+      ledger: {
+        graphDigest: architectureLedgerStateDigest(ledgerState),
+        entities: ledgerState.entities,
+        relations: ledgerState.relations,
+        constraints: ledgerState.constraints,
+        evidenceBindings: [],
+        candidateChanges: [],
+        maxItems: input.contextMaxItems ?? 12
+      },
+      extensions: {
+        gitChange: {
+          source,
+          event: input.event ?? source,
+          metadataDigest: metadata.metadataDigest,
+          pathCount: metadata.paths.length,
+          changedPaths: metadata.paths
+            .slice(0, input.contextMaxItems ?? 12)
+            .map((path) => ({ path: path.path, status: path.status, rawStatus: path.rawStatus })),
+          omittedPathCount: Math.max(0, metadata.paths.length - (input.contextMaxItems ?? 12))
+        },
+        codeFactsDigest: codeFactsDigestValue,
+        analysisKind
+      } as Record<string, Json>
+    });
+    const promptTemplateDigest = digestJson({
         schemaVersion: "archcontext.runtime-agent-job-prompt-template/v1",
         analysisKind
-      } as unknown as Json),
-      stalePolicy: "cancel-on-head-change",
-      directMutationAllowed: false,
-      queuedAt: now,
-      updatedAt: now
+      } as unknown as Json);
+    const job = createInvestigationAgentJob({
+      repository: scope.repository,
+      worktree: jobWorktree,
+      taskSessionId,
+      fingerprint,
+      trigger,
+      risk: metadata.paths.length > 0 ? "medium" : "low",
+      uncertainty: "high",
+      deterministicAnalysisFound: metadata.paths.length > 0,
+      documentationSynthesisUseful: true,
+      budgetUsage: { taskRuns: 0, repositoryRunsToday: 0, totalRunsToday: 0 },
+      now,
+      policy: {
+        adapterEnabled: true,
+        maxRunsPerTask: 1,
+        maxRunsPerRepositoryPerDay: 4,
+        cooldownMs: input.cooldownMs ?? 0
+      },
+      jobId: runtimeAgentJobId(fingerprint, context.inputDigest, now),
+      runnerPort: input.runnerPort ?? "codex",
+      inputDigest: context.inputDigest,
+      promptTemplateDigest
+    });
+    const queuePlan = planRuntimeAgentQueueControls({
+      job,
+      analysisKind,
+      now,
+      coalesceKey: input.coalesceKey,
+      cooldownMs: input.cooldownMs,
+      maxQueuedJobs: input.maxQueuedJobs ?? RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS,
+      priority: input.priority ?? RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY
+    });
+    const jobWithContext: AgentJobV1 = {
+      ...job,
+      extensions: {
+        ...(job.extensions ?? {}),
+        investigationContext: context as unknown as Json,
+        queuePlanDigest: digestJson(queuePlan as unknown as Json)
+      }
     };
     const expired = await this.localStore.cancelStaleRuntimeAgentJobs({
       ...scope,
@@ -919,13 +998,13 @@ export class ArchctxDaemon {
       reason: "enqueue-newer-git-hook-job"
     });
     const enqueue = await this.localStore.enqueueRuntimeAgentJob({
-      job,
-      analysisKind,
-      coalesceKey: input.coalesceKey,
+      job: jobWithContext,
+      analysisKind: queuePlan.enqueue.analysisKind,
+      coalesceKey: queuePlan.enqueue.coalesceKey,
       maxAttempts: input.maxAttempts,
-      debounceUntil: input.debounceUntil,
-      priority: input.priority ?? RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY,
-      maxQueuedJobs: input.maxQueuedJobs ?? RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS
+      debounceUntil: input.debounceUntil ?? queuePlan.enqueue.debounceUntil,
+      priority: queuePlan.enqueue.priority,
+      maxQueuedJobs: queuePlan.enqueue.maxQueuedJobs
     });
     return okEnvelope("jobs.enqueueGitHook", {
       ...enqueue,

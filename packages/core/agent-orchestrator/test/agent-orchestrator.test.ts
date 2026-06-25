@@ -8,9 +8,11 @@ import {
 } from "@archcontext/contracts";
 import {
   DEFAULT_AGENT_ORCHESTRATION_POLICY,
+  buildInvestigationContextBundleFromLedgerQuery,
   createInvestigationAgentJob,
   evaluateInvestigationSpawn,
   investigationContextBundle,
+  planRuntimeAgentQueueControls,
   runInvestigationThroughPort,
   transitionAgentJobStatus
 } from "../src/index";
@@ -199,6 +201,127 @@ describe("@archcontext/core/agent-orchestrator", () => {
     await expect(runInvestigationThroughPort({ runner: mutatingRunner, job: running, context })).rejects.toThrow(
       "investigation-report-direct-mutation-forbidden"
     );
+  });
+
+  test("builds a bounded investigation context from ledger refs without repository body or diff payloads", () => {
+    const context = buildInvestigationContextBundleFromLedgerQuery({
+      repository,
+      worktree,
+      taskSessionId: "task.al6",
+      fingerprint,
+      trigger: { source: "git_hook", reason: "post-edit" },
+      risk: "medium",
+      uncertainty: "high",
+      summary: "Investigate a persistence boundary change.",
+      ledger: {
+        graphDigest: digestJson({ graph: "al6" } as unknown as Json),
+        maxItems: 1,
+        entities: [
+          { entityId: "module.z", kind: "module", status: "active", path: "src/z" },
+          { entityId: "module.a", kind: "module", status: "active", path: "src/a" }
+        ],
+        relations: [
+          { relationId: "relation.a-z", kind: "imports", sourceEntityId: "module.a", targetEntityId: "module.z", status: "active" }
+        ],
+        constraints: [
+          { constraintId: "constraint.persistence", kind: "owner-required", subjectId: "module.a", status: "active", severity: "warning" }
+        ],
+        evidenceBindings: [
+          { bindingId: "binding.evidence.z", evidenceId: "evidence.z", target: { kind: "entity", id: "module.z" } },
+          { bindingId: "binding.evidence.a", evidenceId: "evidence.a", target: { kind: "entity", id: "module.a" } }
+        ],
+        candidateChanges: [
+          {
+            candidateChangeId: "candidate_change.z",
+            kind: "node-materially-changed",
+            target: { kind: "node", id: "module.z" },
+            stateDimension: "target-state",
+            changeKind: "materially_changed",
+            confidence: "medium",
+            evidenceIds: ["evidence.z"]
+          },
+          {
+            candidateChangeId: "candidate_change.a",
+            kind: "node-materially-changed",
+            target: { kind: "node", id: "module.a" },
+            stateDimension: "target-state",
+            changeKind: "materially_changed",
+            confidence: "medium",
+            evidenceIds: ["evidence.a"]
+          }
+        ]
+      }
+    });
+
+    expect(context.evidenceBindingIds).toEqual(["binding.evidence.a"]);
+    expect(context.candidateChangeIds).toEqual(["candidate_change.a"]);
+    expect((context.extensions?.ledgerContext as any).selected.entities).toEqual([
+      { entityId: "module.a", kind: "module", status: "active", path: "src/a" }
+    ]);
+    expect((context.extensions?.ledgerContext as any).omitted).toMatchObject({
+      entities: 1,
+      evidenceBindings: 1,
+      candidateChanges: 1
+    });
+    expect(JSON.stringify(context)).not.toContain("export const");
+    expect(JSON.stringify(context)).not.toContain("diff --git");
+  });
+
+  test("rejects raw repository payload fields in investigation context extensions", () => {
+    expect(() => investigationContextBundle({
+      repository,
+      worktree,
+      taskSessionId: "task.al6",
+      fingerprint,
+      trigger: { source: "checkpoint", reason: "raw context regression" },
+      risk: "medium",
+      uncertainty: "high",
+      summary: "Invalid context",
+      extensions: {
+        sourceBody: "export const leaked = true;"
+      }
+    })).toThrow("investigation-context-raw-field-forbidden");
+    expect(() => investigationContextBundle({
+      repository,
+      worktree,
+      taskSessionId: "task.al6",
+      fingerprint,
+      trigger: { source: "checkpoint", reason: "raw diff regression" },
+      risk: "medium",
+      uncertainty: "high",
+      summary: "Invalid context",
+      extensions: {
+        safeKey: "diff --git a/src/a.ts b/src/a.ts"
+      }
+    })).toThrow("investigation-context-raw-diff-forbidden");
+  });
+
+  test("plans runtime queue controls with one concurrent job per repository and cooldown debounce", () => {
+    const job = agentJob();
+    const plan = planRuntimeAgentQueueControls({
+      job,
+      analysisKind: "architecture-delta",
+      now,
+      cooldownMs: 5_000,
+      priority: 7
+    });
+
+    expect(plan).toMatchObject({
+      schemaVersion: "archcontext.runtime-agent-queue-control-plan/v1",
+      enqueue: {
+        analysisKind: "architecture-delta",
+        maxQueuedJobs: 32,
+        priority: 7,
+        debounceUntil: "2026-06-26T08:00:05.000Z"
+      },
+      claim: { maxRunningJobs: 1 },
+      staleCancellation: {
+        headSha: worktree.headSha,
+        worktreeDigest: worktree.worktreeDigest,
+        reason: "stale-head-or-worktree"
+      }
+    });
+    expect(plan.enqueue.coalesceKey).toContain(job.fingerprint);
   });
 });
 
