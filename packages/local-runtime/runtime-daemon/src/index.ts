@@ -48,6 +48,10 @@ import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewW
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 
+const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
+const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
+const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
+
 export interface RuntimeStatus {
   running: boolean;
   sessions: number;
@@ -84,6 +88,8 @@ export interface RuntimeAgentJobEnqueueGitInput {
   coalesceKey?: string;
   debounceUntil?: string;
   maxAttempts?: number;
+  priority?: number;
+  maxQueuedJobs?: number;
   runnerPort?: AgentJobV1["runnerPort"];
   codeFactsDigest?: string;
   generatedProjection?: boolean;
@@ -94,6 +100,7 @@ export interface RuntimeAgentJobClaimRpcInput {
   workerId: string;
   leaseMs?: number;
   now?: string;
+  maxRunningJobs?: number;
 }
 
 export interface RuntimeAgentJobCompleteRpcInput {
@@ -419,6 +426,7 @@ export interface RuntimeDaemonClient {
   checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
   jobsEnqueueGitHook(root: string, input?: RuntimeAgentJobEnqueueGitInput): Promise<JsonEnvelope> | JsonEnvelope;
   jobsList(root: string, input?: { statuses?: AgentJobV1["status"][] }): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsStats(root: string, input?: { now?: string }): Promise<JsonEnvelope> | JsonEnvelope;
   jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
   jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
   jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -915,7 +923,9 @@ export class ArchctxDaemon {
       analysisKind,
       coalesceKey: input.coalesceKey,
       maxAttempts: input.maxAttempts,
-      debounceUntil: input.debounceUntil
+      debounceUntil: input.debounceUntil,
+      priority: input.priority ?? RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY,
+      maxQueuedJobs: input.maxQueuedJobs ?? RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS
     });
     return okEnvelope("jobs.enqueueGitHook", {
       ...enqueue,
@@ -933,6 +943,13 @@ export class ArchctxDaemon {
     return okEnvelope("jobs.list", { jobs, count: jobs.length } as unknown as Json);
   }
 
+  async jobsStats(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    const stats = await this.localStore.queueStatsRuntimeAgentJobs({ ...scope, now: input.now ?? this.clock() });
+    return okEnvelope("jobs.stats", stats as unknown as Json);
+  }
+
   async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
     if (!input.workerId) return errorEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs.claim requires workerId");
@@ -941,7 +958,8 @@ export class ArchctxDaemon {
       ...scope,
       workerId: input.workerId,
       leaseMs: input.leaseMs ?? 60_000,
-      now: input.now ?? this.clock()
+      now: input.now ?? this.clock(),
+      maxRunningJobs: input.maxRunningJobs ?? RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS
     });
     return okEnvelope("jobs.claim", { job } as unknown as Json);
   }
@@ -2597,6 +2615,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("jobsList", [root, input]);
   }
 
+  jobsStats(root: string, input: { now?: string } = {}) {
+    return this.call("jobsStats", [root, input]);
+  }
+
   jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput) {
     return this.call("jobsClaim", [root, input]);
   }
@@ -2894,6 +2916,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.jobsEnqueueGitHook(params[0] as string, params[1] as RuntimeAgentJobEnqueueGitInput | undefined);
       case "jobsList":
         return this.daemon.jobsList(params[0] as string, params[1] as { statuses?: AgentJobV1["status"][] } | undefined);
+      case "jobsStats":
+        return this.daemon.jobsStats(params[0] as string, params[1] as { now?: string } | undefined);
       case "jobsClaim":
         return this.daemon.jobsClaim(params[0] as string, params[1] as RuntimeAgentJobClaimRpcInput);
       case "jobsComplete":

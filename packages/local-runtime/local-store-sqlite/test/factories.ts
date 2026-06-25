@@ -15,7 +15,7 @@ import {
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
 import type { AgentJobV1, ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -81,6 +81,8 @@ export class TestLocalStore implements RuntimeLocalStore {
   async enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult> {
     if (input.job.status !== "queued") throw new Error("runtime-agent-job-enqueue-requires-queued-status");
     const coalesceKey = input.coalesceKey ?? testRuntimeAgentJobDefaultCoalesceKey(input.job, input.analysisKind);
+    const priority = testRuntimeAgentJobPriority(input.priority);
+    const maxQueuedJobs = testOptionalPositiveInteger(input.maxQueuedJobs, "runtime-agent-job-max-queued-jobs-invalid");
     const duplicate = [...this.runtimeAgentJobs.values()]
       .filter((record) => testRuntimeAgentJobMatchesScope(record, input.job)
         && record.analysisKind === input.analysisKind
@@ -88,7 +90,21 @@ export class TestLocalStore implements RuntimeLocalStore {
         && (record.job.status === "queued" || record.job.status === "running"))
       .sort(testRuntimeAgentJobSort)[0];
     if (duplicate) {
-      return { record: duplicate, enqueued: false, deduplicated: true, supersededJobIds: [] };
+      return {
+        record: duplicate,
+        enqueued: false,
+        deduplicated: true,
+        supersededJobIds: [],
+        evictedJobIds: [],
+        ...(maxQueuedJobs === undefined ? {} : {
+          backpressure: testRuntimeAgentJobBackpressure([...this.runtimeAgentJobs.values()], input.job, {
+            accepted: true,
+            priority: duplicate.priority,
+            maxQueuedJobs,
+            evictedJobIds: []
+          })
+        })
+      };
     }
 
     const superseded = [...this.runtimeAgentJobs.values()]
@@ -97,6 +113,42 @@ export class TestLocalStore implements RuntimeLocalStore {
         && record.coalesceKey === coalesceKey
         && record.job.status === "queued")
       .sort(testRuntimeAgentJobSort);
+    const queuedDepthBefore = [...this.runtimeAgentJobs.values()]
+      .filter((record) => testRuntimeAgentJobMatchesScope(record, input.job) && record.job.status === "queued")
+      .length;
+    const reservedQueuedDepth = Math.max(0, queuedDepthBefore - superseded.length);
+    const requiredEvictions = maxQueuedJobs === undefined ? 0 : Math.max(0, reservedQueuedDepth - maxQueuedJobs + 1);
+    const evictable = requiredEvictions === 0 ? [] : [...this.runtimeAgentJobs.values()]
+      .filter((record) => testRuntimeAgentJobMatchesScope(record, input.job)
+        && record.job.status === "queued"
+        && record.priority <= priority
+        && !superseded.some((candidate) => candidate.job.jobId === record.job.jobId))
+      .sort((left, right) => left.priority - right.priority || testRuntimeAgentJobSort(left, right))
+      .slice(0, requiredEvictions);
+    if (evictable.length < requiredEvictions) {
+      return {
+        enqueued: false,
+        deduplicated: false,
+        supersededJobIds: [],
+        evictedJobIds: [],
+        rejected: true,
+        reasonCode: "backpressure-queue-cap",
+        backpressure: testRuntimeAgentJobBackpressure([...this.runtimeAgentJobs.values()], input.job, {
+          accepted: false,
+          reasonCode: "backpressure-queue-cap",
+          priority,
+          maxQueuedJobs,
+          evictedJobIds: []
+        })
+      };
+    }
+    for (const record of evictable) {
+      this.runtimeAgentJobs.set(record.job.jobId, {
+        ...record,
+        job: testRuntimeAgentJobWithStatus(record.job, "expired", input.job.queuedAt),
+        lastError: "backpressure-queue-cap"
+      });
+    }
     for (const record of superseded) {
       this.runtimeAgentJobs.set(record.job.jobId, {
         ...record,
@@ -110,6 +162,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       job: input.job,
       analysisKind: input.analysisKind,
       coalesceKey,
+      priority,
       attemptCount: 0,
       maxAttempts: Math.max(1, Math.trunc(input.maxAttempts ?? 3)),
       debounceUntil: input.debounceUntil
@@ -119,7 +172,16 @@ export class TestLocalStore implements RuntimeLocalStore {
       record,
       enqueued: true,
       deduplicated: false,
-      supersededJobIds: superseded.map((job) => job.job.jobId)
+      supersededJobIds: superseded.map((job) => job.job.jobId),
+      evictedJobIds: evictable.map((job) => job.job.jobId),
+      ...(maxQueuedJobs === undefined ? {} : {
+        backpressure: testRuntimeAgentJobBackpressure([...this.runtimeAgentJobs.values()], input.job, {
+          accepted: true,
+          priority,
+          maxQueuedJobs,
+          evictedJobIds: evictable.map((job) => job.job.jobId)
+        })
+      })
     };
   }
 
@@ -132,7 +194,25 @@ export class TestLocalStore implements RuntimeLocalStore {
       .sort(testRuntimeAgentJobSort);
   }
 
+  async queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats> {
+    return testRuntimeAgentJobQueueStats(
+      await this.listRuntimeAgentJobs(input),
+      input.now ?? "2026-06-25T00:00:00.000Z",
+      input.repository.storageRepositoryId,
+      input.worktree.storageWorkspaceId
+    );
+  }
+
   async claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined> {
+    const maxRunningJobs = testOptionalPositiveInteger(input.maxRunningJobs, "runtime-agent-job-max-running-jobs-invalid");
+    if (maxRunningJobs !== undefined) {
+      const runningDepth = [...this.runtimeAgentJobs.values()]
+        .filter((candidate) => candidate.job.repository.storageRepositoryId === input.repository.storageRepositoryId
+          && candidate.job.status === "running"
+          && (!candidate.leaseExpiresAt || candidate.leaseExpiresAt > input.now))
+        .length;
+      if (runningDepth >= maxRunningJobs) return undefined;
+    }
     const record = [...this.runtimeAgentJobs.values()]
       .filter((candidate) => candidate.job.repository.storageRepositoryId === input.repository.storageRepositoryId
         && candidate.job.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
@@ -514,7 +594,74 @@ function testRuntimeAgentJobMatchesScope(record: RuntimeAgentJobRecord, job: Age
 }
 
 function testRuntimeAgentJobSort(left: RuntimeAgentJobRecord, right: RuntimeAgentJobRecord): number {
-  return left.job.queuedAt.localeCompare(right.job.queuedAt) || left.job.jobId.localeCompare(right.job.jobId);
+  return right.priority - left.priority || left.job.queuedAt.localeCompare(right.job.queuedAt) || left.job.jobId.localeCompare(right.job.jobId);
+}
+
+function testRuntimeAgentJobPriority(priority: number | undefined): number {
+  if (priority === undefined) return 0;
+  if (!Number.isFinite(priority)) throw new Error("runtime-agent-job-priority-invalid");
+  return Math.trunc(priority);
+}
+
+function testOptionalPositiveInteger(value: number | undefined, errorCode: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1) throw new Error(errorCode);
+  return value;
+}
+
+function testRuntimeAgentJobBackpressure(records: RuntimeAgentJobRecord[], job: AgentJobV1, input: {
+  accepted: boolean;
+  reasonCode?: "backpressure-queue-cap";
+  priority: number;
+  maxQueuedJobs?: number;
+  evictedJobIds: string[];
+}) {
+  const scoped = records.filter((record) => testRuntimeAgentJobMatchesScope(record, job));
+  const queuedDepth = scoped.filter((record) => record.job.status === "queued").length;
+  const runningDepth = scoped.filter((record) => record.job.status === "running").length;
+  return {
+    schemaVersion: "archcontext.runtime-agent-job-backpressure/v1",
+    accepted: input.accepted,
+    ...(input.reasonCode === undefined ? {} : { reasonCode: input.reasonCode }),
+    priority: input.priority,
+    queuedDepthBefore: queuedDepth,
+    queuedDepthAfter: queuedDepth,
+    runningDepth,
+    maxQueuedJobs: input.maxQueuedJobs,
+    evictedJobIds: input.evictedJobIds
+  } as const;
+}
+
+function testRuntimeAgentJobQueueStats(records: RuntimeAgentJobRecord[], now: string, storageRepositoryId: string, storageWorkspaceId: string): RuntimeAgentJobQueueStats {
+  const countsByStatus = Object.fromEntries(RUNTIME_AGENT_JOB_STATUSES.map((status) => [status, 0])) as Record<RuntimeAgentJobStatus, number>;
+  for (const record of records) countsByStatus[record.job.status] += 1;
+  const queued = records.filter((record) => record.job.status === "queued");
+  const oldestQueuedAt = queued.map((record) => record.job.queuedAt).sort((left, right) => left.localeCompare(right))[0];
+  const coalescedJobCount = records.filter((record) =>
+    record.job.status === "superseded"
+    && record.lastError === "coalesced-by-newer-job"
+    && record.supersededByJobId
+  ).length;
+  const lastFailure = records
+    .filter((record) => record.lastError && record.job.status !== "superseded")
+    .sort((left, right) => left.job.updatedAt.localeCompare(right.job.updatedAt) || left.job.jobId.localeCompare(right.job.jobId))
+    .at(-1);
+  return {
+    schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
+    generatedAt: now,
+    storageRepositoryId,
+    storageWorkspaceId,
+    countsByStatus,
+    queuedDepth: countsByStatus.queued,
+    runningDepth: countsByStatus.running,
+    activeDepth: countsByStatus.queued + countsByStatus.running,
+    terminalDepth: countsByStatus.succeeded + countsByStatus.failed + countsByStatus.cancelled + countsByStatus.superseded + countsByStatus.expired,
+    totalJobCount: records.length,
+    ...(oldestQueuedAt === undefined ? {} : { oldestQueuedAt, oldestQueuedAgeMs: Math.max(0, Date.parse(now) - Date.parse(oldestQueuedAt)) }),
+    coalescedJobCount,
+    coalescingRatio: records.length === 0 ? 0 : coalescedJobCount / records.length,
+    ...(lastFailure?.lastError === undefined ? {} : { lastFailureReason: lastFailure.lastError, lastFailureJobId: lastFailure.job.jobId })
+  };
 }
 
 function testRuntimeAgentJobWithStatus(job: AgentJobV1, status: RuntimeAgentJobStatus, updatedAt: string, outputDigest?: string): AgentJobV1 {

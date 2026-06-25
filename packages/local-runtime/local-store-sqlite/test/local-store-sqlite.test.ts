@@ -31,7 +31,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0004_changeset_journal",
       "0005_external_docs_cache",
       "0006_architecture_ledger",
-      "0007_runtime_job_queue"
+      "0007_runtime_job_queue",
+      "0008_runtime_job_queue_hardening"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -297,7 +298,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0004_changeset_journal",
       "0005_external_docs_cache",
       "0006_architecture_ledger",
-      "0007_runtime_job_queue"
+      "0007_runtime_job_queue",
+      "0008_runtime_job_queue_hardening"
     ]);
 
     const snapshot = {
@@ -428,6 +430,112 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("runtime job queue applies priority, queue caps, per-repository concurrency, and local stats", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-hardening-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const lowOld = runtimeAgentJob("low-old", {
+        fingerprint: "fingerprint.low-old",
+        queuedAt: "2026-06-25T01:30:00.000Z"
+      });
+      const lowNew = runtimeAgentJob("low-new", {
+        fingerprint: "fingerprint.low-new",
+        queuedAt: "2026-06-25T01:30:01.000Z"
+      });
+      const high = runtimeAgentJob("high", {
+        fingerprint: "fingerprint.high",
+        queuedAt: "2026-06-25T01:30:02.000Z"
+      });
+      const rejectedLow = runtimeAgentJob("rejected-low", {
+        fingerprint: "fingerprint.rejected-low",
+        queuedAt: "2026-06-25T01:30:03.000Z"
+      });
+      const otherWorktreeScope = {
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: {
+          ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+          workspaceId: "workspace.architecture-ledger-other",
+          storageWorkspaceId: "workspace.storage.architecture-ledger-other"
+        }
+      };
+      const otherWorktreeJob = {
+        ...runtimeAgentJob("other-worktree", {
+          fingerprint: "fingerprint.other-worktree",
+          queuedAt: "2026-06-25T01:30:04.000Z"
+        }),
+        worktree: otherWorktreeScope.worktree
+      } satisfies AgentJobV1;
+
+      await store.enqueueRuntimeAgentJob({ job: lowOld, analysisKind: "architecture-delta", coalesceKey: "cap.low-old", priority: 0 });
+      await store.enqueueRuntimeAgentJob({ job: lowNew, analysisKind: "architecture-delta", coalesceKey: "cap.low-new", priority: 0 });
+      await store.enqueueRuntimeAgentJob({ job: otherWorktreeJob, analysisKind: "architecture-delta", coalesceKey: "cap.other-worktree", priority: 0 });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: high,
+        analysisKind: "architecture-delta",
+        coalesceKey: "cap.high",
+        priority: 10,
+        maxQueuedJobs: 2
+      })).resolves.toMatchObject({
+        enqueued: true,
+        evictedJobIds: [lowOld.jobId],
+        backpressure: { accepted: true, maxQueuedJobs: 2, priority: 10 }
+      });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: rejectedLow,
+        analysisKind: "architecture-delta",
+        coalesceKey: "cap.rejected-low",
+        priority: 0,
+        maxQueuedJobs: 1
+      })).resolves.toMatchObject({
+        enqueued: false,
+        rejected: true,
+        reasonCode: "backpressure-queue-cap",
+        backpressure: { accepted: false, maxQueuedJobs: 1, priority: 0 }
+      });
+
+      const firstClaim = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.priority",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:30:04.000Z",
+        maxRunningJobs: 1
+      });
+      expect(firstClaim).toMatchObject({ job: { jobId: high.jobId, status: "running" }, priority: 10 });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.second",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:30:05.000Z",
+        maxRunningJobs: 1
+      })).resolves.toBeUndefined();
+      await expect(store.claimRuntimeAgentJob({
+        ...otherWorktreeScope,
+        workerId: "worker.other-worktree",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:30:05.000Z",
+        maxRunningJobs: 1
+      })).resolves.toBeUndefined();
+
+      await expect(store.queueStatsRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        now: "2026-06-25T01:30:06.000Z"
+      })).resolves.toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
+        queuedDepth: 1,
+        runningDepth: 1,
+        activeDepth: 2,
+        countsByStatus: { queued: 1, running: 1, expired: 1 },
+        totalJobCount: 3,
+        lastFailureReason: "backpressure-queue-cap",
+        lastFailureJobId: lowOld.jobId
+      });
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("runtime job queue expires stale head or worktree jobs before new analysis can append", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-stale-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
@@ -453,6 +561,50 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         ...ARCHITECTURE_LEDGER_SCOPE,
         statuses: ["queued"]
       })).map((record) => record.job.jobId)).toEqual([current.jobId]);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime job queue stress fixture preserves 100 rapid git cursor changes without duplicate active jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-stress-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    const modes = ["commit", "amend", "rebase", "reset", "branch-switch"] as const;
+    try {
+      await store.migrate();
+      for (let index = 0; index < 100; index += 1) {
+        const mode = modes[index % modes.length]!;
+        await store.enqueueRuntimeAgentJob({
+          job: runtimeAgentJob(`stress-${index}`, {
+            fingerprint: `fingerprint.stress.${index}`,
+            queuedAt: new Date(Date.parse("2026-06-25T01:40:00.000Z") + index * 1000).toISOString(),
+            headSha: index.toString(16).padStart(40, "0"),
+            branch: mode === "branch-switch" ? `feature/al4-${index}` : "main",
+            worktreeDigest: digestJson({ mode, index } as unknown as Json)
+          }),
+          analysisKind: "architecture-delta",
+          coalesceKey: "stress.git-cursor",
+          priority: index % 3,
+          maxQueuedJobs: 8
+        });
+      }
+
+      const jobs = await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE);
+      const active = jobs.filter((record) => record.job.status === "queued" || record.job.status === "running");
+      expect(jobs).toHaveLength(100);
+      expect(new Set(jobs.map((record) => record.job.jobId)).size).toBe(100);
+      expect(active.map((record) => record.job.jobId)).toEqual(["agent_job.stress-99"]);
+      expect(await store.queueStatsRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        now: "2026-06-25T01:42:00.000Z"
+      })).toMatchObject({
+        queuedDepth: 1,
+        runningDepth: 0,
+        totalJobCount: 100,
+        coalescedJobCount: 99,
+        countsByStatus: { queued: 1, superseded: 99 }
+      });
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });
@@ -925,6 +1077,7 @@ function runtimeAgentJob(suffix: string, input: {
   fingerprint?: string;
   queuedAt?: string;
   headSha?: string;
+  branch?: string;
   worktreeDigest?: string;
 } = {}): AgentJobV1 {
   const queuedAt = input.queuedAt ?? "2026-06-25T01:00:00.000Z";
@@ -938,6 +1091,7 @@ function runtimeAgentJob(suffix: string, input: {
     repository: ARCHITECTURE_LEDGER_SCOPE.repository,
     worktree: {
       ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+      branch: input.branch ?? ARCHITECTURE_LEDGER_SCOPE.worktree.branch,
       headSha,
       worktreeDigest
     },

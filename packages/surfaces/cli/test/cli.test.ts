@@ -447,7 +447,9 @@ describe("archctx CLI", () => {
         "--event", "post-commit",
         "--path", "src/app.ts",
         "--coalesce-key", "hook.post-commit",
-        "--max-attempts", "2"
+        "--max-attempts", "2",
+        "--max-queued-jobs", "7",
+        "--priority", "3"
       ], root, {
         runtimeClient: {
           jobsEnqueueGitHook(runtimeRoot: string, input: any) {
@@ -476,6 +478,8 @@ describe("archctx CLI", () => {
         analysisKind: "architecture-delta",
         coalesceKey: "hook.post-commit",
         maxAttempts: 2,
+        maxQueuedJobs: 7,
+        priority: 3,
         generatedProjection: false,
         skipGeneratedProjection: true
       });
@@ -639,6 +643,15 @@ describe("archctx CLI", () => {
             data: { jobs: [queuedJob], count: 1 }
           };
         },
+        jobsStats(_root: string, input: any) {
+          calls.push({ method: "stats", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.stats",
+            data: { schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1", queuedDepth: 1, runningDepth: 0 }
+          };
+        },
         jobsCancel(_root: string, input: any) {
           calls.push({ method: "cancel", input });
           return {
@@ -663,6 +676,11 @@ describe("archctx CLI", () => {
       expect(list.ok).toBe(true);
       expect(list.requestId).toBe("jobs.list");
       expect(calls[0]).toEqual({ method: "list", input: { statuses: ["queued", "failed"] } });
+
+      const stats = await runCli("jobs", ["stats", "--now", "2026-06-25T02:00:00.000Z"], root, { runtimeClient: runtimeClient as any });
+      expect(stats.ok).toBe(true);
+      expect(stats.requestId).toBe("jobs.stats");
+      expect(calls.find((call) => call.method === "stats").input).toEqual({ now: "2026-06-25T02:00:00.000Z" });
 
       const show = await runCli("jobs", ["show", "agent_job.cli_test"], root, { runtimeClient: runtimeClient as any });
       expect(show.ok).toBe(true);

@@ -460,6 +460,7 @@ describe("local runtime foundation", () => {
       expect(first.ok).toBe(true);
       expect(duplicate.ok).toBe(true);
       expect((first.data as any).enqueued).toBe(true);
+      expect((first.data as any).backpressure).toMatchObject({ accepted: true, maxQueuedJobs: 32, priority: 0 });
       expect((duplicate.data as any).deduplicated).toBe(true);
       expect((first.data as any).change.paths).toEqual([{ path: "src/changed.ts", status: "added", rawStatus: "??" }]);
       expect(JSON.stringify(first.data)).not.toContain("export const changed");
@@ -477,6 +478,21 @@ describe("local runtime foundation", () => {
         job: { status: "running" },
         attemptCount: 1,
         leaseOwner: "worker.al4"
+      });
+      const secondClaim = await daemon.jobsClaim(root, {
+        workerId: "worker.al4-second",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:00:02.000Z"
+      });
+      expect((secondClaim.data as any).job).toBeUndefined();
+
+      const stats = await daemon.jobsStats(root, { now: "2026-06-25T02:00:03.000Z" });
+      expect((stats.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
+        queuedDepth: 0,
+        runningDepth: 1,
+        activeDepth: 1,
+        totalJobCount: 1
       });
     } finally {
       removeTempRepo(root);

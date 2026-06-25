@@ -465,18 +465,23 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - [x] **AL4-10 · P0 · `runtime-daemon`** — Attach every job to HEAD SHA and worktree digest; cancel or supersede stale jobs.
   - Evidence: `jobsEnqueueGitHook` attaches current scope and calls `cancelStaleRuntimeAgentJobs`; stale cancellation covered in `runtime job queue expires stale head or worktree jobs before new analysis can append`.
 - [ ] **AL4-11 · P1 · `policy-engine`** — Define advisory fail-open behavior and explicit fail-closed policy modes.
-- [ ] **AL4-12 · P1 · `runtime-daemon`** — Add backpressure: queue cap, per-repository concurrency, priority and stale-job eviction.
+- [x] **AL4-12 · P1 · `runtime-daemon`** — Add backpressure: queue cap, per-repository concurrency, priority and stale-job eviction.
+  - Evidence: `0008_runtime_job_queue_hardening` adds queue priority and claim ordering; `enqueueRuntimeAgentJob` enforces queue caps with priority-aware eviction/rejection; `jobsClaim` enforces per-repository running concurrency.
 - [x] **AL4-13 · P1 · `cli`** — Add `archctx jobs list/show/cancel/retry` with structured JSON.
   - Evidence: `runJobsCommand` exposes list/show/cancel/retry over daemon RPC; `CLI exposes runtime agent jobs list show cancel and retry operations` covers status filters, job lookup, cancel reason and retry reason.
-- [ ] **AL4-14 · P1 · `observability`** — Record local queue depth, enqueue latency, coalescing ratio and failure reason.
-- [ ] **AL4-15 · P1 · `tests`** — Simulate 100 rapid commits, amend, rebase, reset and branch switches.
-- [ ] **AL4-16 · P1 · `docs/runbooks`** — Document shell compatibility, hook chaining and recovery when another tool owns hooks.
+- [x] **AL4-14 · P1 · `observability`** — Record local queue depth, enqueue latency, coalescing ratio and failure reason.
+  - Evidence: `archctx jobs stats` exposes queue/running depth, coalesced job count, coalescing ratio and last failure reason; hook enqueue keeps `hookLog.elapsedMs`.
+- [x] **AL4-15 · P1 · `tests`** — Simulate 100 rapid commits, amend, rebase, reset and branch switches.
+  - Evidence: `runtime job queue stress fixture preserves 100 rapid git cursor changes without duplicate active jobs` covers 100 commit/amend/rebase/reset/branch-switch cursor variants.
+- [x] **AL4-16 · P1 · `docs/runbooks`** — Document shell compatibility, hook chaining and recovery when another tool owns hooks.
+  - Evidence: `docs/runbooks/runtime-hook-queue.md`.
 
 ### Exit gate
 
 - [ ] **AL4-EG1** — Hook enqueue overhead p95 ≤ 150 ms on the reference machine.
 - [ ] **AL4-EG2** — No hook invokes a network provider or LLM by default.
-- [ ] **AL4-EG3** — No duplicate or lost jobs in the stress fixture.
+- [x] **AL4-EG3** — No duplicate or lost jobs in the stress fixture.
+  - Evidence: `runtime job queue stress fixture preserves 100 rapid git cursor changes without duplicate active jobs` asserts 100 distinct job IDs, one active queued job and 99 terminal superseded jobs.
 - [ ] **AL4-EG4** — Stale jobs cannot append events or update projections.
 - [ ] **AL4-EG5** — Existing user hooks remain chained and functional.
 
@@ -496,6 +501,13 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Jobs CLI: `archctx jobs list/show/cancel/retry` provides structured daemon-backed queue operations.
   - Verification: `bun test packages/surfaces/cli/test/cli.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/local-product-e2e.test.ts --timeout 120000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`.
   - Explicitly still out of scope: backpressure policy, observability metrics, 100-commit stress fixture, hook latency benchmark and user hook chaining gate.
+- 2026-06-25 — AL4 queue hardening completed as one reviewable module:
+  - Backpressure: `runtime_job_queue` now records priority; enqueue applies queue cap, priority-aware eviction/rejection and local `backpressure-queue-cap` reason codes.
+  - Concurrency: `jobsClaim` enforces default per-repository running concurrency of 1 while allowing expired lease reclaim.
+  - Observability: `jobsStats` / `archctx jobs stats` reports queue depth, running depth, active depth, coalesced job count, coalescing ratio and last local failure reason; hook enqueue retains elapsed latency in `hookLog.elapsedMs`.
+  - Stress/runbook: SQLite stress fixture simulates 100 git cursor changes across commit/amend/rebase/reset/branch-switch modes; `docs/runbooks/runtime-hook-queue.md` covers POSIX shell compatibility, chaining and recovery.
+  - Verification: `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`; `bun test packages/surfaces/cli/test/cli.test.ts`; `bun run typecheck`.
+  - Explicitly still out of scope: hook enqueue p95 benchmark, stale worker append/projection guard, and executable user hook chaining proof.
 
 ---
 

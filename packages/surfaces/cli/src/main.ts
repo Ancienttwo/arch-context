@@ -688,6 +688,10 @@ async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime
   if (!sourceResult.ok) return sourceResult.envelope;
   const maxAttemptsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-attempts", "hook.enqueue");
   if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
+  const maxQueuedJobsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-queued-jobs", "hook.enqueue");
+  if (!maxQueuedJobsResult.ok) return maxQueuedJobsResult.envelope;
+  const priorityResult = readOptionalIntegerFlag(enqueueArgs, "--priority", "hook.enqueue");
+  if (!priorityResult.ok) return priorityResult.envelope;
   const generatedProjection = enqueueArgs.includes("--generated-projection");
   if (shouldSkipGeneratedProjectionHook(enqueueArgs, changedPaths)) {
     return okEnvelope("hook.enqueue", {
@@ -721,6 +725,8 @@ async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime
     ...(readFlag(enqueueArgs, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(enqueueArgs, "--coalesce-key")! }),
     ...(readFlag(enqueueArgs, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(enqueueArgs, "--debounce-until")! }),
     ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
+    ...(maxQueuedJobsResult.value === undefined ? {} : { maxQueuedJobs: maxQueuedJobsResult.value }),
+    ...(priorityResult.value === undefined ? {} : { priority: priorityResult.value }),
     ...(readFlag(enqueueArgs, "--runner-port") === undefined ? {} : { runnerPort: readFlag(enqueueArgs, "--runner-port")! as any }),
     ...(readFlag(enqueueArgs, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(enqueueArgs, "--code-facts-digest")! }),
     generatedProjection,
@@ -821,6 +827,9 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
     if (!statusResult.ok) return statusResult.envelope;
     return daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
   }
+  if (subcommand === "stats") {
+    return daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
+  }
   if (subcommand === "show") {
     const jobId = readFlag(args, "--job-id") ?? args[1];
     if (!jobId) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", "jobs show requires <job-id> or --job-id");
@@ -855,7 +864,7 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
       ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! })
     });
   }
-  return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|show|cancel|retry");
+  return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -1546,6 +1555,18 @@ function readOptionalPositiveIntegerFlag(args: string[], flag: string, requestId
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1) {
     return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be a positive integer`) };
+  }
+  return { ok: true, value };
+}
+
+function readOptionalIntegerFlag(args: string[], flag: string, requestId: string):
+  | { ok: true; value?: number }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return { ok: true };
+  const value = Number(raw);
+  if (!Number.isInteger(value)) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be an integer`) };
   }
   return { ok: true, value };
 }

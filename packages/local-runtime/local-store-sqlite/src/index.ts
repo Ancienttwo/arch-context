@@ -549,6 +549,13 @@ export const LOCAL_SQLITE_MIGRATIONS = [
         ON runtime_job_queue(storage_repository_id, storage_workspace_id, analysis_kind, fingerprint)
         WHERE status IN ('queued', 'running')`
     ]
+  },
+  {
+    id: "0008_runtime_job_queue_hardening",
+    statements: [
+      "ALTER TABLE runtime_job_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+      "CREATE INDEX IF NOT EXISTS idx_runtime_job_queue_claim_priority ON runtime_job_queue(storage_repository_id, storage_workspace_id, status, priority DESC, queued_at, job_id)"
+    ]
   }
 ] as const;
 
@@ -790,11 +797,13 @@ export interface LandscapeRebuildResult {
 
 export type RuntimeAgentJobStatus = AgentJobV1["status"];
 export type RuntimeAgentJobTerminalStatus = Extract<RuntimeAgentJobStatus, "succeeded" | "failed" | "cancelled" | "superseded" | "expired">;
+export const RUNTIME_AGENT_JOB_STATUSES: RuntimeAgentJobStatus[] = ["queued", "running", "succeeded", "failed", "cancelled", "superseded", "expired"];
 
 export interface RuntimeAgentJobRecord {
   job: AgentJobV1;
   analysisKind: string;
   coalesceKey: string;
+  priority: number;
   attemptCount: number;
   maxAttempts: number;
   leaseOwner?: string;
@@ -812,19 +821,38 @@ export interface RuntimeAgentJobEnqueueInput {
   coalesceKey?: string;
   maxAttempts?: number;
   debounceUntil?: string;
+  priority?: number;
+  maxQueuedJobs?: number;
+}
+
+export interface RuntimeAgentJobBackpressureDecision {
+  schemaVersion: "archcontext.runtime-agent-job-backpressure/v1";
+  accepted: boolean;
+  reasonCode?: "backpressure-queue-cap";
+  priority: number;
+  queuedDepthBefore: number;
+  queuedDepthAfter: number;
+  runningDepth: number;
+  maxQueuedJobs?: number;
+  evictedJobIds: string[];
 }
 
 export interface RuntimeAgentJobEnqueueResult {
-  record: RuntimeAgentJobRecord;
+  record?: RuntimeAgentJobRecord;
   enqueued: boolean;
   deduplicated: boolean;
   supersededJobIds: string[];
+  evictedJobIds?: string[];
+  rejected?: boolean;
+  reasonCode?: "backpressure-queue-cap";
+  backpressure?: RuntimeAgentJobBackpressureDecision;
 }
 
 export interface RuntimeAgentJobClaimInput extends ArchitectureLedgerScope {
   workerId: string;
   leaseMs: number;
   now: string;
+  maxRunningJobs?: number;
 }
 
 export interface RuntimeAgentJobCompleteInput {
@@ -857,12 +885,32 @@ export interface RuntimeAgentJobStaleCancellationInput extends ArchitectureLedge
   reason?: string;
 }
 
+export interface RuntimeAgentJobQueueStats {
+  schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1";
+  generatedAt: string;
+  storageRepositoryId: string;
+  storageWorkspaceId: string;
+  countsByStatus: Record<RuntimeAgentJobStatus, number>;
+  queuedDepth: number;
+  runningDepth: number;
+  activeDepth: number;
+  terminalDepth: number;
+  totalJobCount: number;
+  oldestQueuedAt?: string;
+  oldestQueuedAgeMs?: number;
+  coalescedJobCount: number;
+  coalescingRatio: number;
+  lastFailureReason?: string;
+  lastFailureJobId?: string;
+}
+
 export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort {
   recoverPendingSnapshots(): number;
   saveRepositorySession(session: PersistedRepositorySession): Promise<void>;
   listRepositorySessions(): Promise<PersistedRepositorySession[]>;
   enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult>;
   listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]>;
+  queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats>;
   claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined>;
   completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord>;
   retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord>;
@@ -929,11 +977,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async migrate(): Promise<void> {
     const db = await this.database();
-    for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
-    for (const migration of LOCAL_SQLITE_MIGRATIONS) {
-      for (const statement of migration.statements) db.exec(statement);
-      db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, nowIso());
-    }
+    applyLocalSqliteMigrations(db);
   }
 
   async beginSnapshot(snapshot: RepositorySnapshot): Promise<string> {
@@ -991,6 +1035,8 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const db = await this.database();
     const coalesceKey = input.coalesceKey ?? runtimeAgentJobDefaultCoalesceKey(input.job, input.analysisKind);
     const maxAttempts = Math.max(1, Math.trunc(input.maxAttempts ?? 3));
+    const priority = normalizeRuntimeAgentJobPriority(input.priority);
+    const maxQueuedJobs = normalizeOptionalPositiveInteger(input.maxQueuedJobs, "runtime-agent-job-max-queued-jobs-invalid");
     db.exec("BEGIN IMMEDIATE");
     try {
       const duplicate = db.prepare(
@@ -1009,12 +1055,21 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         input.job.fingerprint
       );
       if (duplicate) {
+        const duplicateRecord = runtimeAgentJobRecordFromRow(duplicate);
+        const duplicateBackpressure = runtimeAgentJobBackpressureDecision(db, input.job, {
+          accepted: true,
+          priority: duplicateRecord.priority,
+          maxQueuedJobs,
+          evictedJobIds: []
+        });
         db.exec("COMMIT");
         return {
-          record: runtimeAgentJobRecordFromRow(duplicate),
+          record: duplicateRecord,
           enqueued: false,
           deduplicated: true,
-          supersededJobIds: []
+          supersededJobIds: [],
+          evictedJobIds: [],
+          ...(maxQueuedJobs === undefined ? {} : { backpressure: duplicateBackpressure })
         };
       }
 
@@ -1032,6 +1087,70 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         input.analysisKind,
         coalesceKey
       );
+      const supersededJobIds = supersededRows.map((row) => String(row.job_id));
+      const queuedDepthBefore = Number(db.prepare(
+        `SELECT COUNT(*) AS count FROM runtime_job_queue
+          WHERE storage_repository_id = ?
+            AND storage_workspace_id = ?
+            AND status = 'queued'`
+      ).get(input.job.repository.storageRepositoryId, input.job.worktree.storageWorkspaceId)?.count ?? 0);
+      const runningDepth = Number(db.prepare(
+        `SELECT COUNT(*) AS count FROM runtime_job_queue
+          WHERE storage_repository_id = ?
+            AND storage_workspace_id = ?
+            AND status = 'running'`
+      ).get(input.job.repository.storageRepositoryId, input.job.worktree.storageWorkspaceId)?.count ?? 0);
+      const reservedQueuedDepth = Math.max(0, queuedDepthBefore - supersededRows.length);
+      const requiredEvictions = maxQueuedJobs === undefined ? 0 : Math.max(0, reservedQueuedDepth - maxQueuedJobs + 1);
+      const evictableRows = requiredEvictions === 0 ? [] : db.prepare(
+        `SELECT * FROM runtime_job_queue
+          WHERE storage_repository_id = ?
+            AND storage_workspace_id = ?
+            AND status = 'queued'
+            AND priority <= ?
+            ${supersededJobIds.length === 0 ? "" : `AND job_id NOT IN (${supersededJobIds.map(() => "?").join(", ")})`}
+          ORDER BY priority ASC, queued_at ASC, job_id ASC
+          LIMIT ?`
+      ).all(
+        input.job.repository.storageRepositoryId,
+        input.job.worktree.storageWorkspaceId,
+        priority,
+        ...supersededJobIds,
+        requiredEvictions
+      );
+      if (evictableRows.length < requiredEvictions) {
+        const backpressure = {
+          schemaVersion: "archcontext.runtime-agent-job-backpressure/v1",
+          accepted: false,
+          reasonCode: "backpressure-queue-cap",
+          priority,
+          queuedDepthBefore,
+          queuedDepthAfter: queuedDepthBefore,
+          runningDepth,
+          maxQueuedJobs,
+          evictedJobIds: []
+        } satisfies RuntimeAgentJobBackpressureDecision;
+        db.exec("COMMIT");
+        return {
+          enqueued: false,
+          deduplicated: false,
+          supersededJobIds: [],
+          evictedJobIds: [],
+          rejected: true,
+          reasonCode: "backpressure-queue-cap",
+          backpressure
+        };
+      }
+      const evictedJobIds = evictableRows.map((row) => String(row.job_id));
+      for (const row of evictableRows) {
+        const record = runtimeAgentJobRecordFromRow(row);
+        const job = runtimeAgentJobWithPatch(record.job, { status: "expired", updatedAt: input.job.queuedAt });
+        db.prepare(
+          `UPDATE runtime_job_queue
+            SET status = ?, job_json = ?, updated_at = ?, last_error = ?
+            WHERE job_id = ?`
+        ).run("expired", stableJson(job), input.job.queuedAt, "backpressure-queue-cap", record.job.jobId);
+      }
       for (const row of supersededRows) {
         const record = runtimeAgentJobRecordFromRow(row);
         const job = runtimeAgentJobWithPatch(record.job, { status: "superseded", updatedAt: input.job.queuedAt });
@@ -1046,17 +1165,30 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         job: input.job,
         analysisKind: input.analysisKind,
         coalesceKey,
+        priority,
         maxAttempts,
         debounceUntil: input.debounceUntil
       });
       const inserted = runtimeAgentJobById(db, input.job.jobId);
       if (!inserted) throw new Error(`runtime-agent-job-insert-failed: ${input.job.jobId}`);
+      const backpressure = maxQueuedJobs === undefined ? undefined : {
+        schemaVersion: "archcontext.runtime-agent-job-backpressure/v1",
+        accepted: true,
+        priority,
+        queuedDepthBefore,
+        queuedDepthAfter: Math.max(0, queuedDepthBefore - supersededRows.length - evictedJobIds.length) + 1,
+        runningDepth,
+        maxQueuedJobs,
+        evictedJobIds
+      } satisfies RuntimeAgentJobBackpressureDecision;
       db.exec("COMMIT");
       return {
         record: inserted,
         enqueued: true,
         deduplicated: false,
-        supersededJobIds: supersededRows.map((row) => String(row.job_id))
+        supersededJobIds,
+        evictedJobIds,
+        ...(backpressure === undefined ? {} : { backpressure })
       };
     } catch (error) {
       db.exec("ROLLBACK");
@@ -1073,16 +1205,46 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         WHERE storage_repository_id = ?
           AND storage_workspace_id = ?
           ${statusClause}
-        ORDER BY queued_at ASC, job_id ASC`
+        ORDER BY priority DESC, queued_at ASC, job_id ASC`
     ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, ...statuses)
       .map(runtimeAgentJobRecordFromRow);
+  }
+
+  async queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats> {
+    const db = await this.database();
+    const now = input.now ?? nowIso();
+    const records = db.prepare(
+      `SELECT * FROM runtime_job_queue
+        WHERE storage_repository_id = ?
+          AND storage_workspace_id = ?
+        ORDER BY updated_at ASC, job_id ASC`
+    ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId)
+      .map(runtimeAgentJobRecordFromRow);
+    return runtimeAgentJobQueueStatsFromRecords(records, {
+      now,
+      storageRepositoryId: input.repository.storageRepositoryId,
+      storageWorkspaceId: input.worktree.storageWorkspaceId
+    });
   }
 
   async claimRuntimeAgentJob(input: RuntimeAgentJobClaimInput): Promise<RuntimeAgentJobRecord | undefined> {
     const db = await this.database();
     const leaseExpiresAt = new Date(Date.parse(input.now) + input.leaseMs).toISOString();
+    const maxRunningJobs = normalizeOptionalPositiveInteger(input.maxRunningJobs, "runtime-agent-job-max-running-jobs-invalid");
     db.exec("BEGIN IMMEDIATE");
     try {
+      if (maxRunningJobs !== undefined) {
+        const runningDepth = Number(db.prepare(
+          `SELECT COUNT(*) AS count FROM runtime_job_queue
+            WHERE storage_repository_id = ?
+              AND status = 'running'
+              AND (lease_expires_at IS NULL OR lease_expires_at > ?)`
+        ).get(input.repository.storageRepositoryId, input.now)?.count ?? 0);
+        if (runningDepth >= maxRunningJobs) {
+          db.exec("COMMIT");
+          return undefined;
+        }
+      }
       const row = db.prepare(
         `SELECT * FROM runtime_job_queue
           WHERE storage_repository_id = ?
@@ -1091,7 +1253,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
               (status = 'queued' AND (debounce_until IS NULL OR debounce_until <= ?))
               OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
             )
-          ORDER BY queued_at ASC, job_id ASC
+          ORDER BY priority DESC, queued_at ASC, job_id ASC
           LIMIT 1`
       ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.now, input.now);
       if (!row) {
@@ -2252,6 +2414,23 @@ function externalDocumentationEntryFromRow(row: Record<string, unknown>): Extern
   };
 }
 
+function applyLocalSqliteMigrations(db: SqliteDatabase): void {
+  for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
+  const applied = readAppliedLocalSqliteMigrations(db);
+  for (const migration of LOCAL_SQLITE_MIGRATIONS) {
+    if (applied.has(migration.id)) continue;
+    for (const statement of migration.statements) db.exec(statement);
+    db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, nowIso());
+    applied.add(migration.id);
+  }
+}
+
+function readAppliedLocalSqliteMigrations(db: SqliteDatabase): Set<string> {
+  const schemaTable = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'").get();
+  if (!schemaTable) return new Set();
+  return new Set(db.prepare("SELECT id FROM schema_migrations").all().map((row) => String(row.id)));
+}
+
 export async function rebuildDerivedLandscapeState(store: RuntimeLocalStore, input: LandscapeRebuildInput): Promise<LandscapeRebuildResult> {
   const landscapePath = input.landscapePath ?? LANDSCAPE_FILE;
   const relationsDir = input.relationsDir ?? ".archcontext/relations";
@@ -2446,11 +2625,7 @@ function vacuumLegacySqliteInto(sourcePath: string, targetPath: string): string 
 function migrateSqliteDatabaseSync(databasePath: string): void {
   const db = openSqliteDatabaseSync(databasePath);
   try {
-    for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
-    for (const migration of LOCAL_SQLITE_MIGRATIONS) {
-      for (const statement of migration.statements) db.exec(statement);
-      db.prepare("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, nowIso());
-    }
+    applyLocalSqliteMigrations(db);
   } finally {
     db.close();
   }
@@ -2665,6 +2840,18 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function normalizeRuntimeAgentJobPriority(priority: number | undefined): number {
+  if (priority === undefined) return 0;
+  if (!Number.isFinite(priority)) throw new Error("runtime-agent-job-priority-invalid");
+  return Math.trunc(priority);
+}
+
+function normalizeOptionalPositiveInteger(value: number | undefined, errorCode: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 1) throw new Error(errorCode);
+  return value;
+}
+
 function runtimeAgentJobDefaultCoalesceKey(job: AgentJobV1, analysisKind: string): string {
   return digestJson({
     schemaVersion: "archcontext.runtime-agent-job-coalesce-key/v1",
@@ -2676,20 +2863,103 @@ function runtimeAgentJobDefaultCoalesceKey(job: AgentJobV1, analysisKind: string
   } as unknown as Json);
 }
 
+function runtimeAgentJobBackpressureDecision(db: SqliteDatabase, job: AgentJobV1, input: {
+  accepted: boolean;
+  reasonCode?: "backpressure-queue-cap";
+  priority: number;
+  maxQueuedJobs?: number;
+  evictedJobIds: string[];
+}): RuntimeAgentJobBackpressureDecision {
+  const queuedDepth = Number(db.prepare(
+    `SELECT COUNT(*) AS count FROM runtime_job_queue
+      WHERE storage_repository_id = ?
+        AND storage_workspace_id = ?
+        AND status = 'queued'`
+  ).get(job.repository.storageRepositoryId, job.worktree.storageWorkspaceId)?.count ?? 0);
+  const runningDepth = Number(db.prepare(
+    `SELECT COUNT(*) AS count FROM runtime_job_queue
+      WHERE storage_repository_id = ?
+        AND storage_workspace_id = ?
+        AND status = 'running'`
+  ).get(job.repository.storageRepositoryId, job.worktree.storageWorkspaceId)?.count ?? 0);
+  return {
+    schemaVersion: "archcontext.runtime-agent-job-backpressure/v1",
+    accepted: input.accepted,
+    ...(input.reasonCode === undefined ? {} : { reasonCode: input.reasonCode }),
+    priority: input.priority,
+    queuedDepthBefore: queuedDepth,
+    queuedDepthAfter: queuedDepth,
+    runningDepth,
+    maxQueuedJobs: input.maxQueuedJobs,
+    evictedJobIds: input.evictedJobIds
+  };
+}
+
+function runtimeAgentJobQueueStatsFromRecords(records: RuntimeAgentJobRecord[], input: {
+  now: string;
+  storageRepositoryId: string;
+  storageWorkspaceId: string;
+}): RuntimeAgentJobQueueStats {
+  const countsByStatus = Object.fromEntries(RUNTIME_AGENT_JOB_STATUSES.map((status) => [status, 0])) as Record<RuntimeAgentJobStatus, number>;
+  for (const record of records) countsByStatus[record.job.status] += 1;
+  const queued = records.filter((record) => record.job.status === "queued");
+  const runningDepth = countsByStatus.running;
+  const terminalDepth = RUNTIME_AGENT_JOB_STATUSES
+    .filter((status) => status !== "queued" && status !== "running")
+    .reduce((sum, status) => sum + countsByStatus[status], 0);
+  const oldestQueuedAt = queued
+    .map((record) => record.job.queuedAt)
+    .sort((left, right) => left.localeCompare(right))[0];
+  const oldestQueuedAgeMs = oldestQueuedAt === undefined
+    ? undefined
+    : Math.max(0, Date.parse(input.now) - Date.parse(oldestQueuedAt));
+  const coalescedJobCount = records.filter((record) =>
+    record.job.status === "superseded"
+    && record.lastError === "coalesced-by-newer-job"
+    && record.supersededByJobId
+  ).length;
+  const lastFailure = records
+    .filter((record) => record.lastError && record.job.status !== "superseded")
+    .sort((left, right) =>
+      left.job.updatedAt.localeCompare(right.job.updatedAt)
+      || left.job.jobId.localeCompare(right.job.jobId)
+    ).at(-1);
+  return {
+    schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
+    generatedAt: input.now,
+    storageRepositoryId: input.storageRepositoryId,
+    storageWorkspaceId: input.storageWorkspaceId,
+    countsByStatus,
+    queuedDepth: countsByStatus.queued,
+    runningDepth,
+    activeDepth: countsByStatus.queued + runningDepth,
+    terminalDepth,
+    totalJobCount: records.length,
+    ...(oldestQueuedAt === undefined ? {} : { oldestQueuedAt, oldestQueuedAgeMs }),
+    coalescedJobCount,
+    coalescingRatio: records.length === 0 ? 0 : coalescedJobCount / records.length,
+    ...(lastFailure?.lastError === undefined ? {} : {
+      lastFailureReason: lastFailure.lastError,
+      lastFailureJobId: lastFailure.job.jobId
+    })
+  };
+}
+
 function insertRuntimeAgentJob(db: SqliteDatabase, input: {
   job: AgentJobV1;
   analysisKind: string;
   coalesceKey: string;
+  priority: number;
   maxAttempts: number;
   debounceUntil?: string;
 }): void {
   db.prepare(
     `INSERT INTO runtime_job_queue
       (job_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, analysis_kind,
-        coalesce_key, status, runner_port, fingerprint, input_digest, prompt_template_digest, output_digest,
+        coalesce_key, priority, status, runner_port, fingerprint, input_digest, prompt_template_digest, output_digest,
         stale_policy, job_json, queued_at, updated_at, attempt_count, max_attempts, lease_owner, leased_at,
         lease_expires_at, last_error, dead_lettered_at, debounce_until, superseded_by_job_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, NULL)`
   ).run(
     input.job.jobId,
     input.job.repository.repositoryId,
@@ -2698,6 +2968,7 @@ function insertRuntimeAgentJob(db: SqliteDatabase, input: {
     input.job.worktree.storageWorkspaceId,
     input.analysisKind,
     input.coalesceKey,
+    input.priority,
     input.job.status,
     input.job.runnerPort,
     input.job.fingerprint,
@@ -2724,6 +2995,7 @@ function runtimeAgentJobRecordFromRow(row: Record<string, unknown>): RuntimeAgen
     job: JSON.parse(String(row.job_json)) as AgentJobV1,
     analysisKind: String(row.analysis_kind),
     coalesceKey: String(row.coalesce_key),
+    priority: Number(row.priority ?? 0),
     attemptCount: Number(row.attempt_count),
     maxAttempts: Number(row.max_attempts),
     leaseOwner: nullableString(row.lease_owner),
