@@ -579,6 +579,80 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs persist provider run metadata on completion", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:30:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.runtime-metadata"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.metadata",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:30:01.000Z"
+      });
+      const claimedJob = (claim.data as any).job.job;
+      const outputDigest = digestJson({ workerOutput: "metadata" } as any);
+
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.metadata",
+        status: "succeeded",
+        outputDigest,
+        runMetadata: {
+          schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
+          runnerId: "runner.codex",
+          provider: "codex",
+          modelId: "codex-test",
+          promptTemplateDigest: claimedJob.promptTemplateDigest,
+          inputDigest: claimedJob.inputDigest,
+          outputDigest,
+          startedAt: "2026-06-25T02:30:01.000Z",
+          completedAt: "2026-06-25T02:30:04.000Z",
+          durationMs: 3_000,
+          outcome: "succeeded",
+          attempts: 1,
+          maxAttempts: 1,
+          fallbackUsed: false
+        },
+        now: "2026-06-25T02:30:04.000Z"
+      });
+
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).job.job.extensions.agentRun).toMatchObject({
+        schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
+        runnerId: "runner.codex",
+        provider: "codex",
+        modelId: "codex-test",
+        outputDigest,
+        outcome: "succeeded",
+        attempts: 1,
+        fallbackUsed: false
+      });
+      const succeeded = await daemon.jobsList(root, { statuses: ["succeeded"] });
+      expect((succeeded.data as any).jobs[0].job.extensions.agentRun).toMatchObject({
+        provider: "codex",
+        durationMs: 3_000,
+        outputDigest
+      });
+      expect(JSON.stringify((succeeded.data as any).jobs[0].job.extensions.agentRun)).not.toContain("export const changed");
+      expect(JSON.stringify((succeeded.data as any).jobs[0].job.extensions.agentRun)).not.toContain("diff --git");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime jobs skip generated projection hook changes without enqueueing", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();

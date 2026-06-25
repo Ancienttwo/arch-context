@@ -861,6 +861,7 @@ export interface RuntimeAgentJobCompleteInput {
   now: string;
   workerId?: string;
   outputDigest?: string;
+  runMetadata?: Json;
   error?: string;
 }
 
@@ -1299,7 +1300,12 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
     }
     const deadLetteredAt = input.status === "failed" && record.attemptCount >= record.maxAttempts ? input.now : undefined;
-    const job = runtimeAgentJobWithPatch(record.job, { status: input.status, updatedAt: input.now, outputDigest: input.outputDigest });
+    const job = runtimeAgentJobWithPatch(record.job, {
+      status: input.status,
+      updatedAt: input.now,
+      outputDigest: input.outputDigest,
+      runMetadata: input.runMetadata
+    });
     db.prepare(
       `UPDATE runtime_job_queue
         SET status = ?, job_json = ?, updated_at = ?, output_digest = ?, lease_owner = NULL,
@@ -3012,6 +3018,7 @@ function runtimeAgentJobWithPatch(job: AgentJobV1, patch: {
   status: RuntimeAgentJobStatus;
   updatedAt: string;
   outputDigest?: string;
+  runMetadata?: Json;
 }): AgentJobV1 {
   const next: AgentJobV1 = {
     ...job,
@@ -3019,6 +3026,12 @@ function runtimeAgentJobWithPatch(job: AgentJobV1, patch: {
     updatedAt: patch.updatedAt
   };
   if (patch.outputDigest) next.outputDigest = patch.outputDigest;
+  if (patch.runMetadata) {
+    next.extensions = {
+      ...(next.extensions ?? {}),
+      agentRun: patch.runMetadata
+    };
+  }
   return next;
 }
 

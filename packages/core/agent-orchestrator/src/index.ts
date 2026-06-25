@@ -290,6 +290,89 @@ export interface InvestigationReportProposalPlan {
   proposalDigest: string;
 }
 
+export interface CommandInvestigationRunnerTransportInput {
+  runnerPort: AgentRunnerPortId;
+  runnerId: string;
+  command: string;
+  args: string[];
+  stdin: string;
+  maxOutputBytes?: number;
+  signal?: AbortSignal;
+}
+
+export interface CommandInvestigationRunnerTransportResult {
+  exitCode: number;
+  stdout: string;
+  stderr?: string;
+}
+
+export type CommandInvestigationRunnerTransport = (
+  input: CommandInvestigationRunnerTransportInput
+) => Promise<CommandInvestigationRunnerTransportResult>;
+
+export interface CommandInvestigationRunnerOptions {
+  runnerId?: string;
+  modelId?: string;
+  command?: string;
+  args?: string[];
+  transport: CommandInvestigationRunnerTransport;
+}
+
+export type FakeInvestigationReportFactory = (input: {
+  job: AgentJobV1;
+  context: InvestigationContextBundle;
+  now: string;
+}) => InvestigationReportV1 | Promise<InvestigationReportV1>;
+
+export interface FakeInvestigationRunnerOptions {
+  runnerId?: string;
+  modelId?: string;
+  now?: string;
+  delayMs?: number;
+  report?: InvestigationReportV1;
+  reportFactory?: FakeInvestigationReportFactory;
+}
+
+export type AgentInvestigationRunOutcome = "succeeded" | "failed" | "timeout";
+
+export interface AgentInvestigationRunMetadata {
+  schemaVersion: "archcontext.agent-investigation-run-metadata/v1";
+  runnerId: string;
+  provider: AgentRunnerPortId;
+  modelId?: string;
+  promptTemplateDigest: string;
+  inputDigest: string;
+  outputDigest: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  outcome: AgentInvestigationRunOutcome;
+  attempts: number;
+  maxAttempts: number;
+  timeoutMs?: number;
+  fallbackUsed: boolean;
+  errorDigest?: string;
+  errorReasonCode?: string;
+}
+
+export interface RunInvestigationWithRetryInput {
+  runner: InvestigationRunnerPort;
+  job: AgentJobV1;
+  context: InvestigationContextBundle;
+  modelId?: string;
+  maxOutputBytes?: number;
+  timeoutMs?: number;
+  maxAttempts?: number;
+  signal?: AbortSignal;
+  clock?: () => string;
+}
+
+export interface AgentInvestigationRunResult {
+  schemaVersion: "archcontext.agent-investigation-run-result/v1";
+  report: InvestigationReportV1;
+  metadata: AgentInvestigationRunMetadata;
+}
+
 export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
   schemaVersion: AGENT_ORCHESTRATION_POLICY_SCHEMA_VERSION,
   enabled: true,
@@ -675,6 +758,346 @@ export async function runInvestigationThroughPort(input: {
     throw new Error(`investigation-report-invalid: ${validation.issues.map((issue) => issue.reasonCode).join(",")}`);
   }
   return report;
+}
+
+export function createClaudeCodeInvestigationRunner(options: CommandInvestigationRunnerOptions): InvestigationRunnerPort {
+  return createCommandInvestigationRunner("claude-code", {
+    runnerId: "runner.claude-code",
+    command: "claude",
+    args: ["--print", "--output-format", "json"],
+    ...options
+  });
+}
+
+export function createCodexInvestigationRunner(options: CommandInvestigationRunnerOptions): InvestigationRunnerPort {
+  return createCommandInvestigationRunner("codex", {
+    runnerId: "runner.codex",
+    command: "codex",
+    args: ["exec", "--json"],
+    ...options
+  });
+}
+
+export function createFakeInvestigationRunner(options: FakeInvestigationRunnerOptions = {}): InvestigationRunnerPort {
+  const runnerId = options.runnerId ?? "runner.fake-provider";
+  return {
+    runnerId,
+    ...(options.modelId ? { modelId: options.modelId } : {}),
+    capabilities: {
+      provider: "fake-provider",
+      supportsCancellation: true,
+      canReadRepositoryText: false,
+      canMutateRepository: false
+    },
+    runInvestigation: async (input) => {
+      if (options.delayMs && options.delayMs > 0) {
+        await delay(options.delayMs, input.signal);
+      }
+      const now = options.now ?? new Date().toISOString();
+      if (options.reportFactory) return options.reportFactory({ job: input.job, context: input.context, now });
+      if (options.report) return options.report;
+      return fallbackInvestigationReport({
+        job: input.job,
+        provider: "fake-provider",
+        reasonCode: "fake-provider-default",
+        now
+      });
+    }
+  };
+}
+
+export async function runInvestigationWithRetry(input: RunInvestigationWithRetryInput): Promise<AgentInvestigationRunResult> {
+  const maxAttempts = positiveInteger(input.maxAttempts ?? 1, "maxAttempts");
+  const timeoutMs = input.timeoutMs === undefined ? undefined : positiveInteger(input.timeoutMs, "timeoutMs");
+  const clock = input.clock ?? (() => new Date().toISOString());
+  const startedAt = clock();
+  let attempts = 0;
+  let lastError: unknown;
+  let lastOutcome: AgentInvestigationRunOutcome = "failed";
+
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    try {
+      const report = await runInvestigationAttempt({
+        ...input,
+        timeoutMs
+      });
+      const completedAt = clock();
+      return {
+        schemaVersion: "archcontext.agent-investigation-run-result/v1",
+        report,
+        metadata: agentInvestigationRunMetadata({
+          runner: input.runner,
+          job: input.job,
+          modelId: input.modelId,
+          report,
+          startedAt,
+          completedAt,
+          outcome: report.status === "succeeded" ? "succeeded" : "failed",
+          attempts,
+          maxAttempts,
+          timeoutMs,
+          fallbackUsed: false
+        })
+      };
+    } catch (error) {
+      lastError = error;
+      lastOutcome = isTimeoutError(error) ? "timeout" : "failed";
+    }
+  }
+
+  const completedAt = clock();
+  const fallback = fallbackInvestigationReport({
+    job: input.job,
+    provider: runnerProvider(input.runner),
+    reasonCode: lastOutcome,
+    now: completedAt
+  });
+  return {
+    schemaVersion: "archcontext.agent-investigation-run-result/v1",
+    report: fallback,
+    metadata: agentInvestigationRunMetadata({
+      runner: input.runner,
+      job: input.job,
+      modelId: input.modelId,
+      report: fallback,
+      startedAt,
+      completedAt,
+      outcome: lastOutcome,
+      attempts,
+      maxAttempts,
+      timeoutMs,
+      fallbackUsed: true,
+      error: lastError,
+      errorReasonCode: lastOutcome
+    })
+  };
+}
+
+function createCommandInvestigationRunner(
+  runnerPort: AgentRunnerPortId,
+  options: CommandInvestigationRunnerOptions & { runnerId: string; command: string; args: string[] }
+): InvestigationRunnerPort {
+  const runnerId = options.runnerId;
+  return {
+    runnerId,
+    ...(options.modelId ? { modelId: options.modelId } : {}),
+    capabilities: {
+      provider: runnerPort,
+      supportsCancellation: true,
+      canReadRepositoryText: false,
+      canMutateRepository: false
+    },
+    runInvestigation: async (input) => {
+      const runnerInput = stableRunnerInput({ runnerPort, runnerId, job: input.job, context: input.context });
+      const stdin = JSON.stringify(runnerInput);
+      const result = await options.transport({
+        runnerPort,
+        runnerId,
+        command: options.command,
+        args: [...options.args],
+        stdin,
+        maxOutputBytes: input.maxOutputBytes,
+        signal: input.signal
+      });
+      if (result.exitCode !== 0) {
+        const stderrDigest = digestJson({ stderr: result.stderr ?? "" } as unknown as Json);
+        throw new Error(`investigation-runner-command-failed: ${runnerPort}:exit-${result.exitCode}:${shortDigest(stderrDigest)}`);
+      }
+      if (input.maxOutputBytes !== undefined && Buffer.byteLength(result.stdout, "utf8") > input.maxOutputBytes) {
+        throw new Error(`investigation-runner-output-too-large: ${runnerPort}`);
+      }
+      return parseRunnerReport(result.stdout);
+    }
+  };
+}
+
+async function runInvestigationAttempt(input: {
+  runner: InvestigationRunnerPort;
+  job: AgentJobV1;
+  context: InvestigationContextBundle;
+  maxOutputBytes?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}): Promise<InvestigationReportV1> {
+  const controller = new AbortController();
+  const signal = input.timeoutMs !== undefined || input.signal !== undefined ? controller.signal : undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const abortFromParent = () => controller.abort();
+  if (input.signal) {
+    if (input.signal.aborted) controller.abort();
+    input.signal.addEventListener("abort", abortFromParent, { once: true });
+  }
+  const reportPromise = runInvestigationThroughPort({
+    runner: input.runner,
+    job: input.job,
+    context: input.context,
+    maxOutputBytes: input.maxOutputBytes,
+    signal
+  });
+  reportPromise.catch(() => undefined);
+  const timeoutPromise = input.timeoutMs === undefined
+    ? undefined
+    : new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("agent-investigation-timeout"));
+        }, input.timeoutMs);
+      });
+  try {
+    return timeoutPromise ? await Promise.race([reportPromise, timeoutPromise]) : await reportPromise;
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (input.signal) input.signal.removeEventListener("abort", abortFromParent);
+  }
+}
+
+function stableRunnerInput(input: {
+  runnerPort: AgentRunnerPortId;
+  runnerId: string;
+  job: AgentJobV1;
+  context: InvestigationContextBundle;
+}): Json {
+  const payload = {
+    schemaVersion: "archcontext.agent-investigation-runner-input/v1",
+    runnerPort: input.runnerPort,
+    runnerId: input.runnerId,
+    job: {
+      schemaVersion: input.job.schemaVersion,
+      jobId: input.job.jobId,
+      repository: input.job.repository,
+      worktree: input.job.worktree,
+      fingerprint: input.job.fingerprint,
+      trigger: input.job.trigger,
+      runnerPort: input.job.runnerPort,
+      inputDigest: input.job.inputDigest,
+      promptTemplateDigest: input.job.promptTemplateDigest,
+      status: input.job.status,
+      directMutationAllowed: input.job.directMutationAllowed,
+      budget: input.job.budget,
+      extensions: input.job.extensions ?? {}
+    },
+    context: input.context
+  };
+  assertNoRawRepositoryPayload(payload);
+  return payload as unknown as Json;
+}
+
+function parseRunnerReport(stdout: string): InvestigationReportV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error(`investigation-runner-output-not-json:${shortDigest(digestJson({ stdout } as unknown as Json))}`);
+  }
+  if (isRecord(parsed) && isRecord(parsed.report)) return parsed.report as unknown as InvestigationReportV1;
+  return parsed as InvestigationReportV1;
+}
+
+function fallbackInvestigationReport(input: {
+  job: AgentJobV1;
+  provider: AgentRunnerPortId;
+  reasonCode: string;
+  now: string;
+}): InvestigationReportV1 {
+  const outputDigest = digestJson({
+    kind: "investigation-runner-fallback-report",
+    jobId: input.job.jobId,
+    provider: input.provider,
+    inputDigest: input.job.inputDigest,
+    promptTemplateDigest: input.job.promptTemplateDigest,
+    reasonCode: input.reasonCode
+  } as unknown as Json);
+  return {
+    schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+    reportId: `investigation_report.fallback_${shortDigest(outputDigest)}`,
+    jobId: input.job.jobId,
+    status: "failed",
+    findings: [],
+    outputDigest,
+    createdAt: input.now,
+    directMutationAllowed: false,
+    extensions: {
+      authority: "advisory-only",
+      provider: input.provider,
+      reasonCode: input.reasonCode,
+      inputDigest: input.job.inputDigest,
+      promptTemplateDigest: input.job.promptTemplateDigest
+    }
+  };
+}
+
+function agentInvestigationRunMetadata(input: {
+  runner: InvestigationRunnerPort;
+  job: AgentJobV1;
+  modelId?: string;
+  report: InvestigationReportV1;
+  startedAt: string;
+  completedAt: string;
+  outcome: AgentInvestigationRunOutcome;
+  attempts: number;
+  maxAttempts: number;
+  timeoutMs?: number;
+  fallbackUsed: boolean;
+  error?: unknown;
+  errorReasonCode?: string;
+}): AgentInvestigationRunMetadata {
+  const errorDigest = input.error === undefined
+    ? undefined
+    : digestJson({
+        name: input.error instanceof Error ? input.error.name : typeof input.error,
+        reasonCode: input.errorReasonCode ?? "failed"
+      } as unknown as Json);
+  return {
+    schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
+    runnerId: input.runner.runnerId,
+    provider: runnerProvider(input.runner),
+    ...(input.modelId ?? runnerModelId(input.runner) ? { modelId: input.modelId ?? runnerModelId(input.runner) } : {}),
+    promptTemplateDigest: input.job.promptTemplateDigest,
+    inputDigest: input.job.inputDigest,
+    outputDigest: input.report.outputDigest,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    durationMs: Math.max(0, Date.parse(input.completedAt) - Date.parse(input.startedAt)),
+    outcome: input.outcome,
+    attempts: input.attempts,
+    maxAttempts: input.maxAttempts,
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    fallbackUsed: input.fallbackUsed,
+    ...(errorDigest ? { errorDigest } : {}),
+    ...(input.errorReasonCode ? { errorReasonCode: input.errorReasonCode } : {})
+  };
+}
+
+function runnerProvider(runner: InvestigationRunnerPort): AgentRunnerPortId {
+  const provider = runner.capabilities.provider;
+  if (provider === "claude-code" || provider === "codex" || provider === "fake-provider") return provider;
+  return "fake-provider";
+}
+
+function runnerModelId(runner: InvestigationRunnerPort): string | undefined {
+  const modelId = (runner as unknown as { modelId?: unknown }).modelId;
+  return typeof modelId === "string"
+    ? modelId
+    : undefined;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("agent-investigation-timeout");
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("agent-investigation-timeout"));
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      reject(new Error("agent-investigation-timeout"));
+    }, { once: true });
+  });
 }
 
 function hasEquivalentJob(fingerprint: string, jobs: EquivalentAgentJob[]): boolean {

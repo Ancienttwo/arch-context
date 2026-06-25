@@ -10,14 +10,19 @@ import {
   DEFAULT_AGENT_ORCHESTRATION_POLICY,
   INVESTIGATION_REPORT_PROPOSAL_PLAN_SCHEMA_VERSION,
   buildInvestigationContextBundleFromLedgerQuery,
+  createClaudeCodeInvestigationRunner,
+  createCodexInvestigationRunner,
+  createFakeInvestigationRunner,
   createInvestigationAgentJob,
   evaluateInvestigationSpawn,
   investigationContextBundle,
   planInvestigationReportProposal,
   planRuntimeAgentQueueControls,
   runInvestigationThroughPort,
+  runInvestigationWithRetry,
   transitionAgentJobStatus,
-  validateInvestigationReport
+  validateInvestigationReport,
+  type CommandInvestigationRunnerTransportInput
 } from "../src/index";
 
 const repository = {
@@ -193,6 +198,105 @@ describe("@archcontext/core/agent-orchestrator", () => {
     await expect(runInvestigationThroughPort({ runner: mutatingRunner, job: running, context })).rejects.toThrow(
       "investigation-report-invalid: direct-mutation-forbidden"
     );
+  });
+
+  test("creates Claude and Codex command adapters behind the provider-neutral port", async () => {
+    const context = validInvestigationContext();
+    const claudeJob = transitionAgentJobStatus(agentJob("claude-code"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const codexJob = transitionAgentJobStatus(agentJob("codex"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const claudeReport = investigationReport(claudeJob);
+    const codexReport = investigationReport(codexJob);
+    const calls: CommandInvestigationRunnerTransportInput[] = [];
+    const transport = async (input: CommandInvestigationRunnerTransportInput) => {
+      calls.push(input);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({ report: input.runnerPort === "claude-code" ? claudeReport : codexReport })
+      };
+    };
+
+    const claude = createClaudeCodeInvestigationRunner({ transport, modelId: "claude-test" });
+    const codex = createCodexInvestigationRunner({ transport, modelId: "codex-test" });
+
+    await expect(runInvestigationThroughPort({ runner: claude, job: claudeJob, context })).resolves.toEqual(claudeReport);
+    await expect(runInvestigationThroughPort({ runner: codex, job: codexJob, context })).resolves.toEqual(codexReport);
+
+    expect(claude.capabilities).toMatchObject({
+      provider: "claude-code",
+      supportsCancellation: true,
+      canMutateRepository: false
+    });
+    expect(codex.capabilities).toMatchObject({
+      provider: "codex",
+      supportsCancellation: true,
+      canMutateRepository: false
+    });
+    expect(calls.map((call) => [call.command, call.args])).toEqual([
+      ["claude", ["--print", "--output-format", "json"]],
+      ["codex", ["exec", "--json"]]
+    ]);
+    const claudeInput = JSON.parse(calls[0].stdin);
+    expect(claudeInput.job.runnerPort).toBe("claude-code");
+    expect(claudeInput.context.inputDigest).toBe(context.inputDigest);
+    expect(JSON.stringify(claudeInput)).not.toContain("diff --git");
+    expect(JSON.stringify(claudeInput)).not.toContain("sourceBody");
+
+    const malformed = createCodexInvestigationRunner({
+      transport: async () => ({ exitCode: 0, stdout: "not json" })
+    });
+    await expect(runInvestigationThroughPort({ runner: malformed, job: codexJob, context })).rejects.toThrow(
+      "investigation-runner-output-not-json"
+    );
+  });
+
+  test("records run metadata and returns deterministic advisory fallback after timeout", async () => {
+    const running = transitionAgentJobStatus(agentJob("fake-provider"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const runner = createFakeInvestigationRunner({ delayMs: 25, modelId: "fake-timeout" });
+    const timestamps = [
+      "2026-06-26T08:01:00.000Z",
+      "2026-06-26T08:01:10.000Z"
+    ];
+
+    const result = await runInvestigationWithRetry({
+      runner,
+      job: running,
+      context,
+      timeoutMs: 1,
+      maxAttempts: 2,
+      clock: () => timestamps.shift() ?? "2026-06-26T08:01:10.000Z"
+    });
+
+    expect(result.schemaVersion).toBe("archcontext.agent-investigation-run-result/v1");
+    expect(result.report).toMatchObject({
+      schemaVersion: "archcontext.investigation-report/v1",
+      reportId: expect.stringMatching(/^investigation_report\.fallback_/),
+      jobId: running.jobId,
+      status: "failed",
+      findings: [],
+      directMutationAllowed: false
+    });
+    expect(result.metadata).toMatchObject({
+      schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
+      runnerId: "runner.fake-provider",
+      provider: "fake-provider",
+      modelId: "fake-timeout",
+      promptTemplateDigest: running.promptTemplateDigest,
+      inputDigest: running.inputDigest,
+      outputDigest: result.report.outputDigest,
+      startedAt: "2026-06-26T08:01:00.000Z",
+      completedAt: "2026-06-26T08:01:10.000Z",
+      durationMs: 10_000,
+      outcome: "timeout",
+      attempts: 2,
+      maxAttempts: 2,
+      timeoutMs: 1,
+      fallbackUsed: true,
+      errorReasonCode: "timeout"
+    });
+    expect(result.metadata.errorDigest).toMatch(/^sha256:/);
+    expect(JSON.stringify(result)).not.toContain("diff --git");
+    expect(JSON.stringify(result)).not.toContain("sourceBody");
   });
 
   test("validates typed investigation reports against context evidence and ledger refs", () => {
@@ -471,10 +575,10 @@ function spawnInput() {
   };
 }
 
-function agentJob(): AgentJobV1 {
+function agentJob(runnerPort: AgentJobV1["runnerPort"] = "fake-provider"): AgentJobV1 {
   return createInvestigationAgentJob({
     ...spawnInput(),
-    runnerPort: "fake-provider",
+    runnerPort,
     inputDigest: digestJson({ input: "agent-job" } as unknown as Json),
     promptTemplateDigest: digestJson({ prompt: "al6" } as unknown as Json),
     policy: { adapterEnabled: true }

@@ -255,7 +255,7 @@ export class TestLocalStore implements RuntimeLocalStore {
     }
     const updated = {
       ...record,
-      job: testRuntimeAgentJobWithStatus(record.job, input.status, input.now, input.outputDigest),
+      job: testRuntimeAgentJobWithStatus(record.job, input.status, input.now, input.outputDigest, input.runMetadata),
       leaseOwner: undefined,
       leasedAt: undefined,
       leaseExpiresAt: undefined,
@@ -664,8 +664,20 @@ function testRuntimeAgentJobQueueStats(records: RuntimeAgentJobRecord[], now: st
   };
 }
 
-function testRuntimeAgentJobWithStatus(job: AgentJobV1, status: RuntimeAgentJobStatus, updatedAt: string, outputDigest?: string): AgentJobV1 {
+function testRuntimeAgentJobWithStatus(
+  job: AgentJobV1,
+  status: RuntimeAgentJobStatus,
+  updatedAt: string,
+  outputDigest?: string,
+  runMetadata?: Json
+): AgentJobV1 {
   const next: AgentJobV1 = { ...job, status, updatedAt };
   if (outputDigest) next.outputDigest = outputDigest;
+  if (runMetadata) {
+    next.extensions = {
+      ...(next.extensions ?? {}),
+      agentRun: runMetadata
+    };
+  }
   return next;
 }

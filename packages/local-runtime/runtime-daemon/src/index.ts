@@ -39,7 +39,8 @@ import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import {
   buildInvestigationContextBundleFromLedgerQuery,
   createInvestigationAgentJob,
-  planRuntimeAgentQueueControls
+  planRuntimeAgentQueueControls,
+  type AgentInvestigationRunMetadata
 } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
@@ -116,6 +117,7 @@ export interface RuntimeAgentJobCompleteRpcInput {
   status: Extract<AgentJobV1["status"], "succeeded" | "failed">;
   workerId?: string;
   outputDigest?: string;
+  runMetadata?: AgentInvestigationRunMetadata;
   error?: string;
   now?: string;
 }
@@ -1069,6 +1071,7 @@ export class ArchctxDaemon {
       status: input.status,
       workerId: input.workerId,
       outputDigest: input.outputDigest,
+      runMetadata: input.runMetadata as unknown as Json | undefined,
       error: input.error,
       now: input.now ?? this.clock()
     });

@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 security/proposal containment complete, AL6-11+ remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 provider adapters/run metadata complete, AL6-15/16 remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -696,12 +696,21 @@ A subagent is eligible only when all conditions are true:
   - Evidence: `planInvestigationReportProposal` marks report output as `authority: advisory-only`, `directMutationAllowed: false`, `requiredNextStep: deterministic-validation` and forbids ledger/YAML/docs/ChangeSet/tool/command actions; `planArchitectureCandidateChangeSet` rejects agent/proposal provenance before ChangeSet planning.
   - Verification artifact: `docs/verification/architecture-ledger-al6-security-proposals.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 90000`; `bun run typecheck`.
-- [ ] **AL6-11 · P1 · `adapters`** — Implement Claude Code adapter behind the port.
-- [ ] **AL6-12 · P1 · `adapters`** — Implement Codex adapter behind the same port.
-- [ ] **AL6-13 · P1 · `agent-orchestrator`** — Record provider, model identifier, prompt-template digest, input digest, output digest, duration and outcome.
-- [ ] **AL6-14 · P1 · `agent-orchestrator`** — Add timeout, bounded retries and deterministic fallback to advisory-only output.
+- [x] **AL6-11 · P1 · `adapters`** — Implement Claude Code adapter behind the port.
+  - Evidence: `createClaudeCodeInvestigationRunner` wraps the provider-neutral `InvestigationRunnerPort` with command/args/transport injection, bounded JSON stdin and mutation-disabled capabilities; adapter tests verify the default `claude --print --output-format json` contract.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
+- [x] **AL6-12 · P1 · `adapters`** — Implement Codex adapter behind the same port.
+  - Evidence: `createCodexInvestigationRunner` uses the same command transport path and validation pipeline as Claude, with default `codex exec --json`; malformed command output is rejected before report validation.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
+- [x] **AL6-13 · P1 · `agent-orchestrator`** — Record provider, model identifier, prompt-template digest, input digest, output digest, duration and outcome.
+  - Evidence: `AgentInvestigationRunMetadata` records runner/provider/model/digest/duration/outcome/attempt fields, `runInvestigationWithRetry` returns metadata with each report, and `jobs.complete` persists metadata under `job.extensions.agentRun`.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
+- [x] **AL6-14 · P1 · `agent-orchestrator`** — Add timeout, bounded retries and deterministic fallback to advisory-only output.
+  - Evidence: `runInvestigationWithRetry` bounds attempts and timeout, aborts provider execution, and returns deterministic failed advisory-only fallback reports with digest-only error metadata after final failure.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
 - [ ] **AL6-15 · P1 · `cli`** — Add `archctx investigate`, `archctx agents status` and `archctx agents budget`.
 - [ ] **AL6-16 · P1 · `tests`** — Add fake provider fixtures for timeout, malformed output, hallucinated IDs, duplicate results and stale completion.
+  - Partial evidence: current tests cover timeout fallback, malformed command output, hallucinated references and stale completion; duplicate-result fixture remains open.
 
 ### Exit gate
 
@@ -742,6 +751,12 @@ A subagent is eligible only when all conditions are true:
   - ChangeSet boundary: candidate deltas with agent report/proposal provenance are rejected before `planArchitectureCandidateChangeSet` can create a ChangeSet.
   - Verification artifact: `docs/verification/architecture-ledger-al6-security-proposals.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-26 — AL6 provider adapters and run metadata module completed:
+  - Adapters: Claude Code and Codex now share a command-transport adapter over `InvestigationRunnerPort`; the transport receives bounded JSON stdin and command output must parse to a typed `InvestigationReport/v1`.
+  - Runtime metadata: successful and fallback runs return `AgentInvestigationRunMetadata` with provider, model, prompt/input/output digests, duration, outcome, attempt count and timeout/fallback state; daemon completion persists it under `job.extensions.agentRun`.
+  - Failure behavior: timeout and bounded retry failures produce deterministic failed advisory reports without raw source, diff, stdout, stderr or prompt bodies.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al6-provider-adapters-verify-state-XXXXXX) bun run verify`.
 
 ---
 
