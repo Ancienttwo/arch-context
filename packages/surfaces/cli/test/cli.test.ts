@@ -20,9 +20,9 @@ const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
-function runTestCli(command: string, args: string[], root: string) {
+function runTestCli(command: string, args: string[], root: string, stateRoot = testStateRoot(root)) {
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-  process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+  process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
   return runCli(command, args, root, {
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
@@ -88,6 +88,15 @@ async function writeTaskState(databasePath: string, taskSessionId: string, state
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function gitExitCode(root: string, ...args: string[]): number {
+  try {
+    execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    return 0;
+  } catch (error) {
+    return (error as { status?: number }).status ?? 1;
+  }
 }
 
 function configureGitFixtureIdentity(root: string): void {
@@ -1265,6 +1274,54 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("CLI rollback restores YAML authority projection with backup", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const stalePath = ".archcontext/model/nodes/module.cli-rollback-stale.yaml";
+    try {
+      let status = await runTestCli("status", [], root);
+      const rebuild = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuild.ok).toBe(true);
+      const canonicalProjection = readFileSync(join(root, projectionPath), "utf8");
+      writeFileSync(join(root, projectionPath), canonicalProjection.replace("Keeps product and architecture intent available to coding agents.", "CLI rollback corrupted projection."), "utf8");
+      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v1\nid: module.cli-rollback-stale\nkind: module\nname: CLI Rollback Stale\nstatus: active\nsummary: CLI rollback stale projection\n", "utf8");
+
+      const dryRun = await runTestCli("ledger", ["rollback", "--to-yaml", "--dry-run"], root);
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).dryRun).toBe(true);
+      expect((dryRun.data as any).drift.ok).toBe(false);
+      expect(existsSync(join(root, stalePath))).toBe(true);
+
+      status = await runTestCli("status", [], root);
+      const rollback = await runTestCli("ledger", [
+        "rollback",
+        "--to-yaml",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rollback.ok).toBe(true);
+      expect((rollback.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-rollback/v1");
+      expect((rollback.data as any).targetAuthority).toBe("yaml");
+      expect((rollback.data as any).removedPaths).toContain(stalePath);
+      expect((rollback.data as any).writtenPaths).toContain(projectionPath);
+      expect((rollback.data as any).drift.ok).toBe(true);
+      const backup = (rollback.data as any).backup;
+      expect(existsSync(join(root, backup.manifestPath))).toBe(true);
+      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture-context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
+      expect(existsSync(join(root, stalePath))).toBe(false);
+      expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
+      expect((await runTestCli("validate", [], root)).ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes", async () => {
     const root = createInitializedGitRepo();
     try {
@@ -1344,6 +1401,105 @@ describe("archctx CLI", () => {
       expect((dirtyRefresh.data as any).status).toBe("cursor-refreshed");
       expect((dirtyRefresh.data as any).graphDigest).toBe(initialGraphDigest);
       expect((dirtyRefresh.data as any).cursor.worktreeDigest).toBe((status.data as any).worktreeDigest);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI keeps ledger cursor scoped across detached HEAD and simultaneous worktrees", async () => {
+    const root = createInitializedGitRepo();
+    const sharedStateRoot = testStateRoot(root);
+    const linkedParent = mkdtempSync(join(tmpdir(), "archctx-cli-worktree-parent-"));
+    const linkedRoot = join(linkedParent, "linked");
+    try {
+      let status = await runTestCli("status", [], root, sharedStateRoot);
+      const initial = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root, sharedStateRoot);
+      expect(initial.ok).toBe(true);
+      const initialGraphDigest = (initial.data as any).graphDigest;
+      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+      const initialWorkspaceId = (initial.data as any).worktree.storageWorkspaceId;
+
+      git(root, "checkout", "--detach", "HEAD");
+      status = await runTestCli("status", [], root, sharedStateRoot);
+      const detached = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root, sharedStateRoot);
+      expect(detached.ok).toBe(true);
+      expect((detached.data as any).status).toBe("cursor-refreshed");
+      expect((detached.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((detached.data as any).cursor.branch).toBe("detached");
+
+      git(root, "checkout", initialBranch);
+      git(root, "worktree", "add", "-b", "feature/two-worktree", linkedRoot, initialBranch);
+      status = await runTestCli("status", [], linkedRoot, sharedStateRoot);
+      const linked = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], linkedRoot, sharedStateRoot);
+      expect(linked.ok).toBe(true);
+      expect((linked.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((linked.data as any).worktree.storageWorkspaceId).not.toBe(initialWorkspaceId);
+      expect((linked.data as any).worktree.branch).toBe("feature/two-worktree");
+
+      const rootState = await runTestCli("ledger", ["state"], root, sharedStateRoot);
+      const linkedState = await runTestCli("ledger", ["state"], linkedRoot, sharedStateRoot);
+      expect((rootState.data as any).worktree.storageWorkspaceId).not.toBe((linkedState.data as any).worktree.storageWorkspaceId);
+      expect((rootState.data as any).repository.storageRepositoryId).toBe((linkedState.data as any).repository.storageRepositoryId);
+    } finally {
+      gitExitCode(root, "worktree", "remove", "--force", linkedRoot);
+      removeTempRoot(root);
+      rmSync(linkedParent, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rebuild rejects merge-conflict YAML projection without mutating ledger state", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    try {
+      let status = await runTestCli("status", [], root);
+      const initial = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(initial.ok).toBe(true);
+      const initialGraphDigest = (initial.data as any).graphDigest;
+      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+
+      git(root, "checkout", "-b", "feature/ledger-merge-conflict");
+      writeFileSync(join(root, projectionPath), readFileSync(join(root, projectionPath), "utf8").replace("Keeps product and architecture intent available to coding agents.", "Feature branch projection conflict."), "utf8");
+      git(root, "add", projectionPath);
+      git(root, "commit", "-m", "feature projection conflict");
+      git(root, "checkout", initialBranch);
+      writeFileSync(join(root, projectionPath), readFileSync(join(root, projectionPath), "utf8").replace("Keeps product and architecture intent available to coding agents.", "Base branch projection conflict."), "utf8");
+      git(root, "add", projectionPath);
+      git(root, "commit", "-m", "base projection conflict");
+
+      expect(gitExitCode(root, "merge", "feature/ledger-merge-conflict")).not.toBe(0);
+      status = await runTestCli("status", [], root);
+      const rejected = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rejected.ok).toBe(false);
+      expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      git(root, "merge", "--abort");
+      const state = await runTestCli("ledger", ["state"], root);
+      expect((state.data as any).ledger.graphDigest).toBe(initialGraphDigest);
     } finally {
       removeTempRoot(root);
     }

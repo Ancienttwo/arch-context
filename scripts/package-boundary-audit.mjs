@@ -21,6 +21,7 @@ for (const file of listFiles(root)) {
   if (!owner) continue;
   const source = readFileSync(file, "utf8");
   checkProductionFallbacks(file, source);
+  checkArchitectureLedgerBypass(file, source);
   for (const specifier of importSpecifiers(source)) {
     if (specifier.startsWith(".")) {
       checkRelativeImport(owner, file, specifier);
@@ -131,6 +132,18 @@ function checkProductionFallbacks(file, source) {
   if (source.includes("TestLocalStore") || source.includes("InMemoryLocalStore")) findings.push(`${display(file)} references test local store outside tests`);
   if (source.includes("sha256:0000000000000000000000000000000000000000000000000000000000000000")) findings.push(`${display(file)} contains zero digest fallback`);
   if (/\bheadSha:\s*["']local["']/.test(source)) findings.push(`${display(file)} contains local headSha fallback`);
+}
+
+function checkArchitectureLedgerBypass(file, source) {
+  if (isTestFile(file)) return;
+  if (!display(file).startsWith("packages/surfaces/")) return;
+  const forbidden = [
+    [/\.(appendArchitectureEvents|recordChangeSetLedgerPlan|recordChangeSetLedgerAppend|rebuildArchitectureLedgerCurrentState)\s*\(/, "mutates the architecture ledger store directly"],
+    [/(writeFileSync|rmSync|renameSync|cpSync)\s*\([^)]*["']\.archcontext\/model\//s, "mutates the Git architecture model projection directly"]
+  ];
+  for (const [pattern, reason] of forbidden) {
+    if (pattern.test(source)) findings.push(`${display(file)} ${reason}; route ledger writes through runtime-daemon`);
+  }
 }
 
 function isTestFile(file) {

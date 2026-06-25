@@ -1159,6 +1159,73 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("ledger rollback restores YAML authority projection from SQLite current state with backup", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:08:00.000Z"
+      });
+      await daemon.init(root, "Ledger Rollback App");
+      const path = ".archcontext/model/nodes/module.ledger-rollback.yaml";
+      const stalePath = ".archcontext/model/nodes/module.rollback-stale.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-rollback-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Ledger rollback node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-rollback-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      writeFileSync(join(root, path), "schemaVersion: archcontext.node/v1\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Corrupted rollback projection\n", "utf8");
+      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v1\nid: module.rollback-stale\nkind: module\nname: Stale Rollback\nstatus: active\nsummary: Stale rollback projection\n", "utf8");
+
+      const dryRun = await daemon.ledgerRollback(root, { toYaml: true, dryRun: true });
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).dryRun).toBe(true);
+      expect((dryRun.data as any).writes).toBe("none");
+      expect((dryRun.data as any).drift.ok).toBe(false);
+      expect(existsSync(join(root, stalePath))).toBe(true);
+
+      const status = await daemon.runtimeStatus(root);
+      const rollback = await daemon.ledgerRollback(root, {
+        toYaml: true,
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(rollback.ok).toBe(true);
+      expect((rollback.data as any).targetAuthority).toBe("yaml");
+      expect((rollback.data as any).recommendedEnvironment).toMatchObject({ ARCHCONTEXT_LEDGER_MODE: "yaml" });
+      expect((rollback.data as any).removedPaths).toContain(stalePath);
+      expect((rollback.data as any).writtenPaths).toContain(path);
+      expect((rollback.data as any).drift.ok).toBe(true);
+      const backup = (rollback.data as any).backup;
+      expect(backup.path).toMatch(/\.archcontext\/backups\/ledger-rollback\//);
+      expect(existsSync(join(root, backup.manifestPath))).toBe(true);
+      expect(readText(join(root, backup.path, "model/nodes/module.ledger-rollback.yaml"))).toContain("Corrupted rollback projection");
+      expect(readText(join(root, backup.path, "model/nodes/module.rollback-stale.yaml"))).toContain("Stale rollback projection");
+      expect(readText(join(root, path))).toContain("Ledger rollback node");
+      expect(existsSync(join(root, stalePath))).toBe(false);
+
+      const yamlDaemon = await createStartedTestDaemon({
+        architectureLedger: { rolloutMode: "yaml" },
+        localStore: new TestLocalStore()
+      });
+      expect((await yamlDaemon.validate(root)).ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger rebuild from Git appends once and no-ops when current state already matches Git", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();

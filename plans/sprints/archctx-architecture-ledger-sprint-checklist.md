@@ -363,17 +363,22 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - [x] **AL3-12 · P0 · `cli`** — Add `archctx ledger drift --json` with actionable reason codes.
   - Evidence: `compareArchitectureLedgerStateToYaml` reason codes include `semantic-drift`, `projection-file-missing`, `projection-file-digest-mismatch` and `projection-file-extra`; CLI test covers `projection-file-missing`.
 - [ ] **AL3-13 · P1 · `migration`** — Preserve existing IDs and map legacy records without generating new semantic entities.
-- [ ] **AL3-14 · P1 · `migration`** — Add backup and one-command rollback to YAML authority.
-- [ ] **AL3-15 · P1 · `tests`** — Add fixtures for merge conflicts, rebase, detached HEAD and two simultaneous worktrees.
-- [ ] **AL3-16 · P1 · `package-boundaries`** — Verify CLI, MCP and agents cannot bypass the daemon to mutate either store.
+- [x] **AL3-14 · P1 · `migration`** — Add backup and one-command rollback to YAML authority.
+  - Evidence: `archctx ledger rollback --to-yaml --dry-run|--write` is daemon-owned, writes only after fresh worktree digest validation, backs up existing managed projection files under `.archcontext/backups/ledger-rollback/`, removes stale managed files, projects SQLite current state back to Git YAML, and returns the recommended `ARCHCONTEXT_LEDGER_MODE=yaml` switch surface.
+- [x] **AL3-15 · P1 · `tests`** — Add fixtures for merge conflicts, rebase, detached HEAD and two simultaneous worktrees.
+  - Evidence: CLI tests cover branch/reset/rebase/worktree cursor refresh, detached HEAD cursor refresh, linked worktree scope isolation with shared runtime state, and merge-conflict YAML rejection without ledger mutation.
+- [x] **AL3-16 · P1 · `package-boundaries`** — Verify CLI, MCP and agents cannot bypass the daemon to mutate either store.
+  - Evidence: `scripts/package-boundary-audit.mjs` now rejects production surface code that directly appends/rebuilds ledger state or directly writes/removes `.archcontext/model`; verification passed with `node scripts/package-boundary-audit.mjs`.
 
 ### Exit gate
 
 - [ ] **AL3-EG1** — YAML → ledger → YAML has zero semantic drift.
 - [ ] **AL3-EG2** — Deleting SQLite and rebuilding from Git reproduces the same architecture digest.
 - [ ] **AL3-EG3** — Deleting generated YAML and projecting from SQLite reproduces the same files.
-- [ ] **AL3-EG4** — Rebase and branch-switch fixtures never leak state across worktrees.
-- [ ] **AL3-EG5** — Rollback to YAML mode succeeds without data loss.
+- [x] **AL3-EG4** — Rebase and branch-switch fixtures never leak state across worktrees.
+  - Evidence: `CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes`; `CLI keeps ledger cursor scoped across detached HEAD and simultaneous worktrees`.
+- [x] **AL3-EG5** — Rollback to YAML mode succeeds without data loss.
+  - Evidence: runtime and CLI rollback tests verify backup manifest/files, stale managed-file removal, canonical projection restoration, clean drift, and YAML validation after rollback.
 
 ### AL3 execution log
 
@@ -402,7 +407,10 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - 2026-06-25: Added Git cursor and external projection conflict module: rebuild records stable `source.git.current` cursor refresh events for checkout/reset/rebase/worktree changes, and external Git projection semantic drift is stored as a proposed event until explicit `--accept-external-projection` reconcile.
 - 2026-06-25: Focused cursor/conflict verification passed: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 30000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 60000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "ledger|cursor" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
 - 2026-06-25: Full cursor/conflict module verification passed after rerunning the root gate with isolated runtime state: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; independent full test readback `bun test --timeout 60000` passed with 710 tests.
-- 2026-06-25: Remaining AL3 scope is full ADR/policy import coverage, reconcile-engine integration, legacy ID preservation, YAML rollback, merge-conflict/two-worktree fixtures and package-boundary bypass verification.
+- 2026-06-25: Added AL3 rollback/worktree/bypass module: daemon/RPC/CLI rollback restores YAML authority projection from SQLite current state with backup, CLI fixtures cover merge conflicts, detached HEAD and simultaneous worktrees, and package-boundary audit blocks production surfaces from direct ledger/projection mutation.
+- 2026-06-25: Focused rollback/worktree verification passed: `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "ledger|worktree|merge|rollback|cursor" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `git diff --check`.
+- 2026-06-25: Full rollback/worktree module verification passed: `bun run verify` exited 0 with 714 tests, packaged CLI smoke, privacy/security/readback ledgers, sprint-status check and representative eval; isolated-state practice verification also passed with `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-practice-verify.XXXXXX)" bun run verify:practices`.
+- 2026-06-25: Remaining AL3 scope is full ADR/policy import coverage, reconcile-engine integration and legacy ID preservation.
 
 ---
 

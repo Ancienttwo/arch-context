@@ -31,6 +31,7 @@ import {
   planYamlToArchitectureLedgerRebuild,
   projectArchitectureLedgerStateToYamlFiles,
   type ArchitectureLedgerAppendResult,
+  type ArchitectureLedgerProjectionFile,
   type ArchitectureLedgerScope,
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
@@ -118,6 +119,12 @@ export interface RuntimeLedgerRebuildInput {
   fromGit?: boolean;
   expectedWorktreeDigest?: string;
   acceptExternalProjection?: boolean;
+}
+
+export interface RuntimeLedgerRollbackInput {
+  toYaml?: boolean;
+  dryRun?: boolean;
+  expectedWorktreeDigest?: string;
 }
 
 export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
@@ -377,6 +384,7 @@ export interface RuntimeDaemonClient {
   ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -1278,6 +1286,51 @@ export class ArchctxDaemon {
       } as unknown as Json);
     };
     return writes ? this.withWriter(project) : project();
+  }
+
+  async ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.toYaml) return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
+    const writes = input.dryRun === false;
+    const rollback = async () => {
+      if (writes) this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rollback --to-yaml");
+      const scope = await this.architectureLedgerScope(root);
+      const state = await this.localStore.readArchitectureLedgerState(scope);
+      const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+      const currentManagedFiles = listModelFiles(root).filter((file) => isArchitectureLedgerManagedModelPath(file.path));
+      const backupPlan = architectureProjectionRollbackBackup(currentManagedFiles);
+      const writeResult = writes
+        ? replaceArchitectureProjectionFilesForYamlRollback(root, projectedFiles, currentManagedFiles, this.clock())
+        : { backup: backupPlan.backup, writtenPaths: [], removedPaths: [] };
+      const drift = compareArchitectureLedgerStateToYaml({
+        state,
+        files: listModelFiles(root),
+        createdAt: this.clock(),
+        command: "archctx ledger rollback --to-yaml"
+      });
+      return okEnvelope("ledger.rollback", {
+        schemaVersion: "archcontext.runtime-architecture-ledger-rollback/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        sourceAuthority: "ledger",
+        targetAuthority: "yaml",
+        dryRun: !writes,
+        writes: writes ? "git-projection" : "none",
+        backup: writeResult.backup,
+        projectedFileCount: projectedFiles.length,
+        projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+        graphDigest: architectureLedgerStateDigest(state),
+        writtenPaths: writeResult.writtenPaths,
+        removedPaths: writeResult.removedPaths,
+        projectedFiles: writes ? undefined : projectedFiles,
+        drift,
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "yaml"
+        }
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(rollback) : rollback();
   }
 
   async ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
@@ -2368,6 +2421,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("ledgerRebuild", [root, input]);
   }
 
+  ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }) {
+    return this.call("ledgerRollback", [root, input]);
+  }
+
   repoAdd(root: string, name?: string) {
     return this.call("repoAdd", [root, name]);
   }
@@ -2617,6 +2674,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.ledgerProject(params[0] as string, params[1] as RuntimeLedgerProjectInput | undefined);
       case "ledgerRebuild":
         return this.daemon.ledgerRebuild(params[0] as string, params[1] as RuntimeLedgerRebuildInput | undefined);
+      case "ledgerRollback":
+        return this.daemon.ledgerRollback(params[0] as string, params[1] as RuntimeLedgerRollbackInput | undefined);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -3353,12 +3412,101 @@ function readCurrentBranch(root: string): string {
   }
 }
 
-function writeArchitectureProjectionFiles(root: string, files: ReturnType<typeof projectArchitectureLedgerStateToYamlFiles>): void {
+interface ArchitectureProjectionRollbackWriteResult {
+  backup: Json;
+  writtenPaths: string[];
+  removedPaths: string[];
+}
+
+function writeArchitectureProjectionFiles(root: string, files: ArchitectureLedgerProjectionFile[]): void {
   for (const file of files) {
     const absolute = resolve(root, file.path);
     mkdirSync(dirname(absolute), { recursive: true });
     writeFileSync(absolute, file.body.endsWith("\n") ? file.body : `${file.body}\n`, "utf8");
   }
+}
+
+function replaceArchitectureProjectionFilesForYamlRollback(
+  root: string,
+  projectedFiles: ArchitectureLedgerProjectionFile[],
+  currentFiles: ModelFile[],
+  createdAt: string
+): ArchitectureProjectionRollbackWriteResult {
+  const targetPaths = new Set(projectedFiles.map((file) => file.path));
+  const backupBase = `.archcontext/backups/ledger-rollback/${safePathSegment(createdAt)}`;
+  const backupRelativePath = uniqueBackupPath(root, backupBase);
+  const manifestPath = `${backupRelativePath}/manifest.json`;
+  const { backup, manifest } = architectureProjectionRollbackBackup(currentFiles, {
+    createdAt,
+    path: backupRelativePath,
+    manifestPath
+  });
+  for (const file of currentFiles) {
+    const backupPath = join(backupRelativePath, archContextRelativePath(file.path));
+    const absolute = resolve(root, backupPath);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, file.body, "utf8");
+  }
+  const manifestAbsolute = resolve(root, manifestPath);
+  mkdirSync(dirname(manifestAbsolute), { recursive: true });
+  writeFileSync(manifestAbsolute, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const removedPaths: string[] = [];
+  for (const file of currentFiles) {
+    if (targetPaths.has(file.path)) continue;
+    rmSync(resolve(root, file.path), { force: true });
+    removedPaths.push(file.path);
+  }
+  writeArchitectureProjectionFiles(root, projectedFiles);
+  return {
+    backup,
+    writtenPaths: projectedFiles.map((file) => file.path),
+    removedPaths
+  };
+}
+
+function architectureProjectionRollbackBackup(
+  files: ModelFile[],
+  options: { createdAt?: string; path?: string; manifestPath?: string } = {}
+): { backup: Json; manifest: Json } {
+  const manifest = {
+    schemaVersion: "archcontext.architecture-ledger-yaml-rollback-backup/v1",
+    createdAt: options.createdAt,
+    fileCount: files.length,
+    files: files.map((file) => ({
+      path: file.path,
+      schemaVersion: file.schemaVersion,
+      digest: file.digest
+    }))
+  } as unknown as Json;
+  const backup = {
+    schemaVersion: "archcontext.architecture-ledger-yaml-rollback-backup/v1",
+    required: true,
+    path: options.path,
+    manifestPath: options.manifestPath,
+    fileCount: files.length,
+    paths: files.map((file) => file.path),
+    digest: digestJson(manifest)
+  } as unknown as Json;
+  return { backup, manifest };
+}
+
+function uniqueBackupPath(root: string, backupBase: string): string {
+  let candidate = backupBase;
+  let suffix = 2;
+  while (existsSync(resolve(root, candidate))) {
+    candidate = `${backupBase}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "-");
+}
+
+function archContextRelativePath(path: string): string {
+  return path.startsWith(".archcontext/") ? path.slice(".archcontext/".length) : path;
 }
 
 function blockedProductionInjections(deps: RuntimeDeps): string[] {

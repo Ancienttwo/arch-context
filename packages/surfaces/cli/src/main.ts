@@ -443,6 +443,25 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
       acceptExternalProjection: args.includes("--accept-external-projection")
     });
   }
+  if (subcommand === "rollback") {
+    if (!args.includes("--to-yaml")) {
+      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
+    }
+    const write = args.includes("--write");
+    if (write && args.includes("--dry-run")) {
+      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback accepts --dry-run or --write, not both");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (write && !expectedWorktreeDigest) {
+      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback --to-yaml --write requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerRollback(cwd, {
+      toYaml: true,
+      dryRun: !write,
+      expectedWorktreeDigest
+    });
+  }
   if (subcommand === "migrate") {
     if (!args.includes("--from-yaml") || !args.includes("--dry-run")) {
       return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml --dry-run");
@@ -471,7 +490,7 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
       writes: "none"
     } as unknown as Json);
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml --dry-run, rebuild --from-git, or project --to-git");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml --dry-run, rebuild --from-git, rollback --to-yaml, or project --to-git");
 }
 
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
