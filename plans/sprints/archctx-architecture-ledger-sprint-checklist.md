@@ -1,9 +1,9 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation is in progress with stable subject selectors, candidate delta contracts, CodeGraph changed-subject analysis and deterministic digest tests
+> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation and declared mapping modules are complete; AL5 baseline attribution, policy and ChangeSet promotion remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
-> **Updated**: 2026-06-25
+> **Updated**: 2026-06-26
 > **Target location**: `plans/sprints/archctx-architecture-ledger-sprint.md`
 > **Relationship to current roadmap**: follow-up workstream after the existing M0–M6 scaffold; may start in parallel with remaining M6 launch evidence where dependencies permit.
 > **Goal**: turn architecture knowledge into a durable, queryable, reviewable ledger that passively follows code evolution, serves LLMs through CLI/MCP, and invokes subagents only when deterministic analysis cannot close an important uncertainty.
@@ -559,9 +559,12 @@ Git change cursor
   - Evidence: `ArchitectureCandidateDelta/v1` separates `rawFacts` from `interpretations`; interpretations are marked `heuristic: true` until later entity mapping and policy stages.
 - [x] **AL5-05 · P0 · `architecture-delta`** — Bind every interpretation to one or more evidence items with coverage and confidence.
   - Evidence: delta tests assert every interpretation has evidence IDs and evidence is bound to both `subject` and `candidate-delta` with `authorityEffect: context-only`.
-- [ ] **AL5-06 · P0 · `architecture-delta`** — Map changed code subjects to declared architecture entities with explicit match reasons.
-- [ ] **AL5-07 · P0 · `architecture-delta`** — Represent unresolved mapping as ambiguity, never as a silently invented entity.
-- [ ] **AL5-08 · P0 · `architecture-domain`** — Generate typed candidate deltas for node, relation, constraint, owner, lifecycle and migration-state changes.
+- [x] **AL5-06 · P0 · `architecture-delta`** — Map changed code subjects to declared architecture entities with explicit match reasons.
+  - Evidence: `buildArchitectureCandidateDelta` accepts a read-only declared graph and emits `declaredSubjectMappings` with `declared-path-exact`, `declared-path-prefix`, `declared-name-match` and `declared-relation-endpoints` reasons; covered by `packages/core/architecture-delta/test/architecture-delta.test.ts`.
+- [x] **AL5-07 · P0 · `architecture-delta`** — Represent unresolved mapping as ambiguity, never as a silently invented entity.
+  - Evidence: `ArchitectureCandidateDelta/v1` now carries `mappingAmbiguities`; tests cover missing declared graph and equal-confidence multiple declared targets without creating mappings or candidate changes.
+- [x] **AL5-08 · P0 · `architecture-domain`** — Generate typed candidate deltas for node, relation, constraint, owner, lifecycle and migration-state changes.
+  - Evidence: `candidateChanges` are typed as `node-*`, `relation-*`, `constraint-*`, `owner-*`, `lifecycle-*` and `migration-state-*`; adapter tests prove CodeGraph changed subjects can be joined to runtime-provided declared graph context.
 - [ ] **AL5-09 · P0 · `architecture-domain`** — Separate target-state change from migration-state progress.
 - [ ] **AL5-10 · P0 · `policy-engine`** — Define which candidate deltas may auto-accept, require checkpoint, require proof or require human approval.
 - [ ] **AL5-11 · P0 · `changeset-engine`** — Convert accepted candidates into previewable ChangeSets and ledger event batches.
@@ -591,6 +594,13 @@ Git change cursor
   - CodeGraph adapter: added `analyzeChangedSubjects` to sync changed paths, build no-source context and return a candidate delta for a base/head change cursor.
   - Verification artifact: `docs/verification/architecture-ledger-al5-delta-foundation.md`.
   - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts`; `bun test packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts --timeout 90000`; `bun test packages/contracts/test/contracts.test.ts`; `bun run typecheck`.
+- 2026-06-26 — AL5 declared mapping module completed as the next reviewable slice:
+  - Contracts: extended `ArchitectureCandidateDelta/v1` with declared subject mappings, mapping ambiguities and typed candidate changes.
+  - Core: changed code subjects now map to declared entity/relation/constraint targets with explicit match reasons; missing or equal-confidence mappings remain ambiguous.
+  - Candidate deltas: generated typed node, relation, constraint, owner, lifecycle and migration-state candidate changes without mutating ledger authority.
+  - CodeGraph adapter: `analyzeChangedSubjects` accepts a runtime-provided declared graph and passes it through to the delta builder.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-declared-mapping.md`.
+  - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al5-mapping-verify-state-XXXXXX) bun run verify`.
 
 ---
 

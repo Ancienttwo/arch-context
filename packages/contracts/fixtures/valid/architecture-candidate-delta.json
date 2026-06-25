@@ -65,6 +65,40 @@
       "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
     }
   ],
+  "declaredSubjectMappings": [
+    {
+      "mappingId": "mapping.checkout-service",
+      "subjectSelectorId": "subject.path.src-checkout-service",
+      "target": {
+        "kind": "entity",
+        "id": "module.checkout"
+      },
+      "matchReason": "declared-path-prefix",
+      "confidence": "medium",
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "mappingAmbiguities": [],
+  "candidateChanges": [
+    {
+      "candidateChangeId": "candidate_change.checkout-service",
+      "kind": "node-materially-changed",
+      "target": {
+        "kind": "node",
+        "id": "module.checkout"
+      },
+      "changeKind": "materially_changed",
+      "subjectSelectorIds": ["subject.path.src-checkout-service"],
+      "mappingIds": ["mapping.checkout-service"],
+      "ambiguityIds": [],
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "confidence": "medium",
+      "heuristic": true,
+      "summary": "Declared architecture node module.checkout may be materially changed by changed code.",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
   "evidenceItems": [
     {
       "schemaVersion": "archcontext.evidence-item/v2",
@@ -119,7 +153,10 @@
     "moved": 0,
     "renamed": 0,
     "materiallyChanged": 1,
-    "unresolved": 0
+    "unresolved": 0,
+    "mapped": 1,
+    "ambiguous": 0,
+    "candidateChanges": 1
   },
   "deltaDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
 }

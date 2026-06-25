@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, posix } from "node:path";
-import { buildArchitectureCandidateDelta, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
+import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
@@ -205,6 +205,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
     repository: ArchitectureRepositoryIdentityV1;
     worktree: ArchitectureWorktreeIdentityV1;
     git: ArchitectureDeltaGitChangeMetadata;
+    declaredGraph?: ArchitectureDeltaDeclaredGraph;
     maxSymbols?: number;
     createdAt?: string;
   }): Promise<ArchitectureCandidateDeltaV1> {
@@ -222,6 +223,7 @@ export class CodeGraphAdapter implements CodeFactsPort {
       worktree: input.worktree,
       git: input.git,
       codeContext,
+      declaredGraph: input.declaredGraph,
       codeFactsDigest: codeContext.digest,
       createdAt: input.createdAt,
       provenance: {

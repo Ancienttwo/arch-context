@@ -48,6 +48,50 @@ export type ArchitectureDeltaInterpretationKind =
   | "code-subject-moved"
   | "code-subject-renamed"
   | "code-subject-materially-changed";
+export type ArchitectureDeclaredTargetKind = "entity" | "relation" | "constraint";
+export type ArchitectureCandidateChangeTargetKind = "node" | "relation" | "constraint" | "owner" | "lifecycle" | "migration-state";
+export type ArchitectureDeltaMappingMatchReason =
+  | "declared-path-exact"
+  | "declared-path-prefix"
+  | "declared-name-match"
+  | "declared-relation-endpoints"
+  | "declared-constraint-subject";
+export type ArchitectureDeltaMappingAmbiguityReason =
+  | "declared-graph-unavailable"
+  | "no-declared-target"
+  | "multiple-declared-targets"
+  | "relation-endpoint-unmapped";
+export type ArchitectureCandidateChangeKind =
+  | "node-added"
+  | "node-removed"
+  | "node-moved"
+  | "node-renamed"
+  | "node-materially-changed"
+  | "relation-added"
+  | "relation-removed"
+  | "relation-moved"
+  | "relation-renamed"
+  | "relation-materially-changed"
+  | "constraint-added"
+  | "constraint-removed"
+  | "constraint-moved"
+  | "constraint-renamed"
+  | "constraint-materially-changed"
+  | "owner-added"
+  | "owner-removed"
+  | "owner-moved"
+  | "owner-renamed"
+  | "owner-materially-changed"
+  | "lifecycle-added"
+  | "lifecycle-removed"
+  | "lifecycle-moved"
+  | "lifecycle-renamed"
+  | "lifecycle-materially-changed"
+  | "migration-state-added"
+  | "migration-state-removed"
+  | "migration-state-moved"
+  | "migration-state-renamed"
+  | "migration-state-materially-changed";
 
 export interface ArchitectureRepositoryIdentityV1 {
   repositoryId: string;
@@ -213,6 +257,60 @@ export interface ArchitectureDeltaInterpretationV1 {
   extensions?: Record<string, Json>;
 }
 
+export interface ArchitectureDeltaDeclaredSubjectMappingV1 {
+  mappingId: string;
+  subjectSelectorId: string;
+  target: {
+    kind: ArchitectureDeclaredTargetKind;
+    id: string;
+  };
+  matchReason: ArchitectureDeltaMappingMatchReason;
+  confidence: "low" | "medium" | "high";
+  evidenceIds: string[];
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureDeltaMappingCandidateV1 {
+  target: {
+    kind: ArchitectureDeclaredTargetKind;
+    id: string;
+  };
+  matchReason: ArchitectureDeltaMappingMatchReason;
+  confidence: "low" | "medium" | "high";
+}
+
+export interface ArchitectureDeltaMappingAmbiguityV1 {
+  ambiguityId: string;
+  subjectSelectorId: string;
+  reasonCode: ArchitectureDeltaMappingAmbiguityReason;
+  candidateTargets: ArchitectureDeltaMappingCandidateV1[];
+  evidenceIds: string[];
+  summary: string;
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureCandidateChangeV1 {
+  candidateChangeId: string;
+  kind: ArchitectureCandidateChangeKind;
+  target: {
+    kind: ArchitectureCandidateChangeTargetKind;
+    id: string;
+    parentId?: string;
+  };
+  changeKind: ArchitectureCodeChangeKind;
+  subjectSelectorIds: string[];
+  mappingIds: string[];
+  ambiguityIds: string[];
+  evidenceIds: string[];
+  confidence: "low" | "medium" | "high";
+  heuristic: true;
+  summary: string;
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
 export interface ArchitectureCandidateDeltaV1 {
   schemaVersion: typeof ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION;
   deltaId: string;
@@ -231,6 +329,9 @@ export interface ArchitectureCandidateDeltaV1 {
   changedSubjects: ArchitectureDeltaChangedSubjectV1[];
   rawFacts: ArchitectureDeltaRawFactV1[];
   interpretations: ArchitectureDeltaInterpretationV1[];
+  declaredSubjectMappings: ArchitectureDeltaDeclaredSubjectMappingV1[];
+  mappingAmbiguities: ArchitectureDeltaMappingAmbiguityV1[];
+  candidateChanges: ArchitectureCandidateChangeV1[];
   evidenceItems: EvidenceItemV2[];
   evidenceBindings: EvidenceBindingV1[];
   summary: {
@@ -240,6 +341,9 @@ export interface ArchitectureCandidateDeltaV1 {
     renamed: number;
     materiallyChanged: number;
     unresolved: number;
+    mapped: number;
+    ambiguous: number;
+    candidateChanges: number;
   };
   deltaDigest: string;
   extensions?: Record<string, Json>;

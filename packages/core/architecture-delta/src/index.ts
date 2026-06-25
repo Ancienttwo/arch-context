@@ -7,11 +7,19 @@ import {
   architectureSubjectSelectorDigest,
   digestJson,
   isRepoRelativePosixPath,
+  type ArchitectureCandidateChangeKind,
+  type ArchitectureCandidateChangeTargetKind,
+  type ArchitectureCandidateChangeV1,
   type ArchitectureCandidateDeltaV1,
   type ArchitectureCodeChangeKind,
+  type ArchitectureDeclaredTargetKind,
   type ArchitectureDeltaChangedSubjectV1,
   type ArchitectureDeltaInterpretationKind,
   type ArchitectureDeltaInterpretationV1,
+  type ArchitectureDeltaMappingAmbiguityReason,
+  type ArchitectureDeltaMappingAmbiguityV1,
+  type ArchitectureDeltaDeclaredSubjectMappingV1,
+  type ArchitectureDeltaMappingMatchReason,
   type ArchitectureDeltaRawFactKind,
   type ArchitectureDeltaRawFactV1,
   type ArchitectureRepositoryIdentityV1,
@@ -55,11 +63,48 @@ export interface ArchitectureDeltaGitChangeMetadata {
   metadataDigest: string;
 }
 
+export interface ArchitectureDeltaDeclaredEntity {
+  entityId: string;
+  kind: string;
+  canonicalName: string;
+  status: "active" | "deprecated" | "removed";
+  path?: string;
+  summary?: string;
+  metadata?: Record<string, Json>;
+}
+
+export interface ArchitectureDeltaDeclaredRelation {
+  relationId: string;
+  kind: string;
+  sourceEntityId: string;
+  targetEntityId: string;
+  status: "active" | "deprecated" | "removed";
+  summary?: string;
+  metadata?: Record<string, Json>;
+}
+
+export interface ArchitectureDeltaDeclaredConstraint {
+  constraintId: string;
+  kind: string;
+  subjectId: string;
+  status: "active" | "deprecated" | "removed";
+  severity?: "notice" | "warning" | "error" | "critical";
+  summary?: string;
+  metadata?: Record<string, Json>;
+}
+
+export interface ArchitectureDeltaDeclaredGraph {
+  entities: ArchitectureDeltaDeclaredEntity[];
+  relations: ArchitectureDeltaDeclaredRelation[];
+  constraints: ArchitectureDeltaDeclaredConstraint[];
+}
+
 export interface BuildArchitectureCandidateDeltaInput {
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
   git: ArchitectureDeltaGitChangeMetadata;
   codeContext: NormalizedCodeContext;
+  declaredGraph?: ArchitectureDeltaDeclaredGraph;
   codeFactsDigest?: string;
   createdAt?: string;
   provenance?: Partial<LedgerProvenanceV1>;
@@ -72,6 +117,19 @@ interface MutableBuildState {
   evidenceBindings: Map<string, EvidenceBindingV1>;
   changedSubjects: Map<string, ArchitectureDeltaChangedSubjectV1>;
   interpretations: Map<string, ArchitectureDeltaInterpretationV1>;
+  declaredSubjectMappings: Map<string, ArchitectureDeltaDeclaredSubjectMappingV1>;
+  mappingAmbiguities: Map<string, ArchitectureDeltaMappingAmbiguityV1>;
+  candidateChanges: Map<string, ArchitectureCandidateChangeV1>;
+}
+
+interface MappingCandidate {
+  target: {
+    kind: ArchitectureDeclaredTargetKind;
+    id: string;
+  };
+  matchReason: ArchitectureDeltaMappingMatchReason;
+  confidence: "low" | "medium" | "high";
+  score: number;
 }
 
 const DEFAULT_CREATED_AT = "1970-01-01T00:00:00.000Z";
@@ -98,7 +156,10 @@ export function buildArchitectureCandidateDelta(input: BuildArchitectureCandidat
     evidenceItems: new Map(),
     evidenceBindings: new Map(),
     changedSubjects: new Map(),
-    interpretations: new Map()
+    interpretations: new Map(),
+    declaredSubjectMappings: new Map(),
+    mappingAmbiguities: new Map(),
+    candidateChanges: new Map()
   };
   const normalizedPathChanges = normalizePathChanges(input.git.paths);
   const changeByPath = new Map(normalizedPathChanges.map((change) => [change.path, change]));
@@ -168,12 +229,20 @@ export function buildArchitectureCandidateDelta(input: BuildArchitectureCandidat
     });
   }
 
+  addDeclaredArchitectureMappings({
+    state,
+    declaredGraph: input.declaredGraph,
+    createdAt,
+    provenance
+  });
+
   const deltaId = `delta.${shortDigest(inputDigest)}`;
   for (const evidence of state.evidenceItems.values()) {
     const binding = createEvidenceBinding({
       bindingId: `binding.${shortDigest(digestJson({ evidenceId: evidence.evidenceId, deltaId } as unknown as Json))}`,
       evidenceId: evidence.evidenceId,
       target: { kind: "candidate-delta", id: deltaId },
+      bindingReason: "change-cursor",
       createdAt,
       provenance
     });
@@ -198,9 +267,12 @@ export function buildArchitectureCandidateDelta(input: BuildArchitectureCandidat
     changedSubjects: sortBy([...state.changedSubjects.values()], (subject) => subject.subjectSelectorId),
     rawFacts: sortBy([...state.rawFacts.values()], (fact) => fact.factId),
     interpretations: sortBy([...state.interpretations.values()], (interpretation) => interpretation.interpretationId),
+    declaredSubjectMappings: sortBy([...state.declaredSubjectMappings.values()], (mapping) => mapping.mappingId),
+    mappingAmbiguities: sortBy([...state.mappingAmbiguities.values()], (ambiguity) => ambiguity.ambiguityId),
+    candidateChanges: sortBy([...state.candidateChanges.values()], (change) => change.candidateChangeId),
     evidenceItems: sortBy([...state.evidenceItems.values()], (evidence) => evidence.evidenceId),
     evidenceBindings: sortBy([...state.evidenceBindings.values()], (binding) => binding.bindingId),
-    summary: summarizeChangedSubjects([...state.changedSubjects.values()]),
+    summary: summarizeDelta(state),
     deltaDigest: ""
   };
   return {
@@ -273,10 +345,271 @@ function addChangedSubjectWithEvidence(input: {
     bindingId: `binding.${shortDigest(digestJson({ evidenceId, selectorId: input.selector.selectorId } as unknown as Json))}`,
     evidenceId,
     target: { kind: "subject", id: input.selector.selectorId },
+    bindingReason: "change-cursor",
     createdAt: input.createdAt,
     provenance: input.provenance
   });
   input.state.evidenceBindings.set(binding.bindingId, binding);
+}
+
+function addDeclaredArchitectureMappings(input: {
+  state: MutableBuildState;
+  declaredGraph: ArchitectureDeltaDeclaredGraph | undefined;
+  createdAt: string;
+  provenance: LedgerProvenanceV1;
+}): void {
+  const changedSubjects = sortBy([...input.state.changedSubjects.values()], (subject) => subject.subjectSelectorId);
+  for (const changedSubject of changedSubjects) {
+    const selector = input.state.selectors.get(changedSubject.subjectSelectorId);
+    if (!selector) continue;
+    if (!input.declaredGraph) {
+      addMappingAmbiguity({
+        state: input.state,
+        selector,
+        changedSubject,
+        reasonCode: "declared-graph-unavailable",
+        candidateTargets: [],
+        summary: "Declared architecture graph was not provided, so code subject mapping is unresolved."
+      });
+      continue;
+    }
+
+    const candidates = bestMappingCandidates(mappingCandidatesForSelector(selector, input.declaredGraph));
+    if (candidates.length === 0) {
+      addMappingAmbiguity({
+        state: input.state,
+        selector,
+        changedSubject,
+        reasonCode: selector.kind === "relation" ? "relation-endpoint-unmapped" : "no-declared-target",
+        candidateTargets: [],
+        summary: "Changed code subject does not map to a declared architecture target."
+      });
+      continue;
+    }
+    if (candidates.length > 1) {
+      addMappingAmbiguity({
+        state: input.state,
+        selector,
+        changedSubject,
+        reasonCode: "multiple-declared-targets",
+        candidateTargets: candidates,
+        summary: "Changed code subject maps to multiple declared architecture targets with equal confidence."
+      });
+      continue;
+    }
+
+    const mapping = addDeclaredSubjectMapping({
+      state: input.state,
+      selector,
+      changedSubject,
+      candidate: candidates[0]!,
+      createdAt: input.createdAt,
+      provenance: input.provenance
+    });
+    addCandidateChangesForMapping({
+      state: input.state,
+      graph: input.declaredGraph,
+      changedSubject,
+      mapping
+    });
+  }
+}
+
+function addDeclaredSubjectMapping(input: {
+  state: MutableBuildState;
+  selector: ArchitectureSubjectSelectorV1;
+  changedSubject: ArchitectureDeltaChangedSubjectV1;
+  candidate: MappingCandidate;
+  createdAt: string;
+  provenance: LedgerProvenanceV1;
+}): ArchitectureDeltaDeclaredSubjectMappingV1 {
+  const mappingId = `mapping.${shortDigest(digestJson({
+    subjectSelectorId: input.selector.selectorId,
+    target: input.candidate.target,
+    matchReason: input.candidate.matchReason
+  } as unknown as Json))}`;
+  const draft: ArchitectureDeltaDeclaredSubjectMappingV1 = {
+    mappingId,
+    subjectSelectorId: input.selector.selectorId,
+    target: input.candidate.target,
+    matchReason: input.candidate.matchReason,
+    confidence: input.candidate.confidence,
+    evidenceIds: uniqueSorted(input.changedSubject.evidenceIds),
+    digest: ""
+  };
+  const mapping = {
+    ...draft,
+    digest: declaredSubjectMappingDigest(draft)
+  };
+  input.state.declaredSubjectMappings.set(mapping.mappingId, mapping);
+
+  for (const evidenceId of mapping.evidenceIds) {
+    const binding = createEvidenceBinding({
+      bindingId: `binding.${shortDigest(digestJson({ evidenceId, mappingId, target: mapping.target } as unknown as Json))}`,
+      evidenceId,
+      target: mapping.target,
+      bindingReason: "deterministic-check",
+      createdAt: input.createdAt,
+      provenance: input.provenance
+    });
+    input.state.evidenceBindings.set(binding.bindingId, binding);
+  }
+
+  return mapping;
+}
+
+function addMappingAmbiguity(input: {
+  state: MutableBuildState;
+  selector: ArchitectureSubjectSelectorV1;
+  changedSubject: ArchitectureDeltaChangedSubjectV1;
+  reasonCode: ArchitectureDeltaMappingAmbiguityReason;
+  candidateTargets: MappingCandidate[];
+  summary: string;
+}): ArchitectureDeltaMappingAmbiguityV1 {
+  const ambiguityId = `ambiguity.${shortDigest(digestJson({
+    subjectSelectorId: input.selector.selectorId,
+    reasonCode: input.reasonCode,
+    candidateTargets: input.candidateTargets.map(mappingCandidateDigestInput)
+  } as unknown as Json))}`;
+  const draft: ArchitectureDeltaMappingAmbiguityV1 = {
+    ambiguityId,
+    subjectSelectorId: input.selector.selectorId,
+    reasonCode: input.reasonCode,
+    candidateTargets: input.candidateTargets.map((candidate) => ({
+      target: candidate.target,
+      matchReason: candidate.matchReason,
+      confidence: candidate.confidence
+    })),
+    evidenceIds: uniqueSorted(input.changedSubject.evidenceIds),
+    summary: input.summary,
+    digest: ""
+  };
+  const ambiguity = {
+    ...draft,
+    digest: mappingAmbiguityDigest(draft)
+  };
+  input.state.mappingAmbiguities.set(ambiguity.ambiguityId, ambiguity);
+  return ambiguity;
+}
+
+function addCandidateChangesForMapping(input: {
+  state: MutableBuildState;
+  graph: ArchitectureDeltaDeclaredGraph;
+  changedSubject: ArchitectureDeltaChangedSubjectV1;
+  mapping: ArchitectureDeltaDeclaredSubjectMappingV1;
+}): void {
+  if (input.mapping.target.kind === "entity") {
+    const entity = input.graph.entities.find((candidate) => candidate.entityId === input.mapping.target.id);
+    addCandidateChange({
+      state: input.state,
+      targetKind: "node",
+      targetId: input.mapping.target.id,
+      changeKind: input.changedSubject.changeKind,
+      changedSubject: input.changedSubject,
+      mapping: input.mapping,
+      summary: `Declared architecture node ${input.mapping.target.id} may be ${candidateChangeVerb(input.changedSubject.changeKind)} by changed code.`
+    });
+    for (const constraint of constraintsForSubject(input.graph, input.mapping.target.id)) {
+      addCandidateChange({
+        state: input.state,
+        targetKind: "constraint",
+        targetId: constraint.constraintId,
+        parentId: input.mapping.target.id,
+        changeKind: input.changedSubject.changeKind,
+        changedSubject: input.changedSubject,
+        mapping: input.mapping,
+        summary: `Declared constraint ${constraint.constraintId} is attached to changed architecture node ${input.mapping.target.id}.`
+      });
+    }
+    if (entity && hasOwnerDimension(entity, input.graph)) {
+      addCandidateChange({
+        state: input.state,
+        targetKind: "owner",
+        targetId: `${input.mapping.target.id}:owner`,
+        parentId: input.mapping.target.id,
+        changeKind: input.changedSubject.changeKind,
+        changedSubject: input.changedSubject,
+        mapping: input.mapping,
+        summary: `Ownership metadata for ${input.mapping.target.id} may need review after the code change.`
+      });
+    }
+    if (entity && hasLifecycleDimension(entity, input.changedSubject.changeKind)) {
+      addCandidateChange({
+        state: input.state,
+        targetKind: "lifecycle",
+        targetId: `${input.mapping.target.id}:lifecycle`,
+        parentId: input.mapping.target.id,
+        changeKind: input.changedSubject.changeKind,
+        changedSubject: input.changedSubject,
+        mapping: input.mapping,
+        summary: `Lifecycle state for ${input.mapping.target.id} may need review after the code change.`
+      });
+    }
+    if (entity && hasMigrationStateDimension(entity, input.graph)) {
+      addCandidateChange({
+        state: input.state,
+        targetKind: "migration-state",
+        targetId: `${input.mapping.target.id}:migration-state`,
+        parentId: input.mapping.target.id,
+        changeKind: input.changedSubject.changeKind,
+        changedSubject: input.changedSubject,
+        mapping: input.mapping,
+        summary: `Migration state for ${input.mapping.target.id} may need review after the code change.`
+      });
+    }
+    return;
+  }
+
+  addCandidateChange({
+    state: input.state,
+    targetKind: input.mapping.target.kind,
+    targetId: input.mapping.target.id,
+    changeKind: input.changedSubject.changeKind,
+    changedSubject: input.changedSubject,
+    mapping: input.mapping,
+    summary: `Declared architecture ${input.mapping.target.kind} ${input.mapping.target.id} may be ${candidateChangeVerb(input.changedSubject.changeKind)} by changed code.`
+  });
+}
+
+function addCandidateChange(input: {
+  state: MutableBuildState;
+  targetKind: ArchitectureCandidateChangeTargetKind;
+  targetId: string;
+  parentId?: string;
+  changeKind: ArchitectureCodeChangeKind;
+  changedSubject: ArchitectureDeltaChangedSubjectV1;
+  mapping: ArchitectureDeltaDeclaredSubjectMappingV1;
+  summary: string;
+}): void {
+  const candidateChangeId = `candidate_change.${shortDigest(digestJson({
+    targetKind: input.targetKind,
+    targetId: input.targetId,
+    changeKind: input.changeKind,
+    mappingId: input.mapping.mappingId
+  } as unknown as Json))}`;
+  const existing = input.state.candidateChanges.get(candidateChangeId);
+  const draft: ArchitectureCandidateChangeV1 = {
+    candidateChangeId,
+    kind: candidateChangeKind(input.targetKind, input.changeKind),
+    target: {
+      kind: input.targetKind,
+      id: input.targetId,
+      ...(input.parentId ? { parentId: input.parentId } : {})
+    },
+    changeKind: input.changeKind,
+    subjectSelectorIds: uniqueSorted([...(existing?.subjectSelectorIds ?? []), input.changedSubject.subjectSelectorId]),
+    mappingIds: uniqueSorted([...(existing?.mappingIds ?? []), input.mapping.mappingId]),
+    ambiguityIds: existing?.ambiguityIds ?? [],
+    evidenceIds: uniqueSorted([...(existing?.evidenceIds ?? []), ...input.changedSubject.evidenceIds]),
+    confidence: input.mapping.confidence,
+    heuristic: true,
+    summary: input.summary,
+    digest: ""
+  };
+  input.state.candidateChanges.set(candidateChangeId, {
+    ...draft,
+    digest: candidateChangeDigest(draft)
+  });
 }
 
 function addPathSelector(state: MutableBuildState, repositoryId: string, path: string): ArchitectureSubjectSelectorV1 {
@@ -380,6 +713,7 @@ function createEvidenceBinding(input: {
   bindingId: string;
   evidenceId: string;
   target: EvidenceBindingV1["target"];
+  bindingReason: EvidenceBindingV1["bindingReason"];
   createdAt: string;
   provenance: LedgerProvenanceV1;
 }): EvidenceBindingV1 {
@@ -388,11 +722,139 @@ function createEvidenceBinding(input: {
     bindingId: input.bindingId,
     evidenceId: input.evidenceId,
     target: input.target,
-    bindingReason: "change-cursor",
+    bindingReason: input.bindingReason,
     authorityEffect: "context-only",
     createdAt: input.createdAt,
     provenance: input.provenance
   };
+}
+
+function mappingCandidatesForSelector(selector: ArchitectureSubjectSelectorV1, graph: ArchitectureDeltaDeclaredGraph): MappingCandidate[] {
+  if (selector.kind === "path" || selector.kind === "symbol") return entityMappingCandidates(selector, graph);
+  if (selector.kind === "relation" && selector.relation) return relationMappingCandidates(selector.relation, graph);
+  if (selector.kind === "node") return directTargetCandidates(selector, graph.entities.map((entity) => ({ kind: "entity" as const, id: entity.entityId })));
+  return [];
+}
+
+function entityMappingCandidates(selector: ArchitectureSubjectSelectorV1, graph: ArchitectureDeltaDeclaredGraph): MappingCandidate[] {
+  const path = selector.path ? normalizeRepoPath(selector.path) : undefined;
+  const candidates: MappingCandidate[] = [];
+  for (const entity of graph.entities.filter((candidate) => candidate.status !== "removed")) {
+    const entityPath = entity.path ? normalizeRepoPath(entity.path) : undefined;
+    if (path && entityPath && path === entityPath) {
+      candidates.push(entityCandidate(entity, "declared-path-exact", "high", 100));
+      continue;
+    }
+    if (path && entityPath && pathIsWithin(path, entityPath)) {
+      candidates.push(entityCandidate(entity, "declared-path-prefix", "medium", 80 + segmentCount(entityPath)));
+      continue;
+    }
+    if (selector.kind === "symbol" && selector.name && declaredNameMatches(selector.name, entity)) {
+      candidates.push(entityCandidate(entity, "declared-name-match", "medium", 70));
+    }
+  }
+  return candidates;
+}
+
+function relationMappingCandidates(relation: NonNullable<ArchitectureSubjectSelectorV1["relation"]>, graph: ArchitectureDeltaDeclaredGraph): MappingCandidate[] {
+  const source = endpointEntityCandidates(relation.source, graph);
+  const target = endpointEntityCandidates(relation.target, graph);
+  if (source.length !== 1 || target.length !== 1) return [];
+  const sourceId = source[0]!.target.id;
+  const targetId = target[0]!.target.id;
+  return graph.relations
+    .filter((candidate) => candidate.status !== "removed")
+    .filter((candidate) => candidate.sourceEntityId === sourceId && candidate.targetEntityId === targetId)
+    .filter((candidate) => relationKindCompatible(relation.kind, candidate.kind))
+    .map((candidate) => ({
+      target: { kind: "relation" as const, id: candidate.relationId },
+      matchReason: "declared-relation-endpoints" as const,
+      confidence: relation.kind === candidate.kind ? "high" as const : "medium" as const,
+      score: relation.kind === candidate.kind ? 100 : 85
+    }));
+}
+
+function endpointEntityCandidates(endpoint: string, graph: ArchitectureDeltaDeclaredGraph): MappingCandidate[] {
+  const endpointPath = endpoint.startsWith("file:") ? normalizeRepoPath(endpoint.slice("file:".length)) : undefined;
+  if (!endpointPath) return graph.entities
+    .filter((entity) => endpoint === entity.entityId)
+    .map((entity) => entityCandidate(entity, "declared-name-match", "high", 95));
+  return bestMappingCandidates(entityMappingCandidates({
+    schemaVersion: ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION,
+    selectorId: `endpoint.${shortDigest(digestJson({ endpoint } as unknown as Json))}`,
+    kind: "path",
+    repositoryId: "endpoint",
+    stableKey: `path:${endpointPath}`,
+    path: endpointPath,
+    digest: ""
+  }, graph));
+}
+
+function directTargetCandidates(
+  selector: ArchitectureSubjectSelectorV1,
+  targets: { kind: ArchitectureDeclaredTargetKind; id: string }[]
+): MappingCandidate[] {
+  return targets
+    .filter((target) => selector.externalId === target.id || selector.name === target.id)
+    .map((target) => ({ target, matchReason: "declared-name-match", confidence: "high", score: 100 }));
+}
+
+function entityCandidate(
+  entity: ArchitectureDeltaDeclaredEntity,
+  matchReason: ArchitectureDeltaMappingMatchReason,
+  confidence: "low" | "medium" | "high",
+  score: number
+): MappingCandidate {
+  return {
+    target: { kind: "entity", id: entity.entityId },
+    matchReason,
+    confidence,
+    score
+  };
+}
+
+function bestMappingCandidates(candidates: MappingCandidate[]): MappingCandidate[] {
+  if (candidates.length === 0) return [];
+  const sorted = sortBy(candidates, (candidate) =>
+    `${String(1000 - candidate.score).padStart(4, "0")}:${candidate.target.kind}:${candidate.target.id}:${candidate.matchReason}`
+  );
+  const bestScore = sorted[0]!.score;
+  return sorted.filter((candidate) => candidate.score === bestScore);
+}
+
+function constraintsForSubject(graph: ArchitectureDeltaDeclaredGraph, subjectId: string): ArchitectureDeltaDeclaredConstraint[] {
+  return graph.constraints
+    .filter((constraint) => constraint.status !== "removed")
+    .filter((constraint) => constraint.subjectId === subjectId)
+    .sort((left, right) => left.constraintId.localeCompare(right.constraintId));
+}
+
+function hasOwnerDimension(entity: ArchitectureDeltaDeclaredEntity, graph: ArchitectureDeltaDeclaredGraph): boolean {
+  return hasMetadataKey(entity.metadata, ["owner", "ownerId", "owners"]) ||
+    constraintsForSubject(graph, entity.entityId).some((constraint) => constraint.kind.includes("owner"));
+}
+
+function hasLifecycleDimension(entity: ArchitectureDeltaDeclaredEntity, changeKind: ArchitectureCodeChangeKind): boolean {
+  return entity.status !== "active" ||
+    changeKind === "added" ||
+    changeKind === "removed" ||
+    hasMetadataKey(entity.metadata, ["lifecycle", "lifecycleState", "stage"]);
+}
+
+function hasMigrationStateDimension(entity: ArchitectureDeltaDeclaredEntity, graph: ArchitectureDeltaDeclaredGraph): boolean {
+  return hasMetadataKey(entity.metadata, ["migration", "migrationState", "migrationPhase"]) ||
+    constraintsForSubject(graph, entity.entityId).some((constraint) => constraint.kind.includes("migration"));
+}
+
+function hasMetadataKey(metadata: Record<string, Json> | undefined, keys: string[]): boolean {
+  if (!metadata) return false;
+  return keys.some((key) => metadata[key] !== undefined);
+}
+
+function relationKindCompatible(observed: string, declared: string): boolean {
+  if (observed === declared) return true;
+  if (observed === "imports") return ["depends_on", "depends-on", "calls", "uses", "imports"].includes(declared);
+  return false;
 }
 
 function createInterpretation(input: {
@@ -480,6 +942,19 @@ function interpretationKind(changeKind: ArchitectureCodeChangeKind): Architectur
   return "code-subject-materially-changed";
 }
 
+function candidateChangeKind(
+  targetKind: ArchitectureCandidateChangeTargetKind,
+  changeKind: ArchitectureCodeChangeKind
+): ArchitectureCandidateChangeKind {
+  const suffix = changeKind.replace("_", "-");
+  return `${targetKind}-${suffix}` as ArchitectureCandidateChangeKind;
+}
+
+function candidateChangeVerb(changeKind: ArchitectureCodeChangeKind): string {
+  if (changeKind === "materially_changed") return "materially changed";
+  return changeKind;
+}
+
 function evidenceSelector(selector: ArchitectureSubjectSelectorV1): EvidenceItemV2["selector"] {
   if (selector.kind === "symbol") {
     return {
@@ -495,14 +970,18 @@ function evidenceSelector(selector: ArchitectureSubjectSelectorV1): EvidenceItem
   return { kind: selector.kind === "path" ? "path" : "event", id: selector.selectorId, path: selector.path };
 }
 
-function summarizeChangedSubjects(subjects: ArchitectureDeltaChangedSubjectV1[]): ArchitectureCandidateDeltaV1["summary"] {
+function summarizeDelta(state: MutableBuildState): ArchitectureCandidateDeltaV1["summary"] {
+  const subjects = [...state.changedSubjects.values()];
   return {
     added: subjects.filter((subject) => subject.changeKind === "added").length,
     removed: subjects.filter((subject) => subject.changeKind === "removed").length,
     moved: subjects.filter((subject) => subject.changeKind === "moved").length,
     renamed: subjects.filter((subject) => subject.changeKind === "renamed").length,
     materiallyChanged: subjects.filter((subject) => subject.changeKind === "materially_changed").length,
-    unresolved: subjects.filter((subject) => subject.evidenceIds.length === 0).length
+    unresolved: state.mappingAmbiguities.size,
+    mapped: state.declaredSubjectMappings.size,
+    ambiguous: state.mappingAmbiguities.size,
+    candidateChanges: state.candidateChanges.size
   };
 }
 
@@ -544,8 +1023,52 @@ function interpretationDigest(interpretation: ArchitectureDeltaInterpretationV1)
   return digestJson(hashable as unknown as Json);
 }
 
+function declaredSubjectMappingDigest(mapping: ArchitectureDeltaDeclaredSubjectMappingV1): string {
+  const { digest: _digest, extensions: _extensions, ...hashable } = mapping;
+  return digestJson(hashable as unknown as Json);
+}
+
+function mappingAmbiguityDigest(ambiguity: ArchitectureDeltaMappingAmbiguityV1): string {
+  const { digest: _digest, extensions: _extensions, ...hashable } = ambiguity;
+  return digestJson(hashable as unknown as Json);
+}
+
+function candidateChangeDigest(change: ArchitectureCandidateChangeV1): string {
+  const { digest: _digest, extensions: _extensions, ...hashable } = change;
+  return digestJson(hashable as unknown as Json);
+}
+
+function mappingCandidateDigestInput(candidate: MappingCandidate): Json {
+  return {
+    target: candidate.target,
+    matchReason: candidate.matchReason,
+    confidence: candidate.confidence
+  } as unknown as Json;
+}
+
 function shortDigest(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
+}
+
+function pathIsWithin(path: string, declaredPath: string): boolean {
+  return path === declaredPath || path.startsWith(`${declaredPath.replace(/\/+$/, "")}/`);
+}
+
+function segmentCount(path: string): number {
+  return normalizeRepoPath(path).split("/").filter(Boolean).length;
+}
+
+function declaredNameMatches(symbolName: string, entity: ArchitectureDeltaDeclaredEntity): boolean {
+  const symbol = stableName(symbolName);
+  if (!symbol) return false;
+  return [entity.entityId, entity.canonicalName, entity.kind]
+    .map(stableName)
+    .filter(Boolean)
+    .some((candidate) => symbol === candidate || symbol.endsWith(candidate));
+}
+
+function stableName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function basename(path: string): string {

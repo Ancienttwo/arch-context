@@ -142,6 +142,35 @@ process.exit(2);
           worktreeDigest: digestJson({ worktree: root } as unknown as Json)
         },
         git,
+        declaredGraph: {
+          entities: [
+            {
+              entityId: "module.web",
+              kind: "module",
+              canonicalName: "Web",
+              status: "active",
+              path: "src/web",
+              metadata: { owner: "team.web" }
+            },
+            {
+              entityId: "module.domain",
+              kind: "module",
+              canonicalName: "Domain",
+              status: "active",
+              path: "src/domain"
+            }
+          ],
+          relations: [
+            {
+              relationId: "relation.web-domain",
+              kind: "depends_on",
+              sourceEntityId: "module.web",
+              targetEntityId: "module.domain",
+              status: "active"
+            }
+          ],
+          constraints: []
+        },
         createdAt: "2026-06-25T04:10:00.000Z"
       });
 
@@ -155,6 +184,9 @@ process.exit(2);
       expect(delta.subjectSelectors.some((selector) => selector.kind === "path" && selector.path === "src/web/page.ts")).toBe(true);
       expect(delta.subjectSelectors.some((selector) => selector.kind === "symbol" && selector.path === "src/web/page.ts")).toBe(true);
       expect(delta.subjectSelectors.some((selector) => selector.kind === "relation")).toBe(true);
+      expect(delta.declaredSubjectMappings.some((mapping) => mapping.target.kind === "entity" && mapping.target.id === "module.web")).toBe(true);
+      expect(delta.declaredSubjectMappings.some((mapping) => mapping.target.kind === "relation" && mapping.target.id === "relation.web-domain")).toBe(true);
+      expect(delta.candidateChanges.some((change) => change.kind === "node-materially-changed" && change.target.id === "module.web")).toBe(true);
       expect(delta.interpretations.every((interpretation) => interpretation.evidenceIds.length > 0)).toBe(true);
       expect(delta.evidenceBindings.some((binding) => binding.target.kind === "candidate-delta")).toBe(true);
     } finally {
