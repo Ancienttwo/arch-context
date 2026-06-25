@@ -792,8 +792,55 @@ describe("@archcontext/core/practice-engine", () => {
     });
 
     expect(evaluation.violations).toEqual([]);
+    expect(evaluation.nonBlockingViolations).toEqual([]);
     expect(evaluation.results).toEqual([]);
+    expect(evaluation.policyMode).toBe("advisory");
+    expect(evaluation.blocking).toBe(false);
     expect(evaluation.policyDigest).toMatch(/^sha256:/);
+  });
+
+  test("explicit fail-open evaluates complete checks without blocking completion", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const policy: PracticeEnforcementPolicyV1 = {
+      ...completePolicy("modularity.no-new-cycle", "no-new-cycle"),
+      mode: "fail-open"
+    };
+    const evaluation = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b", "module.b->module.a"])],
+      previousMatches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])]
+    });
+
+    expect(evaluation.policyMode).toBe("fail-open");
+    expect(evaluation.blocking).toBe(false);
+    expect(evaluation.results).toHaveLength(1);
+    expect(evaluation.results[0].status).toBe("fail");
+    expect(evaluation.violations).toEqual([]);
+    expect(evaluation.nonBlockingViolations).toHaveLength(1);
+    expect(evaluation.actionsRequired).toEqual([]);
+  });
+
+  test("explicit fail-closed blocks complete on deterministic violations", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const policy: PracticeEnforcementPolicyV1 = {
+      ...completePolicy("modularity.no-new-cycle", "no-new-cycle"),
+      mode: "fail-closed"
+    };
+    const evaluation = evaluatePracticeEnforcement({
+      catalog,
+      policy,
+      matches: [cycleMatch(asset.assetDigest, ["module.a->module.b", "module.b->module.a"])],
+      previousMatches: [cycleMatch(asset.assetDigest, ["module.a->module.b"])]
+    });
+
+    expect(evaluation.policyMode).toBe("fail-closed");
+    expect(evaluation.blocking).toBe(true);
+    expect(evaluation.violations).toHaveLength(1);
+    expect(evaluation.nonBlockingViolations).toEqual([]);
+    expect(evaluation.actionsRequired).toEqual(["remove-new-import-cycle-or-add-a-more-specific-boundary"]);
   });
 
   test("registered complete checker blocks only new cycle evidence", () => {
@@ -1153,6 +1200,13 @@ describe("@archcontext/core/practice-engine", () => {
       }]
     };
     expect(validatePracticeEnforcementPolicy(policy)).toBe(policy);
+    for (const mode of ["advisory", "active", "fail-open", "fail-closed"] as const) {
+      expect(validatePracticeEnforcementPolicy({ ...policy, mode } as PracticeEnforcementPolicyV1).mode).toBe(mode);
+    }
+    expect(() => validatePracticeEnforcementPolicy({
+      ...policy,
+      mode: "enforce" as any
+    })).toThrow("practice-policy-mode-invalid");
     expect(() => validatePracticeEnforcementPolicy({
       ...policy,
       rules: [{ ...policy.rules[0], testEvidence: { commands: [], subjects: [] } }]

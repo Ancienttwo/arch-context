@@ -155,6 +155,15 @@ describe("JSON schema contracts", () => {
     }
   });
 
+  test("practice policy schema accepts explicit fail-open and fail-closed modes", () => {
+    const schema = readJson("schemas/repo/practices/practice-policy.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/practice-policy.json") as Record<string, Json>;
+
+    expect(validateJsonSchema(schema as any, { ...fixture, mode: "fail-open" } as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, mode: "fail-closed" } as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, mode: "enforce" } as Json).valid).toBe(false);
+  });
+
   test("runner identity scope schema keeps repository and organization shapes disjoint", () => {
     const schema = readJson("schemas/cloud/runner-identity.schema.json");
     const fixture = readJson("packages/contracts/fixtures/valid/runner-identity.json") as Record<string, Json>;

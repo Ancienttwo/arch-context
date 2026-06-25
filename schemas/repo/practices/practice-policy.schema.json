@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "mode", "rules"],
   "properties": {
     "schemaVersion": { "const": "archcontext.practice-enforcement-policy/v1" },
-    "mode": { "type": "string", "enum": ["advisory", "active"] },
+    "mode": { "type": "string", "enum": ["advisory", "active", "fail-open", "fail-closed"] },
     "rules": {
       "type": "array",
       "items": {

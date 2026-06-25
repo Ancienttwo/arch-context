@@ -57,6 +57,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
     findings.push({ id: "cleanup-incomplete", type: "incomplete-intervention", severity: "error", message: "Intervention cleanup is incomplete." });
   }
   const practiceViolations = staleContext ? [] : input.practiceEnforcement?.violations ?? [];
+  const nonBlockingPracticeViolations = staleContext ? [] : input.practiceEnforcement?.nonBlockingViolations ?? [];
   const waiversApplied = staleContext ? [] : input.practiceEnforcement?.waiversApplied ?? [];
   const actionsRequired = staleContext ? [] : input.practiceEnforcement?.actionsRequired ?? [];
   const { practiceFindings, suppressedPracticeFindings } = dedupePracticeFindings(
@@ -71,7 +72,13 @@ export function completeTaskGate(input: CompleteTaskInput) {
     })),
     findings
   );
-  findings.push(...practiceFindings);
+  const advisoryPracticeFindings = nonBlockingPracticeViolations.map((violation) => ({
+    id: `practice-advisory:${violation.practiceId}:${violation.checkId}`,
+    type: "practice-advisory",
+    severity: "warning" as const,
+    message: violation.message
+  }));
+  findings.push(...practiceFindings, ...advisoryPracticeFindings);
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
@@ -107,6 +114,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
     extensions: {
       digest: digestJson(result as unknown as Json),
       ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {}),
+      ...(nonBlockingPracticeViolations.length === 0 ? {} : { nonBlockingPracticeViolations }),
       ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings })
     }
   };

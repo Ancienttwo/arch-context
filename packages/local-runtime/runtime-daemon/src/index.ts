@@ -37,7 +37,7 @@ import {
 } from "@archcontext/core/architecture-ledger";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
+import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
@@ -1279,7 +1279,7 @@ export class ArchctxDaemon {
     const taskSessionId = input.taskSessionId ?? "task_runtime";
     const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
     const practicePolicy = loadPracticeEnforcementPolicy(session.workspace.root);
-    const practiceEnforcement = practicePolicy.mode === "active"
+    const practiceEnforcement = shouldEvaluatePracticeEnforcement(practicePolicy)
       ? evaluatePracticeEnforcement({
         catalog: loadPracticeCatalog({ root: session.workspace.root }),
         policy: practicePolicy,

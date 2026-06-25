@@ -190,8 +190,8 @@ try {
   console.log("[packaged-cli-smoke] OK");
 } finally {
   await runArchctx("daemon", "stop").catch(() => undefined);
-  rmSync(repo, { recursive: true, force: true });
-  rmSync(stateRoot, { recursive: true, force: true });
+  cleanupRoot(repo);
+  cleanupRoot(stateRoot);
 }
 
 function runArchctx(...args) {
@@ -292,4 +292,22 @@ function assert(condition, message) {
 function fail(message) {
   console.error(`[packaged-cli-smoke] FAILED: ${message}`);
   process.exit(1);
+}
+
+function cleanupRoot(path) {
+  try {
+    rmSync(path, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 10 : 0,
+      retryDelay: 200
+    });
+  } catch (error) {
+    const code = error?.code;
+    if (process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY")) {
+      console.warn(`[packaged-cli-smoke] cleanup skipped for locked temp path: ${path}`);
+      return;
+    }
+    throw error;
+  }
 }

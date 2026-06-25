@@ -38,6 +38,8 @@ export type PracticeCheckpointReasonCode =
   | "no-baseline"
   | "no-op";
 export type PracticeCheckStatus = "pass" | "fail" | "waived" | "not_applicable";
+export type PracticeEnforcementPolicyMode = "advisory" | "active" | "fail-open" | "fail-closed";
+export type PracticeEnforcementEvaluationMode = "advisory" | "fail-open" | "fail-closed";
 export type PracticeCheckReasonCode =
   | "policy-disabled"
   | "not-opted-in"
@@ -176,7 +178,7 @@ export interface PracticePolicyRuleV1 {
 
 export interface PracticeEnforcementPolicyV1 {
   schemaVersion: typeof PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION;
-  mode: "advisory" | "active";
+  mode: PracticeEnforcementPolicyMode;
   rules: PracticePolicyRuleV1[];
 }
 
@@ -295,9 +297,12 @@ export interface PracticeEnforcementEvaluationV1 {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1";
   catalogDigest: string;
   policyDigest: string;
+  policyMode: PracticeEnforcementEvaluationMode;
+  blocking: boolean;
   checkResultDigest: string;
   results: PracticeCheckResultV1[];
   violations: PracticeCheckResultV1[];
+  nonBlockingViolations: PracticeCheckResultV1[];
   waiversApplied: PracticeWaiverApplicationV1[];
   actionsRequired: string[];
 }

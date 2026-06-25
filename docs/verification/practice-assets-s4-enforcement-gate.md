@@ -1,6 +1,6 @@
 # Practice Assets S4 Enforcement Gate
 
-S4 adds the first opt-in deterministic complete gate for practice assets. The implementation keeps built-in practices advisory by default; complete-stage blocking only happens when `.archcontext/policies/practices.yaml` explicitly promotes a registered deterministic checker.
+S4 adds the first opt-in deterministic complete gate for practice assets. The implementation keeps built-in practices advisory by default; complete-stage blocking only happens when `.archcontext/policies/practices.yaml` explicitly promotes a registered deterministic checker under a fail-closed mode.
 
 ## P1 Map
 
@@ -8,7 +8,7 @@ S4 adds the first opt-in deterministic complete gate for practice assets. The im
 - Engine: `packages/core/practice-engine/src/enforcement.ts` loads/validates repo policy and waivers, applies opt-in ceilings, computes check digests, and applies exact-scope waivers.
 - Checker registry: `packages/core/practice-engine/src/check-registry.ts` contains registered deterministic complete checks. This slice registers `compatibility-contract-required` and `no-new-cycle`.
 - Complete gate: `packages/core/review-engine/src/index.ts` consumes a daemon/core-computed enforcement evaluation, reports `practiceViolations`, `waiversApplied`, `actionsRequired`, and binds catalog/policy/check digests into the review snapshot.
-- Runtime entry: `packages/local-runtime/runtime-daemon/src/index.ts` loads repo policy/waivers, recompiles current practice guidance when policy mode is `active`, and passes daemon-owned enforcement data to `completeTaskGate`.
+- Runtime entry: `packages/local-runtime/runtime-daemon/src/index.ts` loads repo policy/waivers, recompiles current practice guidance when policy mode is evaluable (`fail-open`, `fail-closed`, or legacy `active`), and passes daemon-owned enforcement data to `completeTaskGate`.
 - Surfaces: CLI/MCP only pass task metadata. They cannot pass `practiceViolations`, `practiceEnforcement`, waiver outputs, or practice digest fields.
 
 Out of scope for this slice: dependency-direction/owner/migration/test-evidence checkers. Waiver write governance was completed in the follow-up slice documented in `docs/verification/practice-assets-s4-waiver-governance.md`.
@@ -19,9 +19,9 @@ Concrete active-policy path:
 
 1. `archctx complete --task-session-id task_enforcement --task "remove import cycle"` calls the runtime daemon.
 2. The daemon opens the authoritative repo session, reads current HEAD/worktree/model/code-facts digests, and loads `.archcontext/policies/practices.yaml`.
-3. If policy mode is `active`, the daemon recompiles practice guidance from current CodeFacts and the task. It also reads the previous checkpoint baseline for the same task session.
+3. If policy mode is evaluable, the daemon recompiles practice guidance from current CodeFacts and the task. It also reads the previous checkpoint baseline for the same task session.
 4. `evaluatePracticeEnforcement` selects only repo-opted complete rules, enforces the asset `promotableTo` ceiling, rejects heuristic-only matches as hard gates, runs registered deterministic checks, applies exact unexpired waivers, and computes `checkResultDigest`.
-5. `completeTaskGate` runs stale/compatibility/cleanup gates first. If context is stale, practice conclusions are suppressed. Otherwise failed check results become `practiceViolations` and `practice-violation` findings.
+5. `completeTaskGate` runs stale/compatibility/cleanup gates first. If context is stale, practice conclusions are suppressed. Otherwise failed check results become `practiceViolations` and `practice-violation` findings only in fail-closed mode; fail-open failures become advisory warning findings under `extensions.nonBlockingPracticeViolations`.
 6. The review result snapshot binds `practiceCatalogDigest`, `practicePolicyDigest`, and `practiceCheckResultDigest`, so the attested review digest covers the enforcement input/output.
 
 ## P3 Decision
@@ -60,7 +60,7 @@ Observed readbacks:
 - S4-EG2: Heuristic-only matches return `not_applicable` with reason `heuristic-only`; they do not create violations.
 - S4-EG3: Repeated evaluation over the same catalog/policy/matches/baseline produces the same `checkResultDigest`.
 - S4-EG4: Valid waiver suppresses the exact violation; expired, tampered, and overscoped waivers do not.
-- S4-EG5: Policy mode `advisory` returns an empty enforcement result and does not alter old complete gates.
+- S4-EG5: Policy mode `advisory` remains disabled/fail-open by default; explicit `fail-open` evaluates checks as non-blocking warnings; explicit `fail-closed` and legacy `active` make deterministic failures block completion.
 - S4-EG6: Review snapshots include catalog, policy, and check result digests when enforcement runs; no source bodies are added.
 
 ## Known Limits

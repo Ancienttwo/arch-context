@@ -12,6 +12,8 @@ const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
   catalogDigest: `sha256:${"b".repeat(64)}`,
   policyDigest: `sha256:${"c".repeat(64)}`,
+  policyMode: "fail-closed",
+  blocking: true,
   checkResultDigest: `sha256:${"d".repeat(64)}`,
   results: [
     {
@@ -30,15 +32,28 @@ const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
     }
   ],
   violations: [],
+  nonBlockingViolations: [],
   waiversApplied: [],
   actionsRequired: ["remove-new-import-cycle-or-add-a-more-specific-boundary"]
 };
 practiceEnforcement.violations = practiceEnforcement.results;
 
+const failOpenPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
+  ...practiceEnforcement,
+  policyDigest: `sha256:${"f".repeat(64)}`,
+  policyMode: "fail-open",
+  blocking: false,
+  violations: [],
+  nonBlockingViolations: practiceEnforcement.results,
+  actionsRequired: []
+};
+
 const compatibilityPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
   catalogDigest: `sha256:${"1".repeat(64)}`,
   policyDigest: `sha256:${"2".repeat(64)}`,
+  policyMode: "fail-closed",
+  blocking: true,
   checkResultDigest: `sha256:${"3".repeat(64)}`,
   results: [
     {
@@ -60,6 +75,7 @@ const compatibilityPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
     }
   ],
   violations: [],
+  nonBlockingViolations: [],
   waiversApplied: [],
   actionsRequired: ["add-compatibility-contract-owner-consumers-removal-and-review-date"]
 };
@@ -128,6 +144,36 @@ describe("@archcontext/core/review-engine", () => {
       practiceCatalogDigest: practiceEnforcement.catalogDigest,
       practicePolicyDigest: practiceEnforcement.policyDigest,
       practiceCheckResultDigest: practiceEnforcement.checkResultDigest
+    });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("fail-open deterministic practice failures are advisory warnings", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.test",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      practiceEnforcement: failOpenPracticeEnforcement
+    });
+
+    expect(result.result).toBe("pass_with_warnings");
+    expect(result.summary).toEqual({ errors: 0, warnings: 1, notices: 0 });
+    expect(result.practiceViolations).toEqual([]);
+    expect(result.actionsRequired).toEqual([]);
+    expect(result.findings).toEqual([expect.objectContaining({
+      id: "practice-advisory:modularity.no-new-cycle:no-new-cycle",
+      type: "practice-advisory",
+      severity: "warning"
+    })]);
+    expect((result.extensions as any).nonBlockingPracticeViolations).toHaveLength(1);
+    expect(result.snapshot).toMatchObject({
+      practiceCatalogDigest: failOpenPracticeEnforcement.catalogDigest,
+      practicePolicyDigest: failOpenPracticeEnforcement.policyDigest,
+      practiceCheckResultDigest: failOpenPracticeEnforcement.checkResultDigest
     });
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });

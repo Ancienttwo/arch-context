@@ -464,7 +464,8 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Evidence: CLI skips `.archcontext/generated/**` hook paths before runtime; daemon `jobsEnqueueGitHook` also returns `archcontext.runtime-agent-job-skip/v1` without queue insertion for generated projection-only metadata.
 - [x] **AL4-10 · P0 · `runtime-daemon`** — Attach every job to HEAD SHA and worktree digest; cancel or supersede stale jobs.
   - Evidence: `jobsEnqueueGitHook` attaches current scope and calls `cancelStaleRuntimeAgentJobs`; stale cancellation covered in `runtime job queue expires stale head or worktree jobs before new analysis can append`.
-- [ ] **AL4-11 · P1 · `policy-engine`** — Define advisory fail-open behavior and explicit fail-closed policy modes.
+- [x] **AL4-11 · P1 · `policy-engine`** — Define advisory fail-open behavior and explicit fail-closed policy modes.
+  - Evidence: practice policy schema and contract now accept `advisory`, legacy `active`, explicit `fail-open` and explicit `fail-closed`; `evaluatePracticeEnforcement` normalizes `active` to fail-closed, keeps advisory disabled/fail-open by default, reports fail-open failures as `nonBlockingViolations`, and `completeTaskGate` surfaces them as warnings without `practiceViolations` or `actionsRequired`.
 - [x] **AL4-12 · P1 · `runtime-daemon`** — Add backpressure: queue cap, per-repository concurrency, priority and stale-job eviction.
   - Evidence: `0008_runtime_job_queue_hardening` adds queue priority and claim ordering; `enqueueRuntimeAgentJob` enforces queue caps with priority-aware eviction/rejection; `jobsClaim` enforces per-repository running concurrency.
 - [x] **AL4-13 · P1 · `cli`** — Add `archctx jobs list/show/cancel/retry` with structured JSON.
@@ -507,6 +508,12 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Observability: `jobsStats` / `archctx jobs stats` reports queue depth, running depth, active depth, coalesced job count, coalescing ratio and last local failure reason; hook enqueue retains elapsed latency in `hookLog.elapsedMs`.
   - Stress/runbook: SQLite stress fixture simulates 100 git cursor changes across commit/amend/rebase/reset/branch-switch modes; `docs/runbooks/runtime-hook-queue.md` covers POSIX shell compatibility, chaining and recovery.
   - Verification: `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`; `bun test packages/surfaces/cli/test/cli.test.ts`; `bun run typecheck`.
+  - Explicitly still out of scope: hook enqueue p95 benchmark, stale worker append/projection guard, and executable user hook chaining proof.
+- 2026-06-25 — AL4 policy modes completed as one reviewable module:
+  - Policy contract: `.archcontext/policies/practices.yaml` now has explicit `fail-open` and `fail-closed` modes while preserving legacy `active` as fail-closed compatibility.
+  - Evaluation semantics: `advisory` remains disabled/fail-open by default; `fail-open` runs deterministic complete checks but records failures as `nonBlockingViolations`; `fail-closed` makes deterministic failures block completion.
+  - Review/runtime surface: fail-open practice failures become warning findings and `extensions.nonBlockingPracticeViolations`; they do not populate `practiceViolations` or `actionsRequired`.
+  - Verification: `bun test packages/contracts/test/contracts.test.ts`; `bun test packages/core/practice-engine/test/practice-engine.test.ts`; `bun test packages/core/review-engine/test/review-engine.test.ts`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`; isolated `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-verify-state-XXXXXX) bun run verify` passed with 736 tests, packaged CLI smoke, privacy/security readbacks, acceptance ledgers, sprint-status check and representative eval.
   - Explicitly still out of scope: hook enqueue p95 benchmark, stale worker append/projection guard, and executable user hook chaining proof.
 
 ---

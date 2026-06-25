@@ -613,6 +613,55 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("complete_task reports fail-open practice policy findings without blocking completion", async () => {
+    const root = tempRepo();
+    const facts = mutableCycleFacts();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ codeFacts: facts.port });
+      await daemon.init(root, "Practice Fail Open App");
+      mkdirSync(join(root, ".archcontext/policies"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/policies/practices.yaml"), JSON.stringify({
+        schemaVersion: "archcontext.practice-enforcement-policy/v1",
+        mode: "fail-open",
+        rules: [
+          {
+            practiceId: "modularity.no-new-cycle",
+            enforcement: "complete",
+            checkIds: ["no-new-cycle"]
+          }
+        ]
+      }, null, 2), "utf8");
+
+      const prepare = await daemon.prepare(root, "remove import cycle", 12_288, 5, "task_fail_open");
+      expect(prepare.ok).toBe(true);
+      facts.setCycle(true);
+
+      const review = await daemon.completeTask(root, {
+        taskSessionId: "task_fail_open",
+        task: "remove import cycle"
+      });
+
+      expect(review.ok).toBe(true);
+      expect((review.data as any).result).toBe("pass_with_warnings");
+      expect((review.data as any).summary).toMatchObject({ errors: 0, warnings: 1 });
+      expect((review.data as any).practiceViolations).toEqual([]);
+      expect((review.data as any).actionsRequired).toEqual([]);
+      expect((review.data as any).findings).toContainEqual(expect.objectContaining({
+        id: "practice-advisory:modularity.no-new-cycle:no-new-cycle",
+        type: "practice-advisory",
+        severity: "warning"
+      }));
+      expect((review.data as any).extensions.nonBlockingPracticeViolations).toHaveLength(1);
+      expect((review.data as any).snapshot.practiceCatalogDigest).toMatch(/^sha256:/);
+      expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
+      expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("external docs manual fetch is pinned cached and excluded from prepare and complete", async () => {
     const root = tempRepo();
     let providerCalls = 0;
