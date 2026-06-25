@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation, candidate policy, ChangeSet proposal and review rejection modules are complete; AL5 baseline attribution remains
+> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation, candidate policy, ChangeSet proposal, review rejection and baseline attribution modules are complete; AL5 fixtures and observability remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -575,7 +575,8 @@ Git change cursor
   - Evidence: `reviewArchitectureCandidateChangeSet` rejects unsupported entity deletion, owner authority changes, boundary relaxation and external-contract claims before proposal acceptance; covered by `packages/core/review-engine/test/review-engine.test.ts` and `docs/verification/architecture-ledger-al5-review-rejection.md`.
 - [x] **AL5-13 · P1 · `architecture-delta`** — Add rename/move correlation to avoid delete-plus-add churn.
   - Evidence: `normalizes path moves without emitting delete plus add churn` covers Git rename metadata where same basename means `moved`; rename metadata with changed basename is normalized as `renamed`.
-- [ ] **AL5-14 · P1 · `architecture-delta`** — Add baseline comparison so pre-existing issues are not attributed to the current task.
+- [x] **AL5-14 · P1 · `architecture-delta`** — Add baseline comparison so pre-existing issues are not attributed to the current task.
+  - Evidence: `buildArchitectureCandidateDelta` accepts baseline candidate changes, suppresses matching pre-existing candidate keys from task-introduced output, and records `extensions.baselineAttribution`; covered by `packages/core/architecture-delta/test/architecture-delta.test.ts` and `docs/verification/architecture-ledger-al5-baseline-attribution.md`.
 - [ ] **AL5-15 · P1 · `fixtures`** — Add representative monolith-to-service, persistence boundary, public API, payment webhook, mapper removal and package-layer fixtures.
 - [ ] **AL5-16 · P1 · `observability`** — Record mapping coverage, unresolved subjects and evidence strength distribution.
 
@@ -587,7 +588,8 @@ Git change cursor
   - Evidence: `ArchitectureCandidateDelta/v1` keeps raw code facts and heuristic interpretations separate; tests assert every interpretation has evidence IDs and evidence bindings.
 - [x] **AL5-EG3** — Rename and move fixtures do not create false entity deletion/addition.
   - Evidence: `architecture-delta.test.ts` covers rename and move normalization without add/remove churn.
-- [ ] **AL5-EG4** — Baseline issues are separated from task-introduced issues.
+- [x] **AL5-EG4** — Baseline issues are separated from task-introduced issues.
+  - Evidence: baseline attribution removes pre-existing candidate keys from `candidateChanges` while preserving changed-subject context and recording suppressed candidates under `extensions.baselineAttribution`.
 - [x] **AL5-EG5** — All accepted mutations are represented as ChangeSets and ledger events.
   - Evidence: `planArchitectureCandidateChangeSet` defaults accepted actions to `auto-accept`, preserves non-accepted candidates as deferred policy outcomes, validates the generated ChangeSet against `schemas/runtime/changeset.schema.json`, and emits event batches hashed with `architectureEventHash`.
 
@@ -621,6 +623,11 @@ Git change cursor
   - Rejection policy: unsupported entity deletion, owner authority changes, boundary relaxation and external-contract claims now produce explicit `archcontext.review/v1` error findings.
   - Verification artifact: `docs/verification/architecture-ledger-al5-review-rejection.md`.
   - Verification: `bun test packages/core/review-engine/test/review-engine.test.ts`; `bun run typecheck`.
+- 2026-06-26 — AL5 baseline attribution module completed:
+  - Architecture delta: `buildArchitectureCandidateDelta` now accepts a baseline candidate set and compares by target kind, target id, parent id, state dimension and change kind.
+  - Attribution: pre-existing candidate keys are suppressed from task-introduced `candidateChanges`; suppressed baseline findings stay visible under `extensions.baselineAttribution`.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-baseline-attribution.md`.
+  - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts`; `bun run typecheck`; `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun test`; `node scripts/sprint-status-check.mjs`.
 - 2026-06-26 — AL5 candidate policy module completed:
   - Contracts: added `ArchitectureCandidateDeltaPolicyEvaluation/v1` with per-candidate decisions, reason codes, summary counters and stable digests.
   - Core: `evaluateArchitectureCandidateDeltaPolicy` classifies candidate changes before ChangeSet promotion as `auto-accept`, `require-checkpoint`, `require-proof` or `require-human-approval`.

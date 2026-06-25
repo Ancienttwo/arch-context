@@ -99,12 +99,27 @@ export interface ArchitectureDeltaDeclaredGraph {
   constraints: ArchitectureDeltaDeclaredConstraint[];
 }
 
+export interface ArchitectureDeltaBaselineCandidateChange {
+  candidateChangeId?: string;
+  kind?: ArchitectureCandidateChangeKind;
+  target: ArchitectureCandidateChangeV1["target"];
+  stateDimension: ArchitectureCandidateChangeV1["stateDimension"];
+  changeKind: ArchitectureCodeChangeKind;
+}
+
+export interface ArchitectureDeltaBaselineComparisonInput {
+  baselineId: string;
+  sourceDigest?: string;
+  candidateChanges: ArchitectureDeltaBaselineCandidateChange[];
+}
+
 export interface BuildArchitectureCandidateDeltaInput {
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
   git: ArchitectureDeltaGitChangeMetadata;
   codeContext: NormalizedCodeContext;
   declaredGraph?: ArchitectureDeltaDeclaredGraph;
+  baseline?: ArchitectureDeltaBaselineComparisonInput;
   codeFactsDigest?: string;
   createdAt?: string;
   provenance?: Partial<LedgerProvenanceV1>;
@@ -132,18 +147,28 @@ interface MappingCandidate {
   score: number;
 }
 
+interface NormalizedBaselineComparison {
+  baselineId: string;
+  sourceDigest?: string;
+  digest: string;
+  candidateChangeCount: number;
+  candidateChangeIdsByKey: Map<string, string[]>;
+}
+
 const DEFAULT_CREATED_AT = "1970-01-01T00:00:00.000Z";
 
 export function buildArchitectureCandidateDelta(input: BuildArchitectureCandidateDeltaInput): ArchitectureCandidateDeltaV1 {
   const createdAt = input.createdAt ?? DEFAULT_CREATED_AT;
   const codeFactsDigest = input.codeFactsDigest ?? input.codeContext.digest;
-  const inputDigest = digestJson({
-    repository: input.repository,
-    worktree: input.worktree,
-    git: input.git,
+  const baseline = normalizeBaselineComparison(input.baseline);
+  const inputDigest = digestJson(stripUndefined({
+    repository: input.repository as unknown as Json,
+    worktree: input.worktree as unknown as Json,
+    git: input.git as unknown as Json,
     codeFactsDigest,
-    codeContextDigest: input.codeContext.digest
-  } as unknown as Json);
+    codeContextDigest: input.codeContext.digest,
+    baselineDigest: baseline?.digest
+  }));
   const provenance: LedgerProvenanceV1 = {
     producer: input.provenance?.producer ?? "architecture-delta",
     command: input.provenance?.command ?? "buildArchitectureCandidateDelta",
@@ -235,6 +260,7 @@ export function buildArchitectureCandidateDelta(input: BuildArchitectureCandidat
     createdAt,
     provenance
   });
+  const baselineAttribution = applyBaselineAttribution(state, baseline);
 
   const deltaId = `delta.${shortDigest(inputDigest)}`;
   for (const evidence of state.evidenceItems.values()) {
@@ -273,7 +299,8 @@ export function buildArchitectureCandidateDelta(input: BuildArchitectureCandidat
     evidenceItems: sortBy([...state.evidenceItems.values()], (evidence) => evidence.evidenceId),
     evidenceBindings: sortBy([...state.evidenceBindings.values()], (binding) => binding.bindingId),
     summary: summarizeDelta(state),
-    deltaDigest: ""
+    deltaDigest: "",
+    ...(baselineAttribution ? { extensions: { baselineAttribution } } : {})
   };
   return {
     ...draft,
@@ -611,6 +638,83 @@ function addCandidateChange(input: {
     ...draft,
     digest: candidateChangeDigest(draft)
   });
+}
+
+function normalizeBaselineComparison(input: ArchitectureDeltaBaselineComparisonInput | undefined): NormalizedBaselineComparison | undefined {
+  if (!input) return undefined;
+  const candidateChangeIdsByKey = new Map<string, string[]>();
+  const canonicalCandidateChanges = input.candidateChanges
+    .map((change, index) => {
+      const key = candidateChangeAttributionKey(change);
+      const candidateChangeId = change.candidateChangeId ?? `baseline-candidate.${index}`;
+      candidateChangeIdsByKey.set(key, uniqueSorted([...(candidateChangeIdsByKey.get(key) ?? []), candidateChangeId]));
+      return {
+        key,
+        candidateChangeId,
+        kind: change.kind,
+        target: change.target,
+        stateDimension: change.stateDimension,
+        changeKind: change.changeKind
+      };
+    })
+    .sort((left, right) => `${left.key}:${left.candidateChangeId}`.localeCompare(`${right.key}:${right.candidateChangeId}`));
+  const digest = digestJson(stripUndefined({
+    schemaVersion: "archcontext.architecture-delta-baseline-comparison/v1",
+    baselineId: input.baselineId,
+    sourceDigest: input.sourceDigest,
+    candidateChanges: canonicalCandidateChanges as unknown as Json
+  }));
+  return {
+    baselineId: input.baselineId,
+    sourceDigest: input.sourceDigest,
+    digest,
+    candidateChangeCount: input.candidateChanges.length,
+    candidateChangeIdsByKey
+  };
+}
+
+function applyBaselineAttribution(state: MutableBuildState, baseline: NormalizedBaselineComparison | undefined): Json | undefined {
+  if (!baseline) return undefined;
+  const taskIntroducedCandidateChangeIds: string[] = [];
+  const suppressedCandidateChanges: Json[] = [];
+  for (const candidate of sortBy([...state.candidateChanges.values()], (change) => change.candidateChangeId)) {
+    const baselineCandidateChangeIds = baseline.candidateChangeIdsByKey.get(candidateChangeAttributionKey(candidate));
+    if (baselineCandidateChangeIds) {
+      state.candidateChanges.delete(candidate.candidateChangeId);
+      suppressedCandidateChanges.push({
+        candidateChangeId: candidate.candidateChangeId,
+        target: candidate.target as unknown as Json,
+        stateDimension: candidate.stateDimension,
+        changeKind: candidate.changeKind,
+        baselineCandidateChangeIds,
+        reason: "pre-existing-baseline-candidate"
+      });
+    } else {
+      taskIntroducedCandidateChangeIds.push(candidate.candidateChangeId);
+    }
+  }
+  return stripUndefined({
+    schemaVersion: "archcontext.architecture-delta-baseline-attribution/v1",
+    baselineId: baseline.baselineId,
+    baselineDigest: baseline.digest,
+    sourceDigest: baseline.sourceDigest,
+    comparison: "candidate-target-state-change",
+    baselineCandidateChanges: baseline.candidateChangeCount,
+    taskIntroducedCandidateChanges: taskIntroducedCandidateChangeIds.length,
+    preExistingCandidateChanges: suppressedCandidateChanges.length,
+    taskIntroducedCandidateChangeIds: uniqueSorted(taskIntroducedCandidateChangeIds) as unknown as Json,
+    suppressedCandidateChanges
+  });
+}
+
+function candidateChangeAttributionKey(change: ArchitectureDeltaBaselineCandidateChange): string {
+  return [
+    change.target.kind,
+    change.target.id,
+    change.target.parentId ?? "",
+    change.stateDimension,
+    change.changeKind
+  ].join("|");
 }
 
 function addPathSelector(state: MutableBuildState, repositoryId: string, path: string): ArchitectureSubjectSelectorV1 {

@@ -170,6 +170,57 @@ describe("@archcontext/core/architecture-delta", () => {
     }));
     expect(delta.summary).toMatchObject({ mapped: 0, ambiguous: 1, unresolved: 1, candidateChanges: 0 });
   });
+
+  test("separates pre-existing baseline candidates from task-introduced changes", () => {
+    const withoutBaseline = buildArchitectureCandidateDelta({
+      repository,
+      worktree,
+      git: gitChange([{ path: "src/web/page.ts", status: "modified", rawStatus: "M" }]),
+      codeContext: codeContext(),
+      declaredGraph: declaredGraph(),
+      createdAt: "2026-06-25T04:00:00.000Z"
+    });
+    const preExistingOwner = withoutBaseline.candidateChanges.find((change) => change.kind === "owner-materially-changed");
+    expect(preExistingOwner).toBeTruthy();
+
+    const withBaseline = buildArchitectureCandidateDelta({
+      repository,
+      worktree,
+      git: gitChange([{ path: "src/web/page.ts", status: "modified", rawStatus: "M" }]),
+      codeContext: codeContext(),
+      declaredGraph: declaredGraph(),
+      baseline: {
+        baselineId: "baseline.previous-checkpoint",
+        sourceDigest: digestJson({ checkpoint: "previous" } as unknown as Json),
+        candidateChanges: [{
+          ...preExistingOwner!,
+          candidateChangeId: "candidate_change.previous_owner"
+        }]
+      },
+      createdAt: "2026-06-25T04:00:00.000Z"
+    });
+
+    expect(withBaseline.deltaId).not.toBe(withoutBaseline.deltaId);
+    expect(withBaseline.deltaDigest).toBe(architectureCandidateDeltaDigest(withBaseline));
+    const attribution = withBaseline.extensions?.baselineAttribution as any;
+    expect(withBaseline.summary.candidateChanges).toBe(withoutBaseline.summary.candidateChanges - attribution.preExistingCandidateChanges);
+    expect(withBaseline.changedSubjects).toHaveLength(withoutBaseline.changedSubjects.length);
+    expect(withBaseline.candidateChanges.map((change) => change.kind)).not.toContain("owner-materially-changed");
+
+    expect(attribution).toMatchObject({
+      schemaVersion: "archcontext.architecture-delta-baseline-attribution/v1",
+      baselineId: "baseline.previous-checkpoint",
+      baselineCandidateChanges: 1,
+      taskIntroducedCandidateChanges: withBaseline.candidateChanges.length
+    });
+    expect(attribution.preExistingCandidateChanges).toBeGreaterThanOrEqual(1);
+    expect(attribution.suppressedCandidateChanges).toContainEqual(expect.objectContaining({
+      candidateChangeId: preExistingOwner!.candidateChangeId,
+      baselineCandidateChangeIds: ["candidate_change.previous_owner"],
+      reason: "pre-existing-baseline-candidate"
+    }));
+    expect(attribution.taskIntroducedCandidateChangeIds).toEqual(withBaseline.candidateChanges.map((change) => change.candidateChangeId).sort());
+  });
 });
 
 function gitChange(paths: ArchitectureDeltaGitChangeMetadata["paths"]): ArchitectureDeltaGitChangeMetadata {
