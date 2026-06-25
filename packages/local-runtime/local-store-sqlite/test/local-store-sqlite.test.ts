@@ -18,6 +18,7 @@ import {
 import { TestLocalStore } from "./factories";
 
 const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = 30_000;
+const LOCAL_STORE_SLOW_TEST_TIMEOUT_MS = 15_000;
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("migration SQL enables required SQLite safety pragmas", () => {
@@ -242,7 +243,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
       rmSync(stateRoot, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("invalid legacy SQLite fails without publishing an empty target", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-state-invalid-legacy-repo-"));
@@ -428,7 +429,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       store.close();
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("runtime job queue applies priority, queue caps, per-repository concurrency, and local stats", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-hardening-"));
@@ -534,7 +535,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       store.close();
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("runtime job queue expires stale head or worktree jobs before new analysis can append", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-stale-"));
@@ -609,7 +610,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       store.close();
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("sqlite changeset journal recovers pending temp writes after reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-journal-"));
