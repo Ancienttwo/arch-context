@@ -437,7 +437,11 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
       return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild --from-git requires --expected-worktree-digest");
     }
     const daemon = await requiredLedgerRuntime(runtime);
-    return daemon.ledgerRebuild(cwd, { fromGit: true, expectedWorktreeDigest });
+    return daemon.ledgerRebuild(cwd, {
+      fromGit: true,
+      expectedWorktreeDigest,
+      acceptExternalProjection: args.includes("--accept-external-projection")
+    });
   }
   if (subcommand === "migrate") {
     if (!args.includes("--from-yaml") || !args.includes("--dry-run")) {

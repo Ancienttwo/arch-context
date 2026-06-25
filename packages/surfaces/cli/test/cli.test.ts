@@ -73,6 +73,7 @@ function createInitializedGitRepo(): string {
   writeFileSync(join(root, "README.md"), "# review fixture\n", "utf8");
   initializeArchContextModel(root, "Review App");
   git(root, "init");
+  configureGitFixtureIdentity(root);
   git(root, "add", ".");
   git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   return root;
@@ -87,6 +88,11 @@ async function writeTaskState(databasePath: string, taskSessionId: string, state
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function configureGitFixtureIdentity(root: string): void {
+  git(root, "config", "user.name", "ArchContext Test");
+  git(root, "config", "user.email", "archcontext@example.test");
 }
 
 function gitOut(root: string, ...args: string[]): string {
@@ -1254,6 +1260,90 @@ describe("archctx CLI", () => {
 
       const clean = await runTestCli("ledger", ["drift", "--json"], root);
       expect((clean.data as any).drift.ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      let status = await runTestCli("status", [], root);
+      const initial = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(initial.ok).toBe(true);
+      expect((initial.data as any).status).toBe("rebuilt");
+      const initialGraphDigest = (initial.data as any).graphDigest;
+      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+
+      git(root, "checkout", "-b", "feature/cursor-refresh");
+      writeFileSync(join(root, "README.md"), "# cursor refresh\n", "utf8");
+      git(root, "add", "README.md");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "cursor refresh");
+      status = await runTestCli("status", [], root);
+      const branchRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(branchRefresh.ok).toBe(true);
+      expect((branchRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((branchRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((branchRefresh.data as any).cursor).toMatchObject({
+        changed: true,
+        branch: "feature/cursor-refresh",
+        headSha: gitOut(root, "rev-parse", "HEAD")
+      });
+
+      git(root, "reset", "--hard", "HEAD~1");
+      status = await runTestCli("status", [], root);
+      const resetRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(resetRefresh.ok).toBe(true);
+      expect((resetRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((resetRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+
+      git(root, "checkout", initialBranch);
+      writeFileSync(join(root, "BASE.md"), "# base cursor refresh\n", "utf8");
+      git(root, "add", "BASE.md");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "base cursor refresh");
+      git(root, "checkout", "feature/cursor-refresh");
+      writeFileSync(join(root, "FEATURE.md"), "# feature cursor refresh\n", "utf8");
+      git(root, "add", "FEATURE.md");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "feature cursor refresh");
+      git(root, "rebase", initialBranch);
+      status = await runTestCli("status", [], root);
+      const rebaseRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebaseRefresh.ok).toBe(true);
+      expect((rebaseRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((rebaseRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+
+      writeFileSync(join(root, "README.md"), "# dirty cursor refresh\n", "utf8");
+      status = await runTestCli("status", [], root);
+      const dirtyRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(dirtyRefresh.ok).toBe(true);
+      expect((dirtyRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((dirtyRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((dirtyRefresh.data as any).cursor.worktreeDigest).toBe((status.data as any).worktreeDigest);
     } finally {
       removeTempRoot(root);
     }

@@ -681,6 +681,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(materialized.entities).toHaveLength(1000);
       expect(materialized.relations).toHaveLength(1);
       expect(materialized.constraints).toHaveLength(1);
+      await expect(store.readArchitectureLedgerSourceCursor({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        cursorId: "cursor.root"
+      })).resolves.toMatchObject({
+        cursorId: "cursor.root",
+        source: "codegraph"
+      });
       const replayed = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
       expect(replayed.events).toHaveLength(1000);
       expect(replayed.graphDigest).toBe(appended.graphDigest);

@@ -1,6 +1,7 @@
 import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
 import {
+  architectureLedgerPayload,
   architectureLedgerStateDigest,
   emptyArchitectureLedgerState,
   normalizeArchitectureLedgerEvent,
@@ -13,7 +14,7 @@ import {
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import type { ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, RepositorySnapshot } from "@archcontext/contracts";
+import type { ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -231,6 +232,12 @@ export class TestLocalStore implements RuntimeLocalStore {
       relationCount: state.relations.length,
       constraintCount: state.constraints.length
     };
+  }
+
+  async readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined> {
+    return [...this.eventsForScope(input)].reverse()
+      .flatMap((event) => architectureLedgerPayload(event).sourceCursors ?? [])
+      .find((cursor) => cursor.cursorId === input.cursorId) as Record<string, Json> | undefined;
   }
 
   async createArchitectureLedgerSnapshot(): Promise<never> {

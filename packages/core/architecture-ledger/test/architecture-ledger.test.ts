@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { architectureEventHash, digestJson, type Json } from "@archcontext/contracts";
 import {
+  ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+  architectureLedgerGitCursorFromPlan,
+  architectureLedgerPayload,
   architectureLedgerStateDigest,
   compareArchitectureLedgerStateToYaml,
+  planExternalProjectionChangeToArchitectureLedgerEvent,
+  planGitCursorRefreshToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
   projectArchitectureLedgerStateToYamlFiles,
   type ArchitectureLedgerModelFile,
@@ -224,6 +229,92 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       path: ".archcontext/model/nodes/module.checkout.yaml",
       reasonCode: "projection-file-missing"
     }));
+  });
+
+  test("records a stable Git cursor without changing semantic state", () => {
+    const plan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      createdAt: "2026-06-25T02:02:00.000Z",
+      files: [
+        modelFile(".archcontext/model/nodes/module.api.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.api\"",
+          "kind: \"module\"",
+          "name: \"API\"",
+          ""
+        ])
+      ]
+    });
+    const cursor = architectureLedgerGitCursorFromPlan({ ...scope, plan });
+    const payload = architectureLedgerPayload(plan.event);
+    expect(payload.sourceCursors).toContainEqual(expect.objectContaining({
+      cursorId: ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+      source: "git",
+      headSha: scope.worktree.headSha,
+      cursorDigest: cursor.cursorDigest
+    }));
+
+    const refresh = planGitCursorRefreshToArchitectureLedgerEvent({
+      ...scope,
+      cursor,
+      graphDigest: plan.graphDigest,
+      createdAt: "2026-06-25T02:03:00.000Z"
+    });
+    const refreshPayload = architectureLedgerPayload(refresh.event);
+    expect(refresh.event.eventType).toBe("architecture.git.cursor.refresh");
+    expect(refresh.event.baseDigest).toBe(plan.graphDigest);
+    expect(refresh.event.resultingDigest).toBe(plan.graphDigest);
+    expect(refreshPayload.operations).toBeUndefined();
+    expect(refreshPayload.sourceCursors).toContainEqual(expect.objectContaining({
+      cursorId: ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+      cursorDigest: cursor.cursorDigest
+    }));
+  });
+
+  test("plans external Git projection changes as proposed events requiring explicit reconcile", () => {
+    const base = planYamlToArchitectureLedgerImport({
+      ...scope,
+      createdAt: "2026-06-25T02:04:00.000Z",
+      files: [
+        modelFile(".archcontext/model/nodes/module.api.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.api\"",
+          "kind: \"module\"",
+          "name: \"API\"",
+          ""
+        ])
+      ]
+    });
+    const proposal = planExternalProjectionChangeToArchitectureLedgerEvent({
+      ...scope,
+      previousState: base.state,
+      createdAt: "2026-06-25T02:05:00.000Z",
+      files: [
+        modelFile(".archcontext/model/nodes/module.api.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.api\"",
+          "kind: \"module\"",
+          "name: \"Renamed API\"",
+          ""
+        ])
+      ]
+    });
+    const payload = architectureLedgerPayload(proposal.event);
+    const external = payload as typeof payload & { proposedExternalProjectionChange?: Record<string, Json> };
+
+    expect(proposal.event.eventType).toBe("architecture.projection.external_change.proposed");
+    expect(proposal.event.baseDigest).toBe(base.graphDigest);
+    expect(proposal.event.resultingDigest).toBe(base.graphDigest);
+    expect(payload.operations).toBeUndefined();
+    expect(payload.projectionState).toMatchObject({
+      status: "external-change-proposed",
+      reconcileRequired: true,
+      baseGraphDigest: base.graphDigest,
+      proposedGraphDigest: proposal.proposedGraphDigest
+    });
+    expect(external.proposedExternalProjectionChange?.reconcile).toMatchObject({
+      required: true
+    });
   });
 });
 

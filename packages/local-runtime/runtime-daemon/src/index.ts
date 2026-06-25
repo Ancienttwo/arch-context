@@ -19,13 +19,18 @@ import {
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
+  ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+  architectureLedgerGitCursorFromPlan,
   architectureLedgerStateDigest,
   architectureLedgerProjectionDigest,
   compareArchitectureLedgerStateToYaml,
   planChangeSetApplyToArchitectureLedgerEvent,
+  planExternalProjectionChangeToArchitectureLedgerEvent,
+  planGitCursorRefreshToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
   planYamlToArchitectureLedgerRebuild,
   projectArchitectureLedgerStateToYamlFiles,
+  type ArchitectureLedgerAppendResult,
   type ArchitectureLedgerScope,
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
@@ -112,6 +117,7 @@ export interface RuntimeLedgerProjectInput {
 export interface RuntimeLedgerRebuildInput {
   fromGit?: boolean;
   expectedWorktreeDigest?: string;
+  acceptExternalProjection?: boolean;
 }
 
 export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
@@ -1283,22 +1289,80 @@ export class ArchctxDaemon {
       const files = listModelFiles(root);
       const previousState = await this.localStore.readArchitectureLedgerState(scope);
       const previousGraphDigest = architectureLedgerStateDigest(previousState);
+      const rebuildCommand = input.acceptExternalProjection
+        ? "archctx ledger rebuild --from-git --accept-external-projection"
+        : "archctx ledger rebuild --from-git";
       const plan = planYamlToArchitectureLedgerRebuild({
         ...scope,
         files,
         createdAt: this.clock(),
-        command: "archctx ledger rebuild --from-git",
+        command: rebuildCommand,
         previousState
       });
       if (plan.unsupportedFiles.length > 0) {
         return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild requires supported YAML model files");
       }
-      const append = previousGraphDigest === plan.graphDigest
-        ? { appendedEvents: [], duplicateEvents: [] }
-        : await this.localStore.appendArchitectureEvents({
+      const cursor = architectureLedgerGitCursorFromPlan({ ...scope, plan });
+      const previousCursor = await this.localStore.readArchitectureLedgerSourceCursor({
+        ...scope,
+        cursorId: ARCHITECTURE_LEDGER_GIT_CURSOR_ID
+      });
+      const cursorChanged = previousCursor?.cursorDigest !== cursor.cursorDigest;
+      const previousStateEmpty = isEmptyArchitectureLedgerState(previousState);
+      let append: ArchitectureLedgerAppendResult = {
+        appendedEvents: [],
+        duplicateEvents: [],
+        graphDigest: previousGraphDigest,
+        entityCount: previousState.entities.length,
+        relationCount: previousState.relations.length,
+        constraintCount: previousState.constraints.length
+      };
+      let rebuildStatus: "unchanged" | "cursor-refreshed" | "rebuilt" | "external-projection-proposed" | "external-projection-accepted" = "unchanged";
+      let proposedExternalProjectionChange: Json | undefined;
+      if (previousGraphDigest === plan.graphDigest) {
+        if (cursorChanged) {
+          const cursorPlan = planGitCursorRefreshToArchitectureLedgerEvent({
+            ...scope,
+            cursor,
+            graphDigest: plan.graphDigest,
+            createdAt: this.clock(),
+            command: rebuildCommand
+          });
+          append = await this.localStore.appendArchitectureEvents({
+            writer: "runtime-daemon",
+            events: [cursorPlan.event]
+          });
+          rebuildStatus = "cursor-refreshed";
+        }
+      } else if (!previousStateEmpty && !input.acceptExternalProjection) {
+        const proposal = planExternalProjectionChangeToArchitectureLedgerEvent({
+          ...scope,
+          files,
+          createdAt: this.clock(),
+          command: rebuildCommand,
+          previousState
+        });
+        append = await this.localStore.appendArchitectureEvents({
+          writer: "runtime-daemon",
+          events: [proposal.event]
+        });
+        rebuildStatus = "external-projection-proposed";
+        proposedExternalProjectionChange = {
+          eventId: proposal.event.eventId,
+          baseGraphDigest: proposal.baseGraphDigest,
+          proposedGraphDigest: proposal.proposedGraphDigest,
+          sourceDigest: proposal.sourceDigest,
+          projectionDigest: proposal.projectionDigest,
+          reasonCodes: proposal.drift.reasonCodes,
+          reconcileCommand: "archctx ledger rebuild --from-git --accept-external-projection --expected-worktree-digest <current>"
+        } as unknown as Json;
+      } else {
+        append = await this.localStore.appendArchitectureEvents({
           writer: "runtime-daemon",
           events: [plan.event]
         });
+        rebuildStatus = previousStateEmpty ? "rebuilt" : "external-projection-accepted";
+      }
       const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
       return okEnvelope("ledger.rebuild", {
         schemaVersion: "archcontext.runtime-architecture-ledger-rebuild/v1",
@@ -1306,10 +1370,25 @@ export class ArchctxDaemon {
         repository: scope.repository,
         worktree: scope.worktree,
         sourceMode: "git-yaml",
+        status: rebuildStatus,
+        reconcileRequired: rebuildStatus === "external-projection-proposed",
         appendedEventCount: append.appendedEvents.length,
         duplicateEventCount: append.duplicateEvents.length,
         replayedEventCount: replay.events.length,
         graphDigest: replay.graphDigest,
+        previousGraphDigest,
+        proposedGraphDigest: plan.graphDigest,
+        cursor: {
+          changed: cursorChanged,
+          cursorDigest: cursor.cursorDigest,
+          previousCursorDigest: typeof previousCursor?.cursorDigest === "string" ? previousCursor.cursorDigest : undefined,
+          sourceDigest: cursor.sourceDigest,
+          projectionDigest: cursor.projectionDigest,
+          branch: cursor.branch,
+          headSha: cursor.headSha,
+          worktreeDigest: cursor.worktreeDigest
+        },
+        proposedExternalProjectionChange,
         imported: plan.imported,
         ignoredFiles: plan.ignoredFiles,
         unsupportedFiles: plan.unsupportedFiles,
@@ -2734,6 +2813,10 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
       worktreeDigest: computeWorktreeDigest(workspace.root)
     }
   };
+}
+
+function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): boolean {
+  return state.entities.length === 0 && state.relations.length === 0 && state.constraints.length === 0;
 }
 
 function validateModelFiles(files: ModelFile[]): string[] {

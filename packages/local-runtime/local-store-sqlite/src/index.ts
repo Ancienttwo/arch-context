@@ -773,6 +773,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
+  readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined>;
   createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
   replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult>;
@@ -1169,6 +1170,15 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  async readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT cursor_json FROM source_cursors
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND cursor_id = ?`
+    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.cursorId);
+    return row ? JSON.parse(String(row.cursor_json)) as Record<string, Json> : undefined;
   }
 
   async createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1> {

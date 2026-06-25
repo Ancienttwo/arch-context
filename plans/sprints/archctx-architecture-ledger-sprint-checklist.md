@@ -352,9 +352,10 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Evidence: `RuntimeArchitectureLedgerModes` in `packages/local-runtime/runtime-daemon/src/index.ts`; dual and ledger-with-projection apply tests in `packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`.
 - [x] **AL3-07 · P0 · `changeset-engine`** — In dual mode, append event and update projection atomically from the user’s perspective; recover both sides after crash.
   - Evidence: `ChangeSetEngine.apply` passes the active journal ID to the validate-before-commit hook; runtime dual/ledger-with-projection apply records the planned ledger event before append and append summary after success; SQLite startup recovery keeps the applied projection and commits the pending journal when the ledger idempotency event already exists, while append failure before commit still rolls back YAML writes.
-- [ ] **AL3-08 · P0 · `git-adapter`** — Detect branch checkout, rebase, reset and worktree changes; select or rebuild the correct ledger cursor.
-- [ ] **AL3-09 · P0 · `architecture-ledger`** — Define conflict behavior when Git projection changes outside ArchContext.
-  - Suggested rule: import as a proposed external event, validate, compare base digest, then require explicit reconcile if conflict remains.
+- [x] **AL3-08 · P0 · `git-adapter`** — Detect branch checkout, rebase, reset and worktree changes; select or rebuild the correct ledger cursor.
+  - Evidence: `architectureLedgerGitCursor` records a stable `source.git.current` cursor, SQLite/TestLocalStore expose cursor readback, and CLI fixture `CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes` proves graph state stays stable while cursor events advance.
+- [x] **AL3-09 · P0 · `architecture-ledger`** — Define conflict behavior when Git projection changes outside ArchContext.
+  - Evidence: `planExternalProjectionChangeToArchitectureLedgerEvent` imports external Git projection drift as `architecture.projection.external_change.proposed` without semantic operations; daemon `ledger rebuild --from-git` requires `--accept-external-projection` before applying the external projection to current state.
 - [x] **AL3-10 · P0 · `cli`** — Add `archctx ledger migrate --from-yaml --dry-run`.
   - Evidence: `runLedgerCommand` in `packages/surfaces/cli/src/main.ts`; CLI dry-run test in `packages/surfaces/cli/test/cli.test.ts`.
 - [x] **AL3-11 · P0 · `cli`** — Add `archctx ledger rebuild --from-git` and `archctx ledger project --to-git`.
@@ -398,7 +399,10 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - 2026-06-25: Added ChangeSet dual-write crash recovery: runtime records planned/appended ledger recovery metadata in the ChangeSet journal, and SQLite pending-journal recovery preserves applied projection files when the ledger idempotency event was already appended before journal commit.
 - 2026-06-25: Focused ChangeSet recovery verification passed: `bun test packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 30000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 60000`.
 - 2026-06-25: Full ChangeSet recovery module verification passed: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; `bun test --timeout 60000` (707 pass); `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
-- 2026-06-25: Remaining AL3 scope is Git cursor rebuild behavior, projection conflict handling, rollback and worktree/rebase fixtures.
+- 2026-06-25: Added Git cursor and external projection conflict module: rebuild records stable `source.git.current` cursor refresh events for checkout/reset/rebase/worktree changes, and external Git projection semantic drift is stored as a proposed event until explicit `--accept-external-projection` reconcile.
+- 2026-06-25: Focused cursor/conflict verification passed: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 30000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 60000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "ledger|cursor" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-25: Full cursor/conflict module verification passed after rerunning the root gate with isolated runtime state: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; independent full test readback `bun test --timeout 60000` passed with 710 tests.
+- 2026-06-25: Remaining AL3 scope is full ADR/policy import coverage, reconcile-engine integration, legacy ID preservation, YAML rollback, merge-conflict/two-worktree fixtures and package-boundary bypass verification.
 
 ---
 

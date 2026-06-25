@@ -18,6 +18,7 @@ import type { ChangeSetDraft } from "../../changeset-engine/src/index";
 import { canonicalArchitectureYaml, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
 
 export type ArchitectureLedgerWriter = "runtime-daemon";
+export const ARCHITECTURE_LEDGER_GIT_CURSOR_ID = "source.git.current";
 
 export interface ArchitectureLedgerScope {
   repository: ArchitectureRepositoryIdentityV1;
@@ -181,6 +182,44 @@ export interface ArchitectureLedgerYamlRebuildInput extends ArchitectureLedgerYa
   previousState: ArchitectureLedgerGraphState;
 }
 
+export interface ArchitectureLedgerGitCursor {
+  schemaVersion: "archcontext.git-cursor/v1";
+  cursorId: typeof ARCHITECTURE_LEDGER_GIT_CURSOR_ID;
+  source: "git";
+  branch: string;
+  headSha: string;
+  worktreeDigest: string;
+  sourceDigest: string;
+  graphDigest: string;
+  projectionDigest: string;
+  fileCount: number;
+  importedCount: number;
+  ignoredFileCount: number;
+  unsupportedFileCount: number;
+  cursorDigest: string;
+}
+
+export interface ArchitectureLedgerCursorRefreshPlan {
+  schemaVersion: "archcontext.architecture-ledger-cursor-refresh-plan/v1";
+  event: ArchitectureEventV1;
+  cursor: ArchitectureLedgerGitCursor;
+  graphDigest: string;
+}
+
+export interface ArchitectureLedgerExternalProjectionProposalPlan {
+  schemaVersion: "archcontext.architecture-ledger-external-projection-proposal-plan/v1";
+  event: ArchitectureEventV1;
+  cursor: ArchitectureLedgerGitCursor;
+  proposedGraphDigest: string;
+  baseGraphDigest: string;
+  sourceDigest: string;
+  projectionDigest: string;
+  imported: ArchitectureLedgerYamlImportRecord[];
+  ignoredFiles: ArchitectureLedgerYamlIgnoredFile[];
+  unsupportedFiles: ArchitectureLedgerYamlUnsupportedFile[];
+  drift: ArchitectureLedgerDriftReport;
+}
+
 export interface ArchitectureLedgerAppendInput {
   writer: ArchitectureLedgerWriter;
   events: ArchitectureEventV1[];
@@ -254,6 +293,18 @@ export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYaml
   });
   const state = stateFromOperations(collected.operations);
   const graphDigest = architectureLedgerStateDigest(state);
+  const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+  const projectionDigest = architectureLedgerProjectionDigest(projectedFiles);
+  const gitCursor = architectureLedgerGitCursor({
+    ...input,
+    sourceDigest,
+    graphDigest,
+    projectionDigest,
+    fileCount: input.files.length,
+    importedCount: collected.imported.length,
+    ignoredFileCount: collected.ignoredFiles.length,
+    unsupportedFileCount: collected.unsupportedFiles.length
+  });
   const event = normalizeArchitectureLedgerEvent({
     schemaVersion: "archcontext.architecture-event/v1",
     eventId: `architecture_event.yaml_import.${digestSuffix(sourceDigest)}`,
@@ -279,11 +330,9 @@ export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYaml
       operations: collected.operations,
       evidenceItems: collected.evidenceItems,
       evidenceBindings: collected.evidenceBindings,
-      sourceCursors: collected.sourceCursors
+      sourceCursors: [...collected.sourceCursors, gitCursor]
     } as unknown as Json
   }, null);
-  const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
-  const projectionDigest = architectureLedgerProjectionDigest(projectedFiles);
   const drift = architectureLedgerYamlDriftReport({
     state,
     projectedFiles,
@@ -416,6 +465,177 @@ export function planYamlToArchitectureLedgerRebuild(input: ArchitectureLedgerYam
     } as unknown as Json
   }, null);
   return { ...plan, event };
+}
+
+export function architectureLedgerGitCursor(input: ArchitectureLedgerScope & {
+  sourceDigest: string;
+  graphDigest: string;
+  projectionDigest: string;
+  fileCount: number;
+  importedCount: number;
+  ignoredFileCount: number;
+  unsupportedFileCount: number;
+}): ArchitectureLedgerGitCursor {
+  const cursor: Omit<ArchitectureLedgerGitCursor, "cursorDigest"> = {
+    schemaVersion: "archcontext.git-cursor/v1" as const,
+    cursorId: ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+    source: "git" as const,
+    branch: input.worktree.branch,
+    headSha: input.worktree.headSha,
+    worktreeDigest: input.worktree.worktreeDigest,
+    sourceDigest: input.sourceDigest,
+    graphDigest: input.graphDigest,
+    projectionDigest: input.projectionDigest,
+    fileCount: input.fileCount,
+    importedCount: input.importedCount,
+    ignoredFileCount: input.ignoredFileCount,
+    unsupportedFileCount: input.unsupportedFileCount
+  };
+  return {
+    ...cursor,
+    cursorDigest: digestJson(cursor as unknown as Json)
+  };
+}
+
+export function architectureLedgerGitCursorFromPlan(input: ArchitectureLedgerScope & {
+  plan: ArchitectureLedgerYamlImportPlan;
+}): ArchitectureLedgerGitCursor {
+  return architectureLedgerGitCursor({
+    ...input,
+    sourceDigest: input.plan.sourceDigest,
+    graphDigest: input.plan.graphDigest,
+    projectionDigest: input.plan.projectionDigest,
+    fileCount: input.plan.imported.length + input.plan.ignoredFiles.length + input.plan.unsupportedFiles.length,
+    importedCount: input.plan.imported.length,
+    ignoredFileCount: input.plan.ignoredFiles.length,
+    unsupportedFileCount: input.plan.unsupportedFiles.length
+  });
+}
+
+export function planGitCursorRefreshToArchitectureLedgerEvent(input: ArchitectureLedgerScope & {
+  cursor: ArchitectureLedgerGitCursor;
+  graphDigest: string;
+  createdAt: string;
+  command?: string;
+}): ArchitectureLedgerCursorRefreshPlan {
+  const inputDigest = digestJson({
+    cursorDigest: input.cursor.cursorDigest,
+    graphDigest: input.graphDigest
+  } as unknown as Json);
+  const event = normalizeArchitectureLedgerEvent({
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.git_cursor.${digestSuffix(inputDigest)}`,
+    eventType: "architecture.git.cursor.refresh",
+    payloadVersion: "archcontext.architecture-ledger-git-cursor/v1",
+    repository: input.repository,
+    worktree: input.worktree,
+    baseDigest: input.graphDigest,
+    resultingDigest: input.graphDigest,
+    headSha: input.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "projection_reconcile",
+    timestamp: input.createdAt,
+    idempotencyKey: `architecture-ledger-git-cursor:${input.cursor.cursorDigest}:${input.graphDigest}`,
+    provenance: {
+      producer: "architecture-ledger-git-cursor-refresh",
+      command: input.command ?? "archctx ledger rebuild --from-git",
+      inputDigest
+    },
+    payload: {
+      summary: "Refresh the architecture ledger Git cursor without changing semantic architecture state.",
+      title: "Architecture ledger Git cursor refresh",
+      sourceCursors: [input.cursor],
+      projectionState: {
+        projectionId: "projection.git.current",
+        path: ".archcontext",
+        projectionDigest: input.cursor.projectionDigest,
+        sourceDigest: input.cursor.sourceDigest,
+        graphDigest: input.graphDigest,
+        status: "current"
+      }
+    } as unknown as Json
+  }, null);
+  return {
+    schemaVersion: "archcontext.architecture-ledger-cursor-refresh-plan/v1",
+    event,
+    cursor: input.cursor,
+    graphDigest: input.graphDigest
+  };
+}
+
+export function planExternalProjectionChangeToArchitectureLedgerEvent(input: ArchitectureLedgerYamlRebuildInput): ArchitectureLedgerExternalProjectionProposalPlan {
+  const plan = planYamlToArchitectureLedgerImport(input);
+  const baseGraphDigest = architectureLedgerStateDigest(input.previousState);
+  const cursor = architectureLedgerGitCursorFromPlan({ ...input, plan });
+  const inputDigest = digestJson({
+    sourceDigest: plan.sourceDigest,
+    baseGraphDigest,
+    proposedGraphDigest: plan.graphDigest,
+    cursorDigest: cursor.cursorDigest
+  } as unknown as Json);
+  const event = normalizeArchitectureLedgerEvent({
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.external_projection.${digestSuffix(inputDigest)}`,
+    eventType: "architecture.projection.external_change.proposed",
+    payloadVersion: "archcontext.architecture-ledger-external-projection/v1",
+    repository: input.repository,
+    worktree: input.worktree,
+    baseDigest: baseGraphDigest,
+    resultingDigest: baseGraphDigest,
+    headSha: input.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "projection_reconcile",
+    timestamp: input.createdAt,
+    idempotencyKey: `architecture-ledger-external-projection:${plan.sourceDigest}:${baseGraphDigest}:${plan.graphDigest}`,
+    provenance: {
+      producer: "architecture-ledger-external-projection-proposal",
+      command: input.command ?? "archctx ledger rebuild --from-git",
+      inputDigest
+    },
+    payload: {
+      summary: "Git-tracked architecture projection changed outside an ArchContext ChangeSet; explicit reconcile is required before ledger state changes.",
+      title: "External architecture projection change proposed",
+      sourceCursors: [cursor],
+      projectionState: {
+        projectionId: `projection.external.${digestSuffix(inputDigest)}`,
+        path: ".archcontext",
+        projectionDigest: plan.projectionDigest,
+        sourceDigest: plan.sourceDigest,
+        baseGraphDigest,
+        proposedGraphDigest: plan.graphDigest,
+        status: "external-change-proposed",
+        reconcileRequired: true
+      },
+      proposedExternalProjectionChange: {
+        schemaVersion: "archcontext.external-projection-change/v1",
+        baseGraphDigest,
+        proposedGraphDigest: plan.graphDigest,
+        sourceDigest: plan.sourceDigest,
+        projectionDigest: plan.projectionDigest,
+        reasonCodes: plan.drift.reasonCodes,
+        imported: plan.imported,
+        ignoredFiles: plan.ignoredFiles,
+        unsupportedFiles: plan.unsupportedFiles,
+        reconcile: {
+          required: true,
+          command: "archctx ledger rebuild --from-git --accept-external-projection --expected-worktree-digest <current>"
+        }
+      }
+    } as unknown as Json
+  }, null);
+  return {
+    schemaVersion: "archcontext.architecture-ledger-external-projection-proposal-plan/v1",
+    event,
+    cursor,
+    proposedGraphDigest: plan.graphDigest,
+    baseGraphDigest,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    imported: plan.imported,
+    ignoredFiles: plan.ignoredFiles,
+    unsupportedFiles: plan.unsupportedFiles,
+    drift: plan.drift
+  };
 }
 
 function stateFromOperations(operations: ArchitectureLedgerOperation[]): ArchitectureLedgerGraphState {

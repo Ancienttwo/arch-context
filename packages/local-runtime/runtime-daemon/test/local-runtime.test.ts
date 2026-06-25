@@ -1189,7 +1189,7 @@ describe("local runtime foundation", () => {
     }
   });
 
-  test("ledger rebuild from Git removes entities deleted from YAML projection", async () => {
+  test("ledger rebuild from Git proposes external projection changes before explicit reconcile", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();
     try {
@@ -1218,13 +1218,28 @@ describe("local runtime foundation", () => {
 
       rmSync(join(root, path), { force: true });
       const status = await daemon.runtimeStatus(root);
-      const rebuild = await daemon.ledgerRebuild(root, {
+      const proposed = await daemon.ledgerRebuild(root, {
         fromGit: true,
         expectedWorktreeDigest: (status.data as any).worktreeDigest
       });
 
-      expect(rebuild.ok).toBe(true);
-      expect((rebuild.data as any).appendedEventCount).toBe(1);
+      expect(proposed.ok).toBe(true);
+      expect((proposed.data as any).status).toBe("external-projection-proposed");
+      expect((proposed.data as any).reconcileRequired).toBe(true);
+      expect((proposed.data as any).appendedEventCount).toBe(1);
+      expect((proposed.data as any).proposedExternalProjectionChange).toMatchObject({
+        baseGraphDigest: expect.stringMatching(/^sha256:/),
+        proposedGraphDigest: expect.stringMatching(/^sha256:/)
+      });
+      expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.rebuild-delete");
+
+      const accepted = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        acceptExternalProjection: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+      expect(accepted.ok).toBe(true);
+      expect((accepted.data as any).status).toBe("external-projection-accepted");
       expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).not.toContain("module.rebuild-delete");
     } finally {
       removeTempRepo(root);
