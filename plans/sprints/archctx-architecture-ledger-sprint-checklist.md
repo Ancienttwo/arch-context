@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge, runtime write/read-mode contract and ledger readback CLI complete
+> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge, runtime write/read-mode contract, ledger readback CLI and ChangeSet dual-write recovery complete
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -350,8 +350,8 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Evidence: `RuntimeArchitectureLedgerModes` now reports real read authority; ledger-authoritative runtime reads use a daemon-owned ledger-backed `ModelStore` for `validate`, `context`, `prepare`, `checkpoint`, `complete`, landscape context and explorer projection while ChangeSet writes still validate against YAML before ledger append.
 - [x] **AL3-06 · P0 · `runtime-daemon`** — Add write modes: `yaml`, `dual`, `ledger-with-projection`.
   - Evidence: `RuntimeArchitectureLedgerModes` in `packages/local-runtime/runtime-daemon/src/index.ts`; dual and ledger-with-projection apply tests in `packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`.
-- [ ] **AL3-07 · P0 · `changeset-engine`** — In dual mode, append event and update projection atomically from the user’s perspective; recover both sides after crash.
-  - Progress: ChangeSet now exposes a validate-before-commit hook; dual append failure rolls back YAML writes before journal commit. Crash/retry recovery remains.
+- [x] **AL3-07 · P0 · `changeset-engine`** — In dual mode, append event and update projection atomically from the user’s perspective; recover both sides after crash.
+  - Evidence: `ChangeSetEngine.apply` passes the active journal ID to the validate-before-commit hook; runtime dual/ledger-with-projection apply records the planned ledger event before append and append summary after success; SQLite startup recovery keeps the applied projection and commits the pending journal when the ledger idempotency event already exists, while append failure before commit still rolls back YAML writes.
 - [ ] **AL3-08 · P0 · `git-adapter`** — Detect branch checkout, rebase, reset and worktree changes; select or rebuild the correct ledger cursor.
 - [ ] **AL3-09 · P0 · `architecture-ledger`** — Define conflict behavior when Git projection changes outside ArchContext.
   - Suggested rule: import as a proposed external event, validate, compare base digest, then require explicit reconcile if conflict remains.
@@ -395,7 +395,10 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - 2026-06-25: Added ledger-backed runtime `ModelStore` reads for ledger-authoritative mode: Git/YAML still owns manifest, product, policies, practices and decisions, but `.archcontext/model/{nodes,relations,constraints}` reads are projected from SQLite current state for `validate`, `context`, `prepare`, `checkpoint`, `complete`, landscape context and explorer projection.
 - 2026-06-25: Focused runtime read-mode verification passed: `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 60000`; `bun run typecheck`.
 - 2026-06-25: Full runtime read-mode module verification passed with isolated runtime state: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; `bun test --timeout 60000` (706 pass); `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
-- 2026-06-25: Remaining AL3 scope is full ChangeSet crash/retry dual-write recovery, Git cursor rebuild behavior, projection conflict handling, rollback and worktree/rebase fixtures.
+- 2026-06-25: Added ChangeSet dual-write crash recovery: runtime records planned/appended ledger recovery metadata in the ChangeSet journal, and SQLite pending-journal recovery preserves applied projection files when the ledger idempotency event was already appended before journal commit.
+- 2026-06-25: Focused ChangeSet recovery verification passed: `bun test packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 30000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 60000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 60000`.
+- 2026-06-25: Full ChangeSet recovery module verification passed: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; `bun test --timeout 60000` (707 pass); `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-25: Remaining AL3 scope is Git cursor rebuild behavior, projection conflict handling, rollback and worktree/rebase fixtures.
 
 ---
 

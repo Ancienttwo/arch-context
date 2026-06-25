@@ -25,7 +25,17 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly landscapes = new Map<string, Landscape>();
   readonly crossRepoEdges = new Map<string, CrossRepoRelation>();
   readonly externalDocumentation = new Map<string, ExternalDocumentationCacheEntry>();
-  readonly changeSetJournals = new Map<string, { root: string; draft: ChangeSetDraft; files: ChangeSetJournalFile[]; status: "pending" | "committed" | "aborted" | "recovered"; reason?: string }>();
+  readonly changeSetJournals = new Map<string, {
+    root: string;
+    draft: ChangeSetDraft;
+    files: ChangeSetJournalFile[];
+    status: "pending" | "committed" | "aborted" | "recovered";
+    reason?: string;
+    ledger?: {
+      plannedEvent?: ArchitectureEventV1;
+      append?: ArchitectureLedgerAppendResult;
+    };
+  }>();
   readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
   readonly architectureEvents: ArchitectureEventV1[] = [];
 
@@ -78,6 +88,18 @@ export class TestLocalStore implements RuntimeLocalStore {
     record.files.push(file);
   }
 
+  async recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void> {
+    const record = this.changeSetJournals.get(journalId);
+    if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    record.ledger = { ...record.ledger, plannedEvent: input.event };
+  }
+
+  async recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void> {
+    const record = this.changeSetJournals.get(journalId);
+    if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    record.ledger = { ...record.ledger, append: input.result };
+  }
+
   async commitChangeSet(journalId: string): Promise<void> {
     const record = this.changeSetJournals.get(journalId);
     if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
@@ -95,7 +117,14 @@ export class TestLocalStore implements RuntimeLocalStore {
     let recovered = 0;
     for (const record of this.changeSetJournals.values()) {
       if (record.status === "pending") {
-        record.status = "recovered";
+        const plannedEvent = record.ledger?.plannedEvent;
+        const ledgerEventExists = plannedEvent
+          ? this.architectureEvents.some((event) =>
+            event.repository.storageRepositoryId === plannedEvent.repository.storageRepositoryId
+            && event.worktree.storageWorkspaceId === plannedEvent.worktree.storageWorkspaceId
+            && event.idempotencyKey === plannedEvent.idempotencyKey)
+          : false;
+        record.status = ledgerEventExists ? "committed" : "recovered";
         recovered += 1;
       }
     }

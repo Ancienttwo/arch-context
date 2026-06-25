@@ -1169,8 +1169,8 @@ export class ArchctxDaemon {
       const result = await this.changeSetEngine.apply(root, approved, {
         approved: input.approved,
         afterModelValidatedBeforeCommit: writesLedger
-          ? async () => {
-            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved);
+          ? async ({ journalId }) => {
+            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
             ledgerAppend = {
               status: "appended",
               appendedEventCount: appended.appendedEvents.length,
@@ -1193,7 +1193,7 @@ export class ArchctxDaemon {
     });
   }
 
-  private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft) {
+  private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft, journalId?: string) {
     const paths = runtimeStatePaths(root);
     const plan = planChangeSetApplyToArchitectureLedgerEvent({
       repository: {
@@ -1213,10 +1213,13 @@ export class ArchctxDaemon {
       writeMode: this.architectureLedger.writeMode === "ledger-with-projection" ? "ledger-with-projection" : "dual",
       command: "archctx apply"
     });
-    return this.localStore.appendArchitectureEvents({
+    if (journalId) await this.localStore.recordChangeSetLedgerPlan(journalId, { event: plan.event });
+    const result = await this.localStore.appendArchitectureEvents({
       writer: "runtime-daemon",
       events: [plan.event]
     });
+    if (journalId) await this.localStore.recordChangeSetLedgerAppend(journalId, { result });
+    return result;
   }
 
   async ledgerState(root: string): Promise<JsonEnvelope> {

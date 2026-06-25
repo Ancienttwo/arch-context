@@ -387,6 +387,49 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("sqlite changeset recovery keeps projection when ledger append completed before journal commit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-ledger-recover-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const tempPath = `${absolutePath}.archctx-tmp-test`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    const applied = "schemaVersion: archcontext.policy/v1\nid: policy.applied\n";
+    try {
+      writeRepoFile(root, relativePath, original);
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.ledger-recover", relativePath));
+      renameSync(absolutePath, backupPath);
+      writeFileSync(absolutePath, applied, "utf8");
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        tempPath,
+        backupPath,
+        existed: true,
+        operation: "update_entity_fields"
+      });
+      const event = architectureLedgerEvent(42);
+      await first.recordChangeSetLedgerPlan(journalId, { event });
+      await first.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+      first.close();
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(1);
+      expect(readFileSync(absolutePath, "utf8")).toBe(applied);
+      expect(existsSync(tempPath)).toBe(false);
+      expect(existsSync(backupPath)).toBe(false);
+      expect(second.recoverPendingChangeSets()).toBe(0);
+      second.close();
+      expect(await sqliteScalar(dbPath, "SELECT status FROM changeset_journal WHERE changeset_id = 'changeset.ledger-recover'")).toBe("committed");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events WHERE idempotency_key = 'architecture-ledger-test-42'")).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("sqlite store persists repository session, task state, landscape metadata, and committed snapshots across reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-sqlite-store-"));
     const dbPath = join(root, "runtime.sqlite");

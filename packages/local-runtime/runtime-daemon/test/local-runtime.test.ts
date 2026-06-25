@@ -898,6 +898,10 @@ describe("local runtime foundation", () => {
       expect(readText(join(root, ".archcontext/model/nodes/module.dual-ledger.yaml"))).toContain("module.dual-ledger");
       expect(store.architectureEventAppends).toHaveLength(1);
       const event = store.architectureEventAppends[0]!.events[0]!;
+      const journal = [...store.changeSetJournals.values()][0]!;
+      expect(journal.status).toBe("committed");
+      expect(journal.ledger?.plannedEvent?.idempotencyKey).toBe(event.idempotencyKey);
+      expect(journal.ledger?.append?.appendedEvents.map((appended) => appended.idempotencyKey)).toContain(event.idempotencyKey);
       expect(event).toMatchObject({
         eventType: "architecture.changeset.apply",
         source: "apply_update",
@@ -973,7 +977,7 @@ describe("local runtime foundation", () => {
   test("dual architecture ledger mode rolls back YAML writes when ledger append fails before commit", async () => {
     class FailingLedgerStore extends TestLocalStore {
       async appendArchitectureEvents(input: Parameters<TestLocalStore["appendArchitectureEvents"]>[0]): ReturnType<TestLocalStore["appendArchitectureEvents"]> {
-        await super.appendArchitectureEvents(input);
+        this.architectureEventAppends.push(input);
         throw new Error("ledger-append-down");
       }
     }

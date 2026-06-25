@@ -770,6 +770,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   }): Promise<ExternalDocumentationCacheEntry | undefined>;
   listExternalDocumentation(provider?: ExternalDocumentationProvider): Promise<ExternalDocumentationCacheEntry[]>;
   purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number>;
+  recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
+  recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
@@ -887,6 +889,27 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     db.prepare("UPDATE changeset_journal SET files_json = ?, updated_at = ? WHERE journal_id = ?").run(stableJson(files), nowIso(), journalId);
   }
 
+  async recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void> {
+    validateArchitectureLedgerEvent(input.event);
+    const db = await this.database();
+    const metadata = readChangeSetJournalMetadata(db, journalId);
+    db.prepare("UPDATE changeset_journal SET metadata_json = ?, updated_at = ? WHERE journal_id = ?")
+      .run(stableJson(withChangeSetJournalArchitectureLedger(metadata, {
+        plannedEvent: input.event as unknown as Json,
+        plannedAt: nowIso()
+      })), nowIso(), journalId);
+  }
+
+  async recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void> {
+    const db = await this.database();
+    const metadata = readChangeSetJournalMetadata(db, journalId);
+    db.prepare("UPDATE changeset_journal SET metadata_json = ?, updated_at = ? WHERE journal_id = ?")
+      .run(stableJson(withChangeSetJournalArchitectureLedger(metadata, {
+        append: changeSetLedgerAppendSummary(input.result) as unknown as Json,
+        appendedAt: nowIso()
+      })), nowIso(), journalId);
+  }
+
   async commitChangeSet(journalId: string): Promise<void> {
     const db = await this.database();
     const existing = db.prepare("SELECT journal_id FROM changeset_journal WHERE journal_id = ?").get(journalId);
@@ -910,9 +933,30 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     for (const row of committed) {
       cleanupCommittedJournalFiles(JSON.parse(String(row.files_json)) as ChangeSetJournalFile[]);
     }
-    const rows = db.prepare("SELECT journal_id, root, files_json FROM changeset_journal WHERE status = ?").all("pending");
+    const rows = db.prepare("SELECT journal_id, root, files_json, metadata_json FROM changeset_journal WHERE status = ?").all("pending");
     for (const row of rows) {
       const files = JSON.parse(String(row.files_json)) as ChangeSetJournalFile[];
+      const metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
+      const plannedLedgerEvent = changeSetJournalPlannedLedgerEvent(metadata);
+      const existingLedgerEvent = plannedLedgerEvent ? architectureEventByIdempotency(db, plannedLedgerEvent) : undefined;
+      if (plannedLedgerEvent && existingLedgerEvent) {
+        const expectedEventHash = normalizeArchitectureLedgerEvent(plannedLedgerEvent, existingLedgerEvent.previousEventHash).eventHash;
+        if (expectedEventHash !== existingLedgerEvent.event.eventHash) {
+          throw new Error(`changeset-ledger-recovery-idempotency-conflict: ${plannedLedgerEvent.idempotencyKey}`);
+        }
+        cleanupCommittedJournalFiles(files);
+        db.prepare("UPDATE changeset_journal SET status = ?, metadata_json = ?, updated_at = ?, completed_at = ? WHERE journal_id = ?")
+          .run("committed", stableJson(withChangeSetJournalArchitectureLedger(metadata, {
+            recovery: {
+              schemaVersion: "archcontext.changeset-ledger-recovery/v1",
+              status: "ledger-append-detected",
+              eventId: existingLedgerEvent.event.eventId,
+              eventHash: existingLedgerEvent.event.eventHash ?? "",
+              recoveredAt: nowIso()
+            } as unknown as Json
+          })), nowIso(), nowIso(), String(row.journal_id));
+        continue;
+      }
       recoverJournalFiles(String(row.root), files);
       db.prepare("UPDATE changeset_journal SET status = ?, updated_at = ?, completed_at = ? WHERE journal_id = ?")
         .run("recovered", nowIso(), nowIso(), String(row.journal_id));
@@ -2285,6 +2329,54 @@ function changeSetMetadata(draft: ChangeSetDraft): Record<string, unknown> {
     requiresConfirmation: draft.requiresConfirmation,
     idempotencyKey: draft.idempotencyKey
   };
+}
+
+function readChangeSetJournalMetadata(db: SqliteDatabase, journalId: string): Record<string, unknown> {
+  const row = db.prepare("SELECT metadata_json FROM changeset_journal WHERE journal_id = ?").get(journalId);
+  if (!row) throw new Error(`ChangeSet journal not found: ${journalId}`);
+  return JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
+}
+
+function withChangeSetJournalArchitectureLedger(metadata: Record<string, unknown>, patch: Record<string, Json>): Record<string, unknown> {
+  const existing = metadata.architectureLedger;
+  const architectureLedger = isJsonRecord(existing)
+    ? { ...existing, ...patch }
+    : {
+      schemaVersion: "archcontext.changeset-ledger-recovery/v1",
+      ...patch
+    };
+  return { ...metadata, architectureLedger };
+}
+
+function changeSetLedgerAppendSummary(result: ArchitectureLedgerAppendResult): Record<string, Json> {
+  return {
+    schemaVersion: "archcontext.changeset-ledger-append/v1",
+    status: "appended",
+    appendedEventIds: result.appendedEvents.map((event) => event.eventId),
+    duplicateEventIds: result.duplicateEvents.map((event) => event.eventId),
+    graphDigest: result.graphDigest,
+    entityCount: result.entityCount,
+    relationCount: result.relationCount,
+    constraintCount: result.constraintCount
+  };
+}
+
+function changeSetJournalPlannedLedgerEvent(metadata: Record<string, unknown>): ArchitectureEventV1 | undefined {
+  const architectureLedger = metadata.architectureLedger;
+  if (!isJsonRecord(architectureLedger)) return undefined;
+  const plannedEvent = architectureLedger.plannedEvent;
+  if (!isJsonRecord(plannedEvent)) return undefined;
+  try {
+    const event = plannedEvent as unknown as ArchitectureEventV1;
+    validateArchitectureLedgerEvent(event);
+    return event;
+  } catch {
+    return undefined;
+  }
+}
+
+function isJsonRecord(value: unknown): value is Record<string, Json> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void {
