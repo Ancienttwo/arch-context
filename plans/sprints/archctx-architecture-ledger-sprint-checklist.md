@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge, runtime write/read-mode contract, ledger readback CLI and ChangeSet dual-write recovery complete
+> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge, runtime write/read-mode contract, ledger readback CLI, ChangeSet dual-write recovery and import completeness gates complete
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -338,8 +338,8 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 
 ### Tasks
 
-- [ ] **AL3-01 · P0 · `model-store-yaml`** — Implement deterministic import of manifest, nodes, relations, constraints, ADR metadata and policies into ledger events.
-  - Progress: core dry-run event planning exists in `planYamlToArchitectureLedgerImport`; `archctx ledger rebuild --from-git` now appends only when Git YAML changes ledger state and no-ops when current state already matches; parser accepts hand-written plain YAML scalars; full ADR fixture coverage remains.
+- [x] **AL3-01 · P0 · `model-store-yaml`** — Implement deterministic import of manifest, nodes, relations, constraints, ADR metadata and policies into ledger events.
+  - Evidence: `listModelFiles` includes `.archcontext/manifest.yaml`, model records, policies, practices, decisions and `docs/adr/ADR-*.md`; `planYamlToArchitectureLedgerImport` parses ADR Markdown frontmatter and imports manifest/policy/ADR metadata as digest-backed declared evidence while nodes, relations and constraints remain graph mutations. Real repo dry-run imported 44 records, including 40 ADR metadata records, with 0 unsupported files and clean drift.
 - [x] **AL3-02 · P0 · `renderer`** — Implement deterministic export from ledger current state to `.archcontext/` YAML.
   - Evidence: `projectArchitectureLedgerStateToYamlFiles` in `packages/core/architecture-ledger/src/index.ts`; daemon/CLI `ledger project --to-git` tests restore missing Git projection files from SQLite current state.
 - [x] **AL3-03 · P0 · `architecture-domain`** — Define one canonical ordering and serialization for IDs, collections, metadata and timestamps.
@@ -362,7 +362,8 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Evidence: `runLedgerCommand` in `packages/surfaces/cli/src/main.ts`; CLI test covers rebuild from Git, missing projection drift, and project back to Git.
 - [x] **AL3-12 · P0 · `cli`** — Add `archctx ledger drift --json` with actionable reason codes.
   - Evidence: `compareArchitectureLedgerStateToYaml` reason codes include `semantic-drift`, `projection-file-missing`, `projection-file-digest-mismatch` and `projection-file-extra`; CLI test covers `projection-file-missing`.
-- [ ] **AL3-13 · P1 · `migration`** — Preserve existing IDs and map legacy records without generating new semantic entities.
+- [x] **AL3-13 · P1 · `migration`** — Preserve existing IDs and map legacy records without generating new semantic entities.
+  - Evidence: `preserves declared semantic IDs from legacy file paths and projects canonical paths` keeps semantic IDs from YAML `id` fields, maps legacy filenames to canonical projection paths, and does not invent replacement entities.
 - [x] **AL3-14 · P1 · `migration`** — Add backup and one-command rollback to YAML authority.
   - Evidence: `archctx ledger rollback --to-yaml --dry-run|--write` is daemon-owned, writes only after fresh worktree digest validation, backs up existing managed projection files under `.archcontext/backups/ledger-rollback/`, removes stale managed files, projects SQLite current state back to Git YAML, and returns the recommended `ARCHCONTEXT_LEDGER_MODE=yaml` switch surface.
 - [x] **AL3-15 · P1 · `tests`** — Add fixtures for merge conflicts, rebase, detached HEAD and two simultaneous worktrees.
@@ -372,9 +373,12 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 
 ### Exit gate
 
-- [ ] **AL3-EG1** — YAML → ledger → YAML has zero semantic drift.
-- [ ] **AL3-EG2** — Deleting SQLite and rebuilding from Git reproduces the same architecture digest.
-- [ ] **AL3-EG3** — Deleting generated YAML and projecting from SQLite reproduces the same files.
+- [x] **AL3-EG1** — YAML → ledger → YAML has zero semantic drift.
+  - Evidence: `plans deterministic YAML import and projects back with zero semantic drift`; ADR/policy/manifest metadata import does not affect graph digest when only ADR metadata changes.
+- [x] **AL3-EG2** — Deleting SQLite and rebuilding from Git reproduces the same architecture digest.
+  - Evidence: `CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML` deletes the runtime SQLite files and rebuilds the same graph digest from Git.
+- [x] **AL3-EG3** — Deleting generated YAML and projecting from SQLite reproduces the same files.
+  - Evidence: `CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML` removes a generated node projection and `ledger project --to-git --write` restores the exact previous file body with clean drift.
 - [x] **AL3-EG4** — Rebase and branch-switch fixtures never leak state across worktrees.
   - Evidence: `CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes`; `CLI keeps ledger cursor scoped across detached HEAD and simultaneous worktrees`.
 - [x] **AL3-EG5** — Rollback to YAML mode succeeds without data loss.
@@ -410,7 +414,11 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - 2026-06-25: Added AL3 rollback/worktree/bypass module: daemon/RPC/CLI rollback restores YAML authority projection from SQLite current state with backup, CLI fixtures cover merge conflicts, detached HEAD and simultaneous worktrees, and package-boundary audit blocks production surfaces from direct ledger/projection mutation.
 - 2026-06-25: Focused rollback/worktree verification passed: `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "ledger|worktree|merge|rollback|cursor" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `git diff --check`.
 - 2026-06-25: Full rollback/worktree module verification passed: `bun run verify` exited 0 with 714 tests, packaged CLI smoke, privacy/security/readback ledgers, sprint-status check and representative eval; isolated-state practice verification also passed with `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-practice-verify.XXXXXX)" bun run verify:practices`.
-- 2026-06-25: Remaining AL3 scope is full ADR/policy import coverage, reconcile-engine integration and legacy ID preservation.
+- 2026-06-25: Added AL3 import-completeness module: ADR Markdown frontmatter is collected from `docs/adr/ADR-*.md`, evidence-only manifest/policy/ADR records preserve declared IDs without graph mutation, and legacy YAML filenames project back to canonical semantic-ID paths.
+- 2026-06-25: Focused import-completeness verification passed: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "SQLite deletion|ledger|rollback|worktree|merge|cursor" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; real repo `ledger migrate --from-yaml --dry-run` imported 44 records, including 40 ADR metadata records, with 0 unsupported files and clean drift.
+- 2026-06-25: Full import-completeness module verification passed with isolated runtime state: `ARCHCONTEXT_STATE_DIR="$(mktemp -d /tmp/archctx-verify.XXXXXX)" bun run verify`; full test suite passed with 717 tests, packaged CLI smoke, privacy/security/readback ledgers, sprint-status check and representative eval.
+- 2026-06-25: Remote PR #49 Windows readback exposed `EBUSY` when the SQLite deletion fixture removed `runtime.sqlite` immediately after daemon shutdown; the fixture now retries transient Windows cleanup errors while preserving the real SQLite deletion/rebuild assertion. Local focused test and full isolated `bun run verify` passed after the fix.
+- 2026-06-25: Remaining AL3 scope is reconcile-engine integration.
 
 ---
 

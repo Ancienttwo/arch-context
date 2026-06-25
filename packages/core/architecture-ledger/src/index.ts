@@ -813,7 +813,7 @@ function collectYamlModelFacts(files: ArchitectureLedgerModelFile[], createdAt: 
     }
     let value: Json;
     try {
-      value = parseJsonOrStableYaml(file.body, file.path);
+      value = parseArchitectureLedgerYamlRecord(file);
     } catch (error) {
       unsupportedFiles.push({
         path: file.path,
@@ -858,9 +858,9 @@ function collectYamlModelFacts(files: ArchitectureLedgerModelFile[], createdAt: 
     }
     if (!target) {
       if (isEvidenceOnlySchema(schemaVersion)) {
-        const evidence = yamlEvidenceItem(file, schemaVersion, createdAt, provenance);
+        const evidence = yamlEvidenceItem(file, schemaVersion, createdAt, provenance, declaredYamlSubject(value, file.path));
         evidenceItems.push(evidence);
-        imported.push({ path: file.path, schemaVersion, targetKind: "evidence", targetId: evidence.evidenceId });
+        imported.push({ path: file.path, schemaVersion, targetKind: "evidence", targetId: evidence.subject });
         continue;
       }
       unsupportedFiles.push({
@@ -872,7 +872,7 @@ function collectYamlModelFacts(files: ArchitectureLedgerModelFile[], createdAt: 
       continue;
     }
     operations.push(target.operation);
-    const evidence = yamlEvidenceItem(file, schemaVersion, createdAt, provenance);
+    const evidence = yamlEvidenceItem(file, schemaVersion, createdAt, provenance, target.targetId);
     evidenceItems.push(evidence);
     evidenceBindings.push(yamlEvidenceBinding(evidence, target.targetKind, target.targetId, createdAt, provenance));
     imported.push({ path: file.path, schemaVersion, targetKind: target.targetKind, targetId: target.targetId });
@@ -887,6 +887,15 @@ function collectYamlModelFacts(files: ArchitectureLedgerModelFile[], createdAt: 
     ignoredFiles: ignoredFiles.sort((left, right) => left.path.localeCompare(right.path)),
     unsupportedFiles: unsupportedFiles.sort((left, right) => left.path.localeCompare(right.path))
   };
+}
+
+function parseArchitectureLedgerYamlRecord(file: ArchitectureLedgerModelFile): Json {
+  return parseJsonOrStableYaml(markdownFrontmatterBody(file.body) ?? file.body, file.path);
+}
+
+function markdownFrontmatterBody(body: string): string | undefined {
+  const match = body.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  return match?.[1];
 }
 
 function yamlRecordToLedgerOperation(value: Record<string, Json>, path: string, schemaVersion: string): {
@@ -951,8 +960,19 @@ function yamlRecordToLedgerOperation(value: Record<string, Json>, path: string, 
   return undefined;
 }
 
-function yamlEvidenceItem(file: ArchitectureLedgerModelFile, schemaVersion: string, createdAt: string, provenance: ArchitectureEventV1["provenance"]): EvidenceItemV2 {
+function yamlEvidenceItem(
+  file: ArchitectureLedgerModelFile,
+  schemaVersion: string,
+  createdAt: string,
+  provenance: ArchitectureEventV1["provenance"],
+  subject: string
+): EvidenceItemV2 {
   const digest = modelFileDigest(file);
+  const extensions: Record<string, Json> = {
+    schemaVersion,
+    sourcePath: file.path
+  };
+  if (subject !== file.path) extensions.declaredId = subject;
   return {
     schemaVersion: "archcontext.evidence-item/v2",
     evidenceId: `evidence.yaml.${digestSuffix(digest)}`,
@@ -960,14 +980,15 @@ function yamlEvidenceItem(file: ArchitectureLedgerModelFile, schemaVersion: stri
     strength: "declared",
     polarity: "declaration",
     origin: "model-store-yaml",
-    subject: file.path,
+    subject,
     selector: { kind: "path", id: file.path, path: file.path },
-    summary: `${schemaVersion || "unknown schema"} declared at ${file.path}`,
+    summary: `${schemaVersion || "unknown schema"} ${subject} declared at ${file.path}`,
     coverage: { level: "complete", scope: file.path },
     supports: ["checkpoint", "complete"],
     provenance,
     createdAt,
-    digest
+    digest,
+    extensions
   };
 }
 
@@ -1121,6 +1142,17 @@ function metadataField(value: Record<string, Json>, omitted: string[]): { metada
     metadata[key] = value[key]!;
   }
   return Object.keys(metadata).length === 0 ? {} : { metadata };
+}
+
+function declaredYamlSubject(value: Record<string, Json>, path: string): string {
+  const id = stringField(value, "id");
+  if (id) return id;
+  const product = value.product;
+  if (isRecord(product)) {
+    const productId = stringField(product, "id");
+    if (productId) return productId;
+  }
+  return path;
 }
 
 function repoScopedTarget(value: Json | undefined, path: string, label: string): string {

@@ -59,6 +59,25 @@ function isIgnorableWindowsCleanupError(error: unknown): boolean {
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
 
+async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
+  for (const path of [localStorePath, `${localStorePath}-wal`, `${localStorePath}-shm`]) {
+    await removeFileWithTransientWindowsRetry(path);
+  }
+}
+
+async function removeFileWithTransientWindowsRetry(path: string): Promise<void> {
+  const deadline = Date.now() + (process.platform === "win32" ? 10_000 : 0);
+  while (true) {
+    try {
+      rmSync(path, { force: true });
+      return;
+    } catch (error) {
+      if (!isIgnorableWindowsCleanupError(error) || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 function expectSameExistingPath(actual: string, expected: string): void {
   expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
 }
@@ -1317,6 +1336,75 @@ describe("archctx CLI", () => {
       expect(existsSync(join(root, stalePath))).toBe(false);
       expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
       expect((await runTestCli("validate", [], root)).ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    try {
+      mkdirSync(join(root, "docs/adr"), { recursive: true });
+      writeFileSync(join(root, "docs/adr/ADR-0099-cli-ledger-import.md"), [
+        "---",
+        "schemaVersion: archcontext.adr/v1",
+        "id: adr.0099.cli-ledger-import",
+        "title: CLI Ledger Import",
+        "status: accepted",
+        "decidedAt: 2026-06-25",
+        "appliesTo:",
+        "  - package.surfaces-cli",
+        "supersedes: []",
+        "---",
+        "",
+        "# CLI Ledger Import",
+        ""
+      ].join("\n"), "utf8");
+      git(root, "add", "docs/adr/ADR-0099-cli-ledger-import.md");
+      git(root, "commit", "-m", "add cli ledger import adr");
+
+      let status = await runTestCli("status", [], root);
+      const first = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(first.ok).toBe(true);
+      expect((first.data as any).imported).toContainEqual(expect.objectContaining({
+        path: "docs/adr/ADR-0099-cli-ledger-import.md",
+        targetKind: "evidence",
+        targetId: "adr.0099.cli-ledger-import"
+      }));
+      const firstGraphDigest = (first.data as any).graphDigest;
+      const originalProjection = readFileSync(join(root, projectionPath), "utf8");
+
+      const paths = testRuntimePaths(root);
+      await removeRuntimeSqliteFiles(paths.localStorePath);
+      status = await runTestCli("status", [], root);
+      const rebuilt = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuilt.ok).toBe(true);
+      expect((rebuilt.data as any).graphDigest).toBe(firstGraphDigest);
+
+      rmSync(join(root, projectionPath), { force: true });
+      status = await runTestCli("status", [], root);
+      const project = await runTestCli("ledger", [
+        "project",
+        "--to-git",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writtenPaths).toContain(projectionPath);
+      expect(readFileSync(join(root, projectionPath), "utf8")).toBe(originalProjection);
+      expect(((await runTestCli("ledger", ["drift", "--json"], root)).data as any).drift.ok).toBe(true);
     } finally {
       removeTempRoot(root);
     }

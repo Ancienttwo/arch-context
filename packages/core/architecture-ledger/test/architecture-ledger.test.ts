@@ -118,6 +118,133 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     expect(projectArchitectureLedgerStateToYamlFiles(plan.state)[0]!.body).toContain("schemaVersion: \"archcontext.constraint/v1\"");
   });
 
+  test("imports ADR frontmatter policies and manifest metadata as declared evidence without graph mutation", () => {
+    const files = [
+      modelFile(".archcontext/model/nodes/module.api.yaml", [
+        "schemaVersion: \"archcontext.node/v1\"",
+        "id: \"module.api\"",
+        "kind: \"module\"",
+        "name: \"API\"",
+        ""
+      ]),
+      modelFile("docs/adr/ADR-0040-hybrid-architecture-ledger.md", [
+        "---",
+        "schemaVersion: archcontext.adr/v1",
+        "id: adr.0040.hybrid-architecture-ledger",
+        "title: Hybrid Architecture Ledger",
+        "status: accepted",
+        "decidedAt: 2026-06-25",
+        "appliesTo:",
+        "  - package.local-runtime",
+        "supersedes: []",
+        "---",
+        "",
+        "# Private ADR body should not enter event payload",
+        "",
+        "The body may contain extended rationale, but the ledger import stores only digest-backed metadata."
+      ]),
+      modelFile(".archcontext/policies/review.yaml", [
+        "schemaVersion: \"archcontext.policy/v1\"",
+        "id: \"policy.review\"",
+        "failOn:",
+        "  - \"stale-context\"",
+        ""
+      ]),
+      modelFile(".archcontext/manifest.yaml", [
+        "schemaVersion: \"archcontext.manifest/v1\"",
+        "product:",
+        "  id: \"product.checkout\"",
+        "  name: \"Checkout\"",
+        ""
+      ])
+    ];
+    const plan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      files,
+      createdAt: "2026-06-25T02:00:00.000Z"
+    });
+    const changedAdr = planYamlToArchitectureLedgerImport({
+      ...scope,
+      files: files.map((file) => file.path === "docs/adr/ADR-0040-hybrid-architecture-ledger.md"
+        ? modelFile(file.path, file.body.replace("Hybrid Architecture Ledger", "Hybrid Ledger Rename"))
+        : file),
+      createdAt: "2026-06-25T02:00:00.000Z"
+    });
+    const payload = architectureLedgerPayload(plan.event);
+
+    expect(plan.unsupportedFiles).toEqual([]);
+    expect(plan.state.entities.map((entity) => entity.entityId)).toEqual(["module.api"]);
+    expect(changedAdr.graphDigest).toBe(plan.graphDigest);
+    expect(changedAdr.sourceDigest).not.toBe(plan.sourceDigest);
+    expect(plan.imported).toContainEqual({
+      path: "docs/adr/ADR-0040-hybrid-architecture-ledger.md",
+      schemaVersion: "archcontext.adr/v1",
+      targetKind: "evidence",
+      targetId: "adr.0040.hybrid-architecture-ledger"
+    });
+    expect(plan.imported).toContainEqual({
+      path: ".archcontext/policies/review.yaml",
+      schemaVersion: "archcontext.policy/v1",
+      targetKind: "evidence",
+      targetId: "policy.review"
+    });
+    expect(plan.imported).toContainEqual({
+      path: ".archcontext/manifest.yaml",
+      schemaVersion: "archcontext.manifest/v1",
+      targetKind: "evidence",
+      targetId: "product.checkout"
+    });
+    expect(payload.evidenceItems).toContainEqual(expect.objectContaining({
+      subject: "adr.0040.hybrid-architecture-ledger",
+      selector: expect.objectContaining({ path: "docs/adr/ADR-0040-hybrid-architecture-ledger.md" }),
+      extensions: expect.objectContaining({
+        declaredId: "adr.0040.hybrid-architecture-ledger",
+        sourcePath: "docs/adr/ADR-0040-hybrid-architecture-ledger.md",
+        schemaVersion: "archcontext.adr/v1"
+      })
+    }));
+    expect(JSON.stringify(payload)).not.toContain("Private ADR body should not enter event payload");
+  });
+
+  test("preserves declared semantic IDs from legacy file paths and projects canonical paths", () => {
+    const plan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      createdAt: "2026-06-25T02:00:00.000Z",
+      files: [
+        modelFile(".archcontext/model/nodes/legacy_api_module.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.api\"",
+          "kind: \"module\"",
+          "name: \"API\"",
+          "status: \"active\"",
+          ""
+        ]),
+        modelFile(".archcontext/model/relations/legacy_checkout_api.yaml", [
+          "schemaVersion: \"archcontext.relation/v1\"",
+          "id: \"relation.checkout-api\"",
+          "kind: \"calls\"",
+          "source: \"module.checkout\"",
+          "target: \"module.api\"",
+          ""
+        ])
+      ]
+    });
+
+    expect(plan.state.entities.map((entity) => entity.entityId)).toEqual(["module.api"]);
+    expect(plan.state.relations.map((relation) => relation.relationId)).toEqual(["relation.checkout-api"]);
+    expect(plan.imported).toContainEqual(expect.objectContaining({
+      path: ".archcontext/model/nodes/legacy_api_module.yaml",
+      targetKind: "entity",
+      targetId: "module.api"
+    }));
+    expect(plan.projectedFiles.map((file) => file.path)).toEqual([
+      ".archcontext/model/nodes/module.api.yaml",
+      ".archcontext/model/relations/relation.checkout-api.yaml"
+    ]);
+    expect(plan.projectedFiles.map((file) => file.path)).not.toContain(".archcontext/model/nodes/legacy_api_module.yaml");
+    expect(plan.drift.ok).toBe(true);
+  });
+
   test("reports unsupported authoritative YAML without mutating supported graph facts", () => {
     const plan = planYamlToArchitectureLedgerImport({
       ...scope,

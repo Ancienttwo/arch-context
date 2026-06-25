@@ -116,7 +116,8 @@ export function listModelFiles(root: string): ModelFile[] {
     ".archcontext/decisions",
     ".archcontext/policies",
     ".archcontext/practices",
-    ".archcontext/generated"
+    ".archcontext/generated",
+    "docs/adr"
   ]);
   return paths.map((path) => {
     const body = readFileSync(resolve(root, path), "utf8");
@@ -149,10 +150,15 @@ function collectArchContextFiles(root: string, entries: string[]): string[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const child = `${relativeDir}/${entry.name}`;
       if (entry.isDirectory()) out.push(...walk(child));
-      if (entry.isFile() && /\.(ya?ml|md)$/.test(entry.name)) out.push(child);
+      if (entry.isFile() && /\.(ya?ml|md)$/.test(entry.name) && isCollectableModelFile(child)) out.push(child);
     }
     return out;
   }
+}
+
+function isCollectableModelFile(path: string): boolean {
+  if (path.startsWith("docs/adr/")) return /^docs\/adr\/ADR-\d{4}-.+\.md$/.test(path);
+  return true;
 }
 
 function readdirOrFile(path: string): "directory" | "file" {
