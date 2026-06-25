@@ -948,7 +948,7 @@ describe("local runtime foundation", () => {
         rolloutMode: "ledger-authoritative",
         readMode: "ledger",
         writeMode: "ledger-with-projection",
-        readAuthority: "yaml",
+        readAuthority: "ledger",
         writeAuthority: "ledger-with-projection",
         append: {
           status: "appended",
@@ -1047,6 +1047,64 @@ describe("local runtime foundation", () => {
       expect((state.data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.ledger-read");
       expect((state.data as any).ledger.graphDigest).toMatch(/^sha256:/);
       expect((state.data as any).drift.semanticDrift).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger-authoritative runtime read surfaces use SQLite current state when Git projection drifts", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:03:00.000Z"
+      });
+      await daemon.init(root, "Ledger Runtime Read App");
+      const path = ".archcontext/model/nodes/module.ledger-runtime-read.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-runtime-read-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-runtime-read\nkind: module\nname: Ledger Runtime Read\nstatus: active\nsummary: Runtime reads from ledger state\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-runtime-read-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      const ledger = await daemon.ledgerState(root);
+      rmSync(join(root, path), { force: true });
+
+      const validate = await daemon.validate(root);
+      const validation = validate.data as any;
+      const yamlDigest = digestJson(listModelFiles(root).map((file) => ({ path: file.path, digest: file.digest })) as any);
+      expect(validate.ok).toBe(true);
+      expect(validation.valid).toBe(true);
+      expect(validation.architectureLedger).toMatchObject({
+        readAuthority: "ledger",
+        graphDigest: (ledger.data as any).ledger.graphDigest,
+        entityCount: (ledger.data as any).ledger.entityCount
+      });
+      expect(listModelFiles(root).map((file) => file.path)).not.toContain(path);
+      expect(validation.modelDigest).not.toBe(yamlDigest);
+
+      const context = await daemon.context(root, "change ledger runtime read model", 4);
+      expect(context.ok).toBe(true);
+      expect((context.data as any).extensions.modelDigest).toBe(validation.modelDigest);
+      expect(((context.data as any).resources as any[]).some((resource) => resource.type === "model" && resource.digest === validation.modelDigest)).toBe(true);
+
+      const prepare = await daemon.prepare(root, "change ledger runtime read model", 12_288, 4, "task_ledger_runtime_reads");
+      expect((prepare.data as any).context.extensions.modelDigest).toBe(validation.modelDigest);
+      const complete = await daemon.completeTask(root, {
+        taskSessionId: "task_ledger_runtime_reads",
+        task: "change ledger runtime read model"
+      });
+      expect((complete.data as any).snapshot.modelDigest).toBe(validation.modelDigest);
     } finally {
       removeTempRepo(root);
     }

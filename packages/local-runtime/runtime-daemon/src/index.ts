@@ -19,14 +19,15 @@ import {
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
-  architectureLedgerProjectionDigest,
   architectureLedgerStateDigest,
+  architectureLedgerProjectionDigest,
   compareArchitectureLedgerStateToYaml,
   planChangeSetApplyToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
   planYamlToArchitectureLedgerRebuild,
   projectArchitectureLedgerStateToYamlFiles,
-  type ArchitectureLedgerScope
+  type ArchitectureLedgerScope,
+  type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
@@ -38,7 +39,7 @@ import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/co
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 
 export interface RuntimeStatus {
   running: boolean;
@@ -424,6 +425,84 @@ interface ModelFileSummary {
   digest: string;
 }
 
+interface ArchitectureLedgerReadModelValidation {
+  valid: boolean;
+  errors: string[];
+  modelDigest: string;
+  architectureLedger: RuntimeArchitectureLedgerModes & {
+    graphDigest: string;
+    entityCount: number;
+    relationCount: number;
+    constraintCount: number;
+  };
+}
+
+interface ArchitectureLedgerReadModel {
+  files: ModelFile[];
+  state: ArchitectureLedgerGraphState;
+  graphDigest: string;
+}
+
+class ArchitectureLedgerReadModelStore implements ModelStorePort {
+  constructor(
+    private readonly fallback: ModelStorePort,
+    private readonly localStore: RuntimeLocalStore,
+    private readonly architectureLedger: RuntimeArchitectureLedgerModes
+  ) {}
+
+  loadManifest(workspace: WorkspaceRef): Promise<unknown> {
+    return this.fallback.loadManifest(workspace);
+  }
+
+  async loadModel(workspace: WorkspaceRef): Promise<unknown[]> {
+    if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.loadModel(workspace);
+    return (await this.loadLedgerModel(workspace)).files;
+  }
+
+  async validateModel(workspace: WorkspaceRef): Promise<{ valid: boolean; errors: string[]; modelDigest: string }> {
+    if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
+    const readback = await this.loadLedgerModel(workspace);
+    const errors = validateModelFiles(readback.files);
+    const result: ArchitectureLedgerReadModelValidation = {
+      valid: errors.length === 0,
+      errors,
+      modelDigest: modelDigestForFiles(readback.files),
+      architectureLedger: {
+        ...this.architectureLedger,
+        readAuthority: "ledger",
+        graphDigest: readback.graphDigest,
+        entityCount: readback.state.entities.length,
+        relationCount: readback.state.relations.length,
+        constraintCount: readback.state.constraints.length
+      }
+    };
+    return result;
+  }
+
+  writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
+    return this.fallback.writeChangeSetPreview(changeSet);
+  }
+
+  private async loadLedgerModel(workspace: WorkspaceRef): Promise<ArchitectureLedgerReadModel> {
+    const state = await this.localStore.readArchitectureLedgerState(architectureLedgerScopeForWorkspace(workspace));
+    const projectedFiles: ModelFile[] = projectArchitectureLedgerStateToYamlFiles(state).map((file) => ({
+      path: file.path,
+      body: file.body,
+      schemaVersion: schemaVersionFromModelBody(file.body),
+      digest: file.digest
+    }));
+    const fallbackFiles = (await this.fallback.loadModel(workspace))
+      .filter(isModelFile)
+      .filter((file) => !isArchitectureLedgerManagedModelPath(file.path));
+    const files = [...fallbackFiles, ...projectedFiles].sort((left, right) => left.path.localeCompare(right.path));
+    return {
+      files,
+      state,
+      graphDigest: architectureLedgerStateDigest(state)
+    };
+  }
+}
+
 interface PersistedPracticeCheckpointBaseline {
   schemaVersion: "archcontext.practice-checkpoint-baseline/v1";
   repositoryId: string;
@@ -482,6 +561,7 @@ export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
   private readonly modelStore: ModelStorePort;
+  private readonly readModelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
   private readonly externalDocumentation: ExternalDocumentationPort;
@@ -506,13 +586,14 @@ export class ArchctxDaemon {
     this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphCliProvider(repository.root ?? repository.repositoryId));
     this.modelStore = deps.modelStore ?? new YamlModelStore();
     this.localStore = deps.localStore ?? new SqliteLocalStore(deps.localStorePath ?? defaultLocalStorePath());
+    this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);
+    this.readModelStore = new ArchitectureLedgerReadModelStore(this.modelStore, this.localStore, this.architectureLedger);
     this.changeSetEngine = deps.changeSetEngine ?? new ChangeSetEngine({
       modelStore: this.modelStore,
       projection: { rebuildGeneratedProjection },
       journal: this.localStore
     });
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
-    this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
@@ -580,7 +661,7 @@ export class ArchctxDaemon {
   async validate(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const result = await this.modelStore.validateModel(session.workspace);
+    const result = await this.readModelStore.validateModel(session.workspace);
     session.modelDigest = result.modelDigest;
     return okEnvelope("validate", result as unknown as Json);
   }
@@ -592,7 +673,7 @@ export class ArchctxDaemon {
       workspace: session.workspace,
       task,
       codeFacts: this.codeFacts,
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -605,7 +686,7 @@ export class ArchctxDaemon {
       workspace: session.workspace,
       task,
       codeFacts: this.codeFacts,
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
       budget: { maxBytes, maxItems }
     });
     const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
@@ -658,7 +739,7 @@ export class ArchctxDaemon {
       expectedWorktreeDigest: input.expectedWorktreeDigest,
       previous: baseline,
       codeFacts: this.codeFacts,
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
       budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
     });
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
@@ -710,7 +791,7 @@ export class ArchctxDaemon {
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const model = await this.modelStore.validateModel(session.workspace);
+    const model = await this.readModelStore.validateModel(session.workspace);
     let ownerRegistry: ReturnType<typeof loadPracticeWaiverOwnerRegistry>;
     try {
       ownerRegistry = loadPracticeWaiverOwnerRegistry(session.workspace.root);
@@ -927,7 +1008,7 @@ export class ArchctxDaemon {
   }): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const model = await this.modelStore.validateModel(session.workspace);
+    const model = await this.readModelStore.validateModel(session.workspace);
     const draft = this.changeSetEngine.plan({
       id: input.id,
       base: {
@@ -955,7 +1036,7 @@ export class ArchctxDaemon {
     } catch (error) {
       if (!currentHeadSha) throw error;
     }
-    const model = await this.modelStore.validateModel(session.workspace);
+    const model = await this.readModelStore.validateModel(session.workspace);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
     const taskSessionId = input.taskSessionId ?? "task_runtime";
     const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
@@ -969,7 +1050,7 @@ export class ArchctxDaemon {
           workspace: session.workspace,
           task: input.task ?? baseline?.task ?? taskSessionId,
           codeFacts: this.codeFacts,
-          modelStore: this.modelStore,
+          modelStore: this.readModelStore,
           budget: { maxBytes: 12_288, maxItems: 12 }
         })).practiceGuidance.matches,
         previousMatches: baseline?.matches,
@@ -1825,7 +1906,7 @@ export class ArchctxDaemon {
       workspaces,
       task,
       codeFacts: new MultiRepoCodeGraphAdapter(this.createLandscapeCodeGraphProviders()),
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -1867,7 +1948,7 @@ export class ArchctxDaemon {
       worktreeDigest: binding.worktreeDigest,
       updatedAt: this.clock()
     });
-    const validation = await this.modelStore.validateModel(workspace).catch(() => undefined);
+    const validation = await this.readModelStore.validateModel(workspace).catch(() => undefined);
     const session: RepositorySession = {
       workspace,
       snapshot,
@@ -1988,8 +2069,8 @@ export class ArchctxDaemon {
   private async buildExplorerProjection(root: string, query?: string): Promise<ExplorerProjection> {
     const session = await this.openSession(root);
     await this.codeFacts.ensureReady(session.workspace);
-    const model = await this.modelStore.validateModel(session.workspace).catch(() => undefined);
-    const modelFiles = await this.modelStore.loadModel(session.workspace).catch(() => []) as ModelFileSummary[];
+    const model = await this.readModelStore.validateModel(session.workspace).catch(() => undefined);
+    const modelFiles = await this.readModelStore.loadModel(session.workspace).catch(() => []) as ModelFileSummary[];
     const codeContext = await this.codeFacts.buildTaskContext({ task: "architecture explorer", maxSymbols: 80, includeSource: false });
     const modelNodes = modelFiles.map((file) => ({
       id: file.path,
@@ -2635,6 +2716,66 @@ function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
   } as unknown as Json);
 }
 
+function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): ArchitectureLedgerScope {
+  const paths = runtimeStatePaths(workspace.root);
+  return {
+    repository: {
+      repositoryId: workspace.repositoryId,
+      storageRepositoryId: paths.storageRepositoryId
+    },
+    worktree: {
+      workspaceId: paths.workspaceId,
+      storageWorkspaceId: paths.storageWorkspaceId,
+      branch: readCurrentBranch(workspace.root),
+      headSha: workspace.headSha,
+      worktreeDigest: computeWorktreeDigest(workspace.root)
+    }
+  };
+}
+
+function validateModelFiles(files: ModelFile[]): string[] {
+  const errors: string[] = [];
+  const paths = new Set(files.map((file) => file.path));
+  for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
+    if (!paths.has(required)) errors.push(`missing ${required}`);
+  }
+  for (const file of files) {
+    if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
+  }
+  return errors;
+}
+
+function modelDigestForFiles(files: ModelFile[]): string {
+  return digestJson(files.map((file) => ({ path: file.path, digest: file.digest })) as unknown as Json);
+}
+
+function isModelFile(value: unknown): value is ModelFile {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const file = value as Partial<ModelFile>;
+  return typeof file.path === "string"
+    && typeof file.body === "string"
+    && typeof file.schemaVersion === "string"
+    && typeof file.digest === "string";
+}
+
+function isArchitectureLedgerManagedModelPath(path: string): boolean {
+  return path.startsWith(".archcontext/model/nodes/")
+    || path.startsWith(".archcontext/model/relations/")
+    || path.startsWith(".archcontext/model/constraints/");
+}
+
+function schemaVersionFromModelBody(body: string): string {
+  const match = body.match(/schemaVersion:\s*"?([^"\n]+)"?/);
+  if (match) return match[1].trim();
+  try {
+    const parsed = JSON.parse(body) as { schemaVersion?: unknown };
+    if (typeof parsed.schemaVersion === "string") return parsed.schemaVersion;
+  } catch {
+    // Stable YAML projection files are handled by the regex path above.
+  }
+  return "";
+}
+
 function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: RuntimeCompositionReport): AttestationV2["runtime"] {
   const product = productVersionManifest();
   return {
@@ -3069,8 +3210,7 @@ function runtimeArchitectureLedgerModes(input: RuntimeDeps["architectureLedger"]
     rolloutMode,
     readMode,
     writeMode,
-    // Runtime-wide model reads stay YAML until context/validate/complete use a ledger-backed ModelStore.
-    readAuthority: "yaml",
+    readAuthority: architectureLedgerReadAuthority(readMode),
     writeAuthority: writeMode
   };
 }
@@ -3104,6 +3244,10 @@ function readRuntimeArchitectureLedgerReadMode(value: string): RuntimeArchitectu
 function readRuntimeArchitectureLedgerWriteMode(value: string): RuntimeArchitectureLedgerWriteMode {
   if (value === "yaml" || value === "dual" || value === "ledger-with-projection") return value;
   throw new Error(`invalid architecture ledger write mode: ${value}`);
+}
+
+function architectureLedgerReadAuthority(mode: RuntimeArchitectureLedgerReadMode): RuntimeArchitectureLedgerModes["readAuthority"] {
+  return mode === "ledger" ? "ledger" : "yaml";
 }
 
 function architectureLedgerWriteAppendsEvents(mode: RuntimeArchitectureLedgerWriteMode): boolean {
