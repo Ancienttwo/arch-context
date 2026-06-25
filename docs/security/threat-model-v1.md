@@ -48,6 +48,7 @@ Out of scope: generic source code security review, customer CI hardening beyond 
 | SQL ledger becomes unrecoverable sole truth too early | User cannot recover architecture state from Git review artifacts | Hybrid mode sequence, YAML rollback path, projection digests, rebuild requirement before promotion |
 | Evidence binding forgery or free-text practice matching | Unsupported advice is promoted to checkpoint/complete authority | `EvidenceItem/v2` plus `EvidenceBinding/v1`, binding reason allowlist, no free-text binding authority |
 | Subagent direct write | Non-deterministic output mutates architecture authority | Agent job/report contracts require `directMutationAllowed: false`; proposals must pass deterministic validation and ChangeSet |
+| Repository prompt injection or model-output tool escape | Repository text or LLM output is interpreted as a command, tool call, file write, ledger write, or ChangeSet apply | Bounded context carries refs and digests, report validation rejects raw prompt/completion/source/diff payloads plus tool-call/command/write fields, proposal plans are advisory-only, and ChangeSet planning rejects agent/proposal provenance before promotion |
 
 ## FG2 GitHub Governance Trace
 
@@ -75,3 +76,4 @@ Input source of truth is the GitHub webhook raw body plus `X-Hub-Signature-256`,
 12. Ledger-affecting writes are ChangeSet or daemon-owned event append only.
 13. Raw source bodies, raw diffs, prompt/completion bodies, full CodeGraph output, secrets, credentials, and private keys are not ledger payloads.
 14. Subagent output is proposal evidence, not architecture authority.
+15. Repository text and model output are untrusted input; they may produce only validated typed proposal records until deterministic validation and ChangeSet review approve a mutation path.

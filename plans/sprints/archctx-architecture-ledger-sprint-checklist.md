@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 typed output validation complete, AL6-09+ remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 security/proposal containment complete, AL6-11+ remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -688,8 +688,14 @@ A subagent is eligible only when all conditions are true:
   - Evidence: `validateInvestigationReport` rejects job mismatch, direct mutation, malformed findings, missing proposed deltas, unknown evidence bindings, proposed-delta targets outside the bounded ledger context, proposed-delta parent IDs outside known entities, unverifiable proposed-delta evidence IDs and digest mismatch; `runInvestigationThroughPort` rejects invalid reports before returning them to callers.
   - Verification artifact: `docs/verification/architecture-ledger-al6-output-validation.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/contracts/test/contracts.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`.
-- [ ] **AL6-09 · P0 · `security`** — Treat repository text and model output as untrusted; add prompt-injection and tool-escape tests.
-- [ ] **AL6-10 · P0 · `changeset-engine`** — Prohibit direct agent write; agent output can only create a proposal awaiting deterministic validation.
+- [x] **AL6-09 · P0 · `security`** — Treat repository text and model output as untrusted; add prompt-injection and tool-escape tests.
+  - Evidence: `validateInvestigationReport` rejects raw source, diff, prompt, completion, tool-call, command and write-field payloads; `planInvestigationReportProposal` keeps prompt-injection text behind `inputDigest` and produces only advisory typed proposal records; tests cover inert prompt-injection text plus tool-escape rejection through validator, runner port and proposal planning.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-security-proposals.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`.
+- [x] **AL6-10 · P0 · `changeset-engine`** — Prohibit direct agent write; agent output can only create a proposal awaiting deterministic validation.
+  - Evidence: `planInvestigationReportProposal` marks report output as `authority: advisory-only`, `directMutationAllowed: false`, `requiredNextStep: deterministic-validation` and forbids ledger/YAML/docs/ChangeSet/tool/command actions; `planArchitectureCandidateChangeSet` rejects agent/proposal provenance before ChangeSet planning.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-security-proposals.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 90000`; `bun run typecheck`.
 - [ ] **AL6-11 · P1 · `adapters`** — Implement Claude Code adapter behind the port.
 - [ ] **AL6-12 · P1 · `adapters`** — Implement Codex adapter behind the same port.
 - [ ] **AL6-13 · P1 · `agent-orchestrator`** — Record provider, model identifier, prompt-template digest, input digest, output digest, duration and outcome.
@@ -704,9 +710,9 @@ A subagent is eligible only when all conditions are true:
 - [x] **AL6-EG2** — Default p95 agent spawns per task ≤ 1.
   - Evidence: default policy hard-caps `maxRunsPerTask` at 1 and the budget path rejects `taskRuns: 1` before job creation.
 - [x] **AL6-EG3** — Agent cannot mutate ledger, YAML or docs directly.
-  - Evidence: contracts keep `AgentJob/v1.directMutationAllowed` and `InvestigationReport/v1.directMutationAllowed` as `false`; runner capabilities require `canMutateRepository: false`; tests reject direct-mutation reports.
+  - Evidence: contracts keep `AgentJob/v1.directMutationAllowed` and `InvestigationReport/v1.directMutationAllowed` as `false`; runner capabilities require `canMutateRepository: false`; tests reject direct-mutation reports; proposal plans forbid ledger/YAML/docs/ChangeSet/tool/command actions, and ChangeSet planning rejects agent/proposal provenance.
 - [x] **AL6-EG4** — Stale or malformed outputs are rejected with actionable reason codes.
-  - Evidence: stale runtime job completion is rejected with `AC_CONTEXT_STALE`; malformed/hallucinated investigation reports are rejected with stable `investigation-report-invalid: <reason-codes>` values including `proposed-delta-required`, `evidence-binding-reference-unverifiable`, `proposed-delta-target-unknown`, `proposed-delta-evidence-reference-unverifiable` and `direct-mutation-forbidden`.
+  - Evidence: stale runtime job completion is rejected with `AC_CONTEXT_STALE`; malformed/hallucinated investigation reports are rejected with stable `investigation-report-invalid: <reason-codes>` values including `proposed-delta-required`, `evidence-binding-reference-unverifiable`, `proposed-delta-target-unknown`, `proposed-delta-evidence-reference-unverifiable`, `direct-mutation-forbidden`, `raw-report-payload-forbidden` and `tool-escape-forbidden`.
 - [x] **AL6-EG5** — Provider adapter can be removed without changing domain behavior.
   - Evidence: orchestration tests use a fake provider through `InvestigationRunnerPort`; spawn eligibility, state transitions and budget decisions do not depend on Claude or Codex adapter code.
 
@@ -730,6 +736,12 @@ A subagent is eligible only when all conditions are true:
   - Rejection: malformed, direct-mutation and hallucinated-reference reports fail with stable reason codes for missing proposed delta, unverifiable evidence binding, unknown proposed-delta target, unverifiable proposed-delta evidence and digest mismatch.
   - Verification artifact: `docs/verification/architecture-ledger-al6-output-validation.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/contracts/test/contracts.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-26 — AL6 security/proposal containment module completed:
+  - Security: repository prompt text remains inert input to the bounded context digest; model output carrying raw source/diff/prompt/completion or tool-call/command/write escape fields is rejected before callers receive it.
+  - Proposal path: validated reports can only become `InvestigationReportProposalPlan` records with `authority: advisory-only`, `directMutationAllowed: false` and `requiredNextStep: deterministic-validation`.
+  - ChangeSet boundary: candidate deltas with agent report/proposal provenance are rejected before `planArchitectureCandidateChangeSet` can create a ChangeSet.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-security-proposals.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 90000`; `bun test --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
 
 ---
 

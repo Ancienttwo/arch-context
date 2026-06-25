@@ -264,6 +264,7 @@ export class ChangeSetEngine {
 }
 
 export function planArchitectureCandidateChangeSet(input: ArchitectureCandidateChangeSetPlanInput): ArchitectureCandidateChangeSetPlan {
+  assertNoAgentProposalDeltaPromotion(input.delta);
   assertPolicyEvaluationMatchesDelta(input.delta, input.policyEvaluation);
   const acceptedActionSet = new Set<ArchitectureCandidateDeltaPolicyAction>(input.acceptedActions ?? ["auto-accept"]);
   const candidatesById = new Map(input.delta.candidateChanges.map((candidate) => [candidate.candidateChangeId, candidate]));
@@ -475,6 +476,48 @@ function architectureCandidateChangeSetEvent(input: {
   return { ...event, eventHash: architectureEventHash(event) };
 }
 
+function assertNoAgentProposalDeltaPromotion(delta: ArchitectureCandidateDeltaV1): void {
+  const paths = [
+    ...agentProposalProvenancePaths(delta.extensions, "$.extensions"),
+    ...delta.candidateChanges.flatMap((candidate, index) =>
+      agentProposalProvenancePaths(candidate.extensions, `$.candidateChanges[${index}].extensions`))
+  ];
+  if (paths.length > 0) {
+    throw new Error(`architecture-candidate-delta-agent-proposal-requires-deterministic-validation: ${paths.join(",")}`);
+  }
+}
+
+function agentProposalProvenancePaths(value: unknown, path: string): string[] {
+  const paths: string[] = [];
+  collectAgentProposalProvenancePaths(value, path, paths);
+  return paths;
+}
+
+function collectAgentProposalProvenancePaths(value: unknown, path: string, paths: string[]): void {
+  if (value === null || value === undefined) return;
+  if (typeof value === "string") {
+    if (AGENT_PROPOSAL_EXTENSION_VALUES.has(value)) paths.push(path);
+    return;
+  }
+  if (typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => collectAgentProposalProvenancePaths(item, `${path}[${index}]`, paths));
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    const normalizedKey = normalizeExtensionKey(key);
+    if (AGENT_PROPOSAL_EXTENSION_KEYS.has(normalizedKey)) {
+      paths.push(`${path}.${key}`);
+      continue;
+    }
+    collectAgentProposalProvenancePaths(child, `${path}.${key}`, paths);
+  }
+}
+
+function normalizeExtensionKey(key: string): string {
+  return key.replace(/[-_]/g, "").toLowerCase();
+}
+
 function sameJson(left: Json, right: Json): boolean {
   return digestJson(left) === digestJson(right);
 }
@@ -538,6 +581,24 @@ function isIgnorableWindowsFsyncError(error: unknown): boolean {
   const code = (error as { code?: string }).code;
   return process.platform === "win32" && (code === "EPERM" || code === "EINVAL");
 }
+
+const AGENT_PROPOSAL_EXTENSION_KEYS = new Set([
+  "agentjobid",
+  "agentrunnerid",
+  "investigationreportid",
+  "investigationproposalid",
+  "proposalid",
+  "requirednextstep",
+  "directmutationallowed",
+  "forbiddenactions"
+]);
+
+const AGENT_PROPOSAL_EXTENSION_VALUES = new Set([
+  "llm-investigation-report",
+  "subagent-investigation-report",
+  "investigation-report-proposal",
+  "advisory-only"
+]);
 
 function isIgnorableDirectoryFsyncError(error: unknown): boolean {
   const code = (error as { code?: string }).code;

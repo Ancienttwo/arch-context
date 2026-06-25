@@ -16,6 +16,7 @@ import {
 } from "@archcontext/contracts";
 
 export const AGENT_ORCHESTRATION_POLICY_SCHEMA_VERSION = "archcontext.agent-orchestration-policy/v1" as const;
+export const INVESTIGATION_REPORT_PROPOSAL_PLAN_SCHEMA_VERSION = "archcontext.investigation-report-proposal-plan/v1" as const;
 
 export type AgentJobStatus = AgentJobV1["status"];
 export type AgentRunnerPortId = AgentJobV1["runnerPort"];
@@ -234,7 +235,8 @@ export type InvestigationReportValidationReasonCode =
   | "confidence-invalid"
   | "output-digest-invalid"
   | "created-at-invalid"
-  | "raw-report-payload-forbidden";
+  | "raw-report-payload-forbidden"
+  | "tool-escape-forbidden";
 
 export interface InvestigationReportValidationIssue {
   reasonCode: InvestigationReportValidationReasonCode;
@@ -252,6 +254,42 @@ export interface ValidateInvestigationReportInput {
   context: InvestigationContextBundle;
 }
 
+export type InvestigationReportProposalRequiredNextStep = "deterministic-validation";
+export type InvestigationReportProposalForbiddenAction =
+  | "write-ledger"
+  | "write-yaml"
+  | "write-docs"
+  | "apply-changeset"
+  | "run-tool"
+  | "execute-command";
+
+export interface PlanInvestigationReportProposalInput extends ValidateInvestigationReportInput {
+  now?: string;
+}
+
+export interface InvestigationReportProposalPlan {
+  schemaVersion: typeof INVESTIGATION_REPORT_PROPOSAL_PLAN_SCHEMA_VERSION;
+  proposalId: string;
+  jobId: string;
+  reportId: string;
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  inputDigest: string;
+  outputDigest: string;
+  proposedDeltaDigests: string[];
+  proposedDeltas: ArchitectureCandidateChangeV1[];
+  evidenceBindingIds: string[];
+  evidenceIds: string[];
+  validationDigest: string;
+  directMutationAllowed: false;
+  requiredNextStep: InvestigationReportProposalRequiredNextStep;
+  forbiddenActions: InvestigationReportProposalForbiddenAction[];
+  authority: "advisory-only";
+  retention: "no-raw-source-or-diff-bodies";
+  createdAt: string;
+  proposalDigest: string;
+}
+
 export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
   schemaVersion: AGENT_ORCHESTRATION_POLICY_SCHEMA_VERSION,
   enabled: true,
@@ -266,6 +304,14 @@ export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
 export const DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY = 1;
 export const DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS = 32;
 export const DEFAULT_AGENT_QUEUE_PRIORITY = 0;
+export const INVESTIGATION_REPORT_PROPOSAL_FORBIDDEN_ACTIONS: InvestigationReportProposalForbiddenAction[] = [
+  "write-ledger",
+  "write-yaml",
+  "write-docs",
+  "apply-changeset",
+  "run-tool",
+  "execute-command"
+];
 
 export const AGENT_JOB_STATE_TRANSITIONS: Record<AgentJobStatus, AgentJobStatus[]> = {
   queued: ["running", "cancelled", "superseded", "expired"],
@@ -506,7 +552,7 @@ export function validateInvestigationReport(input: ValidateInvestigationReportIn
     assertNoRawRepositoryPayload(input.report);
   } catch (error) {
     issues.push({
-      reasonCode: "raw-report-payload-forbidden",
+      reasonCode: untrustedPayloadReasonCode(error),
       path: "$",
       message: error instanceof Error ? error.message : String(error)
     });
@@ -550,6 +596,61 @@ export function validateInvestigationReport(input: ValidateInvestigationReportIn
   }));
 
   return invalidIfNeeded(issues);
+}
+
+export function planInvestigationReportProposal(input: PlanInvestigationReportProposalInput): InvestigationReportProposalPlan {
+  const validation = validateInvestigationReport(input);
+  if (!validation.valid) {
+    throw new Error(`investigation-report-proposal-invalid: ${validation.issues.map((issue) => issue.reasonCode).join(",")}`);
+  }
+
+  const report = input.report as InvestigationReportV1;
+  const proposedDeltas = [...report.findings.map((finding) => finding.proposedDelta)]
+    .sort((left, right) => left.candidateChangeId.localeCompare(right.candidateChangeId));
+  const proposedDeltaDigests = proposedDeltas.map((delta) => delta.digest);
+  const evidenceBindingIds = uniqueSorted(report.findings.flatMap((finding) => finding.evidenceBindingIds));
+  const evidenceIds = uniqueSorted(proposedDeltas.flatMap((delta) => delta.evidenceIds));
+  const validationDigest = digestJson({
+    status: "valid",
+    jobId: input.job.jobId,
+    reportId: report.reportId,
+    inputDigest: input.context.inputDigest,
+    outputDigest: report.outputDigest,
+    proposedDeltaDigests
+  } as unknown as Json);
+  const proposalInputDigest = digestJson({
+    kind: "investigation-report-proposal",
+    jobId: input.job.jobId,
+    reportId: report.reportId,
+    inputDigest: input.context.inputDigest,
+    outputDigest: report.outputDigest,
+    validationDigest
+  } as unknown as Json);
+  const draft = {
+    schemaVersion: INVESTIGATION_REPORT_PROPOSAL_PLAN_SCHEMA_VERSION,
+    proposalId: `investigation_proposal.${shortDigest(proposalInputDigest)}`,
+    jobId: input.job.jobId,
+    reportId: report.reportId,
+    repository: input.job.repository,
+    worktree: input.job.worktree,
+    inputDigest: input.context.inputDigest,
+    outputDigest: report.outputDigest,
+    proposedDeltaDigests,
+    proposedDeltas,
+    evidenceBindingIds,
+    evidenceIds,
+    validationDigest,
+    directMutationAllowed: false as const,
+    requiredNextStep: "deterministic-validation" as const,
+    forbiddenActions: [...INVESTIGATION_REPORT_PROPOSAL_FORBIDDEN_ACTIONS],
+    authority: "advisory-only" as const,
+    retention: "no-raw-source-or-diff-bodies" as const,
+    createdAt: input.now ?? report.createdAt
+  };
+  return {
+    ...draft,
+    proposalDigest: digestJson(draft as unknown as Json)
+  };
 }
 
 export async function runInvestigationThroughPort(input: {
@@ -802,6 +903,10 @@ function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
 function assertNoRawRepositoryPayload(value: unknown, path = "$"): void {
   if (value === null || value === undefined) return;
   if (typeof value === "string") {
@@ -814,21 +919,61 @@ function assertNoRawRepositoryPayload(value: unknown, path = "$"): void {
     return;
   }
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (RAW_REPOSITORY_PAYLOAD_KEYS.has(key)) {
+    const normalizedKey = normalizePayloadKey(key);
+    if (RAW_REPOSITORY_PAYLOAD_KEYS.has(key) || RAW_REPOSITORY_PAYLOAD_KEYS.has(normalizedKey)) {
       throw new Error(`investigation-context-raw-field-forbidden: ${path}.${key}`);
+    }
+    if (UNTRUSTED_TOOL_ESCAPE_KEYS.has(normalizedKey)) {
+      throw new Error(`investigation-context-tool-escape-field-forbidden: ${path}.${key}`);
     }
     assertNoRawRepositoryPayload(child, `${path}.${key}`);
   }
 }
 
+function normalizePayloadKey(key: string): string {
+  return key.replace(/[-_]/g, "").toLowerCase();
+}
+
+function untrustedPayloadReasonCode(error: unknown): InvestigationReportValidationReasonCode {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("tool-escape") ? "tool-escape-forbidden" : "raw-report-payload-forbidden";
+}
+
 const RAW_REPOSITORY_PAYLOAD_KEYS = new Set([
   "body",
   "sourceBody",
+  "sourcebody",
   "sourceCode",
+  "sourcecode",
   "rawSource",
+  "rawsource",
   "diff",
   "diffBody",
+  "diffbody",
   "patch",
   "prompt",
   "completion"
+]);
+
+const UNTRUSTED_TOOL_ESCAPE_KEYS = new Set([
+  "toolcall",
+  "toolcalls",
+  "functioncall",
+  "command",
+  "commands",
+  "shell",
+  "exec",
+  "process",
+  "writefile",
+  "filewrite",
+  "filesystemwrite",
+  "ledgerwrite",
+  "databasewrite",
+  "dbwrite",
+  "sql",
+  "applypatch",
+  "changesetapply",
+  "applychangeset",
+  "mutation",
+  "directwrite"
 ]);
