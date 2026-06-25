@@ -1,4 +1,11 @@
 import type { Json } from "./schema";
+import type {
+  AgentJobV1,
+  ArchitectureEventSource,
+  ArchitectureRepositoryIdentityV1,
+  ArchitectureWorktreeIdentityV1,
+  InvestigationReportV1
+} from "./ledger";
 
 export interface WorkspaceRef {
   root: string;
@@ -143,6 +150,46 @@ export interface ModelStorePort {
 export interface PolicyPort {
   evaluateChangeSet(changeSet: unknown): Promise<{ allowed: boolean; violations: string[] }>;
   evaluateReview(input: unknown): Promise<{ result: "pass" | "fail"; findings: unknown[] }>;
+}
+
+export type InvestigationContextRisk = "low" | "medium" | "high";
+export type InvestigationContextUncertainty = "low" | "medium" | "high";
+
+export interface InvestigationContextBundle {
+  schemaVersion: "archcontext.investigation-context-bundle/v1";
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  taskSessionId: string;
+  fingerprint: string;
+  trigger: {
+    source: ArchitectureEventSource;
+    reason: string;
+  };
+  risk: InvestigationContextRisk;
+  uncertainty: InvestigationContextUncertainty;
+  summary: string;
+  evidenceBindingIds: string[];
+  candidateChangeIds: string[];
+  inputDigest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface InvestigationRunnerInput {
+  job: AgentJobV1;
+  context: InvestigationContextBundle;
+  maxOutputBytes?: number;
+  signal?: AbortSignal;
+}
+
+export interface InvestigationRunnerPort {
+  readonly runnerId: string;
+  readonly capabilities: {
+    provider: string;
+    supportsCancellation: boolean;
+    canReadRepositoryText: boolean;
+    canMutateRepository: false;
+  };
+  runInvestigation(input: InvestigationRunnerInput): Promise<InvestigationReportV1>;
 }
 
 export interface RendererPort {

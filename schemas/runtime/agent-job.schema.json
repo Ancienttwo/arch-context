@@ -47,7 +47,8 @@
       "required": ["maxRunsPerTask", "maxRunsPerRepositoryPerDay"],
       "properties": {
         "maxRunsPerTask": { "type": "integer", "minimum": 0 },
-        "maxRunsPerRepositoryPerDay": { "type": "integer", "minimum": 0 }
+        "maxRunsPerRepositoryPerDay": { "type": "integer", "minimum": 0 },
+        "maxRunsPerDay": { "type": "integer", "minimum": 0 }
       }
     },
     "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

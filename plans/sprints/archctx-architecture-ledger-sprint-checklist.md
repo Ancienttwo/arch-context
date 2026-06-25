@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 remains
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 foundation complete, AL6-05+ remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -121,8 +121,8 @@ These are target gates, not claims about current performance.
 | AL2 | SQLite architecture ledger foundation | P0 | AL0 | ☑ |
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ☑ |
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ☑ |
-| AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ◐ |
-| AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ◻ |
+| AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ☑ |
+| AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ◐ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◻ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◻ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
@@ -666,10 +666,14 @@ A subagent is eligible only when all conditions are true:
 
 ### Tasks
 
-- [ ] **AL6-01 · P0 · `contracts`** — Define `InvestigationRunnerPort` independent of Claude or Codex.
-- [ ] **AL6-02 · P0 · `agent-orchestrator`** — Implement job state machine: queued, running, succeeded, failed, cancelled, superseded and expired.
-- [ ] **AL6-03 · P0 · `agent-orchestrator`** — Implement per-task, per-repository and daily spawn budgets.
-- [ ] **AL6-04 · P0 · `agent-orchestrator`** — Set safe defaults: maximum one investigative spawn per task and zero automatic spawns for low-risk changes.
+- [x] **AL6-01 · P0 · `contracts`** — Define `InvestigationRunnerPort` independent of Claude or Codex.
+  - Evidence: `packages/contracts/src/ports.ts` defines provider-neutral `InvestigationRunnerPort`, `InvestigationRunnerInput` and `InvestigationContextBundle`; runner capabilities explicitly set `canMutateRepository: false`.
+- [x] **AL6-02 · P0 · `agent-orchestrator`** — Implement job state machine: queued, running, succeeded, failed, cancelled, superseded and expired.
+  - Evidence: `packages/core/agent-orchestrator/src/index.ts` defines `AGENT_JOB_STATE_TRANSITIONS`, `canTransitionAgentJobStatus` and `transitionAgentJobStatus`; tests reject queued-to-succeeded and terminal-to-running transitions.
+- [x] **AL6-03 · P0 · `agent-orchestrator`** — Implement per-task, per-repository and daily spawn budgets.
+  - Evidence: `evaluateInvestigationSpawn` enforces task, repository-day and total-day budgets; `AgentJob/v1.budget` now allows `maxRunsPerDay`; covered by `agent-orchestrator.test.ts` and `contracts.test.ts`.
+- [x] **AL6-04 · P0 · `agent-orchestrator`** — Set safe defaults: maximum one investigative spawn per task and zero automatic spawns for low-risk changes.
+  - Evidence: `DEFAULT_AGENT_ORCHESTRATION_POLICY` sets `maxRunsPerTask: 1` and `maxAutomaticRunsForLowRisk: 0`; tests verify low-risk automatic changes are denied and medium-risk defaults remain capped at one task run.
 - [ ] **AL6-05 · P0 · `agent-orchestrator`** — Add cooldown, deduplication, concurrency one per repository and cancellation on stale HEAD.
 - [ ] **AL6-06 · P0 · `agent-orchestrator`** — Build a minimal context bundle from ledger query results and evidence references; do not dump the whole repository.
 - [ ] **AL6-07 · P0 · `contracts`** — Require typed output: finding, hypothesis, evidence references, unknowns, falsifier, proposed delta and confidence.
@@ -685,11 +689,24 @@ A subagent is eligible only when all conditions are true:
 
 ### Exit gate
 
-- [ ] **AL6-EG1** — Low-risk commit path spawns zero agents.
-- [ ] **AL6-EG2** — Default p95 agent spawns per task ≤ 1.
-- [ ] **AL6-EG3** — Agent cannot mutate ledger, YAML or docs directly.
+- [x] **AL6-EG1** — Low-risk commit path spawns zero agents.
+  - Evidence: `agent-orchestrator.test.ts` verifies low-risk automatic eligibility returns `low-risk-automatic-spawn-disabled` and `risk-below-investigation-threshold`.
+- [x] **AL6-EG2** — Default p95 agent spawns per task ≤ 1.
+  - Evidence: default policy hard-caps `maxRunsPerTask` at 1 and the budget path rejects `taskRuns: 1` before job creation.
+- [x] **AL6-EG3** — Agent cannot mutate ledger, YAML or docs directly.
+  - Evidence: contracts keep `AgentJob/v1.directMutationAllowed` and `InvestigationReport/v1.directMutationAllowed` as `false`; runner capabilities require `canMutateRepository: false`; tests reject direct-mutation reports.
 - [ ] **AL6-EG4** — Stale or malformed outputs are rejected with actionable reason codes.
-- [ ] **AL6-EG5** — Provider adapter can be removed without changing domain behavior.
+- [x] **AL6-EG5** — Provider adapter can be removed without changing domain behavior.
+  - Evidence: orchestration tests use a fake provider through `InvestigationRunnerPort`; spawn eligibility, state transitions and budget decisions do not depend on Claude or Codex adapter code.
+
+### Execution log
+
+- 2026-06-26 — AL6 provider-neutral orchestrator foundation completed:
+  - Contracts: added provider-neutral `InvestigationRunnerPort`, bounded `InvestigationContextBundle`, and optional `maxRunsPerDay` on `AgentJob/v1.budget`.
+  - Core: added `@archcontext/core/agent-orchestrator` with safe default policy, spawn eligibility, per-task/repository/day budget checks, equivalent-job deduplication, state transitions and port execution guard.
+  - Safety: low-risk automatic changes spawn zero agents by default; created jobs and runner reports cannot request direct architecture mutation.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-orchestrator-foundation.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`.
 
 ---
 

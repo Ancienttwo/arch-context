@@ -21,7 +21,8 @@
   },
   "budget": {
     "maxRunsPerTask": 0,
-    "maxRunsPerRepositoryPerDay": 0
+    "maxRunsPerRepositoryPerDay": 0,
+    "maxRunsPerDay": 0
   },
   "inputDigest": "sha256:1313131313131313131313131313131313131313131313131313131313131313",
   "promptTemplateDigest": "sha256:1414141414141414141414141414141414141414141414141414141414141414",

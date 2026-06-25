@@ -14,6 +14,7 @@
       "@archcontext/contracts": ["packages/contracts/src/index.ts"],
       "@archcontext/core": ["packages/core/src/index.ts"],
       "@archcontext/core/application": ["packages/core/application/src/index.ts"],
+      "@archcontext/core/agent-orchestrator": ["packages/core/agent-orchestrator/src/index.ts"],
       "@archcontext/core/architecture-ledger": ["packages/core/architecture-ledger/src/index.ts"],
       "@archcontext/core/architecture-domain": ["packages/core/architecture-domain/src/index.ts"],
       "@archcontext/core/changeset-engine": ["packages/core/changeset-engine/src/index.ts"],

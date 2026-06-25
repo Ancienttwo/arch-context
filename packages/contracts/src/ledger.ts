@@ -484,6 +484,7 @@ export interface AgentJobV1 {
   budget: {
     maxRunsPerTask: number;
     maxRunsPerRepositoryPerDay: number;
+    maxRunsPerDay?: number;
   };
   inputDigest: string;
   promptTemplateDigest: string;
