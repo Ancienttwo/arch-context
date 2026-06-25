@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation, candidate policy and ChangeSet proposal modules are complete; AL5 baseline attribution and review rejection remain
+> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation, candidate policy, ChangeSet proposal and review rejection modules are complete; AL5 baseline attribution remains
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -571,7 +571,8 @@ Git change cursor
   - Evidence: `ArchitectureCandidateDeltaPolicyEvaluation/v1` classifies candidate changes into `auto-accept`, `require-checkpoint`, `require-proof` and `require-human-approval`; policy-engine tests cover high-confidence complete evidence, partial/medium confidence, migration progress, low/missing evidence and owner authority changes.
 - [x] **AL5-11 · P0 · `changeset-engine`** — Convert accepted candidates into previewable ChangeSets and ledger event batches.
   - Evidence: `planArchitectureCandidateChangeSet` converts policy-accepted candidate changes into schema-valid `ChangeSetDraft` operations and deterministic `architecture_candidate_changeset_planned` events; covered by `packages/core/changeset-engine/test/changeset-engine.test.ts` and `docs/verification/architecture-ledger-al5-changeset-promotion.md`.
-- [ ] **AL5-12 · P0 · `review-engine`** — Reject unsupported entity deletion, owner change, boundary relaxation and external-contract claims.
+- [x] **AL5-12 · P0 · `review-engine`** — Reject unsupported entity deletion, owner change, boundary relaxation and external-contract claims.
+  - Evidence: `reviewArchitectureCandidateChangeSet` rejects unsupported entity deletion, owner authority changes, boundary relaxation and external-contract claims before proposal acceptance; covered by `packages/core/review-engine/test/review-engine.test.ts` and `docs/verification/architecture-ledger-al5-review-rejection.md`.
 - [x] **AL5-13 · P1 · `architecture-delta`** — Add rename/move correlation to avoid delete-plus-add churn.
   - Evidence: `normalizes path moves without emitting delete plus add churn` covers Git rename metadata where same basename means `moved`; rename metadata with changed basename is normalized as `renamed`.
 - [ ] **AL5-14 · P1 · `architecture-delta`** — Add baseline comparison so pre-existing issues are not attributed to the current task.
@@ -615,6 +616,11 @@ Git change cursor
   - Ledger event preview: generated deterministic `architecture_candidate_changeset_planned` events with `architectureEventHash`, explicit deferred candidates and no source/diff bodies.
   - Verification artifact: `docs/verification/architecture-ledger-al5-changeset-promotion.md`.
   - Verification: `bun test packages/core/changeset-engine/test/changeset-engine.test.ts`; `bun run typecheck`.
+- 2026-06-26 — AL5 review rejection module completed:
+  - Review engine: added `reviewArchitectureCandidateChangeSet` to evaluate preview ChangeSet proposals before acceptance.
+  - Rejection policy: unsupported entity deletion, owner authority changes, boundary relaxation and external-contract claims now produce explicit `archcontext.review/v1` error findings.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-review-rejection.md`.
+  - Verification: `bun test packages/core/review-engine/test/review-engine.test.ts`; `bun run typecheck`.
 - 2026-06-26 — AL5 candidate policy module completed:
   - Contracts: added `ArchitectureCandidateDeltaPolicyEvaluation/v1` with per-candidate decisions, reason codes, summary counters and stable digests.
   - Core: `evaluateArchitectureCandidateDeltaPolicy` classifies candidate changes before ChangeSet promotion as `auto-accept`, `require-checkpoint`, `require-proof` or `require-human-approval`.

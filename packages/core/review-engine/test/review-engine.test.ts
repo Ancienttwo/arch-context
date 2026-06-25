@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { digestJson, type PracticeEnforcementEvaluationV1 } from "@archcontext/contracts";
 import { validateJsonSchema } from "@archcontext/contracts";
-import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
+import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewArchitectureCandidateChangeSet, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const sha = `sha256:${"a".repeat(64)}`;
@@ -270,6 +270,126 @@ describe("@archcontext/core/review-engine", () => {
     }
 
     expect(completeTaskGate(base).result).toBe("pass");
+  });
+
+  test("rejects unsupported architecture candidate ChangeSet mutations", () => {
+    const result = reviewArchitectureCandidateChangeSet({
+      taskSessionId: "task.al5-12",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      changeSet: {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.review-al5-12",
+        status: "proposed",
+        base: { headSha: "abc", worktreeDigest: sha, modelDigest: sha },
+        reason: { taskSessionId: "task.al5-12" },
+        operations: [
+          {
+            op: "delete_entity",
+            entityId: "module.legacy",
+            expectedHash: "unknown",
+            candidateChangeId: "candidate.node.removed",
+            targetKind: "node",
+            targetId: "module.legacy",
+            changeKind: "removed",
+            body: "diff --git a/private.ts b/private.ts\nconst secret = 'redacted';\n"
+          },
+          {
+            op: "update_entity_fields",
+            entityId: "module.api",
+            expectedHash: "unknown",
+            candidateChangeId: "candidate.owner.changed",
+            targetKind: "owner",
+            targetId: "module.api:owner",
+            changeKind: "materially_changed"
+          },
+          {
+            op: "update_entity_fields",
+            entityId: "module.api",
+            expectedHash: "unknown",
+            candidateChangeId: "candidate.constraint.relaxed",
+            targetKind: "constraint",
+            targetId: "constraint.api-boundary",
+            changeKind: "materially_changed",
+            changes: { reason: "boundary-relaxation" }
+          },
+          {
+            op: "create_entity",
+            entityId: "contract.stripe",
+            expectedHash: "missing",
+            candidateChangeId: "candidate.external.contract",
+            targetKind: "constraint",
+            targetId: "external-contract.stripe",
+            changeKind: "added",
+            changes: { claim: "external-contract" }
+          }
+        ] as any,
+        preconditions: ["schema-valid-before", "candidate-delta-policy-evaluated"],
+        postconditions: ["ledger-event-batch-previewed"],
+        requiresConfirmation: true,
+        idempotencyKey: "idem_changeset.review-al5-12"
+      }
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.summary.errors).toBe(4);
+    expect(result.findings.map((finding) => finding.type)).toEqual([
+      "unsupported-entity-deletion",
+      "unsupported-owner-change",
+      "unsupported-boundary-relaxation",
+      "unsupported-external-contract-claim"
+    ]);
+    expect(result.actionsRequired).toEqual(result.findings.map((finding) => finding.id));
+    expect(result.extensions.rejectedCandidateChangeIds).toEqual([
+      "candidate.constraint.relaxed",
+      "candidate.external.contract",
+      "candidate.node.removed",
+      "candidate.owner.changed"
+    ]);
+    expect(JSON.stringify(result)).not.toContain("diff --git");
+    expect(JSON.stringify(result)).not.toContain("const secret");
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("passes supported architecture candidate ChangeSet proposals", () => {
+    const result = reviewArchitectureCandidateChangeSet({
+      taskSessionId: "task.al5-12",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      changeSet: {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.review-supported",
+        status: "proposed",
+        base: { headSha: "abc", worktreeDigest: sha, modelDigest: sha },
+        reason: { taskSessionId: "task.al5-12" },
+        operations: [
+          {
+            op: "create_entity",
+            entityId: "module.new-api",
+            expectedHash: "missing",
+            candidateChangeId: "candidate.node.added",
+            targetKind: "node",
+            targetId: "module.new-api",
+            changeKind: "added"
+          }
+        ] as any,
+        preconditions: ["schema-valid-before", "candidate-delta-policy-evaluated"],
+        postconditions: ["ledger-event-batch-previewed"],
+        requiresConfirmation: true,
+        idempotencyKey: "idem_changeset.review-supported"
+      }
+    });
+
+    expect(result.result).toBe("pass");
+    expect(result.findings).toEqual([]);
+    expect(result.extensions.changeSetDigest).toMatch(/^sha256:/);
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
 
   test("reviews cross-repo landscape drift and pressure", () => {
