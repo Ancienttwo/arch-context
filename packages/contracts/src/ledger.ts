@@ -50,6 +50,7 @@ export type ArchitectureDeltaInterpretationKind =
   | "code-subject-materially-changed";
 export type ArchitectureDeclaredTargetKind = "entity" | "relation" | "constraint";
 export type ArchitectureCandidateChangeTargetKind = "node" | "relation" | "constraint" | "owner" | "lifecycle" | "migration-state";
+export type ArchitectureCandidateStateDimension = "target-state" | "migration-state";
 export type ArchitectureDeltaMappingMatchReason =
   | "declared-path-exact"
   | "declared-path-prefix"
@@ -299,6 +300,7 @@ export interface ArchitectureCandidateChangeV1 {
     id: string;
     parentId?: string;
   };
+  stateDimension: ArchitectureCandidateStateDimension;
   changeKind: ArchitectureCodeChangeKind;
   subjectSelectorIds: string[];
   mappingIds: string[];
@@ -344,6 +346,8 @@ export interface ArchitectureCandidateDeltaV1 {
     mapped: number;
     ambiguous: number;
     candidateChanges: number;
+    targetStateChanges: number;
+    migrationStateProgress: number;
   };
   deltaDigest: string;
   extensions?: Record<string, Json>;

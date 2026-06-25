@@ -88,6 +88,7 @@
         "kind": "node",
         "id": "module.checkout"
       },
+      "stateDimension": "target-state",
       "changeKind": "materially_changed",
       "subjectSelectorIds": ["subject.path.src-checkout-service"],
       "mappingIds": ["mapping.checkout-service"],
@@ -156,7 +157,9 @@
     "unresolved": 0,
     "mapped": 1,
     "ambiguous": 0,
-    "candidateChanges": 1
+    "candidateChanges": 1,
+    "targetStateChanges": 1,
+    "migrationStateProgress": 0
   },
   "deltaDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
 }

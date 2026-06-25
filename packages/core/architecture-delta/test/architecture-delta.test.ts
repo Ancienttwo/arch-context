@@ -72,6 +72,22 @@ describe("@archcontext/core/architecture-delta", () => {
       "owner-materially-changed",
       "migration-state-renamed"
     ]));
+    const targetStateChanges = first.candidateChanges.filter((change) => change.stateDimension === "target-state");
+    const migrationStateProgress = first.candidateChanges.filter((change) => change.stateDimension === "migration-state");
+    expect(first.summary.targetStateChanges).toBe(targetStateChanges.length);
+    expect(first.summary.migrationStateProgress).toBe(migrationStateProgress.length);
+    expect(targetStateChanges.length).toBeGreaterThan(0);
+    expect(migrationStateProgress).toEqual([
+      expect.objectContaining({
+        kind: "migration-state-renamed",
+        target: {
+          kind: "migration-state",
+          id: "module.orders-api:migration-state",
+          parentId: "module.orders-api"
+        }
+      })
+    ]);
+    expect(targetStateChanges.some((change) => change.target.kind === "migration-state")).toBe(false);
     expect(first.evidenceBindings.some((binding) => binding.target.kind === "entity" && binding.target.id === "module.checkout-ui")).toBe(true);
     expect(first.evidenceBindings.some((binding) => binding.target.kind === "relation" && binding.target.id === "relation.checkout-ui-orders-api")).toBe(true);
     expect(first.interpretations.every((interpretation) => interpretation.evidenceIds.length > 0)).toBe(true);

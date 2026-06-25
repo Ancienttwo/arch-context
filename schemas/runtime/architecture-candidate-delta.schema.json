@@ -214,6 +214,7 @@
           "candidateChangeId",
           "kind",
           "target",
+          "stateDimension",
           "changeKind",
           "subjectSelectorIds",
           "mappingIds",
@@ -270,6 +271,7 @@
               "parentId": { "type": "string" }
             }
           },
+          "stateDimension": { "enum": ["target-state", "migration-state"] },
           "changeKind": { "enum": ["added", "removed", "moved", "renamed", "materially_changed"] },
           "subjectSelectorIds": { "type": "array", "items": { "type": "string" } },
           "mappingIds": { "type": "array", "items": { "type": "string" } },
@@ -294,7 +296,19 @@
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["added", "removed", "moved", "renamed", "materiallyChanged", "unresolved", "mapped", "ambiguous", "candidateChanges"],
+      "required": [
+        "added",
+        "removed",
+        "moved",
+        "renamed",
+        "materiallyChanged",
+        "unresolved",
+        "mapped",
+        "ambiguous",
+        "candidateChanges",
+        "targetStateChanges",
+        "migrationStateProgress"
+      ],
       "properties": {
         "added": { "type": "integer", "minimum": 0 },
         "removed": { "type": "integer", "minimum": 0 },
@@ -304,7 +318,9 @@
         "unresolved": { "type": "integer", "minimum": 0 },
         "mapped": { "type": "integer", "minimum": 0 },
         "ambiguous": { "type": "integer", "minimum": 0 },
-        "candidateChanges": { "type": "integer", "minimum": 0 }
+        "candidateChanges": { "type": "integer", "minimum": 0 },
+        "targetStateChanges": { "type": "integer", "minimum": 0 },
+        "migrationStateProgress": { "type": "integer", "minimum": 0 }
       }
     },
     "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

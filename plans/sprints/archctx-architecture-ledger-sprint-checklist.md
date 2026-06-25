@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation and declared mapping modules are complete; AL5 baseline attribution, policy and ChangeSet promotion remain
+> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping and target/migration separation modules are complete; AL5 baseline attribution, policy and ChangeSet promotion remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -565,7 +565,8 @@ Git change cursor
   - Evidence: `ArchitectureCandidateDelta/v1` now carries `mappingAmbiguities`; tests cover missing declared graph and equal-confidence multiple declared targets without creating mappings or candidate changes.
 - [x] **AL5-08 · P0 · `architecture-domain`** — Generate typed candidate deltas for node, relation, constraint, owner, lifecycle and migration-state changes.
   - Evidence: `candidateChanges` are typed as `node-*`, `relation-*`, `constraint-*`, `owner-*`, `lifecycle-*` and `migration-state-*`; adapter tests prove CodeGraph changed subjects can be joined to runtime-provided declared graph context.
-- [ ] **AL5-09 · P0 · `architecture-domain`** — Separate target-state change from migration-state progress.
+- [x] **AL5-09 · P0 · `architecture-domain`** — Separate target-state change from migration-state progress.
+  - Evidence: `ArchitectureCandidateChange/v1` now requires `stateDimension: target-state | migration-state`, summary records `targetStateChanges` and `migrationStateProgress`, and delta tests assert migration-state progress is not mixed into target-state changes.
 - [ ] **AL5-10 · P0 · `policy-engine`** — Define which candidate deltas may auto-accept, require checkpoint, require proof or require human approval.
 - [ ] **AL5-11 · P0 · `changeset-engine`** — Convert accepted candidates into previewable ChangeSets and ledger event batches.
 - [ ] **AL5-12 · P0 · `review-engine`** — Reject unsupported entity deletion, owner change, boundary relaxation and external-contract claims.
@@ -601,6 +602,11 @@ Git change cursor
   - CodeGraph adapter: `analyzeChangedSubjects` accepts a runtime-provided declared graph and passes it through to the delta builder.
   - Verification artifact: `docs/verification/architecture-ledger-al5-declared-mapping.md`.
   - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al5-mapping-verify-state-XXXXXX) bun run verify`.
+- 2026-06-26 — AL5 target/migration separation completed:
+  - Contracts: `ArchitectureCandidateChange/v1` now carries an explicit `stateDimension` and candidate delta summary separates target-state changes from migration-state progress.
+  - Core: migration-state candidate changes are emitted as `stateDimension: migration-state`; node, relation, constraint, owner and lifecycle changes remain `target-state`.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-target-migration-separation.md`.
+  - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al5-target-migration-verify-state-XXXXXX) bun run verify`.
 
 ---
 

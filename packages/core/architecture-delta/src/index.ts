@@ -596,6 +596,7 @@ function addCandidateChange(input: {
       id: input.targetId,
       ...(input.parentId ? { parentId: input.parentId } : {})
     },
+    stateDimension: candidateStateDimension(input.targetKind),
     changeKind: input.changeKind,
     subjectSelectorIds: uniqueSorted([...(existing?.subjectSelectorIds ?? []), input.changedSubject.subjectSelectorId]),
     mappingIds: uniqueSorted([...(existing?.mappingIds ?? []), input.mapping.mappingId]),
@@ -950,6 +951,10 @@ function candidateChangeKind(
   return `${targetKind}-${suffix}` as ArchitectureCandidateChangeKind;
 }
 
+function candidateStateDimension(targetKind: ArchitectureCandidateChangeTargetKind): "target-state" | "migration-state" {
+  return targetKind === "migration-state" ? "migration-state" : "target-state";
+}
+
 function candidateChangeVerb(changeKind: ArchitectureCodeChangeKind): string {
   if (changeKind === "materially_changed") return "materially changed";
   return changeKind;
@@ -972,6 +977,7 @@ function evidenceSelector(selector: ArchitectureSubjectSelectorV1): EvidenceItem
 
 function summarizeDelta(state: MutableBuildState): ArchitectureCandidateDeltaV1["summary"] {
   const subjects = [...state.changedSubjects.values()];
+  const candidateChanges = [...state.candidateChanges.values()];
   return {
     added: subjects.filter((subject) => subject.changeKind === "added").length,
     removed: subjects.filter((subject) => subject.changeKind === "removed").length,
@@ -981,7 +987,9 @@ function summarizeDelta(state: MutableBuildState): ArchitectureCandidateDeltaV1[
     unresolved: state.mappingAmbiguities.size,
     mapped: state.declaredSubjectMappings.size,
     ambiguous: state.mappingAmbiguities.size,
-    candidateChanges: state.candidateChanges.size
+    candidateChanges: state.candidateChanges.size,
+    targetStateChanges: candidateChanges.filter((change) => change.stateDimension === "target-state").length,
+    migrationStateProgress: candidateChanges.filter((change) => change.stateDimension === "migration-state").length
   };
 }
 
