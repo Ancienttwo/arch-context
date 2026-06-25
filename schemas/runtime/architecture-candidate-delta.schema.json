@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-candidate-delta.schema.json",
+  "title": "ArchitectureCandidateDelta",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "deltaId",
+    "repository",
+    "worktree",
+    "changeCursor",
+    "subjectSelectors",
+    "changedSubjects",
+    "rawFacts",
+    "interpretations",
+    "evidenceItems",
+    "evidenceBindings",
+    "summary",
+    "deltaDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-candidate-delta/v1" },
+    "deltaId": { "type": "string", "pattern": "^delta\\.[a-zA-Z0-9_.-]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "changeCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "changeSource", "headSha", "pathCount", "metadataDigest", "codeFactsDigest"],
+      "properties": {
+        "source": { "const": "git" },
+        "changeSource": { "enum": ["commit", "staged", "worktree"] },
+        "baseSha": { "type": "string" },
+        "headSha": { "type": "string" },
+        "pathCount": { "type": "integer", "minimum": 0 },
+        "metadataDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "subjectSelectors": {
+      "type": "array",
+      "items": { "$ref": "architecture-subject-selector.schema.json" }
+    },
+    "changedSubjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subjectSelectorId", "changeKind", "rawFactIds", "evidenceIds", "digest"],
+        "properties": {
+          "subjectSelectorId": { "type": "string" },
+          "changeKind": { "enum": ["added", "removed", "moved", "renamed", "materially_changed"] },
+          "previousSelectorId": { "type": "string" },
+          "rawFactIds": { "type": "array", "items": { "type": "string" } },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "rawFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["factId", "kind", "subjectSelectorId", "source", "summary", "evidenceIds", "digest"],
+        "properties": {
+          "factId": { "type": "string", "pattern": "^fact\\.[a-zA-Z0-9_.-]+$" },
+          "kind": { "enum": ["git-path-change", "codegraph-symbol", "codegraph-relation"] },
+          "subjectSelectorId": { "type": "string" },
+          "source": { "enum": ["git", "codegraph"] },
+          "summary": { "type": "string" },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "interpretations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["interpretationId", "kind", "subjectSelectorId", "evidenceIds", "confidence", "coverage", "heuristic", "summary", "digest"],
+        "properties": {
+          "interpretationId": { "type": "string", "pattern": "^interpretation\\.[a-zA-Z0-9_.-]+$" },
+          "kind": { "enum": ["code-subject-added", "code-subject-removed", "code-subject-moved", "code-subject-renamed", "code-subject-materially-changed"] },
+          "subjectSelectorId": { "type": "string" },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "coverage": { "enum": ["complete", "partial", "unknown"] },
+          "heuristic": { "const": true },
+          "summary": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "evidenceItems": {
+      "type": "array",
+      "items": { "$ref": "evidence-item.schema.json" }
+    },
+    "evidenceBindings": {
+      "type": "array",
+      "items": { "$ref": "evidence-binding.schema.json" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["added", "removed", "moved", "renamed", "materiallyChanged", "unresolved"],
+      "properties": {
+        "added": { "type": "integer", "minimum": 0 },
+        "removed": { "type": "integer", "minimum": 0 },
+        "moved": { "type": "integer", "minimum": 0 },
+        "renamed": { "type": "integer", "minimum": 0 },
+        "materiallyChanged": { "type": "integer", "minimum": 0 },
+        "unresolved": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { basename, delimiter, isAbsolute, join, posix } from "node:path";
+import { buildArchitectureCandidateDelta, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
-import { digestJson, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
 export const REQUIRED_CODEGRAPH_VERSION = "1.0.1";
@@ -197,6 +198,37 @@ export class CodeGraphAdapter implements CodeFactsPort {
   async buildTaskContext(input: { task: string; maxSymbols: number; includeSource: boolean; changedPaths?: string[] }): Promise<NormalizedCodeContext> {
     this.assertCompatible();
     return this.provider.buildContext(input.task, { ...input, changedPaths: normalizeChangedPaths(input.changedPaths ?? []) });
+  }
+
+  async analyzeChangedSubjects(input: {
+    workspace: WorkspaceRef;
+    repository: ArchitectureRepositoryIdentityV1;
+    worktree: ArchitectureWorktreeIdentityV1;
+    git: ArchitectureDeltaGitChangeMetadata;
+    maxSymbols?: number;
+    createdAt?: string;
+  }): Promise<ArchitectureCandidateDeltaV1> {
+    this.assertCompatible();
+    const changedPaths = normalizeChangedPaths(input.git.paths.flatMap((change) => [change.path, change.previousPath ?? ""]));
+    await this.sync({ workspace: input.workspace, changedPaths });
+    const codeContext = await this.buildTaskContext({
+      task: architectureDeltaTask(input.git),
+      maxSymbols: input.maxSymbols ?? Math.max(8, changedPaths.length * 4),
+      includeSource: false,
+      changedPaths
+    });
+    return buildArchitectureCandidateDelta({
+      repository: input.repository,
+      worktree: input.worktree,
+      git: input.git,
+      codeContext,
+      codeFactsDigest: codeContext.digest,
+      createdAt: input.createdAt,
+      provenance: {
+        producer: "codegraph-adapter",
+        command: "CodeGraphAdapter.analyzeChangedSubjects"
+      }
+    });
   }
 
   async findSymbols(query: SymbolQuery): Promise<NormalizedSymbol[]> {
@@ -451,6 +483,14 @@ function normalizeChangedPaths(paths: string[]): string[] {
 
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items)];
+}
+
+function architectureDeltaTask(git: ArchitectureDeltaGitChangeMetadata): string {
+  return uniqueStrings([
+    "architecture delta",
+    git.source,
+    ...git.paths.flatMap((change) => [change.path, change.previousPath ?? ""])
+  ].filter(Boolean)).join(" ");
 }
 
 function parseExploreSymbols(output: string, maxSymbols: number): NormalizedSymbol[] {

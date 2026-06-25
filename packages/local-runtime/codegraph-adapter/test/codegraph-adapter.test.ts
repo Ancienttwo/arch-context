@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { digestJson, type Json } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
@@ -117,6 +118,45 @@ process.exit(2);
       expect(log.argv.at(-1)).toContain("import");
       expect(log.argv.at(-1)).not.toContain("respect dependency layer import");
       expect(log.argv.at(-1)).not.toContain("escape.ts");
+
+      const git = {
+        schemaVersion: "archcontext.git-change-metadata/v1" as const,
+        source: "commit" as const,
+        baseSha: "base-001",
+        headSha: "head-002",
+        paths: [{ path: "src/web/page.ts", status: "modified" as const, rawStatus: "M" }],
+        pathCount: 1,
+        metadataDigest: digestJson({ baseSha: "base-001", headSha: "head-002", path: "src/web/page.ts" } as unknown as Json)
+      };
+      const delta = await adapter.analyzeChangedSubjects({
+        workspace: { root, repositoryId: "repo.checkout", headSha: "head-002" },
+        repository: {
+          repositoryId: "repo.checkout",
+          storageRepositoryId: "repo.storage.checkout"
+        },
+        worktree: {
+          workspaceId: "workspace.checkout",
+          storageWorkspaceId: "workspace.storage.checkout",
+          branch: "main",
+          headSha: "head-002",
+          worktreeDigest: digestJson({ worktree: root } as unknown as Json)
+        },
+        git,
+        createdAt: "2026-06-25T04:10:00.000Z"
+      });
+
+      expect(delta.schemaVersion).toBe("archcontext.architecture-candidate-delta/v1");
+      expect(delta.changeCursor).toMatchObject({
+        changeSource: "commit",
+        baseSha: "base-001",
+        headSha: "head-002",
+        pathCount: 1
+      });
+      expect(delta.subjectSelectors.some((selector) => selector.kind === "path" && selector.path === "src/web/page.ts")).toBe(true);
+      expect(delta.subjectSelectors.some((selector) => selector.kind === "symbol" && selector.path === "src/web/page.ts")).toBe(true);
+      expect(delta.subjectSelectors.some((selector) => selector.kind === "relation")).toBe(true);
+      expect(delta.interpretations.every((interpretation) => interpretation.evidenceIds.length > 0)).toBe(true);
+      expect(delta.evidenceBindings.some((binding) => binding.target.kind === "candidate-delta")).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

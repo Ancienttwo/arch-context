@@ -8,6 +8,8 @@ export const RECOMMENDATION_RUN_SCHEMA_VERSION = "archcontext.recommendation-run
 export const RECOMMENDATION_SCHEMA_VERSION = "archcontext.recommendation/v2" as const;
 export const AGENT_JOB_SCHEMA_VERSION = "archcontext.agent-job/v1" as const;
 export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-report/v1" as const;
+export const ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION = "archcontext.architecture-subject-selector/v1" as const;
+export const ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION = "archcontext.architecture-candidate-delta/v1" as const;
 
 export type ArchitectureFactAuthority = "declared" | "observed" | "verified" | "proposed" | "projected";
 export type ArchitectureLedgerMode = "yaml" | "dual" | "dual-compare" | "ledger-shadow" | "ledger" | "ledger-authoritative";
@@ -29,6 +31,23 @@ export type EvidencePolarityV2 = "positive" | "absence" | "declaration";
 export type EvidenceOriginV2 = "codegraph" | "model-store-yaml" | "checkpoint" | "runtime-daemon" | "user" | "subagent" | "external-doc";
 export type EvidenceCoverageLevelV2 = "complete" | "partial" | "unknown";
 export type EvidenceAuthorityEffect = "context-only" | "ranking" | "checkpoint-eligible" | "complete-eligible";
+export type ArchitectureSubjectSelectorKind =
+  | "repository"
+  | "path"
+  | "symbol"
+  | "node"
+  | "relation"
+  | "api"
+  | "datastore"
+  | "external-contract";
+export type ArchitectureCodeChangeKind = "added" | "removed" | "moved" | "renamed" | "materially_changed";
+export type ArchitectureDeltaRawFactKind = "git-path-change" | "codegraph-symbol" | "codegraph-relation";
+export type ArchitectureDeltaInterpretationKind =
+  | "code-subject-added"
+  | "code-subject-removed"
+  | "code-subject-moved"
+  | "code-subject-renamed"
+  | "code-subject-materially-changed";
 
 export interface ArchitectureRepositoryIdentityV1 {
   repositoryId: string;
@@ -111,6 +130,7 @@ export interface EvidenceItemV2 {
     kind: "repository" | "path" | "symbol" | "relation" | "constraint" | "practice" | "event" | "snapshot";
     id: string;
     path?: string;
+    symbolId?: string;
     startLine?: number;
     endLine?: number;
   };
@@ -131,13 +151,97 @@ export interface EvidenceBindingV1 {
   bindingId: string;
   evidenceId: string;
   target: {
-    kind: "entity" | "relation" | "constraint" | "recommendation" | "practice" | "event" | "snapshot";
+    kind: "entity" | "relation" | "constraint" | "recommendation" | "practice" | "event" | "snapshot" | "subject" | "candidate-delta";
     id: string;
   };
   bindingReason: "direct-selector" | "predicate-subject" | "change-cursor" | "human-attestation" | "deterministic-check" | "subagent-proposal";
   authorityEffect: EvidenceAuthorityEffect;
   createdAt: string;
   provenance: LedgerProvenanceV1;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureSubjectSelectorV1 {
+  schemaVersion: typeof ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION;
+  selectorId: string;
+  kind: ArchitectureSubjectSelectorKind;
+  repositoryId: string;
+  stableKey: string;
+  path?: string;
+  symbolId?: string;
+  name?: string;
+  relation?: {
+    source: string;
+    target: string;
+    kind: string;
+  };
+  externalId?: string;
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureDeltaRawFactV1 {
+  factId: string;
+  kind: ArchitectureDeltaRawFactKind;
+  subjectSelectorId: string;
+  source: "git" | "codegraph";
+  summary: string;
+  evidenceIds: string[];
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureDeltaChangedSubjectV1 {
+  subjectSelectorId: string;
+  changeKind: ArchitectureCodeChangeKind;
+  previousSelectorId?: string;
+  rawFactIds: string[];
+  evidenceIds: string[];
+  digest: string;
+}
+
+export interface ArchitectureDeltaInterpretationV1 {
+  interpretationId: string;
+  kind: ArchitectureDeltaInterpretationKind;
+  subjectSelectorId: string;
+  evidenceIds: string[];
+  confidence: "low" | "medium" | "high";
+  coverage: EvidenceCoverageLevelV2;
+  heuristic: true;
+  summary: string;
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureCandidateDeltaV1 {
+  schemaVersion: typeof ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION;
+  deltaId: string;
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  changeCursor: {
+    source: "git";
+    changeSource: "commit" | "staged" | "worktree";
+    baseSha?: string;
+    headSha: string;
+    pathCount: number;
+    metadataDigest: string;
+    codeFactsDigest: string;
+  };
+  subjectSelectors: ArchitectureSubjectSelectorV1[];
+  changedSubjects: ArchitectureDeltaChangedSubjectV1[];
+  rawFacts: ArchitectureDeltaRawFactV1[];
+  interpretations: ArchitectureDeltaInterpretationV1[];
+  evidenceItems: EvidenceItemV2[];
+  evidenceBindings: EvidenceBindingV1[];
+  summary: {
+    added: number;
+    removed: number;
+    moved: number;
+    renamed: number;
+    materiallyChanged: number;
+    unresolved: number;
+  };
+  deltaDigest: string;
   extensions?: Record<string, Json>;
 }
 
@@ -271,5 +375,15 @@ export function architectureEventHash(event: ArchitectureEventV1): string {
 
 export function architectureSnapshotDigest(snapshot: ArchitectureSnapshotV1): string {
   const { snapshotId: _snapshotId, createdAt: _createdAt, extensions: _extensions, ...hashable } = snapshot;
+  return digestJson(hashable as unknown as Json);
+}
+
+export function architectureSubjectSelectorDigest(selector: ArchitectureSubjectSelectorV1): string {
+  const { digest: _digest, extensions: _extensions, ...hashable } = selector;
+  return digestJson(hashable as unknown as Json);
+}
+
+export function architectureCandidateDeltaDigest(delta: ArchitectureCandidateDeltaV1): string {
+  const { deltaDigest: _deltaDigest, extensions: _extensions, ...hashable } = delta;
   return digestJson(hashable as unknown as Json);
 }

@@ -21,6 +21,7 @@
         "kind": { "enum": ["repository", "path", "symbol", "relation", "constraint", "practice", "event", "snapshot"] },
         "id": { "type": "string" },
         "path": { "type": "string" },
+        "symbolId": { "type": "string" },
         "startLine": { "type": "integer", "minimum": 1 },
         "endLine": { "type": "integer", "minimum": 1 }
       }

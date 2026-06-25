@@ -80,6 +80,8 @@ const schemaByFixture: Record<string, string> = {
   "external-document-resource": "schemas/runtime/external-document-resource.schema.json",
   "architecture-event": "schemas/runtime/architecture-event.schema.json",
   "architecture-snapshot": "schemas/runtime/architecture-snapshot.schema.json",
+  "architecture-subject-selector": "schemas/runtime/architecture-subject-selector.schema.json",
+  "architecture-candidate-delta": "schemas/runtime/architecture-candidate-delta.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",

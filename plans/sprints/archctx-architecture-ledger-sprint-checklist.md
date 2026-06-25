@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2 and AL3 complete; AL4 queue foundation is in progress with Git change metadata, stable fingerprints, persistent runtime jobs and stale-job cancellation
+> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation is in progress with stable subject selectors, candidate delta contracts, CodeGraph changed-subject analysis and deterministic digest tests
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -120,8 +120,8 @@ These are target gates, not claims about current performance.
 | AL1 | Recommendation evidence correctness | P0 | AL0 | ☑ |
 | AL2 | SQLite architecture ledger foundation | P0 | AL0 | ☑ |
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ☑ |
-| AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ◐ |
-| AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ◻ |
+| AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ☑ |
+| AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ◐ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ◻ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◻ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◻ |
@@ -549,11 +549,16 @@ Git change cursor
 
 ### Tasks
 
-- [ ] **AL5-01 · P0 · `codegraph-adapter`** — Return changed symbols, edges and ownership-relevant subjects for a base/head pair.
-- [ ] **AL5-02 · P0 · `contracts`** — Define stable subject selectors for repository, path, symbol, node, relation, API, datastore and external contract.
-- [ ] **AL5-03 · P0 · `architecture-delta`** — Normalize added, removed, moved, renamed and materially changed subjects.
-- [ ] **AL5-04 · P0 · `architecture-delta`** — Distinguish raw code facts from architecture interpretation.
-- [ ] **AL5-05 · P0 · `architecture-delta`** — Bind every interpretation to one or more evidence items with coverage and confidence.
+- [x] **AL5-01 · P0 · `codegraph-adapter`** — Return changed symbols, edges and ownership-relevant subjects for a base/head pair.
+  - Evidence: `CodeGraphAdapter.analyzeChangedSubjects` syncs changed paths, builds no-source CodeGraph context and returns `ArchitectureCandidateDelta/v1`; covered by `packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts`.
+- [x] **AL5-02 · P0 · `contracts`** — Define stable subject selectors for repository, path, symbol, node, relation, API, datastore and external contract.
+  - Evidence: `ArchitectureSubjectSelector/v1` in `packages/contracts/src/ledger.ts`, `schemas/runtime/architecture-subject-selector.schema.json`, and `packages/contracts/fixtures/valid/architecture-subject-selector.json`.
+- [x] **AL5-03 · P0 · `architecture-delta`** — Normalize added, removed, moved, renamed and materially changed subjects.
+  - Evidence: `buildArchitectureCandidateDelta` normalizes Git path status into `added`, `removed`, `moved`, `renamed` and `materially_changed`; covered by `packages/core/architecture-delta/test/architecture-delta.test.ts`.
+- [x] **AL5-04 · P0 · `architecture-delta`** — Distinguish raw code facts from architecture interpretation.
+  - Evidence: `ArchitectureCandidateDelta/v1` separates `rawFacts` from `interpretations`; interpretations are marked `heuristic: true` until later entity mapping and policy stages.
+- [x] **AL5-05 · P0 · `architecture-delta`** — Bind every interpretation to one or more evidence items with coverage and confidence.
+  - Evidence: delta tests assert every interpretation has evidence IDs and evidence is bound to both `subject` and `candidate-delta` with `authorityEffect: context-only`.
 - [ ] **AL5-06 · P0 · `architecture-delta`** — Map changed code subjects to declared architecture entities with explicit match reasons.
 - [ ] **AL5-07 · P0 · `architecture-delta`** — Represent unresolved mapping as ambiguity, never as a silently invented entity.
 - [ ] **AL5-08 · P0 · `architecture-domain`** — Generate typed candidate deltas for node, relation, constraint, owner, lifecycle and migration-state changes.
@@ -561,18 +566,31 @@ Git change cursor
 - [ ] **AL5-10 · P0 · `policy-engine`** — Define which candidate deltas may auto-accept, require checkpoint, require proof or require human approval.
 - [ ] **AL5-11 · P0 · `changeset-engine`** — Convert accepted candidates into previewable ChangeSets and ledger event batches.
 - [ ] **AL5-12 · P0 · `review-engine`** — Reject unsupported entity deletion, owner change, boundary relaxation and external-contract claims.
-- [ ] **AL5-13 · P1 · `architecture-delta`** — Add rename/move correlation to avoid delete-plus-add churn.
+- [x] **AL5-13 · P1 · `architecture-delta`** — Add rename/move correlation to avoid delete-plus-add churn.
+  - Evidence: `normalizes path moves without emitting delete plus add churn` covers Git rename metadata where same basename means `moved`; rename metadata with changed basename is normalized as `renamed`.
 - [ ] **AL5-14 · P1 · `architecture-delta`** — Add baseline comparison so pre-existing issues are not attributed to the current task.
 - [ ] **AL5-15 · P1 · `fixtures`** — Add representative monolith-to-service, persistence boundary, public API, payment webhook, mapper removal and package-layer fixtures.
 - [ ] **AL5-16 · P1 · `observability`** — Record mapping coverage, unresolved subjects and evidence strength distribution.
 
 ### Exit gate
 
-- [ ] **AL5-EG1** — Same base/head pair always produces the same candidate delta and digest.
-- [ ] **AL5-EG2** — No candidate architecture fact exists without typed evidence or an explicit heuristic marker.
-- [ ] **AL5-EG3** — Rename and move fixtures do not create false entity deletion/addition.
+- [x] **AL5-EG1** — Same base/head pair always produces the same candidate delta and digest.
+  - Evidence: `architecture-delta.test.ts` builds the same candidate delta with reordered Git path input and asserts identical `deltaDigest`.
+- [x] **AL5-EG2** — No candidate architecture fact exists without typed evidence or an explicit heuristic marker.
+  - Evidence: `ArchitectureCandidateDelta/v1` keeps raw code facts and heuristic interpretations separate; tests assert every interpretation has evidence IDs and evidence bindings.
+- [x] **AL5-EG3** — Rename and move fixtures do not create false entity deletion/addition.
+  - Evidence: `architecture-delta.test.ts` covers rename and move normalization without add/remove churn.
 - [ ] **AL5-EG4** — Baseline issues are separated from task-introduced issues.
 - [ ] **AL5-EG5** — All accepted mutations are represented as ChangeSets and ledger events.
+
+### Execution log
+
+- 2026-06-25 — AL5 delta foundation started as one reviewable module:
+  - Contracts: added `ArchitectureSubjectSelector/v1` and `ArchitectureCandidateDelta/v1`, plus `subject` and `candidate-delta` evidence binding targets.
+  - Core: added deterministic `buildArchitectureCandidateDelta` normalization from Git metadata and normalized CodeGraph context into selectors, raw facts, heuristic interpretations, evidence items, evidence bindings and `deltaDigest`.
+  - CodeGraph adapter: added `analyzeChangedSubjects` to sync changed paths, build no-source context and return a candidate delta for a base/head change cursor.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-delta-foundation.md`.
+  - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts`; `bun test packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts --timeout 90000`; `bun test packages/contracts/test/contracts.test.ts`; `bun run typecheck`.
 
 ---
 

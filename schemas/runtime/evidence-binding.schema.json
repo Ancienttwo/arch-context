@@ -14,7 +14,7 @@
       "additionalProperties": false,
       "required": ["kind", "id"],
       "properties": {
-        "kind": { "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot"] },
+        "kind": { "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot", "subject", "candidate-delta"] },
         "id": { "type": "string" }
       }
     },
