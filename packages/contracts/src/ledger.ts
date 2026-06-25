@@ -10,6 +10,7 @@ export const AGENT_JOB_SCHEMA_VERSION = "archcontext.agent-job/v1" as const;
 export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-report/v1" as const;
 export const ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION = "archcontext.architecture-subject-selector/v1" as const;
 export const ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION = "archcontext.architecture-candidate-delta/v1" as const;
+export const ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION = "archcontext.architecture-candidate-delta-policy/v1" as const;
 
 export type ArchitectureFactAuthority = "declared" | "observed" | "verified" | "proposed" | "projected";
 export type ArchitectureLedgerMode = "yaml" | "dual" | "dual-compare" | "ledger-shadow" | "ledger" | "ledger-authoritative";
@@ -93,6 +94,23 @@ export type ArchitectureCandidateChangeKind =
   | "migration-state-moved"
   | "migration-state-renamed"
   | "migration-state-materially-changed";
+export type ArchitectureCandidateDeltaPolicyAction =
+  | "auto-accept"
+  | "require-checkpoint"
+  | "require-proof"
+  | "require-human-approval";
+export type ArchitectureCandidateDeltaPolicyReasonCode =
+  | "high-confidence-complete-evidence"
+  | "medium-confidence"
+  | "low-confidence"
+  | "partial-evidence"
+  | "missing-evidence"
+  | "mapping-ambiguity"
+  | "migration-state-progress"
+  | "target-state-removal"
+  | "relation-removal"
+  | "constraint-relaxation"
+  | "owner-authority-change";
 
 export interface ArchitectureRepositoryIdentityV1 {
   repositoryId: string;
@@ -353,6 +371,46 @@ export interface ArchitectureCandidateDeltaV1 {
   extensions?: Record<string, Json>;
 }
 
+export interface ArchitectureCandidateDeltaPolicyDecisionV1 {
+  decisionId: string;
+  candidateChangeId: string;
+  target: {
+    kind: ArchitectureCandidateChangeTargetKind;
+    id: string;
+    parentId?: string;
+  };
+  stateDimension: ArchitectureCandidateStateDimension;
+  changeKind: ArchitectureCodeChangeKind;
+  confidence: "low" | "medium" | "high";
+  action: ArchitectureCandidateDeltaPolicyAction;
+  reasonCodes: ArchitectureCandidateDeltaPolicyReasonCode[];
+  evidenceIds: string[];
+  digest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ArchitectureCandidateDeltaPolicyEvaluationV1 {
+  schemaVersion: typeof ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION;
+  evaluationId: string;
+  deltaId: string;
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  deltaDigest: string;
+  policyVersion: string;
+  evaluatedAt: string;
+  decisions: ArchitectureCandidateDeltaPolicyDecisionV1[];
+  summary: {
+    candidateChanges: number;
+    autoAccept: number;
+    requireCheckpoint: number;
+    requireProof: number;
+    requireHumanApproval: number;
+    mappingAmbiguities: number;
+  };
+  evaluationDigest: string;
+  extensions?: Record<string, Json>;
+}
+
 export interface RecommendationRunV1 {
   schemaVersion: typeof RECOMMENDATION_RUN_SCHEMA_VERSION;
   runId: string;
@@ -493,5 +551,21 @@ export function architectureSubjectSelectorDigest(selector: ArchitectureSubjectS
 
 export function architectureCandidateDeltaDigest(delta: ArchitectureCandidateDeltaV1): string {
   const { deltaDigest: _deltaDigest, extensions: _extensions, ...hashable } = delta;
+  return digestJson(hashable as unknown as Json);
+}
+
+export function architectureCandidateDeltaPolicyDecisionDigest(decision: ArchitectureCandidateDeltaPolicyDecisionV1): string {
+  const { digest: _digest, extensions: _extensions, ...hashable } = decision;
+  return digestJson(hashable as unknown as Json);
+}
+
+export function architectureCandidateDeltaPolicyEvaluationDigest(evaluation: ArchitectureCandidateDeltaPolicyEvaluationV1): string {
+  const {
+    evaluationId: _evaluationId,
+    evaluatedAt: _evaluatedAt,
+    evaluationDigest: _evaluationDigest,
+    extensions: _extensions,
+    ...hashable
+  } = evaluation;
   return digestJson(hashable as unknown as Json);
 }

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-candidate-delta-policy.schema.json",
+  "title": "Architecture Candidate Delta Policy Evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evaluationId",
+    "deltaId",
+    "repository",
+    "worktree",
+    "deltaDigest",
+    "policyVersion",
+    "evaluatedAt",
+    "decisions",
+    "summary",
+    "evaluationDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-candidate-delta-policy/v1" },
+    "evaluationId": { "type": "string", "pattern": "^candidate_delta_policy\\.[a-zA-Z0-9_.-]+$" },
+    "deltaId": { "type": "string", "pattern": "^delta\\.[a-zA-Z0-9_.-]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "policyVersion": { "type": "string" },
+    "evaluatedAt": { "type": "string", "format": "date-time" },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decisionId",
+          "candidateChangeId",
+          "target",
+          "stateDimension",
+          "changeKind",
+          "confidence",
+          "action",
+          "reasonCodes",
+          "evidenceIds",
+          "digest"
+        ],
+        "properties": {
+          "decisionId": { "type": "string", "pattern": "^candidate_delta_policy_decision\\.[a-zA-Z0-9_.-]+$" },
+          "candidateChangeId": { "type": "string", "pattern": "^candidate_change\\.[a-zA-Z0-9_.-]+$" },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "enum": ["node", "relation", "constraint", "owner", "lifecycle", "migration-state"] },
+              "id": { "type": "string" },
+              "parentId": { "type": "string" }
+            }
+          },
+          "stateDimension": { "enum": ["target-state", "migration-state"] },
+          "changeKind": { "enum": ["added", "removed", "moved", "renamed", "materially_changed"] },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "action": { "enum": ["auto-accept", "require-checkpoint", "require-proof", "require-human-approval"] },
+          "reasonCodes": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "high-confidence-complete-evidence",
+                "medium-confidence",
+                "low-confidence",
+                "partial-evidence",
+                "missing-evidence",
+                "mapping-ambiguity",
+                "migration-state-progress",
+                "target-state-removal",
+                "relation-removal",
+                "constraint-relaxation",
+                "owner-authority-change"
+              ]
+            }
+          },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateChanges",
+        "autoAccept",
+        "requireCheckpoint",
+        "requireProof",
+        "requireHumanApproval",
+        "mappingAmbiguities"
+      ],
+      "properties": {
+        "candidateChanges": { "type": "integer", "minimum": 0 },
+        "autoAccept": { "type": "integer", "minimum": 0 },
+        "requireCheckpoint": { "type": "integer", "minimum": 0 },
+        "requireProof": { "type": "integer", "minimum": 0 },
+        "requireHumanApproval": { "type": "integer", "minimum": 0 },
+        "mappingAmbiguities": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "evaluationDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}
