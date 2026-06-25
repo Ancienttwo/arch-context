@@ -117,6 +117,11 @@ try {
   assert(daemonStatus.data?.rpcVersionCompatible === true, "daemon status must report RPC compatibility");
   assert(daemonStatus.data?.product?.schemaVersion === "archcontext.product-version-manifest/v1", "daemon status must include product manifest");
 
+  const statusBeforeRestart = await runArchctx("status");
+  assert(statusBeforeRestart.ok === true, "status before restart must succeed");
+  const worktreeDigestBeforeRestart = statusBeforeRestart.data?.worktreeDigest;
+  assert(typeof worktreeDigestBeforeRestart === "string", "status before restart must report a worktree digest");
+
   const stoppedForRestart = await runArchctx("daemon", "stop");
   assert(stoppedForRestart.ok === true, "daemon stop before restart must succeed");
   await waitForRemoved(connectionPath, "connection file");
@@ -130,7 +135,7 @@ try {
   assert(restoredStatus.ok === true, "status after restart must succeed");
   assert(restoredStatus.data?.sessions === 1, `daemon restart must restore persisted repository session: ${JSON.stringify(restoredStatus.data)}`);
   assert(restoredStatus.data?.repositoryId === repositoryId, "restored session must keep the same repository id");
-  assert(restoredStatus.data?.worktreeDigest === initialWorktreeDigest, "restored session must keep the same worktree digest");
+  assert(restoredStatus.data?.worktreeDigest === worktreeDigestBeforeRestart, "restored status must report the current worktree digest");
 
   const plannedAfterRestart = await runArchctxMcp({
     jsonrpc: "2.0",

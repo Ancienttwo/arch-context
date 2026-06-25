@@ -323,7 +323,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  });
+  }, CLI_PROCESS_TIMEOUT_MS);
 
   test("CLI update check is explicit and doctor can include the same advisory", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-update-check-"));
@@ -1213,6 +1213,47 @@ describe("archctx CLI", () => {
         reasonCode: "generated-projection"
       });
       expect(existsSync(testRuntimePaths(root).localStorePath)).toBe(false);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rebuilds ledger from Git, reports drift, and projects back to Git", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    try {
+      let status = await runTestCli("status", [], root);
+      const rebuild = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuild.ok).toBe(true);
+      expect((rebuild.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-rebuild/v1");
+      expect((rebuild.data as any).appendedEventCount).toBe(1);
+      expect((rebuild.data as any).graphDigest).toMatch(/^sha256:/);
+
+      rmSync(join(root, projectionPath), { force: true });
+      const drift = await runTestCli("ledger", ["drift", "--json"], root);
+      expect(drift.ok).toBe(true);
+      expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
+
+      status = await runTestCli("status", [], root);
+      const project = await runTestCli("ledger", [
+        "project",
+        "--to-git",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writes).toBe("git-projection");
+      expect((project.data as any).writtenPaths).toContain(projectionPath);
+      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture-context");
+
+      const clean = await runTestCli("ledger", ["drift", "--json"], root);
+      expect((clean.data as any).drift.ok).toBe(true);
     } finally {
       removeTempRoot(root);
     }

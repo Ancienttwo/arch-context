@@ -3,9 +3,15 @@ import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/cha
 import {
   architectureLedgerStateDigest,
   emptyArchitectureLedgerState,
+  normalizeArchitectureLedgerEvent,
   replayArchitectureLedgerEvents,
   type ArchitectureLedgerAppendInput,
-  type ArchitectureLedgerAppendResult
+  type ArchitectureLedgerAppendResult,
+  type ArchitectureLedgerGraphState,
+  type ArchitectureLedgerReplayInput,
+  type ArchitectureLedgerReplayResult,
+  type ArchitectureLedgerReplayVerification,
+  type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
 import type { ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeLocalStore } from "../src/index";
@@ -174,11 +180,23 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult> {
     this.architectureEventAppends.push(input);
-    this.architectureEvents.push(...input.events);
-    const state = input.events.length === 0 ? emptyArchitectureLedgerState() : replayArchitectureLedgerEvents(this.architectureEvents);
+    const appendedEvents: ArchitectureEventV1[] = [];
+    const duplicateEvents: ArchitectureEventV1[] = [];
+    for (const event of input.events) {
+      const duplicate = this.architectureEvents.find((candidate) => candidate.idempotencyKey === event.idempotencyKey);
+      if (duplicate) {
+        duplicateEvents.push(duplicate);
+        continue;
+      }
+      const normalized = normalizeArchitectureLedgerEvent(event, this.latestEventHashForScope(event));
+      this.architectureEvents.push(normalized);
+      appendedEvents.push(normalized);
+    }
+    const scope = input.events[0] ? scopeFromEvent(input.events[0]) : undefined;
+    const state = scope ? this.stateForScope(scope) : emptyArchitectureLedgerState();
     return {
-      appendedEvents: input.events,
-      duplicateEvents: [],
+      appendedEvents,
+      duplicateEvents,
       graphDigest: architectureLedgerStateDigest(state),
       entityCount: state.entities.length,
       relationCount: state.relations.length,
@@ -190,20 +208,31 @@ export class TestLocalStore implements RuntimeLocalStore {
     throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
   }
 
-  async readArchitectureLedgerState(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState> {
+    return this.stateForScope(input);
   }
 
-  async replayArchitectureLedger(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
+    const events = this.eventsForScope(input);
+    const state = replayArchitectureLedgerEvents(events);
+    return { events, state, graphDigest: architectureLedgerStateDigest(state) };
   }
 
-  async verifyArchitectureLedgerReplay(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {
+    const materialized = await this.readArchitectureLedgerState(input);
+    const replayed = await this.replayArchitectureLedger(input);
+    const materializedDigest = architectureLedgerStateDigest(materialized);
+    return {
+      ok: materializedDigest === replayed.graphDigest,
+      materializedDigest,
+      replayedDigest: replayed.graphDigest,
+      eventCount: replayed.events.length,
+      mismatches: materializedDigest === replayed.graphDigest ? [] : ["materialized-current-state-does-not-match-replay"]
+    };
   }
 
-  async rebuildArchitectureLedgerCurrentState(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async rebuildArchitectureLedgerCurrentState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerReplayResult> {
+    return this.replayArchitectureLedger(input);
   }
 
   async compactArchitectureLedger(): Promise<never> {
@@ -228,6 +257,34 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   close(): void {}
+
+  private stateForScope(scope: ArchitectureLedgerScope): ArchitectureLedgerGraphState {
+    return replayArchitectureLedgerEvents(this.eventsForScope(scope));
+  }
+
+  private eventsForScope(input: ArchitectureLedgerReplayInput): ArchitectureEventV1[] {
+    const events = this.architectureEvents
+      .filter((event) => event.repository.storageRepositoryId === input.repository.storageRepositoryId
+        && event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId);
+    if (!input.untilEventId) return events;
+    const out: ArchitectureEventV1[] = [];
+    for (const event of events) {
+      out.push(event);
+      if (event.eventId === input.untilEventId) break;
+    }
+    return out;
+  }
+
+  private latestEventHashForScope(scope: ArchitectureLedgerScope): string | null {
+    return [...this.architectureEvents].reverse()
+      .find((event) => event.repository.storageRepositoryId === scope.repository.storageRepositoryId
+        && event.worktree.storageWorkspaceId === scope.worktree.storageWorkspaceId)
+      ?.eventHash ?? null;
+  }
+}
+
+function scopeFromEvent(event: ArchitectureEventV1): ArchitectureLedgerScope {
+  return { repository: event.repository, worktree: event.worktree };
 }
 
 function externalDocumentationKey(input: {

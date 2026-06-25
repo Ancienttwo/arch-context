@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
@@ -1011,6 +1011,164 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("ledger read mode returns SQLite current state and Git drift readback", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:00:00.000Z"
+      });
+      await daemon.init(root, "Ledger Read App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-read-node",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.ledger-read.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-read\nkind: module\nname: Ledger Read\nstatus: active\nsummary: Ledger read node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-read-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+
+      const state = await daemon.ledgerState(root);
+
+      expect(state.ok).toBe(true);
+      expect((state.data as any).architectureLedger).toMatchObject({
+        rolloutMode: "ledger-authoritative",
+        readMode: "ledger",
+        readAuthority: "ledger"
+      });
+      expect((state.data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.ledger-read");
+      expect((state.data as any).ledger.graphDigest).toMatch(/^sha256:/);
+      expect((state.data as any).drift.semanticDrift).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger project restores missing Git projection from SQLite current state", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:05:00.000Z"
+      });
+      await daemon.init(root, "Ledger Project App");
+      const path = ".archcontext/model/nodes/module.ledger-project.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-project-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-project-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      rmSync(join(root, path), { force: true });
+
+      const drift = await daemon.ledgerDrift(root);
+      expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
+      const status = await daemon.runtimeStatus(root);
+      const project = await daemon.ledgerProject(root, {
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writes).toBe("git-projection");
+      expect((project.data as any).writtenPaths).toContain(path);
+      expect(readText(join(root, path))).toContain("module.ledger-project");
+      expect(((await daemon.ledgerDrift(root)).data as any).drift.ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger rebuild from Git appends once and no-ops when current state already matches Git", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T04:10:00.000Z"
+      });
+      await daemon.init(root, "Ledger Rebuild App");
+      const status = await daemon.runtimeStatus(root);
+      const first = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+      const second = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(first.ok).toBe(true);
+      expect((first.data as any).appendedEventCount).toBe(1);
+      expect((first.data as any).graphDigest).toMatch(/^sha256:/);
+      expect((second.data as any).appendedEventCount).toBe(0);
+      expect((second.data as any).duplicateEventCount).toBe(0);
+      expect(((await daemon.ledgerState(root)).data as any).yaml.importedCount).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger rebuild from Git removes entities deleted from YAML projection", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:15:00.000Z"
+      });
+      await daemon.init(root, "Ledger Delete Rebuild App");
+      const path = ".archcontext/model/nodes/module.rebuild-delete.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.rebuild-delete-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.rebuild-delete\nkind: module\nname: Rebuild Delete\nstatus: active\nsummary: Rebuild delete node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.rebuild-delete-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.rebuild-delete");
+
+      rmSync(join(root, path), { force: true });
+      const status = await daemon.runtimeStatus(root);
+      const rebuild = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(rebuild.ok).toBe(true);
+      expect((rebuild.data as any).appendedEventCount).toBe(1);
+      expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).not.toContain("module.rebuild-delete");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("SQLite contract enables WAL, foreign keys, busy timeout, and stores no source bodies", () => {
     const sql = migrationSql();
     for (const pragma of SQLITE_PRAGMAS) expect(sql).toContain(pragma);
@@ -1061,7 +1219,7 @@ describe("local runtime foundation", () => {
         repositories: [repositoryFingerprint(root)],
         repositoryId: repositoryFingerprint(root),
         headSha: (before.data as any).headSha,
-        worktreeDigest: (before.data as any).worktreeDigest
+        worktreeDigest: computeWorktreeDigest(root)
       });
       await second.stop();
       second = undefined;

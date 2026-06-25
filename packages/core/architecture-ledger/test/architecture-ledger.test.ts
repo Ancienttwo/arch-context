@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { architectureEventHash, digestJson, type Json } from "@archcontext/contracts";
 import {
   architectureLedgerStateDigest,
+  compareArchitectureLedgerStateToYaml,
   planYamlToArchitectureLedgerImport,
   projectArchitectureLedgerStateToYamlFiles,
   type ArchitectureLedgerModelFile,
@@ -175,6 +176,54 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     }]);
     expect(plan.drift.ok).toBe(false);
     expect(plan.drift.reasonCodes).toEqual(["unsupported-yaml-file"]);
+  });
+
+  test("reports actionable ledger-to-Git projection drift reasons", () => {
+    const plan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      createdAt: "2026-06-25T02:00:00.000Z",
+      files: [
+        modelFile(".archcontext/model/nodes/module.api.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.api\"",
+          "kind: \"module\"",
+          "name: \"API\"",
+          ""
+        ]),
+        modelFile(".archcontext/model/nodes/module.checkout.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.checkout\"",
+          "kind: \"module\"",
+          "name: \"Checkout\"",
+          ""
+        ])
+      ]
+    });
+
+    const drift = compareArchitectureLedgerStateToYaml({
+      state: plan.state,
+      createdAt: "2026-06-25T02:01:00.000Z",
+      files: [
+        modelFile(".archcontext/model/nodes/module.api.yaml", [
+          "schemaVersion: \"archcontext.node/v1\"",
+          "id: \"module.api\"",
+          "kind: \"module\"",
+          "name: \"Renamed API\"",
+          ""
+        ])
+      ]
+    });
+
+    expect(drift.ok).toBe(false);
+    expect(drift.reasonCodes).toEqual(["projection-file-digest-mismatch", "projection-file-missing", "semantic-drift"]);
+    expect(drift.projectionDiffs).toContainEqual(expect.objectContaining({
+      path: ".archcontext/model/nodes/module.api.yaml",
+      reasonCode: "projection-file-digest-mismatch"
+    }));
+    expect(drift.projectionDiffs).toContainEqual(expect.objectContaining({
+      path: ".archcontext/model/nodes/module.checkout.yaml",
+      reasonCode: "projection-file-missing"
+    }));
   });
 });
 

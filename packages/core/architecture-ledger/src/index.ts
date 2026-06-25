@@ -128,6 +128,16 @@ export interface ArchitectureLedgerDriftReport {
   reasonCodes: string[];
   unsupportedFiles: ArchitectureLedgerYamlUnsupportedFile[];
   ignoredFiles: ArchitectureLedgerYamlIgnoredFile[];
+  projectionDiffs?: ArchitectureLedgerProjectionDiff[];
+}
+
+export interface ArchitectureLedgerProjectionDiff {
+  path: string;
+  reasonCode: "projection-file-missing" | "projection-file-digest-mismatch" | "projection-file-extra";
+  expectedDigest?: string;
+  actualDigest?: string;
+  targetKind?: ArchitectureLedgerProjectionFile["targetKind"];
+  targetId?: string;
 }
 
 export interface ArchitectureLedgerYamlImportPlan {
@@ -158,6 +168,17 @@ export interface ArchitectureLedgerChangeSetApplyInput extends ArchitectureLedge
   createdAt: string;
   writeMode: "dual" | "ledger-with-projection";
   command?: string;
+}
+
+export interface ArchitectureLedgerGitDriftInput {
+  state: ArchitectureLedgerGraphState;
+  files: ArchitectureLedgerModelFile[];
+  createdAt: string;
+  command?: string;
+}
+
+export interface ArchitectureLedgerYamlRebuildInput extends ArchitectureLedgerYamlImportInput {
+  previousState: ArchitectureLedgerGraphState;
 }
 
 export interface ArchitectureLedgerAppendInput {
@@ -331,6 +352,70 @@ export function planChangeSetApplyToArchitectureLedgerEvent(input: ArchitectureL
     } as unknown as Json
   }, null);
   return { ...importPlan, event };
+}
+
+export function compareArchitectureLedgerStateToYaml(input: ArchitectureLedgerGitDriftInput): ArchitectureLedgerDriftReport {
+  const projectedFiles = projectArchitectureLedgerStateToYamlFiles(input.state);
+  const collected = collectYamlModelFacts(input.files, input.createdAt, {
+    producer: "architecture-ledger-git-drift",
+    command: input.command ?? "archctx ledger drift --json",
+    inputDigest: architectureLedgerModelFilesDigest(input.files)
+  });
+  const gitState = stateFromOperations(collected.operations);
+  const sourceGraphDigest = architectureLedgerStateDigest(input.state);
+  const projectedGraphDigest = architectureLedgerStateDigest(gitState);
+  const projectionDiffs = architectureLedgerProjectionDiffs(projectedFiles, input.files);
+  const reasonCodes = [...new Set([
+    ...(sourceGraphDigest === projectedGraphDigest ? [] : ["semantic-drift"]),
+    ...(collected.unsupportedFiles.length === 0 ? [] : ["unsupported-yaml-file"]),
+    ...projectionDiffs.map((diff) => diff.reasonCode)
+  ])].sort();
+  return {
+    schemaVersion: "archcontext.architecture-ledger-drift/v1",
+    ok: reasonCodes.length === 0,
+    semanticDrift: sourceGraphDigest !== projectedGraphDigest,
+    sourceGraphDigest,
+    projectedGraphDigest,
+    projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+    reasonCodes,
+    unsupportedFiles: collected.unsupportedFiles,
+    ignoredFiles: collected.ignoredFiles,
+    projectionDiffs
+  };
+}
+
+export function planYamlToArchitectureLedgerRebuild(input: ArchitectureLedgerYamlRebuildInput): ArchitectureLedgerYamlImportPlan {
+  const plan = planYamlToArchitectureLedgerImport(input);
+  const previousGraphDigest = architectureLedgerStateDigest(input.previousState);
+  const deleteOperations = architectureLedgerDeletionOperations(input.previousState, plan.state);
+  if (deleteOperations.length === 0) return plan;
+  const payload = architectureLedgerPayload(plan.event);
+  const event = normalizeArchitectureLedgerEvent({
+    ...plan.event,
+    eventId: `architecture_event.yaml_rebuild.${digestSuffix(digestJson({
+      sourceDigest: plan.sourceDigest,
+      previousGraphDigest
+    } as unknown as Json))}`,
+    eventType: "architecture.yaml.rebuild",
+    baseDigest: previousGraphDigest,
+    resultingDigest: plan.graphDigest,
+    idempotencyKey: `architecture-ledger-yaml-rebuild:${plan.sourceDigest}:${previousGraphDigest}`,
+    provenance: {
+      producer: "architecture-ledger-yaml-rebuild",
+      command: input.command ?? "archctx ledger rebuild --from-git",
+      inputDigest: digestJson({
+        sourceDigest: plan.sourceDigest,
+        previousGraphDigest
+      } as unknown as Json)
+    },
+    payload: {
+      ...payload,
+      summary: "Rebuild architecture ledger current state from Git-tracked ArchContext YAML.",
+      title: "YAML architecture ledger rebuild",
+      operations: [...deleteOperations, ...(payload.operations ?? [])]
+    } as unknown as Json
+  }, null);
+  return { ...plan, event };
 }
 
 function stateFromOperations(operations: ArchitectureLedgerOperation[]): ArchitectureLedgerGraphState {
@@ -697,6 +782,77 @@ function projectionFile(path: string, body: string, targetKind: ArchitectureLedg
 
 function modelFileDigest(file: ArchitectureLedgerModelFile): string {
   return file.digest ?? digestJson({ path: file.path, body: file.body } as unknown as Json);
+}
+
+function architectureLedgerProjectionDiffs(
+  projectedFiles: ArchitectureLedgerProjectionFile[],
+  files: ArchitectureLedgerModelFile[]
+): ArchitectureLedgerProjectionDiff[] {
+  const projected = new Map(projectedFiles.map((file) => [file.path, file]));
+  const actual = new Map(files.map((file) => [file.path, file]));
+  const diffs: ArchitectureLedgerProjectionDiff[] = [];
+  for (const file of projectedFiles) {
+    const actualFile = actual.get(file.path);
+    if (!actualFile) {
+      diffs.push({
+        path: file.path,
+        reasonCode: "projection-file-missing",
+        expectedDigest: file.digest,
+        targetKind: file.targetKind,
+        targetId: file.targetId
+      });
+      continue;
+    }
+    const actualDigest = modelFileDigest(actualFile);
+    if (actualDigest !== file.digest) {
+      diffs.push({
+        path: file.path,
+        reasonCode: "projection-file-digest-mismatch",
+        expectedDigest: file.digest,
+        actualDigest,
+        targetKind: file.targetKind,
+        targetId: file.targetId
+      });
+    }
+  }
+  for (const file of files) {
+    if (!isArchitectureModelProjectionPath(file.path) || projected.has(file.path)) continue;
+    diffs.push({
+      path: file.path,
+      reasonCode: "projection-file-extra",
+      actualDigest: modelFileDigest(file)
+    });
+  }
+  return diffs.sort((left, right) => left.path.localeCompare(right.path) || left.reasonCode.localeCompare(right.reasonCode));
+}
+
+function architectureLedgerDeletionOperations(
+  previousState: ArchitectureLedgerGraphState,
+  nextState: ArchitectureLedgerGraphState
+): ArchitectureLedgerOperation[] {
+  const nextEntities = new Set(nextState.entities.map((entity) => entity.entityId));
+  const nextRelations = new Set(nextState.relations.map((relation) => relation.relationId));
+  const nextConstraints = new Set(nextState.constraints.map((constraint) => constraint.constraintId));
+  return [
+    ...previousState.constraints
+      .filter((constraint) => !nextConstraints.has(constraint.constraintId))
+      .map((constraint) => ({ op: "delete_constraint" as const, constraintId: constraint.constraintId }))
+      .sort((left, right) => operationKey(left).localeCompare(operationKey(right))),
+    ...previousState.relations
+      .filter((relation) => !nextRelations.has(relation.relationId))
+      .map((relation) => ({ op: "delete_relation" as const, relationId: relation.relationId }))
+      .sort((left, right) => operationKey(left).localeCompare(operationKey(right))),
+    ...previousState.entities
+      .filter((entity) => !nextEntities.has(entity.entityId))
+      .map((entity) => ({ op: "delete_entity" as const, entityId: entity.entityId }))
+      .sort((left, right) => operationKey(left).localeCompare(operationKey(right)))
+  ];
+}
+
+function isArchitectureModelProjectionPath(path: string): boolean {
+  return path.startsWith(".archcontext/model/nodes/") ||
+    path.startsWith(".archcontext/model/relations/") ||
+    path.startsWith(".archcontext/model/constraints/");
 }
 
 function operationKey(operation: ArchitectureLedgerOperation): string {

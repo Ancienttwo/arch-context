@@ -18,7 +18,16 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
-import { planChangeSetApplyToArchitectureLedgerEvent } from "@archcontext/core/architecture-ledger";
+import {
+  architectureLedgerProjectionDigest,
+  architectureLedgerStateDigest,
+  compareArchitectureLedgerStateToYaml,
+  planChangeSetApplyToArchitectureLedgerEvent,
+  planYamlToArchitectureLedgerImport,
+  planYamlToArchitectureLedgerRebuild,
+  projectArchitectureLedgerStateToYamlFiles,
+  type ArchitectureLedgerScope
+} from "@archcontext/core/architecture-ledger";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
@@ -92,6 +101,16 @@ export interface RuntimePracticeWaiverInput {
   evidenceDigest: string;
   subjects?: string[];
   pathGlobs?: string[];
+}
+
+export interface RuntimeLedgerProjectInput {
+  dryRun?: boolean;
+  expectedWorktreeDigest?: string;
+}
+
+export interface RuntimeLedgerRebuildInput {
+  fromGit?: boolean;
+  expectedWorktreeDigest?: string;
 }
 
 export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
@@ -347,6 +366,10 @@ export interface RuntimeDaemonClient {
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -1115,6 +1138,179 @@ export class ArchctxDaemon {
     });
   }
 
+  async ledgerState(root: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    return okEnvelope("ledger.state", await this.architectureLedgerReadback(root) as unknown as Json);
+  }
+
+  async ledgerDrift(root: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const readback = await this.architectureLedgerReadback(root);
+    return okEnvelope("ledger.drift", {
+      schemaVersion: "archcontext.runtime-architecture-ledger-drift/v1",
+      architectureLedger: readback.architectureLedger,
+      repository: readback.repository,
+      worktree: readback.worktree,
+      ledger: readback.ledger,
+      yaml: readback.yaml,
+      drift: readback.drift
+    } as unknown as Json);
+  }
+
+  async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const writes = input.dryRun === false;
+    const project = async () => {
+      if (writes) this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger project --to-git");
+      const scope = await this.architectureLedgerScope(root);
+      const state = await this.localStore.readArchitectureLedgerState(scope);
+      const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+      if (writes) writeArchitectureProjectionFiles(root, projectedFiles);
+      const drift = compareArchitectureLedgerStateToYaml({
+        state,
+        files: listModelFiles(root),
+        createdAt: this.clock(),
+        command: "archctx ledger project --to-git"
+      });
+      return okEnvelope("ledger.project", {
+        schemaVersion: "archcontext.runtime-architecture-ledger-project/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        dryRun: !writes,
+        writes: writes ? "git-projection" : "none",
+        projectedFileCount: projectedFiles.length,
+        projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+        graphDigest: architectureLedgerStateDigest(state),
+        writtenPaths: writes ? projectedFiles.map((file) => file.path) : [],
+        projectedFiles: writes ? undefined : projectedFiles,
+        drift
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(project) : project();
+  }
+
+  async ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.fromGit) return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
+    return this.withWriter(async () => {
+      this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rebuild --from-git");
+      const scope = await this.architectureLedgerScope(root);
+      const files = listModelFiles(root);
+      const previousState = await this.localStore.readArchitectureLedgerState(scope);
+      const previousGraphDigest = architectureLedgerStateDigest(previousState);
+      const plan = planYamlToArchitectureLedgerRebuild({
+        ...scope,
+        files,
+        createdAt: this.clock(),
+        command: "archctx ledger rebuild --from-git",
+        previousState
+      });
+      if (plan.unsupportedFiles.length > 0) {
+        return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild requires supported YAML model files");
+      }
+      const append = previousGraphDigest === plan.graphDigest
+        ? { appendedEvents: [], duplicateEvents: [] }
+        : await this.localStore.appendArchitectureEvents({
+          writer: "runtime-daemon",
+          events: [plan.event]
+        });
+      const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
+      return okEnvelope("ledger.rebuild", {
+        schemaVersion: "archcontext.runtime-architecture-ledger-rebuild/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        sourceMode: "git-yaml",
+        appendedEventCount: append.appendedEvents.length,
+        duplicateEventCount: append.duplicateEvents.length,
+        replayedEventCount: replay.events.length,
+        graphDigest: replay.graphDigest,
+        imported: plan.imported,
+        ignoredFiles: plan.ignoredFiles,
+        unsupportedFiles: plan.unsupportedFiles,
+        drift: compareArchitectureLedgerStateToYaml({
+          state: replay.state,
+          files: listModelFiles(root),
+          createdAt: this.clock(),
+          command: "archctx ledger rebuild --from-git"
+        })
+      } as unknown as Json);
+    });
+  }
+
+  private async architectureLedgerReadback(root: string) {
+    const scope = await this.architectureLedgerScope(root);
+    const files = listModelFiles(root);
+    const yamlPlan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      files,
+      createdAt: this.clock(),
+      command: "archctx ledger state"
+    });
+    const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
+    const ledgerGraphDigest = architectureLedgerStateDigest(ledgerState);
+    const drift = compareArchitectureLedgerStateToYaml({
+      state: ledgerState,
+      files,
+      createdAt: this.clock(),
+      command: "archctx ledger drift --json"
+    });
+    const readAuthority = this.architectureLedger.readMode === "ledger" ? "ledger" : "yaml";
+    const state = readAuthority === "ledger" ? ledgerState : yamlPlan.state;
+    const graphDigest = readAuthority === "ledger" ? ledgerGraphDigest : yamlPlan.graphDigest;
+    return {
+      schemaVersion: "archcontext.runtime-architecture-ledger-state/v1",
+      architectureLedger: { ...this.architectureLedger, readAuthority },
+      repository: scope.repository,
+      worktree: scope.worktree,
+      readAuthority,
+      state,
+      graphDigest,
+      entityCount: state.entities.length,
+      relationCount: state.relations.length,
+      constraintCount: state.constraints.length,
+      ledger: {
+        graphDigest: ledgerGraphDigest,
+        entityCount: ledgerState.entities.length,
+        relationCount: ledgerState.relations.length,
+        constraintCount: ledgerState.constraints.length
+      },
+      yaml: {
+        graphDigest: yamlPlan.graphDigest,
+        sourceDigest: yamlPlan.sourceDigest,
+        importedCount: yamlPlan.imported.length,
+        ignoredFileCount: yamlPlan.ignoredFiles.length,
+        unsupportedFileCount: yamlPlan.unsupportedFiles.length
+      },
+      drift
+    };
+  }
+
+  private async architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope> {
+    const session = await this.openSession(root);
+    const paths = runtimeStatePaths(root);
+    return {
+      repository: {
+        repositoryId: session.workspace.repositoryId,
+        storageRepositoryId: paths.storageRepositoryId
+      },
+      worktree: {
+        workspaceId: paths.workspaceId,
+        storageWorkspaceId: paths.storageWorkspaceId,
+        branch: readCurrentBranch(root),
+        headSha: session.workspace.headSha,
+        worktreeDigest: computeWorktreeDigest(root)
+      }
+    };
+  }
+
+  private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void {
+    if (!expectedWorktreeDigest) throw new Error(`${command} requires expectedWorktreeDigest`);
+    const current = computeWorktreeDigest(root);
+    if (current !== expectedWorktreeDigest) throw new Error(`Worktree digest changed before ${command}`);
+  }
+
   prepareDeveloperReviewWorktree(input: {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
@@ -1644,7 +1840,7 @@ export class ArchctxDaemon {
       ...status,
       repositoryId,
       headSha: session?.workspace.headSha ?? readHeadSha(root),
-      worktreeDigest: session?.snapshot.worktreeDigest ?? computeWorktreeDigest(root)
+      worktreeDigest: computeWorktreeDigest(root)
     } as unknown as Json);
   }
 
@@ -1993,6 +2189,22 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("applyUpdate", [root, input]);
   }
 
+  ledgerState(root: string) {
+    return this.call("ledgerState", [root]);
+  }
+
+  ledgerDrift(root: string) {
+    return this.call("ledgerDrift", [root]);
+  }
+
+  ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }) {
+    return this.call("ledgerProject", [root, input]);
+  }
+
+  ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}) {
+    return this.call("ledgerRebuild", [root, input]);
+  }
+
   repoAdd(root: string, name?: string) {
     return this.call("repoAdd", [root, name]);
   }
@@ -2234,6 +2446,14 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
       case "applyUpdate":
         return this.daemon.applyUpdate(params[0] as string, params[1] as any);
+      case "ledgerState":
+        return this.daemon.ledgerState(params[0] as string);
+      case "ledgerDrift":
+        return this.daemon.ledgerDrift(params[0] as string);
+      case "ledgerProject":
+        return this.daemon.ledgerProject(params[0] as string, params[1] as RuntimeLedgerProjectInput | undefined);
+      case "ledgerRebuild":
+        return this.daemon.ledgerRebuild(params[0] as string, params[1] as RuntimeLedgerRebuildInput | undefined);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -2849,7 +3069,7 @@ function runtimeArchitectureLedgerModes(input: RuntimeDeps["architectureLedger"]
     rolloutMode,
     readMode,
     writeMode,
-    // Read authority stays YAML until ledger-backed current-state reads land.
+    // Runtime-wide model reads stay YAML until context/validate/complete use a ledger-backed ModelStore.
     readAuthority: "yaml",
     writeAuthority: writeMode
   };
@@ -2900,6 +3120,14 @@ function readCurrentBranch(root: string): string {
     return branch === "HEAD" ? "detached" : branch;
   } catch {
     return "unknown";
+  }
+}
+
+function writeArchitectureProjectionFiles(root: string, files: ReturnType<typeof projectArchitectureLedgerStateToYamlFiles>): void {
+  for (const file of files) {
+    const absolute = resolve(root, file.path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, file.body.endsWith("\n") ? file.body : `${file.body}\n`, "utf8");
   }
 }
 

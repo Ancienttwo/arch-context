@@ -224,7 +224,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "landscape":
       return (await runtime()).landscapeStatus();
     case "ledger":
-      return runLedgerCommand(args, cwd);
+      return runLedgerCommand(args, cwd, runtime);
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
@@ -403,8 +403,42 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   }
 }
 
-async function runLedgerCommand(args: string[], cwd: string) {
+async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "status";
+  if (subcommand === "status" || subcommand === "state") {
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerState(cwd);
+  }
+  if (subcommand === "drift") {
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerDrift(cwd);
+  }
+  if (subcommand === "project") {
+    if (!args.includes("--to-git")) {
+      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project currently requires --to-git");
+    }
+    const write = args.includes("--write");
+    if (write && args.includes("--dry-run")) {
+      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project accepts --dry-run or --write, not both");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (write && !expectedWorktreeDigest) {
+      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project --to-git --write requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerProject(cwd, { dryRun: !write, expectedWorktreeDigest });
+  }
+  if (subcommand === "rebuild") {
+    if (!args.includes("--from-git")) {
+      return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (!expectedWorktreeDigest) {
+      return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild --from-git requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerRebuild(cwd, { fromGit: true, expectedWorktreeDigest });
+  }
   if (subcommand === "migrate") {
     if (!args.includes("--from-yaml") || !args.includes("--dry-run")) {
       return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml --dry-run");
@@ -433,7 +467,12 @@ async function runLedgerCommand(args: string[], cwd: string) {
       writes: "none"
     } as unknown as Json);
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires migrate --from-yaml --dry-run");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml --dry-run, rebuild --from-git, or project --to-git");
+}
+
+async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
+  if (!runtime) throw new Error("ledger command requires runtime daemon");
+  return runtime();
 }
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

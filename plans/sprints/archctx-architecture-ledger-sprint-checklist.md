@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge and runtime write-mode contract complete
+> **Status**: Executing - AL0, AL1 and AL2 complete; AL3 dry-run bridge, runtime write-mode contract and ledger readback CLI complete
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-25
@@ -339,15 +339,15 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 ### Tasks
 
 - [ ] **AL3-01 · P0 · `model-store-yaml`** — Implement deterministic import of manifest, nodes, relations, constraints, ADR metadata and policies into ledger events.
-  - Progress: core dry-run event planning exists in `planYamlToArchitectureLedgerImport`; parser now accepts hand-written plain YAML scalars; model-store integration and full ADR fixture coverage remain.
-- [ ] **AL3-02 · P0 · `renderer`** — Implement deterministic export from ledger current state to `.archcontext/` YAML.
-  - Progress: core graph-state projection exists in `projectArchitectureLedgerStateToYamlFiles`; renderer/projection command integration remains.
+  - Progress: core dry-run event planning exists in `planYamlToArchitectureLedgerImport`; `archctx ledger rebuild --from-git` now appends only when Git YAML changes ledger state and no-ops when current state already matches; parser accepts hand-written plain YAML scalars; full ADR fixture coverage remains.
+- [x] **AL3-02 · P0 · `renderer`** — Implement deterministic export from ledger current state to `.archcontext/` YAML.
+  - Evidence: `projectArchitectureLedgerStateToYamlFiles` in `packages/core/architecture-ledger/src/index.ts`; daemon/CLI `ledger project --to-git` tests restore missing Git projection files from SQLite current state.
 - [x] **AL3-03 · P0 · `architecture-domain`** — Define one canonical ordering and serialization for IDs, collections, metadata and timestamps.
   - Evidence: `canonicalArchitectureJson`, `canonicalArchitectureYaml`, and exported `parseJsonOrStableYaml` in `packages/core/architecture-domain/src/index.ts`.
 - [ ] **AL3-04 · P0 · `reconcile-engine`** — Add bidirectional digest comparison and a typed drift report.
-  - Progress: typed drift report and reason-code tests exist in `architecture-ledger`; reconcile-engine integration remains.
+  - Progress: typed drift report and reason-code tests exist in `architecture-ledger`; `archctx ledger drift --json` exposes ledger-vs-Git projection reasons; reconcile-engine integration remains.
 - [ ] **AL3-05 · P0 · `runtime-daemon`** — Add read modes: `yaml`, `dual-compare`, `ledger-shadow`, `ledger`.
-  - Progress: runtime mode parser/status readback exists; true ledger-current-state reads remain.
+  - Progress: runtime mode parser/status readback exists; `ledger state` now reads SQLite current state in ledger mode. Runtime-wide `context`, `validate` and `complete` still use YAML model reads until a ledger-backed `ModelStore` lands.
 - [x] **AL3-06 · P0 · `runtime-daemon`** — Add write modes: `yaml`, `dual`, `ledger-with-projection`.
   - Evidence: `RuntimeArchitectureLedgerModes` in `packages/local-runtime/runtime-daemon/src/index.ts`; dual and ledger-with-projection apply tests in `packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`.
 - [ ] **AL3-07 · P0 · `changeset-engine`** — In dual mode, append event and update projection atomically from the user’s perspective; recover both sides after crash.
@@ -357,8 +357,10 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Suggested rule: import as a proposed external event, validate, compare base digest, then require explicit reconcile if conflict remains.
 - [x] **AL3-10 · P0 · `cli`** — Add `archctx ledger migrate --from-yaml --dry-run`.
   - Evidence: `runLedgerCommand` in `packages/surfaces/cli/src/main.ts`; CLI dry-run test in `packages/surfaces/cli/test/cli.test.ts`.
-- [ ] **AL3-11 · P0 · `cli`** — Add `archctx ledger rebuild --from-git` and `archctx ledger project --to-git`.
-- [ ] **AL3-12 · P0 · `cli`** — Add `archctx ledger drift --json` with actionable reason codes.
+- [x] **AL3-11 · P0 · `cli`** — Add `archctx ledger rebuild --from-git` and `archctx ledger project --to-git`.
+  - Evidence: `runLedgerCommand` in `packages/surfaces/cli/src/main.ts`; CLI test covers rebuild from Git, missing projection drift, and project back to Git.
+- [x] **AL3-12 · P0 · `cli`** — Add `archctx ledger drift --json` with actionable reason codes.
+  - Evidence: `compareArchitectureLedgerStateToYaml` reason codes include `semantic-drift`, `projection-file-missing`, `projection-file-digest-mismatch` and `projection-file-extra`; CLI test covers `projection-file-missing`.
 - [ ] **AL3-13 · P1 · `migration`** — Preserve existing IDs and map legacy records without generating new semantic entities.
 - [ ] **AL3-14 · P1 · `migration`** — Add backup and one-command rollback to YAML authority.
 - [ ] **AL3-15 · P1 · `tests`** — Add fixtures for merge conflicts, rebase, detached HEAD and two simultaneous worktrees.
@@ -387,7 +389,10 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 - 2026-06-25: Added ChangeSet validate-before-commit hook so ledger append failure aborts the journal and rolls back YAML writes before success is reported.
 - 2026-06-25: Focused runtime verification passed: `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "architecture ledger mode" --timeout 30000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger-authoritative write mode" --timeout 30000`; `bun test packages/core/architecture-domain/test/domain.test.ts -t "YAML parser" --timeout 30000`; `bun run typecheck`.
 - 2026-06-25: Full runtime write-mode module verification passed: `bun test --timeout 60000` (699 pass); `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
-- 2026-06-25: Remaining AL3 scope is true runtime ledger read modes, full ChangeSet crash/retry dual-write recovery, Git cursor rebuild behavior, projection conflict handling, rebuild/project/drift CLI commands, rollback and worktree/rebase fixtures.
+- 2026-06-25: Added ledger current-state readback and CLI rebuild/project/drift module: `ledger state` can read SQLite current state, `ledger rebuild --from-git` rebuilds from Git YAML with delete support and no-op behavior when current state already matches, `ledger project --to-git --write` restores Git projection files from ledger state, and `ledger drift --json` reports actionable projection reason codes.
+- 2026-06-25: Focused ledger readback verification passed: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 30000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger" --timeout 30000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "ledger" --timeout 60000`; `bun run typecheck`.
+- 2026-06-25: Full ledger readback CLI module verification passed: `bun run verify`; `bun test --timeout 60000` (705 pass); `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-25: Remaining AL3 scope is runtime-wide ledger-backed model reads, full ChangeSet crash/retry dual-write recovery, Git cursor rebuild behavior, projection conflict handling, rollback and worktree/rebase fixtures.
 
 ---
 
