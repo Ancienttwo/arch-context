@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation and candidate policy modules are complete; AL5 baseline attribution, ChangeSet promotion and review rejection remain
+> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation, candidate policy and ChangeSet proposal modules are complete; AL5 baseline attribution and review rejection remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -569,7 +569,8 @@ Git change cursor
   - Evidence: `ArchitectureCandidateChange/v1` now requires `stateDimension: target-state | migration-state`, summary records `targetStateChanges` and `migrationStateProgress`, and delta tests assert migration-state progress is not mixed into target-state changes.
 - [x] **AL5-10 · P0 · `policy-engine`** — Define which candidate deltas may auto-accept, require checkpoint, require proof or require human approval.
   - Evidence: `ArchitectureCandidateDeltaPolicyEvaluation/v1` classifies candidate changes into `auto-accept`, `require-checkpoint`, `require-proof` and `require-human-approval`; policy-engine tests cover high-confidence complete evidence, partial/medium confidence, migration progress, low/missing evidence and owner authority changes.
-- [ ] **AL5-11 · P0 · `changeset-engine`** — Convert accepted candidates into previewable ChangeSets and ledger event batches.
+- [x] **AL5-11 · P0 · `changeset-engine`** — Convert accepted candidates into previewable ChangeSets and ledger event batches.
+  - Evidence: `planArchitectureCandidateChangeSet` converts policy-accepted candidate changes into schema-valid `ChangeSetDraft` operations and deterministic `architecture_candidate_changeset_planned` events; covered by `packages/core/changeset-engine/test/changeset-engine.test.ts` and `docs/verification/architecture-ledger-al5-changeset-promotion.md`.
 - [ ] **AL5-12 · P0 · `review-engine`** — Reject unsupported entity deletion, owner change, boundary relaxation and external-contract claims.
 - [x] **AL5-13 · P1 · `architecture-delta`** — Add rename/move correlation to avoid delete-plus-add churn.
   - Evidence: `normalizes path moves without emitting delete plus add churn` covers Git rename metadata where same basename means `moved`; rename metadata with changed basename is normalized as `renamed`.
@@ -586,7 +587,8 @@ Git change cursor
 - [x] **AL5-EG3** — Rename and move fixtures do not create false entity deletion/addition.
   - Evidence: `architecture-delta.test.ts` covers rename and move normalization without add/remove churn.
 - [ ] **AL5-EG4** — Baseline issues are separated from task-introduced issues.
-- [ ] **AL5-EG5** — All accepted mutations are represented as ChangeSets and ledger events.
+- [x] **AL5-EG5** — All accepted mutations are represented as ChangeSets and ledger events.
+  - Evidence: `planArchitectureCandidateChangeSet` defaults accepted actions to `auto-accept`, preserves non-accepted candidates as deferred policy outcomes, validates the generated ChangeSet against `schemas/runtime/changeset.schema.json`, and emits event batches hashed with `architectureEventHash`.
 
 ### Execution log
 
@@ -608,6 +610,11 @@ Git change cursor
   - Core: migration-state candidate changes are emitted as `stateDimension: migration-state`; node, relation, constraint, owner and lifecycle changes remain `target-state`.
   - Verification artifact: `docs/verification/architecture-ledger-al5-target-migration-separation.md`.
   - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al5-target-migration-verify-state-XXXXXX) bun run verify`.
+- 2026-06-26 — AL5 ChangeSet proposal module completed:
+  - ChangeSet engine: added `planArchitectureCandidateChangeSet` to convert policy-accepted candidate changes into previewable ChangeSet drafts without applying or writing authoritative state.
+  - Ledger event preview: generated deterministic `architecture_candidate_changeset_planned` events with `architectureEventHash`, explicit deferred candidates and no source/diff bodies.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-changeset-promotion.md`.
+  - Verification: `bun test packages/core/changeset-engine/test/changeset-engine.test.ts`; `bun run typecheck`.
 - 2026-06-26 — AL5 candidate policy module completed:
   - Contracts: added `ArchitectureCandidateDeltaPolicyEvaluation/v1` with per-candidate decisions, reason codes, summary counters and stable digests.
   - Core: `evaluateArchitectureCandidateDeltaPolicy` classifies candidate changes before ChangeSet promotion as `auto-accept`, `require-checkpoint`, `require-proof` or `require-human-approval`.

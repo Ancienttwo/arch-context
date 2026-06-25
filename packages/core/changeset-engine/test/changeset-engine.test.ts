@@ -3,9 +3,24 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { digestJson, validateJsonSchema } from "@archcontext/contracts";
+import {
+  ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION,
+  ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION,
+  architectureEventHash,
+  digestJson,
+  validateJsonSchema,
+  type ArchitectureCandidateDeltaPolicyEvaluationV1,
+  type ArchitectureCandidateDeltaV1
+} from "@archcontext/contracts";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
-import { ChangeSetEngine, type ChangeSetDraft, type ChangeSetJournalFile, type ChangeSetJournalPort } from "../src/index";
+import {
+  ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION,
+  ChangeSetEngine,
+  planArchitectureCandidateChangeSet,
+  type ChangeSetDraft,
+  type ChangeSetJournalFile,
+  type ChangeSetJournalPort
+} from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const digest = `sha256:${"a".repeat(64)}`;
@@ -51,6 +66,182 @@ describe("@archcontext/core/changeset-engine", () => {
       operations: [{ op: "write_policy", path: "src/app.ts", expectedHash: "missing", body: "" }]
     });
     expect(engine.preview("/tmp/repo", denied).allowed).toBe(false);
+  });
+
+  test("plans accepted architecture candidates as previewable changesets and ledger event batches", () => {
+    const repository = { repositoryId: "repo.arch-context", storageRepositoryId: "git:arch-context" };
+    const worktree = {
+      workspaceId: "workspace.local",
+      storageWorkspaceId: "worktree:local",
+      branch: "codex/test",
+      headSha: "abc",
+      worktreeDigest: digest
+    };
+    const delta: ArchitectureCandidateDeltaV1 = {
+      schemaVersion: ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION,
+      deltaId: "delta.accepted-candidates",
+      repository,
+      worktree,
+      changeCursor: {
+        source: "git",
+        changeSource: "worktree",
+        headSha: "abc",
+        pathCount: 2,
+        metadataDigest: digest,
+        codeFactsDigest: digest
+      },
+      subjectSelectors: [],
+      changedSubjects: [],
+      rawFacts: [],
+      interpretations: [],
+      declaredSubjectMappings: [],
+      mappingAmbiguities: [],
+      candidateChanges: [
+        {
+          candidateChangeId: "candidate.node.added",
+          kind: "node-added",
+          target: { kind: "node", id: "entity.api" },
+          stateDimension: "target-state",
+          changeKind: "added",
+          subjectSelectorIds: ["selector.api"],
+          mappingIds: ["mapping.api"],
+          ambiguityIds: [],
+          evidenceIds: ["evidence.api"],
+          confidence: "high",
+          heuristic: true,
+          summary: "API module added with complete evidence",
+          digest: digestJson({ candidate: "candidate.node.added" })
+        },
+        {
+          candidateChangeId: "candidate.node.moved",
+          kind: "node-moved",
+          target: { kind: "node", id: "entity.worker" },
+          stateDimension: "target-state",
+          changeKind: "moved",
+          subjectSelectorIds: ["selector.worker"],
+          mappingIds: [],
+          ambiguityIds: [],
+          evidenceIds: [],
+          confidence: "low",
+          heuristic: true,
+          summary: "Worker module moved without proof",
+          digest: digestJson({ candidate: "candidate.node.moved" })
+        }
+      ],
+      evidenceItems: [],
+      evidenceBindings: [],
+      summary: {
+        added: 1,
+        removed: 0,
+        moved: 1,
+        renamed: 0,
+        materiallyChanged: 0,
+        unresolved: 1,
+        mapped: 1,
+        ambiguous: 0,
+        candidateChanges: 2,
+        targetStateChanges: 2,
+        migrationStateProgress: 0
+      },
+      deltaDigest: digestJson({ delta: "accepted-candidates" })
+    };
+    const policyEvaluation: ArchitectureCandidateDeltaPolicyEvaluationV1 = {
+      schemaVersion: ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION,
+      evaluationId: "candidate-policy.eval.accepted-candidates",
+      deltaId: delta.deltaId,
+      repository,
+      worktree,
+      deltaDigest: delta.deltaDigest,
+      policyVersion: "candidate-delta-policy/v1",
+      evaluatedAt: "2026-06-26T00:00:00.000Z",
+      decisions: [
+        {
+          decisionId: "candidate-policy.decision.auto",
+          candidateChangeId: "candidate.node.added",
+          target: { kind: "node", id: "entity.api" },
+          stateDimension: "target-state",
+          changeKind: "added",
+          confidence: "high",
+          action: "auto-accept",
+          reasonCodes: ["high-confidence-complete-evidence"],
+          evidenceIds: ["evidence.api"],
+          digest: digestJson({ decision: "auto" })
+        },
+        {
+          decisionId: "candidate-policy.decision.proof",
+          candidateChangeId: "candidate.node.moved",
+          target: { kind: "node", id: "entity.worker" },
+          stateDimension: "target-state",
+          changeKind: "moved",
+          confidence: "low",
+          action: "require-proof",
+          reasonCodes: ["low-confidence"],
+          evidenceIds: [],
+          digest: digestJson({ decision: "proof" })
+        }
+      ],
+      summary: {
+        candidateChanges: 2,
+        autoAccept: 1,
+        requireCheckpoint: 0,
+        requireProof: 1,
+        requireHumanApproval: 0,
+        mappingAmbiguities: 0
+      },
+      evaluationDigest: digestJson({ evaluation: "accepted-candidates" })
+    };
+
+    const plan = planArchitectureCandidateChangeSet({
+      delta,
+      policyEvaluation,
+      base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+      reason: { taskSessionId: "task.al5-11" }
+    });
+
+    expect(plan.schemaVersion).toBe(ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION);
+    expect(plan.acceptedCandidateChangeIds).toEqual(["candidate.node.added"]);
+    expect(plan.deferredCandidateChanges).toMatchObject([{ candidateChangeId: "candidate.node.moved", action: "require-proof" }]);
+    expect(validateJsonSchema(readJson("schemas/runtime/changeset.schema.json") as any, plan.changeSet as any).valid).toBe(true);
+
+    const preview = new ChangeSetEngine().preview("/tmp/repo", plan.changeSet);
+    expect(preview).toMatchObject({ allowed: true, paths: [] });
+
+    const operation = plan.changeSet.operations[0] as unknown as Record<string, unknown>;
+    expect(operation).toMatchObject({
+      op: "create_entity",
+      entityId: "entity.api",
+      expectedHash: "missing",
+      candidateChangeId: "candidate.node.added",
+      targetKind: "node",
+      targetId: "entity.api"
+    });
+    expect(operation.body).toBeUndefined();
+
+    const event = plan.eventBatch[0];
+    expect(event.eventType).toBe("architecture_candidate_changeset_planned");
+    expect(event.payloadVersion).toBe(ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION);
+    expect(event.eventHash).toBe(architectureEventHash(event));
+    expect(() =>
+      planArchitectureCandidateChangeSet({
+        delta,
+        policyEvaluation: {
+          ...policyEvaluation,
+          decisions: [{ ...policyEvaluation.decisions[0]!, target: { kind: "node", id: "entity.wrong" } }, policyEvaluation.decisions[1]!]
+        },
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.al5-11" }
+      })
+    ).toThrow("Policy decision target mismatch");
+
+    const repeated = planArchitectureCandidateChangeSet({
+      delta,
+      policyEvaluation,
+      base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+      reason: { taskSessionId: "task.al5-11" }
+    });
+    expect(repeated.changeSet.id).toBe(plan.changeSet.id);
+    expect(repeated.eventBatch[0]?.eventHash).toBe(event.eventHash);
+    expect(repeated.planDigest).toBe(plan.planDigest);
   });
 
   test("applies approved changes and rebuilds generated projection", async () => {
