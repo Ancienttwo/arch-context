@@ -966,7 +966,25 @@ export class ArchctxDaemon {
 
   async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
-    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const repositoryRoot = findRepositoryRoot(root);
+    const scope = await this.architectureLedgerScope(repositoryRoot);
+    if (input.status === "succeeded") {
+      const jobs = await this.localStore.listRuntimeAgentJobs(scope);
+      const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
+      if (record && isRuntimeAgentJobCursorStale(record.job, scope)) {
+        await this.localStore.cancelRuntimeAgentJob({
+          jobId: input.jobId,
+          status: "expired",
+          now: input.now ?? this.clock(),
+          reason: "stale-head-or-worktree"
+        });
+        return errorEnvelope(
+          "jobs.complete",
+          "AC_CONTEXT_STALE",
+          `runtime agent job is stale for current HEAD/worktree: ${input.jobId}`
+        );
+      }
+    }
     const job = await this.localStore.completeRuntimeAgentJob({
       jobId: input.jobId,
       status: input.status,
@@ -3134,6 +3152,11 @@ function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: Ru
   if (input.skipGeneratedProjection === false) return false;
   if (input.generatedProjection === true) return true;
   return metadata.paths.length > 0 && metadata.paths.every((path) => isArchContextGeneratedProjectionPath(path.path));
+}
+
+function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedgerScope): boolean {
+  return job.worktree.headSha !== scope.worktree.headSha
+    || job.worktree.worktreeDigest !== scope.worktree.worktreeDigest;
 }
 
 function isArchContextGeneratedProjectionPath(path: string): boolean {

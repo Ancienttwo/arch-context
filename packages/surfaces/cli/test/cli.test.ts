@@ -12,6 +12,7 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
+import { runFastHookEnqueue } from "../src/hook-fast";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
@@ -538,6 +539,63 @@ describe("archctx CLI", () => {
       expect(JSON.stringify((skipped.data as any).hookLog)).not.toContain(".archcontext/generated/ARCHITECTURE.md");
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fast hook enqueue dispatch preserves fail-open and generated projection guards", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-fast-hook-enqueue-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-fast-hook-state-"));
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
+      const failOpen = await runFastHookEnqueue([
+        "hook",
+        "enqueue",
+        "--event", "post-edit",
+        "--path", "src/offline.ts"
+      ], root);
+      expect(failOpen.handled).toBe(true);
+      expect((failOpen.envelope as any)).toMatchObject({
+        ok: true,
+        requestId: "hook.enqueue",
+        data: {
+          schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
+          failOpen: true,
+          reasonCode: "runtime-unavailable",
+          egress: "none",
+          network: "forbidden",
+          hookLog: {
+            schemaVersion: "archcontext.hook-log/v1",
+            egress: "none",
+            network: "forbidden"
+          }
+        }
+      });
+      expect(JSON.stringify((failOpen.envelope as any).data.hookLog)).not.toContain("src/offline.ts");
+
+      const skipped = await runFastHookEnqueue([
+        "hook",
+        "enqueue",
+        "--event", "post-write",
+        "--path", ".archcontext/generated/ARCHITECTURE.md"
+      ], root);
+      expect(skipped.handled).toBe(true);
+      expect((skipped.envelope as any).data).toMatchObject({
+        schemaVersion: "archcontext.hook-enqueue-skipped/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((skipped.envelope as any).data.hookLog)).not.toContain(".archcontext/generated/ARCHITECTURE.md");
+    } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
     }
   });
 

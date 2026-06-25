@@ -479,12 +479,16 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 
 ### Exit gate
 
-- [ ] **AL4-EG1** — Hook enqueue overhead p95 ≤ 150 ms on the reference machine.
-- [ ] **AL4-EG2** — No hook invokes a network provider or LLM by default.
+- [x] **AL4-EG1** — Hook enqueue overhead p95 ≤ 150 ms on the reference machine.
+  - Evidence: `docs/verification/architecture-ledger-al4-closeout-readback.json` records `p95Ms: 120` across 24 fast-path `archctx hook enqueue` samples.
+- [x] **AL4-EG2** — No hook invokes a network provider or LLM by default.
+  - Evidence: `scripts/architecture-ledger-al4-closeout-readback.ts run` verifies generated-projection skip, hook samples and `hooks doctor --host codex` all declare `egress: none` and `network: forbidden`.
 - [x] **AL4-EG3** — No duplicate or lost jobs in the stress fixture.
   - Evidence: `runtime job queue stress fixture preserves 100 rapid git cursor changes without duplicate active jobs` asserts 100 distinct job IDs, one active queued job and 99 terminal superseded jobs.
-- [ ] **AL4-EG4** — Stale jobs cannot append events or update projections.
-- [ ] **AL4-EG5** — Existing user hooks remain chained and functional.
+- [x] **AL4-EG4** — Stale jobs cannot append events or update projections.
+  - Evidence: `runtime jobs reject stale successful completion before worker side effects` and `docs/verification/architecture-ledger-al4-closeout-readback.json` prove stale worker `jobsComplete(... status: succeeded)` is rejected with `AC_CONTEXT_STALE` and the job is expired.
+- [x] **AL4-EG5** — Existing user hooks remain chained and functional.
+  - Evidence: `docs/verification/architecture-ledger-al4-closeout-readback.json` executes a POSIX `post-commit` wrapper that calls `archctx hook enqueue` and then preserves `.git/hooks/post-commit.local`, writing the chained marker with exit code 0.
 
 ### Execution log
 
@@ -515,6 +519,11 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
   - Review/runtime surface: fail-open practice failures become warning findings and `extensions.nonBlockingPracticeViolations`; they do not populate `practiceViolations` or `actionsRequired`.
   - Verification: `bun test packages/contracts/test/contracts.test.ts`; `bun test packages/core/practice-engine/test/practice-engine.test.ts`; `bun test packages/core/review-engine/test/review-engine.test.ts`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`; isolated `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-verify-state-XXXXXX) bun run verify` passed with 736 tests, packaged CLI smoke, privacy/security readbacks, acceptance ledgers, sprint-status check and representative eval.
   - Explicitly still out of scope: hook enqueue p95 benchmark, stale worker append/projection guard, and executable user hook chaining proof.
+- 2026-06-25 — AL4 exit gates closed as one reviewable module:
+  - Fast hook path: `packages/surfaces/cli/bin/archctx` now dispatches `hook enqueue` through a lightweight local-only entrypoint before loading the full CLI, preserving fail-open behavior and generated-projection guards.
+  - Stale worker guard: `jobsComplete(... status: succeeded)` now rejects stale HEAD/worktree completions with `AC_CONTEXT_STALE` and expires the job before any success signal can drive worker side effects.
+  - Readback: `scripts/architecture-ledger-al4-closeout-readback.ts` starts a daemon, samples hook enqueue overhead, proves no default hook egress, executes POSIX user-hook chaining and verifies stale completion rejection.
+  - Verification: `bun test packages/surfaces/cli/test/cli.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "runtime jobs" --timeout 90000`; `bun test scripts/architecture-ledger-al4-closeout-readback.test.ts`; `bun run record:al4:closeout`; `bun run readback:al4:closeout`.
 
 ---
 

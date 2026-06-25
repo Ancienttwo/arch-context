@@ -499,6 +499,52 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs reject stale successful completion before worker side effects", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:20:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.runtime-stale-complete"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.stale",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:20:01.000Z"
+      });
+      expect((claim.data as any).job.job.jobId).toBe(jobId);
+
+      execFileSync("git", ["add", "src/changed.ts"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "advance-head"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.stale",
+        status: "succeeded",
+        outputDigest: digestJson({ staleWorkerOutput: true } as any),
+        now: "2026-06-25T02:20:02.000Z"
+      });
+
+      expect(complete.ok).toBe(false);
+      expect((complete as any).error.code).toBe("AC_CONTEXT_STALE");
+      const expired = await daemon.jobsList(root, { statuses: ["expired"] });
+      expect((expired.data as any).jobs).toHaveLength(1);
+      expect((expired.data as any).jobs[0].job.jobId).toBe(jobId);
+      expect((expired.data as any).jobs[0].lastError).toBe("stale-head-or-worktree");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime jobs skip generated projection hook changes without enqueueing", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
