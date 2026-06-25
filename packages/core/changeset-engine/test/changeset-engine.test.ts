@@ -141,7 +141,30 @@ describe("@archcontext/core/changeset-engine", () => {
         ambiguous: 0,
         candidateChanges: 2,
         targetStateChanges: 2,
-        migrationStateProgress: 0
+        migrationStateProgress: 0,
+        mappingCoverage: {
+          totalChangedSubjects: 2,
+          mappedSubjects: 1,
+          unresolvedSubjects: 1,
+          ambiguousSubjects: 0,
+          coveragePercent: 50
+        },
+        unresolvedSubjects: {
+          total: 1,
+          byReason: {
+            "declared-graph-unavailable": 0,
+            "no-declared-target": 1,
+            "multiple-declared-targets": 0,
+            "relation-endpoint-unmapped": 0
+          },
+          subjectSelectorIds: ["selector.worker"]
+        },
+        evidenceStrengthDistribution: {
+          heuristic: 0,
+          declared: 0,
+          observed: 0,
+          verified: 0
+        }
       },
       deltaDigest: digestJson({ delta: "accepted-candidates" })
     };

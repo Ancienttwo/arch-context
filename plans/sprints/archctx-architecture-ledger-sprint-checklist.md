@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3 and AL4 complete; AL5 delta foundation, declared mapping, target/migration separation, candidate policy, ChangeSet proposal, review rejection, baseline attribution and representative fixture modules are complete; AL5 observability remains
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 remains
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -579,7 +579,8 @@ Git change cursor
   - Evidence: `buildArchitectureCandidateDelta` accepts baseline candidate changes, suppresses matching pre-existing candidate keys from task-introduced output, and records `extensions.baselineAttribution`; covered by `packages/core/architecture-delta/test/architecture-delta.test.ts` and `docs/verification/architecture-ledger-al5-baseline-attribution.md`.
 - [x] **AL5-15 · P1 · `fixtures`** — Add representative monolith-to-service, persistence boundary, public API, payment webhook, mapper removal and package-layer fixtures.
   - Evidence: `packages/core/architecture-delta/test/fixtures/representative-architecture-changes.ts` defines the six representative AL5 fixture scenarios and `architecture-delta.test.ts` asserts they map without unresolved ambiguity while emitting the expected typed candidate changes; readback in `docs/verification/architecture-ledger-al5-representative-fixtures.md`.
-- [ ] **AL5-16 · P1 · `observability`** — Record mapping coverage, unresolved subjects and evidence strength distribution.
+- [x] **AL5-16 · P1 · `observability`** — Record mapping coverage, unresolved subjects and evidence strength distribution.
+  - Evidence: `ArchitectureCandidateDelta/v1.summary` now records `mappingCoverage`, `unresolvedSubjects` and `evidenceStrengthDistribution`; covered by `packages/core/architecture-delta/test/architecture-delta.test.ts`, `schemas/runtime/architecture-candidate-delta.schema.json`, and `docs/verification/architecture-ledger-al5-observability.md`.
 
 ### Exit gate
 
@@ -634,6 +635,11 @@ Git change cursor
   - Coverage: `architecture-delta.test.ts` verifies the scenarios map without unresolved ambiguity and emit expected typed candidate changes without crossing the ledger authority boundary.
   - Verification artifact: `docs/verification/architecture-ledger-al5-representative-fixtures.md`.
   - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts`; `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts --timeout 90000`; `bun run typecheck`; `bun test`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
+- 2026-06-26 — AL5 observability module completed:
+  - Contracts: `ArchitectureCandidateDelta/v1.summary` now includes mapping coverage, unresolved-subject reason distribution and evidence strength distribution.
+  - Core: `summarizeDelta` derives the observability fields from declared mappings, mapping ambiguities and bounded evidence metadata.
+  - Verification artifact: `docs/verification/architecture-ledger-al5-observability.md`.
+  - Verification: `bun test packages/core/architecture-delta/test/architecture-delta.test.ts packages/local-runtime/codegraph-adapter/test/codegraph-adapter.test.ts packages/contracts/test/contracts.test.ts packages/core/policy-engine/test/policy-engine.test.ts packages/core/changeset-engine/test/changeset-engine.test.ts --timeout 90000`; `bun run typecheck`; `bun test`; `node scripts/sprint-status-check.mjs`; `git diff --check`.
 - 2026-06-26 — AL5 candidate policy module completed:
   - Contracts: added `ArchitectureCandidateDeltaPolicyEvaluation/v1` with per-candidate decisions, reason codes, summary counters and stable digests.
   - Core: `evaluateArchitectureCandidateDeltaPolicy` classifies candidate changes before ChangeSet promotion as `auto-accept`, `require-checkpoint`, `require-proof` or `require-human-approval`.

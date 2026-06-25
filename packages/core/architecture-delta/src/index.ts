@@ -27,6 +27,7 @@ import {
   type ArchitectureSubjectSelectorV1,
   type ArchitectureWorktreeIdentityV1,
   type EvidenceBindingV1,
+  type EvidenceStrengthV2,
   type EvidenceItemV2,
   type Json,
   type LedgerProvenanceV1,
@@ -1082,6 +1083,14 @@ function evidenceSelector(selector: ArchitectureSubjectSelectorV1): EvidenceItem
 function summarizeDelta(state: MutableBuildState): ArchitectureCandidateDeltaV1["summary"] {
   const subjects = [...state.changedSubjects.values()];
   const candidateChanges = [...state.candidateChanges.values()];
+  const mappings = [...state.declaredSubjectMappings.values()];
+  const ambiguities = [...state.mappingAmbiguities.values()];
+  const mappedSubjectSelectorIds = uniqueSorted(mappings.map((mapping) => mapping.subjectSelectorId));
+  const unresolvedSubjectSelectorIds = uniqueSorted(ambiguities.map((ambiguity) => ambiguity.subjectSelectorId));
+  const ambiguousSubjectSelectorIds = uniqueSorted(ambiguities
+    .filter((ambiguity) => ambiguity.reasonCode === "multiple-declared-targets")
+    .map((ambiguity) => ambiguity.subjectSelectorId));
+  const totalChangedSubjects = subjects.length;
   return {
     added: subjects.filter((subject) => subject.changeKind === "added").length,
     removed: subjects.filter((subject) => subject.changeKind === "removed").length,
@@ -1093,8 +1102,45 @@ function summarizeDelta(state: MutableBuildState): ArchitectureCandidateDeltaV1[
     ambiguous: state.mappingAmbiguities.size,
     candidateChanges: state.candidateChanges.size,
     targetStateChanges: candidateChanges.filter((change) => change.stateDimension === "target-state").length,
-    migrationStateProgress: candidateChanges.filter((change) => change.stateDimension === "migration-state").length
+    migrationStateProgress: candidateChanges.filter((change) => change.stateDimension === "migration-state").length,
+    mappingCoverage: {
+      totalChangedSubjects,
+      mappedSubjects: mappedSubjectSelectorIds.length,
+      unresolvedSubjects: unresolvedSubjectSelectorIds.length,
+      ambiguousSubjects: ambiguousSubjectSelectorIds.length,
+      coveragePercent: totalChangedSubjects === 0 ? 100 : Math.round((mappedSubjectSelectorIds.length / totalChangedSubjects) * 10000) / 100
+    },
+    unresolvedSubjects: {
+      total: unresolvedSubjectSelectorIds.length,
+      byReason: mappingAmbiguityReasonDistribution(ambiguities),
+      subjectSelectorIds: unresolvedSubjectSelectorIds
+    },
+    evidenceStrengthDistribution: evidenceStrengthDistribution([...state.evidenceItems.values()])
   };
+}
+
+function mappingAmbiguityReasonDistribution(
+  ambiguities: ArchitectureDeltaMappingAmbiguityV1[]
+): Record<ArchitectureDeltaMappingAmbiguityReason, number> {
+  const counts: Record<ArchitectureDeltaMappingAmbiguityReason, number> = {
+    "declared-graph-unavailable": 0,
+    "no-declared-target": 0,
+    "multiple-declared-targets": 0,
+    "relation-endpoint-unmapped": 0
+  };
+  for (const ambiguity of ambiguities) counts[ambiguity.reasonCode] += 1;
+  return counts;
+}
+
+function evidenceStrengthDistribution(evidenceItems: EvidenceItemV2[]): Record<EvidenceStrengthV2, number> {
+  const counts: Record<EvidenceStrengthV2, number> = {
+    heuristic: 0,
+    declared: 0,
+    observed: 0,
+    verified: 0
+  };
+  for (const evidence of evidenceItems) counts[evidence.strength] += 1;
+  return counts;
 }
 
 function selectorIdFor(kind: ArchitectureSubjectSelectorKind, repositoryId: string, stableKey: string): string {

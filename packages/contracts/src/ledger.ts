@@ -366,6 +366,19 @@ export interface ArchitectureCandidateDeltaV1 {
     candidateChanges: number;
     targetStateChanges: number;
     migrationStateProgress: number;
+    mappingCoverage: {
+      totalChangedSubjects: number;
+      mappedSubjects: number;
+      unresolvedSubjects: number;
+      ambiguousSubjects: number;
+      coveragePercent: number;
+    };
+    unresolvedSubjects: {
+      total: number;
+      byReason: Record<ArchitectureDeltaMappingAmbiguityReason, number>;
+      subjectSelectorIds: string[];
+    };
+    evidenceStrengthDistribution: Record<EvidenceStrengthV2, number>;
   };
   deltaDigest: string;
   extensions?: Record<string, Json>;

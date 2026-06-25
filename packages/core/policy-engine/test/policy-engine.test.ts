@@ -186,7 +186,30 @@ function candidateDelta(candidateChanges: ArchitectureCandidateChangeV1[]): Arch
       ambiguous: 1,
       candidateChanges: candidateChanges.length,
       targetStateChanges: candidateChanges.filter((change) => change.stateDimension === "target-state").length,
-      migrationStateProgress: candidateChanges.filter((change) => change.stateDimension === "migration-state").length
+      migrationStateProgress: candidateChanges.filter((change) => change.stateDimension === "migration-state").length,
+      mappingCoverage: {
+        totalChangedSubjects: 1,
+        mappedSubjects: 0,
+        unresolvedSubjects: 1,
+        ambiguousSubjects: 1,
+        coveragePercent: 0
+      },
+      unresolvedSubjects: {
+        total: 1,
+        byReason: {
+          "declared-graph-unavailable": 0,
+          "no-declared-target": 0,
+          "multiple-declared-targets": 1,
+          "relation-endpoint-unmapped": 0
+        },
+        subjectSelectorIds: ["subject.policy-test"]
+      },
+      evidenceStrengthDistribution: {
+        heuristic: 0,
+        declared: 0,
+        observed: 2,
+        verified: 0
+      }
     },
     deltaDigest: digestJson({ candidateChanges: candidateChanges.map((change) => change.candidateChangeId) } as unknown as Json)
   };

@@ -307,7 +307,10 @@
         "ambiguous",
         "candidateChanges",
         "targetStateChanges",
-        "migrationStateProgress"
+        "migrationStateProgress",
+        "mappingCoverage",
+        "unresolvedSubjects",
+        "evidenceStrengthDistribution"
       ],
       "properties": {
         "added": { "type": "integer", "minimum": 0 },
@@ -320,7 +323,61 @@
         "ambiguous": { "type": "integer", "minimum": 0 },
         "candidateChanges": { "type": "integer", "minimum": 0 },
         "targetStateChanges": { "type": "integer", "minimum": 0 },
-        "migrationStateProgress": { "type": "integer", "minimum": 0 }
+        "migrationStateProgress": { "type": "integer", "minimum": 0 },
+        "mappingCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "totalChangedSubjects",
+            "mappedSubjects",
+            "unresolvedSubjects",
+            "ambiguousSubjects",
+            "coveragePercent"
+          ],
+          "properties": {
+            "totalChangedSubjects": { "type": "integer", "minimum": 0 },
+            "mappedSubjects": { "type": "integer", "minimum": 0 },
+            "unresolvedSubjects": { "type": "integer", "minimum": 0 },
+            "ambiguousSubjects": { "type": "integer", "minimum": 0 },
+            "coveragePercent": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "unresolvedSubjects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "byReason", "subjectSelectorIds"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "byReason": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "declared-graph-unavailable",
+                "no-declared-target",
+                "multiple-declared-targets",
+                "relation-endpoint-unmapped"
+              ],
+              "properties": {
+                "declared-graph-unavailable": { "type": "integer", "minimum": 0 },
+                "no-declared-target": { "type": "integer", "minimum": 0 },
+                "multiple-declared-targets": { "type": "integer", "minimum": 0 },
+                "relation-endpoint-unmapped": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "subjectSelectorIds": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "evidenceStrengthDistribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["heuristic", "declared", "observed", "verified"],
+          "properties": {
+            "heuristic": { "type": "integer", "minimum": 0 },
+            "declared": { "type": "integer", "minimum": 0 },
+            "observed": { "type": "integer", "minimum": 0 },
+            "verified": { "type": "integer", "minimum": 0 }
+          }
+        }
       }
     },
     "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },

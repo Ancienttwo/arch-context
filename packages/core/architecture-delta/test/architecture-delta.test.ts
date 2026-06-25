@@ -62,6 +62,29 @@ describe("@archcontext/core/architecture-delta", () => {
     expect(first.summary.mapped).toBe(first.declaredSubjectMappings.length);
     expect(first.summary.ambiguous).toBe(0);
     expect(first.summary.unresolved).toBe(0);
+    expect(first.summary.mappingCoverage).toEqual({
+      totalChangedSubjects: first.changedSubjects.length,
+      mappedSubjects: new Set(first.declaredSubjectMappings.map((mapping) => mapping.subjectSelectorId)).size,
+      unresolvedSubjects: 0,
+      ambiguousSubjects: 0,
+      coveragePercent: 100
+    });
+    expect(first.summary.unresolvedSubjects).toEqual({
+      total: 0,
+      byReason: {
+        "declared-graph-unavailable": 0,
+        "no-declared-target": 0,
+        "multiple-declared-targets": 0,
+        "relation-endpoint-unmapped": 0
+      },
+      subjectSelectorIds: []
+    });
+    expect(first.summary.evidenceStrengthDistribution).toEqual({
+      heuristic: 0,
+      declared: 0,
+      observed: first.evidenceItems.length,
+      verified: 0
+    });
     expect(first.declaredSubjectMappings).toContainEqual(expect.objectContaining({
       target: { kind: "entity", id: "module.checkout-ui" },
       matchReason: "declared-path-prefix"
@@ -128,6 +151,23 @@ describe("@archcontext/core/architecture-delta", () => {
       reasonCode: "declared-graph-unavailable"
     }));
     expect(delta.summary.unresolved).toBe(1);
+    expect(delta.summary.mappingCoverage).toEqual({
+      totalChangedSubjects: 1,
+      mappedSubjects: 0,
+      unresolvedSubjects: 1,
+      ambiguousSubjects: 0,
+      coveragePercent: 0
+    });
+    expect(delta.summary.unresolvedSubjects).toEqual({
+      total: 1,
+      byReason: {
+        "declared-graph-unavailable": 1,
+        "no-declared-target": 0,
+        "multiple-declared-targets": 0,
+        "relation-endpoint-unmapped": 0
+      },
+      subjectSelectorIds: [delta.changedSubjects[0]!.subjectSelectorId]
+    });
   });
 
   test("represents equal declared target matches as ambiguity instead of inventing an entity", () => {
@@ -175,6 +215,14 @@ describe("@archcontext/core/architecture-delta", () => {
       ])
     }));
     expect(delta.summary).toMatchObject({ mapped: 0, ambiguous: 1, unresolved: 1, candidateChanges: 0 });
+    expect(delta.summary.mappingCoverage).toEqual({
+      totalChangedSubjects: 1,
+      mappedSubjects: 0,
+      unresolvedSubjects: 1,
+      ambiguousSubjects: 1,
+      coveragePercent: 0
+    });
+    expect(delta.summary.unresolvedSubjects.byReason["multiple-declared-targets"]).toBe(1);
   });
 
   test("separates pre-existing baseline candidates from task-introduced changes", () => {
@@ -251,6 +299,19 @@ describe("@archcontext/core/architecture-delta", () => {
     expect(delta.summary.ambiguous).toBe(0);
     expect(delta.summary.mapped).toBe(delta.declaredSubjectMappings.length);
     expect(delta.changedSubjects).toHaveLength(representativeArchitectureGitPaths.length + representativeArchitectureCodeContext.symbols.length + representativeArchitectureCodeContext.edges.length);
+    expect(delta.summary.mappingCoverage).toEqual({
+      totalChangedSubjects: delta.changedSubjects.length,
+      mappedSubjects: new Set(delta.declaredSubjectMappings.map((mapping) => mapping.subjectSelectorId)).size,
+      unresolvedSubjects: 0,
+      ambiguousSubjects: 0,
+      coveragePercent: 100
+    });
+    expect(delta.summary.evidenceStrengthDistribution).toEqual({
+      heuristic: 0,
+      declared: 0,
+      observed: delta.evidenceItems.length,
+      verified: 0
+    });
 
     for (const scenario of representativeArchitectureChangeScenarios) {
       expect(delta.candidateChanges).toContainEqual(expect.objectContaining({
