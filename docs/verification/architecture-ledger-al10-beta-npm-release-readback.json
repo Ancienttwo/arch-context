@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "archcontext.al10-beta-npm-release-readback/v1",
+  "status": "verified",
+  "scope": "advisory-local-opt-in-beta",
+  "publishedAt": "2026-06-26T16:52:06Z",
+  "package": {
+    "name": "archctx",
+    "version": "0.1.4-beta.0",
+    "distTag": "beta",
+    "installCommand": "npm install -g archctx@beta",
+    "explicitInstallCommand": "npm install -g archctx@0.1.4-beta.0",
+    "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.1.4-beta.0.tgz",
+    "shasum": "51bf49a0e5ba1e593753cb079df153682736f11c",
+    "integrity": "sha512-Hvlsd+CZiYF0OxDuJfxnLse6vo2eqrD1Y/ey9twNsPUgd7IJZuAzwbR5nliQCQhS2esv4iHRcp7WFBlx/Lz5yw==",
+    "bin": {
+      "archctx": "bin/archctx.mjs",
+      "codegraph": "bin/codegraph.mjs"
+    },
+    "engines": {
+      "node": ">=24 <26"
+    },
+    "homepage": "https://archcontext.repoharness.com",
+    "license": "UNLICENSED"
+  },
+  "registry": {
+    "latest": "0.1.3",
+    "beta": "0.1.4-beta.0",
+    "latestMoved": false,
+    "versionVisible": true
+  },
+  "smoke": {
+    "nodeVersion": "v24.18.0",
+    "installPackage": "archctx@beta",
+    "helpOk": true,
+    "helpRequestId": "help",
+    "helpCommandCount": 36,
+    "updateCheckOk": true,
+    "updateCheckCurrentVersion": "0.1.4-beta.0",
+    "updateCheckLatestVersion": "0.1.3",
+    "updateCheckStatus": "current"
+  },
+  "source": {
+    "dryRun": "docs/verification/fg6-npm-release-dry-run.json",
+    "releasePackaging": "docs/verification/architecture-ledger-al10-release-packaging-readback.json",
+    "publishedTarball": "_ops/npm/fg6-release-dry-run/archctx-0.1.4-beta.0.tgz"
+  },
+  "assertions": {
+    "publishedUnderBetaTag": true,
+    "latestTagPreserved": true,
+    "nodeOnlyCliPackage": true,
+    "registryMetadataMatchesDryRun": true,
+    "cleanNode24InstallSmokePassed": true,
+    "doesNotCloseExternalGaGates": true
+  }
+}
