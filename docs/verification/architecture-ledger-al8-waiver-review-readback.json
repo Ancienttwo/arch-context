@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al8-waiver-review-readback/v1",
+  "generatedAt": "2026-06-26T08:42:43.122Z",
+  "status": "verified",
+  "gates": [
+    "AL8-09",
+    "AL8-10",
+    "AL8-EG2",
+    "AL8-EG3",
+    "AL8-EG4"
+  ],
+  "waiver": {
+    "validReviewAt": "2026-07-10T00:00:00.000Z",
+    "invalidReviewWindowError": "practice-waiver-review-window-invalid",
+    "waivedStatus": "waived",
+    "waiverApplicationReviewAt": "2026-07-10T00:00:00.000Z",
+    "expiredViolationCount": 1,
+    "tamperedViolationCount": 1,
+    "overscopedViolationCount": 1
+  },
+  "recommendationGate": {
+    "plainAdvisoryResult": "pass",
+    "advisoryGateResult": "fail_action_required",
+    "advisoryGateFinding": "recommendation:rec.al8-review-gate:advisory-complete-gate-forbidden",
+    "completeMissingEligibilityResult": "fail_action_required",
+    "completeMissingEligibilityFinding": "recommendation:rec.al8-review-gate:complete-eligibility-required",
+    "completeEligibleResult": "pass"
+  },
+  "agentThreshold": {
+    "defaultRiskThreshold": "high",
+    "defaultUncertaintyThreshold": "high",
+    "mediumRiskAllowed": false,
+    "mediumRiskReasonCodes": [
+      "risk-below-investigation-threshold"
+    ],
+    "mediumUncertaintyAllowed": false,
+    "mediumUncertaintyReasonCodes": [
+      "uncertainty-below-investigation-threshold"
+    ],
+    "highRiskHighUncertaintyAllowed": true,
+    "policyRequestedMediumAllowed": true
+  },
+  "dlp": {
+    "containsRawSourceSentinel": false,
+    "containsRawDiff": false
+  },
+  "failures": []
+}

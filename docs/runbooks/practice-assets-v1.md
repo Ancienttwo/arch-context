@@ -78,6 +78,7 @@ archctx practices waive \
   --practice-id modularity.no-new-cycle \
   --owner team-architecture \
   --reason "External migration window requires this edge until cutover." \
+  --review-at 2026-07-10T00:00:00.000Z \
   --expires-at 2026-07-24T00:00:00.000Z \
   --evidence-digest sha256:<64-hex> \
   --subject module.a->module.b
@@ -87,6 +88,7 @@ Then review and apply the generated ChangeSet. Waiver invariants:
 
 - Files live under `.archcontext/waivers/`.
 - Owners must come from the repo model owner registry.
+- `reviewAt` must fall on or after `createdAt` and before `expiresAt`.
 - Waivers must be exact-scope, unexpired, and bound to the current evidence
   digest.
 - Expired, tampered, overscoped, or ownerless waivers do not suppress complete

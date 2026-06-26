@@ -216,6 +216,7 @@ describe("archctx CLI", () => {
         "--waiver-id", "cycle-waiver",
         "--owner", "team-architecture",
         "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--review-at", "2026-07-10T00:00:00.000Z",
         "--expires-at", "2026-07-24T00:00:00.000Z",
         "--evidence-digest", `sha256:${"1".repeat(64)}`,
         "--subject", "module.a->module.b"
@@ -237,6 +238,7 @@ describe("archctx CLI", () => {
         "--practice-id", "modularity.no-new-cycle",
         "--owner", "unknown-team",
         "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--review-at", "2026-07-10T00:00:00.000Z",
         "--expires-at", "2026-07-24T00:00:00.000Z",
         "--evidence-digest", `sha256:${"1".repeat(64)}`,
         "--subject", "module.a->module.b"
@@ -450,7 +452,9 @@ describe("archctx CLI", () => {
         "--coalesce-key", "hook.post-commit",
         "--max-attempts", "2",
         "--max-queued-jobs", "7",
-        "--priority", "3"
+        "--priority", "3",
+        "--risk", "high",
+        "--uncertainty", "high"
       ], root, {
         runtimeClient: {
           jobsEnqueueGitHook(runtimeRoot: string, input: any) {
@@ -481,6 +485,8 @@ describe("archctx CLI", () => {
         maxAttempts: 2,
         maxQueuedJobs: 7,
         priority: 3,
+        risk: "high",
+        uncertainty: "high",
         generatedProjection: false,
         skipGeneratedProjection: true
       });
@@ -799,6 +805,10 @@ describe("archctx CLI", () => {
         "3",
         "--priority",
         "9",
+        "--risk",
+        "high",
+        "--uncertainty",
+        "high",
         "--cooldown-ms",
         "1000",
         "--coalesce-key",
@@ -823,6 +833,9 @@ describe("archctx CLI", () => {
         maxQueuedJobs: 4,
         contextMaxItems: 3,
         priority: 9,
+        risk: "high",
+        uncertainty: "high",
+        policyRequestedInvestigation: true,
         cooldownMs: 1000,
         coalesceKey: "coalesce.cli-agents"
       });

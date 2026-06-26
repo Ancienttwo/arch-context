@@ -190,6 +190,7 @@ export interface PracticeWaiverV1 {
   owner: string;
   reason: string;
   createdAt: string;
+  reviewAt: string;
   expiresAt: string;
   evidenceDigest: string;
 }
@@ -274,6 +275,7 @@ export interface PracticeWaiverApplicationV1 {
   practiceId: string;
   checkId?: string;
   owner: string;
+  reviewAt: string;
   expiresAt: string;
 }
 

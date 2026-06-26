@@ -657,8 +657,8 @@ Git change cursor
 A subagent is eligible only when all conditions are true:
 
 1. Deterministic analysis found an architecture-relevant change or risk.
-2. The impact is medium/high, or the policy explicitly requests investigation.
-3. Confidence is below the action threshold, or documentation synthesis is materially useful.
+2. The risk and uncertainty meet the configured investigation thresholds, or the policy explicitly requests investigation.
+3. Defaults require high risk plus high uncertainty for automatic investigation; lower thresholds must be explicit policy.
 4. No equivalent completed or active job exists for the same fingerprint.
 5. Repository, task and daily budget allow execution.
 6. Cooldown has expired.
@@ -673,7 +673,7 @@ A subagent is eligible only when all conditions are true:
 - [x] **AL6-03 · P0 · `agent-orchestrator`** — Implement per-task, per-repository and daily spawn budgets.
   - Evidence: `evaluateInvestigationSpawn` enforces task, repository-day and total-day budgets; `AgentJob/v1.budget` now allows `maxRunsPerDay`; covered by `agent-orchestrator.test.ts` and `contracts.test.ts`.
 - [x] **AL6-04 · P0 · `agent-orchestrator`** — Set safe defaults: maximum one investigative spawn per task and zero automatic spawns for low-risk changes.
-  - Evidence: `DEFAULT_AGENT_ORCHESTRATION_POLICY` sets `maxRunsPerTask: 1` and `maxAutomaticRunsForLowRisk: 0`; tests verify low-risk automatic changes are denied and medium-risk defaults remain capped at one task run.
+  - Evidence: `DEFAULT_AGENT_ORCHESTRATION_POLICY` sets `maxRunsPerTask: 1`, `maxAutomaticRunsForLowRisk: 0`, and default automatic investigation thresholds to high risk plus high uncertainty; tests verify low-risk and medium-risk automatic changes are denied unless explicit policy/request allows them.
 - [x] **AL6-05 · P0 · `agent-orchestrator`** — Add cooldown, deduplication, concurrency one per repository and cancellation on stale HEAD.
   - Evidence: `planRuntimeAgentQueueControls` defines deterministic cooldown debounce, coalescing, queue cap, priority, one-running-job claim policy and stale HEAD/worktree cancellation metadata; `jobsEnqueueGitHook` uses the plan at enqueue time, `jobsClaim` defaults to `maxRunningJobs: 1`, and `local-store-sqlite` enforces that limit inside the claim transaction.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test --timeout 90000`.
@@ -926,8 +926,12 @@ archctx book export --format yaml|markdown|json
 - [x] **AL8-08 · P0 · `policy-engine`** — Add per-practice and per-subject cooldowns.
   - Evidence: scheduler readback suppresses a matching practice/subject recommendation until the configured cooldown expiry.
   - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
-- [ ] **AL8-09 · P0 · `waivers`** — Add scoped waiver with owner, reason, expiry, evidence and review date.
-- [ ] **AL8-10 · P0 · `review-engine`** — Prevent advisory recommendations from becoming complete-stage gates without explicit policy eligibility.
+- [x] **AL8-09 · P0 · `waivers`** — Add scoped waiver with owner, reason, expiry, evidence and review date.
+  - Evidence: `PracticeWaiverV1`, `schemas/repo/practices/practice-waiver.schema.json`, runtime `planPracticeWaiver`, and CLI `practices waive` now require `reviewAt`; `validatePracticeWaiver` rejects invalid review windows and the readback verifies exact-scope waiver application plus expired/tampered/overscoped rejection.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-waiver-review-readback.json`, `docs/verification/architecture-ledger-al8-waiver-review.md`.
+- [x] **AL8-10 · P0 · `review-engine`** — Prevent advisory recommendations from becoming complete-stage gates without explicit policy eligibility.
+  - Evidence: `completeTaskGate` accepts recommendation context, rejects advisory recommendations carrying complete-stage gate claims, rejects complete-stage recommendations missing explicit `completeStageEligibility.policyDigest`, and passes eligible complete recommendations.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-waiver-review-readback.json`, `docs/verification/architecture-ledger-al8-waiver-review.md`.
 - [ ] **AL8-11 · P1 · `cli`** — Add acknowledge, accept, reject, defer, waive and resolve commands.
 - [ ] **AL8-12 · P1 · `feedback`** — Capture user outcome and reason without using implicit acceptance as truth.
 - [ ] **AL8-13 · P1 · `evals`** — Measure repeated-noise rate, time-to-resolution, accepted recommendation rate and agent-assisted resolution rate.
@@ -941,10 +945,12 @@ archctx book export --format yaml|markdown|json
 
 - [x] **AL8-EG1** — Re-running on unchanged architecture creates no new recommendation noise.
   - Evidence: AL8 scheduler readback replays unchanged active fingerprints and emits zero new recommendations.
-- [ ] **AL8-EG2** — L3 agent investigation occurs only when risk and uncertainty thresholds both qualify.
-  - Evidence so far: scheduler-core eligibility is verified by `docs/verification/architecture-ledger-al8-scheduler-readback.json`; full gate remains open until agent/review integration proves actual investigation dispatch cannot occur outside the threshold.
-- [ ] **AL8-EG3** — Waiver scope and expiry are enforced.
-- [ ] **AL8-EG4** — Hard gates remain zero false-positive on the release suite.
+- [x] **AL8-EG2** — L3 agent investigation occurs only when risk and uncertainty thresholds both qualify.
+  - Evidence: scheduler-core eligibility remains verified by `docs/verification/architecture-ledger-al8-scheduler-readback.json`; actual agent dispatch now uses default high/high thresholds in `evaluateInvestigationSpawn`, runtime enqueue passes risk/uncertainty through to the job gate, and AL8 waiver-review readback proves medium-risk and medium-uncertainty dispatch are denied while high/high and explicit policy-requested investigation pass.
+- [x] **AL8-EG3** — Waiver scope and expiry are enforced.
+  - Evidence: `validatePracticeWaiver` enforces owner, durable reason, review window, evidence digest and non-empty scope; `waiverMatchesResult` requires exact practice/check/evidence/scope match and unexpired waiver; AL8 waiver-review readback proves expired, tampered and overscoped waivers each leave one violation.
+- [x] **AL8-EG4** — Hard gates remain zero false-positive on the release suite.
+  - Evidence: AL8 waiver-review readback proves plain advisory recommendations pass without hard-gating, advisory complete-stage gate claims fail, complete-stage recommendations require explicit policy eligibility, and eligible complete recommendations pass. Full release-suite verification recorded in the AL8 execution log for this slice.
 - [x] **AL8-EG5** — Explanation tree reproduces the engine decision from persisted inputs.
   - Evidence: AL8 readback appends scheduler events through `SqliteLocalStore`, replays persisted events, and reads Book recommendations with the persisted explanation tree intact.
 
@@ -956,6 +962,14 @@ archctx book export --format yaml|markdown|json
   - Explicitly still out of scope: waiver scope/expiry enforcement, review-engine hard-gate eligibility, CLI lifecycle commands, feedback metrics, practice enforcement fixture gates and repository-local scheduler configuration.
   - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
   - Verification: `bun run record:al8:scheduler`; `bun run readback:al8:scheduler`; `bun test packages/core/recommendation-engine/test/recommendation-engine.test.ts scripts/architecture-ledger-al8-scheduler-readback.test.ts`; `bun run typecheck`.
+- 2026-06-26: Completed AL8 waiver/review gate integration slice on branch `codex/architecture-ledger-al8-waiver-review`.
+  - Waivers: `PracticeWaiverV1`, JSON schema, runtime daemon, CLI and eval fixtures now require `reviewAt`; invalid review windows are rejected before a waiver can suppress enforcement.
+  - Review gate: `completeTaskGate` treats recommendations as context and rejects advisory hard-gate claims or complete-stage recommendations without explicit policy eligibility.
+  - Agent threshold: automatic investigation defaults to high risk plus high uncertainty; runtime enqueue and CLI now pass risk/uncertainty into the same agent eligibility gate, while explicit `archctx investigate` sets `policyRequestedInvestigation` instead of weakening automatic defaults.
+  - Explicitly still out of scope: AL8-11 lifecycle commands, AL8-12 feedback capture, AL8-13 metrics, AL8-15 practice catalog enforcement fixture gates and AL8-16 repository-local scheduler configuration.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-waiver-review-readback.json`, `docs/verification/architecture-ledger-al8-waiver-review.md`.
+  - Verification: `bun run record:al8:waiver-review`; `bun run readback:al8:waiver-review`; `bun test scripts/architecture-ledger-al8-waiver-review-readback.test.ts packages/core/review-engine/test/review-engine.test.ts packages/core/agent-orchestrator/test/agent-orchestrator.test.ts`; `bun test packages/core/practice-engine/test/practice-engine.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts packages/contracts/test/contracts.test.ts`; `bun run typecheck`; `git diff --check`; `bun run verify`.
+  - Remote readback: PR #68 Windows Node 24 completed the full test suite but timed out in `scripts/packaged-cli-smoke.mjs` while waiting for background `archctx daemon start`; the smoke harness now uses the same hosted-runner-scale child-process budget already used by CLI daemon tests, without changing runtime behavior.
 
 ---
 

@@ -408,7 +408,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -644,7 +644,7 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
     return daemon.practiceWaivers(cwd);
   }
   if (subcommand === "waive") {
-    const required = ["--practice-id", "--owner", "--reason", "--expires-at", "--evidence-digest"];
+    const required = ["--practice-id", "--owner", "--reason", "--review-at", "--expires-at", "--evidence-digest"];
     const missing = required.filter((flag) => !readFlag(args, flag));
     if (missing.length > 0) return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", `practices waive requires ${missing.join(", ")}`);
     const subjects = readRepeatedFlag(args, "--subject");
@@ -661,6 +661,7 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
       owner: readFlag(args, "--owner")!,
       reason: readFlag(args, "--reason")!,
       ...(readFlag(args, "--created-at") === undefined ? {} : { createdAt: readFlag(args, "--created-at")! }),
+      reviewAt: readFlag(args, "--review-at")!,
       expiresAt: readFlag(args, "--expires-at")!,
       evidenceDigest: readFlag(args, "--evidence-digest")!,
       ...(subjects.length === 0 ? {} : { subjects }),
@@ -791,6 +792,9 @@ async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime
     source: sourceResult.source,
     event,
     analysisKind: readFlag(enqueueArgs, "--analysis-kind") ?? "architecture-delta",
+    ...(readFlag(enqueueArgs, "--risk") === undefined ? {} : { risk: readFlag(enqueueArgs, "--risk")! as any }),
+    ...(readFlag(enqueueArgs, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(enqueueArgs, "--uncertainty")! as any }),
+    ...(enqueueArgs.includes("--policy-requested") ? { policyRequestedInvestigation: true } : {}),
     ...(readFlag(enqueueArgs, "--ref") === undefined ? {} : { ref: readFlag(enqueueArgs, "--ref")! }),
     ...(readFlag(enqueueArgs, "--base-ref") === undefined ? {} : { baseRef: readFlag(enqueueArgs, "--base-ref")! }),
     ...(readFlag(enqueueArgs, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(enqueueArgs, "--coalesce-key")! }),
@@ -959,6 +963,9 @@ async function runInvestigateCommand(args: string[], cwd: string, daemon: Runtim
     source: sourceResult.source,
     event,
     analysisKind: readFlag(args, "--analysis-kind") ?? "architecture-delta",
+    ...(readFlag(args, "--risk") === undefined ? {} : { risk: readFlag(args, "--risk")! as any }),
+    ...(readFlag(args, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(args, "--uncertainty")! as any }),
+    policyRequestedInvestigation: true,
     ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
     ...(readFlag(args, "--ref") === undefined ? {} : { ref: readFlag(args, "--ref")! }),
     ...(readFlag(args, "--base-ref") === undefined ? {} : { baseRef: readFlag(args, "--base-ref")! }),

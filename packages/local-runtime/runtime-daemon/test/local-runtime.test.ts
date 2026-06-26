@@ -454,6 +454,8 @@ describe("local runtime foundation", () => {
         event: "post-edit",
         taskSessionId: "task.runtime-agent",
         analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
         coalesceKey: "coalesce.runtime-test",
         maxAttempts: 2,
         cooldownMs: 1_000,
@@ -464,6 +466,8 @@ describe("local runtime foundation", () => {
         event: "post-edit",
         taskSessionId: "task.runtime-agent",
         analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
         coalesceKey: "coalesce.runtime-test",
         maxAttempts: 2,
         cooldownMs: 1_000,
@@ -554,6 +558,8 @@ describe("local runtime foundation", () => {
         source: "worktree",
         event: "post-edit",
         analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
         coalesceKey: "coalesce.runtime-stale-complete"
       });
       const jobId = (enqueue.data as any).record.job.jobId;
@@ -600,6 +606,8 @@ describe("local runtime foundation", () => {
         source: "worktree",
         event: "post-edit",
         analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
         coalesceKey: "coalesce.runtime-duplicate-complete"
       });
       const jobId = (enqueue.data as any).record.job.jobId;
@@ -651,6 +659,8 @@ describe("local runtime foundation", () => {
         source: "worktree",
         event: "post-edit",
         analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
         coalesceKey: "coalesce.runtime-metadata"
       });
       const jobId = (enqueue.data as any).record.job.jobId;
@@ -1193,6 +1203,7 @@ describe("local runtime foundation", () => {
         checkId: "no-new-cycle",
         owner: "unknown-team",
         reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
+        reviewAt: "2026-07-10T00:00:00.000Z",
         expiresAt: "2026-07-24T00:00:00.000Z",
         evidenceDigest: `sha256:${"1".repeat(64)}`,
         subjects: ["module.a->module.b"]
@@ -1209,6 +1220,7 @@ describe("local runtime foundation", () => {
         owner: "team-architecture",
         reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
         createdAt: "2026-06-24T00:00:00.000Z",
+        reviewAt: "2026-07-10T00:00:00.000Z",
         expiresAt: "2026-07-24T00:00:00.000Z",
         evidenceDigest: `sha256:${"1".repeat(64)}`,
         subjects: ["module.a->module.b"]
@@ -1238,7 +1250,8 @@ describe("local runtime foundation", () => {
       expect((waivers.data as any).waivers[0]).toMatchObject({
         practiceId: "modularity.no-new-cycle",
         checkId: "no-new-cycle",
-        owner: "team-architecture"
+        owner: "team-architecture",
+        reviewAt: "2026-07-10T00:00:00.000Z"
       });
       expect((waivers.data as any).waivers[0].waiverDigest).toMatch(/^sha256:/);
     } finally {

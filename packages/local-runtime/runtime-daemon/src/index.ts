@@ -58,7 +58,7 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -117,6 +117,9 @@ export interface RuntimeAgentJobEnqueueGitInput {
   event?: string;
   taskSessionId?: string;
   analysisKind?: string;
+  risk?: InvestigationContextRisk;
+  uncertainty?: InvestigationContextUncertainty;
+  policyRequestedInvestigation?: boolean;
   coalesceKey?: string;
   contextMaxItems?: number;
   cooldownMs?: number;
@@ -191,6 +194,7 @@ export interface RuntimePracticeWaiverInput {
   owner: string;
   reason: string;
   createdAt?: string;
+  reviewAt: string;
   expiresAt: string;
   evidenceDigest: string;
   subjects?: string[];
@@ -944,14 +948,16 @@ export class ArchctxDaemon {
     const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
     const taskSessionId = input.taskSessionId ?? "task_runtime_agent";
     const trigger = { source: "git_hook" as const, reason: input.event ?? source };
+    const risk = runtimeInvestigationRisk(input.risk ?? (metadata.paths.length > 0 ? "medium" : "low"));
+    const uncertainty = runtimeInvestigationUncertainty(input.uncertainty ?? "high");
     const context = buildInvestigationContextBundleFromLedgerQuery({
       repository: scope.repository,
       worktree: jobWorktree,
       taskSessionId,
       fingerprint,
       trigger,
-      risk: metadata.paths.length > 0 ? "medium" : "low",
-      uncertainty: "high",
+      risk,
+      uncertainty,
       summary: `${analysisKind} investigation for ${metadata.paths.length} changed path(s).`,
       ledger: {
         graphDigest: architectureLedgerStateDigest(ledgerState),
@@ -987,9 +993,10 @@ export class ArchctxDaemon {
       taskSessionId,
       fingerprint,
       trigger,
-      risk: metadata.paths.length > 0 ? "medium" : "low",
-      uncertainty: "high",
+      risk,
+      uncertainty,
       deterministicAnalysisFound: metadata.paths.length > 0,
+      policyRequestedInvestigation: input.policyRequestedInvestigation === true,
       documentationSynthesisUseful: true,
       budgetUsage: { taskRuns: 0, repositoryRunsToday: 0, totalRunsToday: 0 },
       now,
@@ -1183,6 +1190,7 @@ export class ArchctxDaemon {
       owner: input.owner,
       reason: input.reason,
       createdAt: input.createdAt ?? this.clock(),
+      reviewAt: input.reviewAt,
       expiresAt: input.expiresAt,
       evidenceDigest: input.evidenceDigest
     };
@@ -3777,6 +3785,16 @@ function createDeveloperReviewRunPaths(input: {
 function safeControlFileSegment(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
   return sanitized.length > 0 ? sanitized : "developer-review";
+}
+
+function runtimeInvestigationRisk(value: unknown): InvestigationContextRisk {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  throw new Error("runtime-agent-risk-invalid");
+}
+
+function runtimeInvestigationUncertainty(value: unknown): InvestigationContextUncertainty {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  throw new Error("runtime-agent-uncertainty-invalid");
 }
 
 function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiverV1): string {

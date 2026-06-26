@@ -1203,6 +1203,7 @@ function baseWaiver(result: Pick<PracticeMatchV1, "practiceId"> & { checkId: str
     owner: "team-architecture",
     reason: "External migration window requires keeping this edge until the cutover date.",
     createdAt: "2026-06-24T00:00:00.000Z",
+    reviewAt: "2026-07-10T00:00:00.000Z",
     expiresAt: "2026-07-24T00:00:00.000Z",
     evidenceDigest: practiceWaiverEvidenceDigest(result)
   };

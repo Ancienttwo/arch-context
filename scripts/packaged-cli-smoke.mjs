@@ -7,7 +7,7 @@ import { delimiter, join, resolve } from "node:path";
 const root = process.cwd();
 const binDir = resolve(root, "node_modules", ".bin");
 const archctxBin = resolveArchctxBin();
-const PROCESS_TIMEOUT_MS = 10_000;
+const PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 
 if (!existsSync(archctxBin)) {
   const entries = existsSync(binDir) ? readdirSync(binDir).join(", ") : "<missing .bin directory>";

@@ -2,12 +2,29 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { digestJson, type PracticeEnforcementEvaluationV1 } from "@archcontext/contracts";
+import { digestJson, type PracticeEnforcementEvaluationV1, type RecommendationV2 } from "@archcontext/contracts";
 import { validateJsonSchema } from "@archcontext/contracts";
 import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewArchitectureCandidateChangeSet, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const sha = `sha256:${"a".repeat(64)}`;
+const baseRecommendation: RecommendationV2 = {
+  schemaVersion: "archcontext.recommendation/v2",
+  recommendationId: "rec.review-gate",
+  runId: "rec_run.review-gate",
+  fingerprint: digestJson({ recommendation: "review-gate" }),
+  subject: "module.checkout",
+  practiceId: "runtime.queue-boundary",
+  status: "open",
+  confidence: "high",
+  enforcement: "advisory",
+  risk: "high",
+  uncertainty: "high",
+  evidenceBindingIds: [digestJson({ evidence: "review-gate" })],
+  explanation: ["High-risk uncertain recommendation fixture."],
+  createdAt: "2026-06-26T12:00:00.000Z",
+  updatedAt: "2026-06-26T12:00:00.000Z"
+};
 const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
   catalogDigest: `sha256:${"b".repeat(64)}`,
@@ -100,6 +117,66 @@ describe("@archcontext/core/review-engine", () => {
     expect(result.result).toBe("pass");
     expect(result.extensions.digest).toMatch(/^sha256:/);
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("recommendations cannot become complete-stage gates without explicit policy eligibility", () => {
+    const advisoryGate = completeTaskGate({
+      taskSessionId: "task.recommendation-gate",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      recommendations: [{
+        ...baseRecommendation,
+        extensions: { completeStageGate: true }
+      }]
+    });
+    expect(advisoryGate.result).toBe("fail_action_required");
+    expect(advisoryGate.findings.map((finding) => finding.id)).toContain(
+      "recommendation:rec.review-gate:advisory-complete-gate-forbidden"
+    );
+
+    const missingEligibility = completeTaskGate({
+      taskSessionId: "task.recommendation-gate",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      recommendations: [{
+        ...baseRecommendation,
+        enforcement: "complete"
+      }]
+    });
+    expect(missingEligibility.result).toBe("fail_action_required");
+    expect(missingEligibility.findings.map((finding) => finding.id)).toContain(
+      "recommendation:rec.review-gate:complete-eligibility-required"
+    );
+
+    const eligible = completeTaskGate({
+      taskSessionId: "task.recommendation-gate",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      recommendations: [{
+        ...baseRecommendation,
+        enforcement: "complete",
+        extensions: {
+          completeStageEligibility: {
+            eligible: true,
+            policyDigest: digestJson({ policy: "complete-stage-recommendation" })
+          }
+        }
+      }]
+    });
+    expect(eligible.result).toBe("pass");
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, eligible as any).valid).toBe(true);
   });
 
   test("fails stale context and unjustified compatibility paths", () => {

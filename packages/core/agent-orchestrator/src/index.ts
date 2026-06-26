@@ -43,6 +43,8 @@ export interface AgentOrchestrationPolicy {
   maxRunsPerRepositoryPerDay: number;
   maxRunsPerDay: number;
   maxAutomaticRunsForLowRisk: number;
+  minimumAutomaticInvestigationRisk: InvestigationContextRisk;
+  minimumAutomaticInvestigationUncertainty: InvestigationContextUncertainty;
   cooldownMs: number;
 }
 
@@ -381,6 +383,8 @@ export const DEFAULT_AGENT_ORCHESTRATION_POLICY: AgentOrchestrationPolicy = {
   maxRunsPerRepositoryPerDay: 3,
   maxRunsPerDay: 10,
   maxAutomaticRunsForLowRisk: 0,
+  minimumAutomaticInvestigationRisk: "high",
+  minimumAutomaticInvestigationUncertainty: "high",
   cooldownMs: 0
 };
 
@@ -418,6 +422,8 @@ export function normalizeAgentOrchestrationPolicy(input: Partial<AgentOrchestrat
     maxRunsPerRepositoryPerDay: nonNegativeInteger(policy.maxRunsPerRepositoryPerDay, "maxRunsPerRepositoryPerDay"),
     maxRunsPerDay: nonNegativeInteger(policy.maxRunsPerDay, "maxRunsPerDay"),
     maxAutomaticRunsForLowRisk: nonNegativeInteger(policy.maxAutomaticRunsForLowRisk, "maxAutomaticRunsForLowRisk"),
+    minimumAutomaticInvestigationRisk: investigationRiskThreshold(policy.minimumAutomaticInvestigationRisk, "minimumAutomaticInvestigationRisk"),
+    minimumAutomaticInvestigationUncertainty: investigationUncertaintyThreshold(policy.minimumAutomaticInvestigationUncertainty, "minimumAutomaticInvestigationUncertainty"),
     cooldownMs: nonNegativeInteger(policy.cooldownMs, "cooldownMs")
   };
 }
@@ -453,10 +459,8 @@ export function evaluateInvestigationSpawn(input: AgentSpawnEligibilityInput): A
     if (lowRiskRuns >= policy.maxAutomaticRunsForLowRisk) reasonCodes.push("low-risk-automatic-spawn-disabled");
   }
 
-  if (input.risk === "low" && !policyRequested) reasonCodes.push("risk-below-investigation-threshold");
-  if (input.uncertainty === "low" && !policyRequested && input.documentationSynthesisUseful !== true) {
-    reasonCodes.push("uncertainty-below-investigation-threshold");
-  }
+  if (automatic && !policyRequested && investigationRiskRank(input.risk) < investigationRiskRank(policy.minimumAutomaticInvestigationRisk)) reasonCodes.push("risk-below-investigation-threshold");
+  if (automatic && !policyRequested && investigationRiskRank(input.uncertainty) < investigationRiskRank(policy.minimumAutomaticInvestigationUncertainty)) reasonCodes.push("uncertainty-below-investigation-threshold");
   if (hasEquivalentJob(input.fingerprint, input.existingJobs ?? [])) reasonCodes.push("equivalent-job-exists");
 
   if (nonNegativeInteger(input.budgetUsage.taskRuns, "taskRuns") >= policy.maxRunsPerTask) {
@@ -1129,6 +1133,22 @@ function sanitizeJobIdPart(value: string): string {
 
 function shortDigest(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
+}
+
+function investigationRiskThreshold(value: InvestigationContextRisk, field: string): InvestigationContextRisk {
+  if (value !== "low" && value !== "medium" && value !== "high") throw new Error(`agent-orchestration-${field}-invalid`);
+  return value;
+}
+
+function investigationUncertaintyThreshold(value: InvestigationContextUncertainty, field: string): InvestigationContextUncertainty {
+  if (value !== "low" && value !== "medium" && value !== "high") throw new Error(`agent-orchestration-${field}-invalid`);
+  return value;
+}
+
+function investigationRiskRank(value: InvestigationContextRisk | InvestigationContextUncertainty): number {
+  if (value === "low") return 0;
+  if (value === "medium") return 1;
+  return 2;
 }
 
 function nonNegativeInteger(value: number, field: string): number {

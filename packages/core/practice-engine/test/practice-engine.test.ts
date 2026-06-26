@@ -1268,6 +1268,7 @@ describe("@archcontext/core/practice-engine", () => {
       owner: "team-architecture",
       reason: "External migration window requires keeping this edge until the cutover date.",
       createdAt: "2026-06-24T00:00:00.000Z",
+      reviewAt: "2026-07-10T00:00:00.000Z",
       expiresAt: "2026-07-24T00:00:00.000Z",
       evidenceDigest: practiceWaiverEvidenceDigest(failing)
     };
@@ -1311,6 +1312,9 @@ describe("@archcontext/core/practice-engine", () => {
     expect(expired.violations).toHaveLength(1);
     expect(tampered.violations).toHaveLength(1);
     expect(overscoped.violations).toHaveLength(1);
+    expect(() => validatePracticeWaiver({ ...waiver, reviewAt: "2026-07-24T00:00:00.000Z" })).toThrow(
+      "practice-waiver-review-window-invalid"
+    );
   });
 
   test("waiver owners must resolve from model ownership registry", () => {
@@ -1339,6 +1343,7 @@ describe("@archcontext/core/practice-engine", () => {
         owner: "team-architecture",
         reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
         createdAt: "2026-06-24T00:00:00.000Z",
+        reviewAt: "2026-07-10T00:00:00.000Z",
         expiresAt: "2026-07-24T00:00:00.000Z",
         evidenceDigest: `sha256:${"1".repeat(64)}`
       };

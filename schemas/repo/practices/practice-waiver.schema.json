@@ -4,7 +4,7 @@
   "title": "PracticeWaiver",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "practiceId", "scope", "owner", "reason", "createdAt", "expiresAt", "evidenceDigest"],
+  "required": ["schemaVersion", "practiceId", "scope", "owner", "reason", "createdAt", "reviewAt", "expiresAt", "evidenceDigest"],
   "properties": {
     "schemaVersion": { "const": "archcontext.practice-waiver/v1" },
     "practiceId": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)+$" },
@@ -20,6 +20,7 @@
     "owner": { "type": "string" },
     "reason": { "type": "string" },
     "createdAt": { "type": "string" },
+    "reviewAt": { "type": "string" },
     "expiresAt": { "type": "string" },
     "evidenceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
   }

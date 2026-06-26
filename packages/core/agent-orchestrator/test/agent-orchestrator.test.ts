@@ -45,6 +45,8 @@ describe("@archcontext/core/agent-orchestrator", () => {
   test("safe defaults cap automatic investigation to one per task and zero for low-risk changes", () => {
     expect(DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerTask).toBe(1);
     expect(DEFAULT_AGENT_ORCHESTRATION_POLICY.maxAutomaticRunsForLowRisk).toBe(0);
+    expect(DEFAULT_AGENT_ORCHESTRATION_POLICY.minimumAutomaticInvestigationRisk).toBe("high");
+    expect(DEFAULT_AGENT_ORCHESTRATION_POLICY.minimumAutomaticInvestigationUncertainty).toBe("high");
 
     const lowRisk = evaluateInvestigationSpawn({
       ...spawnInput(),
@@ -64,7 +66,53 @@ describe("@archcontext/core/agent-orchestrator", () => {
       uncertainty: "high",
       policy: { adapterEnabled: true }
     });
-    expect(mediumRisk).toMatchObject({
+    expect(mediumRisk.allowed).toBe(false);
+    expect(mediumRisk.reasonCodes).toEqual(["risk-below-investigation-threshold"]);
+
+    const mediumUncertainty = evaluateInvestigationSpawn({
+      ...spawnInput(),
+      risk: "high",
+      uncertainty: "medium",
+      policy: { adapterEnabled: true }
+    });
+    expect(mediumUncertainty.allowed).toBe(false);
+    expect(mediumUncertainty.reasonCodes).toEqual(["uncertainty-below-investigation-threshold"]);
+
+    const highRiskHighUncertainty = evaluateInvestigationSpawn({
+      ...spawnInput(),
+      risk: "high",
+      uncertainty: "high",
+      policy: { adapterEnabled: true }
+    });
+    expect(highRiskHighUncertainty).toMatchObject({
+      allowed: true,
+      budget: {
+        maxRunsPerTask: 1,
+        maxRunsPerRepositoryPerDay: 3,
+        maxRunsPerDay: 10
+      }
+    });
+
+    const policyRequestedMedium = evaluateInvestigationSpawn({
+      ...spawnInput(),
+      risk: "medium",
+      uncertainty: "medium",
+      policyRequestedInvestigation: true,
+      policy: { adapterEnabled: true }
+    });
+    expect(policyRequestedMedium.allowed).toBe(true);
+
+    const loweredPolicy = evaluateInvestigationSpawn({
+      ...spawnInput(),
+      risk: "medium",
+      uncertainty: "medium",
+      policy: {
+        adapterEnabled: true,
+        minimumAutomaticInvestigationRisk: "medium",
+        minimumAutomaticInvestigationUncertainty: "medium"
+      }
+    });
+    expect(loweredPolicy).toMatchObject({
       allowed: true,
       budget: {
         maxRunsPerTask: 1,
@@ -597,8 +645,8 @@ function spawnInput() {
     worktree,
     taskSessionId: "task.al6",
     fingerprint,
-    trigger: { source: "checkpoint" as const, reason: "medium risk with unresolved evidence" },
-    risk: "medium" as const,
+    trigger: { source: "checkpoint" as const, reason: "high risk with unresolved evidence" },
+    risk: "high" as const,
     uncertainty: "high" as const,
     deterministicAnalysisFound: true,
     budgetUsage: { taskRuns: 0, repositoryRunsToday: 0, totalRunsToday: 0 },

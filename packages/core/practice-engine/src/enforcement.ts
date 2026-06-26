@@ -157,7 +157,11 @@ export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practic
   if (!waiver.owner || waiver.owner.trim().length < 2) throw new Error(`practice-waiver-owner-required: ${path}`);
   if (options.allowedOwners && !options.allowedOwners.includes(waiver.owner)) throw new Error(`practice-waiver-owner-unknown: ${path}`);
   if (isVagueReason(waiver.reason)) throw new Error(`practice-waiver-reason-not-durable: ${path}`);
-  if (Number.isNaN(Date.parse(waiver.createdAt)) || Number.isNaN(Date.parse(waiver.expiresAt))) throw new Error(`practice-waiver-date-invalid: ${path}`);
+  const createdAt = Date.parse(waiver.createdAt);
+  const reviewAt = Date.parse(waiver.reviewAt);
+  const expiresAt = Date.parse(waiver.expiresAt);
+  if (Number.isNaN(createdAt) || Number.isNaN(reviewAt) || Number.isNaN(expiresAt)) throw new Error(`practice-waiver-date-invalid: ${path}`);
+  if (reviewAt < createdAt || reviewAt >= expiresAt) throw new Error(`practice-waiver-review-window-invalid: ${path}`);
   if (!/^sha256:[a-f0-9]{64}$/.test(waiver.evidenceDigest)) throw new Error(`practice-waiver-evidence-digest-invalid: ${path}`);
   validateScope(waiver.scope, path);
   if ((waiver.scope.subjects?.length ?? 0) === 0 && (waiver.scope.pathGlobs?.length ?? 0) === 0) throw new Error(`practice-waiver-scope-required: ${path}`);
@@ -255,6 +259,7 @@ function applyWaiver(result: PracticeCheckResultV1, waivers: PracticeWaiverV1[],
       practiceId: matching.practiceId,
       ...(matching.checkId === undefined ? {} : { checkId: matching.checkId }),
       owner: matching.owner,
+      reviewAt: matching.reviewAt,
       expiresAt: matching.expiresAt
     }
   };
