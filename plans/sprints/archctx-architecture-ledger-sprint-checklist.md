@@ -1088,7 +1088,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark-readback.json` records hook enqueue, sync, warm Book query, checkpoint, complete, documentation projection, replay and rollback timings across all three representative fixtures.
 - [ ] **AL10-05 · P0 · `chaos`** — Inject daemon crash, DB lock, disk-full, corrupt row, interrupted rebase and provider timeout.
 - [ ] **AL10-06 · P0 · `security`** — Run prompt injection, path traversal, symlink escape, forged evidence, event tamper and stale replay tests.
-- [ ] **AL10-07 · P0 · `privacy`** — Audit SQLite, logs, CLI output, MCP output and agent job payloads for source/diff leakage.
+- [x] **AL10-07 · P0 · `privacy`** — Audit SQLite, logs, CLI output, MCP output and agent job payloads for source/diff leakage.
+  - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` scans SQLite schema/event/operation text, raw CLI outputs, MCP prepare/checkpoint/complete outputs, hook logs and raw agent job payloads for forbidden source/diff keys and sentinel leakage; all five privacy surfaces report `clean: true`.
 - [ ] **AL10-08 · P0 · `evals`** — Freeze a blind, no-label recommendation set and publish per-practice support.
 - [ ] **AL10-09 · P0 · `evals`** — Compare deterministic-only versus deterministic-plus-agent outcomes and cost.
 - [ ] **AL10-10 · P0 · `release`** — Add migration compatibility matrix across supported versions.
@@ -1103,11 +1104,15 @@ archctx book export --format yaml|markdown|json
 
 - [x] **AL10-BETA-1** — Dual-mode drift = 0 across representative replay runs.
   - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark.md` reports dual-mode drift count 0 across the small app, medium monorepo and architecture-heavy service replay runs.
-- [ ] **AL10-BETA-2** — No event loss/duplication in 1,000-event stress suite.
-- [ ] **AL10-BETA-3** — No source/diff leakage in privacy audit.
+- [x] **AL10-BETA-2** — No event loss/duplication in 1,000-event stress suite.
+  - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` records 1,000 appended events, 1,000 replayed events, 1,000 unique event IDs, one duplicate retry counted as duplicate, integrity OK and fault-injected rollback leaving zero partial materialization.
+- [x] **AL10-BETA-3** — No source/diff leakage in privacy audit.
+  - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` records `overallClean: true`, zero forbidden key hits and zero forbidden token hits across SQLite, CLI, MCP, logs and agent job payloads.
 - [ ] **AL10-BETA-4** — Recommendation quality meets AL1 targets.
-- [ ] **AL10-BETA-5** — Default task path has median zero subagent spawns.
-- [ ] **AL10-BETA-6** — Full rollback to YAML authority is demonstrated.
+- [x] **AL10-BETA-5** — Default task path has median zero subagent spawns.
+  - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` samples 9 default hook enqueue paths with median spawned jobs 0, total spawned jobs 0 and all default samples remaining fail-open/no-enqueue below the investigation threshold; one explicit high-risk enqueue is retained only to audit job payload privacy.
+- [x] **AL10-BETA-6** — Full rollback to YAML authority is demonstrated.
+  - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` runs write migration and rollback through the daemon, verifies target authority `yaml`, backup manifest creation and canonical rollback command availability.
 
 ### GA exit gate
 
@@ -1135,6 +1140,14 @@ archctx book export --format yaml|markdown|json
   - Benchmark: warm Book query p95 is 96.8 ms, checkpoint p95 is 136.244 ms, projection p95 is 169.13 ms, replay p95 is 138.902 ms, rollback p95 is 153.249 ms; hook enqueue p95 is 154.458 ms, slightly above the 150 ms beta target and kept as a follow-up bottleneck.
   - Verification artifact: `docs/verification/architecture-ledger-al10-representative-benchmark-readback.json`, `docs/verification/architecture-ledger-al10-representative-benchmark.md`.
   - Verification: `bun run record:al10:representative-benchmark`; `bun run readback:al10:representative-benchmark`; `bun test scripts/architecture-ledger-al10-representative-benchmark-readback.test.ts --timeout 120000`.
+- 2026-06-26: Completed AL10 hardening readback module on branch `codex/architecture-ledger-al10-hardening-readback`.
+  - Scope: closes AL10-07, AL10-BETA-2, AL10-BETA-3, AL10-BETA-5 and AL10-BETA-6 only; AL10-05 chaos, AL10-06 security, BETA-4 recommendation quality, release packaging, runbooks, telemetry, governance, Go/No-Go and all GA gates remain open.
+  - Stress: SQLite architecture ledger appends 1,000 events, replays 1,000 events, reports 1,000 unique event IDs, treats duplicate retry as duplicate, verifies integrity and proves fault-injected partial append rollback leaves no materialized state.
+  - Privacy: raw CLI outputs, MCP prepare/checkpoint/complete output, hook logs and raw agent job payloads are scanned for forbidden source/diff/prompt/completion keys and sentinel leakage; persisted evidence stores digests and redacted summaries rather than raw source, raw diffs, full CodeGraph output or local absolute paths.
+  - Default spawn policy: 9 default hook enqueue samples produce median 0 spawned jobs and total 0 spawned jobs; one explicit high-risk enqueue proves the audited job-payload surface exists without changing default behavior.
+  - Rollback: write migration and full rollback to YAML authority are exercised through the daemon with backup and rollback-command readback.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-hardening-readback.json`, `docs/verification/architecture-ledger-al10-hardening.md`.
+  - Verification: `bun run record:al10:hardening`; `bun run readback:al10:hardening`; `bun test scripts/architecture-ledger-al10-hardening-readback.test.ts --timeout 120000`.
 
 ---
 
