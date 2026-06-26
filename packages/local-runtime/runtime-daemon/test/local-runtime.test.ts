@@ -1746,7 +1746,7 @@ describe("local runtime foundation", () => {
     } finally {
       removeTempRepo(root);
     }
-  });
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
   test("ledger-authoritative runtime read surfaces use SQLite current state when Git projection drifts", async () => {
     const root = tempRepo();
