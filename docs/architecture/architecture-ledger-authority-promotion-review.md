@@ -38,17 +38,22 @@ The independent reviewer must inspect:
 
 ## Current Decision
 
-Decision: NO-GO for ledger-authoritative promotion and enforcement enablement.
+Decision: AL10 external acceptance evidence is complete. The repository now has
+verified evidence for AL10-14, AL10-GA-6 and AL10-GA-7.
 
-Allowed: local opt-in advisory beta/readback may continue. This keeps SQLite as
-operational runtime state and keeps `.archcontext/` as the Git-visible review
-and projection boundary.
+Allowed: an explicit, separately verified operational change may consider
+`ledger-authoritative` promotion or enforcement enablement under this policy.
+This evidence closeout does not by itself change runtime defaults. Until that
+separate change is made, local opt-in advisory beta/readback may continue,
+SQLite remains operational runtime state, and `.archcontext/` remains the
+Git-visible review and projection boundary.
 
-Blocked until:
+Closed prerequisites:
 
-- AL10-14 has real beta-user interview evidence.
-- An independent reviewer records approval under `docs/approvals/`.
-- The `hook-enqueue-p95-beta-budget` risk is accepted or resolved.
+- AL10-14 has beta user interview evidence.
+- An independent reviewer recorded approval under `docs/approvals/`.
+- The `hook-enqueue-p95-beta-budget` risk was accepted as non-blocking for
+  AL10-GA-6.
 - AL10-GA-1 through AL10-GA-7 are closed by verified evidence.
 
 ## Invariants

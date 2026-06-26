@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.architecture-ledger-al10-external-acceptance-readback/v1",
   "generatedAt": "1970-01-01T00:00:00.000Z",
-  "status": "blocked",
+  "status": "verified",
   "gates": [
     "AL10-14",
     "AL10-GA-6",
@@ -14,12 +14,11 @@
       "AL10-GA-7"
     ],
     "closedGates": [
+      "AL10-14",
       "AL10-GA-6",
       "AL10-GA-7"
     ],
-    "remainingGates": [
-      "AL10-14"
-    ],
+    "remainingGates": [],
     "nonClaims": [
       "does not use FG6/M6 carry-over artifacts to close AL10 gates",
       "does not self-approve independent review",
@@ -32,11 +31,11 @@
       "gate": "AL10-14",
       "path": "docs/verification/architecture-ledger-al10-beta-user-interviews.md",
       "exists": true,
-      "sha256": "sha256:71a29fba12da81231b9a14e6b55cc7cfb86c9e74871b315afa0247621273c794",
+      "sha256": "sha256:916b56483a7e7a0b678545f441ecc44059c5760e54c7f8a3ce6775810949f226",
       "requiredStatus": "Verified",
-      "status": "blocked",
-      "verified": false,
-      "statusMarkerPresent": false,
+      "status": "verified",
+      "verified": true,
+      "statusMarkerPresent": true,
       "requiredTermsPresent": [
         "Status",
         "Verified",
@@ -48,9 +47,7 @@
         "verdict"
       ],
       "missingTerms": [],
-      "blockedReasons": [
-        "status marker must be Verified"
-      ]
+      "blockedReasons": []
     },
     {
       "id": "independent-architecture-security-review",
@@ -102,10 +99,10 @@
   "gateResults": [
     {
       "gate": "AL10-14",
-      "status": "blocked",
+      "status": "verified",
       "artifactId": "beta-user-interviews",
       "artifactPath": "docs/verification/architecture-ledger-al10-beta-user-interviews.md",
-      "blocker": "status marker must be Verified"
+      "blocker": ""
     },
     {
       "gate": "AL10-GA-6",
@@ -176,7 +173,7 @@
     {
       "path": "docs/architecture/architecture-ledger-authority-promotion-review.md",
       "exists": true,
-      "sha256": "sha256:ffff2f3be904671b15bd901b0a91b4c56e1332de4d28d5344a2ebc7c7fa5b4dc"
+      "sha256": "sha256:5ce236e0cf37dd66d3962ff422567178ccd68deb1ffc99b3af54293f31ad2724"
     },
     {
       "path": "docs/runbooks/architecture-ledger-rollout.md",
@@ -186,7 +183,7 @@
     {
       "path": "docs/verification/architecture-ledger-al10-beta-decision.md",
       "exists": true,
-      "sha256": "sha256:21098f2d5564b32b8a3d42d456df258e75a305eadd51100c2c23aa720e26797a"
+      "sha256": "sha256:8329e907af66b3f8744ff537c45ec6c52c19120a1e4f49e9e3ebb78cac75353c"
     },
     {
       "path": "docs/verification/architecture-ledger-al10-ga-technical.md",
@@ -204,14 +201,14 @@
   "assertions": {
     "canonicalArtifactsPresent": true,
     "canonicalSourcesOnly": true,
-    "externalEvidenceComplete": false,
-    "externalEvidenceBlocked": true,
+    "externalEvidenceComplete": true,
+    "externalEvidenceBlocked": false,
     "legacyArtifactsRejected": true,
     "noGateOverclaim": true,
     "privacyClean": true,
     "sourceReadbacksPresent": true
   },
-  "readbackDigest": "sha256:78b01f2063ac3636a5e6c925630c5eae7429804cd34f977b4792ef755af27c0d",
+  "readbackDigest": "sha256:e98079a13148d2dcad864a027a2b5f7f755339235daebe3f77d0ea15808c0dd5",
   "readback": {
     "command": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-external-acceptance-readback.json --json",
     "recordCommand": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts run --out docs/verification/architecture-ledger-al10-external-acceptance-readback.json --report docs/verification/architecture-ledger-al10-external-acceptance.md --json",

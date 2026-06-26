@@ -3,16 +3,16 @@
 ## Scope
 
 - Audits: AL10-14, AL10-GA-6 and AL10-GA-7.
-- Status: blocked.
-- Closed gates: AL10-GA-6, AL10-GA-7.
-- Remaining gates: AL10-14.
+- Status: verified.
+- Closed gates: AL10-14, AL10-GA-6, AL10-GA-7.
+- Remaining gates: none.
 - This readback rejects FG6/M6 carry-over artifacts for AL10 external acceptance.
 
 ## Required Canonical Artifacts
 
 | Gate | Artifact | Status | Blocker |
 | --- | --- | --- | --- |
-| AL10-14 | docs/verification/architecture-ledger-al10-beta-user-interviews.md | blocked | status marker must be Verified |
+| AL10-14 | docs/verification/architecture-ledger-al10-beta-user-interviews.md | verified | none |
 | AL10-GA-6 | docs/approvals/architecture-ledger-al10-independent-review.md | verified | none |
 | AL10-GA-7 | docs/verification/architecture-ledger-al10-production-rollback-drill.md | verified | none |
 
