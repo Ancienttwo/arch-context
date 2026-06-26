@@ -1,0 +1,144 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-production-rollback-drill-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gate": "AL10-GA-7",
+  "status": "verified",
+  "drill": {
+    "environment": {
+      "type": "production-equivalent-staging",
+      "name": "AL10 temporary Git repository with real SQLite runtime store",
+      "repository": "$DRILL_REPO",
+      "localStorePath": "$DRILL_STATE/runtime.sqlite"
+    },
+    "operator": {
+      "id": "codex-local-operator",
+      "role": "release-operations"
+    },
+    "startTime": "2026-06-27T03:20:00.000Z",
+    "endTime": "2026-06-27T03:27:00.000Z",
+    "trigger": "production rollback drill for AL10-GA-7 before any ledger-authoritative production enablement",
+    "initialMode": {
+      "rolloutMode": "ledger-authoritative",
+      "readMode": "ledger",
+      "writeMode": "ledger-with-projection",
+      "readAuthority": "ledger",
+      "writeAuthority": "ledger-with-projection",
+      "activePhase": "ledger-authoritative",
+      "headSha": "149172cb536eb1571ba3828aeab13cc05322e805",
+      "worktreeDigest": "sha256:b2d06644948b4b03e5de6e1bae99c8eaf9cdcec76412acfebb30dd96d5a0ae42",
+      "graphDigest": "sha256:74af82d3e5fce6136a689f1d50a9dc3871fcd1068d9c6763c6df4e246358f1ef"
+    },
+    "rollback": {
+      "command": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+      "expectedWorktreeDigest": "sha256:b2d06644948b4b03e5de6e1bae99c8eaf9cdcec76412acfebb30dd96d5a0ae42",
+      "dryRunOk": true,
+      "writeOk": true,
+      "sourceAuthority": "ledger",
+      "targetAuthority": "yaml",
+      "writes": "git-projection",
+      "projectedFileCount": 2,
+      "writtenPaths": [
+        ".archcontext/model/nodes/capability.architecture-context.yaml",
+        ".archcontext/model/nodes/module.production-rollback.yaml"
+      ],
+      "removedPaths": [
+        ".archcontext/model/nodes/module.production-rollback-stale.yaml"
+      ],
+      "backupCreated": true,
+      "backupPath": "$DRILL_REPO/.archcontext/backups/ledger-rollback/2026-06-27T03-20-00.000Z",
+      "backupManifestPath": "$DRILL_REPO/.archcontext/backups/ledger-rollback/2026-06-27T03-20-00.000Z/manifest.json",
+      "graphDigest": "sha256:74af82d3e5fce6136a689f1d50a9dc3871fcd1068d9c6763c6df4e246358f1ef",
+      "projectionDigest": "sha256:57ca7455e91612873bd969a8f2716acb5a4de469d5cae7d8b22a8e7f0de98ef6",
+      "driftOk": true,
+      "reconcileOk": true,
+      "recommendedEnvironment": {
+        "ARCHCONTEXT_LEDGER_MODE": "yaml"
+      }
+    },
+    "finalMode": {
+      "rolloutMode": "yaml",
+      "readMode": "yaml",
+      "writeMode": "yaml",
+      "readAuthority": "yaml",
+      "writeAuthority": "yaml",
+      "activePhase": "yaml",
+      "headSha": "149172cb536eb1571ba3828aeab13cc05322e805",
+      "worktreeDigest": "sha256:0af12dea68b3a85183dc641dbf62440a862837bea411072345b79edbdf2e7a2f"
+    },
+    "verification": {
+      "archcontextValidation": {
+        "ok": true,
+        "modelDigest": "sha256:45b6a48cc7c34550cf579f2a0d451be99174fd7e40658f70ecb46f1839a7b6f4"
+      },
+      "ledgerDrift": {
+        "ok": true,
+        "reconcileOk": true
+      },
+      "changeSetJournal": {
+        "integrity": "ok",
+        "countsByStatus": {
+          "committed": 1
+        },
+        "pendingCount": 0,
+        "committedCount": 1,
+        "unhealthyCount": 0
+      },
+      "packageBoundary": {
+        "ok": true,
+        "command": "node scripts/package-boundary-audit.mjs",
+        "outputDigest": "sha256:d427c838119af4ed0d920b5863d8b4b32316abb42256f5328e5801a956723c79",
+        "summary": [
+          "Package boundary audit passed (5 workspaces)."
+        ]
+      },
+      "contractTests": {
+        "ok": true,
+        "command": "bun test packages/contracts/test/contracts.test.ts",
+        "outputDigest": "sha256:8e65d2b0c69bad02f17810e0e4dbfddae4589aa6f4a6f9c21c581bb085177dea",
+        "summary": [
+          "(pass) GitHub governance contracts > challenge and check delivery state machines reject illegal backward moves [0.07ms]",
+          "(pass) GitHub governance contracts > ReviewChallenge v2 transition returns a new value only for legal moves [0.19ms]",
+          "(pass) GitHub governance contracts > reason catalog has retryability and user action for every reason code [0.05ms]",
+          "(pass) GitHub governance contracts > cloud egress envelope schema rejects private content keys [0.09ms]",
+          "146 pass",
+          "0 fail",
+          "504 expect() calls",
+          "Ran 146 tests across 1 file. [63.00ms]"
+        ]
+      }
+    },
+    "findings": {
+      "dataLoss": "none",
+      "projectionDrift": "none",
+      "operationalRisk": "none"
+    },
+    "privacy": {
+      "clean": true,
+      "forbiddenHitCount": 0,
+      "hits": []
+    }
+  },
+  "assertions": {
+    "canonicalStatusVerified": true,
+    "productionEquivalentAccepted": true,
+    "initialLedgerAuthoritative": true,
+    "rollbackCommandFreshDigest": true,
+    "rollbackReturnedYaml": true,
+    "backupCreated": true,
+    "validationPassed": true,
+    "changesetJournalHealthy": true,
+    "packageBoundaryPassed": true,
+    "contractTestsPassed": true,
+    "noDataLoss": true,
+    "noProjectionDrift": true,
+    "noOperationalRisk": true,
+    "privacyClean": true
+  },
+  "failures": [],
+  "readbackDigest": "sha256:3598e07b8524178e63607fb7b803756eac5d8bfb7389291336978766ebf64974",
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-production-rollback-drill-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json --json",
+    "recordCommand": "bun scripts/architecture-ledger-al10-production-rollback-drill-readback.ts run --out docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json --report docs/verification/architecture-ledger-al10-production-rollback-drill.md --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-production-rollback-drill.md"
+  }
+}

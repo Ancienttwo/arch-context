@@ -1140,8 +1140,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified recommendation-quality packet and records heuristic-only hard-gate rate 0, dynamic-doc hard-gate rate 0, combined hard-gate false-positive rate 0 and failed eval gate count 0.
 - [x] **AL10-GA-6** — External/independent architecture and security review accepted.
   - Evidence: `docs/approvals/architecture-ledger-al10-independent-review.md` records a 2026-06-27 human independent architecture/security approval for the AL10-GA-6 criterion, with explicit non-approval of AL10-14, AL10-GA-7, production GA, immediate `ledger-authoritative` activation, or hard enforcement before the remaining canonical gates close. `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` verifies the status marker and keeps remaining external acceptance blocked on AL10-14 and AL10-GA-7.
-- [ ] **AL10-GA-7** — Production rollback drill completed.
-  - Blocked/intake: `docs/verification/architecture-ledger-al10-production-rollback-drill.md` is the canonical pending drill artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` records that the older production GA external readback is itself blocked and cannot close this gate.
+- [x] **AL10-GA-7** — Production rollback drill completed.
+  - Evidence: `docs/verification/architecture-ledger-al10-production-rollback-drill.md` records a 2026-06-27 production-equivalent staging rollback drill from `ledger-authoritative` mode to YAML authority, with fresh worktree digest handling, backup manifest evidence, `.archcontext` validation, clean ChangeSet journal health, package-boundary verification and contracts test output. `docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json` provides the machine readback.
 
 ### AL10 execution log
 
@@ -1255,6 +1255,12 @@ archctx book export --format yaml|markdown|json
   - Approval boundary: architecture/security readiness is accepted for considering `ledger-authoritative` promotion and enforcement enablement after the remaining canonical gates close; the hook enqueue p95 beta-budget risk remains tracked but is accepted as non-blocking for AL10-GA-6.
   - Evidence: `docs/approvals/architecture-ledger-al10-independent-review.md`.
   - Remaining blockers: AL10-14 verified beta-user interview evidence and AL10-GA-7 verified production rollback drill evidence.
+- 2026-06-27: Completed AL10-GA-7 production rollback drill evidence.
+  - Scope: closes AL10-GA-7 only; does not close AL10-14 or production GA external acceptance while beta-user interview evidence remains unverified.
+  - Drill: temporary Git repository with a real SQLite runtime store entered `ledger-authoritative` mode, supplied the current worktree digest to `archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>`, wrote YAML authority projections, removed a stale projection, created a rollback backup manifest and restarted in YAML authority mode.
+  - Verification: `.archcontext` validation passed, post-rollback ledger drift was clean, ChangeSet journal integrity was `ok` with zero pending entries, package-boundary audit passed and contracts test passed.
+  - Evidence: `docs/verification/architecture-ledger-al10-production-rollback-drill.md`; `docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json`.
+  - Remaining blocker: AL10-14 verified beta-user interview evidence.
 
 ---
 

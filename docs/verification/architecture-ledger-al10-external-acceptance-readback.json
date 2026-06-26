@@ -14,11 +14,11 @@
       "AL10-GA-7"
     ],
     "closedGates": [
-      "AL10-GA-6"
+      "AL10-GA-6",
+      "AL10-GA-7"
     ],
     "remainingGates": [
-      "AL10-14",
-      "AL10-GA-7"
+      "AL10-14"
     ],
     "nonClaims": [
       "does not use FG6/M6 carry-over artifacts to close AL10 gates",
@@ -80,13 +80,14 @@
       "gate": "AL10-GA-7",
       "path": "docs/verification/architecture-ledger-al10-production-rollback-drill.md",
       "exists": true,
-      "sha256": "sha256:bc6a9edf488cae49c17f758beef8af18843f1521ef44b9fc778884dd90b3f7a9",
+      "sha256": "sha256:505091d242ef6a55a35288e7dd1618d7f1a75b2ab615d70df72ee4f475592c94",
       "requiredStatus": "Verified",
-      "status": "blocked",
-      "verified": false,
-      "statusMarkerPresent": false,
+      "status": "verified",
+      "verified": true,
+      "statusMarkerPresent": true,
       "requiredTermsPresent": [
         "Status",
+        "Verified",
         "production rollback drill",
         "ledger-authoritative",
         "YAML authority",
@@ -94,13 +95,8 @@
         "operator",
         "verification"
       ],
-      "missingTerms": [
-        "Verified"
-      ],
-      "blockedReasons": [
-        "status marker must be Verified",
-        "missing term: Verified"
-      ]
+      "missingTerms": [],
+      "blockedReasons": []
     }
   ],
   "gateResults": [
@@ -120,10 +116,10 @@
     },
     {
       "gate": "AL10-GA-7",
-      "status": "blocked",
+      "status": "verified",
       "artifactId": "production-rollback-drill",
       "artifactPath": "docs/verification/architecture-ledger-al10-production-rollback-drill.md",
-      "blocker": "status marker must be Verified; missing term: Verified"
+      "blocker": ""
     }
   ],
   "legacyArtifacts": [
@@ -215,7 +211,7 @@
     "privacyClean": true,
     "sourceReadbacksPresent": true
   },
-  "readbackDigest": "sha256:d27cc0505ad2a6cac26955c8dfb0d5abd3376c169294b8169e0d8683ddb72b15",
+  "readbackDigest": "sha256:78b01f2063ac3636a5e6c925630c5eae7429804cd34f977b4792ef755af27c0d",
   "readback": {
     "command": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-external-acceptance-readback.json --json",
     "recordCommand": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts run --out docs/verification/architecture-ledger-al10-external-acceptance-readback.json --report docs/verification/architecture-ledger-al10-external-acceptance.md --json",
