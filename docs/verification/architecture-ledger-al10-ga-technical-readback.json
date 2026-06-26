@@ -128,67 +128,286 @@
     "sqliteEventRows": 10000,
     "sqliteCurrentRows": 10002,
     "ftsRows": 20002,
-    "elapsedMs": 56811.815
+    "runtimeStatePrivacy": {
+      "databasePath": "$TMPDIR/archctx-al10-ga-stress/runtime.sqlite",
+      "tableCount": 37,
+      "jsonColumnCount": 34,
+      "scannedCellCount": 40003,
+      "tableSummaries": [
+        {
+          "table": "agent_jobs",
+          "jsonColumns": [
+            "job_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "architecture_constraints_current",
+          "jsonColumns": [
+            "metadata_json"
+          ],
+          "rowCount": 1,
+          "scannedCellCount": 1
+        },
+        {
+          "table": "architecture_entities_current",
+          "jsonColumns": [
+            "metadata_json"
+          ],
+          "rowCount": 10000,
+          "scannedCellCount": 10000
+        },
+        {
+          "table": "architecture_events",
+          "jsonColumns": [
+            "payload_json",
+            "provenance_json",
+            "event_json"
+          ],
+          "rowCount": 10000,
+          "scannedCellCount": 30000
+        },
+        {
+          "table": "architecture_relations_current",
+          "jsonColumns": [
+            "metadata_json"
+          ],
+          "rowCount": 1,
+          "scannedCellCount": 1
+        },
+        {
+          "table": "architecture_snapshots",
+          "jsonColumns": [
+            "input_digests_json",
+            "snapshot_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "changeset_journal",
+          "jsonColumns": [
+            "metadata_json",
+            "files_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "cross_repo_edges",
+          "jsonColumns": [
+            "metadata_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "evidence_bindings",
+          "jsonColumns": [
+            "provenance_json",
+            "binding_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "evidence_items",
+          "jsonColumns": [
+            "selector_json",
+            "coverage_json",
+            "supports_json",
+            "provenance_json",
+            "evidence_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "external_docs_cache",
+          "jsonColumns": [
+            "resource_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "landscapes",
+          "jsonColumns": [
+            "metadata_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "observed_evidence",
+          "jsonColumns": [
+            "selector_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "projection_state",
+          "jsonColumns": [
+            "state_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "recommendation_feedback",
+          "jsonColumns": [
+            "feedback_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "recommendation_runs",
+          "jsonColumns": [
+            "metrics_json",
+            "run_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "recommendations",
+          "jsonColumns": [
+            "evidence_binding_ids_json",
+            "explanation_json",
+            "recommendation_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "review_results",
+          "jsonColumns": [
+            "payload_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "runtime_job_queue",
+          "jsonColumns": [
+            "job_json"
+          ],
+          "rowCount": 1,
+          "scannedCellCount": 1
+        },
+        {
+          "table": "source_cursors",
+          "jsonColumns": [
+            "cursor_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "task_states",
+          "jsonColumns": [
+            "payload_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        },
+        {
+          "table": "waivers",
+          "jsonColumns": [
+            "waiver_json"
+          ],
+          "rowCount": 0,
+          "scannedCellCount": 0
+        }
+      ],
+      "forbiddenRawContentHitCount": 0,
+      "forbiddenSecretHitCount": 0,
+      "rawContentHits": [],
+      "secretHits": [],
+      "clean": true
+    },
+    "subagentMutation": {
+      "directMutationAttempt": {
+        "jobId": "agent_job.al10_ga_direct-mutation",
+        "rejected": true,
+        "reasonCode": "runtime-agent-job-direct-mutation-forbidden",
+        "queueRowsAfterRejected": 0,
+        "architectureEventRowsUnchanged": true
+      },
+      "proposalOnlyJob": {
+        "jobId": "agent_job.al10_ga_proposal-only",
+        "accepted": true,
+        "status": "queued",
+        "directMutationAllowed": false,
+        "queueRowsAfterAccepted": 1,
+        "persistedJobJsonDigest": "sha256:feb90c3f68fa58178da1621d3cdd82f8a9037bd447edba5b61b6de3d1118f05d",
+        "architectureEventRowsUnchanged": true
+      }
+    },
+    "elapsedMs": 57112.016
   },
   "performance": {
     "representativeFixtureCount": 3,
     "warmQueryP95Ms": 96.8,
     "warmQueryBudgetMs": 200,
-    "incrementalAnalysisP95Ms": 96.994,
+    "incrementalAnalysisP95Ms": 80.694,
     "incrementalAnalysisBudgetMs": 2000
   },
   "incrementalAnalysis": {
     "changedFileCount": 200,
     "sampleCount": 5,
-    "p95Ms": 96.994,
-    "maxMs": 96.994,
-    "minMs": 78.702,
+    "p95Ms": 80.694,
+    "maxMs": 80.694,
+    "minMs": 78.197,
     "failedSampleCount": 0,
     "nonCoalescedSampleCount": 5,
     "samples": [
       {
         "sample": 0,
-        "elapsedMs": 81.37,
+        "elapsedMs": 80.694,
         "ok": true,
         "coalesced": false,
         "skippedAnalysis": false,
-        "resultDigest": "sha256:cde1f412456d0172e39267684092871125a2b3981892e1a937456d7b3029db58",
+        "resultDigest": "sha256:f11d753c9a89d7a021bb86b92d3172157f1f91b198eea0d7492be289a30c7bea",
         "findingCount": 0
       },
       {
         "sample": 1,
-        "elapsedMs": 78.702,
+        "elapsedMs": 79.427,
         "ok": true,
         "coalesced": false,
         "skippedAnalysis": false,
-        "resultDigest": "sha256:54048dbb190fa66e86dab0d00358b331c2c1c4d70f1747818a25917ee3d7f60e",
+        "resultDigest": "sha256:80d4ab88c8b6bcc72af144109466f490458a6ca9dd900020c9f444ff9289a990",
         "findingCount": 0
       },
       {
         "sample": 2,
-        "elapsedMs": 96.994,
+        "elapsedMs": 78.554,
         "ok": true,
         "coalesced": false,
         "skippedAnalysis": false,
-        "resultDigest": "sha256:f94907c5b8206fac0204f22b9f926d61e30aa0b5d048f9783c9f53015cc90b77",
+        "resultDigest": "sha256:c817c600ee7d532d20955153eef4e65c1389842cf79721719936370fa1e50454",
         "findingCount": 0
       },
       {
         "sample": 3,
-        "elapsedMs": 83.723,
+        "elapsedMs": 78.616,
         "ok": true,
         "coalesced": false,
         "skippedAnalysis": false,
-        "resultDigest": "sha256:59f327267ef017e4bfec2fa2a1063176072f3129ad76d20feac79ece2187c382",
+        "resultDigest": "sha256:8a91d5ea1bd480ad7c068f67af74d856764b1566a480d05188dfcee68b3d7922",
         "findingCount": 0
       },
       {
         "sample": 4,
-        "elapsedMs": 84.833,
+        "elapsedMs": 78.197,
         "ok": true,
         "coalesced": false,
         "skippedAnalysis": false,
-        "resultDigest": "sha256:e060a02d4a732996cff312747d7eceab1eace38b890aef3b26da77edb714958f",
+        "resultDigest": "sha256:ea2244e56ac5cc4c9737d307db098118dd5e1b5a8d013657cc29ce45e36ccceb",
         "findingCount": 0
       }
     ],
@@ -238,6 +457,225 @@
     "failedEvalGateCount": 0,
     "hardGateMissCount": 0
   },
+  "runtimeStatePrivacy": {
+    "databasePath": "$TMPDIR/archctx-al10-ga-stress/runtime.sqlite",
+    "tableCount": 37,
+    "jsonColumnCount": 34,
+    "scannedCellCount": 40003,
+    "tableSummaries": [
+      {
+        "table": "agent_jobs",
+        "jsonColumns": [
+          "job_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "architecture_constraints_current",
+        "jsonColumns": [
+          "metadata_json"
+        ],
+        "rowCount": 1,
+        "scannedCellCount": 1
+      },
+      {
+        "table": "architecture_entities_current",
+        "jsonColumns": [
+          "metadata_json"
+        ],
+        "rowCount": 10000,
+        "scannedCellCount": 10000
+      },
+      {
+        "table": "architecture_events",
+        "jsonColumns": [
+          "payload_json",
+          "provenance_json",
+          "event_json"
+        ],
+        "rowCount": 10000,
+        "scannedCellCount": 30000
+      },
+      {
+        "table": "architecture_relations_current",
+        "jsonColumns": [
+          "metadata_json"
+        ],
+        "rowCount": 1,
+        "scannedCellCount": 1
+      },
+      {
+        "table": "architecture_snapshots",
+        "jsonColumns": [
+          "input_digests_json",
+          "snapshot_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "changeset_journal",
+        "jsonColumns": [
+          "metadata_json",
+          "files_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "cross_repo_edges",
+        "jsonColumns": [
+          "metadata_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "evidence_bindings",
+        "jsonColumns": [
+          "provenance_json",
+          "binding_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "evidence_items",
+        "jsonColumns": [
+          "selector_json",
+          "coverage_json",
+          "supports_json",
+          "provenance_json",
+          "evidence_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "external_docs_cache",
+        "jsonColumns": [
+          "resource_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "landscapes",
+        "jsonColumns": [
+          "metadata_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "observed_evidence",
+        "jsonColumns": [
+          "selector_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "projection_state",
+        "jsonColumns": [
+          "state_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "recommendation_feedback",
+        "jsonColumns": [
+          "feedback_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "recommendation_runs",
+        "jsonColumns": [
+          "metrics_json",
+          "run_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "recommendations",
+        "jsonColumns": [
+          "evidence_binding_ids_json",
+          "explanation_json",
+          "recommendation_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "review_results",
+        "jsonColumns": [
+          "payload_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "runtime_job_queue",
+        "jsonColumns": [
+          "job_json"
+        ],
+        "rowCount": 1,
+        "scannedCellCount": 1
+      },
+      {
+        "table": "source_cursors",
+        "jsonColumns": [
+          "cursor_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "task_states",
+        "jsonColumns": [
+          "payload_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      },
+      {
+        "table": "waivers",
+        "jsonColumns": [
+          "waiver_json"
+        ],
+        "rowCount": 0,
+        "scannedCellCount": 0
+      }
+    ],
+    "forbiddenRawContentHitCount": 0,
+    "forbiddenSecretHitCount": 0,
+    "rawContentHits": [],
+    "secretHits": [],
+    "clean": true
+  },
+  "subagentMutation": {
+    "directMutationAttempt": {
+      "jobId": "agent_job.al10_ga_direct-mutation",
+      "rejected": true,
+      "reasonCode": "runtime-agent-job-direct-mutation-forbidden",
+      "queueRowsAfterRejected": 0,
+      "architectureEventRowsUnchanged": true
+    },
+    "proposalOnlyJob": {
+      "jobId": "agent_job.al10_ga_proposal-only",
+      "accepted": true,
+      "status": "queued",
+      "directMutationAllowed": false,
+      "queueRowsAfterAccepted": 1,
+      "persistedJobJsonDigest": "sha256:feb90c3f68fa58178da1621d3cdd82f8a9037bd447edba5b61b6de3d1118f05d",
+      "architectureEventRowsUnchanged": true
+    }
+  },
   "privacy": {
     "forbiddenSecretHitCount": 0,
     "forbiddenRawContentHitCount": 0,
@@ -252,10 +690,12 @@
     "AL10-GA-4": true,
     "AL10-GA-5": true,
     "sourceReadbacksVerified": true,
+    "runtimeSqlitePayloadPrivacyVerified": true,
+    "subagentDirectMutationRejected": true,
     "openGatesPreserved": true,
     "noPrivateContent": true
   },
-  "readbackDigest": "sha256:272ae9ec2dd04f73c6d88f1c916b13926ac0c0be046c4cb9e6fb74c1b5139522",
+  "readbackDigest": "sha256:9b55456dc5dad1914f1c59fcaff23b8e20d145cedc2de5b406b53fbf0ebbc18d",
   "readback": {
     "command": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-ga-technical-readback.json --json",
     "recordCommand": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts run --out docs/verification/architecture-ledger-al10-ga-technical-readback.json --report docs/verification/architecture-ledger-al10-ga-technical.md --json",

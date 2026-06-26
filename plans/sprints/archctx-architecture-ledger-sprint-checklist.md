@@ -3,7 +3,7 @@
 > **Status**: Executing - AL0 through AL9 complete; AL10 rollout hardening in progress
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
-> **Updated**: 2026-06-26
+> **Updated**: 2026-06-27
 > **Target location**: `plans/sprints/archctx-architecture-ledger-sprint.md`
 > **Relationship to current roadmap**: follow-up workstream after the existing M0–M6 scaffold; may start in parallel with remaining M6 launch evidence where dependencies permit.
 > **Goal**: turn architecture knowledge into a durable, queryable, reviewable ledger that passively follows code evolution, serves LLMs through CLI/MCP, and invokes subagents only when deterministic analysis cannot close an important uncertainty.
@@ -1231,6 +1231,12 @@ archctx book export --format yaml|markdown|json
   - Carry-over rejection: the readback rejects FG6 external security review, M6 independent threat review, FG6 personal beta approval and the blocked production GA external readback as insufficient to close AL10 external acceptance gates.
   - Verification artifact: `docs/verification/architecture-ledger-al10-external-acceptance-readback.json`, `docs/verification/architecture-ledger-al10-external-acceptance.md`.
   - Verification: `bun run record:al10:external-acceptance`; `bun run readback:al10:external-acceptance`; `bun test scripts/architecture-ledger-al10-external-acceptance-readback.test.ts`.
+- 2026-06-27: Addressed AL10 GA advisory review request-changes on branch `codex/architecture-ledger-al10-external-acceptance-packet`.
+  - Scope: closes no external gates; strengthens AL10-GA-1 through AL10-GA-5 technical evidence only. AL10-14, AL10-GA-6 and AL10-GA-7 remain blocked on real beta-user interviews, human independent architecture/security approval and production rollback drill evidence.
+  - Runtime-state privacy: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` now audits the actual representative `runtime.sqlite` produced by the 10,000-event GA stress flow, scanning JSON-bearing runtime tables for raw source bodies, raw diffs/patches, prompt/completion bodies, full CodeGraph output and secret-like tokens.
+  - Subagent negative path: the same readback verifies a direct-mutation agent job is rejected with `runtime-agent-job-direct-mutation-forbidden`, leaves architecture event rows unchanged, and accepts only a proposal-only queued job with `directMutationAllowed: false`.
+  - External packet refresh: `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` was regenerated after the technical evidence change and still reports blocked external acceptance.
+  - Verification: `bun run record:al10:ga-technical`; `bun run readback:al10:ga-technical`; `bun run record:al10:external-acceptance`; `bun run readback:al10:external-acceptance`; `bun test scripts/architecture-ledger-al10-ga-technical-readback.test.ts`; `bun run typecheck`.
 
 ---
 
