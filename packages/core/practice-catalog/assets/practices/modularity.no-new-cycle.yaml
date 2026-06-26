@@ -44,7 +44,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.modularity.no-new-cycle.positive", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "New cycle evidence blocks complete enforcement when opted in." }],
+      "nearNegative": [{ "id": "fixture.modularity.no-new-cycle.near-negative", "path": "evals/practices/benign-negative.jsonl", "description": "Cycle wording without observed import evidence remains advisory." }],
+      "mixedChange": [{ "id": "fixture.modularity.no-new-cycle.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Mixed source and test changes keep cycle subjects scoped." }],
+      "baseline": [{ "id": "fixture.modularity.no-new-cycle.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Historical cycles do not fail unless a new cycle edge appears." }]
+    }
   },
   "provenance": {
     "sourceKind": "curated-open-source",

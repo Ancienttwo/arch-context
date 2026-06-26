@@ -8,6 +8,33 @@
   "properties": {
     "schemaVersion": { "const": "archcontext.practice-enforcement-policy/v1" },
     "mode": { "type": "string", "enum": ["advisory", "active", "fail-open", "fail-closed"] },
+    "recommendations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "policyMode": { "type": "string", "enum": ["advisory", "checkpoint", "complete"] },
+        "frequency": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minIntervalMs": { "type": "integer", "minimum": 0 },
+            "cooldownMs": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxRecommendationsPerRun": { "type": "integer", "minimum": 0 },
+            "maxL3InvestigationsPerRun": { "type": "integer", "minimum": 0 },
+            "maxRunsPerTask": { "type": "integer", "minimum": 0 },
+            "maxRunsPerRepositoryPerDay": { "type": "integer", "minimum": 0 },
+            "maxRunsPerDay": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
     "rules": {
       "type": "array",
       "items": {

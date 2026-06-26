@@ -44,6 +44,7 @@ export type PracticeCheckReasonCode =
   | "policy-disabled"
   | "not-opted-in"
   | "not-registered"
+  | "fixture-gate-missing"
   | "heuristic-only"
   | "no-baseline"
   | "no-violation"
@@ -96,6 +97,21 @@ export interface PracticeEnforcementV1 {
   default: PracticeEnforcementLevel;
   promotableTo: PracticeEnforcementLevel;
   repoOptInRequired: boolean;
+  fixtureGate?: PracticeEnforcementFixtureGateV1;
+}
+
+export interface PracticeEnforcementFixtureRefV1 {
+  id: string;
+  path: string;
+  description: string;
+  digest?: string;
+}
+
+export interface PracticeEnforcementFixtureGateV1 {
+  positive: PracticeEnforcementFixtureRefV1[];
+  nearNegative: PracticeEnforcementFixtureRefV1[];
+  mixedChange: PracticeEnforcementFixtureRefV1[];
+  baseline: PracticeEnforcementFixtureRefV1[];
 }
 
 export interface PracticeSourceRefV1 {
@@ -176,10 +192,27 @@ export interface PracticePolicyRuleV1 {
   testEvidence?: PracticePolicyTestEvidenceV1;
 }
 
+export interface PracticeRecommendationSchedulerPolicyV1 {
+  enabled?: boolean;
+  policyMode?: "advisory" | "checkpoint" | "complete";
+  frequency?: {
+    minIntervalMs?: number;
+    cooldownMs?: number;
+  };
+  budgets?: {
+    maxRecommendationsPerRun?: number;
+    maxL3InvestigationsPerRun?: number;
+    maxRunsPerTask?: number;
+    maxRunsPerRepositoryPerDay?: number;
+    maxRunsPerDay?: number;
+  };
+}
+
 export interface PracticeEnforcementPolicyV1 {
   schemaVersion: typeof PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION;
   mode: PracticeEnforcementPolicyMode;
   rules: PracticePolicyRuleV1[];
+  recommendations?: PracticeRecommendationSchedulerPolicyV1;
 }
 
 export interface PracticeWaiverV1 {

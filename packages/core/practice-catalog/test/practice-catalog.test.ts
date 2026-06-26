@@ -62,6 +62,25 @@ describe("@archcontext/core/practice-catalog", () => {
     }
   });
 
+  test("requires fixture gates before complete-enforcement practices can enter the catalog", () => {
+    const dir = mkdtempSync(join(tmpdir(), "archctx-practices-fixture-gate-"));
+    try {
+      writeSource(dir, sourceRecord("archcontext.spec"));
+      writePractice(dir, {
+        ...practice("compatibility.complete-without-fixtures"),
+        enforcement: {
+          default: "advisory",
+          promotableTo: "complete",
+          repoOptInRequired: true
+        }
+      });
+      const catalog = loadPracticeCatalog({ builtInAssetsDir: dir, includeRepoOverlay: false });
+      expect(catalog.errors.map((issue) => issue.code)).toContain("practice-enforcement-fixture-gate-missing");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("rejects invalid globs and blocked built-in source license levels", () => {
     const dir = mkdtempSync(join(tmpdir(), "archctx-practices-invalid-glob-"));
     try {

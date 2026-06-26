@@ -12,7 +12,9 @@ import {
   type PracticeEnforcementLevel,
   type PracticeEnforcementPolicyMode,
   type PracticeEnforcementPolicyV1,
+  type PracticeEnforcementFixtureGateV1,
   type PracticeMatchV1,
+  type PracticeRecommendationSchedulerPolicyV1,
   type PracticeWaiverApplicationV1,
   type PracticeWaiverV1
 } from "@archcontext/contracts";
@@ -136,6 +138,7 @@ export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPol
   if (policy.schemaVersion !== PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION) throw new Error(`practice-policy-schema-version: ${path}`);
   if (!POLICY_MODES.has(policy.mode)) throw new Error(`practice-policy-mode-invalid: ${path}`);
   if (!Array.isArray(policy.rules)) throw new Error(`practice-policy-rules-invalid: ${path}`);
+  validateRecommendationSchedulerPolicy(policy.recommendations, path);
   const seen = new Set<string>();
   for (const rule of policy.rules) {
     if (!rule.practiceId || !/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/.test(rule.practiceId)) throw new Error(`practice-policy-rule-id-invalid: ${path}`);
@@ -147,6 +150,21 @@ export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPol
     validateTestEvidence(rule.testEvidence, path);
   }
   return policy;
+}
+
+export function practiceHasCompleteEnforcementFixtureGate(gate: PracticeEnforcementFixtureGateV1 | undefined): boolean {
+  return ["positive", "nearNegative", "mixedChange", "baseline"].every((kind) => {
+    const entries = gate?.[kind as keyof PracticeEnforcementFixtureGateV1];
+    return Array.isArray(entries) && entries.some((entry) =>
+      typeof entry.id === "string"
+      && entry.id.trim().length > 0
+      && typeof entry.path === "string"
+      && entry.path.trim().length > 0
+      && typeof entry.description === "string"
+      && entry.description.trim().length > 0
+      && (entry.digest === undefined || /^sha256:[a-f0-9]{64}$/.test(entry.digest))
+    );
+  });
 }
 
 export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practice waiver", options: PracticeWaiverValidationOptions = {}): PracticeWaiverV1 {
@@ -184,6 +202,16 @@ export function evaluatePracticeEnforcement(input: PracticeEnforcementInput): Pr
     if (!match || !effective) continue;
     if (ENFORCEMENT_RANK[rule.enforcement] > ENFORCEMENT_RANK[effective.asset.enforcement.promotableTo]) {
       results.push(notApplicable(match, "not-opted-in", rule.enforcement, "Practice cannot be promoted to complete enforcement."));
+      continue;
+    }
+    if (rule.enforcement === "complete" && !practiceHasCompleteEnforcementFixtureGate(effective.asset.enforcement.fixtureGate)) {
+      results.push(notApplicable(
+        match,
+        "fixture-gate-missing",
+        rule.enforcement,
+        "Practice cannot hard-gate complete until positive, near-negative, mixed-change and baseline fixtures are declared.",
+        "fixture-gate"
+      ));
       continue;
     }
     if (match.sourceTrust === "external-dynamic" || match.evidence.every((evidence) => evidence.strength === "heuristic")) {
@@ -328,6 +356,27 @@ function validateTestEvidence(testEvidence: { commands?: string[]; subjects?: st
   for (const subject of subjects) {
     if (typeof subject !== "string" || subject.trim().length === 0) throw new Error(`practice-policy-test-subject-invalid: ${path}`);
   }
+}
+
+function validateRecommendationSchedulerPolicy(policy: PracticeRecommendationSchedulerPolicyV1 | undefined, path: string): void {
+  if (policy === undefined) return;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error(`practice-policy-recommendations-invalid: ${path}`);
+  if (policy.enabled !== undefined && typeof policy.enabled !== "boolean") throw new Error(`practice-policy-recommendations-enabled-invalid: ${path}`);
+  if (policy.policyMode !== undefined && !["advisory", "checkpoint", "complete"].includes(policy.policyMode)) {
+    throw new Error(`practice-policy-recommendations-mode-invalid: ${path}`);
+  }
+  validateNonNegativeInteger(policy.frequency?.minIntervalMs, "practice-policy-recommendations-min-interval-invalid", path);
+  validateNonNegativeInteger(policy.frequency?.cooldownMs, "practice-policy-recommendations-cooldown-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRecommendationsPerRun, "practice-policy-recommendations-max-run-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxL3InvestigationsPerRun, "practice-policy-recommendations-max-l3-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRunsPerTask, "practice-policy-recommendations-max-task-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRunsPerRepositoryPerDay, "practice-policy-recommendations-max-repository-day-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRunsPerDay, "practice-policy-recommendations-max-day-invalid", path);
+}
+
+function validateNonNegativeInteger(value: number | undefined, code: string, path: string): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${code}: ${path}`);
 }
 
 function isVagueReason(reason: string): boolean {

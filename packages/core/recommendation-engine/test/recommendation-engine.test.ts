@@ -3,6 +3,7 @@ import { digestJson, type RecommendationV2 } from "@archcontext/contracts";
 import {
   aggregateRecommendationLifecycleMetrics,
   createRecommendationFeedback,
+  normalizeRecommendationSchedulerPolicy,
   planRecommendationRun,
   recommendationFingerprint,
   recommendationLifecycleLedgerPayload,
@@ -92,6 +93,38 @@ describe("recommendation-engine", () => {
       practiceId: "practice.runtime-boundary",
       cooldownUntil: "2026-06-30T12:00:00.000Z"
     }]);
+  });
+
+  test("applies repository-local scheduler budgets with safe defaults", () => {
+    expect(normalizeRecommendationSchedulerPolicy().budgets).toMatchObject({
+      maxRecommendationsPerRun: 25,
+      maxL3InvestigationsPerRun: 1
+    });
+    const plan = planRecommendationRun(inputFixture({
+      policyMode: undefined,
+      schedulerPolicy: {
+        policyMode: "checkpoint",
+        frequency: { cooldownMs: 1000 },
+        budgets: {
+          maxRecommendationsPerRun: 2,
+          maxL3InvestigationsPerRun: 1
+        }
+      },
+      candidates: [
+        highRiskUncertainCandidate("module.checkout-runtime", 91),
+        highRiskUncertainCandidate("module.payment-runtime", 88),
+        mediumRiskCandidate("module.reporting-runtime", 52)
+      ]
+    }));
+
+    expect(plan.run.policyMode).toBe("checkpoint");
+    expect(plan.recommendations).toHaveLength(2);
+    expect(plan.run.metrics.matchCount).toBe(3);
+    expect(plan.run.extensions?.cooldownMs).toBe(1000);
+    expect((plan.run.extensions?.schedulerBudget as any).omittedCandidateCount).toBe(1);
+    expect(plan.investigationEligibleRecommendationIds).toHaveLength(1);
+    expect(plan.recommendations.filter((recommendation) => recommendation.extensions?.l3InvestigationEligible === true)).toHaveLength(1);
+    expect(plan.recommendations.filter((recommendation) => recommendation.extensions?.l3InvestigationSuppressedByBudget === true)).toHaveLength(1);
   });
 
   test("transitions lifecycle states and preserves audit metadata", () => {
@@ -246,33 +279,33 @@ function inputFixture(overrides: Partial<PlanRecommendationRunInput> = {}): Plan
   };
 }
 
-function highRiskUncertainCandidate(): RecommendationSchedulerCandidate {
+function highRiskUncertainCandidate(subject = "module.checkout-runtime", score = 91): RecommendationSchedulerCandidate {
   return {
     practiceId: "practice.runtime-boundary",
-    subject: "module.checkout-runtime",
+    subject,
     confidence: "low",
     enforcement: "checkpoint",
-    evidenceBindingIds: ["evidence.checkout.boundary", "evidence.checkout.payment"],
-    explanation: ["Checkout runtime changed a payment-facing persistence boundary with ambiguous ownership evidence."],
-    baselineDigest: digestJson({ baseline: "checkout-runtime" }),
+    evidenceBindingIds: [`evidence.${subject}.boundary`, `evidence.${subject}.payment`],
+    explanation: [`${subject} changed a payment-facing persistence boundary with ambiguous ownership evidence.`],
+    baselineDigest: digestJson({ baseline: subject }),
     riskSignals: ["persistence-change", "payment-domain-change"],
     uncertaintySignals: ["mapping-ambiguity"],
-    score: 91
+    score
   };
 }
 
-function mediumRiskCandidate(): RecommendationSchedulerCandidate {
+function mediumRiskCandidate(subject = "module.checkout-runtime", score = 52): RecommendationSchedulerCandidate {
   return {
     practiceId: "practice.runtime-boundary",
-    subject: "module.checkout-runtime",
+    subject,
     confidence: "medium",
     enforcement: "advisory",
-    evidenceBindingIds: ["evidence.checkout.boundary"],
-    explanation: ["Runtime boundary changed and should be reviewed by architecture owner."],
-    baselineDigest: digestJson({ baseline: "checkout-runtime" }),
+    evidenceBindingIds: [`evidence.${subject}.boundary`],
+    explanation: [`${subject} boundary changed and should be reviewed by architecture owner.`],
+    baselineDigest: digestJson({ baseline: subject }),
     riskSignals: ["boundary-change"],
     uncertaintySignals: [],
-    score: 52
+    score
   };
 }
 

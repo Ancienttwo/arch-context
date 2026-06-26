@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 through AL7 complete; AL8 scheduler, waiver/review and lifecycle-feedback slices are complete; fixture gates and repo-local budgets remain in progress
+> **Status**: Executing - AL0 through AL8 complete; AL9 documentation projections and AL10 rollout hardening remain not started
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -124,7 +124,7 @@ These are target gates, not claims about current performance.
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ☑ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ☑ |
-| AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◐ |
+| AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ☑ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
 | AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
 
@@ -944,8 +944,12 @@ archctx book export --format yaml|markdown|json
 - [x] **AL8-14 · P1 · `recommendation-engine`** — Add explanation tree: trigger → subject → evidence → baseline → score → policy outcome.
   - Evidence: each emitted recommendation carries `archcontext.recommendation-explanation-tree/v1` under extensions with trigger, subject, evidence bindings, baseline, score, risk, uncertainty and policy outcome.
   - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
-- [ ] **AL8-15 · P1 · `practice-catalog`** — Require positive, near-negative, mixed-change and baseline fixtures before a practice can be enforcement-eligible.
-- [ ] **AL8-16 · P1 · `policy-engine`** — Add repository-local configuration for frequency and budgets with safe defaults.
+- [x] **AL8-15 · P1 · `practice-catalog`** — Require positive, near-negative, mixed-change and baseline fixtures before a practice can be enforcement-eligible.
+  - Evidence: `PracticeAssetV1.enforcement.fixtureGate` is required by catalog validation for `promotableTo: complete`; the eight complete-eligible built-in practices declare positive, near-negative, mixed-change and baseline fixture refs; enforcement returns `fixture-gate-missing` before a missing-gate practice can hard-gate complete.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-fixture-budgets-readback.json`, `docs/verification/architecture-ledger-al8-fixture-budgets.md`.
+- [x] **AL8-16 · P1 · `policy-engine`** — Add repository-local configuration for frequency and budgets with safe defaults.
+  - Evidence: `PracticeEnforcementPolicyV1.recommendations` config is loaded from `.archcontext/policies/practices.yaml`; `normalizeRecommendationSchedulerPolicy` defaults to advisory, seven-day cooldown, 25 recommendations per run and one L3 investigation per run; repo-local readback caps three candidates to two recommendations and one L3-eligible investigation.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-fixture-budgets-readback.json`, `docs/verification/architecture-ledger-al8-fixture-budgets.md`.
 
 ### Exit gate
 
@@ -983,6 +987,12 @@ archctx book export --format yaml|markdown|json
   - Explicitly still out of scope: AL8-15 practice catalog enforcement fixture gates and AL8-16 repository-local scheduler configuration.
   - Verification artifact: `docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json`, `docs/verification/architecture-ledger-al8-lifecycle-feedback.md`.
   - Verification: `bun test scripts/architecture-ledger-al8-lifecycle-feedback-readback.test.ts packages/core/recommendation-engine/test/recommendation-engine.test.ts packages/core/architecture-ledger/test/architecture-ledger.test.ts packages/contracts/test/contracts.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts`; `bun run typecheck`; `bun run record:al8:lifecycle-feedback`; `bun run readback:al8:lifecycle-feedback`; `bun run verify`.
+- 2026-06-26: Completed AL8 fixture-gates/repo-local budgets slice on branch `codex/architecture-ledger-al8-fixture-budgets`.
+  - Fixture gates: complete-promotable practice assets now declare `enforcement.fixtureGate` with positive, near-negative, mixed-change and baseline fixtures; catalog validation rejects complete-promotable practices without the gate.
+  - Enforcement: `evaluatePracticeEnforcement` returns `fixture-gate-missing` before an ungated practice can hard-gate complete, while gated built-ins still run deterministic checks.
+  - Repository-local scheduler policy: `.archcontext/policies/practices.yaml` can declare recommendation `frequency` and `budgets`; safe defaults keep advisory mode, seven-day cooldown, 25 recommendations per run and one L3 investigation per run.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-fixture-budgets-readback.json`, `docs/verification/architecture-ledger-al8-fixture-budgets.md`.
+  - Verification: `bun run record:al8:fixture-budgets`; `bun run readback:al8:fixture-budgets`; `bun test scripts/architecture-ledger-al8-fixture-budgets-readback.test.ts packages/core/practice-catalog/test/practice-catalog.test.ts packages/core/practice-engine/test/practice-engine.test.ts packages/core/recommendation-engine/test/recommendation-engine.test.ts packages/contracts/test/contracts.test.ts`; `bun run typecheck`; `git diff --check`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; isolated `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al8-fixture-budgets-verify-state-XXXXXX) bun run verify`.
 
 ---
 

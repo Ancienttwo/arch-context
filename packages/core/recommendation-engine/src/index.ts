@@ -8,6 +8,7 @@ import {
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
   type Json,
+  type PracticeRecommendationSchedulerPolicyV1,
   type RecommendationFeedbackV1,
   type RecommendationRunV1,
   type RecommendationV2
@@ -94,6 +95,7 @@ export interface PlanRecommendationRunInput {
   triggerSource: ArchitectureEventSource;
   triggerLevel?: RecommendationSchedulerLevel;
   policyMode?: RecommendationPolicyMode;
+  schedulerPolicy?: PracticeRecommendationSchedulerPolicyV1;
   catalogDigest: string;
   inputCursor: RecommendationRunInputCursor;
   candidates: RecommendationSchedulerCandidate[];
@@ -200,6 +202,23 @@ export interface RecommendationLifecycleMetrics {
   reasonCodes: string[];
 }
 
+export interface NormalizedRecommendationSchedulerPolicy {
+  enabled: boolean;
+  policyMode: RecommendationPolicyMode;
+  frequency: {
+    minIntervalMs: number;
+    cooldownMs: number;
+  };
+  budgets: {
+    maxRecommendationsPerRun: number;
+    maxL3InvestigationsPerRun: number;
+    maxRunsPerTask: number;
+    maxRunsPerRepositoryPerDay: number;
+    maxRunsPerDay: number;
+  };
+  reasonCodes: string[];
+}
+
 const ACTIVE_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>(["open", "acknowledged", "deferred"]);
 const OUTCOME_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>([
   "accepted",
@@ -210,6 +229,45 @@ const OUTCOME_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>([
   "expired"
 ]);
 const DEFAULT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+export const DEFAULT_RECOMMENDATION_SCHEDULER_POLICY: NormalizedRecommendationSchedulerPolicy = {
+  enabled: true,
+  policyMode: "advisory",
+  frequency: {
+    minIntervalMs: 0,
+    cooldownMs: DEFAULT_COOLDOWN_MS
+  },
+  budgets: {
+    maxRecommendationsPerRun: 25,
+    maxL3InvestigationsPerRun: 1,
+    maxRunsPerTask: 1,
+    maxRunsPerRepositoryPerDay: 25,
+    maxRunsPerDay: 100
+  },
+  reasonCodes: ["safe-defaults"]
+};
+
+export function normalizeRecommendationSchedulerPolicy(policy?: PracticeRecommendationSchedulerPolicyV1): NormalizedRecommendationSchedulerPolicy {
+  const reasonCodes = [policy ? "repo-local-policy" : "safe-defaults"];
+  const normalized = {
+    enabled: policy?.enabled ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.enabled,
+    policyMode: policy?.policyMode ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.policyMode,
+    frequency: {
+      minIntervalMs: policy?.frequency?.minIntervalMs ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.frequency.minIntervalMs,
+      cooldownMs: policy?.frequency?.cooldownMs ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.frequency.cooldownMs
+    },
+    budgets: {
+      maxRecommendationsPerRun: policy?.budgets?.maxRecommendationsPerRun ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.budgets.maxRecommendationsPerRun,
+      maxL3InvestigationsPerRun: policy?.budgets?.maxL3InvestigationsPerRun ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.budgets.maxL3InvestigationsPerRun,
+      maxRunsPerTask: policy?.budgets?.maxRunsPerTask ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.budgets.maxRunsPerTask,
+      maxRunsPerRepositoryPerDay: policy?.budgets?.maxRunsPerRepositoryPerDay ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.budgets.maxRunsPerRepositoryPerDay,
+      maxRunsPerDay: policy?.budgets?.maxRunsPerDay ?? DEFAULT_RECOMMENDATION_SCHEDULER_POLICY.budgets.maxRunsPerDay
+    },
+    reasonCodes
+  };
+  for (const [name, value] of Object.entries(normalized.frequency)) assertNonNegativeInteger(value, `frequency.${name}`);
+  for (const [name, value] of Object.entries(normalized.budgets)) assertNonNegativeInteger(value, `budgets.${name}`);
+  return normalized;
+}
 
 export function recommendationFingerprint(input: {
   practiceId?: string;
@@ -309,7 +367,12 @@ export function isL3InvestigationEligible(input: {
 export function planRecommendationRun(input: PlanRecommendationRunInput): RecommendationRunPlan {
   const now = input.now ?? new Date().toISOString();
   const engineVersion = input.engineVersion ?? RECOMMENDATION_SCHEDULER_ENGINE_VERSION;
-  const annotated = input.candidates.map((candidate) => {
+  const schedulerPolicy = normalizeRecommendationSchedulerPolicy(input.schedulerPolicy);
+  const policyMode = input.policyMode ?? schedulerPolicy.policyMode;
+  const selectedCandidates = schedulerPolicy.enabled
+    ? budgetRecommendationCandidates(input.candidates, schedulerPolicy.budgets.maxRecommendationsPerRun)
+    : [];
+  const annotated = selectedCandidates.map((candidate) => {
     const fingerprint = recommendationFingerprint(candidate);
     const risk = computeRecommendationRisk(candidate.riskSignals);
     const uncertainty = computeRecommendationUncertainty(candidate);
@@ -317,7 +380,7 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
       source: input.triggerSource,
       risk: risk.risk,
       uncertainty: uncertainty.uncertainty,
-      policyMode: input.policyMode
+      policyMode
     });
     const explanationTree = buildRecommendationExplanationTree({
       candidate,
@@ -329,12 +392,13 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
     });
     return { candidate, fingerprint, risk, uncertainty, level, explanationTree };
   });
-  const highestLevel = input.triggerLevel ?? selectHighestLevel(annotated.map((item) => item.level));
+  const highestLevel = input.triggerLevel ?? (annotated.length === 0 ? "L0" : selectHighestLevel(annotated.map((item) => item.level)));
   const inputDigest = digestJson({
     schemaVersion: "archcontext.recommendation-run-input/v1",
     engineVersion,
     trigger: { level: highestLevel, source: input.triggerSource },
-    policyMode: input.policyMode ?? "advisory",
+    policyMode,
+    schedulerPolicy,
     catalogDigest: input.catalogDigest,
     inputCursor: input.inputCursor,
     candidates: input.candidates,
@@ -369,7 +433,7 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
       });
       continue;
     }
-    const cooldown = findActiveCooldown(input.cooldowns ?? [], item.candidate, now);
+    const cooldown = findActiveCooldown(input.cooldowns ?? [], item.candidate, now, schedulerPolicy.frequency.cooldownMs);
     if (cooldown) {
       suppressed.push({
         reasonCode: "cooldown-active",
@@ -381,11 +445,21 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
       continue;
     }
     const recommendationId = `recommendation.${digestSuffix(item.fingerprint)}`;
-    const l3Eligible = isL3InvestigationEligible({
+    const rawL3Eligible = isL3InvestigationEligible({
       level: item.level,
       risk: item.risk.risk,
       uncertainty: item.uncertainty.uncertainty
     });
+    const l3Eligible = rawL3Eligible && eligibleRecommendationIds.length < schedulerPolicy.budgets.maxL3InvestigationsPerRun;
+    const explanationTree = l3Eligible === rawL3Eligible
+      ? item.explanationTree
+      : {
+          ...item.explanationTree,
+          policyOutcome: {
+            ...item.explanationTree.policyOutcome,
+            l3InvestigationEligible: false
+          }
+        };
     if (l3Eligible) eligibleRecommendationIds.push(recommendationId);
     recommendations.push({
       schemaVersion: RECOMMENDATION_SCHEMA_VERSION,
@@ -405,10 +479,11 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
       updatedAt: now,
       extensions: {
         baselineDigest: item.candidate.baselineDigest ?? null,
-        riskSignals: item.explanationTree.risk.signals,
-        uncertaintySignals: item.explanationTree.uncertainty.signals,
-        explanationTree: item.explanationTree as unknown as Json,
-        l3InvestigationEligible: l3Eligible
+        riskSignals: explanationTree.risk.signals,
+        uncertaintySignals: explanationTree.uncertainty.signals,
+        explanationTree: explanationTree as unknown as Json,
+        l3InvestigationEligible: l3Eligible,
+        l3InvestigationSuppressedByBudget: rawL3Eligible && !l3Eligible
       }
     });
   }
@@ -422,7 +497,15 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
       fingerprint: entry.fingerprint,
       subject: entry.subject,
       practiceId: entry.practiceId ?? null
-    }))
+    })),
+    budget: {
+      maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
+      inputCandidateCount: input.candidates.length,
+      selectedCandidateCount: selectedCandidates.length,
+      omittedCandidateCount: Math.max(0, input.candidates.length - selectedCandidates.length),
+      maxL3InvestigationsPerRun: schedulerPolicy.budgets.maxL3InvestigationsPerRun,
+      l3InvestigationEligibleCount: eligibleRecommendationIds.length
+    }
   } as Json);
   const run: RecommendationRunV1 = {
     schemaVersion: RECOMMENDATION_RUN_SCHEMA_VERSION,
@@ -437,7 +520,7 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
     catalogDigest: input.catalogDigest,
     inputDigest,
     outputDigest,
-    policyMode: input.policyMode ?? "advisory",
+    policyMode,
     status: "succeeded",
     startedAt: now,
     completedAt: now,
@@ -452,7 +535,17 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
       suppressed: suppressed as unknown as Json,
       investigationEligibleRecommendationIds: eligibleRecommendationIds,
       schedulerLevelMatrix: "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
-      cooldownMs: DEFAULT_COOLDOWN_MS
+      cooldownMs: schedulerPolicy.frequency.cooldownMs,
+      schedulerPolicy: schedulerPolicy as unknown as Json,
+      schedulerBudget: {
+        maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
+        inputCandidateCount: input.candidates.length,
+        selectedCandidateCount: selectedCandidates.length,
+        omittedCandidateCount: Math.max(0, input.candidates.length - selectedCandidates.length),
+        maxL3InvestigationsPerRun: schedulerPolicy.budgets.maxL3InvestigationsPerRun,
+        l3InvestigationEligibleCount: eligibleRecommendationIds.length,
+        enabled: schedulerPolicy.enabled
+      }
     }
   };
   return {
@@ -665,19 +758,39 @@ function selectHighestLevel(levels: readonly RecommendationSchedulerLevel[]): Re
   );
 }
 
+function budgetRecommendationCandidates(
+  candidates: readonly RecommendationSchedulerCandidate[],
+  maxRecommendationsPerRun: number
+): RecommendationSchedulerCandidate[] {
+  if (maxRecommendationsPerRun <= 0) return [];
+  return [...candidates]
+    .sort((left, right) =>
+      (right.score ?? 0) - (left.score ?? 0)
+      || left.subject.localeCompare(right.subject)
+      || (left.practiceId ?? "").localeCompare(right.practiceId ?? "")
+      || recommendationFingerprint(left).localeCompare(recommendationFingerprint(right))
+    )
+    .slice(0, maxRecommendationsPerRun);
+}
+
 function findActiveCooldown(
   cooldowns: readonly RecommendationCooldownState[],
   candidate: RecommendationSchedulerCandidate,
-  now: string
+  now: string,
+  defaultCooldownMs = DEFAULT_COOLDOWN_MS
 ): string | undefined {
   const nowMs = Date.parse(now);
   for (const cooldown of cooldowns) {
     if (cooldown.practiceId && cooldown.practiceId !== candidate.practiceId) continue;
     if (cooldown.subject && cooldown.subject !== candidate.subject) continue;
-    const until = cooldown.cooldownUntil ?? new Date(Date.parse(cooldown.lastRecommendedAt) + DEFAULT_COOLDOWN_MS).toISOString();
+    const until = cooldown.cooldownUntil ?? new Date(Date.parse(cooldown.lastRecommendedAt) + defaultCooldownMs).toISOString();
     if (Date.parse(until) > nowMs) return until;
   }
   return undefined;
+}
+
+function assertNonNegativeInteger(value: number, path: string): void {
+  if (!Number.isInteger(value) || value < 0) throw new Error(`recommendation-scheduler-policy-invalid:${path}`);
 }
 
 function lifecycleStatus(current: RecommendationStatus, action: RecommendationLifecycleAction): RecommendationStatus {

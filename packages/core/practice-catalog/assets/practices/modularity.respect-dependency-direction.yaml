@@ -44,7 +44,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.modularity.respect-dependency-direction.positive", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Typed boundary violation evidence blocks complete enforcement." }],
+      "nearNegative": [{ "id": "fixture.modularity.respect-dependency-direction.near-negative", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Plain import edges do not prove declared layer violations." }],
+      "mixedChange": [{ "id": "fixture.modularity.respect-dependency-direction.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Mixed historical and new direction violations isolate only the new subject." }],
+      "baseline": [{ "id": "fixture.modularity.respect-dependency-direction.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Historical declared-layer violations pass when unchanged." }]
+    }
   },
   "provenance": {
     "sourceKind": "curated-open-source",

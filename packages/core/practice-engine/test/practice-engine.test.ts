@@ -843,6 +843,35 @@ describe("@archcontext/core/practice-engine", () => {
     expect(evaluation.actionsRequired).toEqual(["remove-new-import-cycle-or-add-a-more-specific-boundary"]);
   });
 
+  test("complete enforcement requires a practice fixture gate", () => {
+    const catalog = loadPracticeCatalog({ root: workspaceRoot });
+    const base = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
+    const assetWithoutGate = derivedPracticeEntry(base, {
+      ...base.asset,
+      enforcement: {
+        default: "advisory",
+        promotableTo: "complete",
+        repoOptInRequired: true
+      }
+    });
+    const evaluation = evaluatePracticeEnforcement({
+      catalog: {
+        ...catalog,
+        effectiveAssets: [assetWithoutGate]
+      },
+      policy: completePolicy("modularity.no-new-cycle", "no-new-cycle"),
+      matches: [cycleMatch(assetWithoutGate.assetDigest, ["module.a->module.b", "module.b->module.a"])],
+      previousMatches: [cycleMatch(assetWithoutGate.assetDigest, ["module.a->module.b"])]
+    });
+
+    expect(evaluation.violations).toEqual([]);
+    expect(evaluation.results[0]).toMatchObject({
+      checkId: "fixture-gate",
+      status: "not_applicable",
+      reasonCode: "fixture-gate-missing"
+    });
+  });
+
   test("registered complete checker blocks only new cycle evidence", () => {
     const catalog = loadPracticeCatalog({ root: workspaceRoot });
     const asset = catalog.effectiveAssets.find((candidate) => candidate.asset.id === "modularity.no-new-cycle")!;
@@ -1207,6 +1236,19 @@ describe("@archcontext/core/practice-engine", () => {
       ...policy,
       mode: "enforce" as any
     })).toThrow("practice-policy-mode-invalid");
+    expect(validatePracticeEnforcementPolicy({
+      ...policy,
+      recommendations: {
+        enabled: true,
+        policyMode: "advisory",
+        frequency: { minIntervalMs: 0, cooldownMs: 1000 },
+        budgets: { maxRecommendationsPerRun: 10, maxL3InvestigationsPerRun: 1 }
+      }
+    } as PracticeEnforcementPolicyV1).recommendations?.budgets?.maxRecommendationsPerRun).toBe(10);
+    expect(() => validatePracticeEnforcementPolicy({
+      ...policy,
+      recommendations: { budgets: { maxRecommendationsPerRun: -1 } }
+    } as PracticeEnforcementPolicyV1)).toThrow("practice-policy-recommendations-max-run-invalid");
     expect(() => validatePracticeEnforcementPolicy({
       ...policy,
       rules: [{ ...policy.rules[0], testEvidence: { commands: [], subjects: [] } }]
