@@ -1127,11 +1127,16 @@ archctx book export --format yaml|markdown|json
 
 ### GA exit gate
 
-- [ ] **AL10-GA-1** — No event loss/duplication in 10,000-event stress suite.
-- [ ] **AL10-GA-2** — Warm query p95 ≤ 200 ms on representative repositories.
-- [ ] **AL10-GA-3** — Incremental deterministic analysis p95 ≤ 2 s for ≤200 changed files.
-- [ ] **AL10-GA-4** — Stale writes, path escapes and forged evidence blocked 100%.
-- [ ] **AL10-GA-5** — Hard-gate false positives = 0.
+- [x] **AL10-GA-1** — No event loss/duplication in 10,000-event stress suite.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` appends and replays 10,000 architecture ledger events, records 10,000 unique event IDs, lost event count 0, duplicate event count 0, SQLite event rows 10,000 and integrity OK.
+- [x] **AL10-GA-2** — Warm query p95 ≤ 200 ms on representative repositories.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified representative benchmark packet and records warm Book query p95 96.8 ms across three representative repositories against the 200 ms GA budget.
+- [x] **AL10-GA-3** — Incremental deterministic analysis p95 ≤ 2 s for ≤200 changed files.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` runs five non-coalesced CLI checkpoint samples over 200 changed files through the daemon/checkpoint path and records p95 96.994 ms against the 2,000 ms GA budget.
+- [x] **AL10-GA-4** — Stale writes, path escapes and forged evidence blocked 100%.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified chaos/security packet and records 100% pass rate for stale replay rejection, event tamper detection, path traversal rejection, symlink escape rejection and forged evidence rejection.
+- [x] **AL10-GA-5** — Hard-gate false positives = 0.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified recommendation-quality packet and records heuristic-only hard-gate rate 0, dynamic-doc hard-gate rate 0, combined hard-gate false-positive rate 0 and failed eval gate count 0.
 - [ ] **AL10-GA-6** — External/independent architecture and security review accepted.
 - [ ] **AL10-GA-7** — Production rollback drill completed.
 
@@ -1210,6 +1215,13 @@ archctx book export --format yaml|markdown|json
   - Unresolved risks: missing AL10-14 beta-user interview evidence, missing independent approval artifact, hook enqueue p95 154.458 ms over the 150 ms beta target and open AL10-GA gates.
   - Verification artifact: `docs/verification/architecture-ledger-al10-beta-decision-readback.json`, `docs/verification/architecture-ledger-al10-beta-decision.md`.
   - Verification: `bun run record:al10:beta-decision`; `bun run readback:al10:beta-decision`; `bun test scripts/architecture-ledger-al10-beta-decision-readback.test.ts`.
+- 2026-06-26: Completed AL10 GA technical gates on branch `codex/architecture-ledger-al10-ga-technical-gates`.
+  - Scope: closes AL10-GA-1 through AL10-GA-5 only; AL10-14 beta-user interviews, AL10-GA-6 external/independent review and AL10-GA-7 production rollback drill remain open.
+  - Stress: appends and replays 10,000 architecture ledger events with 10,000 unique IDs, lost event count 0, duplicate event count 0, SQLite event rows 10,000 and integrity OK.
+  - Performance: reuses the verified representative benchmark for warm Book query p95 96.8 ms against the 200 ms GA budget and runs five non-coalesced 200-file checkpoint samples with incremental deterministic analysis p95 96.994 ms against the 2,000 ms GA budget.
+  - Security/eval: reads the verified chaos/security matrix for stale replay, event tamper, path traversal, symlink escape and forged evidence pass rate 100%; reads recommendation-quality evidence for hard-gate false-positive rate 0.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-ga-technical-readback.json`, `docs/verification/architecture-ledger-al10-ga-technical.md`.
+  - Verification: `bun run record:al10:ga-technical`; `bun run readback:al10:ga-technical`; `bun test scripts/architecture-ledger-al10-ga-technical-readback.test.ts`.
 
 ---
 

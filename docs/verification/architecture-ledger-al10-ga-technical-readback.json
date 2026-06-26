@@ -1,0 +1,265 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-ga-technical-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-GA-1",
+    "AL10-GA-2",
+    "AL10-GA-3",
+    "AL10-GA-4",
+    "AL10-GA-5"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "architecture-ledger-ga-technical-gates",
+    "authority": "local deterministic GA technical readback",
+    "closedGates": [
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5"
+    ],
+    "explicitlyOpen": [
+      "AL10-14",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ],
+    "nonClaims": [
+      "does not close AL10-14 beta-user interviews",
+      "does not close AL10-GA-6 external review",
+      "does not close AL10-GA-7 production rollback drill"
+    ]
+  },
+  "thresholds": {
+    "stressEventCount": 10000,
+    "warmQueryP95Ms": 200,
+    "changedFileCount": 200,
+    "incrementalAnalysisP95Ms": 2000,
+    "incrementalAnalysisSamples": 5,
+    "securityPassRate": 1,
+    "hardGateFalsePositiveRate": 0
+  },
+  "sources": [
+    {
+      "id": "representative-benchmark",
+      "path": "docs/verification/architecture-ledger-al10-representative-benchmark-readback.json",
+      "expectedGates": [
+        "AL10-03",
+        "AL10-04",
+        "AL10-BETA-1"
+      ]
+    },
+    {
+      "id": "chaos-security",
+      "path": "docs/verification/architecture-ledger-al10-chaos-security-readback.json",
+      "expectedGates": [
+        "AL10-05",
+        "AL10-06"
+      ]
+    },
+    {
+      "id": "recommendation-quality",
+      "path": "docs/verification/architecture-ledger-al10-recommendation-quality-readback.json",
+      "expectedGates": [
+        "AL10-08",
+        "AL10-BETA-4"
+      ]
+    }
+  ],
+  "sourceReadbacks": [
+    {
+      "id": "representative-benchmark",
+      "path": "docs/verification/architecture-ledger-al10-representative-benchmark-readback.json",
+      "sha256": "sha256:e47bbcab45c50c3afce7d04fce5e649c5ab90968b96f27597fbd473482cd7b3a",
+      "status": "verified",
+      "gates": [
+        "AL10-03",
+        "AL10-04",
+        "AL10-BETA-1"
+      ],
+      "fixtureCount": 3,
+      "warmQueryP95Ms": 96.8,
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "chaos-security",
+      "path": "docs/verification/architecture-ledger-al10-chaos-security-readback.json",
+      "sha256": "sha256:806b76a8a9c768bbc4609726dc7d500e7df2d0b97fdd10dff5430b3737b4c4a3",
+      "status": "verified",
+      "gates": [
+        "AL10-05",
+        "AL10-06"
+      ],
+      "verifiedCaseCount": 5,
+      "requiredCaseCount": 5,
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "recommendation-quality",
+      "path": "docs/verification/architecture-ledger-al10-recommendation-quality-readback.json",
+      "sha256": "sha256:b74831c11b36158d4e43ad28263d6f1ce391fb18c30f38fa43d32a3289873afa",
+      "status": "verified",
+      "gates": [
+        "AL10-08",
+        "AL10-BETA-4"
+      ],
+      "hardGateFalsePositiveRate": 0,
+      "failedEvalGateCount": 0,
+      "missingTerms": [],
+      "verified": true
+    }
+  ],
+  "stress": {
+    "databasePath": "$TMPDIR/archctx-al10-ga-stress/runtime.sqlite",
+    "eventCount": 10000,
+    "appendedEventCount": 10000,
+    "replayEventCount": 10000,
+    "uniqueEventIds": 10000,
+    "lostEventCount": 0,
+    "duplicateEventCount": 0,
+    "entityCount": 10000,
+    "relationCount": 1,
+    "constraintCount": 1,
+    "graphDigest": "sha256:2df7db40f0e726e4175927f54188aad21eef43f8f9d7b61d648dbd4c9b279205",
+    "materializedDigest": "sha256:2df7db40f0e726e4175927f54188aad21eef43f8f9d7b61d648dbd4c9b279205",
+    "integrityOk": true,
+    "sqliteEventRows": 10000,
+    "sqliteCurrentRows": 10002,
+    "ftsRows": 20002,
+    "elapsedMs": 56811.815
+  },
+  "performance": {
+    "representativeFixtureCount": 3,
+    "warmQueryP95Ms": 96.8,
+    "warmQueryBudgetMs": 200,
+    "incrementalAnalysisP95Ms": 96.994,
+    "incrementalAnalysisBudgetMs": 2000
+  },
+  "incrementalAnalysis": {
+    "changedFileCount": 200,
+    "sampleCount": 5,
+    "p95Ms": 96.994,
+    "maxMs": 96.994,
+    "minMs": 78.702,
+    "failedSampleCount": 0,
+    "nonCoalescedSampleCount": 5,
+    "samples": [
+      {
+        "sample": 0,
+        "elapsedMs": 81.37,
+        "ok": true,
+        "coalesced": false,
+        "skippedAnalysis": false,
+        "resultDigest": "sha256:cde1f412456d0172e39267684092871125a2b3981892e1a937456d7b3029db58",
+        "findingCount": 0
+      },
+      {
+        "sample": 1,
+        "elapsedMs": 78.702,
+        "ok": true,
+        "coalesced": false,
+        "skippedAnalysis": false,
+        "resultDigest": "sha256:54048dbb190fa66e86dab0d00358b331c2c1c4d70f1747818a25917ee3d7f60e",
+        "findingCount": 0
+      },
+      {
+        "sample": 2,
+        "elapsedMs": 96.994,
+        "ok": true,
+        "coalesced": false,
+        "skippedAnalysis": false,
+        "resultDigest": "sha256:f94907c5b8206fac0204f22b9f926d61e30aa0b5d048f9783c9f53015cc90b77",
+        "findingCount": 0
+      },
+      {
+        "sample": 3,
+        "elapsedMs": 83.723,
+        "ok": true,
+        "coalesced": false,
+        "skippedAnalysis": false,
+        "resultDigest": "sha256:59f327267ef017e4bfec2fa2a1063176072f3129ad76d20feac79ece2187c382",
+        "findingCount": 0
+      },
+      {
+        "sample": 4,
+        "elapsedMs": 84.833,
+        "ok": true,
+        "coalesced": false,
+        "skippedAnalysis": false,
+        "resultDigest": "sha256:e060a02d4a732996cff312747d7eceab1eace38b890aef3b26da77edb714958f",
+        "findingCount": 0
+      }
+    ],
+    "changedPathsDigest": "sha256:8d5543a08937735e8fffee61ea9e81e1ede741cf103faff651f3649593b1aced"
+  },
+  "security": {
+    "requiredCases": [
+      {
+        "caseId": "stale-replay",
+        "ok": true,
+        "reasonCode": "AC_CONTEXT_STALE",
+        "guard": "runtime jobsComplete stale head/worktree rejection"
+      },
+      {
+        "caseId": "event-tamper",
+        "ok": true,
+        "reasonCode": "materialized-current-state-does-not-match-replay",
+        "guard": "checkArchitectureLedgerIntegrity replay/materialized digest comparison"
+      },
+      {
+        "caseId": "path-traversal",
+        "ok": true,
+        "reasonCode": "repo-relative-path-required",
+        "guard": "assertRepoRelativePath"
+      },
+      {
+        "caseId": "symlink-escape",
+        "ok": true,
+        "reasonCode": "legacy-sqlite-symlink-rejected",
+        "guard": "migrateLegacyLocalStoreIfNeeded trusted legacy source check"
+      },
+      {
+        "caseId": "forged-evidence",
+        "ok": true,
+        "reasonCode": "AC_SCHEMA_INVALID,AC_SCHEMA_INVALID,AC_SCHEMA_INVALID",
+        "guard": "CLI review/complete caller-provided attestation field rejection"
+      }
+    ],
+    "requiredCaseCount": 5,
+    "verifiedCaseCount": 5,
+    "passRate": 1
+  },
+  "recommendations": {
+    "heuristicOnlyHardGateRate": 0,
+    "dynamicDocHardGateRate": 0,
+    "hardGateFalsePositiveRate": 0,
+    "failedEvalGateCount": 0,
+    "hardGateMissCount": 0
+  },
+  "privacy": {
+    "forbiddenSecretHitCount": 0,
+    "forbiddenRawContentHitCount": 0,
+    "secretHits": [],
+    "rawContentHits": [],
+    "clean": true
+  },
+  "assertions": {
+    "AL10-GA-1": true,
+    "AL10-GA-2": true,
+    "AL10-GA-3": true,
+    "AL10-GA-4": true,
+    "AL10-GA-5": true,
+    "sourceReadbacksVerified": true,
+    "openGatesPreserved": true,
+    "noPrivateContent": true
+  },
+  "readbackDigest": "sha256:272ae9ec2dd04f73c6d88f1c916b13926ac0c0be046c4cb9e6fb74c1b5139522",
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-ga-technical-readback.json --json",
+    "recordCommand": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts run --out docs/verification/architecture-ledger-al10-ga-technical-readback.json --report docs/verification/architecture-ledger-al10-ga-technical.md --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-ga-technical.md"
+  },
+  "failures": []
+}
