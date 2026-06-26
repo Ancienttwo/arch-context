@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,20 @@ function tempModel(): string {
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   initializeArchContextModel(root, "MCP App");
   return root;
+}
+
+function tempGitModel(): string {
+  const root = tempModel();
+  git(root, "init");
+  git(root, "config", "user.email", "archcontext@example.test");
+  git(root, "config", "user.name", "ArchContext Test");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "fixture");
+  return root;
+}
+
+function git(root: string, ...args: string[]): void {
+  execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 }
 
 async function createTestServer(): Promise<McpLocalServer> {
@@ -142,6 +157,86 @@ describe("local MCP server", () => {
         }
       });
       expect(await server.readResource("https://example.test/context7", root)).toBeUndefined();
+    } finally {
+      await daemon.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("MCP exposes Architecture Book readbacks as resources without expanding the tool surface", async () => {
+    const root = tempGitModel();
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore(),
+      clock: () => "2026-06-26T00:00:00.000Z"
+    });
+    try {
+      await daemon.init(root, "MCP Book App");
+      const rebuild = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      });
+      expect(rebuild.ok).toBe(true);
+      const server = new McpLocalServer(daemon);
+
+      expect(server.listTools().map((tool) => tool.name)).toEqual(LOCAL_MCP_TOOLS.map((tool) => tool.name));
+      const resources = await server.listResources(root);
+      const resourceUris = resources.map((resource) => resource.uri);
+      expect(resourceUris).toEqual(expect.arrayContaining([
+        "archcontext://book/status",
+        "archcontext://book/state",
+        "archcontext://book/timeline",
+        "archcontext://book/diff",
+        "archcontext://book/recommendations"
+      ]));
+
+      const status = await server.readResource("archcontext://book/status", root) as any;
+      const daemonStatus = await daemon.book(root, { command: "status" }) as any;
+      expect(status).toMatchObject({
+        ok: true,
+        requestId: "book.status",
+        data: {
+          schemaVersion: "archcontext.book-status/v1",
+          freshness: {
+            schemaVersion: "archcontext.book-freshness/v1"
+          }
+        }
+      });
+      expect(status.data.counts).toEqual(daemonStatus.data.counts);
+      expect(status.data.freshness.graphDigest).toBe(daemonStatus.data.freshness.graphDigest);
+      expect(typeof status.data.freshness.ledgerCursor.eventCount).toBe("number");
+      expect(status.data.freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
+
+      const state = await server.readResource("archcontext://book/state", root) as any;
+      expect(state).toMatchObject({
+        ok: true,
+        requestId: "book.export",
+        data: {
+          schemaVersion: "archcontext.book-export/v1",
+          format: "json",
+          freshness: { schemaVersion: "archcontext.book-freshness/v1" }
+        }
+      });
+      expect(state.data.state.entities.length).toBeGreaterThan(0);
+
+      const timeline = await server.readResource("archcontext://book/timeline", root) as any;
+      expect(timeline.ok).toBe(true);
+      expect(timeline.data.schemaVersion).toBe("archcontext.architecture-book-timeline/v1");
+      expect(timeline.data.events.length).toBeGreaterThan(0);
+      expect(timeline.data.freshness.graphDigest).toBe(status.data.freshness.graphDigest);
+
+      const diff = await server.readResource("archcontext://book/diff", root) as any;
+      expect(diff.ok).toBe(true);
+      expect(diff.data.schemaVersion).toBe("archcontext.architecture-book-diff/v1");
+      expect(diff.data.summary.added).toBeGreaterThan(0);
+      expect(diff.data.freshness.projectionDigest).toBe(status.data.freshness.projectionDigest);
+
+      const recommendations = await server.readResource("archcontext://book/recommendations", root) as any;
+      expect(recommendations.ok).toBe(true);
+      expect(recommendations.data.schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
+      expect(recommendations.data.freshness.worktreeDigest).toBe(status.data.freshness.worktreeDigest);
+      expect(JSON.stringify({ state, timeline, diff, recommendations })).not.toContain("sourceCode");
     } finally {
       await daemon.stop();
       rmSync(root, { recursive: true, force: true });

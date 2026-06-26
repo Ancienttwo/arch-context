@@ -1,6 +1,6 @@
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertNoCallerProvidedAttestationFields, errorEnvelope, type Json } from "@archcontext/contracts";
-import { createRuntimeRpcClientFromConnectionFile, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
 
@@ -59,6 +59,49 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
     name: "archcontext_complete_task",
     description: "Call before final response. Runs completion gate and returns ReviewResult.",
     annotations: { safety: "read-only", requiresConfirmation: false }
+  }
+];
+
+const ARCHITECTURE_BOOK_RESOURCES: Array<McpResourceDefinition & { input: RuntimeBookInput }> = [
+  {
+    uri: "archcontext://book/status",
+    name: "Architecture Book status",
+    description: "Read Architecture Book freshness, drift, counts, and supported commands from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "status" }
+  },
+  {
+    uri: "archcontext://book/state",
+    name: "Architecture Book state",
+    description: "Read the current metadata-only Architecture Book state from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "export", format: "json" }
+  },
+  {
+    uri: "archcontext://book/timeline",
+    name: "Architecture Book timeline",
+    description: "Read recent Architecture Book events and freshness metadata from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "timeline", maxItems: 100 }
+  },
+  {
+    uri: "archcontext://book/diff",
+    name: "Architecture Book diff",
+    description: "Read the metadata-only diff from the empty ledger state to the current Architecture Book state.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "diff", fromRef: "empty", toRef: "current", maxItems: 100 }
+  },
+  {
+    uri: "archcontext://book/recommendations",
+    name: "Architecture Book recommendations",
+    description: "Read Architecture Book recommendations from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "recommendations", maxItems: 100 }
   }
 ];
 
@@ -181,13 +224,16 @@ export class McpLocalServer {
   }
 
   async listResources(root = process.cwd()): Promise<McpResourceDefinition[]> {
-    const localResources = [...this.resources.keys()].map((uri) => ({
-      uri,
-      name: uri,
-      description: "Daemon-budgeted local architecture result.",
-      mimeType: "application/json" as const,
-      annotations: { safety: "read-only" as const }
-    }));
+    const localResources: McpResourceDefinition[] = [
+      ...ARCHITECTURE_BOOK_RESOURCES.map(({ input: _input, ...resource }) => resource),
+      ...[...this.resources.keys()].map((uri) => ({
+        uri,
+        name: uri,
+        description: "Daemon-budgeted local architecture result.",
+        mimeType: "application/json" as const,
+        annotations: { safety: "read-only" as const }
+      }))
+    ];
     try {
       const status = await (await this.runtime(root)).docs(root, { command: "status", provider: "context7" });
       if (!status.ok) return localResources;
@@ -216,6 +262,14 @@ export class McpLocalServer {
   async readResource(uri: string, root = process.cwd()): Promise<Json | undefined> {
     const local = this.resources.get(uri);
     if (local) return local;
+    const book = architectureBookResourceInput(uri);
+    if (book) {
+      try {
+        return await (await this.runtime(root)).book(root, book) as unknown as Json;
+      } catch (error) {
+        return runtimeUnavailable("book.resource", error).content;
+      }
+    }
     if (!isExternalDocumentationResourceUri(uri)) return undefined;
     try {
       const result = await (await this.runtime(root)).readResource(root, uri);
@@ -394,4 +448,8 @@ export async function runStdioMcpLoop(input: AsyncIterable<string>, output: (lin
 
 function isExternalDocumentationResourceUri(uri: string): boolean {
   return /^archcontext:\/\/external-docs\/context7\/sha256:[0-9a-f]{64}$/.test(uri);
+}
+
+function architectureBookResourceInput(uri: string): RuntimeBookInput | undefined {
+  return ARCHITECTURE_BOOK_RESOURCES.find((resource) => resource.uri === uri)?.input;
 }

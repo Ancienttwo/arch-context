@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval slice complete; AL7 MCP/context/benchmark slices remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval and MCP resource slices complete; AL7 context/benchmark/privacy slices remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -819,8 +819,12 @@ archctx book export --format yaml|markdown|json
 - [x] **AL7-08 · P0 · `cli`** — Implement the Book commands with stable JSON envelopes and reason codes.
   - Evidence: `archctx book status/query/show/neighbors/timeline/diff/evidence/recommendations/export` delegates to daemon Book RPC; CLI fixture covers stable success envelopes and schema errors stay centralized.
   - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
-- [ ] **AL7-09 · P0 · `mcp-local`** — Expose architecture state, timeline, diff and recommendations primarily as MCP resources.
-- [ ] **AL7-10 · P0 · `mcp-local`** — Keep the existing small tool surface; route mutations through existing plan/apply tools rather than adding one tool per query.
+- [x] **AL7-09 · P0 · `mcp-local`** — Expose architecture state, timeline, diff and recommendations primarily as MCP resources.
+  - Evidence: `archcontext://book/status`, `archcontext://book/state`, `archcontext://book/timeline`, `archcontext://book/diff` and `archcontext://book/recommendations` are fixed read-only MCP resources backed by daemon Book RPC.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-mcp-resources.md`.
+- [x] **AL7-10 · P0 · `mcp-local`** — Keep the existing small tool surface; route mutations through existing plan/apply tools rather than adding one tool per query.
+  - Evidence: `LOCAL_MCP_TOOLS` remains the existing six workflow tools; the MCP Book fixture asserts the tool list is unchanged while Book readbacks are served as resources.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-mcp-resources.md`.
 - [ ] **AL7-11 · P0 · `context-compiler`** — Consume ledger queries first, then request only missing code facts from CodeGraph.
 - [ ] **AL7-12 · P1 · `retrieval`** — Add explain mode showing why each entity or recommendation was selected.
 - [ ] **AL7-13 · P1 · `retrieval`** — Add FTS fallback for architecture prose and ADR summaries; do not add a vector database yet.
@@ -843,6 +847,11 @@ archctx book export --format yaml|markdown|json
   - CLI: `archctx book status/query/show/neighbors/timeline/diff/evidence/recommendations/export` returns stable JSON envelopes with freshness on successful reads.
   - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
   - Focused verification: `bun run typecheck`; `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "Book" --timeout 120000`.
+- 2026-06-26: Completed AL7 MCP Book resources slice on branch `codex/architecture-ledger-al7-mcp-resources`.
+  - MCP resources: `archcontext://book/status`, `state`, `timeline`, `diff` and `recommendations` expose daemon Book readbacks without adding query tools.
+  - Tool posture: `LOCAL_MCP_TOOLS` remains the six existing workflow tools, preserving plan/apply as the mutation path.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-mcp-resources.md`.
+  - Verification: `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts --timeout 120000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-mcp-resources-verify-state-XXXXXX) bun run verify`.
 
 ---
 
