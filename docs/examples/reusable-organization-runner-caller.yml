@@ -21,8 +21,8 @@ jobs:
       expected_repository: ${{ github.repository }}
       expected_head_sha: ${{ github.event.pull_request.head.sha }}
       expected_head_tree_oid: <head tree OID from Challenge>
-      runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.1.3.tgz
+      runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.1.4-beta.0.tgz
       runtime_artifact_digest: sha256:<release-digest>
-      runtime_version: "0.1.3"
+      runtime_version: "0.1.4-beta.0"
       fail_on: blocking
       fork_pr_mode: unsupported

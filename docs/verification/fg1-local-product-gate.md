@@ -185,6 +185,41 @@ No GitHub, Cloud, source, diff, patch, symbol, or detailed finding route is intr
 
 FG1 is complete at E2. Host-owned config file mutation/readback and doctor auto-remediation remain outside this milestone; FG1 keeps MCP host config rendering read-only and doctor diagnostics non-mutating by design.
 
+## 2026-06-27 Acceptance Addendum: MCP Runtime Auto-start
+
+Scope:
+
+- `archctx mcp` keeps protocol-only requests such as `tools/list` independent of daemon startup.
+- Runtime-dependent MCP tool calls such as `archcontext_practices` lazily start the same local `archctxd` daemon when no healthy daemon RPC connection exists.
+- MCP still does not create a second Store, CodeGraph handle, ChangeSet engine, or in-process production runtime.
+- `archctx mcp status` remains a host configuration readback and does not prove daemon health.
+- External user testing reported PASS for the MCP auto-start workflow.
+
+Commands:
+
+```bash
+bun test packages/surfaces/mcp-local/test/mcp-local.test.ts packages/surfaces/cli/test/cli.test.ts
+node scripts/packaged-cli-smoke.mjs
+bun run typecheck
+git diff --check
+node scripts/sprint-status-check.mjs
+```
+
+Results:
+
+- MCP/CLI focused tests: PASS, 48 tests across `packages/surfaces/mcp-local/test/mcp-local.test.ts` and `packages/surfaces/cli/test/cli.test.ts`.
+- `node scripts/packaged-cli-smoke.mjs`: PASS, including MCP runtime tool-call daemon auto-start through the packaged `archctx` command.
+- `bun run typecheck`: PASS.
+- `git diff --check`: PASS.
+- `node scripts/sprint-status-check.mjs`: PASS.
+- External user testing: PASS.
+
+Negative tests:
+
+- `tools/list` does not resolve or start runtime state.
+- A failing injected runtime resolver returns `AC_RUNTIME_UNAVAILABLE` instead of creating an independent runtime.
+- Documentation distinguishes MCP host configuration readiness from daemon health.
+
 ## Linked CI / GitHub Run IDs
 
 - Verify run `27967560199`, head `05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6`: https://github.com/Ancienttwo/arch-context/actions/runs/27967560199

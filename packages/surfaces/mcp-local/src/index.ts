@@ -29,6 +29,13 @@ export interface McpResourceDefinition {
   };
 }
 
+export type McpRuntimeResolver = (root: string) => RuntimeDaemonClient | Promise<RuntimeDaemonClient>;
+
+export interface McpLocalServerOptions {
+  runtime?: RuntimeDaemonClient;
+  runtimeResolver?: McpRuntimeResolver;
+}
+
 export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
     name: "archcontext_prepare_task",
@@ -108,9 +115,15 @@ const ARCHITECTURE_BOOK_RESOURCES: Array<McpResourceDefinition & { input: Runtim
 export class McpLocalServer {
   readonly resources = new Map<string, Json>();
   private runtimeInstance?: RuntimeDaemonClient;
+  private runtimeResolver?: McpRuntimeResolver;
 
-  constructor(runtime?: RuntimeDaemonClient) {
-    this.runtimeInstance = runtime;
+  constructor(runtimeOrOptions?: RuntimeDaemonClient | McpLocalServerOptions) {
+    if (isMcpLocalServerOptions(runtimeOrOptions)) {
+      this.runtimeInstance = runtimeOrOptions.runtime;
+      this.runtimeResolver = runtimeOrOptions.runtimeResolver;
+    } else {
+      this.runtimeInstance = runtimeOrOptions;
+    }
   }
 
   listTools(): McpToolDefinition[] {
@@ -235,7 +248,7 @@ export class McpLocalServer {
       }))
     ];
     try {
-      const status = await (await this.runtime(root)).docs(root, { command: "status", provider: "context7" });
+      const status = await (await this.runtime(root, { allowResolver: false })).docs(root, { command: "status", provider: "context7" });
       if (!status.ok) return localResources;
       const cacheEntries = ((status.data as any)?.cacheEntries ?? []) as Array<Record<string, unknown>>;
       return [
@@ -301,7 +314,7 @@ export class McpLocalServer {
     };
   }
 
-  private async runtime(root = process.cwd()): Promise<RuntimeDaemonClient> {
+  private async runtime(root = process.cwd(), options: { allowResolver?: boolean } = { allowResolver: true }): Promise<RuntimeDaemonClient> {
     if (this.runtimeInstance) return this.runtimeInstance;
     const client = createRuntimeRpcClientFromConnectionFile(root);
     if (client) {
@@ -311,8 +324,16 @@ export class McpLocalServer {
         return this.runtimeInstance;
       }
     }
+    if (options.allowResolver !== false && this.runtimeResolver) {
+      this.runtimeInstance = await this.runtimeResolver(root);
+      return this.runtimeInstance;
+    }
     throw new Error("archctxd RPC is unavailable; run `archctx daemon start` before using the local MCP surface");
   }
+}
+
+function isMcpLocalServerOptions(value: RuntimeDaemonClient | McpLocalServerOptions | undefined): value is McpLocalServerOptions {
+  return Boolean(value && typeof value === "object" && ("runtime" in value || "runtimeResolver" in value));
 }
 
 function requiredArg(args: Record<string, any>, key: string): string {
@@ -421,8 +442,13 @@ export class SecureMcpTunnelManager {
   }
 }
 
-export async function runStdioMcpLoop(input: AsyncIterable<string>, output: (line: string) => void, log: (line: string) => void = (line) => process.stderr.write(`${line}\n`)): Promise<void> {
-  const server = new McpLocalServer();
+export async function runStdioMcpLoop(
+  input: AsyncIterable<string>,
+  output: (line: string) => void,
+  log: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
+  options: McpLocalServerOptions = {}
+): Promise<void> {
+  const server = new McpLocalServer(options);
   log("[archctx-mcp] started");
   for await (const line of input) {
     const message = JSON.parse(line);

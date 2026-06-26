@@ -12,7 +12,7 @@
       "required": ["name", "version", "distribution"],
       "properties": {
         "name": { "const": "archctx" },
-        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "version": { "$ref": "#/$defs/semver" },
         "distribution": { "enum": ["one-package"] }
       }
     },
@@ -37,7 +37,7 @@
           "required": ["packageName", "version", "entrypoint", "rpcSchemaVersion"],
           "properties": {
             "packageName": { "type": "string", "minLength": 1 },
-            "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+            "version": { "$ref": "#/$defs/semver" },
             "entrypoint": { "type": "string", "minLength": 1 },
             "rpcSchemaVersion": { "const": "archcontext.runtime-rpc/v1" }
           }
@@ -48,7 +48,7 @@
           "required": ["packageName", "version", "entrypoint", "transport"],
           "properties": {
             "packageName": { "type": "string", "minLength": 1 },
-            "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+            "version": { "$ref": "#/$defs/semver" },
             "entrypoint": { "type": "string", "minLength": 1 },
             "transport": { "enum": ["stdio"] }
           }
@@ -61,7 +61,7 @@
       "required": ["schemaSetVersion", "contractsPackageVersion", "reviewChallenge", "attestation", "deviceIdentity", "runnerIdentity"],
       "properties": {
         "schemaSetVersion": { "type": "string", "minLength": 1 },
-        "contractsPackageVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "contractsPackageVersion": { "$ref": "#/$defs/semver" },
         "reviewChallenge": { "const": "archcontext.review-challenge/v2" },
         "attestation": { "const": "archcontext.attestation/v2" },
         "deviceIdentity": { "const": "archcontext.device-identity/v1" },
@@ -97,13 +97,17 @@
     }
   },
   "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
     "surface": {
       "type": "object",
       "additionalProperties": false,
       "required": ["packageName", "version", "entrypoint"],
       "properties": {
         "packageName": { "type": "string", "minLength": 1 },
-        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+        "version": { "$ref": "#/$defs/semver" },
         "entrypoint": { "type": "string", "minLength": 1 }
       }
     }

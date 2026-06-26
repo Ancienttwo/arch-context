@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { architectureLedgerStateDigest, type ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
-import { digestJson, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { assertNoSourceStorageSchema, migrationSql, SqliteLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
@@ -38,7 +38,9 @@ const RAW_CONTENT_PATTERNS = [
   /"sourceBody"\s*:/i,
   /"diffBody"\s*:/i,
   /promptBody/i,
-  /completionBody/i
+  /completionBody/i,
+  /fullCodeGraphOutput/i,
+  /rawCodeGraph/i
 ] as const;
 const SECRET_PATTERNS = [
   /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/,
@@ -109,6 +111,8 @@ export async function buildArchitectureLedgerAl10GaTechnicalPacket() {
   const performance = summarizePerformance(sourcePackets.benchmark.packet, incrementalAnalysis);
   const security = summarizeSecurity(sourcePackets.chaosSecurity.packet);
   const recommendations = summarizeRecommendations(sourcePackets.recommendationQuality.packet);
+  const runtimeStatePrivacy = stress.runtimeStatePrivacy;
+  const subagentMutation = stress.subagentMutation;
   const sourceReadbacks = [
     inspectBenchmarkSource(sourcePackets.benchmark),
     inspectChaosSecuritySource(sourcePackets.chaosSecurity),
@@ -120,6 +124,8 @@ export async function buildArchitectureLedgerAl10GaTechnicalPacket() {
     performance,
     security,
     recommendations,
+    runtimeStatePrivacy,
+    subagentMutation,
     sourceReadbacks
   });
   const assertions = {
@@ -145,8 +151,19 @@ export async function buildArchitectureLedgerAl10GaTechnicalPacket() {
       && recommendations.dynamicDocHardGateRate === 0
       && recommendations.failedEvalGateCount === 0,
     sourceReadbacksVerified: sourceReadbacks.every((source) => source.verified),
+    runtimeSqlitePayloadPrivacyVerified: runtimeStatePrivacy.clean === true
+      && runtimeStatePrivacy.jsonColumnCount > 0
+      && runtimeStatePrivacy.scannedCellCount > 0
+      && runtimeStatePrivacy.forbiddenRawContentHitCount === 0
+      && runtimeStatePrivacy.forbiddenSecretHitCount === 0,
+    subagentDirectMutationRejected: subagentMutation.directMutationAttempt.rejected === true
+      && subagentMutation.directMutationAttempt.reasonCode === "runtime-agent-job-direct-mutation-forbidden"
+      && subagentMutation.directMutationAttempt.architectureEventRowsUnchanged === true
+      && subagentMutation.proposalOnlyJob.accepted === true
+      && subagentMutation.proposalOnlyJob.directMutationAllowed === false
+      && subagentMutation.proposalOnlyJob.architectureEventRowsUnchanged === true,
     openGatesPreserved: sameStringSet(EXPLICITLY_OPEN, EXPLICITLY_OPEN),
-    noPrivateContent: privacy.clean
+    noPrivateContent: privacy.clean && runtimeStatePrivacy.clean
   };
   const readbackDigest = digestJson({
     schemaVersion: SCHEMA_VERSION,
@@ -155,6 +172,8 @@ export async function buildArchitectureLedgerAl10GaTechnicalPacket() {
     incrementalAnalysis,
     security,
     recommendations,
+    runtimeStatePrivacy,
+    subagentMutation,
     sourceReadbacks,
     privacy,
     assertions
@@ -195,6 +214,8 @@ export async function buildArchitectureLedgerAl10GaTechnicalPacket() {
     incrementalAnalysis,
     security,
     recommendations,
+    runtimeStatePrivacy,
+    subagentMutation,
     privacy,
     assertions,
     readbackDigest,
@@ -225,6 +246,8 @@ export function inspectArchitectureLedgerAl10GaTechnicalReadback(packet: any) {
   inspectIncrementalAnalysis(packet.incrementalAnalysis, failures);
   inspectSecurity(packet.security, failures);
   inspectRecommendations(packet.recommendations, failures);
+  inspectRuntimeStatePrivacy(packet.runtimeStatePrivacy, failures);
+  inspectSubagentMutation(packet.subagentMutation, failures);
   inspectPrivacyPacket(packet.privacy, failures);
   inspectAssertions(packet.assertions, failures);
 
@@ -237,7 +260,9 @@ export function inspectArchitectureLedgerAl10GaTechnicalReadback(packet: any) {
     performance: packet.performance,
     incrementalAnalysis: packet.incrementalAnalysis,
     security: packet.security,
-    recommendations: packet.recommendations
+    recommendations: packet.recommendations,
+    runtimeStatePrivacy: packet.runtimeStatePrivacy,
+    subagentMutation: packet.subagentMutation
   };
 }
 
@@ -253,6 +278,8 @@ async function runGaStressProbe() {
     const append = await store.appendArchitectureEvents({ writer: "runtime-daemon", events });
     const replay = await store.replayArchitectureLedger(LEDGER_SCOPE);
     const integrity = await store.checkArchitectureLedgerIntegrity(LEDGER_SCOPE);
+    const subagentMutation = await runSubagentMutationProbe(store, databasePath);
+    const runtimeStatePrivacy = auditRuntimeSqlitePayloadSurface(databasePath);
     const uniqueEventIds = new Set(replay.events.map((event) => event.eventId)).size;
     const duplicateEventCount = replay.events.length - uniqueEventIds;
     return {
@@ -272,6 +299,8 @@ async function runGaStressProbe() {
       sqliteEventRows: sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events"),
       sqliteCurrentRows: sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_current_graph_view"),
       ftsRows: sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_search_fts"),
+      runtimeStatePrivacy,
+      subagentMutation,
       elapsedMs: roundMs(performance.now() - started)
     };
   } finally {
@@ -353,6 +382,120 @@ async function runIncrementalAnalysisProbe() {
   } finally {
     await daemon?.stop().catch(() => undefined);
     rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+  }
+}
+
+async function runSubagentMutationProbe(store: SqliteLocalStore, databasePath: string) {
+  const eventRowsBefore = sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events");
+  const rejectedJob = {
+    ...runtimeAgentJob("direct-mutation"),
+    directMutationAllowed: true
+  } as unknown as AgentJobV1;
+  let directMutationError = "";
+  try {
+    await store.enqueueRuntimeAgentJob({
+      job: rejectedJob,
+      analysisKind: "architecture-delta",
+      coalesceKey: "al10-ga-direct-mutation"
+    });
+  } catch (error) {
+    directMutationError = error instanceof Error ? error.message : String(error);
+  }
+  const eventRowsAfterRejected = sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events");
+  const queueRowsAfterRejected = sqliteScalar(databasePath, "SELECT COUNT(*) FROM runtime_job_queue");
+
+  const proposalJob = runtimeAgentJob("proposal-only");
+  const enqueue = await store.enqueueRuntimeAgentJob({
+    job: proposalJob,
+    analysisKind: "architecture-delta",
+    coalesceKey: "al10-ga-proposal-only",
+    maxAttempts: 1
+  });
+  const jobs = await store.listRuntimeAgentJobs(LEDGER_SCOPE);
+  const persisted = jobs.find((record) => record.job.jobId === proposalJob.jobId);
+  const eventRowsAfterProposal = sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events");
+  return {
+    directMutationAttempt: {
+      jobId: rejectedJob.jobId,
+      rejected: directMutationError.length > 0,
+      reasonCode: directMutationError.includes("runtime-agent-job-direct-mutation-forbidden")
+        ? "runtime-agent-job-direct-mutation-forbidden"
+        : directMutationError || "not-rejected",
+      queueRowsAfterRejected,
+      architectureEventRowsUnchanged: eventRowsAfterRejected === eventRowsBefore
+    },
+    proposalOnlyJob: {
+      jobId: proposalJob.jobId,
+      accepted: enqueue.enqueued === true && enqueue.record?.job.jobId === proposalJob.jobId,
+      status: persisted?.job.status ?? "",
+      directMutationAllowed: persisted?.job.directMutationAllowed,
+      queueRowsAfterAccepted: sqliteScalar(databasePath, "SELECT COUNT(*) FROM runtime_job_queue"),
+      persistedJobJsonDigest: persisted ? digestJson(persisted.job as unknown as Json) : "",
+      architectureEventRowsUnchanged: eventRowsAfterProposal === eventRowsBefore
+    }
+  };
+}
+
+function auditRuntimeSqlitePayloadSurface(databasePath: string) {
+  const db = new Database(databasePath, { readonly: true });
+  try {
+    const tables = db.query(
+      "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    ).all() as { name: string }[];
+    const tableSummaries = [];
+    const rawContentHits: ReturnType<typeof hitSummary>[] = [];
+    const secretHits: ReturnType<typeof hitSummary>[] = [];
+    let jsonColumnCount = 0;
+    let scannedCellCount = 0;
+    for (const table of tables) {
+      const columns = db.query(`PRAGMA table_info(${quoteIdentifier(table.name)})`).all() as { name: string }[];
+      const jsonColumns = columns.map((column) => column.name).filter(isJsonPayloadColumn);
+      if (jsonColumns.length === 0) continue;
+      jsonColumnCount += jsonColumns.length;
+      const rows = db.query(
+        `SELECT ${jsonColumns.map(quoteIdentifier).join(", ")} FROM ${quoteIdentifier(table.name)}`
+      ).all() as Record<string, unknown>[];
+      let tableScannedCellCount = 0;
+      rows.forEach((row, rowIndex) => {
+        for (const column of jsonColumns) {
+          const value = row[column];
+          if (value === null || value === undefined) continue;
+          const text = typeof value === "string" ? value : JSON.stringify(value);
+          tableScannedCellCount += 1;
+          scannedCellCount += 1;
+          for (const pattern of RAW_CONTENT_PATTERNS) {
+            if (pattern.test(text)) {
+              rawContentHits.push(hitSummary(table.name, column, rowIndex, pattern, text));
+            }
+          }
+          for (const pattern of SECRET_PATTERNS) {
+            if (pattern.test(text)) {
+              secretHits.push(hitSummary(table.name, column, rowIndex, pattern, text));
+            }
+          }
+        }
+      });
+      tableSummaries.push({
+        table: table.name,
+        jsonColumns,
+        rowCount: rows.length,
+        scannedCellCount: tableScannedCellCount
+      });
+    }
+    return {
+      databasePath: "$TMPDIR/archctx-al10-ga-stress/runtime.sqlite",
+      tableCount: tables.length,
+      jsonColumnCount,
+      scannedCellCount,
+      tableSummaries,
+      forbiddenRawContentHitCount: rawContentHits.length,
+      forbiddenSecretHitCount: secretHits.length,
+      rawContentHits,
+      secretHits,
+      clean: rawContentHits.length === 0 && secretHits.length === 0
+    };
+  } finally {
+    db.close();
   }
 }
 
@@ -529,6 +672,37 @@ function inspectRecommendations(recommendations: any, failures: string[]): void 
   if (recommendations?.failedEvalGateCount !== 0) failures.push("failed eval gate count must be 0");
 }
 
+function inspectRuntimeStatePrivacy(runtimeStatePrivacy: any, failures: string[]): void {
+  if (!runtimeStatePrivacy || typeof runtimeStatePrivacy !== "object" || Array.isArray(runtimeStatePrivacy)) {
+    failures.push("runtimeStatePrivacy must be an object");
+    return;
+  }
+  if (runtimeStatePrivacy.clean !== true) failures.push("runtime SQLite payload privacy audit must be clean");
+  if (!(runtimeStatePrivacy.jsonColumnCount > 0)) failures.push("runtime SQLite payload privacy audit must scan JSON columns");
+  if (!(runtimeStatePrivacy.scannedCellCount > 0)) failures.push("runtime SQLite payload privacy audit must scan persisted cells");
+  if (runtimeStatePrivacy.forbiddenRawContentHitCount !== 0) failures.push("runtime SQLite forbidden raw content hit count must be 0");
+  if (runtimeStatePrivacy.forbiddenSecretHitCount !== 0) failures.push("runtime SQLite forbidden secret hit count must be 0");
+  if (!Array.isArray(runtimeStatePrivacy.tableSummaries) || runtimeStatePrivacy.tableSummaries.length === 0) {
+    failures.push("runtime SQLite payload privacy audit must report table summaries");
+  }
+}
+
+function inspectSubagentMutation(subagentMutation: any, failures: string[]): void {
+  if (!subagentMutation || typeof subagentMutation !== "object" || Array.isArray(subagentMutation)) {
+    failures.push("subagentMutation must be an object");
+    return;
+  }
+  const direct = subagentMutation.directMutationAttempt;
+  const proposal = subagentMutation.proposalOnlyJob;
+  if (direct?.rejected !== true) failures.push("subagent direct mutation attempt must be rejected");
+  if (direct?.reasonCode !== "runtime-agent-job-direct-mutation-forbidden") failures.push("subagent direct mutation rejection reason mismatch");
+  if (direct?.architectureEventRowsUnchanged !== true) failures.push("subagent direct mutation must not append architecture events");
+  if (proposal?.accepted !== true) failures.push("proposal-only subagent job must be accepted");
+  if (proposal?.directMutationAllowed !== false) failures.push("proposal-only subagent job must keep directMutationAllowed=false");
+  if (proposal?.status !== "queued") failures.push("proposal-only subagent job must remain queued");
+  if (proposal?.architectureEventRowsUnchanged !== true) failures.push("proposal-only subagent job must not append architecture events");
+}
+
 function inspectPrivacyPacket(privacy: any, failures: string[]): void {
   if (!privacy || typeof privacy !== "object" || Array.isArray(privacy)) {
     failures.push("privacy must be an object");
@@ -547,6 +721,8 @@ function inspectAssertions(assertions: Record<string, unknown> | undefined, fail
   const allowed = new Set([
     ...GATES,
     "sourceReadbacksVerified",
+    "runtimeSqlitePayloadPrivacyVerified",
+    "subagentDirectMutationRejected",
     "openGatesPreserved",
     "noPrivateContent"
   ]);
@@ -640,6 +816,27 @@ function architectureLedgerEvent(index: number): ArchitectureEventV1 {
   };
 }
 
+function runtimeAgentJob(suffix: string): AgentJobV1 {
+  const queuedAt = "2026-06-26T00:00:00.000Z";
+  return {
+    schemaVersion: "archcontext.agent-job/v1",
+    jobId: `agent_job.al10_ga_${suffix}`,
+    status: "queued",
+    runnerPort: "codex",
+    repository: LEDGER_SCOPE.repository,
+    worktree: LEDGER_SCOPE.worktree,
+    fingerprint: `fingerprint.al10-ga-${suffix}`,
+    trigger: { source: "git_hook", reason: "al10-ga-subagent-mutation-proof" },
+    budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
+    inputDigest: digestJson({ job: suffix, mode: "advisory-only" } as unknown as Json),
+    promptTemplateDigest: digestJson({ promptTemplate: "al10-ga-subagent-mutation-proof" } as unknown as Json),
+    stalePolicy: "cancel-on-head-change",
+    directMutationAllowed: false,
+    queuedAt,
+    updatedAt: queuedAt
+  };
+}
+
 async function measureEnvelope(run: () => Promise<any>): Promise<{ value: any; elapsedMs: number }> {
   const started = performance.now();
   const value = await run();
@@ -675,6 +872,41 @@ function sqliteScalar(databasePath: string, sql: string): any {
   }
 }
 
+function isJsonPayloadColumn(column: string): boolean {
+  return column.endsWith("_json") || [
+    "event_json",
+    "payload_json",
+    "provenance_json",
+    "snapshot_json",
+    "evidence_json",
+    "binding_json",
+    "run_json",
+    "recommendation_json",
+    "feedback_json",
+    "job_json",
+    "state_json",
+    "cursor_json",
+    "waiver_json",
+    "coverage_json",
+    "supports_json",
+    "selector_json"
+  ].includes(column);
+}
+
+function hitSummary(table: string, column: string, rowIndex: number, pattern: RegExp, text: string) {
+  return {
+    table,
+    column,
+    rowIndex,
+    pattern: pattern.toString(),
+    cellDigest: sha256(text)
+  };
+}
+
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replaceAll('"', '""')}"`;
+}
+
 function renderReport(packet: any): string {
   return [
     "# Architecture Ledger AL10 GA Technical Readback",
@@ -692,6 +924,8 @@ function renderReport(packet: any): string {
     `- GA-3 200-file incremental checkpoint p95: ${packet.incrementalAnalysis.p95Ms} ms (budget ${packet.thresholds.incrementalAnalysisP95Ms} ms)`,
     `- GA-4 security pass rate: ${(packet.security.passRate * 100).toFixed(1)}%`,
     `- GA-5 hard-gate false-positive rate: ${packet.recommendations.hardGateFalsePositiveRate}`,
+    `- Runtime SQLite payload privacy: scanned ${packet.runtimeStatePrivacy.scannedCellCount} JSON cells across ${packet.runtimeStatePrivacy.jsonColumnCount} JSON columns; raw-content hits=${packet.runtimeStatePrivacy.forbiddenRawContentHitCount}; secret hits=${packet.runtimeStatePrivacy.forbiddenSecretHitCount}`,
+    `- Subagent mutation negative path: direct mutation rejected=${packet.subagentMutation.directMutationAttempt.rejected ? "yes" : "no"}; proposal-only job accepted=${packet.subagentMutation.proposalOnlyJob.accepted ? "yes" : "no"}`,
     "",
     "## Source Readbacks",
     "",

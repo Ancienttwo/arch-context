@@ -47,6 +47,27 @@ describe("AL10 GA technical readback", () => {
     expect(result.failures).toContain("hard gate false positive rate must be 0");
   });
 
+  test("rejects runtime SQLite privacy hits and subagent mutation gaps", () => {
+    const packet = completePacket();
+    packet.runtimeStatePrivacy.forbiddenRawContentHitCount = 1;
+    packet.runtimeStatePrivacy.clean = false;
+    packet.subagentMutation.directMutationAttempt.rejected = false;
+    packet.subagentMutation.proposalOnlyJob.accepted = false;
+    packet.assertions.runtimeSqlitePayloadPrivacyVerified = false;
+    packet.assertions.subagentDirectMutationRejected = false;
+    packet.assertions.noPrivateContent = false;
+
+    const result = inspectArchitectureLedgerAl10GaTechnicalReadback(packet);
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain("runtime SQLite payload privacy audit must be clean");
+    expect(result.failures).toContain("runtime SQLite forbidden raw content hit count must be 0");
+    expect(result.failures).toContain("subagent direct mutation attempt must be rejected");
+    expect(result.failures).toContain("proposal-only subagent job must be accepted");
+    expect(result.failures).toContain("assertions.runtimeSqlitePayloadPrivacyVerified must be true");
+    expect(result.failures).toContain("assertions.subagentDirectMutationRejected must be true");
+  });
+
   test("rejects gate overclaim", () => {
     const packet = completePacket();
     packet.gates.push("AL10-GA-6");
@@ -117,6 +138,43 @@ function completePacket(): any {
       hardGateFalsePositiveRate: 0,
       failedEvalGateCount: 0
     },
+    runtimeStatePrivacy: {
+      databasePath: "$TMPDIR/archctx-al10-ga-stress/runtime.sqlite",
+      tableCount: 12,
+      jsonColumnCount: 8,
+      scannedCellCount: 24,
+      tableSummaries: [
+        {
+          table: "architecture_events",
+          jsonColumns: ["event_json", "payload_json", "provenance_json"],
+          rowCount: 10,
+          scannedCellCount: 30
+        }
+      ],
+      forbiddenRawContentHitCount: 0,
+      forbiddenSecretHitCount: 0,
+      rawContentHits: [],
+      secretHits: [],
+      clean: true
+    },
+    subagentMutation: {
+      directMutationAttempt: {
+        jobId: "agent_job.al10_ga_direct-mutation",
+        rejected: true,
+        reasonCode: "runtime-agent-job-direct-mutation-forbidden",
+        queueRowsAfterRejected: 0,
+        architectureEventRowsUnchanged: true
+      },
+      proposalOnlyJob: {
+        jobId: "agent_job.al10_ga_proposal-only",
+        accepted: true,
+        status: "queued",
+        directMutationAllowed: false,
+        queueRowsAfterAccepted: 1,
+        persistedJobJsonDigest: `sha256:${"c".repeat(64)}`,
+        architectureEventRowsUnchanged: true
+      }
+    },
     privacy: {
       forbiddenSecretHitCount: 0,
       forbiddenRawContentHitCount: 0,
@@ -131,6 +189,8 @@ function completePacket(): any {
       "AL10-GA-4": true,
       "AL10-GA-5": true,
       sourceReadbacksVerified: true,
+      runtimeSqlitePayloadPrivacyVerified: true,
+      subagentDirectMutationRejected: true,
       openGatesPreserved: true,
       noPrivateContent: true
     }

@@ -3,7 +3,7 @@
 > **Status**: Complete — Personal-User Beta Approved
 > **Slug**: archctx-local-github-governance  
 > **Created**: 2026-06-20  
-> **Updated**: 2026-06-22
+> **Updated**: 2026-06-27
 > **Source PRD**: `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`  
 > **Parent Sprint**: `plans/sprints/archctx-sprint.md`  
 > **Goal Mode**: contract-correction → real integration → staging verification  
@@ -729,6 +729,7 @@ Post-MVP 项不得作为当前实现不完成隐私、信任或可靠性 Gate �
 | 2026-06-20 | FG1 | Local no-cloud deterministic review gate complete | `bun run e2e:local-no-cloud`; sanitized provider env; `doctor → init → sync → context → review` | Codex |
 | 2026-06-20 | FG1 | Production mock reachability gate complete | `bun run check:production-mock-reachability`; package exports, production dependency graph, CLI bundle scan, runtime composition assertion | Codex |
 | 2026-06-20 | FG1 | Installed-bin hosted IPC matrix gate complete | GitHub Actions run `27871833633`; ubuntu/macos/windows × Node 24/25 installed `archctx` bin + IPC artifact readback | Codex |
+| 2026-06-27 | FG1 | MCP runtime call auto-start acceptance passed | `archctx mcp` keeps `tools/list` read-only, lazily starts the shared daemon for runtime-dependent tool calls, preserves `mcp status` as host-config readback, and passed local MCP/CLI/smoke/typecheck checks plus external user testing; see `docs/verification/fg1-local-product-gate.md` addendum | Codex |
 | 2026-06-20 | FG2 | GitHub App permission manifest frozen | contracts-owned `GITHUB_APP_PERMISSION_MANIFEST`; Metadata read, Pull Requests read, Checks write, Contents none; `bun test` focused suite | Codex |
 | 2026-06-20 | FG2 | Raw-body GitHub webhook signature verification complete | `verifyGitHubWebhookSignature({ rawBody, signature256 })`; reparsed body and malformed signatures rejected; focused test + typecheck | Codex |
 | 2026-06-20 | FG2 | Webhook delivery replay rejection complete | `WebhookDeliveryLedger`; duplicate delivery returns `ignore-duplicate` without new challenge/check; D1 `(provider, delivery_id)` primary key asserted | Codex |

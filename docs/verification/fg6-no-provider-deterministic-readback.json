@@ -4,7 +4,7 @@
   "environment": "staging-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-23T16:06:48.990Z",
+  "generatedAt": "2026-06-26T17:03:22.044Z",
   "sources": {
     "localNoCloudSource": "docs/verification/fg6-local-no-cloud-readback.json",
     "runnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
@@ -13,7 +13,7 @@
   },
   "evidence": {
     "localCore": {
-      "commandCount": 10,
+      "commandCount": 12,
       "providerEnvRemoved": [
         "GH_PAGER",
         "OPENAI_API_KEY",
@@ -55,7 +55,7 @@
       },
       "deterministicGate": {
         "llmProviderConfigured": false,
-        "modelDigest": "sha256:25fe5a69c07e12c2466c09581398751fe3cbea78f5aa4ffcfcf990adac829228",
+        "modelDigest": "sha256:c1a7ec3e71c28f90425a1df6182d2174051cde6446fc01c1910280e61dfe6f46",
         "result": "pass",
         "reviewDigestMatchesAttestation": true
       },

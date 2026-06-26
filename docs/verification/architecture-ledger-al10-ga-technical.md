@@ -10,9 +10,11 @@
 
 - GA-1 stress events: 10000; lost=0; duplicate=0; integrity=ok
 - GA-2 warm query p95: 96.8 ms (budget 200 ms)
-- GA-3 200-file incremental checkpoint p95: 96.994 ms (budget 2000 ms)
+- GA-3 200-file incremental checkpoint p95: 80.694 ms (budget 2000 ms)
 - GA-4 security pass rate: 100.0%
 - GA-5 hard-gate false-positive rate: 0
+- Runtime SQLite payload privacy: scanned 40003 JSON cells across 34 JSON columns; raw-content hits=0; secret hits=0
+- Subagent mutation negative path: direct mutation rejected=yes; proposal-only job accepted=yes
 
 ## Source Readbacks
 
