@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval and MCP resource slices complete; AL7 context/benchmark/privacy slices remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval, MCP resource and context compiler slices complete; AL7 explain/FTS/benchmark/privacy slices remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -825,7 +825,9 @@ archctx book export --format yaml|markdown|json
 - [x] **AL7-10 · P0 · `mcp-local`** — Keep the existing small tool surface; route mutations through existing plan/apply tools rather than adding one tool per query.
   - Evidence: `LOCAL_MCP_TOOLS` remains the existing six workflow tools; the MCP Book fixture asserts the tool list is unchanged while Book readbacks are served as resources.
   - Verification artifact: `docs/verification/architecture-ledger-al7-mcp-resources.md`.
-- [ ] **AL7-11 · P0 · `context-compiler`** — Consume ledger queries first, then request only missing code facts from CodeGraph.
+- [x] **AL7-11 · P0 · `context-compiler`** — Consume ledger queries first, then request only missing code facts from CodeGraph.
+  - Evidence: `compileTaskContext` accepts an optional ledger reader port, converts Book subjects into bounded code context first, and calls CodeGraph only for missing symbol slots; daemon context, prepare, checkpoint and complete paths pass the runtime ledger-backed port.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-context-compiler.md`.
 - [ ] **AL7-12 · P1 · `retrieval`** — Add explain mode showing why each entity or recommendation was selected.
 - [ ] **AL7-13 · P1 · `retrieval`** — Add FTS fallback for architecture prose and ADR summaries; do not add a vector database yet.
 - [ ] **AL7-14 · P1 · `benchmarks`** — Benchmark cold and warm queries on small, medium and large fixtures.
@@ -853,6 +855,12 @@ archctx book export --format yaml|markdown|json
   - Remote readback hardening: Windows Node 25 daemon readiness and transient file-lock cleanup are widened after PR CI readback exposed hosted-runner-only failures outside the MCP resource path.
   - Verification artifact: `docs/verification/architecture-ledger-al7-mcp-resources.md`.
   - Verification: `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts --timeout 120000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 240000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-mcp-resources-verify-state-XXXXXX) bun run verify`.
+- 2026-06-26: Completed AL7 context compiler ledger-first slice on branch `codex/architecture-ledger-al7-context-compiler`.
+  - Context compiler: Book query results become the first `NormalizedCodeContext` input; CodeGraph is only requested for missing symbol slots.
+  - Runtime integration: daemon `context`, `prepare`, `checkpoint` and `completeTask` pass a ledger-backed reader into the compiler while preserving non-daemon fallback behavior.
+  - Remote readback hardening: Windows Node 24 runner timeout budget is widened for daemon restart session persistence after PR CI showed the assertions completing just beyond Bun's default 5s test budget.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-context-compiler.md`.
+  - Verification: `bun test packages/core/context-compiler/test/context-compiler.test.ts --timeout 90000`; `bun test packages/core/application/test/control-loop.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger-authoritative runtime read surfaces" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "checkpoint coalesces|runtime jobs enqueue|ledger-authoritative runtime read surfaces" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "daemon restart restores persisted repository sessions" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts --timeout 120000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "CLI delegates init and context" --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 240000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-context-verify-state-XXXXXX) bun run verify`.
 
 ---
 

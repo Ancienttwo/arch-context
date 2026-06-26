@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { MultiRepoCodeGraphAdapter } from "../../../local-runtime/codegraph-adapter/src/index";
 import { MockCodeGraphProvider } from "../../../local-runtime/codegraph-adapter/test/factories";
-import { compileLandscapeTaskContext, compileTaskContext } from "../src/index";
+import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const workspace: WorkspaceRef = { root: "/tmp/repo", repositoryId: "repo.test", headSha: "abc" };
@@ -71,6 +71,44 @@ function codeFacts(): CodeFactsPort {
   };
 }
 
+function ledgerSubject(input: {
+  kind: "entity" | "relation" | "constraint";
+  id: string;
+  label: string;
+  path?: string;
+  relation?: { kind: string; sourceEntityId: string; targetEntityId: string };
+  constraint?: { kind: string; subjectId: string; severity?: string };
+}) {
+  return {
+    kind: input.kind,
+    id: input.id,
+    label: input.label,
+    status: "active",
+    summary: `${input.label} from Architecture Book`,
+    ...(input.path ? { path: input.path } : {}),
+    ...(input.relation ? { relation: input.relation } : {}),
+    ...(input.constraint ? { constraint: input.constraint } : {}),
+    score: 12,
+    scoreBreakdown: {
+      taskRelevance: 8,
+      graphDistance: 2,
+      recency: 1,
+      declaredImportance: 1,
+      evidenceStrength: 0
+    }
+  };
+}
+
+function codeFactsSnapshot() {
+  return {
+    provider: "codegraph" as const,
+    version: "1.0.1",
+    schemaDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    indexedAt: "2026-06-19T00:00:00.000Z",
+    workspaceDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  };
+}
+
 function modelStore(): ModelStorePort {
   return {
     async loadManifest() {
@@ -131,6 +169,146 @@ describe("@archcontext/core/context-compiler", () => {
     expect(context.practiceGuidance.matches.length).toBeLessThanOrEqual(2);
     expect(context.relevantNodes.length).toBeLessThanOrEqual(2);
     expect(context.extensions.budgetExceeded).toBe(true);
+  });
+
+  test("queries the architecture ledger before requesting only missing CodeGraph facts", async () => {
+    const calls: string[] = [];
+    const architectureLedger: ArchitectureContextLedgerPort = {
+      async queryForTask(input) {
+        calls.push(`ledger.query:${input.maxItems}`);
+        return {
+          schemaVersion: "archcontext.context-ledger-readback/v1",
+          query: input.task,
+          graphDigest: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          subjects: [
+            ledgerSubject({ kind: "entity", id: "module.billing", label: "Billing", path: "src/billing.ts" }),
+            ledgerSubject({
+              kind: "constraint",
+              id: "constraint.billing-owner",
+              label: "Billing owner",
+              constraint: { kind: "owner-required", subjectId: "module.billing", severity: "warning" }
+            })
+          ],
+          resource: {
+            type: "architecture-book",
+            uri: "archcontext://book/query/sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        };
+      }
+    };
+    const codeFactsPort: CodeFactsPort = {
+      async ensureReady() {
+        throw new Error("sync should be used when changedPaths are provided");
+      },
+      async sync(input) {
+        calls.push(`codefacts.sync:${input.changedPaths?.join(",") ?? ""}`);
+        return codeFactsSnapshot();
+      },
+      async buildTaskContext(input) {
+        calls.push(`codefacts.build:${input.maxSymbols}`);
+        return {
+          task: input.task,
+          symbols: [{ id: "symbol.mapper", name: "mapper", kind: "function", path: "src/mapper.ts" }],
+          edges: [],
+          evidence: [],
+          digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        };
+      },
+      async findSymbols() {
+        return [];
+      },
+      async getImpact() {
+        return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
+      },
+      async getCallers() {
+        return [];
+      },
+      async getCallees() {
+        return [];
+      },
+      async resolveEvidence() {
+        return [];
+      }
+    };
+
+    const context = await compileTaskContext({
+      workspace,
+      task: "change billing owner mapper",
+      codeFacts: codeFactsPort,
+      modelStore: modelStore(),
+      architectureLedger,
+      budget: { maxBytes: 12_288, maxItems: 3 },
+      changedPaths: ["src/mapper.ts"]
+    });
+
+    expect(calls).toEqual(["ledger.query:3", "codefacts.sync:src/mapper.ts", "codefacts.build:1"]);
+    expect(context.relevantNodes).toEqual(["module.billing", "constraint.billing-owner", "symbol.mapper"]);
+    expect(context.resources[0]).toMatchObject({ type: "architecture-book" });
+    expect(context.extensions.codeFactsMode).toBe("ledger-first");
+    expect(context.extensions.architectureLedgerResultCount).toBe(2);
+    expect(validateJsonSchema(readJson("schemas/runtime/task-context.schema.json") as any, context as any).valid).toBe(true);
+  });
+
+  test("does not request CodeGraph when ledger results fill the context budget", async () => {
+    const architectureLedger: ArchitectureContextLedgerPort = {
+      async queryForTask(input) {
+        return {
+          schemaVersion: "archcontext.context-ledger-readback/v1",
+          query: input.task,
+          graphDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          subjects: [
+            ledgerSubject({ kind: "entity", id: "module.api", label: "API", path: "src/api.ts" }),
+            ledgerSubject({
+              kind: "relation",
+              id: "relation.api-billing",
+              label: "API calls billing",
+              relation: { kind: "calls", sourceEntityId: "module.api", targetEntityId: "module.billing" }
+            })
+          ]
+        };
+      }
+    };
+    const codeFactsPort: CodeFactsPort = {
+      async ensureReady() {
+        throw new Error("CodeGraph should not be called");
+      },
+      async sync() {
+        throw new Error("not used");
+      },
+      async buildTaskContext() {
+        throw new Error("CodeGraph should not build context");
+      },
+      async findSymbols() {
+        return [];
+      },
+      async getImpact() {
+        return { symbolId: "symbol.none", callers: [], callees: [], affectedPaths: [] };
+      },
+      async getCallers() {
+        return [];
+      },
+      async getCallees() {
+        return [];
+      },
+      async resolveEvidence() {
+        return [];
+      }
+    };
+
+    const context = await compileTaskContext({
+      workspace,
+      task: "explain api billing dependency",
+      codeFacts: codeFactsPort,
+      modelStore: modelStore(),
+      architectureLedger,
+      budget: { maxBytes: 12_288, maxItems: 2 }
+    });
+
+    expect(context.relevantNodes).toEqual(["module.api", "relation.api-billing"]);
+    expect(context.extensions.codeFactsMode).toBe("ledger-only");
+    expect(context.extensions.architectureLedgerResultCount).toBe(2);
+    expect(context.extensions.codeFactsDigest).toMatch(/^sha256:/);
   });
 
   test("compiles cross-repo task context from a bounded landscape scope", async () => {

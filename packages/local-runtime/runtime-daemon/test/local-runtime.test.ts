@@ -31,6 +31,7 @@ const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
 const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
 const DEVELOPER_REVIEW_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
+const WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
 type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
 
@@ -1490,11 +1491,17 @@ describe("local runtime foundation", () => {
 
       const context = await daemon.context(root, "change ledger runtime read model", 4);
       expect(context.ok).toBe(true);
-      expect((context.data as any).extensions.modelDigest).toBe(validation.modelDigest);
-      expect(((context.data as any).resources as any[]).some((resource) => resource.type === "model" && resource.digest === validation.modelDigest)).toBe(true);
+      const contextData = context.data as any;
+      expect(contextData.extensions.modelDigest).toBe(validation.modelDigest);
+      expect(contextData.extensions.architectureLedgerDigest).toBe((ledger.data as any).ledger.graphDigest);
+      expect(["ledger-first", "ledger-only"]).toContain(contextData.extensions.codeFactsMode);
+      expect(contextData.relevantNodes).toContain("module.ledger-runtime-read");
+      expect((contextData.resources as any[]).some((resource) => resource.type === "architecture-book" && resource.digest === (ledger.data as any).ledger.graphDigest)).toBe(true);
+      expect((contextData.resources as any[]).some((resource) => resource.type === "model" && resource.digest === validation.modelDigest)).toBe(true);
 
       const prepare = await daemon.prepare(root, "change ledger runtime read model", 12_288, 4, "task_ledger_runtime_reads");
       expect((prepare.data as any).context.extensions.modelDigest).toBe(validation.modelDigest);
+      expect((prepare.data as any).context.extensions.architectureLedgerDigest).toBe((ledger.data as any).ledger.graphDigest);
       const complete = await daemon.completeTask(root, {
         taskSessionId: "task_ledger_runtime_reads",
         task: "change ledger runtime read model"
@@ -1770,7 +1777,7 @@ describe("local runtime foundation", () => {
       await first?.stop().catch(() => undefined);
       removeTempRepo(root);
     }
-  });
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
   test("prepares Developer Review from Challenge head in a detached clean worktree", async () => {
     const root = createGitRepo();

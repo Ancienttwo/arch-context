@@ -87,6 +87,13 @@ function runTestCli(command: string, args: string[], root: string) {
   });
 }
 
+async function readToolEnvelope(server: McpLocalServer, result: { content: any; resourceUri?: string }, root?: string) {
+  if (result.content?.ok === true || result.content?.ok === false) return result.content;
+  const uri = result.resourceUri ?? result.content?.resourceUri;
+  if (typeof uri !== "string") return result.content;
+  return await server.readResource(uri, root);
+}
+
 describe("local MCP server", () => {
   test("exposes exactly six workflow tools with safety annotations", () => {
     expect(LOCAL_MCP_TOOLS.map((tool) => tool.name)).toEqual([
@@ -342,10 +349,11 @@ describe("local MCP server", () => {
         maxItems: 2,
         maxBytes: 12_288
       });
-      expect((cli.data as any).posture).toBe((mcp.content as any).data.posture);
-      expect((cli.data as any).context.practiceGuidance.catalogDigest).toBe((mcp.content as any).data.context.practiceGuidance.catalogDigest);
+      const mcpEnvelope = await readToolEnvelope(server, mcp, root) as any;
+      expect((cli.data as any).posture).toBe(mcpEnvelope.data.posture);
+      expect((cli.data as any).context.practiceGuidance.catalogDigest).toBe(mcpEnvelope.data.context.practiceGuidance.catalogDigest);
       expect((cli.data as any).context.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(
-        (mcp.content as any).data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
+        mcpEnvelope.data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
       );
       const checkpoint = await server.callTool("archcontext_checkpoint", {
         root,
@@ -356,7 +364,7 @@ describe("local MCP server", () => {
       expect((checkpoint.content as any).ok).toBe(true);
       expect((checkpoint.content as any).data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.content as any).data.delta.unchanged.length).toBeGreaterThan(0);
-      expect(JSON.stringify(mcp.content)).not.toContain("sourceCode");
+      expect(JSON.stringify(mcpEnvelope)).not.toContain("sourceCode");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -380,10 +388,11 @@ describe("local MCP server", () => {
         maxItems: 2,
         maxBytes: 12_288
       });
-      expect((result.content as any).ok).toBe(true);
+      const envelope = await readToolEnvelope(server, result, root) as any;
+      expect(envelope.ok).toBe(true);
       const status = await new RuntimeRpcClient(connection).runtimeStatus(root);
       expect((status.data as any).sessions).toBe(1);
-      expect(JSON.stringify(result.content)).not.toContain("sourceCode");
+      expect(JSON.stringify(envelope)).not.toContain("sourceCode");
       await rpc.stop();
       stopped = true;
     } finally {

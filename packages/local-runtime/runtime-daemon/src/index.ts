@@ -57,7 +57,7 @@ import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-en
 import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
+import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -782,6 +782,7 @@ export class ArchctxDaemon {
       task,
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,
+      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -795,6 +796,7 @@ export class ArchctxDaemon {
       task,
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,
+      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes, maxItems }
     });
     const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
@@ -848,6 +850,7 @@ export class ArchctxDaemon {
       previous: baseline,
       codeFacts: this.codeFacts,
       modelStore: this.readModelStore,
+      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
     });
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
@@ -1421,6 +1424,7 @@ export class ArchctxDaemon {
           task: input.task ?? baseline?.task ?? taskSessionId,
           codeFacts: this.codeFacts,
           modelStore: this.readModelStore,
+          architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
           budget: { maxBytes: 12_288, maxItems: 12 }
         })).practiceGuidance.matches,
         previousMatches: baseline?.matches,
@@ -1995,6 +1999,57 @@ export class ArchctxDaemon {
       drift,
       reconcile
     };
+  }
+
+  private architectureLedgerContextPort(root: string): ArchitectureContextLedgerPort {
+    return {
+      queryForTask: async ({ task, maxItems, maxBytes }) => {
+        const readback = await this.architectureLedgerReadback(root);
+        const scope = { repository: readback.repository, worktree: readback.worktree };
+        const replay = await this.localStore.replayArchitectureLedger(scope);
+        const result = queryArchitectureLedgerBook({
+          state: readback.state,
+          events: replay.events,
+          query: task,
+          maxItems,
+          maxBytes
+        });
+        const projectedFiles = projectArchitectureLedgerStateToYamlFiles(readback.state);
+        const freshness = {
+          schemaVersion: "archcontext.book-freshness/v1",
+          generatedAt: this.clock(),
+          repository: readback.repository,
+          worktree: readback.worktree,
+          readAuthority: readback.readAuthority,
+          headSha: readback.worktree.headSha,
+          worktreeDigest: readback.worktree.worktreeDigest,
+          graphDigest: readback.graphDigest,
+          projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+          ledgerCursor: {
+            eventCount: replay.events.length,
+            lastEventId: replay.events.at(-1)?.eventId,
+            lastEventHash: replay.events.at(-1)?.eventHash
+          }
+        };
+        return {
+          schemaVersion: "archcontext.context-ledger-readback/v1",
+          query: result.query,
+          graphDigest: result.graphDigest,
+          subjects: result.results,
+          budget: result.budget,
+          freshness: freshness as unknown as Json,
+          resource: {
+            type: "architecture-book",
+            uri: `archcontext://book/query/${result.graphDigest}`,
+            digest: result.graphDigest
+          }
+        };
+      }
+    };
+  }
+
+  private runtimeArchitectureLedgerContextPort(root: string): ArchitectureContextLedgerPort | undefined {
+    return this.running ? this.architectureLedgerContextPort(root) : undefined;
   }
 
   private async architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope> {

@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetBase, type ChangeSetReason } from "@archcontext/core/changeset-engine";
-import { compileTaskContext, type ContextBudget } from "@archcontext/core/context-compiler";
+import { compileTaskContext, type ArchitectureContextLedgerPort, type ContextBudget } from "@archcontext/core/context-compiler";
 import {
   digestJson,
   type CodeFactsPort,
@@ -22,6 +22,7 @@ export interface PrepareTaskInput {
   task: string;
   codeFacts: CodeFactsPort;
   modelStore: ModelStorePort;
+  architectureLedger?: ArchitectureContextLedgerPort;
   budget?: ContextBudget;
   callerCoverage?: number;
   testsAvailable?: boolean;
@@ -40,6 +41,7 @@ export interface CheckpointTaskInput {
   previous?: PracticeCheckpointSnapshotV1;
   codeFacts: CodeFactsPort;
   modelStore: ModelStorePort;
+  architectureLedger?: ArchitectureContextLedgerPort;
   budget?: ContextBudget;
 }
 
@@ -49,6 +51,7 @@ export async function prepareTask(input: PrepareTaskInput) {
     task: input.task,
     codeFacts: input.codeFacts,
     modelStore: input.modelStore,
+    architectureLedger: input.architectureLedger,
     budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 }
   });
   const pressure: ArchitecturePressure = {
@@ -88,14 +91,14 @@ export function checkpoint(input: { root: string; expectedWorktreeDigest: string
 }
 
 export async function checkpointTask(input: CheckpointTaskInput): Promise<PracticeCheckpointResultV1> {
-  await input.codeFacts.sync({ workspace: input.workspace, changedPaths: input.changedPaths ?? [] });
   const context = await compileTaskContext({
     workspace: input.workspace,
     task: input.task,
     codeFacts: input.codeFacts,
     modelStore: input.modelStore,
+    architectureLedger: input.architectureLedger,
     budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 },
-    changedPaths: input.changedPaths
+    changedPaths: input.changedPaths ?? []
   });
   const worktreeDigest = computeWorktreeDigest(input.workspace.root);
   const nextSnapshot: PracticeCheckpointSnapshotV1 = {
