@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 through AL7 complete; AL8 scheduler/suppression/feedback is the next architecture-ledger module
+> **Status**: Executing - AL0 through AL7 complete; AL8 scheduler core is complete and waiver/review/feedback integration remains in progress
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -124,7 +124,7 @@ These are target gates, not claims about current performance.
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ☑ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ☑ |
-| AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◻ |
+| AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◐ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
 | AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
 
@@ -902,30 +902,60 @@ archctx book export --format yaml|markdown|json
 
 ### Tasks
 
-- [ ] **AL8-01 · P0 · `recommendation-engine`** — Store every run with input cursor, engine version, catalog digest and output digest.
-- [ ] **AL8-02 · P0 · `recommendation-engine`** — Generate stable recommendation fingerprints from practice, subject, evidence and baseline.
-- [ ] **AL8-03 · P0 · `recommendation-engine`** — Deduplicate unchanged recommendations across commits.
-- [ ] **AL8-04 · P0 · `recommendation-engine`** — Model lifecycle: open, acknowledged, accepted, rejected, deferred, waived, resolved, superseded and expired.
-- [ ] **AL8-05 · P0 · `policy-engine`** — Implement scheduling levels L0–L4 and explicit trigger matrix.
-- [ ] **AL8-06 · P0 · `policy-engine`** — Compute architecture risk from boundary changes, ownership changes, persistence, external contracts, security/payment domains, cycles, migration state and hotspot growth.
-- [ ] **AL8-07 · P0 · `policy-engine`** — Separate risk from uncertainty; only high-value uncertainty is eligible for L3 investigation.
-- [ ] **AL8-08 · P0 · `policy-engine`** — Add per-practice and per-subject cooldowns.
+- [x] **AL8-01 · P0 · `recommendation-engine`** — Store every run with input cursor, engine version, catalog digest and output digest.
+  - Evidence: `planRecommendationRun` emits `RecommendationRun/v1` records with input cursor, engine/catalog/input/output digests; SQLite readback persists three run records.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-02 · P0 · `recommendation-engine`** — Generate stable recommendation fingerprints from practice, subject, evidence and baseline.
+  - Evidence: `recommendationFingerprint` hashes practice, subject, sorted evidence bindings and baseline digest; focused tests assert stable fingerprints.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-03 · P0 · `recommendation-engine`** — Deduplicate unchanged recommendations across commits.
+  - Evidence: scheduler readback re-runs the same candidates with active previous fingerprints and suppresses all unchanged recommendations as `duplicate-active-fingerprint`.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-04 · P0 · `recommendation-engine`** — Model lifecycle: open, acknowledged, accepted, rejected, deferred, waived, resolved, superseded and expired.
+  - Evidence: `transitionRecommendationLifecycle` covers the lifecycle statuses and rejects terminal-status transitions; readback records an open-to-accepted transition with audit metadata.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-05 · P0 · `policy-engine`** — Implement scheduling levels L0–L4 and explicit trigger matrix.
+  - Evidence: scheduler core maps source, risk, uncertainty and policy mode into L0-L4; readback verifies L3 for high-risk/high-uncertainty and L1 for checkpoint/cooldown-only deterministic output.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-06 · P0 · `policy-engine`** — Compute architecture risk from boundary changes, ownership changes, persistence, external contracts, security/payment domains, cycles, migration state and hotspot growth.
+  - Evidence: `computeRecommendationRisk` classifies risk from the AL8 signal set; readback covers high payment/persistence risk and medium boundary-change risk.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-07 · P0 · `policy-engine`** — Separate risk from uncertainty; only high-value uncertainty is eligible for L3 investigation.
+  - Evidence: scheduler core computes risk and uncertainty independently; tests assert high risk with low uncertainty stays L2, while high risk plus high uncertainty is L3-eligible.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+- [x] **AL8-08 · P0 · `policy-engine`** — Add per-practice and per-subject cooldowns.
+  - Evidence: scheduler readback suppresses a matching practice/subject recommendation until the configured cooldown expiry.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
 - [ ] **AL8-09 · P0 · `waivers`** — Add scoped waiver with owner, reason, expiry, evidence and review date.
 - [ ] **AL8-10 · P0 · `review-engine`** — Prevent advisory recommendations from becoming complete-stage gates without explicit policy eligibility.
 - [ ] **AL8-11 · P1 · `cli`** — Add acknowledge, accept, reject, defer, waive and resolve commands.
 - [ ] **AL8-12 · P1 · `feedback`** — Capture user outcome and reason without using implicit acceptance as truth.
 - [ ] **AL8-13 · P1 · `evals`** — Measure repeated-noise rate, time-to-resolution, accepted recommendation rate and agent-assisted resolution rate.
-- [ ] **AL8-14 · P1 · `recommendation-engine`** — Add explanation tree: trigger → subject → evidence → baseline → score → policy outcome.
+- [x] **AL8-14 · P1 · `recommendation-engine`** — Add explanation tree: trigger → subject → evidence → baseline → score → policy outcome.
+  - Evidence: each emitted recommendation carries `archcontext.recommendation-explanation-tree/v1` under extensions with trigger, subject, evidence bindings, baseline, score, risk, uncertainty and policy outcome.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
 - [ ] **AL8-15 · P1 · `practice-catalog`** — Require positive, near-negative, mixed-change and baseline fixtures before a practice can be enforcement-eligible.
 - [ ] **AL8-16 · P1 · `policy-engine`** — Add repository-local configuration for frequency and budgets with safe defaults.
 
 ### Exit gate
 
-- [ ] **AL8-EG1** — Re-running on unchanged architecture creates no new recommendation noise.
+- [x] **AL8-EG1** — Re-running on unchanged architecture creates no new recommendation noise.
+  - Evidence: AL8 scheduler readback replays unchanged active fingerprints and emits zero new recommendations.
 - [ ] **AL8-EG2** — L3 agent investigation occurs only when risk and uncertainty thresholds both qualify.
+  - Evidence so far: scheduler-core eligibility is verified by `docs/verification/architecture-ledger-al8-scheduler-readback.json`; full gate remains open until agent/review integration proves actual investigation dispatch cannot occur outside the threshold.
 - [ ] **AL8-EG3** — Waiver scope and expiry are enforced.
 - [ ] **AL8-EG4** — Hard gates remain zero false-positive on the release suite.
-- [ ] **AL8-EG5** — Explanation tree reproduces the engine decision from persisted inputs.
+- [x] **AL8-EG5** — Explanation tree reproduces the engine decision from persisted inputs.
+  - Evidence: AL8 readback appends scheduler events through `SqliteLocalStore`, replays persisted events, and reads Book recommendations with the persisted explanation tree intact.
+
+### AL8 execution log
+
+- 2026-06-26: Completed AL8 scheduler core/readback slice on branch `codex/architecture-ledger-al8-scheduler-core`.
+  - Core: added `@archcontext/core/recommendation-engine` with deterministic run planning, stable fingerprints, unchanged-fingerprint suppression, lifecycle transitions, scheduling levels, risk/uncertainty separation, cooldowns and explanation trees.
+  - Persistence/readback: `scripts/architecture-ledger-al8-scheduler-readback.ts` writes three scheduler run events through `SqliteLocalStore.appendArchitectureEvents`, verifies SQLite `recommendation_runs` / `recommendations`, and reads the resulting Book recommendations from replayed ledger events.
+  - Explicitly still out of scope: waiver scope/expiry enforcement, review-engine hard-gate eligibility, CLI lifecycle commands, feedback metrics, practice enforcement fixture gates and repository-local scheduler configuration.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
+  - Verification: `bun run record:al8:scheduler`; `bun run readback:al8:scheduler`; `bun test packages/core/recommendation-engine/test/recommendation-engine.test.ts scripts/architecture-ledger-al8-scheduler-readback.test.ts`; `bun run typecheck`.
 
 ---
 

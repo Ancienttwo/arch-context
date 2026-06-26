@@ -23,6 +23,7 @@
       "@archcontext/core/practice-catalog": ["packages/core/practice-catalog/src/index.ts"],
       "@archcontext/core/practice-engine": ["packages/core/practice-engine/src/index.ts"],
       "@archcontext/core/pressure-engine": ["packages/core/pressure-engine/src/index.ts"],
+      "@archcontext/core/recommendation-engine": ["packages/core/recommendation-engine/src/index.ts"],
       "@archcontext/core/reconcile-engine": ["packages/core/reconcile-engine/src/index.ts"],
       "@archcontext/core/refactor-decision": ["packages/core/refactor-decision/src/index.ts"],
       "@archcontext/core/retrieval": ["packages/core/retrieval/src/index.ts"],
