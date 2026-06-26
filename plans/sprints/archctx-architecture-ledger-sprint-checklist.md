@@ -1245,6 +1245,11 @@ archctx book export --format yaml|markdown|json
   - CI readback hardening: PR #84 exposed a Windows Node 24 hosted-runner timeout in the local-product import-edge E2E path after the beta publish push; the test harness now uses a hosted-runner-scale Windows child-process/test budget and includes the timed-out `archctx ...` command in diagnostics without changing runtime behavior.
   - Publish readback: `docs/verification/architecture-ledger-al10-beta-npm-release-readback.json`, `docs/verification/architecture-ledger-al10-beta-npm-release.md`.
   - Verification: targeted contract/practice/CLI/AL10 tests; `bun run typecheck`; `bun run readback:fg6:npm-release-dry-run`; `npm publish ... --tag beta`; npm registry readback; temporary `node@24` + `archctx@beta` install smoke; `bun run record:al10:release-packaging`; `bun run readback:al10:release-packaging`; `bun run verify`; `bun run verify:governance`.
+- 2026-06-27: Recorded GPT Pro advisory AL10 architecture/security review intake.
+  - Scope: closes no gates; records an external AI advisory review that rejects PR #84 as sufficient for AL10-GA-6, `ledger-authoritative` promotion, enforcement enablement or production GA.
+  - Boundary: the review supports only continued local opt-in advisory beta and explicitly cannot satisfy the required human independent reviewer condition.
+  - Evidence: `docs/security/reviews/architecture-ledger-al10-gpt-pro-advisory-review.md`; `docs/approvals/architecture-ledger-al10-independent-review.md`.
+  - Remaining blockers: AL10-14 real beta-user interview evidence, AL10-GA-6 human independent architecture/security approval and AL10-GA-7 production rollback drill evidence.
 
 ---
 

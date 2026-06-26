@@ -56,7 +56,7 @@
       "gate": "AL10-GA-6",
       "path": "docs/approvals/architecture-ledger-al10-independent-review.md",
       "exists": true,
-      "sha256": "sha256:deb6e85c2871ff226254944599f3cab6e06e907b92b3e94a57e35ac0c22fb57c",
+      "sha256": "sha256:82471dbbbb62a860963b2a8222733d88b21b3bbec6e873ffda70197de31d3d3f",
       "requiredStatus": "Approved",
       "status": "blocked",
       "verified": false,
@@ -216,7 +216,7 @@
     "privacyClean": true,
     "sourceReadbacksPresent": true
   },
-  "readbackDigest": "sha256:db26b9e098518e707682687d069b66198795a42a998ae9a56156c976ff406fe2",
+  "readbackDigest": "sha256:e5c881eefde5d5698345daebac6e549b63b452320064941bc8c838527df80a23",
   "readback": {
     "command": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-external-acceptance-readback.json --json",
     "recordCommand": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts run --out docs/verification/architecture-ledger-al10-external-acceptance-readback.json --report docs/verification/architecture-ledger-al10-external-acceptance.md --json",

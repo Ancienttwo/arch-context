@@ -27,3 +27,18 @@ To close AL10-GA-6, this file must include:
 
 No independent AL10 architecture and security review approval is recorded yet.
 AL10-GA-6 remains open.
+
+## Advisory AI Review Intake
+
+- **Date**: 2026-06-27
+- **Reviewer**: GPT-5.5 Pro external AI reviewer
+- **Artifact**: `docs/security/reviews/architecture-ledger-al10-gpt-pro-advisory-review.md`
+- **Review outcome**: Rejected as sufficient basis for AL10-GA-6, `ledger-authoritative`
+  promotion, enforcement enablement, or production GA.
+- **Accepted boundary**: The review supports only continued local opt-in advisory
+  beta under the existing `archctx@0.1.4-beta.0` beta boundary.
+- **Approval effect**: None. The reviewer explicitly states that an AI review
+  cannot satisfy this file's required human independent reviewer condition.
+
+AL10-GA-6 remains open until a human independent reviewer records an accepted
+architecture and security approval with the completion criteria above.
