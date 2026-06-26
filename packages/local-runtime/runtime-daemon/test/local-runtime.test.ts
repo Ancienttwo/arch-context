@@ -30,6 +30,7 @@ import {
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
 const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
+const DEVELOPER_REVIEW_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
 type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
 
@@ -46,8 +47,12 @@ function tempRepo(): string {
 }
 
 function removeTempRepo(root: string): void {
+  removeTempPath(root);
+}
+
+function removeTempPath(path: string): void {
   try {
-    rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+    rmSync(path, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100 });
   } catch (error) {
     if (isIgnorableWindowsCleanupError(error)) return;
     throw error;
@@ -1820,10 +1825,10 @@ describe("local runtime foundation", () => {
     } finally {
       if (worktree) removeDetachedReviewWorktree(worktree);
       await daemon?.stop().catch(() => undefined);
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempPath(tempRoot);
       removeTempRepo(root);
     }
-  });
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
 
   test("computes Developer Review digest bundle from detached worktree model policy codefacts and runtime", async () => {
     const root = createInitializedGitRepo();
@@ -1872,10 +1877,10 @@ describe("local runtime foundation", () => {
     } finally {
       if (worktree) removeDetachedReviewWorktree(worktree);
       await daemon?.stop().catch(() => undefined);
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempPath(tempRoot);
       removeTempRepo(root);
     }
-  });
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
 
   test("runs deterministic Developer Review inside detached worktree and persists the local result", async () => {
     const root = createInitializedGitRepo();

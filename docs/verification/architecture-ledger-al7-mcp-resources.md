@@ -14,6 +14,7 @@ Implemented behavior:
 - `archcontext://book/diff` exposes the default `empty` to `current` Book diff with deterministic readback.
 - `archcontext://book/recommendations` exposes Book recommendations with freshness metadata.
 - The local MCP tool surface remains the same six workflow tools: prepare, practices, checkpoint, plan update, apply update and complete task.
+- Remote Windows Node 25 verification hardening keeps daemon start readiness, Developer Review cleanup and SQLite deletion fixtures from failing on transient hosted-runner file locks.
 
 Out of scope for this slice:
 
@@ -87,6 +88,10 @@ bun run typecheck
 node scripts/package-boundary-audit.mjs
 node scripts/sprint-status-check.mjs
 git diff --check
+bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "computes Developer Review digest bundle" --timeout 90000
+bun test packages/surfaces/cli/test/cli.test.ts -t "CLI recovers stale daemon control files|CLI rebuild reproduces graph" --timeout 240000
+bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000
+bun test packages/surfaces/cli/test/cli.test.ts --timeout 240000
 bun test --timeout 90000
 ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-mcp-resources-verify-state-XXXXXX) bun run verify
 ```
@@ -99,6 +104,7 @@ The MCP fixture asserts:
 - a rebuilt ledger fixture produces non-empty timeline and diff readbacks
 - Book status resource counts match direct daemon Book status counts
 - Book resource payloads do not contain `sourceCode`
+- Windows hosted-runner hardening preserves daemon crash recovery behavior while allowing slower Node 25 readiness and file-lock release.
 
 Readback:
 

@@ -35,7 +35,7 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
 const DAEMON_START_TIMEOUT_ENV = "ARCHCONTEXT_DAEMON_START_TIMEOUT_MS";
-const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 90_000 : 15_000;
+const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 150_000 : 15_000;
 const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";

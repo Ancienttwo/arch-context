@@ -16,7 +16,7 @@ import { runFastHookEnqueue } from "../src/hook-fast";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
+const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
@@ -67,7 +67,7 @@ async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
 }
 
 async function removeFileWithTransientWindowsRetry(path: string): Promise<void> {
-  const deadline = Date.now() + (process.platform === "win32" ? 10_000 : 0);
+  const deadline = Date.now() + (process.platform === "win32" ? 30_000 : 0);
   while (true) {
     try {
       rmSync(path, { force: true });

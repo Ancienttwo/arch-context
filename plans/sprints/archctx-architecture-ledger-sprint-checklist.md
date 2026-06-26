@@ -850,8 +850,9 @@ archctx book export --format yaml|markdown|json
 - 2026-06-26: Completed AL7 MCP Book resources slice on branch `codex/architecture-ledger-al7-mcp-resources`.
   - MCP resources: `archcontext://book/status`, `state`, `timeline`, `diff` and `recommendations` expose daemon Book readbacks without adding query tools.
   - Tool posture: `LOCAL_MCP_TOOLS` remains the six existing workflow tools, preserving plan/apply as the mutation path.
+  - Remote readback hardening: Windows Node 25 daemon readiness and transient file-lock cleanup are widened after PR CI readback exposed hosted-runner-only failures outside the MCP resource path.
   - Verification artifact: `docs/verification/architecture-ledger-al7-mcp-resources.md`.
-  - Verification: `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts --timeout 120000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-mcp-resources-verify-state-XXXXXX) bun run verify`.
+  - Verification: `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts --timeout 120000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 240000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-mcp-resources-verify-state-XXXXXX) bun run verify`.
 
 ---
 
