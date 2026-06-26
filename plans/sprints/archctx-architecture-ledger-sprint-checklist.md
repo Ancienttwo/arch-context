@@ -1100,7 +1100,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` records five supported local SQLite schema states: fresh empty DB, pre-ledger 0005, ledger-v1 0006, pre-search-FTS 0008 and current 0009; all migrate to `0009_architecture_ledger_search_fts`, pass integrity check and include required architecture ledger tables.
 - [x] **AL10-11 · P0 · `release`** — Verify packaged CLI includes migrations, hooks, renderers and agent adapter contracts.
   - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` reuses the FG6 one-package npm dry-run tarball, extracts `archctx-0.1.3.tgz`, verifies 79 package files, Node-only `bin/archctx.mjs`, bounded package contents, and bundle signatures for migrations, hook enqueue/checkpoint, docs projection renderer and agent runner/status/budget contracts.
-- [ ] **AL10-12 · P1 · `runbooks`** — Write incident, corruption recovery, drift recovery, provider disable and full rollback runbooks.
+- [x] **AL10-12 · P1 · `runbooks`** — Write incident, corruption recovery, drift recovery, provider disable and full rollback runbooks.
+  - Evidence: `docs/runbooks/architecture-ledger-operations.md` defines architecture-ledger incident, SQLite corruption recovery, ledger/Git drift recovery, provider disable and full rollback runbooks with signal, triage, containment/remediation and verification steps. `docs/verification/architecture-ledger-al10-runbooks-readback.json` verifies all five sections, links prior AL10 rollout/hardening/chaos/release/agent evidence and records zero secret or raw source/diff marker hits.
 - [ ] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
 - [ ] **AL10-14 · P1 · `product`** — Interview beta users about whether Book answers replace manual filesystem browsing.
 - [ ] **AL10-15 · P1 · `governance`** — Require an independent reviewer for authority promotion and enforcement enablement.
@@ -1184,6 +1185,13 @@ archctx book export --format yaml|markdown|json
   - Bundle contracts: packaged CLI bundle contains signatures for SQLite ledger migrations, hook enqueue/checkpoint fail-open contracts, docs projection renderer/manifest contracts and agent investigate/status/budget runner-port contracts.
   - Verification artifact: `docs/verification/architecture-ledger-al10-release-packaging-readback.json`, `docs/verification/architecture-ledger-al10-release-packaging.md`.
   - Verification: `bun run record:al10:release-packaging`; `bun run readback:al10:release-packaging`; `bun test scripts/architecture-ledger-al10-release-packaging-readback.test.ts`.
+- 2026-06-26: Completed AL10 operations runbooks on branch `codex/architecture-ledger-al10-runbooks`.
+  - Scope: closes AL10-12 only; telemetry, product interviews, governance, Go/No-Go and all GA gates remain open.
+  - Runbooks: `docs/runbooks/architecture-ledger-operations.md` covers architecture-ledger incident response, SQLite corruption recovery, ledger/Git drift recovery, provider disable and full rollback to YAML authority.
+  - Evidence grounding: runbook readback links prior AL10 rollout workflow, hardening, chaos/security, release packaging and deterministic-plus-agent comparison evidence before marking the runbooks verified.
+  - Privacy: the readback scans runbook content for secret markers and raw source/diff markers; both counts are zero.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-runbooks-readback.json`, `docs/verification/architecture-ledger-al10-runbooks.md`.
+  - Verification: `bun run record:al10:runbooks`; `bun run readback:al10:runbooks`; `bun test scripts/architecture-ledger-al10-runbooks-readback.test.ts`; `bun run typecheck`.
 
 ---
 
