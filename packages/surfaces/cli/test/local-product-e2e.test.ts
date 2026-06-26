@@ -10,8 +10,8 @@ const MONOREPO_FIXTURE_ROOT = join(ROOT, "packages/surfaces/cli/test/fixtures/mo
 const BIN_DIR = join(ROOT, "node_modules", ".bin");
 const ARCHCTX_BIN = resolveArchctxBin();
 const CODEGRAPH_BIN = resolveCodeGraphBin();
-const ARCHCTX_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 45_000 : 15_000;
-const LOCAL_PRODUCT_E2E_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
+const ARCHCTX_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 90_000 : 15_000;
+const LOCAL_PRODUCT_E2E_TIMEOUT_MS = process.platform === "win32" ? 210_000 : 30_000;
 
 describe("local product first-experience E2E", () => {
   test("installed archctx works against an ordinary single Git repository", async () => {
@@ -310,14 +310,15 @@ function practiceIds(matches: any[]): string[] {
 
 function runArchctx(cwd: string, ...args: string[]): Promise<any> {
   return new Promise((resolvePromise, rejectPromise) => {
+    const label = `archctx ${args.join(" ")}`;
     const child = spawn(ARCHCTX_BIN, args, {
       cwd,
       env: testEnv()
     });
-    collectProcess(child)
+    collectProcess(child, label)
       .then(({ stdout, stderr, code }) => {
         if (code !== 0) {
-          rejectPromise(new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`));
+          rejectPromise(new Error(`${label} failed (${code}): ${stderr || stdout}`));
           return;
         }
         resolvePromise(JSON.parse(stdout));
@@ -326,13 +327,13 @@ function runArchctx(cwd: string, ...args: string[]): Promise<any> {
   });
 }
 
-function collectProcess(child: ChildProcessWithoutNullStreams): Promise<{ stdout: string; stderr: string; code: number | null }> {
+function collectProcess(child: ChildProcessWithoutNullStreams, label: string): Promise<{ stdout: string; stderr: string; code: number | null }> {
   return new Promise((resolvePromise, rejectPromise) => {
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      rejectPromise(new Error(`Timed out waiting for process: ${stderr || stdout}`));
+      rejectPromise(new Error(`Timed out waiting for process: ${label}: ${stderr || stdout}`));
     }, ARCHCTX_PROCESS_TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();

@@ -1242,6 +1242,7 @@ archctx book export --format yaml|markdown|json
   - Registry: `latest` remains `0.1.3`; `beta` points to `0.1.4-beta.0`; tester install command is `npm install -g archctx@beta`.
   - Package evidence: `docs/verification/fg6-npm-release-dry-run.json` and `docs/verification/architecture-ledger-al10-release-packaging-readback.json` were refreshed for the beta tarball.
   - Governance evidence refresh: `docs/verification/fg4-deterministic-conclusion-readback.json`, `docs/verification/fg6-organization-runner-no-llm-readback.json` and `docs/verification/fg6-no-provider-deterministic-readback.json` were refreshed because the no-provider deterministic digest includes the product version.
+  - CI readback hardening: PR #84 exposed a Windows Node 24 hosted-runner timeout in the local-product import-edge E2E path after the beta publish push; the test harness now uses a hosted-runner-scale Windows child-process/test budget and includes the timed-out `archctx ...` command in diagnostics without changing runtime behavior.
   - Publish readback: `docs/verification/architecture-ledger-al10-beta-npm-release-readback.json`, `docs/verification/architecture-ledger-al10-beta-npm-release.md`.
   - Verification: targeted contract/practice/CLI/AL10 tests; `bun run typecheck`; `bun run readback:fg6:npm-release-dry-run`; `npm publish ... --tag beta`; npm registry readback; temporary `node@24` + `archctx@beta` install smoke; `bun run record:al10:release-packaging`; `bun run readback:al10:release-packaging`; `bun run verify`; `bun run verify:governance`.
 
