@@ -1138,8 +1138,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified chaos/security packet and records 100% pass rate for stale replay rejection, event tamper detection, path traversal rejection, symlink escape rejection and forged evidence rejection.
 - [x] **AL10-GA-5** — Hard-gate false positives = 0.
   - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified recommendation-quality packet and records heuristic-only hard-gate rate 0, dynamic-doc hard-gate rate 0, combined hard-gate false-positive rate 0 and failed eval gate count 0.
-- [ ] **AL10-GA-6** — External/independent architecture and security review accepted.
-  - Blocked/intake: `docs/approvals/architecture-ledger-al10-independent-review.md` is the canonical pending approval artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` rejects FG6/M6 carry-over security reviews as insufficient for AL10 architecture-ledger authority promotion.
+- [x] **AL10-GA-6** — External/independent architecture and security review accepted.
+  - Evidence: `docs/approvals/architecture-ledger-al10-independent-review.md` records a 2026-06-27 human independent architecture/security approval for the AL10-GA-6 criterion, with explicit non-approval of AL10-14, AL10-GA-7, production GA, immediate `ledger-authoritative` activation, or hard enforcement before the remaining canonical gates close. `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` verifies the status marker and keeps remaining external acceptance blocked on AL10-14 and AL10-GA-7.
 - [ ] **AL10-GA-7** — Production rollback drill completed.
   - Blocked/intake: `docs/verification/architecture-ledger-al10-production-rollback-drill.md` is the canonical pending drill artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` records that the older production GA external readback is itself blocked and cannot close this gate.
 
@@ -1250,6 +1250,11 @@ archctx book export --format yaml|markdown|json
   - Boundary: the review supports only continued local opt-in advisory beta and explicitly cannot satisfy the required human independent reviewer condition.
   - Evidence: `docs/security/reviews/architecture-ledger-al10-gpt-pro-advisory-review.md`; `docs/approvals/architecture-ledger-al10-independent-review.md`.
   - Remaining blockers: AL10-14 real beta-user interview evidence, AL10-GA-6 human independent architecture/security approval and AL10-GA-7 production rollback drill evidence.
+- 2026-06-27: Recorded human independent AL10 architecture/security approval.
+  - Scope: closes AL10-GA-6 only; does not close AL10-14, AL10-GA-7, production GA, immediate `ledger-authoritative` activation or hard enforcement enablement.
+  - Approval boundary: architecture/security readiness is accepted for considering `ledger-authoritative` promotion and enforcement enablement after the remaining canonical gates close; the hook enqueue p95 beta-budget risk remains tracked but is accepted as non-blocking for AL10-GA-6.
+  - Evidence: `docs/approvals/architecture-ledger-al10-independent-review.md`.
+  - Remaining blockers: AL10-14 verified beta-user interview evidence and AL10-GA-7 verified production rollback drill evidence.
 
 ---
 

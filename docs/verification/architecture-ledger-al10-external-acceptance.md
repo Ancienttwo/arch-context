@@ -4,8 +4,8 @@
 
 - Audits: AL10-14, AL10-GA-6 and AL10-GA-7.
 - Status: blocked.
-- Closed gates: none.
-- Remaining gates: AL10-14, AL10-GA-6, AL10-GA-7.
+- Closed gates: AL10-GA-6.
+- Remaining gates: AL10-14, AL10-GA-7.
 - This readback rejects FG6/M6 carry-over artifacts for AL10 external acceptance.
 
 ## Required Canonical Artifacts
@@ -13,7 +13,7 @@
 | Gate | Artifact | Status | Blocker |
 | --- | --- | --- | --- |
 | AL10-14 | docs/verification/architecture-ledger-al10-beta-user-interviews.md | blocked | status marker must be Verified |
-| AL10-GA-6 | docs/approvals/architecture-ledger-al10-independent-review.md | blocked | status marker must be Approved |
+| AL10-GA-6 | docs/approvals/architecture-ledger-al10-independent-review.md | verified | none |
 | AL10-GA-7 | docs/verification/architecture-ledger-al10-production-rollback-drill.md | blocked | status marker must be Verified; missing term: Verified |
 
 ## Rejected Carry-Over Artifacts
