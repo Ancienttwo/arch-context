@@ -34,7 +34,8 @@ import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
-const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 45_000 : 15_000;
+const DAEMON_START_TIMEOUT_ENV = "ARCHCONTEXT_DAEMON_START_TIMEOUT_MS";
+const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 90_000 : 15_000;
 const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
@@ -2162,6 +2163,8 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
   mkdirSync(controlDir, { recursive: true });
   const logFd = openSync(logPath, "a", 0o600);
   try {
+    let childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    let childError: Error | undefined;
     const child = spawn(process.execPath, [
       CLI_ENTRY,
       "daemon",
@@ -2175,10 +2178,16 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
       env: process.env,
       stdio: ["ignore", logFd, logFd]
     });
+    child.once("exit", (code, signal) => {
+      childExit = { code, signal };
+    });
+    child.once("error", (error) => {
+      childError = error;
+    });
     child.unref();
-    const ready = await waitForDaemonReady(cwd, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
+    const ready = await waitForDaemonReady(cwd, daemonStartTimeoutMs(args), () => childExit !== undefined || childError !== undefined);
     if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}; logTail=${readFileTail(logPath)}`);
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(logPath, childExit, childError));
     }
     return okEnvelope("daemon.start", {
       running: true,
@@ -2205,7 +2214,7 @@ async function upgradeDaemon(args: string[], cwd: string) {
   }
   if (issue.pidAlive && issue.pid !== undefined) {
     process.kill(issue.pid, "SIGTERM");
-    const stopped = await waitForPidExit(issue.pid, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
+    const stopped = await waitForPidExit(issue.pid, daemonStartTimeoutMs(args));
     if (!stopped) {
       return errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED", `Incompatible archctxd pid ${issue.pid} did not stop; stop it manually, then run archctx daemon upgrade.`);
     }
@@ -2326,11 +2335,32 @@ function recoveryData(recovery: { removed: string[] }) {
   return recovery.removed.length > 0 ? { recoveredStaleControlFiles: recovery.removed } : {};
 }
 
-async function waitForDaemonReady(cwd: string, timeoutMs: number) {
+function daemonStartTimeoutMs(args: string[]): number {
+  const configured = readFlag(args, "--timeout-ms") ?? process.env[DAEMON_START_TIMEOUT_ENV];
+  if (configured === undefined) return DAEMON_START_TIMEOUT_MS;
+  const parsed = Number(configured);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DAEMON_START_TIMEOUT_MS;
+}
+
+function daemonStartFailureMessage(
+  logPath: string,
+  childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined,
+  childError: Error | undefined
+): string {
+  const childState = childError
+    ? `childError=${childError.message}`
+    : childExit
+      ? `childExit=${childExit.code ?? "null"}/${childExit.signal ?? "none"}`
+      : "childState=still-running";
+  return `archctxd did not become ready; ${childState}; log=${logPath}; logTail=${readFileTail(logPath)}`;
+}
+
+async function waitForDaemonReady(cwd: string, timeoutMs: number, shouldStop?: () => boolean) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const ready = await runningDaemonInfo(cwd);
     if (ready) return ready;
+    if (shouldStop?.()) return undefined;
     await sleep(50);
   }
   return undefined;

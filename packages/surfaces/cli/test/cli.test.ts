@@ -16,9 +16,9 @@ import { runFastHookEnqueue } from "../src/hook-fast";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 60_000 : 30_000;
+const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
-const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 90_000 : 30_000;
+const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
 function runTestCli(command: string, args: string[], root: string, stateRoot = testStateRoot(root)) {

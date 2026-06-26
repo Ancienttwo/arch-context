@@ -765,6 +765,11 @@ A subagent is eligible only when all conditions are true:
   - Fixtures: fake-provider tests reject malformed output and hallucinated IDs; runtime daemon and SQLite store tests reject duplicate terminal completion before replacing output; existing timeout and stale completion coverage remains green.
   - Verification artifact: `docs/verification/architecture-ledger-al6-cli-fixtures.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al6-cli-fixtures-verify-state-XXXXXX) bun run verify`.
+- 2026-06-26 — AL6 remote Windows Node 25 daemon readback hardening completed:
+  - Readback: PR #61 Windows Node 25 failed only the CLI stale daemon and daemon upgrade tests after exceeding the previous hosted-runner readiness budget.
+  - Runtime CLI: Windows `archctx daemon start` readiness budget now has the same safety margin as hosted-runner behavior, while Linux/macOS defaults stay unchanged.
+  - Diagnostics: background daemon startup now reports foreground child exit/error state with the log tail instead of returning an empty-tail timeout.
+  - Verification: `bun test packages/surfaces/cli/test/cli.test.ts -t "daemon" --timeout 120000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 120000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-pr61-win25-hardening-verify-state-XXXXXX) bun run verify`.
 
 ---
 

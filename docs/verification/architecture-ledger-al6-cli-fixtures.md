@@ -11,6 +11,7 @@ Implemented behavior:
 - `archctx investigate` enqueues a bounded runtime agent job through the local runtime daemon.
 - `archctx agents status` reads queue stats and active job records without creating work.
 - `archctx agents budget` exposes the effective safe defaults for spawn and queue limits.
+- Windows daemon startup uses a hosted-runner-safe readiness budget and reports foreground child exit/error diagnostics instead of timing out with an empty log tail.
 - Fake-provider fixtures cover malformed output and hallucinated target IDs.
 - Runtime duplicate completion is rejected before terminal job output can be replaced.
 - Existing stale completion, timeout fallback and provider metadata behavior remain covered.
@@ -101,6 +102,8 @@ node scripts/sprint-status-check.mjs
 git diff --check
 bun test --timeout 90000
 ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al6-cli-fixtures-verify-state-XXXXXX) bun run verify
+bun test packages/surfaces/cli/test/cli.test.ts -t "daemon" --timeout 120000
+bun test packages/surfaces/cli/test/cli.test.ts --timeout 120000
 ```
 
 Readback:
@@ -108,3 +111,5 @@ Readback:
 - Focused tests passed: core 15, CLI 29, runtime daemon 43, SQLite store 28.
 - Full test suite passed: 775 tests, 0 failures.
 - Root verify passed, including packaged CLI smoke, privacy/readback gates, acceptance ledgers, sprint-status check and representative eval.
+- PR #61 Windows Node 25 readback initially failed only the CLI daemon stale/upgrade tests because the hosted runner exceeded the previous 45s readiness budget; the follow-up hardening keeps Linux/macOS defaults unchanged, raises the Windows readiness budget, aligns the test harness timeout, and adds child process diagnostics for future failures.
+- Local follow-up verification after the hardening passed focused daemon CLI tests, the full CLI test file, full `bun test --timeout 90000`, and root `bun run verify`.
