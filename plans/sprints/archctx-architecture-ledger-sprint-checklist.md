@@ -1102,7 +1102,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` reuses the FG6 one-package npm dry-run tarball, extracts `archctx-0.1.3.tgz`, verifies 79 package files, Node-only `bin/archctx.mjs`, bounded package contents, and bundle signatures for migrations, hook enqueue/checkpoint, docs projection renderer and agent runner/status/budget contracts.
 - [x] **AL10-12 · P1 · `runbooks`** — Write incident, corruption recovery, drift recovery, provider disable and full rollback runbooks.
   - Evidence: `docs/runbooks/architecture-ledger-operations.md` defines architecture-ledger incident, SQLite corruption recovery, ledger/Git drift recovery, provider disable and full rollback runbooks with signal, triage, containment/remediation and verification steps. `docs/verification/architecture-ledger-al10-runbooks-readback.json` verifies all five sections, links prior AL10 rollout/hardening/chaos/release/agent evidence and records zero secret or raw source/diff marker hits.
-- [ ] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
+- [x] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
+  - Evidence: `docs/verification/architecture-ledger-al10-telemetry-readback.json` aggregates the verified AL10 rollout, benchmark, hardening, chaos/security, recommendation-quality, agent-comparison, release-packaging and runbook readbacks into a local opt-in beta telemetry report. `docs/verification/architecture-ledger-al10-telemetry.md` records 3 representative loop runs, 1,000 stress events, dual-mode drift count 0, 190 recommendation scenarios, 26 per-practice support rows, default hook median subagent spawns 0, rollback/chaos/security resolution, zero privacy/eval/quality failures, and the tracked beta risk that hook enqueue p95 remains 154.458 ms against the 150 ms beta target.
 - [ ] **AL10-14 · P1 · `product`** — Interview beta users about whether Book answers replace manual filesystem browsing.
 - [ ] **AL10-15 · P1 · `governance`** — Require an independent reviewer for authority promotion and enforcement enablement.
 - [ ] **AL10-16 · P1 · `release`** — Record final Go/No-Go decision and unresolved risks.
@@ -1192,6 +1193,14 @@ archctx book export --format yaml|markdown|json
   - Privacy: the readback scans runbook content for secret markers and raw source/diff markers; both counts are zero.
   - Verification artifact: `docs/verification/architecture-ledger-al10-runbooks-readback.json`, `docs/verification/architecture-ledger-al10-runbooks.md`.
   - Verification: `bun run record:al10:runbooks`; `bun run readback:al10:runbooks`; `bun test scripts/architecture-ledger-al10-runbooks-readback.test.ts`; `bun run typecheck`.
+- 2026-06-26: Completed AL10 local opt-in beta telemetry report on branch `codex/architecture-ledger-al10-telemetry`.
+  - Scope: closes AL10-13 only; beta-user interviews, independent reviewer, final Go/No-Go and all GA gates remain open.
+  - Source evidence: telemetry readback consumes eight verified AL10 packets covering rollout workflow, representative benchmark, hardening, chaos/security, recommendation quality, deterministic-plus-agent comparison, release packaging and operations runbooks.
+  - Runs and drift: records 3 representative full-loop fixtures with 172 entities, 327 relations and 26 constraints; 1,000 stress events; dual-mode drift count 0; rollback returning to YAML authority.
+  - Recommendation and agent spawn: records 190 eval scenarios, 26 per-practice support rows, 100.0% Top-3 recall, 100.0% precision@3, 0.0% hard-gate false-positive rate, default hook median subagent spawns 0, and 4 advisory-only fake-provider comparison runs with 4,769 estimated tokens and $0 external provider cost.
+  - Failures and risk: records zero source readback failures, zero eval failures, zero quality violations, zero privacy leaks, zero lost stress events and one tracked beta performance risk: hook enqueue p95 154.458 ms over the 150 ms beta target.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-telemetry-readback.json`, `docs/verification/architecture-ledger-al10-telemetry.md`.
+  - Verification: `bun run record:al10:telemetry`; `bun run readback:al10:telemetry`; `bun test scripts/architecture-ledger-al10-telemetry-readback.test.ts`; `bun run typecheck`.
 
 ---
 
