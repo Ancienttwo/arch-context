@@ -1092,7 +1092,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-chaos-security-readback.json` records verified prompt/tool-escape rejection, repo-relative path traversal rejection, legacy SQLite symlink escape rejection, CLI forged evidence rejection, event tamper replay/materialized mismatch detection, and stale replay rejection with `AC_CONTEXT_STALE`.
 - [x] **AL10-07 · P0 · `privacy`** — Audit SQLite, logs, CLI output, MCP output and agent job payloads for source/diff leakage.
   - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` scans SQLite schema/event/operation text, raw CLI outputs, MCP prepare/checkpoint/complete outputs, hook logs and raw agent job payloads for forbidden source/diff keys and sentinel leakage; all five privacy surfaces report `clean: true`.
-- [ ] **AL10-08 · P0 · `evals`** — Freeze a blind, no-label recommendation set and publish per-practice support.
+- [x] **AL10-08 · P0 · `evals`** — Freeze a blind, no-label recommendation set and publish per-practice support.
+  - Evidence: `docs/verification/architecture-ledger-al10-recommendation-quality-readback.json` freezes seven representative practice JSONL datasets by SHA-256, verifies the 30-case blind no-label set has empty evidence arrays, no practice bindings and zero task label hits, and publishes 26 per-practice support rows with 90/90 expected matches.
 - [ ] **AL10-09 · P0 · `evals`** — Compare deterministic-only versus deterministic-plus-agent outcomes and cost.
 - [ ] **AL10-10 · P0 · `release`** — Add migration compatibility matrix across supported versions.
 - [ ] **AL10-11 · P0 · `release`** — Verify packaged CLI includes migrations, hooks, renderers and agent adapter contracts.
@@ -1110,7 +1111,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` records 1,000 appended events, 1,000 replayed events, 1,000 unique event IDs, one duplicate retry counted as duplicate, integrity OK and fault-injected rollback leaving zero partial materialization.
 - [x] **AL10-BETA-3** — No source/diff leakage in privacy audit.
   - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` records `overallClean: true`, zero forbidden key hits and zero forbidden token hits across SQLite, CLI, MCP, logs and agent job payloads.
-- [ ] **AL10-BETA-4** — Recommendation quality meets AL1 targets.
+- [x] **AL10-BETA-4** — Recommendation quality meets AL1 targets.
+  - Evidence: `docs/verification/architecture-ledger-al10-recommendation-quality.md` records Practice Top-3 recall 100.0%, recommendation precision@3 100.0%, no-keyword structural recall 100.0%, direct-reference recall 100.0%, evidence-shuffle contamination 0.0%, and hard-gate false-positive rates 0.0%.
 - [x] **AL10-BETA-5** — Default task path has median zero subagent spawns.
   - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` samples 9 default hook enqueue paths with median spawned jobs 0, total spawned jobs 0 and all default samples remaining fail-open/no-enqueue below the investigation threshold; one explicit high-risk enqueue is retained only to audit job payload privacy.
 - [x] **AL10-BETA-6** — Full rollback to YAML authority is demonstrated.
@@ -1157,6 +1159,14 @@ archctx book export --format yaml|markdown|json
   - Evidence privacy: the packet scans the chaos/security evidence for raw source/diff/completion keys and secret-like tokens; the generated evidence records digests, reason codes and redacted paths only.
   - Verification artifact: `docs/verification/architecture-ledger-al10-chaos-security-readback.json`, `docs/verification/architecture-ledger-al10-chaos-security.md`.
   - Verification: `bun run record:al10:chaos-security`; `bun run readback:al10:chaos-security`; `bun test scripts/architecture-ledger-al10-chaos-security-readback.test.ts`.
+- 2026-06-26: Completed AL10 recommendation quality freeze/readback on branch `codex/architecture-ledger-al10-recommendation-quality`.
+  - Scope: closes AL10-08 and AL10-BETA-4 only; AL10-09 deterministic-plus-agent comparison, release packaging, runbooks, telemetry, governance, Go/No-Go and all GA gates remain open.
+  - Frozen eval set: seven representative practice JSONL files are captured with SHA-256 digests and case counts, including the 30-case blind no-label structural-positive set.
+  - No-label guard: the blind set keeps `practice-no-label-*` IDs, `no-keyword-structural-positive` scenario type, empty evidence arrays, no `practiceBindings`, zero task label hits and zero dataset metadata violations.
+  - Recommendation quality: `bun evals/run.ts --check` reports Practice Top-3 recall 100.0%, recommendation precision@3 100.0%, no-keyword structural recall 100.0%, direct-reference recall 100.0%, evidence-shuffle contamination 0.0%, heuristic-only hard-gate rate 0.0%, and dynamic-doc hard-gate rate 0.0%.
+  - Per-practice support: 26 practice rows publish 90 expected recommendations, 90 matched recommendations, min recall 100.0% and zero incomplete practice IDs.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-recommendation-quality-readback.json`, `docs/verification/architecture-ledger-al10-recommendation-quality.md`.
+  - Verification: `bun run record:al10:recommendation-quality`; `bun run readback:al10:recommendation-quality`; `bun test scripts/architecture-ledger-al10-recommendation-quality-readback.test.ts`; `bun evals/run.ts --check`; `bun run typecheck`.
 
 ---
 
