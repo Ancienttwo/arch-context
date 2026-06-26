@@ -1746,7 +1746,7 @@ describe("local runtime foundation", () => {
     } finally {
       removeTempRepo(root);
     }
-  });
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
   test("ledger-authoritative runtime read surfaces use SQLite current state when Git projection drifts", async () => {
     const root = tempRepo();
@@ -2711,8 +2711,9 @@ describe("local runtime foundation", () => {
 
   test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
     const root = tempRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedProductionDaemon>> | undefined;
     try {
-      const daemon = await createStartedProductionDaemon({ root });
+      daemon = await createStartedProductionDaemon({ root });
       expect(daemon.compositionReport()).toMatchObject({
         mode: "production",
         productionSafe: true,
@@ -2725,6 +2726,7 @@ describe("local runtime foundation", () => {
         }
       });
       await daemon.stop();
+      daemon = undefined;
 
       const codeFacts = new CodeGraphAdapter(new MockCodeGraphProvider());
       expect(() => assertProductionRuntimeDeps({ codeFacts })).toThrow("codeFacts");
@@ -2732,9 +2734,10 @@ describe("local runtime foundation", () => {
       expect(() => assertProductionRuntimeDeps({ localStore: new TestLocalStore() })).toThrow("localStore");
       expect(() => assertProductionRuntimeDeps({ clock: () => "2026-06-20T00:00:00.000Z" })).toThrow("clock");
     } finally {
+      if (daemon) await daemon.stop().catch(() => undefined);
       removeTempRepo(root);
     }
-  });
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
   test("runtime RPC ignores insecure connection files and recovers stale locks", async () => {
     const root = tempRepo();

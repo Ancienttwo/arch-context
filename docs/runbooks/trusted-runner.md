@@ -48,8 +48,8 @@ jobs:
           trust-level: organization
           fail-on: blocking
           fork-pr-mode: unsupported
-          runtime-version: "0.1.3"
-          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.1.3.tgz
+          runtime-version: "0.1.4-beta.0"
+          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.1.4-beta.0.tgz
           runtime-artifact-digest: sha256:<release-digest>
           expected-repository: <owner/name from Challenge>
           expected-head-sha: <head SHA from Challenge>

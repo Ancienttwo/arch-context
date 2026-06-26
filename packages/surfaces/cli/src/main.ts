@@ -61,7 +61,12 @@ class RuntimeVersionUnsupportedError extends Error {
 
 if (import.meta.main) {
   if (command === "mcp" && args.length === 0) {
-    await runStdioMcpLoop(stdinLines(), (line) => process.stdout.write(`${line}\n`));
+    await runStdioMcpLoop(
+      stdinLines(),
+      (line) => process.stdout.write(`${line}\n`),
+      (line) => process.stderr.write(`${line}\n`),
+      { runtimeResolver: (root) => createOrStartRuntimeRpcClient(root) }
+    );
   } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
     await runForegroundDaemon(process.cwd(), args).catch((error) => {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -2253,26 +2258,7 @@ function isPrivatePath(path: string): boolean {
 async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliRuntimeHandle> {
   if (deps.runtimeClient) return { client: deps.runtimeClient, close: async () => undefined };
   if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
-    const fileIssue = runtimeRpcCompatibilityIssue(cwd);
-    if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
-    const client = createRuntimeRpcClientFromConnectionFile(cwd);
-    if (client) {
-      const health = await client.health().catch(() => undefined);
-      const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
-      if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
-      if ((health as any)?.ok === true) return { client, close: async () => undefined };
-      recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
-    } else {
-      recoverStaleDaemonControlFiles(cwd);
-    }
-    const started = await startBackgroundDaemon([], cwd);
-    if (!started.ok) throw new Error(started.error?.message ?? "archctxd did not start");
-    const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
-    if (startedClient) {
-      const health = await startedClient.health().catch(() => undefined);
-      if ((health as any)?.ok === true) return { client: startedClient, close: async () => undefined };
-    }
-    throw new Error("archctxd started but no healthy runtime RPC connection was available");
+    return { client: await createOrStartRuntimeRpcClient(cwd), close: async () => undefined };
   }
   const {
     runtimeClient: _runtimeClient,
@@ -2291,6 +2277,33 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
     devicePrivateKeySigner: runtimeDeps.devicePrivateKeySigner ?? devicePrivateKeyStore
   });
   return { client: daemon, close: () => daemon.stop() };
+}
+
+async function createOrStartRuntimeRpcClient(cwd: string): Promise<RuntimeDaemonClient> {
+  const fileIssue = runtimeRpcCompatibilityIssue(cwd);
+  if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
+  const client = createRuntimeRpcClientFromConnectionFile(cwd);
+  if (client) {
+    const health = await client.health().catch(() => undefined);
+    const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
+    if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
+    if ((health as any)?.ok === true) return client;
+    recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
+  } else {
+    recoverStaleDaemonControlFiles(cwd);
+  }
+  const started = await startBackgroundDaemon([], cwd);
+  if (!started.ok) throw new Error(mcpDaemonStartRecoveryMessage(started.error?.message ?? "archctxd did not start"));
+  const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
+  if (startedClient) {
+    const health = await startedClient.health().catch(() => undefined);
+    if ((health as any)?.ok === true) return startedClient;
+  }
+  throw new Error(mcpDaemonStartRecoveryMessage("archctxd started but no healthy runtime RPC connection was available"));
+}
+
+function mcpDaemonStartRecoveryMessage(message: string): string {
+  return message.includes("archctx daemon") ? message : `${message}; run \`archctx daemon start\` before using the local MCP surface`;
 }
 
 function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {

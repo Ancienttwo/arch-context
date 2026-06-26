@@ -327,7 +327,7 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).update).toMatchObject({
         schemaVersion: "archcontext.update-check/v1",
         packageName: "archctx",
-        currentVersion: "0.1.3",
+        currentVersion: "0.1.4-beta.0",
         status: "not-checked",
         checkUpdates: false,
         updateAvailable: false
@@ -382,7 +382,7 @@ describe("archctx CLI", () => {
         expect((update.data as any)).toMatchObject({
           schemaVersion: "archcontext.update-check/v1",
           packageName: "archctx",
-          currentVersion: "0.1.3",
+          currentVersion: "0.1.4-beta.0",
           latestVersion: "99.0.0",
           source: "env",
           status: "update-available",
@@ -1484,6 +1484,51 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("MCP stdio runtime tool call auto-starts the background daemon", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-autostart-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    const lockPath = testRuntimePaths(root).daemonLockPath;
+    try {
+      const init = await runCliProcess(root, "init", "--name", "MCP Auto Start App");
+      expect(init.ok).toBe(true);
+
+      const stopped = await runCliProcess(root, "daemon", "stop");
+      expect(stopped.ok).toBe(true);
+      await expectFileRemoved(connectionPath);
+      await expectFileRemoved(lockPath);
+
+      const mcp = await runCliMcpProcess(root, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "archcontext_practices",
+          arguments: {
+            root,
+            action: "validate",
+            strict: true,
+            maxBytes: 12_288
+          }
+        }
+      });
+      expect(mcp.jsonrpc).toBe("2.0");
+      expect(mcp.id).toBe(1);
+      expect(mcp.result.content.ok).toBe(true);
+      expect(mcp.result.content.data.valid).toBe(true);
+
+      const daemonStatus = await runCliProcess(root, "daemon", "status");
+      expect(daemonStatus.ok).toBe(true);
+      expect(daemonStatus.data.running).toBe(true);
+      expect(daemonStatus.data.rpcVersionCompatible).toBe(true);
+      expect(existsSync(connectionPath)).toBe(true);
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-crash-recovery-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -2219,6 +2264,19 @@ async function runCliProcess(root: string, ...args: string[]): Promise<any> {
   const { stdout, stderr, code } = await collectProcess(child);
   if (code !== 0) throw new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
   return JSON.parse(stdout);
+}
+
+async function runCliMcpProcess(root: string, message: unknown): Promise<any> {
+  const child = spawn(process.execPath, [CLI_ENTRY, "mcp"], {
+    cwd: root,
+    env: testStateEnv(root),
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  const result = collectProcess(child);
+  child.stdin.end(`${JSON.stringify(message)}\n`);
+  const { stdout, stderr, code } = await result;
+  if (code !== 0) throw new Error(`archctx mcp failed (${code}): ${stderr || stdout}`);
+  return JSON.parse(stdout.trim().split("\n").filter(Boolean).at(-1) ?? "");
 }
 
 async function stopDaemonAndWait(root: string): Promise<void> {

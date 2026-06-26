@@ -3,7 +3,7 @@
 > **Status**: Executing - AL0 through AL9 complete; AL10 rollout hardening in progress
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
-> **Updated**: 2026-06-26
+> **Updated**: 2026-06-27
 > **Target location**: `plans/sprints/archctx-architecture-ledger-sprint.md`
 > **Relationship to current roadmap**: follow-up workstream after the existing M0–M6 scaffold; may start in parallel with remaining M6 launch evidence where dependencies permit.
 > **Goal**: turn architecture knowledge into a durable, queryable, reviewable ledger that passively follows code evolution, serves LLMs through CLI/MCP, and invokes subagents only when deterministic analysis cannot close an important uncertainty.
@@ -1099,12 +1099,13 @@ archctx book export --format yaml|markdown|json
 - [x] **AL10-10 · P0 · `release`** — Add migration compatibility matrix across supported versions.
   - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` records five supported local SQLite schema states: fresh empty DB, pre-ledger 0005, ledger-v1 0006, pre-search-FTS 0008 and current 0009; all migrate to `0009_architecture_ledger_search_fts`, pass integrity check and include required architecture ledger tables.
 - [x] **AL10-11 · P0 · `release`** — Verify packaged CLI includes migrations, hooks, renderers and agent adapter contracts.
-  - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` reuses the FG6 one-package npm dry-run tarball, extracts `archctx-0.1.3.tgz`, verifies 79 package files, Node-only `bin/archctx.mjs`, bounded package contents, and bundle signatures for migrations, hook enqueue/checkpoint, docs projection renderer and agent runner/status/budget contracts.
+  - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` uses the beta npm dry-run tarball, extracts `archctx-0.1.4-beta.0.tgz`, verifies 79 package files, Node-only `bin/archctx.mjs`, bounded package contents, and bundle signatures for migrations, hook enqueue/checkpoint, docs projection renderer and agent runner/status/budget contracts.
 - [x] **AL10-12 · P1 · `runbooks`** — Write incident, corruption recovery, drift recovery, provider disable and full rollback runbooks.
   - Evidence: `docs/runbooks/architecture-ledger-operations.md` defines architecture-ledger incident, SQLite corruption recovery, ledger/Git drift recovery, provider disable and full rollback runbooks with signal, triage, containment/remediation and verification steps. `docs/verification/architecture-ledger-al10-runbooks-readback.json` verifies all five sections, links prior AL10 rollout/hardening/chaos/release/agent evidence and records zero secret or raw source/diff marker hits.
 - [x] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
   - Evidence: `docs/verification/architecture-ledger-al10-telemetry-readback.json` aggregates the verified AL10 rollout, benchmark, hardening, chaos/security, recommendation-quality, agent-comparison, release-packaging and runbook readbacks into a local opt-in beta telemetry report. `docs/verification/architecture-ledger-al10-telemetry.md` records 3 representative loop runs, 1,000 stress events, dual-mode drift count 0, 190 recommendation scenarios, 26 per-practice support rows, default hook median subagent spawns 0, rollback/chaos/security resolution, zero privacy/eval/quality failures, and the tracked beta risk that hook enqueue p95 remains 154.458 ms against the 150 ms beta target.
 - [ ] **AL10-14 · P1 · `product`** — Interview beta users about whether Book answers replace manual filesystem browsing.
+  - Blocked/intake: `docs/verification/architecture-ledger-al10-beta-user-interviews.md` is the canonical pending artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` verifies that no real beta-user interview evidence is currently present and keeps AL10-14 open.
 - [x] **AL10-15 · P1 · `governance`** — Require an independent reviewer for authority promotion and enforcement enablement.
   - Evidence: `docs/architecture/architecture-ledger-authority-promotion-review.md` requires a human independent reviewer before `ledger-authoritative` promotion or enforcement enablement, requires approval under `docs/approvals/`, and forbids self-attestation by automation, subagents, the patch author or release owner. `docs/verification/architecture-ledger-al10-beta-decision-readback.json` verifies this policy against ADR-0040, the AL0 authority matrix and AL10 telemetry.
 - [x] **AL10-16 · P1 · `release`** — Record final Go/No-Go decision and unresolved risks.
@@ -1127,13 +1128,20 @@ archctx book export --format yaml|markdown|json
 
 ### GA exit gate
 
-- [ ] **AL10-GA-1** — No event loss/duplication in 10,000-event stress suite.
-- [ ] **AL10-GA-2** — Warm query p95 ≤ 200 ms on representative repositories.
-- [ ] **AL10-GA-3** — Incremental deterministic analysis p95 ≤ 2 s for ≤200 changed files.
-- [ ] **AL10-GA-4** — Stale writes, path escapes and forged evidence blocked 100%.
-- [ ] **AL10-GA-5** — Hard-gate false positives = 0.
-- [ ] **AL10-GA-6** — External/independent architecture and security review accepted.
-- [ ] **AL10-GA-7** — Production rollback drill completed.
+- [x] **AL10-GA-1** — No event loss/duplication in 10,000-event stress suite.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` appends and replays 10,000 architecture ledger events, records 10,000 unique event IDs, lost event count 0, duplicate event count 0, SQLite event rows 10,000 and integrity OK.
+- [x] **AL10-GA-2** — Warm query p95 ≤ 200 ms on representative repositories.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified representative benchmark packet and records warm Book query p95 96.8 ms across three representative repositories against the 200 ms GA budget.
+- [x] **AL10-GA-3** — Incremental deterministic analysis p95 ≤ 2 s for ≤200 changed files.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` runs five non-coalesced CLI checkpoint samples over 200 changed files through the daemon/checkpoint path and records p95 96.994 ms against the 2,000 ms GA budget.
+- [x] **AL10-GA-4** — Stale writes, path escapes and forged evidence blocked 100%.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified chaos/security packet and records 100% pass rate for stale replay rejection, event tamper detection, path traversal rejection, symlink escape rejection and forged evidence rejection.
+- [x] **AL10-GA-5** — Hard-gate false positives = 0.
+  - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified recommendation-quality packet and records heuristic-only hard-gate rate 0, dynamic-doc hard-gate rate 0, combined hard-gate false-positive rate 0 and failed eval gate count 0.
+- [x] **AL10-GA-6** — External/independent architecture and security review accepted.
+  - Evidence: `docs/approvals/architecture-ledger-al10-independent-review.md` records a 2026-06-27 human independent architecture/security approval for the AL10-GA-6 criterion, with explicit non-approval of AL10-14, AL10-GA-7, production GA, immediate `ledger-authoritative` activation, or hard enforcement before the remaining canonical gates close. `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` verifies the status marker and keeps remaining external acceptance blocked on AL10-14 and AL10-GA-7.
+- [x] **AL10-GA-7** — Production rollback drill completed.
+  - Evidence: `docs/verification/architecture-ledger-al10-production-rollback-drill.md` records a 2026-06-27 production-equivalent staging rollback drill from `ledger-authoritative` mode to YAML authority, with fresh worktree digest handling, backup manifest evidence, `.archcontext` validation, clean ChangeSet journal health, package-boundary verification and contracts test output. `docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json` provides the machine readback.
 
 ### AL10 execution log
 
@@ -1181,10 +1189,10 @@ archctx book export --format yaml|markdown|json
   - Cost comparison: deterministic-only records zero agent runs/tokens; deterministic-plus-agent records 4 runs, 4 attempts, 4,769 estimated tokens, 90 ms duration, 13,420 input bytes, 5,640 output bytes and $0 external provider cost.
   - Verification artifact: `docs/verification/architecture-ledger-al10-agent-comparison-readback.json`, `docs/verification/architecture-ledger-al10-agent-comparison.md`.
   - Verification: `bun run record:al10:agent-comparison`; `bun run readback:al10:agent-comparison`; `bun test scripts/architecture-ledger-al10-agent-comparison-readback.test.ts`; `bun evals/run.ts --check`; `bun run typecheck`.
-- 2026-06-26: Completed AL10 release packaging compatibility/readback on branch `codex/architecture-ledger-al10-release-packaging`.
-  - Scope: closes AL10-10 and AL10-11 only; runbooks, telemetry, product interviews, governance, Go/No-Go and all GA gates remain open.
+- 2026-06-26: Completed AL10 release packaging compatibility/readback on branch `codex/architecture-ledger-al10-release-packaging`; refreshed 2026-06-27 for the public beta npm artifact.
+  - Scope: closes AL10-10 and AL10-11 only; the 2026-06-27 refresh creates tester install evidence for `archctx@0.1.4-beta.0`; product interviews, GA independent approval, production rollback drill evidence and all GA gates remain open.
   - Migration matrix: fresh empty DB, pre-ledger 0005, ledger-v1 0006, pre-search-FTS 0008 and current 0009 all migrate through `SqliteLocalStore.migrate()` to `0009_architecture_ledger_search_fts` with SQLite integrity `ok` and all required architecture ledger tables present.
-  - Package readback: FG6 npm dry-run builds `archctx-0.1.3.tgz`; extracted package has 79 files, Node-only `bin/archctx.mjs`, `bin/codegraph.mjs`, bounded package contents and no workspace source files.
+  - Package readback: beta npm dry-run builds `archctx-0.1.4-beta.0.tgz`; extracted package has 79 files, Node-only `bin/archctx.mjs`, `bin/codegraph.mjs`, bounded package contents and no workspace source files.
   - Bundle contracts: packaged CLI bundle contains signatures for SQLite ledger migrations, hook enqueue/checkpoint fail-open contracts, docs projection renderer/manifest contracts and agent investigate/status/budget runner-port contracts.
   - Verification artifact: `docs/verification/architecture-ledger-al10-release-packaging-readback.json`, `docs/verification/architecture-ledger-al10-release-packaging.md`.
   - Verification: `bun run record:al10:release-packaging`; `bun run readback:al10:release-packaging`; `bun test scripts/architecture-ledger-al10-release-packaging-readback.test.ts`.
@@ -1210,6 +1218,49 @@ archctx book export --format yaml|markdown|json
   - Unresolved risks: missing AL10-14 beta-user interview evidence, missing independent approval artifact, hook enqueue p95 154.458 ms over the 150 ms beta target and open AL10-GA gates.
   - Verification artifact: `docs/verification/architecture-ledger-al10-beta-decision-readback.json`, `docs/verification/architecture-ledger-al10-beta-decision.md`.
   - Verification: `bun run record:al10:beta-decision`; `bun run readback:al10:beta-decision`; `bun test scripts/architecture-ledger-al10-beta-decision-readback.test.ts`.
+- 2026-06-26: Completed AL10 GA technical gates on branch `codex/architecture-ledger-al10-ga-technical-gates`.
+  - Scope: closes AL10-GA-1 through AL10-GA-5 only; AL10-14 beta-user interviews, AL10-GA-6 external/independent review and AL10-GA-7 production rollback drill remain open.
+  - Stress: appends and replays 10,000 architecture ledger events with 10,000 unique IDs, lost event count 0, duplicate event count 0, SQLite event rows 10,000 and integrity OK.
+  - Performance: reuses the verified representative benchmark for warm Book query p95 96.8 ms against the 200 ms GA budget and runs five non-coalesced 200-file checkpoint samples with incremental deterministic analysis p95 96.994 ms against the 2,000 ms GA budget.
+  - Security/eval: reads the verified chaos/security matrix for stale replay, event tamper, path traversal, symlink escape and forged evidence pass rate 100%; reads recommendation-quality evidence for hard-gate false-positive rate 0.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-ga-technical-readback.json`, `docs/verification/architecture-ledger-al10-ga-technical.md`.
+  - Verification: `bun run record:al10:ga-technical`; `bun run readback:al10:ga-technical`; `bun test scripts/architecture-ledger-al10-ga-technical-readback.test.ts`.
+- 2026-06-26: Prepared AL10 external acceptance intake/readback on branch `codex/architecture-ledger-al10-external-acceptance-packet`.
+  - Scope: closes no gates; AL10-14, AL10-GA-6 and AL10-GA-7 remain open until real beta-user interview evidence, independent architecture/security approval and production rollback drill evidence are recorded.
+  - Canonical artifacts: `docs/verification/architecture-ledger-al10-beta-user-interviews.md`, `docs/approvals/architecture-ledger-al10-independent-review.md` and `docs/verification/architecture-ledger-al10-production-rollback-drill.md` are pending templates with explicit completion criteria.
+  - Carry-over rejection: the readback rejects FG6 external security review, M6 independent threat review, FG6 personal beta approval and the blocked production GA external readback as insufficient to close AL10 external acceptance gates.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-external-acceptance-readback.json`, `docs/verification/architecture-ledger-al10-external-acceptance.md`.
+  - Verification: `bun run record:al10:external-acceptance`; `bun run readback:al10:external-acceptance`; `bun test scripts/architecture-ledger-al10-external-acceptance-readback.test.ts`.
+- 2026-06-27: Addressed AL10 GA advisory review request-changes on branch `codex/architecture-ledger-al10-external-acceptance-packet`.
+  - Scope: closes no external gates; strengthens AL10-GA-1 through AL10-GA-5 technical evidence only. AL10-14, AL10-GA-6 and AL10-GA-7 remain blocked on real beta-user interviews, human independent architecture/security approval and production rollback drill evidence.
+  - Runtime-state privacy: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` now audits the actual representative `runtime.sqlite` produced by the 10,000-event GA stress flow, scanning JSON-bearing runtime tables for raw source bodies, raw diffs/patches, prompt/completion bodies, full CodeGraph output and secret-like tokens.
+  - Subagent negative path: the same readback verifies a direct-mutation agent job is rejected with `runtime-agent-job-direct-mutation-forbidden`, leaves architecture event rows unchanged, and accepts only a proposal-only queued job with `directMutationAllowed: false`.
+  - External packet refresh: `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` was regenerated after the technical evidence change and still reports blocked external acceptance.
+  - Verification: `bun run record:al10:ga-technical`; `bun run readback:al10:ga-technical`; `bun run record:al10:external-acceptance`; `bun run readback:al10:external-acceptance`; `bun test scripts/architecture-ledger-al10-ga-technical-readback.test.ts`; `bun run typecheck`.
+- 2026-06-27: Published `archctx@0.1.4-beta.0` for advisory local opt-in beta testing.
+  - Scope: creates a public tester install artifact only; does not close AL10-14, AL10-GA-6 or AL10-GA-7 and does not move the npm `latest` tag.
+  - Registry: `latest` remains `0.1.3`; `beta` points to `0.1.4-beta.0`; tester install command is `npm install -g archctx@beta`.
+  - Package evidence: `docs/verification/fg6-npm-release-dry-run.json` and `docs/verification/architecture-ledger-al10-release-packaging-readback.json` were refreshed for the beta tarball.
+  - Governance evidence refresh: `docs/verification/fg4-deterministic-conclusion-readback.json`, `docs/verification/fg6-organization-runner-no-llm-readback.json` and `docs/verification/fg6-no-provider-deterministic-readback.json` were refreshed because the no-provider deterministic digest includes the product version.
+  - CI readback hardening: PR #84 exposed a Windows Node 24 hosted-runner timeout in the local-product import-edge E2E path after the beta publish push; the test harness now uses a hosted-runner-scale Windows child-process/test budget and includes the timed-out `archctx ...` command in diagnostics without changing runtime behavior.
+  - Publish readback: `docs/verification/architecture-ledger-al10-beta-npm-release-readback.json`, `docs/verification/architecture-ledger-al10-beta-npm-release.md`.
+  - Verification: targeted contract/practice/CLI/AL10 tests; `bun run typecheck`; `bun run readback:fg6:npm-release-dry-run`; `npm publish ... --tag beta`; npm registry readback; temporary `node@24` + `archctx@beta` install smoke; `bun run record:al10:release-packaging`; `bun run readback:al10:release-packaging`; `bun run verify`; `bun run verify:governance`.
+- 2026-06-27: Recorded GPT Pro advisory AL10 architecture/security review intake.
+  - Scope: closes no gates; records an external AI advisory review that rejects PR #84 as sufficient for AL10-GA-6, `ledger-authoritative` promotion, enforcement enablement or production GA.
+  - Boundary: the review supports only continued local opt-in advisory beta and explicitly cannot satisfy the required human independent reviewer condition.
+  - Evidence: `docs/security/reviews/architecture-ledger-al10-gpt-pro-advisory-review.md`; `docs/approvals/architecture-ledger-al10-independent-review.md`.
+  - Remaining blockers: AL10-14 real beta-user interview evidence, AL10-GA-6 human independent architecture/security approval and AL10-GA-7 production rollback drill evidence.
+- 2026-06-27: Recorded human independent AL10 architecture/security approval.
+  - Scope: closes AL10-GA-6 only; does not close AL10-14, AL10-GA-7, production GA, immediate `ledger-authoritative` activation or hard enforcement enablement.
+  - Approval boundary: architecture/security readiness is accepted for considering `ledger-authoritative` promotion and enforcement enablement after the remaining canonical gates close; the hook enqueue p95 beta-budget risk remains tracked but is accepted as non-blocking for AL10-GA-6.
+  - Evidence: `docs/approvals/architecture-ledger-al10-independent-review.md`.
+  - Remaining blockers: AL10-14 verified beta-user interview evidence and AL10-GA-7 verified production rollback drill evidence.
+- 2026-06-27: Completed AL10-GA-7 production rollback drill evidence.
+  - Scope: closes AL10-GA-7 only; does not close AL10-14 or production GA external acceptance while beta-user interview evidence remains unverified.
+  - Drill: temporary Git repository with a real SQLite runtime store entered `ledger-authoritative` mode, supplied the current worktree digest to `archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>`, wrote YAML authority projections, removed a stale projection, created a rollback backup manifest and restarted in YAML authority mode.
+  - Verification: `.archcontext` validation passed, post-rollback ledger drift was clean, ChangeSet journal integrity was `ok` with zero pending entries, package-boundary audit passed and contracts test passed.
+  - Evidence: `docs/verification/architecture-ledger-al10-production-rollback-drill.md`; `docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json`.
+  - Remaining blocker: AL10-14 verified beta-user interview evidence.
 
 ---
 

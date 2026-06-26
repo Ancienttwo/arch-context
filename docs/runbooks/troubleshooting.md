@@ -2,7 +2,7 @@
 
 ## Runtime unavailable
 
-Run `archctx doctor`. If runtime state is stale, restart `archctxd` and rerun `archctx sync`.
+Runtime commands and runtime-dependent MCP tool calls normally start `archctxd` lazily. If a command still returns `AC_RUNTIME_UNAVAILABLE`, run `archctx doctor` and `archctx daemon status`. If runtime state is stale, run `archctx daemon start` or `archctx daemon upgrade`, then rerun `archctx sync`.
 
 ## CodeGraph unavailable
 

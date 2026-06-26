@@ -53,7 +53,7 @@ archctx mcp install --host codex
 archctx mcp status --host codex
 ```
 
-The host entrypoint is `archctx mcp`. It talks to the same repository daemon through local RPC and does not create a second Store, CodeGraph handle, or ChangeSet engine.
+The host entrypoint is `archctx mcp`. It talks to the same repository daemon through local RPC and does not create a second Store, CodeGraph handle, or ChangeSet engine. When the host first calls a runtime-dependent MCP tool such as `archcontext_prepare_task`, `archctx mcp` starts the same local daemon if it is not already running, then reconnects through the daemon connection file. Listing MCP tools does not start the daemon. `archctx mcp status` reports host configuration readiness, not daemon health.
 
 ## Stop The Local Daemon
 

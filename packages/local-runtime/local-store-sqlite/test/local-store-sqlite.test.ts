@@ -839,7 +839,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("rebuilds derived landscape metadata from Git-tracked repo files and CodeGraph indexing", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-landscape-root-"));
