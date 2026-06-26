@@ -1261,6 +1261,12 @@ archctx book export --format yaml|markdown|json
   - Verification: `.archcontext` validation passed, post-rollback ledger drift was clean, ChangeSet journal integrity was `ok` with zero pending entries, package-boundary audit passed and contracts test passed.
   - Evidence: `docs/verification/architecture-ledger-al10-production-rollback-drill.md`; `docs/verification/architecture-ledger-al10-production-rollback-drill-readback.json`.
   - Remaining blocker: AL10-14 verified beta-user interview evidence.
+- 2026-06-27: Published official `archctx@0.1.4` npm release to `latest`.
+  - Scope: creates the official public npm install artifact; does not by itself enable production `ledger-authoritative` mode, hard enforcement or AL10-14 closure.
+  - Registry: `latest` points to `0.1.4`; `beta` remains `0.1.4-beta.0`; install command is `npm install -g archctx@latest`.
+  - Package evidence: `docs/verification/fg6-npm-release-dry-run.json` records the publishable `archctx-0.1.4.tgz` tarball with 79 files, Node engine `>=24 <26`, `archctx` and `codegraph` bins, shasum `d5688ff53b14ba5a5f71cc3877bdfbb204e026ef`, and SHA256 `d7c3746721ba590173857002bb671d28986a5df63c30ed87bfbe34209577972e`.
+  - Publish readback: `docs/verification/architecture-ledger-al10-npm-release-readback.json`, `docs/verification/architecture-ledger-al10-npm-release.md`, `docs/verification/fg6-release-distribution-readback.json`, `docs/verification/fg6-release-distribution.md`.
+  - Verification: `bun run verify:governance` with a temporary `ARCHCONTEXT_STATE_DIR`; `bun run readback:fg6:npm-release-dry-run`; npm publish to `latest`; npm registry readback; `bun run readback:fg6:release-distribution`; temporary `node@24` + `archctx@latest` install smoke; `archctx doctor --json`; `archctx update --check --json`.
 
 ---
 

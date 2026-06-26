@@ -20,7 +20,7 @@ inputs:
   runtime-version:
     description: ArchContext runtime version expected by this action release.
     required: false
-    default: "0.1.4-beta.0"
+    default: "0.1.4"
   runtime-artifact-url:
     description: HTTPS URL for the pinned ArchContext runtime artifact.
     required: true

@@ -1,6 +1,6 @@
 {
   "name": "@archcontext/local-runtime",
-  "version": "0.1.4-beta.0",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "exports": {

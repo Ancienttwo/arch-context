@@ -327,7 +327,7 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).update).toMatchObject({
         schemaVersion: "archcontext.update-check/v1",
         packageName: "archctx",
-        currentVersion: "0.1.4-beta.0",
+        currentVersion: "0.1.4",
         status: "not-checked",
         checkUpdates: false,
         updateAvailable: false
@@ -382,7 +382,7 @@ describe("archctx CLI", () => {
         expect((update.data as any)).toMatchObject({
           schemaVersion: "archcontext.update-check/v1",
           packageName: "archctx",
-          currentVersion: "0.1.4-beta.0",
+          currentVersion: "0.1.4",
           latestVersion: "99.0.0",
           source: "env",
           status: "update-available",
