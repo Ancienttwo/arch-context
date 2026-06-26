@@ -1741,6 +1741,15 @@ describe("archctx CLI", () => {
       expect((exported.data as any).markdown).toContain("# Architecture Book");
       expect((exported.data as any).freshness.projectionDigest).toMatch(/^sha256:/);
 
+      for (const response of [bookStatus, query, show, neighbors, timeline, allTimeline, diff, evidence, recommendations, exported]) {
+        const data = response.data as any;
+        expect(data.freshness.schemaVersion).toBe("archcontext.book-freshness/v1");
+        expect(data.provenance.schemaVersion).toBe("archcontext.book-provenance/v1");
+        expect(data.provenance.graphDigest).toBe(data.freshness.graphDigest);
+        expect(data.provenance.projectionDigest).toBe(data.freshness.projectionDigest);
+        expect(data.provenance.ledgerCursor.eventCount).toBe(data.freshness.ledgerCursor.eventCount);
+      }
+
       status = await runTestCli("status", [], root);
       expect((status.data as any).running).toBe(true);
     } finally {

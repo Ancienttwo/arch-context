@@ -95,6 +95,8 @@
     "readback:fg6:rollout": "bun scripts/fg6-rollout-readback.ts run --input _ops/env/fg6-rollout-evidence.json --out docs/verification/fg6-rollout-readback.json --json",
     "record:al4:closeout": "bun scripts/architecture-ledger-al4-closeout-readback.ts run --out docs/verification/architecture-ledger-al4-closeout-readback.json --json",
     "readback:al4:closeout": "bun scripts/architecture-ledger-al4-closeout-readback.ts inspect --evidence docs/verification/architecture-ledger-al4-closeout-readback.json --json",
+    "record:al7:book": "bun scripts/architecture-ledger-al7-book-readback.ts run --out docs/verification/architecture-ledger-al7-book-readback.json --report docs/verification/architecture-ledger-al7-benchmark-privacy.md --json",
+    "readback:al7:book": "bun scripts/architecture-ledger-al7-book-readback.ts inspect --evidence docs/verification/architecture-ledger-al7-book-readback.json --json",
     "deploy:fg2:staging:secrets": "node deploy/scripts/fg2-staging-secrets.mjs install --env-file _ops/env/fg2-staging.env --environment staging",
     "deploy:fg2:staging": "wrangler deploy --env staging --config wrangler.jsonc",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",

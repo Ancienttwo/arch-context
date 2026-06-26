@@ -207,11 +207,15 @@ describe("local MCP server", () => {
           schemaVersion: "archcontext.book-status/v1",
           freshness: {
             schemaVersion: "archcontext.book-freshness/v1"
+          },
+          provenance: {
+            schemaVersion: "archcontext.book-provenance/v1"
           }
         }
       });
       expect(status.data.counts).toEqual(daemonStatus.data.counts);
       expect(status.data.freshness.graphDigest).toBe(daemonStatus.data.freshness.graphDigest);
+      expect(status.data.provenance.graphDigest).toBe(status.data.freshness.graphDigest);
       expect(typeof status.data.freshness.ledgerCursor.eventCount).toBe("number");
       expect(status.data.freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
 
@@ -222,7 +226,8 @@ describe("local MCP server", () => {
         data: {
           schemaVersion: "archcontext.book-export/v1",
           format: "json",
-          freshness: { schemaVersion: "archcontext.book-freshness/v1" }
+          freshness: { schemaVersion: "archcontext.book-freshness/v1" },
+          provenance: { schemaVersion: "archcontext.book-provenance/v1" }
         }
       });
       expect(state.data.state.entities.length).toBeGreaterThan(0);
@@ -243,6 +248,12 @@ describe("local MCP server", () => {
       expect(recommendations.ok).toBe(true);
       expect(recommendations.data.schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
       expect(recommendations.data.freshness.worktreeDigest).toBe(status.data.freshness.worktreeDigest);
+      for (const bookResource of [status, state, timeline, diff, recommendations]) {
+        expect(bookResource.data.freshness.schemaVersion).toBe("archcontext.book-freshness/v1");
+        expect(bookResource.data.provenance.schemaVersion).toBe("archcontext.book-provenance/v1");
+        expect(bookResource.data.provenance.graphDigest).toBe(bookResource.data.freshness.graphDigest);
+        expect(bookResource.data.provenance.ledgerCursor.eventCount).toBe(bookResource.data.freshness.ledgerCursor.eventCount);
+      }
       expect(JSON.stringify({ state, timeline, diff, recommendations })).not.toContain("sourceCode");
     } finally {
       await daemon.stop();

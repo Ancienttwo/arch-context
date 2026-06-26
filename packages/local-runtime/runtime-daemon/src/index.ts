@@ -1641,6 +1641,23 @@ export class ArchctxDaemon {
         lastEventHash: replay.events.at(-1)?.eventHash
       }
     };
+    const provenance = {
+      schemaVersion: "archcontext.book-provenance/v1",
+      source: "architecture-ledger",
+      producer: "runtime-daemon",
+      readAuthority: freshness.readAuthority,
+      repositoryId: readback.repository.repositoryId,
+      storageRepositoryId: readback.repository.storageRepositoryId,
+      workspaceId: readback.worktree.workspaceId,
+      storageWorkspaceId: readback.worktree.storageWorkspaceId,
+      branch: readback.worktree.branch,
+      headSha: freshness.headSha,
+      worktreeDigest: freshness.worktreeDigest,
+      graphDigest: freshness.graphDigest,
+      projectionDigest: freshness.projectionDigest,
+      ledgerCursor: freshness.ledgerCursor,
+      generatedAt: freshness.generatedAt
+    };
     const budget = {
       maxItems: input.maxItems,
       maxBytes: input.maxBytes
@@ -1649,6 +1666,7 @@ export class ArchctxDaemon {
       return okEnvelope("book.status", {
         schemaVersion: "archcontext.book-status/v1",
         freshness,
+        provenance,
         architectureLedger: readback.architectureLedger,
         counts: {
           entities: state.entities.length,
@@ -1673,14 +1691,15 @@ export class ArchctxDaemon {
       }) : [];
       return okEnvelope("book.query", {
         ...queryArchitectureLedgerBook({ state, events: replay.events, query, ftsMatches, explain: input.explain, ...budget }),
-        freshness
+        freshness,
+        provenance
       } as unknown as Json);
     }
     if (command === "show") {
       if (!input.id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
       const result = showArchitectureLedgerBookSubject(state, input.id);
       if (!result.found) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", `Book subject not found: ${input.id}`);
-      return okEnvelope("book.show", { ...result, freshness } as unknown as Json);
+      return okEnvelope("book.show", { ...result, freshness, provenance } as unknown as Json);
     }
     if (command === "neighbors") {
       if (!input.id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
@@ -1688,7 +1707,8 @@ export class ArchctxDaemon {
       const neighborhoodState = await this.localStore.readArchitectureLedgerNeighborhood({ ...scope, id: input.id, depth });
       return okEnvelope("book.neighbors", {
         ...queryArchitectureLedgerBookNeighbors({ state: neighborhoodState, id: input.id, depth, ...budget }),
-        freshness
+        freshness,
+        provenance
       } as unknown as Json);
     }
     if (command === "timeline") {
@@ -1701,7 +1721,8 @@ export class ArchctxDaemon {
           ...(sinceRef ? { sinceEventId: sinceRef.sinceEventId } : {}),
           ...budget
         }),
-        freshness
+        freshness,
+        provenance
       } as unknown as Json);
     }
     if (command === "diff") {
@@ -1720,20 +1741,23 @@ export class ArchctxDaemon {
           events: toResolved.events,
           ...budget
         }),
-        freshness
+        freshness,
+        provenance
       } as unknown as Json);
     }
     if (command === "evidence") {
       if (!input.id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
       return okEnvelope("book.evidence", {
         ...queryArchitectureLedgerBookEvidence({ events: replay.events, id: input.id, ...budget }),
-        freshness
+        freshness,
+        provenance
       } as unknown as Json);
     }
     if (command === "recommendations") {
       return okEnvelope("book.recommendations", {
         ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, ...budget }),
-        freshness
+        freshness,
+        provenance
       } as unknown as Json);
     }
     if (command === "export") {
@@ -1743,6 +1767,7 @@ export class ArchctxDaemon {
         schemaVersion: "archcontext.book-export/v1",
         format,
         freshness,
+        provenance,
         ...(format === "json" ? { state } : {}),
         ...(format === "yaml" ? { projectedFiles } : {}),
         ...(format === "markdown" ? { markdown: architectureBookMarkdown(state) } : {})

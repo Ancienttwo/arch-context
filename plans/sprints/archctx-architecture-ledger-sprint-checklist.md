@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval, MCP resource, context compiler, explain and FTS fallback slices complete; AL7 benchmark/privacy slices remain
+> **Status**: Executing - AL0 through AL7 complete; AL8 scheduler/suppression/feedback is the next architecture-ledger module
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -123,7 +123,7 @@ These are target gates, not claims about current performance.
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ☑ |
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ☑ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
-| AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◐ |
+| AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ☑ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◻ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
 | AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
@@ -834,15 +834,23 @@ archctx book export --format yaml|markdown|json
 - [x] **AL7-13 · P1 · `retrieval`** — Add FTS fallback for architecture prose and ADR summaries; do not add a vector database yet.
   - Evidence: local SQLite migration `0009_architecture_ledger_search_fts` adds a metadata-only FTS read model; daemon Book query passes scoped FTS matches into core scoring as fallback signals without changing ledger authority.
   - Verification artifact: `docs/verification/architecture-ledger-al7-retrieval-explain-fts.md`.
-- [ ] **AL7-14 · P1 · `benchmarks`** — Benchmark cold and warm queries on small, medium and large fixtures.
-- [ ] **AL7-15 · P1 · `privacy`** — Assert responses contain selectors, summaries and digests but no unintended source body.
+- [x] **AL7-14 · P1 · `benchmarks`** — Benchmark cold and warm queries on small, medium and large fixtures.
+  - Evidence: `scripts/architecture-ledger-al7-book-readback.ts` records small/medium/large fixture cold query and warm p95 timings; latest readback reports warm p95 0.672 ms, 1.977 ms and 7.08 ms.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-readback.json`, `docs/verification/architecture-ledger-al7-benchmark-privacy.md`.
+- [x] **AL7-15 · P1 · `privacy`** — Assert responses contain selectors, summaries and digests but no unintended source body.
+  - Evidence: AL7 readback scans core Book outputs and runtime CLI/MCP outputs for raw source sentinels and forbidden raw-body keys, while allowing selector, summary, digest, freshness, provenance and reason-code fields.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-readback.json`, `docs/verification/architecture-ledger-al7-benchmark-privacy.md`.
 
 ### Exit gate
 
-- [ ] **AL7-EG1** — Warm query p95 ≤ 300 ms in beta benchmark.
-- [ ] **AL7-EG2** — Every response carries freshness and provenance.
-- [ ] **AL7-EG3** — An LLM can answer “what changed, why, what depends on it and what remains risky?” from Book output alone on acceptance fixtures.
-- [ ] **AL7-EG4** — MCP and CLI return semantically equivalent results.
+- [x] **AL7-EG1** — Warm query p95 ≤ 300 ms in beta benchmark.
+  - Evidence: AL7 readback small/medium/large warm p95 values are 0.672 ms, 1.977 ms and 7.08 ms against a 300 ms threshold.
+- [x] **AL7-EG2** — Every response carries freshness and provenance.
+  - Evidence: daemon Book success envelopes now include `archcontext.book-freshness/v1` and `archcontext.book-provenance/v1`; CLI and MCP tests assert both fields and matching graph/projection cursor data.
+- [x] **AL7-EG3** — An LLM can answer “what changed, why, what depends on it and what remains risky?” from Book output alone on acceptance fixtures.
+  - Evidence: AL7 readback validates Book diff reason codes, timeline affected subjects, neighbor dependency relations and recommendation risk/uncertainty fields on all benchmark fixtures.
+- [x] **AL7-EG4** — MCP and CLI return semantically equivalent results.
+  - Evidence: AL7 readback compares stable digests for `book status`, `book export --format json`, `book timeline --max-items 100`, `book diff --from empty --to current --max-items 100` and `book recommendations --max-items 100` against the corresponding `archcontext://book/*` MCP resources.
 - [x] **AL7-EG5** — Context budget overflow is deterministic and explicit.
   - Evidence: Book query, neighbors, timeline, diff, evidence and recommendations return deterministic item/byte budget readback plus truncation reason codes; focused tests cover item-budget truncation.
 
@@ -870,6 +878,11 @@ archctx book export --format yaml|markdown|json
   - FTS fallback: SQLite metadata-only `architecture_ledger_search_fts` indexes Book prose, evidence/ADR summaries and recommendation explanations, then maps matches back to current Book subjects.
   - Verification artifact: `docs/verification/architecture-ledger-al7-retrieval-explain-fts.md`.
   - Verification: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts -t "architecture ledger appends" --timeout 120000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "CLI Book commands" --timeout 120000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger-authoritative runtime read surfaces|init, validate, sync, context, and status share|daemon restart restores persisted repository sessions" --timeout 90000`; `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts -t "Book readbacks" --timeout 120000`; `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 120000`; `bun run typecheck`.
+- 2026-06-26: Completed AL7 benchmark/privacy/readback slice on branch `codex/architecture-ledger-al7-benchmark-privacy`.
+  - Book provenance: daemon Book success envelopes now carry `archcontext.book-provenance/v1` beside freshness.
+  - Benchmark/privacy: `scripts/architecture-ledger-al7-book-readback.ts` records small/medium/large cold/warm query timings, Book-output answerability, CLI/MCP semantic equivalence and raw-body DLP assertions.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-readback.json`, `docs/verification/architecture-ledger-al7-benchmark-privacy.md`.
+  - Verification: `bun run record:al7:book`; `bun run readback:al7:book`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-benchmark-privacy-verify-state-XXXXXX) bun run verify`.
 
 ---
 
@@ -1112,8 +1125,8 @@ For the smallest valuable sequence, start here:
 4. [x] AL3 YAML import/export and dual-compare mode.
 5. [x] AL4 thin post-commit queue plus stale-job cancellation.
    - Queue foundation, stale-job cancellation, queue-first hook wrapper, recursion guard and jobs CLI are complete; remaining AL4 work is stress/backpressure/observability/chaining hardening.
-6. [ ] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
-7. [ ] AL7 `book status/query/diff` CLI.
+6. [x] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
+7. [x] AL7 `book status/query/diff` CLI.
 8. [ ] AL9 deterministic architecture changelog projection.
 9. [x] AL6 provider-neutral subagent orchestration is complete; automatic investigation scheduling remains AL8 policy-gated.
 
