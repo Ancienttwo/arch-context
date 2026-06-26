@@ -87,6 +87,7 @@ const schemaByFixture: Record<string, string> = {
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
   "recommendation": "schemas/runtime/recommendation.schema.json",
+  "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
   "agent-job": "schemas/runtime/agent-job.schema.json",
   "investigation-report": "schemas/runtime/investigation-report.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
@@ -364,6 +365,16 @@ describe("JSON schema contracts", () => {
     const fixture = readJson("packages/contracts/fixtures/valid/architecture-event.json") as Record<string, Json>;
     expect(validateJsonSchema(schema as any, { ...fixture, schemaVersion: "archcontext.architecture-event/v2" }).valid).toBe(false);
   });
+
+  test("recommendation feedback requires explicit local feedback and rejects raw private fields", () => {
+    const schema = readJson("schemas/runtime/recommendation-feedback.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/recommendation-feedback.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, implicitAcceptance: true }).valid).toBe(false);
+    for (const field of ["sourceCode", "rawDiff", "prompt", "completion"]) {
+      expect(validateJsonSchema(schema as any, { ...fixture, [field]: "private content" }).valid).toBe(false);
+    }
+  });
 });
 
 function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
@@ -398,6 +409,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
     "archcontext.recommendation-run/v1": "recommendation-run",
     "archcontext.recommendation/v2": "recommendation",
+    "archcontext.recommendation-feedback/v1": "recommendation-feedback",
     "archcontext.agent-job/v1": "agent-job",
     "archcontext.investigation-report/v1": "investigation-report",
     "archcontext.retrieval-config/v1": "retrieval-config",

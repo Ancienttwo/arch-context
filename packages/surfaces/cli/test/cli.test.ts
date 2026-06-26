@@ -873,6 +873,58 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI exposes recommendation lifecycle and metrics commands", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-recommendations-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        recommendations(_root: string, input: any) {
+          calls.push(input);
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: `recommendations.${input.command}`,
+            data: {
+              schemaVersion: input.command === "metrics"
+                ? "archcontext.recommendation-lifecycle-metrics/v1"
+                : "archcontext.runtime-recommendation-lifecycle/v1",
+              input
+            }
+          };
+        }
+      };
+
+      const accepted = await runCli("recommendations", [
+        "accept",
+        "--id", "recommendation.cli_test",
+        "--reason", "accepted after local readback",
+        "--actor", "developer.al8",
+        "--expected-worktree-digest", `sha256:${"1".repeat(64)}`,
+        "--agent-job-id", "agent_job.cli"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(accepted.ok).toBe(true);
+      expect(calls[0]).toMatchObject({
+        command: "accept",
+        recommendationId: "recommendation.cli_test",
+        reason: "accepted after local readback",
+        actor: "developer.al8",
+        expectedWorktreeDigest: `sha256:${"1".repeat(64)}`,
+        agentJobId: "agent_job.cli"
+      });
+
+      const metrics = await runCli("recommendations", ["metrics", "--now", "2026-06-26T12:00:00.000Z"], root, { runtimeClient: runtimeClient as any });
+      expect(metrics.ok).toBe(true);
+      expect(calls[1]).toEqual({ command: "metrics", now: "2026-06-26T12:00:00.000Z" });
+
+      const missingReason = await runCli("recommendations", ["reject", "--id", "recommendation.cli_test"], root, { runtimeClient: runtimeClient as any });
+      expect(missingReason.ok).toBe(false);
+      expect((missingReason as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
     const root = createInitializedGitRepo();
     try {

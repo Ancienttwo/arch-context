@@ -6,6 +6,7 @@ export const EVIDENCE_ITEM_SCHEMA_VERSION = "archcontext.evidence-item/v2" as co
 export const EVIDENCE_BINDING_SCHEMA_VERSION = "archcontext.evidence-binding/v1" as const;
 export const RECOMMENDATION_RUN_SCHEMA_VERSION = "archcontext.recommendation-run/v1" as const;
 export const RECOMMENDATION_SCHEMA_VERSION = "archcontext.recommendation/v2" as const;
+export const RECOMMENDATION_FEEDBACK_SCHEMA_VERSION = "archcontext.recommendation-feedback/v1" as const;
 export const AGENT_JOB_SCHEMA_VERSION = "archcontext.agent-job/v1" as const;
 export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-report/v1" as const;
 export const ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION = "archcontext.architecture-subject-selector/v1" as const;
@@ -466,6 +467,28 @@ export interface RecommendationV2 {
   explanation: string[];
   createdAt: string;
   updatedAt: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface RecommendationFeedbackV1 {
+  schemaVersion: typeof RECOMMENDATION_FEEDBACK_SCHEMA_VERSION;
+  feedbackId: string;
+  recommendationId: string;
+  runId: string;
+  action: "acknowledge" | "accept" | "reject" | "defer" | "waive" | "resolve";
+  previousStatus: RecommendationV2["status"];
+  nextStatus: RecommendationV2["status"];
+  actor: {
+    kind: ArchitectureActorKind;
+    id: string;
+    source: "cli" | "mcp" | "manual" | "daemon" | "system" | "subagent";
+  };
+  reason: string;
+  explicit: true;
+  implicitAcceptance: false;
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  createdAt: string;
   extensions?: Record<string, Json>;
 }
 

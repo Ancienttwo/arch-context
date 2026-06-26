@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { digestJson, type RecommendationV2 } from "@archcontext/contracts";
 import {
+  aggregateRecommendationLifecycleMetrics,
+  createRecommendationFeedback,
   planRecommendationRun,
   recommendationFingerprint,
+  recommendationLifecycleLedgerPayload,
   recommendationRunLedgerPayload,
   transitionRecommendationLifecycle,
   type PlanRecommendationRunInput,
@@ -126,6 +129,91 @@ describe("recommendation-engine", () => {
     expect(payload.recommendations).toHaveLength(1);
     expect(JSON.stringify(payload)).not.toContain("sourceCode");
     expect(JSON.stringify(payload)).not.toContain("rawDiff");
+  });
+
+  test("captures explicit lifecycle feedback without implicit acceptance or private payloads", () => {
+    const plan = planRecommendationRun(inputFixture({
+      candidates: [mediumRiskCandidate()]
+    }));
+    const previous = plan.recommendations[0];
+    const next = transitionRecommendationLifecycle(previous, {
+      action: "accept",
+      now: "2026-06-26T12:05:00.000Z",
+      actor: "developer",
+      reason: "accepted after local readback"
+    });
+    const feedback = createRecommendationFeedback({
+      repository: plan.run.repository,
+      worktree: plan.run.worktree,
+      previous,
+      next,
+      action: "accept",
+      now: "2026-06-26T12:05:00.000Z",
+      actorId: "developer",
+      reason: "accepted after local readback"
+    });
+    const payload = recommendationLifecycleLedgerPayload({ recommendation: next, feedback });
+
+    expect(feedback).toMatchObject({
+      schemaVersion: "archcontext.recommendation-feedback/v1",
+      recommendationId: previous.recommendationId,
+      action: "accept",
+      previousStatus: "open",
+      nextStatus: "accepted",
+      explicit: true,
+      implicitAcceptance: false
+    });
+    expect(payload.recommendations).toHaveLength(1);
+    expect(payload.feedback).toHaveLength(1);
+    expect(JSON.stringify(payload)).not.toContain("sourceCode");
+    expect(JSON.stringify(payload)).not.toContain("rawDiff");
+    expect(JSON.stringify(payload)).not.toContain("prompt");
+    expect(JSON.stringify(payload)).not.toContain("completion");
+  });
+
+  test("aggregates lifecycle metrics from local ledger artifacts", () => {
+    const first = planRecommendationRun(inputFixture({
+      candidates: [mediumRiskCandidate()]
+    }));
+    const duplicate = planRecommendationRun(inputFixture({
+      candidates: [mediumRiskCandidate()],
+      previousRecommendations: [previousFrom(first.recommendations[0])]
+    }));
+    const accepted = transitionRecommendationLifecycle(first.recommendations[0], {
+      action: "accept",
+      now: "2026-06-26T12:10:00.000Z",
+      actor: "worker.al8",
+      reason: "accepted by agent-assisted local readback"
+    });
+    const feedback = createRecommendationFeedback({
+      repository: first.run.repository,
+      worktree: first.run.worktree,
+      previous: first.recommendations[0],
+      next: accepted,
+      action: "accept",
+      now: "2026-06-26T12:10:00.000Z",
+      actorId: "worker.al8",
+      actorKind: "subagent",
+      source: "subagent",
+      reason: "accepted by agent-assisted local readback",
+      agentJobId: "agent_job.al8"
+    });
+
+    const metrics = aggregateRecommendationLifecycleMetrics({
+      recommendationRuns: [first.run, duplicate.run],
+      recommendations: [first.recommendations[0], accepted],
+      feedback: [feedback],
+      generatedAt: "2026-06-26T12:11:00.000Z"
+    });
+
+    expect(metrics.recommendationCount).toBe(1);
+    expect(metrics.feedbackCount).toBe(1);
+    expect(metrics.acceptedRecommendationRate).toBe(1);
+    expect(metrics.agentAssistedResolutionRate).toBe(1);
+    expect(metrics.repeatedNoiseRate).toBe(0.5);
+    expect(metrics.timeToResolution.resolvedRecommendationCount).toBe(1);
+    expect(metrics.timeToResolution.averageMs).toBe(600_000);
+    expect(metrics.reasonCodes).toContain("explicit-feedback-only");
   });
 });
 

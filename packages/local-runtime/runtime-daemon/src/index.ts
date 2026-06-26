@@ -22,6 +22,7 @@ import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   architectureLedgerGitCursorFromPlan,
   architectureLedgerBookSubjects,
+  architectureLedgerPayload,
   architectureLedgerStateDigest,
   architectureLedgerProjectionDigest,
   compareArchitectureLedgerStateToYaml,
@@ -44,6 +45,14 @@ import {
   type ArchitectureLedgerScope,
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
+import {
+  aggregateRecommendationLifecycleMetrics,
+  createRecommendationFeedback,
+  recommendationLifecycleLedgerPayload,
+  transitionRecommendationLifecycle,
+  type RecommendationFeedbackAction,
+  type RecommendationFeedbackSource
+} from "@archcontext/core/recommendation-engine";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import {
   buildInvestigationContextBundleFromLedgerQuery,
@@ -58,7 +67,7 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -108,6 +117,18 @@ export interface RuntimeBookInput {
   format?: "yaml" | "markdown" | "json";
   maxItems?: number;
   maxBytes?: number;
+}
+
+export interface RuntimeRecommendationInput {
+  command: "metrics" | RecommendationFeedbackAction;
+  recommendationId?: string;
+  reason?: string;
+  actor?: string;
+  actorKind?: ArchitectureActorKind;
+  source?: RecommendationFeedbackSource;
+  expectedWorktreeDigest?: string;
+  agentJobId?: string;
+  now?: string;
 }
 
 export interface RuntimeAgentJobEnqueueGitInput {
@@ -484,6 +505,7 @@ export interface RuntimeDaemonClient {
   ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
   book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
+  recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -1784,6 +1806,175 @@ export class ArchctxDaemon {
     return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
   }
 
+  async recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    const command = input.command;
+    const readMetrics = async () => {
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      return okEnvelope("recommendations.metrics", {
+        ...aggregateRecommendationLifecycleMetrics({
+          recommendationRuns: artifacts.recommendationRuns,
+          recommendations: artifacts.recommendations,
+          feedback: artifacts.feedback,
+          generatedAt: input.now ?? this.clock()
+        }),
+        freshness: {
+          schemaVersion: "archcontext.recommendation-lifecycle-freshness/v1",
+          repository: scope.repository,
+          worktree: scope.worktree,
+          ledgerCursor: {
+            eventCount: replay.events.length,
+            lastEventId: replay.events.at(-1)?.eventId,
+            lastEventHash: replay.events.at(-1)?.eventHash
+          },
+          graphDigest: replay.graphDigest
+        }
+      } as unknown as Json);
+    };
+    if (command === "metrics") return readMetrics();
+    if (!isRecommendationLifecycleCliAction(command)) {
+      return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+    }
+    if (!input.recommendationId) {
+      return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} requires --id`);
+    }
+    if (!input.reason?.trim()) {
+      return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} requires --reason`);
+    }
+
+    return this.withWriter(async () => {
+      if (input.expectedWorktreeDigest) {
+        this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, `recommendations ${command}`);
+      }
+      const now = input.now ?? this.clock();
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      const current = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
+      if (!current) {
+        return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
+      }
+      let next: RecommendationV2;
+      try {
+        next = transitionRecommendationLifecycle(current, {
+          action: command,
+          now,
+          actor: input.actor ?? "developer",
+          reason: input.reason
+        });
+      } catch (error) {
+        return errorEnvelope(
+          `recommendations.${command}`,
+          "AC_PRECONDITION_FAILED",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      if (next.status === current.status) {
+        return errorEnvelope(
+          `recommendations.${command}`,
+          "AC_PRECONDITION_FAILED",
+          `recommendation lifecycle no-op: ${current.status}->${next.status}`
+        );
+      }
+      const feedback = createRecommendationFeedback({
+        repository: scope.repository,
+        worktree: scope.worktree,
+        previous: current,
+        next,
+        action: command,
+        now,
+        actorId: input.actor ?? "developer",
+        actorKind: recommendationActorKind(input),
+        source: input.source ?? "cli",
+        reason: input.reason!.trim(),
+        ...(input.agentJobId ? { agentJobId: input.agentJobId } : {})
+      });
+      const inputDigest = digestJson({
+        schemaVersion: "archcontext.recommendation-lifecycle-event-input/v1",
+        recommendationId: current.recommendationId,
+        runId: current.runId,
+        action: command,
+        previousStatus: current.status,
+        nextStatus: next.status,
+        feedbackId: feedback.feedbackId,
+        graphDigest: replay.graphDigest
+      } as unknown as Json);
+      const event: ArchitectureEventV1 = {
+        schemaVersion: "archcontext.architecture-event/v1",
+        eventId: `architecture_event.recommendation_lifecycle.${shortDigest(inputDigest)}`,
+        eventType: "architecture.recommendation.lifecycle",
+        payloadVersion: "archcontext.recommendation-feedback/v1",
+        repository: scope.repository,
+        worktree: scope.worktree,
+        baseDigest: replay.graphDigest,
+        resultingDigest: replay.graphDigest,
+        headSha: scope.worktree.headSha,
+        actor: { kind: feedback.actor.kind, id: feedback.actor.id },
+        source: "manual",
+        timestamp: now,
+        idempotencyKey: `architecture-ledger-recommendation-lifecycle:${feedback.feedbackId}:${current.status}:${next.status}`,
+        provenance: {
+          producer: "runtime-daemon",
+          command: `archctx recommendations ${command}`,
+          inputDigest
+        },
+        payload: {
+          ...recommendationLifecycleLedgerPayload({ recommendation: next, feedback }),
+          title: `Recommendation ${command}`,
+          summary: `Recommendation ${current.recommendationId} transitioned from ${current.status} to ${next.status}.`,
+          recommendationLifecycle: {
+            schemaVersion: "archcontext.recommendation-lifecycle-transition/v1",
+            recommendationId: current.recommendationId,
+            runId: current.runId,
+            action: command,
+            previousStatus: current.status,
+            nextStatus: next.status,
+            feedbackId: feedback.feedbackId
+          }
+        } as unknown as Json
+      };
+      const append = await this.localStore.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [event]
+      });
+      const metrics = aggregateRecommendationLifecycleMetrics({
+        recommendationRuns: artifacts.recommendationRuns,
+        recommendations: [...artifacts.recommendations, next],
+        feedback: [...artifacts.feedback, feedback],
+        generatedAt: now
+      });
+      return okEnvelope(`recommendations.${command}`, {
+        schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
+        action: command,
+        recommendationId: current.recommendationId,
+        previousStatus: current.status,
+        nextStatus: next.status,
+        recommendation: next,
+        feedback,
+        metrics,
+        append: {
+          status: "appended",
+          appendedEventCount: append.appendedEvents.length,
+          duplicateEventCount: append.duplicateEvents.length,
+          graphDigest: append.graphDigest,
+          entityCount: append.entityCount,
+          relationCount: append.relationCount,
+          constraintCount: append.constraintCount
+        },
+        privacy: {
+          writes: "architecture-ledger-event-only",
+          rawSourcePersisted: false,
+          rawDiffPersisted: false,
+          promptPersisted: false,
+          implicitAcceptance: false
+        }
+      } as unknown as Json);
+    });
+  }
+
   async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.assertRunning();
     const writes = input.dryRun === false;
@@ -3052,6 +3243,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("book", [root, input]);
   }
 
+  recommendations(root: string, input: RuntimeRecommendationInput) {
+    return this.call("recommendations", [root, input]);
+  }
+
   repoAdd(root: string, name?: string) {
     return this.call("repoAdd", [root, name]);
   }
@@ -3319,6 +3514,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.ledgerRollback(params[0] as string, params[1] as RuntimeLedgerRollbackInput | undefined);
       case "book":
         return this.daemon.book(params[0] as string, params[1] as RuntimeBookInput | undefined);
+      case "recommendations":
+        return this.daemon.recommendations(params[0] as string, params[1] as RuntimeRecommendationInput);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -3368,6 +3565,46 @@ export class ArchctxRuntimeRpcServer {
         };
     }
   }
+}
+
+function recommendationArtifactsFromEvents(events: readonly ArchitectureEventV1[]): {
+  recommendationRuns: RecommendationRunV1[];
+  recommendations: RecommendationV2[];
+  feedback: RecommendationFeedbackV1[];
+} {
+  const recommendationRuns: RecommendationRunV1[] = [];
+  const recommendations: RecommendationV2[] = [];
+  const feedback: RecommendationFeedbackV1[] = [];
+  for (const event of events) {
+    const payload = architectureLedgerPayload(event);
+    recommendationRuns.push(...(payload.recommendationRuns ?? []) as unknown as RecommendationRunV1[]);
+    recommendations.push(...(payload.recommendations ?? []) as unknown as RecommendationV2[]);
+    feedback.push(...(payload.feedback ?? []) as unknown as RecommendationFeedbackV1[]);
+  }
+  return { recommendationRuns, recommendations, feedback };
+}
+
+function latestRecommendationById(recommendations: readonly RecommendationV2[], recommendationId: string): RecommendationV2 | undefined {
+  return recommendations
+    .filter((recommendation) => recommendation.recommendationId === recommendationId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function isRecommendationLifecycleCliAction(command: string): command is RecommendationFeedbackAction {
+  return ["acknowledge", "accept", "reject", "defer", "waive", "resolve"].includes(command);
+}
+
+function recommendationActorKind(input: RuntimeRecommendationInput): ArchitectureActorKind {
+  if (input.actorKind) return input.actorKind;
+  if (input.source === "mcp") return "mcp";
+  if (input.source === "daemon") return "daemon";
+  if (input.source === "system") return "system";
+  if (input.source === "subagent") return "subagent";
+  return "cli";
+}
+
+function shortDigest(digest: string): string {
+  return digest.replace(/^sha256:/, "").slice(0, 16);
 }
 
 export function defaultDaemonControlDir(root = process.cwd()): string {

@@ -1,11 +1,14 @@
 import {
+  RECOMMENDATION_FEEDBACK_SCHEMA_VERSION,
   RECOMMENDATION_RUN_SCHEMA_VERSION,
   RECOMMENDATION_SCHEMA_VERSION,
   digestJson,
   type ArchitectureEventSource,
+  type ArchitectureActorKind,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
   type Json,
+  type RecommendationFeedbackV1,
   type RecommendationRunV1,
   type RecommendationV2
 } from "@archcontext/contracts";
@@ -154,7 +157,58 @@ export interface RecommendationLifecycleTransitionInput {
   reason?: string;
 }
 
+export type RecommendationFeedbackAction = RecommendationFeedbackV1["action"];
+export type RecommendationFeedbackSource = RecommendationFeedbackV1["actor"]["source"];
+
+export interface CreateRecommendationFeedbackInput {
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  previous: RecommendationV2;
+  next: RecommendationV2;
+  action: RecommendationFeedbackAction;
+  now: string;
+  actorId: string;
+  actorKind?: ArchitectureActorKind;
+  source?: RecommendationFeedbackSource;
+  reason: string;
+  agentJobId?: string;
+}
+
+export interface RecommendationLifecycleMetrics {
+  schemaVersion: "archcontext.recommendation-lifecycle-metrics/v1";
+  generatedAt: string;
+  recommendationCount: number;
+  feedbackCount: number;
+  activeRecommendationCount: number;
+  outcomeRecommendationCount: number;
+  repeatedNoiseRate: number;
+  acceptedRecommendationRate: number;
+  agentAssistedResolutionRate: number;
+  timeToResolution: {
+    resolvedRecommendationCount: number;
+    averageMs: number | null;
+    p50Ms: number | null;
+    maxMs: number | null;
+  };
+  statusCounts: Record<RecommendationStatus, number>;
+  signalCounts: {
+    totalRecommendationSignals: number;
+    repeatedNoiseSignals: number;
+    acceptedRecommendations: number;
+    agentAssistedResolvedRecommendations: number;
+  };
+  reasonCodes: string[];
+}
+
 const ACTIVE_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>(["open", "acknowledged", "deferred"]);
+const OUTCOME_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>([
+  "accepted",
+  "rejected",
+  "waived",
+  "resolved",
+  "superseded",
+  "expired"
+]);
 const DEFAULT_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function recommendationFingerprint(input: {
@@ -434,6 +488,116 @@ export function transitionRecommendationLifecycle(
   };
 }
 
+export function createRecommendationFeedback(input: CreateRecommendationFeedbackInput): RecommendationFeedbackV1 {
+  const idDigest = digestJson({
+    schemaVersion: "archcontext.recommendation-feedback-id/v1",
+    recommendationId: input.previous.recommendationId,
+    runId: input.previous.runId,
+    action: input.action,
+    previousStatus: input.previous.status,
+    nextStatus: input.next.status,
+    reason: input.reason,
+    actorId: input.actorId,
+    actorKind: input.actorKind ?? "cli",
+    createdAt: input.now,
+    worktreeDigest: input.worktree.worktreeDigest
+  } as unknown as Json);
+  return {
+    schemaVersion: RECOMMENDATION_FEEDBACK_SCHEMA_VERSION,
+    feedbackId: `recommendation_feedback.${digestSuffix(idDigest)}`,
+    recommendationId: input.previous.recommendationId,
+    runId: input.previous.runId,
+    action: input.action,
+    previousStatus: input.previous.status,
+    nextStatus: input.next.status,
+    actor: {
+      kind: input.actorKind ?? "cli",
+      id: input.actorId,
+      source: input.source ?? "cli"
+    },
+    reason: input.reason,
+    explicit: true,
+    implicitAcceptance: false,
+    repository: input.repository,
+    worktree: input.worktree,
+    createdAt: input.now,
+    ...(input.agentJobId ? { extensions: { agentJobId: input.agentJobId } } : {})
+  };
+}
+
+export function recommendationLifecycleLedgerPayload(input: {
+  recommendation: RecommendationV2;
+  feedback: RecommendationFeedbackV1;
+}): Record<string, Json> {
+  return {
+    recommendationRuns: [],
+    recommendations: [input.recommendation as unknown as Json],
+    feedback: [input.feedback as unknown as Json],
+    waivers: []
+  };
+}
+
+export function aggregateRecommendationLifecycleMetrics(input: {
+  recommendationRuns?: readonly RecommendationRunV1[];
+  recommendations: readonly RecommendationV2[];
+  feedback?: readonly RecommendationFeedbackV1[];
+  generatedAt: string;
+}): RecommendationLifecycleMetrics {
+  const latestRecommendations = latestRecommendationsById(input.recommendations);
+  const feedback = input.feedback ?? [];
+  const statusCounts = emptyStatusCounts();
+  for (const recommendation of latestRecommendations) statusCounts[recommendation.status] += 1;
+
+  const totalRecommendationSignals = recommendationSignalCount(input.recommendationRuns ?? [], latestRecommendations.length);
+  const repeatedNoiseSignals =
+    repeatedSuppressionCount(input.recommendationRuns ?? [])
+    + feedback.filter((entry) => isRepeatedNoiseFeedback(entry)).length;
+  const acceptedRecommendations = latestRecommendations.filter((recommendation) => recommendation.status === "accepted").length;
+  const outcomeRecommendations = latestRecommendations.filter((recommendation) => OUTCOME_RECOMMENDATION_STATUSES.has(recommendation.status));
+  const resolutionDurations = outcomeRecommendations
+    .map((recommendation) => Date.parse(recommendation.updatedAt) - Date.parse(recommendation.createdAt))
+    .filter((duration) => Number.isFinite(duration) && duration >= 0)
+    .sort((left, right) => left - right);
+  const agentAssistedResolvedIds = new Set(
+    feedback
+      .filter((entry) => OUTCOME_RECOMMENDATION_STATUSES.has(entry.nextStatus))
+      .filter((entry) => entry.actor.kind === "subagent" || entry.actor.source === "subagent" || typeof entry.extensions?.agentJobId === "string")
+      .map((entry) => entry.recommendationId)
+  );
+  const reasonCodes = [
+    "explicit-feedback-only",
+    "local-ledger-replay",
+    totalRecommendationSignals === 0 ? "no-recommendation-signals" : "recommendation-signals-present",
+    resolutionDurations.length === 0 ? "no-resolved-recommendations" : "resolved-recommendations-present"
+  ];
+
+  return {
+    schemaVersion: "archcontext.recommendation-lifecycle-metrics/v1",
+    generatedAt: input.generatedAt,
+    recommendationCount: latestRecommendations.length,
+    feedbackCount: feedback.length,
+    activeRecommendationCount: latestRecommendations.filter((recommendation) => ACTIVE_RECOMMENDATION_STATUSES.has(recommendation.status)).length,
+    outcomeRecommendationCount: outcomeRecommendations.length,
+    repeatedNoiseRate: rate(repeatedNoiseSignals, totalRecommendationSignals),
+    acceptedRecommendationRate: rate(acceptedRecommendations, latestRecommendations.length),
+    agentAssistedResolutionRate: rate(agentAssistedResolvedIds.size, outcomeRecommendations.length),
+    timeToResolution: {
+      resolvedRecommendationCount: resolutionDurations.length,
+      averageMs: average(resolutionDurations),
+      p50Ms: percentile(resolutionDurations, 0.5),
+      maxMs: resolutionDurations.at(-1) ?? null
+    },
+    statusCounts,
+    signalCounts: {
+      totalRecommendationSignals,
+      repeatedNoiseSignals,
+      acceptedRecommendations,
+      agentAssistedResolvedRecommendations: agentAssistedResolvedIds.size
+    },
+    reasonCodes
+  };
+}
+
 export function recommendationRunLedgerPayload(plan: RecommendationRunPlan): Record<string, Json> {
   return {
     recommendationRuns: [plan.run as unknown as Json],
@@ -441,6 +605,10 @@ export function recommendationRunLedgerPayload(plan: RecommendationRunPlan): Rec
     feedback: [],
     waivers: []
   };
+}
+
+export function isActiveRecommendationStatus(status: RecommendationStatus): boolean {
+  return ACTIVE_RECOMMENDATION_STATUSES.has(status);
 }
 
 function buildRecommendationExplanationTree(input: {
@@ -528,6 +696,71 @@ function lifecycleStatus(current: RecommendationStatus, action: RecommendationLi
     expire: "expired"
   };
   return next[action];
+}
+
+function latestRecommendationsById(recommendations: readonly RecommendationV2[]): RecommendationV2[] {
+  const latest = new Map<string, RecommendationV2>();
+  for (const recommendation of recommendations) {
+    const current = latest.get(recommendation.recommendationId);
+    if (!current || recommendation.updatedAt.localeCompare(current.updatedAt) >= 0) {
+      latest.set(recommendation.recommendationId, recommendation);
+    }
+  }
+  return [...latest.values()].sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId)
+  );
+}
+
+function emptyStatusCounts(): Record<RecommendationStatus, number> {
+  return {
+    open: 0,
+    acknowledged: 0,
+    accepted: 0,
+    rejected: 0,
+    deferred: 0,
+    waived: 0,
+    resolved: 0,
+    superseded: 0,
+    expired: 0
+  };
+}
+
+function recommendationSignalCount(runs: readonly RecommendationRunV1[], fallback: number): number {
+  const total = runs.reduce((sum, run) => sum + run.metrics.matchCount, 0);
+  return total > 0 ? total : fallback;
+}
+
+function repeatedSuppressionCount(runs: readonly RecommendationRunV1[]): number {
+  let count = 0;
+  for (const run of runs) {
+    const suppressed = Array.isArray(run.extensions?.suppressed) ? run.extensions.suppressed : [];
+    count += suppressed.filter((entry) =>
+      typeof entry === "object"
+      && entry !== null
+      && (entry as { reasonCode?: unknown }).reasonCode === "duplicate-active-fingerprint"
+    ).length;
+  }
+  return count;
+}
+
+function isRepeatedNoiseFeedback(feedback: RecommendationFeedbackV1): boolean {
+  return (feedback.action === "reject" || feedback.action === "waive")
+    && /\b(noise|duplicate|repeated)\b/i.test(feedback.reason);
+}
+
+function rate(numerator: number, denominator: number): number {
+  return denominator <= 0 ? 0 : Number((numerator / denominator).toFixed(6));
+}
+
+function average(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function percentile(values: readonly number[], percentileValue: number): number | null {
+  if (values.length === 0) return null;
+  const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * percentileValue)));
+  return values[index] ?? null;
 }
 
 function digestSuffix(digest: string): string {

@@ -449,6 +449,8 @@ export interface ArchitectureBookRecommendationsResult {
   reasonCodes: string[];
 }
 
+const ACTIVE_BOOK_RECOMMENDATION_STATUSES = new Set<RecommendationV2["status"]>(["open", "acknowledged", "deferred"]);
+
 export function normalizeArchitectureLedgerEvent(event: ArchitectureEventV1, previousEventHash: string | null): ArchitectureEventV1 {
   const normalized = {
     ...event,
@@ -761,9 +763,8 @@ export function queryArchitectureLedgerBookRecommendations(input: ArchitectureBo
   events: ArchitectureEventV1[];
   openOnly?: boolean;
 }): ArchitectureBookRecommendationsResult {
-  const recommendations = input.events
-    .flatMap((event) => architectureLedgerPayload(event).recommendations ?? [])
-    .filter((recommendation) => !input.openOnly || recommendation.status === "open")
+  const recommendations = latestBookRecommendations(input.events)
+    .filter((recommendation) => !input.openOnly || ACTIVE_BOOK_RECOMMENDATION_STATUSES.has(recommendation.status))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId));
   const limited = applyArchitectureBookBudget(recommendations, input);
   return {
@@ -774,6 +775,25 @@ export function queryArchitectureLedgerBookRecommendations(input: ArchitectureBo
     budget: limited.budget,
     reasonCodes: limited.budget.reasonCodes
   };
+}
+
+function latestBookRecommendations(events: readonly ArchitectureEventV1[]): RecommendationV2[] {
+  const latest = new Map<string, { recommendation: RecommendationV2; index: number }>();
+  let index = 0;
+  for (const event of events) {
+    for (const recommendation of architectureLedgerPayload(event).recommendations ?? []) {
+      const current = latest.get(recommendation.recommendationId);
+      if (
+        !current
+        || recommendation.updatedAt.localeCompare(current.recommendation.updatedAt) > 0
+        || (recommendation.updatedAt === current.recommendation.updatedAt && index > current.index)
+      ) {
+        latest.set(recommendation.recommendationId, { recommendation, index });
+      }
+      index += 1;
+    }
+  }
+  return [...latest.values()].map((entry) => entry.recommendation);
 }
 
 export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYamlImportInput): ArchitectureLedgerYamlImportPlan {

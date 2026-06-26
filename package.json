@@ -101,6 +101,8 @@
     "readback:al8:scheduler": "bun scripts/architecture-ledger-al8-scheduler-readback.ts inspect --evidence docs/verification/architecture-ledger-al8-scheduler-readback.json --json",
     "record:al8:waiver-review": "bun scripts/architecture-ledger-al8-waiver-review-readback.ts run --out docs/verification/architecture-ledger-al8-waiver-review-readback.json --report docs/verification/architecture-ledger-al8-waiver-review.md --json",
     "readback:al8:waiver-review": "bun scripts/architecture-ledger-al8-waiver-review-readback.ts inspect --evidence docs/verification/architecture-ledger-al8-waiver-review-readback.json --json",
+    "record:al8:lifecycle-feedback": "bun scripts/architecture-ledger-al8-lifecycle-feedback-readback.ts run --out docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json --report docs/verification/architecture-ledger-al8-lifecycle-feedback.md --json",
+    "readback:al8:lifecycle-feedback": "bun scripts/architecture-ledger-al8-lifecycle-feedback-readback.ts inspect --evidence docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json --json",
     "deploy:fg2:staging:secrets": "node deploy/scripts/fg2-staging-secrets.mjs install --env-file _ops/env/fg2-staging.env --environment staging",
     "deploy:fg2:staging": "wrangler deploy --env staging --config wrangler.jsonc",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",

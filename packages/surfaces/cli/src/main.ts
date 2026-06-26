@@ -25,6 +25,7 @@ import {
   type RuntimeRpcCompatibilityIssue,
   type RuntimeDaemonClient,
   type RuntimeAgentJobEnqueueGitInput,
+  type RuntimeRecommendationInput,
   type RuntimeDeps
 } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
@@ -233,6 +234,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runLedgerCommand(args, cwd, runtime);
     case "book":
       return runBookCommand(args, cwd, await runtime());
+    case "recommendations":
+      return runRecommendationsCommand(args, cwd, await runtime());
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
@@ -407,8 +410,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -573,6 +576,37 @@ async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemon
     return daemon.book(cwd, { command: "export", format, ...budget });
   }
   return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
+}
+
+async function runRecommendationsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "metrics";
+  if (subcommand === "metrics") {
+    return daemon.recommendations(cwd, {
+      command: "metrics",
+      ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
+    });
+  }
+  if (!["acknowledge", "accept", "reject", "defer", "waive", "resolve"].includes(subcommand)) {
+    return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+  }
+  const recommendationId = readFlag(args, "--id") ?? readFlag(args, "--recommendation-id") ?? args[1];
+  if (!recommendationId || recommendationId.startsWith("--")) {
+    return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} requires --id`);
+  }
+  const reason = readFlag(args, "--reason");
+  if (!reason) return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} requires --reason`);
+  const input: RuntimeRecommendationInput = {
+    command: subcommand as RuntimeRecommendationInput["command"],
+    recommendationId,
+    reason,
+    actor: readFlag(args, "--actor") ?? "developer",
+    ...(readFlag(args, "--actor-kind") === undefined ? {} : { actorKind: readFlag(args, "--actor-kind")! as any }),
+    ...(readFlag(args, "--source") === undefined ? {} : { source: readFlag(args, "--source")! as any }),
+    ...(readFlag(args, "--expected-worktree-digest") === undefined ? {} : { expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest")! }),
+    ...(readFlag(args, "--agent-job-id") === undefined ? {} : { agentJobId: readFlag(args, "--agent-job-id")! }),
+    ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
+  };
+  return daemon.recommendations(cwd, input);
 }
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

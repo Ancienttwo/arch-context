@@ -207,6 +207,30 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
         }]
       }
     };
+    const acceptedRecommendationEvent = {
+      ...plan.event,
+      eventId: "architecture_event.recommendation.lifecycle",
+      eventType: "architecture.recommendation.lifecycle",
+      timestamp: "2026-06-25T02:13:00.000Z",
+      payload: {
+        recommendations: [{
+          schemaVersion: "archcontext.recommendation/v1",
+          recommendationId: "recommendation.api-owner",
+          runId: "recommendation_run.one",
+          fingerprint: "sha256:recommendation",
+          subject: "module.api",
+          status: "accepted",
+          confidence: "medium",
+          enforcement: "advisory",
+          risk: "medium",
+          uncertainty: "low",
+          evidenceBindingIds: [],
+          explanation: ["API has owner-required constraint evidence."],
+          createdAt: "2026-06-25T02:12:00.000Z",
+          updatedAt: "2026-06-25T02:13:00.000Z"
+        }]
+      }
+    };
 
     const query = queryArchitectureLedgerBook({ state: plan.state, events: [plan.event], query: "checkout", maxItems: 1, maxBytes: 4096 });
     expect(query.results.map((result) => result.id)).toEqual(["module.checkout"]);
@@ -271,6 +295,18 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       targetId: "recommendation.api-owner"
     });
     expect(recommendations.explanations?.[0]?.reasonCodes).toContain("open-recommendation-filter");
+
+    const latestRecommendations = queryArchitectureLedgerBookRecommendations({
+      events: [recommendationEvent as any, acceptedRecommendationEvent as any],
+      explain: true
+    });
+    expect(latestRecommendations.recommendations).toHaveLength(1);
+    expect(latestRecommendations.recommendations[0]?.status).toBe("accepted");
+    const activeRecommendations = queryArchitectureLedgerBookRecommendations({
+      events: [recommendationEvent as any, acceptedRecommendationEvent as any],
+      openOnly: true
+    });
+    expect(activeRecommendations.recommendations).toEqual([]);
   });
 
   test("imports ADR frontmatter policies and manifest metadata as declared evidence without graph mutation", () => {

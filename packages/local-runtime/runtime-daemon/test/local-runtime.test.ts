@@ -5,12 +5,13 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS } from "@archcontext/local-runtime/local-store-sqlite";
+import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import {
@@ -1461,6 +1462,81 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime recommendation lifecycle appends explicit feedback and reports local metrics", async () => {
+    const root = createInitializedGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-26T12:05:00.000Z"
+      });
+      const plan = await appendRecommendationRunFixture(store, root, "2026-06-26T12:00:00.000Z");
+      const recommendationId = plan.recommendations[0].recommendationId;
+
+      const accepted = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId,
+        reason: "accepted after agent-assisted local readback",
+        actor: "worker.al8",
+        actorKind: "subagent",
+        source: "subagent",
+        agentJobId: "agent_job.al8",
+        now: "2026-06-26T12:10:00.000Z"
+      });
+
+      expect(accepted.ok).toBe(true);
+      expect((accepted.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
+        action: "accept",
+        recommendationId,
+        previousStatus: "open",
+        nextStatus: "accepted",
+        privacy: {
+          writes: "architecture-ledger-event-only",
+          rawSourcePersisted: false,
+          rawDiffPersisted: false,
+          implicitAcceptance: false
+        }
+      });
+      expect((accepted.data as any).feedback).toMatchObject({
+        schemaVersion: "archcontext.recommendation-feedback/v1",
+        action: "accept",
+        explicit: true,
+        implicitAcceptance: false,
+        actor: { kind: "subagent", source: "subagent" }
+      });
+      expect(JSON.stringify(accepted.data)).not.toContain("sourceCode");
+      expect(JSON.stringify(accepted.data)).not.toContain("diff --git");
+      expect(store.architectureEventAppends.at(-1)?.events[0]?.eventType).toBe("architecture.recommendation.lifecycle");
+      expect((store.architectureEventAppends.at(-1)?.events[0]?.payload as any).feedback).toHaveLength(1);
+
+      const open = await daemon.book(root, { command: "recommendations", openOnly: true });
+      expect((open.data as any).recommendations).toEqual([]);
+      const all = await daemon.book(root, { command: "recommendations" });
+      expect((all.data as any).recommendations.map((recommendation: any) => recommendation.status)).toEqual(["accepted"]);
+
+      const metrics = await daemon.recommendations(root, { command: "metrics", now: "2026-06-26T12:11:00.000Z" });
+      expect((metrics.data as any)).toMatchObject({
+        schemaVersion: "archcontext.recommendation-lifecycle-metrics/v1",
+        recommendationCount: 1,
+        feedbackCount: 1,
+        acceptedRecommendationRate: 1,
+        agentAssistedResolutionRate: 1
+      });
+
+      const duplicate = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId,
+        reason: "duplicate accept should not append",
+        now: "2026-06-26T12:12:00.000Z"
+      });
+      expect(duplicate.ok).toBe(false);
+      expect((duplicate as any).error.code).toBe("AC_PRECONDITION_FAILED");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger-authoritative runtime read surfaces use SQLite current state when Git projection drifts", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();
@@ -2530,6 +2606,74 @@ function createGitRepo(): string {
   execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return root;
+}
+
+async function appendRecommendationRunFixture(store: TestLocalStore, root: string, now: string) {
+  const paths = runtimeStatePaths(root);
+  const repository = {
+    repositoryId: repositoryFingerprint(root),
+    storageRepositoryId: paths.storageRepositoryId
+  };
+  const worktree = {
+    workspaceId: paths.workspaceId,
+    storageWorkspaceId: paths.storageWorkspaceId,
+    branch: gitOut(root, "branch", "--show-current") || "HEAD",
+    headSha: gitOut(root, "rev-parse", "HEAD"),
+    worktreeDigest: computeWorktreeDigest(root)
+  };
+  const plan = planRecommendationRun({
+    repository,
+    worktree,
+    triggerSource: "checkpoint",
+    policyMode: "advisory",
+    catalogDigest: digestJson({ fixture: "runtime-recommendation-catalog" } as any),
+    inputCursor: {
+      source: "candidate-delta",
+      baseDigest: digestJson({ base: "runtime-recommendation" } as any),
+      headDigest: digestJson({ head: "runtime-recommendation" } as any),
+      headSha: worktree.headSha,
+      candidateDeltaDigest: digestJson({ delta: "runtime-recommendation" } as any)
+    },
+    candidates: [{
+      practiceId: "practice.runtime-boundary",
+      subject: "module.runtime-ledger",
+      confidence: "medium",
+      enforcement: "advisory",
+      evidenceBindingIds: ["binding.al8.lifecycle"],
+      explanation: ["Runtime ledger recommendation requires explicit lifecycle feedback."],
+      riskSignals: ["boundary-change"],
+      uncertaintySignals: [],
+      score: 52
+    }],
+    now
+  });
+  const graphDigest = digestJson({ fixture: "empty-architecture-graph" } as any);
+  const inputDigest = digestJson({ runId: plan.run.runId, recommendationIds: plan.run.recommendationIds } as any);
+  await store.appendArchitectureEvents({
+    writer: "runtime-daemon",
+    events: [{
+      schemaVersion: "archcontext.architecture-event/v1",
+      eventId: `architecture_event.recommendation_run.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
+      eventType: "architecture.recommendation.run",
+      payloadVersion: "archcontext.recommendation-run/v1",
+      repository,
+      worktree,
+      baseDigest: graphDigest,
+      resultingDigest: graphDigest,
+      headSha: worktree.headSha,
+      actor: { kind: "daemon", id: "archctxd" },
+      source: "checkpoint",
+      timestamp: now,
+      idempotencyKey: `architecture-ledger-recommendation-run:${plan.run.runId}`,
+      provenance: {
+        producer: "runtime-daemon-test",
+        command: "appendRecommendationRunFixture",
+        inputDigest
+      },
+      payload: recommendationRunLedgerPayload(plan) as any
+    }]
+  });
+  return plan;
 }
 
 function createInitializedGitRepo(): string {

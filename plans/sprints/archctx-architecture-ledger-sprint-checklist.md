@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 through AL7 complete; AL8 scheduler core is complete and waiver/review/feedback integration remains in progress
+> **Status**: Executing - AL0 through AL7 complete; AL8 scheduler, waiver/review and lifecycle-feedback slices are complete; fixture gates and repo-local budgets remain in progress
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -932,9 +932,15 @@ archctx book export --format yaml|markdown|json
 - [x] **AL8-10 · P0 · `review-engine`** — Prevent advisory recommendations from becoming complete-stage gates without explicit policy eligibility.
   - Evidence: `completeTaskGate` accepts recommendation context, rejects advisory recommendations carrying complete-stage gate claims, rejects complete-stage recommendations missing explicit `completeStageEligibility.policyDigest`, and passes eligible complete recommendations.
   - Verification artifact: `docs/verification/architecture-ledger-al8-waiver-review-readback.json`, `docs/verification/architecture-ledger-al8-waiver-review.md`.
-- [ ] **AL8-11 · P1 · `cli`** — Add acknowledge, accept, reject, defer, waive and resolve commands.
-- [ ] **AL8-12 · P1 · `feedback`** — Capture user outcome and reason without using implicit acceptance as truth.
-- [ ] **AL8-13 · P1 · `evals`** — Measure repeated-noise rate, time-to-resolution, accepted recommendation rate and agent-assisted resolution rate.
+- [x] **AL8-11 · P1 · `cli`** — Add acknowledge, accept, reject, defer, waive and resolve commands.
+  - Evidence: `archctx recommendations acknowledge|accept|reject|defer|waive|resolve` routes through the runtime daemon and appends `architecture.recommendation.lifecycle` events; duplicate no-op transitions are rejected before append.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json`, `docs/verification/architecture-ledger-al8-lifecycle-feedback.md`.
+- [x] **AL8-12 · P1 · `feedback`** — Capture user outcome and reason without using implicit acceptance as truth.
+  - Evidence: `RecommendationFeedback/v1` requires `explicit: true` and `implicitAcceptance: false`; feedback is appended by the daemon with recommendation lifecycle events and persisted through the SQLite feedback projection.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json`, `docs/verification/architecture-ledger-al8-lifecycle-feedback.md`.
+- [x] **AL8-13 · P1 · `evals`** — Measure repeated-noise rate, time-to-resolution, accepted recommendation rate and agent-assisted resolution rate.
+  - Evidence: `aggregateRecommendationLifecycleMetrics` computes local ledger replay metrics, and `archctx recommendations metrics` returns repeated-noise rate, time-to-resolution, accepted recommendation rate and agent-assisted resolution rate without raw source/diff bodies.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json`, `docs/verification/architecture-ledger-al8-lifecycle-feedback.md`.
 - [x] **AL8-14 · P1 · `recommendation-engine`** — Add explanation tree: trigger → subject → evidence → baseline → score → policy outcome.
   - Evidence: each emitted recommendation carries `archcontext.recommendation-explanation-tree/v1` under extensions with trigger, subject, evidence bindings, baseline, score, risk, uncertainty and policy outcome.
   - Verification artifact: `docs/verification/architecture-ledger-al8-scheduler-readback.json`, `docs/verification/architecture-ledger-al8-scheduler-core.md`.
@@ -970,6 +976,13 @@ archctx book export --format yaml|markdown|json
   - Verification artifact: `docs/verification/architecture-ledger-al8-waiver-review-readback.json`, `docs/verification/architecture-ledger-al8-waiver-review.md`.
   - Verification: `bun run record:al8:waiver-review`; `bun run readback:al8:waiver-review`; `bun test scripts/architecture-ledger-al8-waiver-review-readback.test.ts packages/core/review-engine/test/review-engine.test.ts packages/core/agent-orchestrator/test/agent-orchestrator.test.ts`; `bun test packages/core/practice-engine/test/practice-engine.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts packages/contracts/test/contracts.test.ts`; `bun run typecheck`; `git diff --check`; `bun run verify`.
   - Remote readback: PR #68 Windows Node 24 completed the full test suite but timed out in `scripts/packaged-cli-smoke.mjs` while waiting for background `archctx daemon start`; the smoke harness now uses the same hosted-runner-scale child-process budget already used by CLI daemon tests, without changing runtime behavior.
+- 2026-06-26: Completed AL8 lifecycle/feedback/metrics slice on branch `codex/architecture-ledger-al8-lifecycle-feedback`.
+  - CLI/runtime: added `archctx recommendations acknowledge|accept|reject|defer|waive|resolve|metrics`; lifecycle writes replay the latest recommendation from the ledger and append daemon-owned `architecture.recommendation.lifecycle` events.
+  - Feedback: added `RecommendationFeedback/v1` contract/schema/fixtures and explicit feedback capture with `implicitAcceptance: false`; no raw source, raw diff, prompt or completion body is persisted.
+  - Metrics/readback: Book recommendations now dedupe by latest recommendation state and hide accepted/rejected/waived/resolved outcomes from `--open`; local metrics cover repeated-noise rate, time-to-resolution, accepted recommendation rate and agent-assisted resolution rate.
+  - Explicitly still out of scope: AL8-15 practice catalog enforcement fixture gates and AL8-16 repository-local scheduler configuration.
+  - Verification artifact: `docs/verification/architecture-ledger-al8-lifecycle-feedback-readback.json`, `docs/verification/architecture-ledger-al8-lifecycle-feedback.md`.
+  - Verification: `bun test scripts/architecture-ledger-al8-lifecycle-feedback-readback.test.ts packages/core/recommendation-engine/test/recommendation-engine.test.ts packages/core/architecture-ledger/test/architecture-ledger.test.ts packages/contracts/test/contracts.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts`; `bun run typecheck`; `bun run record:al8:lifecycle-feedback`; `bun run readback:al8:lifecycle-feedback`; `bun run verify`.
 
 ---
 
