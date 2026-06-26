@@ -1,5 +1,7 @@
 import type { CrossRepoRelation, Landscape } from "@archcontext/core/architecture-domain";
 import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/changeset-engine";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import {
   architectureLedgerPayload,
   architectureLedgerStateDigest,
@@ -535,12 +537,26 @@ export class TestLocalStore implements RuntimeLocalStore {
     throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
   }
 
-  async checkArchitectureLedgerIntegrity(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async checkArchitectureLedgerIntegrity(input: ArchitectureLedgerScope) {
+    const replay = await this.verifyArchitectureLedgerReplay(input);
+    return {
+      ok: replay.ok,
+      graphDigest: replay.materializedDigest,
+      eventCount: replay.eventCount,
+      snapshotCount: 0,
+      failures: replay.mismatches
+    };
   }
 
-  async backupArchitectureLedger(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async backupArchitectureLedger(input: { backupPath: string }): Promise<{ backupPath: string; integrity: string }> {
+    mkdirSync(dirname(input.backupPath), { recursive: true });
+    if (existsSync(input.backupPath)) rmSync(input.backupPath, { force: true });
+    writeFileSync(input.backupPath, `${JSON.stringify({
+      schemaVersion: "archcontext.test-local-store-backup/v1",
+      eventCount: this.architectureEvents.length,
+      graphDigest: architectureLedgerStateDigest(replayArchitectureLedgerEvents(this.architectureEvents))
+    }, null, 2)}\n`, "utf8");
+    return { backupPath: input.backupPath, integrity: "ok" };
   }
 
   clearDerivedLandscapeState(): void {

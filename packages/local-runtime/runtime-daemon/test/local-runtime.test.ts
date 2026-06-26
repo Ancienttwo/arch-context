@@ -1931,6 +1931,78 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("ledger migrate write creates a backup, verifies replay, and advertises safe downgrade", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "yaml" },
+        clock: () => "2026-06-26T08:00:00.000Z"
+      });
+      await daemon.init(root, "Ledger Migrate App");
+
+      const dryRun = await daemon.ledgerMigrate(root, { fromYaml: true, dryRun: true });
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "planned",
+        dryRun: true,
+        writes: "none",
+        backup: { status: "not-created", reason: "dry-run" },
+        append: { status: "not-applied" },
+        verification: { status: "not-run", reason: "dry-run" }
+      });
+      expect((dryRun.data as any).architectureLedger.phaseFlags.safeDowngrade.environment).toMatchObject({
+        ARCHCONTEXT_LEDGER_MODE: "yaml"
+      });
+
+      const status = await daemon.runtimeStatus(root);
+      const migrated = await daemon.ledgerMigrate(root, {
+        fromYaml: true,
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(migrated.ok).toBe(true);
+      expect((migrated.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "verified",
+        dryRun: false,
+        writes: "architecture-ledger",
+        backup: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+          status: "created",
+          integrity: "ok"
+        },
+        append: {
+          status: "appended",
+          appendedEventCount: 1
+        },
+        verification: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-migration-verification/v1",
+          ok: true,
+          driftOk: true,
+          reconcileOk: true
+        },
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      });
+      expect(existsSync((migrated.data as any).backup.backupPath)).toBe(true);
+      expect((migrated.data as any).rollback).toMatchObject({
+        command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+        safeDowngradeEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "yaml"
+        }
+      });
+      expect((migrated.data as any).verification.graphDigest).toBe((migrated.data as any).graphDigest);
+      expect(store.architectureEventAppends.at(-1)?.events[0]?.eventType).toBe("architecture.yaml.import");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger rebuild from Git appends once and no-ops when current state already matches Git", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();

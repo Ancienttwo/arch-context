@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-rollout-workflow-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-01",
+    "AL10-02"
+  ],
+  "workflow": {
+    "dryRunPlanned": true,
+    "writeVerified": true,
+    "phaseFlagsPresent": true,
+    "safeDowngradeEnvironmentYaml": true,
+    "recommendedDualModeAfterMigration": true,
+    "sqliteBackupCreated": true,
+    "backupIntegrityOk": true,
+    "replayIntegrityVerified": true,
+    "driftCleanAfterMigrate": true,
+    "appendedImportEvent": true,
+    "rollbackExecutable": true,
+    "rollbackCommand": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+    "entityCount": 1,
+    "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506"
+  },
+  "privacy": {
+    "rawSourcePersisted": false,
+    "forbiddenKeys": []
+  },
+  "assertions": {
+    "AL10-01": true,
+    "AL10-02": true
+  },
+  "status": "verified",
+  "failures": []
+}

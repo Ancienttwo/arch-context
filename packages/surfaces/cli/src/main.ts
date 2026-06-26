@@ -6,12 +6,10 @@ import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
-import { planYamlToArchitectureLedgerImport } from "@archcontext/core/architecture-ledger";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
@@ -486,34 +484,25 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
     });
   }
   if (subcommand === "migrate") {
-    if (!args.includes("--from-yaml") || !args.includes("--dry-run")) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml --dry-run");
+    if (!args.includes("--from-yaml")) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml");
     }
-    const root = findRepositoryRoot(cwd);
-    const paths = runtimeStatePaths(root);
-    const plan = planYamlToArchitectureLedgerImport({
-      repository: {
-        repositoryId: repositoryFingerprint(root),
-        storageRepositoryId: paths.storageRepositoryId
-      },
-      worktree: {
-        workspaceId: paths.workspaceId,
-        storageWorkspaceId: paths.storageWorkspaceId,
-        branch: readCurrentBranch(root),
-        headSha: readHeadSha(root),
-        worktreeDigest: computeWorktreeDigest(root)
-      },
-      files: listModelFiles(root),
-      createdAt: readFlag(args, "--now") ?? new Date().toISOString(),
-      command: "archctx ledger migrate --from-yaml --dry-run"
+    const write = args.includes("--write");
+    if (write && args.includes("--dry-run")) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --dry-run or --write, not both");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (write && !expectedWorktreeDigest) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerMigrate(cwd, {
+      fromYaml: true,
+      dryRun: !write,
+      expectedWorktreeDigest
     });
-    return okEnvelope("ledger.migrate", {
-      ...plan,
-      append: "not-applied",
-      writes: "none"
-    } as unknown as Json);
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml --dry-run, rebuild --from-git, rollback --to-yaml, or project --to-git");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml, rebuild --from-git, rollback --to-yaml, or project --to-git");
 }
 
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {

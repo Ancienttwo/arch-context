@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 through AL9 complete; AL10 rollout hardening remains not started
+> **Status**: Executing - AL0 through AL9 complete; AL10 rollout hardening in progress
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -126,7 +126,7 @@ These are target gates, not claims about current performance.
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ☑ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ☑ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ☑ |
-| AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
+| AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◐ |
 
 **Critical path:** `AL0 → AL2 → AL3 → AL4 → AL5 → AL7 → AL8 → AL9 → AL10`
 **Parallel path:** `AL0 → AL1`; `AL5 → AL6`.
@@ -1078,8 +1078,10 @@ archctx book export --format yaml|markdown|json
 
 ### Tasks
 
-- [ ] **AL10-01 · P0 · `feature-flags`** — Implement explicit phase flags and safe downgrade path.
-- [ ] **AL10-02 · P0 · `migration`** — Create one-command backup, migrate, verify and rollback workflow.
+- [x] **AL10-01 · P0 · `feature-flags`** — Implement explicit phase flags and safe downgrade path.
+  - Evidence: runtime `architectureLedger.phaseFlags` reports active phase, supported phases, environment flags, promotion/downgrade paths, and the canonical safe downgrade command; `docs/runbooks/architecture-ledger-rollout.md`; `docs/verification/architecture-ledger-al10-rollout-workflow-readback.json`.
+- [x] **AL10-02 · P0 · `migration`** — Create one-command backup, migrate, verify and rollback workflow.
+  - Evidence: `archctx ledger migrate --from-yaml --write --expected-worktree-digest <current>` runs through the daemon, creates a runtime-state SQLite backup, appends `architecture.yaml.import`, rebuilds replay state, checks integrity, verifies drift, returns `ARCHCONTEXT_LEDGER_MODE=dual`, and surfaces the YAML rollback command; `docs/verification/architecture-ledger-al10-rollout-workflow.md`.
 - [ ] **AL10-03 · P0 · `fixtures`** — Run full loop on at least three representative repositories: small app, medium monorepo and architecture-heavy service project.
 - [ ] **AL10-04 · P0 · `benchmarks`** — Measure hook, sync, query, checkpoint, complete, projection and replay performance.
 - [ ] **AL10-05 · P0 · `chaos`** — Inject daemon crash, DB lock, disk-full, corrupt row, interrupted rebase and provider timeout.
@@ -1113,6 +1115,16 @@ archctx book export --format yaml|markdown|json
 - [ ] **AL10-GA-5** — Hard-gate false positives = 0.
 - [ ] **AL10-GA-6** — External/independent architecture and security review accepted.
 - [ ] **AL10-GA-7** — Production rollback drill completed.
+
+### AL10 execution log
+
+- 2026-06-26: Completed AL10 rollout workflow foundation on branch `codex/architecture-ledger-al10-rollout-workflow`.
+  - Scope: closes AL10-01 and AL10-02 only; representative replay, benchmark, chaos, security, privacy, eval, release packaging, telemetry, beta, and GA gates remain open.
+  - Feature flags: runtime status and ledger readbacks expose `architectureLedger.phaseFlags` with active phase, supported phases, environment flags, promotion path, downgrade path, and canonical YAML safe downgrade command.
+  - Migration workflow: `archctx ledger migrate --from-yaml --write --expected-worktree-digest <current>` is daemon-owned and performs backup, append, replay rebuild, integrity verification, drift reconciliation, and rollback-command readback.
+  - Rollback surface: verified migration output recommends `ARCHCONTEXT_LEDGER_MODE=dual` and exposes `archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>` plus YAML downgrade env.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-rollout-workflow-readback.json`, `docs/verification/architecture-ledger-al10-rollout-workflow.md`.
+  - Verification: `bun run record:al10:rollout-workflow`; `bun run readback:al10:rollout-workflow`; `bun test scripts/architecture-ledger-al10-rollout-workflow-readback.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts --timeout 120000`; `bun run typecheck`.
 
 ---
 

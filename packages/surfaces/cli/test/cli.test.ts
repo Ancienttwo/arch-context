@@ -1651,22 +1651,24 @@ describe("archctx CLI", () => {
   test("CLI plans YAML to ledger migration as a read-only dry-run", async () => {
     const root = createInitializedGitRepo();
     try {
-      const result = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run", "--now", "2026-06-25T02:30:00.000Z"], root);
+      const result = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run"], root);
       expect(result.ok).toBe(true);
-      expect((result.data as any).schemaVersion).toBe("archcontext.architecture-ledger-yaml-import-plan/v1");
-      expect((result.data as any).sourceMode).toBe("yaml");
+      expect((result.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-migrate/v1");
+      expect((result.data as any).status).toBe("planned");
+      expect((result.data as any).sourceMode).toBe("git-yaml");
       expect((result.data as any).dryRun).toBe(true);
-      expect((result.data as any).append).toBe("not-applied");
+      expect((result.data as any).append).toMatchObject({ status: "not-applied" });
       expect((result.data as any).writes).toBe("none");
-      expect((result.data as any).event.source).toBe("yaml_import");
-      expect((result.data as any).event.eventHash).toMatch(/^sha256:/);
+      expect((result.data as any).backup).toMatchObject({ status: "not-created", reason: "dry-run" });
+      expect((result.data as any).verification).toMatchObject({ status: "not-run", reason: "dry-run" });
       expect((result.data as any).graphDigest).toMatch(/^sha256:/);
       expect((result.data as any).drift).toMatchObject({ ok: true, semanticDrift: false });
       expect((result.data as any).ignoredFiles).toContainEqual({
         path: ".archcontext/generated/ARCHITECTURE.md",
         reasonCode: "generated-projection"
       });
-      expect(existsSync(testRuntimePaths(root).localStorePath)).toBe(false);
+      const state = await runTestCli("ledger", ["state"], root);
+      expect((state.data as any).ledger.entityCount).toBe(0);
     } finally {
       removeTempRoot(root);
     }
@@ -1865,6 +1867,69 @@ describe("archctx CLI", () => {
       expect(existsSync(join(root, stalePath))).toBe(false);
       expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
       expect((await runTestCli("validate", [], root)).ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI migrate writes through daemon-owned backup and verification workflow", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const dryRun = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run"], root);
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "planned",
+        dryRun: true,
+        writes: "none",
+        backup: { status: "not-created" },
+        append: { status: "not-applied" }
+      });
+      expect((dryRun.data as any).architectureLedger.phaseFlags).toMatchObject({
+        activePhase: "yaml",
+        safeDowngrade: {
+          to: "yaml"
+        }
+      });
+
+      const missingDigest = await runTestCli("ledger", ["migrate", "--from-yaml", "--write"], root);
+      expect(missingDigest.ok).toBe(false);
+      expect((missingDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const status = await runTestCli("status", [], root);
+      const migrated = await runTestCli("ledger", [
+        "migrate",
+        "--from-yaml",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+
+      expect(migrated.ok).toBe(true);
+      expect((migrated.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "verified",
+        dryRun: false,
+        writes: "architecture-ledger",
+        backup: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+          status: "created",
+          integrity: "ok"
+        },
+        verification: {
+          ok: true,
+          driftOk: true,
+          reconcileOk: true
+        },
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      });
+      expect(existsSync((migrated.data as any).backup.backupPath)).toBe(true);
+      expect(JSON.stringify(migrated.data)).not.toContain("schemaVersion: archcontext.node/v1");
+      const state = await runTestCli("ledger", ["state"], root);
+      expect((state.data as any).ledger.entityCount).toBeGreaterThan(0);
+      expect((state.data as any).drift.ok).toBe(true);
     } finally {
       removeTempRoot(root);
     }

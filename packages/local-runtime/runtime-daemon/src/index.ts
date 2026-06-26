@@ -240,6 +240,12 @@ export interface RuntimeLedgerRebuildInput {
   acceptExternalProjection?: boolean;
 }
 
+export interface RuntimeLedgerMigrateInput {
+  fromYaml?: boolean;
+  dryRun?: boolean;
+  expectedWorktreeDigest?: string;
+}
+
 export interface RuntimeLedgerRollbackInput {
   toYaml?: boolean;
   dryRun?: boolean;
@@ -257,6 +263,29 @@ export interface RuntimeArchitectureLedgerModes {
   writeMode: RuntimeArchitectureLedgerWriteMode;
   readAuthority: "yaml" | "ledger";
   writeAuthority: "yaml" | "dual" | "ledger-with-projection";
+  phaseFlags: RuntimeArchitectureLedgerPhaseFlags;
+}
+
+export interface RuntimeArchitectureLedgerPhaseFlags {
+  schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1";
+  activePhase: RuntimeArchitectureLedgerRolloutMode;
+  supportedPhases: RuntimeArchitectureLedgerRolloutMode[];
+  environment: {
+    ARCHCONTEXT_LEDGER_MODE: RuntimeArchitectureLedgerRolloutMode;
+    ARCHCONTEXT_LEDGER_READ_MODE: RuntimeArchitectureLedgerReadMode;
+    ARCHCONTEXT_LEDGER_WRITE_MODE: RuntimeArchitectureLedgerWriteMode;
+  };
+  safeDowngrade: {
+    to: "yaml";
+    environment: {
+      ARCHCONTEXT_LEDGER_MODE: "yaml";
+      ARCHCONTEXT_LEDGER_READ_MODE: "yaml";
+      ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml";
+    };
+    command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>";
+  };
+  promotionPath: RuntimeArchitectureLedgerRolloutMode[];
+  downgradePath: RuntimeArchitectureLedgerRolloutMode[];
 }
 
 interface CheckpointCoalesceEntry {
@@ -509,6 +538,7 @@ export interface RuntimeDaemonClient {
   ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerMigrate(root: string, input?: RuntimeLedgerMigrateInput): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
   book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -2038,6 +2068,124 @@ export class ArchctxDaemon {
     return writes ? this.withWriter(project) : project();
   }
 
+  async ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.fromYaml) return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml");
+    const writes = input.dryRun === false;
+    const migrate = async () => {
+      const repositoryRoot = root;
+      if (writes) this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "ledger migrate --from-yaml");
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const files = listModelFiles(repositoryRoot);
+      const command = writes
+        ? "archctx ledger migrate --from-yaml --write"
+        : "archctx ledger migrate --from-yaml --dry-run";
+      const plan = planYamlToArchitectureLedgerImport({
+        ...scope,
+        files,
+        createdAt: this.clock(),
+        command
+      });
+      const previousState = await this.localStore.readArchitectureLedgerState(scope);
+      const previousGraphDigest = architectureLedgerStateDigest(previousState);
+      const base = {
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        sourceMode: "git-yaml",
+        dryRun: !writes,
+        graphDigest: plan.graphDigest,
+        previousGraphDigest,
+        sourceDigest: plan.sourceDigest,
+        projectionDigest: plan.projectionDigest,
+        imported: plan.imported,
+        ignoredFiles: plan.ignoredFiles,
+        unsupportedFiles: plan.unsupportedFiles,
+        rollback: {
+          command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+          safeDowngradeEnvironment: this.architectureLedger.phaseFlags.safeDowngrade.environment
+        }
+      } as const;
+      if (!writes) {
+        return okEnvelope("ledger.migrate", {
+          ...base,
+          status: plan.unsupportedFiles.length > 0 ? "blocked" : "planned",
+          writes: "none",
+          backup: { status: "not-created", reason: "dry-run" },
+          append: { status: "not-applied" },
+          verification: { status: "not-run", reason: "dry-run" },
+          drift: plan.drift,
+          reconcile: reconcileArchitectureLedgerDrift({ drift: plan.drift })
+        } as unknown as Json);
+      }
+      if (plan.unsupportedFiles.length > 0) {
+        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires supported YAML model files");
+      }
+      const paths = runtimeStatePaths(repositoryRoot);
+      const backupCreatedAt = this.clock();
+      const backupPath = uniqueRuntimeBackupPath(join(
+        paths.workspaceStateDir,
+        "backups",
+        "ledger-migrate",
+        safePathSegment(backupCreatedAt),
+        "runtime.sqlite"
+      ));
+      const backup = await this.localStore.backupArchitectureLedger({ backupPath });
+      const append = await this.localStore.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [plan.event]
+      });
+      const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
+      const integrity = await this.localStore.checkArchitectureLedgerIntegrity(scope);
+      const drift = compareArchitectureLedgerStateToYaml({
+        state: replay.state,
+        files: listModelFiles(repositoryRoot),
+        createdAt: this.clock(),
+        command
+      });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
+      const verified = integrity.ok && replay.graphDigest === plan.graphDigest && drift.ok && reconcile.ok;
+      return okEnvelope("ledger.migrate", {
+        ...base,
+        status: verified ? "verified" : "verification-failed",
+        writes: "architecture-ledger",
+        backup: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+          status: "created",
+          backupPath: backup.backupPath,
+          integrity: backup.integrity,
+          createdAt: backupCreatedAt
+        },
+        append: {
+          status: "appended",
+          appendedEventCount: append.appendedEvents.length,
+          duplicateEventCount: append.duplicateEvents.length,
+          graphDigest: append.graphDigest,
+          entityCount: append.entityCount,
+          relationCount: append.relationCount,
+          constraintCount: append.constraintCount
+        },
+        verification: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-migration-verification/v1",
+          ok: verified,
+          replayedEventCount: replay.events.length,
+          graphDigest: replay.graphDigest,
+          expectedGraphDigest: plan.graphDigest,
+          integrity,
+          driftOk: drift.ok,
+          reconcileOk: reconcile.ok
+        },
+        drift,
+        reconcile,
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(migrate) : migrate();
+  }
+
   async ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.assertRunning();
     if (!input.toYaml) return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
@@ -3259,6 +3407,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("ledgerProject", [root, input]);
   }
 
+  ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }) {
+    return this.call("ledgerMigrate", [root, input]);
+  }
+
   ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}) {
     return this.call("ledgerRebuild", [root, input]);
   }
@@ -3536,6 +3688,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.ledgerDrift(params[0] as string);
       case "ledgerProject":
         return this.daemon.ledgerProject(params[0] as string, params[1] as RuntimeLedgerProjectInput | undefined);
+      case "ledgerMigrate":
+        return this.daemon.ledgerMigrate(params[0] as string, params[1] as RuntimeLedgerMigrateInput | undefined);
       case "ledgerRebuild":
         return this.daemon.ledgerRebuild(params[0] as string, params[1] as RuntimeLedgerRebuildInput | undefined);
       case "ledgerRollback":
@@ -4405,7 +4559,38 @@ function runtimeArchitectureLedgerModes(input: RuntimeDeps["architectureLedger"]
     readMode,
     writeMode,
     readAuthority: architectureLedgerReadAuthority(readMode),
-    writeAuthority: writeMode
+    writeAuthority: writeMode,
+    phaseFlags: runtimeArchitectureLedgerPhaseFlags(rolloutMode, readMode, writeMode)
+  };
+}
+
+function runtimeArchitectureLedgerPhaseFlags(
+  rolloutMode: RuntimeArchitectureLedgerRolloutMode,
+  readMode: RuntimeArchitectureLedgerReadMode,
+  writeMode: RuntimeArchitectureLedgerWriteMode
+): RuntimeArchitectureLedgerPhaseFlags {
+  const supportedPhases: RuntimeArchitectureLedgerRolloutMode[] = ["yaml", "dual", "ledger-shadow", "ledger-authoritative"];
+  const activeIndex = supportedPhases.indexOf(rolloutMode);
+  return {
+    schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1",
+    activePhase: rolloutMode,
+    supportedPhases,
+    environment: {
+      ARCHCONTEXT_LEDGER_MODE: rolloutMode,
+      ARCHCONTEXT_LEDGER_READ_MODE: readMode,
+      ARCHCONTEXT_LEDGER_WRITE_MODE: writeMode
+    },
+    safeDowngrade: {
+      to: "yaml",
+      environment: {
+        ARCHCONTEXT_LEDGER_MODE: "yaml",
+        ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
+        ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
+      },
+      command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>"
+    },
+    promotionPath: activeIndex < 0 ? supportedPhases : supportedPhases.slice(activeIndex),
+    downgradePath: activeIndex < 0 ? ["yaml"] : supportedPhases.slice(0, activeIndex + 1).reverse()
   };
 }
 
@@ -4545,6 +4730,16 @@ function uniqueBackupPath(root: string, backupBase: string): string {
   let suffix = 2;
   while (existsSync(resolve(root, candidate))) {
     candidate = `${backupBase}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function uniqueRuntimeBackupPath(backupBase: string): string {
+  let candidate = backupBase;
+  let suffix = 2;
+  while (existsSync(candidate)) {
+    candidate = backupBase.replace(/\.sqlite$/, `-${suffix}.sqlite`);
     suffix += 1;
   }
   return candidate;
