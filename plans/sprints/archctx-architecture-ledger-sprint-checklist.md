@@ -1086,8 +1086,10 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark.md` records verified full-loop replay on three temporary Git fixture repositories: small app, medium monorepo and architecture-heavy service.
 - [x] **AL10-04 · P0 · `benchmarks`** — Measure hook, sync, query, checkpoint, complete, projection and replay performance.
   - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark-readback.json` records hook enqueue, sync, warm Book query, checkpoint, complete, documentation projection, replay and rollback timings across all three representative fixtures.
-- [ ] **AL10-05 · P0 · `chaos`** — Inject daemon crash, DB lock, disk-full, corrupt row, interrupted rebase and provider timeout.
-- [ ] **AL10-06 · P0 · `security`** — Run prompt injection, path traversal, symlink escape, forged evidence, event tamper and stale replay tests.
+- [x] **AL10-05 · P0 · `chaos`** — Inject daemon crash, DB lock, disk-full, corrupt row, interrupted rebase and provider timeout.
+  - Evidence: `docs/verification/architecture-ledger-al10-chaos-security-readback.json` records verified probes for stale daemon control recovery, SQLite busy lock rejection, filesystem write-failure proxy for disk-full, corrupt materialized row integrity failure, interrupted rebase projection rejection without ledger mutation, and provider timeout fallback.
+- [x] **AL10-06 · P0 · `security`** — Run prompt injection, path traversal, symlink escape, forged evidence, event tamper and stale replay tests.
+  - Evidence: `docs/verification/architecture-ledger-al10-chaos-security-readback.json` records verified prompt/tool-escape rejection, repo-relative path traversal rejection, legacy SQLite symlink escape rejection, CLI forged evidence rejection, event tamper replay/materialized mismatch detection, and stale replay rejection with `AC_CONTEXT_STALE`.
 - [x] **AL10-07 · P0 · `privacy`** — Audit SQLite, logs, CLI output, MCP output and agent job payloads for source/diff leakage.
   - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` scans SQLite schema/event/operation text, raw CLI outputs, MCP prepare/checkpoint/complete outputs, hook logs and raw agent job payloads for forbidden source/diff keys and sentinel leakage; all five privacy surfaces report `clean: true`.
 - [ ] **AL10-08 · P0 · `evals`** — Freeze a blind, no-label recommendation set and publish per-practice support.
@@ -1148,6 +1150,13 @@ archctx book export --format yaml|markdown|json
   - Rollback: write migration and full rollback to YAML authority are exercised through the daemon with backup and rollback-command readback.
   - Verification artifact: `docs/verification/architecture-ledger-al10-hardening-readback.json`, `docs/verification/architecture-ledger-al10-hardening.md`.
   - Verification: `bun run record:al10:hardening`; `bun run readback:al10:hardening`; `bun test scripts/architecture-ledger-al10-hardening-readback.test.ts --timeout 120000`.
+- 2026-06-26: Completed AL10 chaos and security negative matrix on branch `codex/architecture-ledger-al10-chaos-security`.
+  - Scope: closes AL10-05 and AL10-06 only; BETA-4 recommendation quality, release packaging, runbooks, telemetry, governance, Go/No-Go and all GA gates remain open.
+  - Chaos: the readback injects daemon crash recovery via dead connection PID plus stale lock cleanup, SQLite DB lock rejection, disk-full-class filesystem write failure with integrity preservation, corrupt materialized row detection, interrupted rebase YAML rejection without ledger digest mutation, and provider timeout deterministic fallback.
+  - Security: the readback verifies prompt injection remains inert, tool-escape report output is rejected, path traversal is blocked by repo-relative path validation, symlink escape is blocked during legacy SQLite migration, forged CLI evidence fields are rejected with `AC_SCHEMA_INVALID`, event tampering is caught by replay/materialized digest comparison, and stale worker completion is rejected with `AC_CONTEXT_STALE`.
+  - Evidence privacy: the packet scans the chaos/security evidence for raw source/diff/completion keys and secret-like tokens; the generated evidence records digests, reason codes and redacted paths only.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-chaos-security-readback.json`, `docs/verification/architecture-ledger-al10-chaos-security.md`.
+  - Verification: `bun run record:al10:chaos-security`; `bun run readback:al10:chaos-security`; `bun test scripts/architecture-ledger-al10-chaos-security-readback.test.ts`.
 
 ---
 
