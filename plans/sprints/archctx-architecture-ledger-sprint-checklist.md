@@ -1105,6 +1105,7 @@ archctx book export --format yaml|markdown|json
 - [x] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
   - Evidence: `docs/verification/architecture-ledger-al10-telemetry-readback.json` aggregates the verified AL10 rollout, benchmark, hardening, chaos/security, recommendation-quality, agent-comparison, release-packaging and runbook readbacks into a local opt-in beta telemetry report. `docs/verification/architecture-ledger-al10-telemetry.md` records 3 representative loop runs, 1,000 stress events, dual-mode drift count 0, 190 recommendation scenarios, 26 per-practice support rows, default hook median subagent spawns 0, rollback/chaos/security resolution, zero privacy/eval/quality failures, and the tracked beta risk that hook enqueue p95 remains 154.458 ms against the 150 ms beta target.
 - [ ] **AL10-14 · P1 · `product`** — Interview beta users about whether Book answers replace manual filesystem browsing.
+  - Blocked/intake: `docs/verification/architecture-ledger-al10-beta-user-interviews.md` is the canonical pending artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` verifies that no real beta-user interview evidence is currently present and keeps AL10-14 open.
 - [x] **AL10-15 · P1 · `governance`** — Require an independent reviewer for authority promotion and enforcement enablement.
   - Evidence: `docs/architecture/architecture-ledger-authority-promotion-review.md` requires a human independent reviewer before `ledger-authoritative` promotion or enforcement enablement, requires approval under `docs/approvals/`, and forbids self-attestation by automation, subagents, the patch author or release owner. `docs/verification/architecture-ledger-al10-beta-decision-readback.json` verifies this policy against ADR-0040, the AL0 authority matrix and AL10 telemetry.
 - [x] **AL10-16 · P1 · `release`** — Record final Go/No-Go decision and unresolved risks.
@@ -1138,7 +1139,9 @@ archctx book export --format yaml|markdown|json
 - [x] **AL10-GA-5** — Hard-gate false positives = 0.
   - Evidence: `docs/verification/architecture-ledger-al10-ga-technical-readback.json` reads the verified recommendation-quality packet and records heuristic-only hard-gate rate 0, dynamic-doc hard-gate rate 0, combined hard-gate false-positive rate 0 and failed eval gate count 0.
 - [ ] **AL10-GA-6** — External/independent architecture and security review accepted.
+  - Blocked/intake: `docs/approvals/architecture-ledger-al10-independent-review.md` is the canonical pending approval artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` rejects FG6/M6 carry-over security reviews as insufficient for AL10 architecture-ledger authority promotion.
 - [ ] **AL10-GA-7** — Production rollback drill completed.
+  - Blocked/intake: `docs/verification/architecture-ledger-al10-production-rollback-drill.md` is the canonical pending drill artifact; `docs/verification/architecture-ledger-al10-external-acceptance-readback.json` records that the older production GA external readback is itself blocked and cannot close this gate.
 
 ### AL10 execution log
 
@@ -1222,6 +1225,12 @@ archctx book export --format yaml|markdown|json
   - Security/eval: reads the verified chaos/security matrix for stale replay, event tamper, path traversal, symlink escape and forged evidence pass rate 100%; reads recommendation-quality evidence for hard-gate false-positive rate 0.
   - Verification artifact: `docs/verification/architecture-ledger-al10-ga-technical-readback.json`, `docs/verification/architecture-ledger-al10-ga-technical.md`.
   - Verification: `bun run record:al10:ga-technical`; `bun run readback:al10:ga-technical`; `bun test scripts/architecture-ledger-al10-ga-technical-readback.test.ts`.
+- 2026-06-26: Prepared AL10 external acceptance intake/readback on branch `codex/architecture-ledger-al10-external-acceptance-packet`.
+  - Scope: closes no gates; AL10-14, AL10-GA-6 and AL10-GA-7 remain open until real beta-user interview evidence, independent architecture/security approval and production rollback drill evidence are recorded.
+  - Canonical artifacts: `docs/verification/architecture-ledger-al10-beta-user-interviews.md`, `docs/approvals/architecture-ledger-al10-independent-review.md` and `docs/verification/architecture-ledger-al10-production-rollback-drill.md` are pending templates with explicit completion criteria.
+  - Carry-over rejection: the readback rejects FG6 external security review, M6 independent threat review, FG6 personal beta approval and the blocked production GA external readback as insufficient to close AL10 external acceptance gates.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-external-acceptance-readback.json`, `docs/verification/architecture-ledger-al10-external-acceptance.md`.
+  - Verification: `bun run record:al10:external-acceptance`; `bun run readback:al10:external-acceptance`; `bun test scripts/architecture-ledger-al10-external-acceptance-readback.test.ts`.
 
 ---
 

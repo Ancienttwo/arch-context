@@ -131,6 +131,8 @@
     "readback:al10:beta-decision": "bun scripts/architecture-ledger-al10-beta-decision-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-beta-decision-readback.json --json",
     "record:al10:ga-technical": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts run --out docs/verification/architecture-ledger-al10-ga-technical-readback.json --report docs/verification/architecture-ledger-al10-ga-technical.md --json",
     "readback:al10:ga-technical": "bun scripts/architecture-ledger-al10-ga-technical-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-ga-technical-readback.json --json",
+    "record:al10:external-acceptance": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts run --out docs/verification/architecture-ledger-al10-external-acceptance-readback.json --report docs/verification/architecture-ledger-al10-external-acceptance.md --json",
+    "readback:al10:external-acceptance": "bun scripts/architecture-ledger-al10-external-acceptance-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-external-acceptance-readback.json --json",
     "deploy:fg2:staging:secrets": "node deploy/scripts/fg2-staging-secrets.mjs install --env-file _ops/env/fg2-staging.env --environment staging",
     "deploy:fg2:staging": "wrangler deploy --env staging --config wrangler.jsonc",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",
