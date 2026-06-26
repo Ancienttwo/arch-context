@@ -27,6 +27,20 @@ export interface CompleteTaskInput {
   cleanupCompleted?: number;
   practiceEnforcement?: PracticeEnforcementEvaluationV1;
   recommendations?: RecommendationV2[];
+  projectionDrift?: CompleteTaskProjectionDriftInput;
+}
+
+export interface CompleteTaskProjectionDriftInput {
+  schemaVersion: "archcontext.complete-task-projection-drift/v1";
+  ok: boolean;
+  sourceDigest: string;
+  projectionDigest: string;
+  rendererVersion: string;
+  targetCount: number;
+  fileCount: number;
+  driftCount: number;
+  rejectedCount: number;
+  reasonCodes: string[];
 }
 
 export interface ReviewArchitectureCandidateChangeSetInput {
@@ -111,7 +125,8 @@ export function completeTaskGate(input: CompleteTaskInput) {
     message: violation.message
   }));
   const recommendationGateFindings = staleContext ? [] : reviewRecommendationCompleteGateEligibility(input.recommendations ?? []);
-  findings.push(...practiceFindings, ...advisoryPracticeFindings, ...recommendationGateFindings);
+  const projectionDriftFindings = staleContext ? [] : reviewProjectionDrift(input.projectionDrift);
+  findings.push(...practiceFindings, ...advisoryPracticeFindings, ...recommendationGateFindings, ...projectionDriftFindings);
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
@@ -124,6 +139,11 @@ export function completeTaskGate(input: CompleteTaskInput) {
       worktreeDigest: input.worktreeDigest,
       modelDigest: input.modelDigest,
       codeFactsDigest: input.codeFactsDigest,
+      ...(input.projectionDrift === undefined ? {} : {
+        projectionSourceDigest: input.projectionDrift.sourceDigest,
+        projectionDigest: input.projectionDrift.projectionDigest,
+        projectionRendererVersion: input.projectionDrift.rendererVersion
+      }),
       ...(input.practiceEnforcement === undefined ? {} : {
         practiceCatalogDigest: input.practiceEnforcement.catalogDigest,
         practicePolicyDigest: input.practiceEnforcement.policyDigest,
@@ -149,9 +169,20 @@ export function completeTaskGate(input: CompleteTaskInput) {
       ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {}),
       ...(nonBlockingPracticeViolations.length === 0 ? {} : { nonBlockingPracticeViolations }),
       ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings }),
-      ...(recommendationGateFindings.length === 0 ? {} : { recommendationGateFindings })
+      ...(recommendationGateFindings.length === 0 ? {} : { recommendationGateFindings }),
+      ...(projectionDriftFindings.length === 0 ? {} : { projectionDriftGate: input.projectionDrift })
     }
   };
+}
+
+function reviewProjectionDrift(projectionDrift: CompleteTaskProjectionDriftInput | undefined): PolicyFinding[] {
+  if (!projectionDrift || projectionDrift.ok) return [];
+  return [{
+    id: "projection-drift",
+    type: "projection-drift",
+    severity: "error",
+    message: `Architecture documentation projection drift must be reconciled before completion: ${projectionDrift.reasonCodes.join(",") || "unknown"}`
+  }];
 }
 
 function reviewRecommendationCompleteGateEligibility(recommendations: RecommendationV2[]): PolicyFinding[] {

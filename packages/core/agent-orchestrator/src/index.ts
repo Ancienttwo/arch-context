@@ -280,6 +280,8 @@ export interface InvestigationReportProposalPlan {
   outputDigest: string;
   proposedDeltaDigests: string[];
   proposedDeltas: ArchitectureCandidateChangeV1[];
+  documentationDraftDigests: string[];
+  documentationDrafts: AgentDocumentationDraftV1[];
   evidenceBindingIds: string[];
   evidenceIds: string[];
   validationDigest: string;
@@ -290,6 +292,30 @@ export interface InvestigationReportProposalPlan {
   retention: "no-raw-source-or-diff-bodies";
   createdAt: string;
   proposalDigest: string;
+}
+
+export type AgentDocumentationDraftKind = "rationale" | "adr-prose";
+
+export interface AgentDocumentationDraftV1 {
+  schemaVersion: "archcontext.agent-documentation-draft/v1";
+  draftId: string;
+  jobId: string;
+  reportId: string;
+  kind: AgentDocumentationDraftKind;
+  title: string;
+  prose: string;
+  proseDigest: string;
+  targetPath?: string;
+  proposedDeltaDigests: string[];
+  evidenceBindingIds: string[];
+  inputDigest: string;
+  outputDigest: string;
+  promptTemplateDigest: string;
+  acceptedProjection: false;
+  authority: "advisory-only";
+  requiredNextStep: InvestigationReportProposalRequiredNextStep;
+  createdAt: string;
+  draftDigest: string;
 }
 
 export interface CommandInvestigationRunnerTransportInput {
@@ -695,6 +721,14 @@ export function planInvestigationReportProposal(input: PlanInvestigationReportPr
   const proposedDeltas = [...report.findings.map((finding) => finding.proposedDelta)]
     .sort((left, right) => left.candidateChangeId.localeCompare(right.candidateChangeId));
   const proposedDeltaDigests = proposedDeltas.map((delta) => delta.digest);
+  const documentationDrafts = agentDocumentationDraftsFromReport({
+    report,
+    job: input.job,
+    inputDigest: input.context.inputDigest,
+    proposedDeltaDigests,
+    createdAt: input.now ?? report.createdAt
+  });
+  const documentationDraftDigests = documentationDrafts.map((draft) => draft.draftDigest).sort();
   const evidenceBindingIds = uniqueSorted(report.findings.flatMap((finding) => finding.evidenceBindingIds));
   const evidenceIds = uniqueSorted(proposedDeltas.flatMap((delta) => delta.evidenceIds));
   const validationDigest = digestJson({
@@ -703,7 +737,8 @@ export function planInvestigationReportProposal(input: PlanInvestigationReportPr
     reportId: report.reportId,
     inputDigest: input.context.inputDigest,
     outputDigest: report.outputDigest,
-    proposedDeltaDigests
+    proposedDeltaDigests,
+    documentationDraftDigests
   } as unknown as Json);
   const proposalInputDigest = digestJson({
     kind: "investigation-report-proposal",
@@ -724,6 +759,8 @@ export function planInvestigationReportProposal(input: PlanInvestigationReportPr
     outputDigest: report.outputDigest,
     proposedDeltaDigests,
     proposedDeltas,
+    documentationDraftDigests,
+    documentationDrafts,
     evidenceBindingIds,
     evidenceIds,
     validationDigest,
@@ -738,6 +775,73 @@ export function planInvestigationReportProposal(input: PlanInvestigationReportPr
     ...draft,
     proposalDigest: digestJson(draft as unknown as Json)
   };
+}
+
+function agentDocumentationDraftsFromReport(input: {
+  report: InvestigationReportV1;
+  job: AgentJobV1;
+  inputDigest: string;
+  proposedDeltaDigests: string[];
+  createdAt: string;
+}): AgentDocumentationDraftV1[] {
+  const records = recordsFromUnknown(input.report.extensions?.documentationDrafts);
+  if (records.length === 0) return [];
+  const allowedDeltaDigests = new Set(input.proposedDeltaDigests);
+  return records.map((record, index) => {
+    const kind = record.kind;
+    const title = record.title;
+    const prose = record.prose;
+    const targetPath = record.targetPath;
+    const proposedDeltaDigests = Array.isArray(record.proposedDeltaDigests)
+      ? record.proposedDeltaDigests.filter(isString)
+      : input.proposedDeltaDigests;
+    const evidenceBindingIds = Array.isArray(record.evidenceBindingIds)
+      ? record.evidenceBindingIds.filter(isString)
+      : [];
+    if (kind !== "rationale" && kind !== "adr-prose") throw new Error(`agent-documentation-draft-invalid-kind:${index}`);
+    const draftKind: AgentDocumentationDraftKind = kind;
+    if (typeof title !== "string" || title.trim().length === 0) throw new Error(`agent-documentation-draft-title-required:${index}`);
+    if (typeof prose !== "string" || prose.trim().length === 0) throw new Error(`agent-documentation-draft-prose-required:${index}`);
+    if (targetPath !== undefined && typeof targetPath !== "string") throw new Error(`agent-documentation-draft-target-path-invalid:${index}`);
+    if (record.acceptedProjection === true) throw new Error(`agent-documentation-draft-accepted-projection-forbidden:${index}`);
+    if (proposedDeltaDigests.length === 0) throw new Error(`agent-documentation-draft-delta-required:${index}`);
+    const unknownDelta = proposedDeltaDigests.find((digest) => !allowedDeltaDigests.has(digest));
+    if (unknownDelta) throw new Error(`agent-documentation-draft-unknown-delta:${index}:${unknownDelta}`);
+    const proseDigest = digestJson({ prose } as unknown as Json);
+    const draftInput = {
+      schemaVersion: "archcontext.agent-documentation-draft/v1" as const,
+      draftId: typeof record.draftId === "string" && record.draftId.length > 0
+        ? record.draftId
+        : `agent_doc_draft.${shortDigest(digestJson({
+          jobId: input.job.jobId,
+          reportId: input.report.reportId,
+          index,
+          kind: draftKind,
+          proseDigest
+        } as unknown as Json))}`,
+      jobId: input.job.jobId,
+      reportId: input.report.reportId,
+      kind: draftKind,
+      title,
+      prose,
+      proseDigest,
+      ...(targetPath === undefined ? {} : { targetPath }),
+      proposedDeltaDigests: uniqueSorted(proposedDeltaDigests),
+      evidenceBindingIds: uniqueSorted(evidenceBindingIds),
+      inputDigest: input.inputDigest,
+      outputDigest: input.report.outputDigest,
+      promptTemplateDigest: input.job.promptTemplateDigest,
+      acceptedProjection: false as const,
+      authority: "advisory-only" as const,
+      requiredNextStep: "deterministic-validation" as const,
+      createdAt: input.createdAt
+    };
+    assertNoRawRepositoryPayload(draftInput);
+    return {
+      ...draftInput,
+      draftDigest: digestJson(draftInput as unknown as Json)
+    };
+  }).sort((left, right) => left.draftId.localeCompare(right.draftId));
 }
 
 export async function runInvestigationThroughPort(input: {

@@ -15,6 +15,7 @@
     "./policy-engine": "./policy-engine/src/index.ts",
     "./practice-catalog": "./practice-catalog/src/index.ts",
     "./practice-engine": "./practice-engine/src/index.ts",
+    "./projection-engine": "./projection-engine/src/index.ts",
     "./pressure-engine": "./pressure-engine/src/index.ts",
     "./recommendation-engine": "./recommendation-engine/src/index.ts",
     "./reconcile-engine": "./reconcile-engine/src/index.ts",

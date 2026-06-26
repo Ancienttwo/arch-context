@@ -8,6 +8,7 @@ export * from "../context-compiler/src/index";
 export * from "../policy-engine/src/index";
 export * from "../practice-catalog/src/index";
 export * from "../practice-engine/src/index";
+export * from "../projection-engine/src/index";
 export * from "../pressure-engine/src/index";
 export {
   assertNoHumanEditableGeneratedSection,

@@ -58,12 +58,18 @@ import {
   buildInvestigationContextBundleFromLedgerQuery,
   createInvestigationAgentJob,
   planRuntimeAgentQueueControls,
-  type AgentInvestigationRunMetadata
+  type AgentInvestigationRunMetadata,
+  type InvestigationReportProposalPlan
 } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
-import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
+import {
+  architectureDocumentationSourceDigest,
+  loadArchitectureDocumentationInputs,
+  renderArchitectureDocumentationProjection
+} from "@archcontext/core/projection-engine";
+import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
@@ -167,6 +173,7 @@ export interface RuntimeAgentJobCompleteRpcInput {
   workerId?: string;
   outputDigest?: string;
   runMetadata?: AgentInvestigationRunMetadata;
+  proposalPlan?: InvestigationReportProposalPlan;
   error?: string;
   now?: string;
 }
@@ -1131,12 +1138,27 @@ export class ArchctxDaemon {
         );
       }
     }
+    if (input.proposalPlan) {
+      const validation = validateRuntimeAgentProposalPlan({
+        proposalPlan: input.proposalPlan,
+        job: record?.job,
+        jobId: input.jobId,
+        outputDigest: input.outputDigest
+      });
+      if (!validation.ok) return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", validation.reason);
+    }
+    const runMetadata = input.proposalPlan
+      ? {
+        ...(input.runMetadata ?? {}),
+        proposalPlan: input.proposalPlan
+      } as unknown as Json
+      : input.runMetadata as unknown as Json | undefined;
     const job = await this.localStore.completeRuntimeAgentJob({
       jobId: input.jobId,
       status: input.status,
       workerId: input.workerId,
       outputDigest: input.outputDigest,
-      runMetadata: input.runMetadata as unknown as Json | undefined,
+      runMetadata,
       error: input.error,
       now: input.now ?? this.clock()
     });
@@ -1465,6 +1487,7 @@ export class ArchctxDaemon {
         now: this.clock()
       })
       : undefined;
+    const projectionDrift = this.completeTaskProjectionDrift(session.workspace.root);
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
@@ -1473,6 +1496,7 @@ export class ArchctxDaemon {
       worktreeDigest: computeWorktreeDigest(session.workspace.root),
       modelDigest: model.modelDigest,
       codeFactsDigest: codeFactsDigest(codeFacts),
+      ...(projectionDrift === undefined ? {} : { projectionDrift }),
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
       ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
@@ -1482,6 +1506,10 @@ export class ArchctxDaemon {
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
+  }
+
+  private completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
+    return completeTaskProjectionDrift(root);
   }
 
   private manualExternalDocumentation(): ExternalDocumentationPort {
@@ -4643,6 +4671,72 @@ function parsePracticeCheckpointBaselineState(
     return undefined;
   }
   return record as PersistedPracticeCheckpointBaseline;
+}
+
+function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
+  if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return undefined;
+  const loaded = loadArchitectureDocumentationInputs(root);
+  const sourceDigest = architectureDocumentationSourceDigest({
+    model: loaded.model,
+    decisions: loaded.decisions
+  });
+  const plan = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    sourceDigest
+  });
+  return {
+    schemaVersion: "archcontext.complete-task-projection-drift/v1",
+    ok: plan.drift.ok && plan.rejected.length === 0,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    rendererVersion: plan.rendererVersion,
+    targetCount: plan.targets.length,
+    fileCount: plan.files.length,
+    driftCount: plan.drift.diffs.length,
+    rejectedCount: plan.rejected.length,
+    reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((diff) => diff.reasonCode)])].sort()
+  };
+}
+
+function validateRuntimeAgentProposalPlan(input: {
+  proposalPlan: InvestigationReportProposalPlan;
+  job?: AgentJobV1;
+  jobId: string;
+  outputDigest?: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const plan = input.proposalPlan;
+  if (plan.schemaVersion !== "archcontext.investigation-report-proposal-plan/v1") {
+    return { ok: false, reason: "proposalPlan schemaVersion mismatch" };
+  }
+  if (plan.jobId !== input.jobId) return { ok: false, reason: "proposalPlan jobId must match completed job" };
+  if (input.job && plan.inputDigest !== input.job.inputDigest) {
+    return { ok: false, reason: "proposalPlan inputDigest must match completed job" };
+  }
+  if (input.outputDigest && plan.outputDigest !== input.outputDigest) {
+    return { ok: false, reason: "proposalPlan outputDigest must match completed job outputDigest" };
+  }
+  if (plan.directMutationAllowed !== false || plan.authority !== "advisory-only") {
+    return { ok: false, reason: "proposalPlan must remain advisory-only and directMutationAllowed=false" };
+  }
+  const selectedDeltaDigests = new Set(plan.proposedDeltaDigests);
+  for (const draft of plan.documentationDrafts ?? []) {
+    if (draft.jobId !== plan.jobId) return { ok: false, reason: `documentation draft jobId mismatch: ${draft.draftId}` };
+    if (draft.reportId !== plan.reportId) return { ok: false, reason: `documentation draft reportId mismatch: ${draft.draftId}` };
+    if (draft.inputDigest !== plan.inputDigest) return { ok: false, reason: `documentation draft inputDigest mismatch: ${draft.draftId}` };
+    if (draft.outputDigest !== plan.outputDigest) return { ok: false, reason: `documentation draft outputDigest mismatch: ${draft.draftId}` };
+    if (draft.acceptedProjection !== false || draft.authority !== "advisory-only") {
+      return { ok: false, reason: `documentation draft must not be an accepted projection: ${draft.draftId}` };
+    }
+    if (digestJson({ prose: draft.prose } as unknown as Json) !== draft.proseDigest) {
+      return { ok: false, reason: `documentation draft proseDigest mismatch: ${draft.draftId}` };
+    }
+    if (draft.proposedDeltaDigests.length === 0 || draft.proposedDeltaDigests.some((digest) => !selectedDeltaDigests.has(digest))) {
+      return { ok: false, reason: `documentation draft must reference selected deterministic deltas: ${draft.draftId}` };
+    }
+  }
+  return { ok: true };
 }
 
 function requestRpcVersionHeader(request: IncomingMessage): string | undefined {

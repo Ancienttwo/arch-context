@@ -179,6 +179,44 @@ describe("@archcontext/core/review-engine", () => {
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, eligible as any).valid).toBe(true);
   });
 
+  test("active projection drift blocks complete_task and records projection digests", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.projection-drift",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      projectionDrift: {
+        schemaVersion: "archcontext.complete-task-projection-drift/v1",
+        ok: false,
+        sourceDigest: digestJson({ projection: "source" }),
+        projectionDigest: digestJson({ projection: "output" }),
+        rendererVersion: "archcontext.docs-renderer/v1",
+        targetCount: 7,
+        fileCount: 8,
+        driftCount: 1,
+        rejectedCount: 0,
+        reasonCodes: ["projection-file-missing"]
+      }
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.snapshot.projectionDigest).toMatch(/^sha256:/);
+    expect(result.findings).toContainEqual(expect.objectContaining({
+      id: "projection-drift",
+      type: "projection-drift",
+      severity: "error"
+    }));
+    expect(result.extensions.projectionDriftGate).toMatchObject({
+      ok: false,
+      driftCount: 1,
+      reasonCodes: ["projection-file-missing"]
+    });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
   test("fails stale context and unjustified compatibility paths", () => {
     const result = completeTaskGate({
       taskSessionId: "task.test",

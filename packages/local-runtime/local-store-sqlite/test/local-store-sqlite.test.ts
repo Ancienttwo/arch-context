@@ -370,7 +370,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       store.close();
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("runtime job queue claims leases, retries failures, and dead-letters exhausted jobs", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-lease-"));

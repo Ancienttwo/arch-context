@@ -464,9 +464,73 @@ describe("@archcontext/core/agent-orchestrator", () => {
     ]);
     expect(plan.proposedDeltaDigests).toEqual([report.findings[0].proposedDeltaDigest]);
     expect(plan.proposedDeltas).toEqual([report.findings[0].proposedDelta]);
+    expect(plan.documentationDraftDigests).toEqual([]);
+    expect(plan.documentationDrafts).toEqual([]);
     expect(plan.evidenceBindingIds).toEqual(["binding.evidence.al6.boundary"]);
     expect(plan.evidenceIds).toEqual(["evidence.al6.boundary"]);
     expect(repeated.proposalDigest).toBe(plan.proposalDigest);
+  });
+
+  test("keeps agent-authored ADR prose as an advisory draft tied to deterministic deltas", () => {
+    const running = transitionAgentJobStatus(agentJob(), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const baseReport = investigationReport(running);
+    const report: InvestigationReportV1 = {
+      ...baseReport,
+      extensions: {
+        documentationDrafts: [
+          {
+            kind: "adr-prose",
+            title: "ADR prose for boundary change",
+            targetPath: "docs/adr/ADR-0041-boundary-change.md",
+            prose: "## Context\n\nThe deterministic delta selected module.al6.boundary for review.\n",
+            proposedDeltaDigests: [baseReport.findings[0].proposedDeltaDigest],
+            evidenceBindingIds: ["binding.evidence.al6.boundary"],
+            acceptedProjection: false
+          }
+        ]
+      }
+    };
+
+    const plan = planInvestigationReportProposal({ report, job: running, context });
+
+    expect(plan.documentationDrafts).toHaveLength(1);
+    expect(plan.documentationDrafts[0]).toMatchObject({
+      schemaVersion: "archcontext.agent-documentation-draft/v1",
+      jobId: running.jobId,
+      reportId: report.reportId,
+      kind: "adr-prose",
+      title: "ADR prose for boundary change",
+      targetPath: "docs/adr/ADR-0041-boundary-change.md",
+      proposedDeltaDigests: [baseReport.findings[0].proposedDeltaDigest],
+      evidenceBindingIds: ["binding.evidence.al6.boundary"],
+      inputDigest: context.inputDigest,
+      outputDigest: report.outputDigest,
+      promptTemplateDigest: running.promptTemplateDigest,
+      acceptedProjection: false,
+      authority: "advisory-only",
+      requiredNextStep: "deterministic-validation"
+    });
+    expect(plan.documentationDrafts[0].proseDigest).toMatch(/^sha256:/);
+    expect(plan.documentationDrafts[0].draftDigest).toMatch(/^sha256:/);
+    expect(plan.documentationDraftDigests).toEqual([plan.documentationDrafts[0].draftDigest]);
+
+    const invalidReport: InvestigationReportV1 = {
+      ...report,
+      extensions: {
+        documentationDrafts: [
+          {
+            kind: "rationale",
+            title: "Unbound rationale",
+            prose: "This draft points at a delta the deterministic selection did not produce.",
+            proposedDeltaDigests: [digestJson({ unknown: "delta" } as unknown as Json)]
+          }
+        ]
+      }
+    };
+    expect(() => planInvestigationReportProposal({ report: invalidReport, job: running, context })).toThrow(
+      "agent-documentation-draft-unknown-delta"
+    );
   });
 
   test("keeps prompt-injection text inert and rejects tool-escape report output", async () => {

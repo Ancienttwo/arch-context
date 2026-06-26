@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 through AL8 complete; AL9 deterministic documentation projection core is in progress; AL10 rollout hardening remains not started
+> **Status**: Executing - AL0 through AL9 complete; AL10 rollout hardening remains not started
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -125,7 +125,7 @@ These are target gates, not claims about current performance.
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ☑ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ☑ |
-| AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◐ |
+| AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ☑ |
 | AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
 
 **Critical path:** `AL0 → AL2 → AL3 → AL4 → AL5 → AL7 → AL8 → AL9 → AL10`
@@ -1018,26 +1018,30 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs drift` readback detects missing files before apply, manual generated-region edits and orphaned generated projection files.
 - [x] **AL9-08 · P0 · `changeset-engine`** — Apply projection updates through previewable ChangeSets.
   - Evidence: `render_projection` operations can carry bounded projection files; readback applies docs through ChangeSet preview/apply with drift clean after apply.
-- [ ] **AL9-09 · P0 · `agent-orchestrator`** — Let a subagent draft rationale or ADR prose only after deterministic delta selection.
-- [ ] **AL9-10 · P0 · `agent-orchestrator`** — Store agent draft separately from accepted projection until validation/approval.
+- [x] **AL9-09 · P0 · `agent-orchestrator`** — Let a subagent draft rationale or ADR prose only after deterministic delta selection.
+  - Evidence: `planInvestigationReportProposal` creates `AgentDocumentationDraftV1` only from a valid investigation report and requires every documentation draft to reference selected deterministic delta digests; invalid unselected delta drafts are rejected by AL9 complete-task provenance readback.
+- [x] **AL9-10 · P0 · `agent-orchestrator`** — Store agent draft separately from accepted projection until validation/approval.
+  - Evidence: agent documentation drafts are `authority: advisory-only`, `acceptedProjection: false`, traceable to job/input/output/prompt digests, and runtime `jobs.complete` stores proposal plans only in agent run metadata without writing docs.
 - [x] **AL9-11 · P1 · `renderer`** — Add placement rules for monorepo package docs, service docs and repository-level architecture docs.
   - Evidence: projection target manifest includes repository, entity-kind and relation scopes with stable path templates.
 - [x] **AL9-12 · P1 · `renderer`** — Add obsolete-projection cleanup with tombstone/redirect behavior where links may exist.
   - Evidence: `archctx docs clean` reports orphaned generated projections and returns manual tombstone review action instead of deleting human-visible links silently.
 - [x] **AL9-13 · P1 · `cli`** — Add `archctx docs plan`, `preview`, `apply`, `drift` and `clean`.
   - Evidence: readback executes all five CLI commands successfully against a temporary Git repository.
-- [ ] **AL9-14 · P1 · `complete_task`** — Reconcile accepted architecture changes and validate projections before completion.
+- [x] **AL9-14 · P1 · `complete_task`** — Reconcile accepted architecture changes and validate projections before completion.
+  - Evidence: runtime `completeTask` consumes active documentation projection drift summaries and returns `projection-drift` errors until projections are reconciled; readback proves completion passes after deterministic projection apply.
 - [x] **AL9-15 · P1 · `tests`** — Add mixed human/generated documents, rename, move, deletion and renderer-upgrade fixtures.
   - Evidence: renderer and readback tests cover mixed human/generated documents, deterministic re-rendering, missing, stale, manual-edit and orphaned generated projections.
-- [ ] **AL9-16 · P1 · `docs/runbooks`** — Document review ownership and how to recover from a bad projection.
+- [x] **AL9-16 · P1 · `docs/runbooks`** — Document review ownership and how to recover from a bad projection.
+  - Evidence: `docs/runbooks/architecture-documentation-projections.md`.
 
 ### Exit gate
 
-- [ ] **AL9-EG1** — Accepted architecture change appears in all configured projections before successful completion.
+- [x] **AL9-EG1** — Accepted architecture change appears in all configured projections before successful completion.
 - [x] **AL9-EG2** — Human-authored text is never overwritten in the fixture suite.
 - [x] **AL9-EG3** — Same snapshot and renderer version produce byte-identical outputs.
-- [ ] **AL9-EG4** — Projection drift after successful `complete_task` = 0.
-- [ ] **AL9-EG5** — Agent-written prose remains traceable to its job and input digest.
+- [x] **AL9-EG4** — Projection drift after successful `complete_task` = 0.
+- [x] **AL9-EG5** — Agent-written prose remains traceable to its job and input digest.
 
 ### AL9 execution log
 
@@ -1049,6 +1053,14 @@ archctx book export --format yaml|markdown|json
   - ChangeSet/CLI: `render_projection` can carry bounded projection files through preview/apply/rollback; `archctx docs plan|preview|apply|drift|clean` exercises the path.
   - Verification artifact: `docs/verification/architecture-ledger-al9-doc-projections-readback.json`, `docs/verification/architecture-ledger-al9-doc-projections.md`.
   - Verification: `bun run record:al9:docs-projections`; `bun run readback:al9:docs-projections`; `bun test scripts/architecture-ledger-al9-doc-projections-readback.test.ts packages/surfaces/renderer/test/renderer.test.ts packages/core/changeset-engine/test/changeset-engine.test.ts packages/core/policy-engine/test/policy-engine.test.ts packages/surfaces/cli/test/cli.test.ts packages/contracts/test/contracts.test.ts --timeout 120000`; `bun run typecheck`; isolated `ARCHCONTEXT_STATE_DIR=$(mktemp -d ...) bun run verify`.
+- 2026-06-26: Completed AL9 complete-task projection gate and agent draft provenance closeout on branch `codex/architecture-ledger-al9-complete-task-provenance`.
+  - Scope: closes AL9-09, AL9-10, AL9-14, AL9-16, AL9-EG1, AL9-EG4 and AL9-EG5.
+  - Projection gate: active documentation projections are validated inside runtime `completeTask`; stale/missing projection output produces a `projection-drift` complete-stage finding, while clean projections record projection source and output digests in the review snapshot.
+  - Agent draft provenance: agent-authored rationale/ADR prose is normalized as `AgentDocumentationDraftV1`, remains `advisory-only` and `acceptedProjection: false`, and is stored in agent run proposal metadata instead of docs projection files.
+  - Boundary refactor: deterministic docs projection logic now lives in `@archcontext/core/projection-engine`; `@archcontext/surfaces/renderer` remains a thin surface wrapper so local runtime does not import surfaces.
+  - Runbook: `docs/runbooks/architecture-documentation-projections.md` documents ownership, recovery, drift handling and agent draft acceptance.
+  - Verification artifact: `docs/verification/architecture-ledger-al9-complete-task-provenance-readback.json`, `docs/verification/architecture-ledger-al9-complete-task-provenance.md`.
+  - Verification: `bun run record:al9:complete-task-provenance`; `bun run readback:al9:complete-task-provenance`; `bun test packages/core/review-engine/test/review-engine.test.ts packages/core/agent-orchestrator/test/agent-orchestrator.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/renderer/test/renderer.test.ts --timeout 120000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `git diff --check`; isolated `ARCHCONTEXT_STATE_DIR=$(mktemp -d ...) bun run verify`.
 
 ---
 
@@ -1217,7 +1229,7 @@ For the smallest valuable sequence, start here:
    - Queue foundation, stale-job cancellation, queue-first hook wrapper, recursion guard and jobs CLI are complete; remaining AL4 work is stress/backpressure/observability/chaining hardening.
 6. [x] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
 7. [x] AL7 `book status/query/diff` CLI.
-8. [ ] AL9 deterministic architecture changelog projection.
+8. [x] AL9 deterministic architecture changelog projection.
 9. [x] AL6 provider-neutral subagent orchestration is complete; automatic investigation scheduling remains AL8 policy-gated.
 
 This sequence delivers a useful SQL-backed Book and passive documentation loop before taking on provider orchestration complexity.

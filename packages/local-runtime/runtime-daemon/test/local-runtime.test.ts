@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
@@ -14,6 +14,11 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import {
+  architectureDocumentationSourceDigest,
+  loadArchitectureDocumentationInputs,
+  renderArchitectureDocumentationProjection
+} from "@archcontext/core/projection-engine";
 import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
@@ -77,6 +82,47 @@ function normalizeExistingPath(path: string): string {
 
 function readText(path: string): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
+function writeArchitectureDocsProjection(root: string): void {
+  const loaded = loadArchitectureDocumentationInputs(root);
+  const sourceDigest = architectureDocumentationSourceDigest({
+    model: loaded.model,
+    decisions: loaded.decisions
+  });
+  const plan = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    sourceDigest
+  });
+  const manifestBody = `${JSON.stringify({
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+    rendererVersion: plan.rendererVersion,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    targetCount: plan.targets.length,
+    fileCount: plan.files.length,
+    targets: plan.targets.map((target) => ({
+      targetId: target.targetId,
+      type: target.type,
+      scope: target.scope,
+      path: target.path,
+      ownership: target.ownership,
+      rendererVersion: target.rendererVersion,
+      format: target.format,
+      sourceDigest: target.sourceDigest,
+      outputDigest: target.outputDigest
+    }))
+  }, null, 2)}\n`;
+  for (const file of [
+    ...plan.files.map((file) => ({ path: file.path, body: file.body })),
+    { path: "docs/architecture/.projection-manifest.json", body: manifestBody }
+  ]) {
+    const absolute = resolve(root, file.path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, file.body, "utf8");
+  }
 }
 
 function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0] = {}) {
@@ -721,6 +767,127 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs store agent documentation drafts only inside advisory proposal metadata", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:35:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-proposal-plan"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.proposal",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:35:01.000Z"
+      });
+      const claimedJob = (claim.data as any).job.job;
+      const outputDigest = digestJson({ workerOutput: "proposal-plan" } as any);
+      const proposedDeltaDigest = digestJson({ delta: "selected" } as any);
+      const prose = "## Context\n\nThe deterministic delta selected module.runtime.proposal for review.\n";
+      const proseDigest = digestJson({ prose } as any);
+      const documentationDraftInput = {
+        schemaVersion: "archcontext.agent-documentation-draft/v1",
+        draftId: "agent_doc_draft.runtime_proposal",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        kind: "adr-prose",
+        title: "Runtime proposal ADR prose",
+        prose,
+        proseDigest,
+        targetPath: "docs/adr/ADR-0041-runtime-proposal.md",
+        proposedDeltaDigests: [proposedDeltaDigest],
+        evidenceBindingIds: ["binding.runtime.proposal"],
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        promptTemplateDigest: claimedJob.promptTemplateDigest,
+        acceptedProjection: false,
+        authority: "advisory-only",
+        requiredNextStep: "deterministic-validation",
+        createdAt: "2026-06-25T02:35:03.000Z"
+      };
+      const proposalPlanInput = {
+        schemaVersion: "archcontext.investigation-report-proposal-plan/v1",
+        proposalId: "investigation_proposal.runtime_proposal",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        repository: claimedJob.repository,
+        worktree: claimedJob.worktree,
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        proposedDeltaDigests: [proposedDeltaDigest],
+        proposedDeltas: [],
+        documentationDraftDigests: [digestJson(documentationDraftInput as any)],
+        documentationDrafts: [{
+          ...documentationDraftInput,
+          draftDigest: digestJson(documentationDraftInput as any)
+        }],
+        evidenceBindingIds: ["binding.runtime.proposal"],
+        evidenceIds: ["evidence.runtime.proposal"],
+        validationDigest: digestJson({ validation: "proposal" } as any),
+        directMutationAllowed: false,
+        requiredNextStep: "deterministic-validation",
+        forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
+        authority: "advisory-only",
+        retention: "no-raw-source-or-diff-bodies",
+        createdAt: "2026-06-25T02:35:03.000Z"
+      };
+      const proposalPlan = {
+        ...proposalPlanInput,
+        proposalDigest: digestJson(proposalPlanInput as any)
+      } as any;
+
+      const invalid = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.proposal",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          documentationDrafts: [{
+            ...proposalPlan.documentationDrafts[0],
+            acceptedProjection: true
+          }]
+        },
+        now: "2026-06-25T02:35:03.500Z"
+      } as any);
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.proposal",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan,
+        now: "2026-06-25T02:35:04.000Z"
+      });
+
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).job.job.extensions.agentRun.proposalPlan.documentationDrafts[0]).toMatchObject({
+        draftId: "agent_doc_draft.runtime_proposal",
+        acceptedProjection: false,
+        authority: "advisory-only",
+        inputDigest: claimedJob.inputDigest,
+        outputDigest
+      });
+      expect(existsSync(join(root, "docs/adr/ADR-0041-runtime-proposal.md"))).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime jobs skip generated projection hook changes without enqueueing", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
@@ -908,6 +1075,50 @@ describe("local runtime foundation", () => {
       expect((review.data as any).snapshot.practiceCatalogDigest).toMatch(/^sha256:/);
       expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
       expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("complete_task blocks active documentation projection drift until projections are reconciled", async () => {
+    const root = tempRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-06-26T10:40:00.000Z" });
+      await daemon.init(root, "Projection Gate App");
+
+      const beforeActivation = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish non-architecture setup before docs projection activation"
+      });
+      expect(beforeActivation.ok).toBe(true);
+      expect((beforeActivation.data as any).snapshot.projectionDigest).toBeUndefined();
+
+      mkdirSync(join(root, "docs/architecture"), { recursive: true });
+      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), "{}\n", "utf8");
+      const drifted = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish architecture projection update"
+      });
+      expect(drifted.ok).toBe(true);
+      expect((drifted.data as any).result).toBe("fail_action_required");
+      expect((drifted.data as any).findings).toContainEqual(expect.objectContaining({
+        id: "projection-drift",
+        type: "projection-drift",
+        severity: "error"
+      }));
+      expect((drifted.data as any).extensions.projectionDriftGate.reasonCodes).toContain("projection-file-missing");
+
+      writeArchitectureDocsProjection(root);
+      const clean = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish architecture projection update"
+      });
+      expect(clean.ok).toBe(true);
+      expect((clean.data as any).result).toBe("pass");
+      expect((clean.data as any).snapshot.projectionDigest).toMatch(/^sha256:/);
+      expect((clean.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);

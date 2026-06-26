@@ -20,7 +20,10 @@
         "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "practiceCatalogDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "practicePolicyDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "practiceCheckResultDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        "practiceCheckResultDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "projectionSourceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "projectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "projectionRendererVersion": { "type": "string" }
       }
     },
     "posture": { "type": "string", "enum": ["normal", "structural", "intervention", "proof-required"] },
