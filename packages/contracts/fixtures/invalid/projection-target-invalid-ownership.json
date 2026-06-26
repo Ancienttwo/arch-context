@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "archcontext.projection-target/v1",
+  "targetId": "projection_target.architecture.index",
+  "type": "architecture-index",
+  "scope": {
+    "kind": "repository"
+  },
+  "path": "docs/architecture/index.md",
+  "ownership": "human",
+  "generatedRegion": {
+    "startMarker": "<!-- BEGIN ARCHCONTEXT:generated target=\"projection_target.architecture.index\" -->",
+    "endMarker": "<!-- END ARCHCONTEXT:generated target=\"projection_target.architecture.index\" -->"
+  },
+  "rendererVersion": "archcontext.docs-renderer/v1",
+  "format": "markdown",
+  "sourceDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "outputDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

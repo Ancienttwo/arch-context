@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-target.schema.json",
+  "title": "ProjectionTarget",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "targetId", "type", "scope", "path", "ownership", "generatedRegion", "rendererVersion", "format", "sourceDigest", "outputDigest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.projection-target/v1" },
+    "targetId": { "type": "string", "pattern": "^projection_target\\.[a-zA-Z0-9_.-]+$" },
+    "type": {
+      "type": "string",
+      "enum": ["architecture-index", "entity-summary", "relation-summary", "decision-index", "architecture-changelog", "diagram-mermaid", "diagram-structurizr", "diagram-likec4"]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["repository", "entity", "relation", "decision", "diagram", "changelog"] },
+        "id": { "type": "string" },
+        "entityKind": { "type": "string" }
+      }
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "anyOf": [
+          { "pattern": "^/" },
+          { "pattern": "\\\\" },
+          { "pattern": "(^|/)\\.\\.(/|$)" }
+        ]
+      }
+    },
+    "ownership": { "type": "string", "enum": ["generated", "mixed"] },
+    "generatedRegion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startMarker", "endMarker"],
+      "properties": {
+        "startMarker": { "type": "string", "minLength": 1 },
+        "endMarker": { "type": "string", "minLength": 1 }
+      }
+    },
+    "rendererVersion": { "type": "string", "minLength": 1 },
+    "format": { "type": "string", "enum": ["markdown", "mermaid", "structurizr-json", "likec4"] },
+    "sourceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "outputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

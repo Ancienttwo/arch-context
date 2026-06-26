@@ -36,6 +36,13 @@ export interface ChangeOperation {
   entityId?: string;
   expectedHash: string;
   body?: string;
+  projectionFiles?: ChangeSetProjectionFile[];
+}
+
+export interface ChangeSetProjectionFile {
+  path: string;
+  expectedHash: string;
+  body: string;
 }
 
 export const ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION = "archcontext.architecture-candidate-changeset-plan/v1" as const;
@@ -164,7 +171,10 @@ export class ChangeSetEngine {
   }
 
   preview(root: string, draft: ChangeSetDraft): { digest: string; paths: string[]; allowed: boolean; findings: string[] } {
-    const paths = draft.operations.flatMap((operation) => operation.path ? [operation.path] : []);
+    const paths = draft.operations.flatMap((operation) => [
+      ...(operation.path ? [operation.path] : []),
+      ...(operation.projectionFiles?.map((file) => file.path) ?? [])
+    ]);
     const findings = evaluateChangeSetPaths(root, paths).map((finding) => finding.message);
     return { digest: digestJson(draft as unknown as Json), paths, allowed: findings.length === 0, findings };
   }
@@ -186,40 +196,21 @@ export class ChangeSetEngine {
     try {
       for (const operation of draft.operations) {
         if (operation.op === "render_projection") {
-          this.rebuildGeneratedProjection(root, deps);
-          applied += 1;
+          if (operation.projectionFiles && operation.projectionFiles.length > 0) {
+            for (const file of operation.projectionFiles) {
+              await this.applyFileOperation(root, file.path, file.expectedHash, file.body, operation.op, backups, journalId, applied + 1);
+              applied += 1;
+              if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
+            }
+          } else {
+            this.rebuildGeneratedProjection(root, deps);
+            applied += 1;
+          }
           if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
           continue;
         }
         if (!operation.path) throw new Error(`Change operation requires path: ${operation.op}`);
-        assertSafeTarget(root, operation.path);
-        const absolute = resolve(root, operation.path);
-        const existed = existsSync(absolute);
-        const backupPath = `${absolute}.archctx-backup`;
-        const tempPath = operation.op === "delete_entity" ? undefined : `${absolute}.archctx-tmp-${process.pid}-${applied + 1}`;
-        if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${operation.path}`);
-        if (existed) {
-          assertExpectedHash(absolute, operation.expectedHash);
-          renameSync(absolute, backupPath);
-          fsyncDirectory(dirname(absolute));
-        } else if (operation.expectedHash !== "missing") {
-          throw new Error(`Expected missing file hash for new path: ${operation.path}`);
-        }
-        backups.push({ path: absolute, backupPath, tempPath, existed });
-        if (journalId) {
-          await deps.journal?.recordChangeSetFile(journalId, {
-            path: operation.path,
-            tempPath,
-            backupPath,
-            existed,
-            operation: operation.op
-          });
-        }
-        if (operation.op === "delete_entity") {
-          rmSync(absolute, { force: true });
-        } else {
-          atomicWriteFile(absolute, tempPath!, operation.body ?? "");
-        }
+        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.body ?? "", operation.op, backups, journalId, applied + 1);
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
@@ -260,6 +251,47 @@ export class ChangeSetEngine {
   private requireDeps(): ChangeSetEngineDeps {
     if (!this.deps) throw new Error("ChangeSetEngine apply requires modelStore and projection dependencies");
     return this.deps;
+  }
+
+  private async applyFileOperation(
+    root: string,
+    path: string,
+    expectedHash: string,
+    body: string,
+    operation: ChangeOperationKind,
+    backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[],
+    journalId: string | undefined,
+    sequence: number
+  ): Promise<void> {
+    assertSafeTarget(root, path);
+    const deps = this.requireDeps();
+    const absolute = resolve(root, path);
+    const existed = existsSync(absolute);
+    const backupPath = `${absolute}.archctx-backup`;
+    const tempPath = operation === "delete_entity" ? undefined : `${absolute}.archctx-tmp-${process.pid}-${sequence}`;
+    if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${path}`);
+    if (existed) {
+      assertExpectedHash(absolute, expectedHash);
+      renameSync(absolute, backupPath);
+      fsyncDirectory(dirname(absolute));
+    } else if (expectedHash !== "missing") {
+      throw new Error(`Expected missing file hash for new path: ${path}`);
+    }
+    backups.push({ path: absolute, backupPath, tempPath, existed });
+    if (journalId) {
+      await deps.journal?.recordChangeSetFile(journalId, {
+        path,
+        tempPath,
+        backupPath,
+        existed,
+        operation
+      });
+    }
+    if (operation === "delete_entity") {
+      rmSync(absolute, { force: true });
+    } else {
+      atomicWriteFile(absolute, tempPath!, body);
+    }
   }
 }
 

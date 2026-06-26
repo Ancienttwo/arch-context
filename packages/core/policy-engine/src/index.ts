@@ -38,7 +38,8 @@ const ALLOWLIST = [
   ".archcontext/practices/",
   ".archcontext/waivers/",
   ".archcontext/decisions/",
-  ".archcontext/generated/"
+  ".archcontext/generated/",
+  "docs/architecture/"
 ];
 
 export function validateCompatibilityContract(contract?: CompatibilityContractInput): PolicyFinding[] {

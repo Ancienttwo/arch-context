@@ -348,6 +348,54 @@ describe("@archcontext/core/changeset-engine", () => {
     }
   });
 
+  test("applies multi-file render_projection operations through ChangeSet journal", async () => {
+    const modelRoot = tempModelRoot();
+    try {
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const draft = engine.approve(
+        engine.plan({
+          id: "changeset.docs-projection",
+          base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+          reason: { taskSessionId: "task.al9" },
+          operations: [
+            {
+              op: "render_projection",
+              expectedHash: "missing",
+              projectionFiles: [
+                {
+                  path: "docs/architecture/index.md",
+                  expectedHash: "missing",
+                  body: "<!-- BEGIN ARCHCONTEXT:generated target=\"projection_target.architecture.index\" -->\n# Architecture\n<!-- END ARCHCONTEXT:generated target=\"projection_target.architecture.index\" -->\n"
+                },
+                {
+                  path: "docs/architecture/diagrams/architecture.mmd",
+                  expectedHash: "missing",
+                  body: "flowchart LR\n"
+                }
+              ]
+            }
+          ]
+        })
+      );
+
+      expect(engine.preview(modelRoot, draft)).toMatchObject({
+        allowed: true,
+        paths: ["docs/architecture/index.md", "docs/architecture/diagrams/architecture.mmd"]
+      });
+      await expect(engine.apply(modelRoot, draft)).resolves.toMatchObject({ status: "applied" });
+      expect(readFileSync(join(modelRoot, "docs/architecture/index.md"), "utf8")).toContain("Architecture");
+      expect(readFileSync(join(modelRoot, "docs/architecture/diagrams/architecture.mmd"), "utf8")).toContain("flowchart");
+      expect(journal.records[0].files.map((file) => file.path)).toEqual([
+        "docs/architecture/index.md",
+        "docs/architecture/diagrams/architecture.mmd"
+      ]);
+      expect(journal.records[0].files.every((file) => file.operation === "render_projection")).toBe(true);
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
   test("rolls back file writes when apply is interrupted", async () => {
     const modelRoot = tempModelRoot();
     try {

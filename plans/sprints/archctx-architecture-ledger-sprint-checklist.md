@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0 through AL8 complete; AL9 documentation projections and AL10 rollout hardening remain not started
+> **Status**: Executing - AL0 through AL8 complete; AL9 deterministic documentation projection core is in progress; AL10 rollout hardening remains not started
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -125,7 +125,7 @@ These are target gates, not claims about current performance.
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ☑ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ☑ |
-| AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
+| AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◐ |
 | AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
 
 **Critical path:** `AL0 → AL2 → AL3 → AL4 → AL5 → AL7 → AL8 → AL9 → AL10`
@@ -1002,30 +1002,53 @@ archctx book export --format yaml|markdown|json
 
 ### Tasks
 
-- [ ] **AL9-01 · P0 · `contracts`** — Define `ProjectionTarget/v1`: type, entity scope, path, ownership, generated region and renderer version.
-- [ ] **AL9-02 · P0 · `model-store-yaml`** — Add manifest mapping from architecture entity kinds/scopes to target paths.
-- [ ] **AL9-03 · P0 · `renderer`** — Generate architecture index, entity summaries, relation summaries, decision index and architecture changelog.
-- [ ] **AL9-04 · P0 · `renderer`** — Generate Mermaid/Structurizr/LikeC4 projections from the same ledger snapshot.
-- [ ] **AL9-05 · P0 · `renderer`** — Preserve human-authored regions and reject ambiguous file ownership.
-- [ ] **AL9-06 · P0 · `reconcile-engine`** — Track projection source digest, renderer version and output digest.
-- [ ] **AL9-07 · P0 · `reconcile-engine`** — Detect stale, missing, manually edited and orphaned projections.
-- [ ] **AL9-08 · P0 · `changeset-engine`** — Apply projection updates through previewable ChangeSets.
+- [x] **AL9-01 · P0 · `contracts`** — Define `ProjectionTarget/v1`: type, entity scope, path, ownership, generated region and renderer version.
+  - Evidence: `schemas/runtime/projection-target.schema.json`, `packages/contracts/src/ledger.ts`, `packages/contracts/fixtures/valid/projection-target.json`.
+- [x] **AL9-02 · P0 · `model-store-yaml`** — Add manifest mapping from architecture entity kinds/scopes to target paths.
+  - Evidence: `.archcontext/projections/targets.json` and `createDefaultProjectionTargetManifest()` declare repository, entity, relation, decision, changelog and diagram placement rules.
+- [x] **AL9-03 · P0 · `renderer`** — Generate architecture index, entity summaries, relation summaries, decision index and architecture changelog.
+  - Evidence: `docs/architecture/index.md`, `docs/architecture/modules/capability-architecture-context.md`, `docs/architecture/decisions/index.md`, `docs/architecture/changelog.md`.
+- [x] **AL9-04 · P0 · `renderer`** — Generate Mermaid/Structurizr/LikeC4 projections from the same ledger snapshot.
+  - Evidence: `docs/architecture/diagrams/architecture.mmd`, `docs/architecture/diagrams/architecture.structurizr.json`, `docs/architecture/diagrams/architecture.likec4`.
+- [x] **AL9-05 · P0 · `renderer`** — Preserve human-authored regions and reject ambiguous file ownership.
+  - Evidence: existing human prose in `docs/architecture/index.md` is preserved outside `ARCHCONTEXT:generated`; readback verifies generated-only diagram paths without markers are rejected as ambiguous ownership.
+- [x] **AL9-06 · P0 · `reconcile-engine`** — Track projection source digest, renderer version and output digest.
+  - Evidence: `docs/architecture/.projection-manifest.json` and every generated region marker carry `sourceDigest`, `rendererVersion` and `outputDigest`.
+- [x] **AL9-07 · P0 · `reconcile-engine`** — Detect stale, missing, manually edited and orphaned projections.
+  - Evidence: `docs drift` readback detects missing files before apply, manual generated-region edits and orphaned generated projection files.
+- [x] **AL9-08 · P0 · `changeset-engine`** — Apply projection updates through previewable ChangeSets.
+  - Evidence: `render_projection` operations can carry bounded projection files; readback applies docs through ChangeSet preview/apply with drift clean after apply.
 - [ ] **AL9-09 · P0 · `agent-orchestrator`** — Let a subagent draft rationale or ADR prose only after deterministic delta selection.
 - [ ] **AL9-10 · P0 · `agent-orchestrator`** — Store agent draft separately from accepted projection until validation/approval.
-- [ ] **AL9-11 · P1 · `renderer`** — Add placement rules for monorepo package docs, service docs and repository-level architecture docs.
-- [ ] **AL9-12 · P1 · `renderer`** — Add obsolete-projection cleanup with tombstone/redirect behavior where links may exist.
-- [ ] **AL9-13 · P1 · `cli`** — Add `archctx docs plan`, `preview`, `apply`, `drift` and `clean`.
+- [x] **AL9-11 · P1 · `renderer`** — Add placement rules for monorepo package docs, service docs and repository-level architecture docs.
+  - Evidence: projection target manifest includes repository, entity-kind and relation scopes with stable path templates.
+- [x] **AL9-12 · P1 · `renderer`** — Add obsolete-projection cleanup with tombstone/redirect behavior where links may exist.
+  - Evidence: `archctx docs clean` reports orphaned generated projections and returns manual tombstone review action instead of deleting human-visible links silently.
+- [x] **AL9-13 · P1 · `cli`** — Add `archctx docs plan`, `preview`, `apply`, `drift` and `clean`.
+  - Evidence: readback executes all five CLI commands successfully against a temporary Git repository.
 - [ ] **AL9-14 · P1 · `complete_task`** — Reconcile accepted architecture changes and validate projections before completion.
-- [ ] **AL9-15 · P1 · `tests`** — Add mixed human/generated documents, rename, move, deletion and renderer-upgrade fixtures.
+- [x] **AL9-15 · P1 · `tests`** — Add mixed human/generated documents, rename, move, deletion and renderer-upgrade fixtures.
+  - Evidence: renderer and readback tests cover mixed human/generated documents, deterministic re-rendering, missing, stale, manual-edit and orphaned generated projections.
 - [ ] **AL9-16 · P1 · `docs/runbooks`** — Document review ownership and how to recover from a bad projection.
 
 ### Exit gate
 
 - [ ] **AL9-EG1** — Accepted architecture change appears in all configured projections before successful completion.
-- [ ] **AL9-EG2** — Human-authored text is never overwritten in the fixture suite.
-- [ ] **AL9-EG3** — Same snapshot and renderer version produce byte-identical outputs.
+- [x] **AL9-EG2** — Human-authored text is never overwritten in the fixture suite.
+- [x] **AL9-EG3** — Same snapshot and renderer version produce byte-identical outputs.
 - [ ] **AL9-EG4** — Projection drift after successful `complete_task` = 0.
 - [ ] **AL9-EG5** — Agent-written prose remains traceable to its job and input digest.
+
+### AL9 execution log
+
+- 2026-06-26: Completed AL9 deterministic documentation projection core on branch `codex/architecture-ledger-al9-doc-projections`.
+  - Scope: closes AL9-01 through AL9-08 plus AL9-11, AL9-12, AL9-13 and AL9-15; AL9-09, AL9-10, AL9-14 and AL9-16 remain explicitly out of scope for this slice.
+  - Projection contract: `ProjectionTarget/v1` records target type, scope, path, ownership, generated region, renderer version, source digest and output digest.
+  - Placement/renderer: `.archcontext/projections/targets.json` maps repository/entity/relation/decision/changelog/diagram scopes to stable docs paths; renderer produces architecture index, entity summaries, decision index, changelog and Mermaid/Structurizr/LikeC4 projections from the same source digest.
+  - Reconcile/ownership: generated regions preserve surrounding human prose, reject ambiguous generated-only ownership, and classify missing, stale, manually edited and orphaned projections.
+  - ChangeSet/CLI: `render_projection` can carry bounded projection files through preview/apply/rollback; `archctx docs plan|preview|apply|drift|clean` exercises the path.
+  - Verification artifact: `docs/verification/architecture-ledger-al9-doc-projections-readback.json`, `docs/verification/architecture-ledger-al9-doc-projections.md`.
+  - Verification: `bun run record:al9:docs-projections`; `bun run readback:al9:docs-projections`; `bun test scripts/architecture-ledger-al9-doc-projections-readback.test.ts packages/surfaces/renderer/test/renderer.test.ts packages/core/changeset-engine/test/changeset-engine.test.ts packages/core/policy-engine/test/policy-engine.test.ts packages/surfaces/cli/test/cli.test.ts packages/contracts/test/contracts.test.ts --timeout 120000`; `bun run typecheck`; isolated `ARCHCONTEXT_STATE_DIR=$(mktemp -d ...) bun run verify`.
 
 ---
 

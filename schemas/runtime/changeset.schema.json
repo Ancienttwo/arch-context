@@ -39,7 +39,20 @@
           "op": { "type": "string", "enum": ["create_entity", "update_entity_fields", "delete_entity", "write_policy", "write_waiver", "render_projection"] },
           "entityId": { "type": "string" },
           "path": { "type": "string" },
-          "expectedHash": { "type": "string" }
+          "expectedHash": { "type": "string" },
+          "projectionFiles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "expectedHash", "body"],
+              "properties": {
+                "path": { "type": "string" },
+                "expectedHash": { "type": "string" },
+                "body": { "type": "string" }
+              }
+            }
+          }
         }
       }
     },

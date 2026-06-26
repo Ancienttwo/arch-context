@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "archcontext.architecture-docs-projection-manifest/v1",
+  "rendererVersion": "archcontext.docs-renderer/v1",
+  "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+  "projectionDigest": "sha256:c6f29e72f2bdcdbfc0721215930e86bad43caf39efac42e311d63b03379f6d3b",
+  "targetCount": 7,
+  "fileCount": 7,
+  "targets": [
+    {
+      "targetId": "projection_target.architecture.index",
+      "type": "architecture-index",
+      "scope": {
+        "kind": "repository"
+      },
+      "path": "docs/architecture/index.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "markdown",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:d8befba2f9694135b102da8a06b26fef2dac710eec54390c84a88121525d698b"
+    },
+    {
+      "targetId": "projection_target.entity.capability-architecture-context",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "capability.architecture-context",
+        "entityKind": "capability"
+      },
+      "path": "docs/architecture/modules/capability-architecture-context.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "markdown",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:6db58eb2e9ae4104e6434cc93d5eda1cc4749b5b4706af2b7c768a686466bfca"
+    },
+    {
+      "targetId": "projection_target.decision.index",
+      "type": "decision-index",
+      "scope": {
+        "kind": "decision"
+      },
+      "path": "docs/architecture/decisions/index.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "markdown",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:173b0aa60e59cee2295dba4dfff0feff8df8ced64f56f241b0c8854d0f143402"
+    },
+    {
+      "targetId": "projection_target.architecture.changelog",
+      "type": "architecture-changelog",
+      "scope": {
+        "kind": "changelog"
+      },
+      "path": "docs/architecture/changelog.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "markdown",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6"
+    },
+    {
+      "targetId": "projection_target.diagram.mermaid",
+      "type": "diagram-mermaid",
+      "scope": {
+        "kind": "diagram",
+        "id": "architecture"
+      },
+      "path": "docs/architecture/diagrams/architecture.mmd",
+      "ownership": "generated",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "mermaid",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:98aca6f7880bc9965335c211ff1a2d83949de2a0e3f78f6be64f236c9130d6aa"
+    },
+    {
+      "targetId": "projection_target.diagram.structurizr",
+      "type": "diagram-structurizr",
+      "scope": {
+        "kind": "diagram",
+        "id": "architecture"
+      },
+      "path": "docs/architecture/diagrams/architecture.structurizr.json",
+      "ownership": "generated",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "structurizr-json",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:73dacc1be73cb7217763a768252bc55c52ec9ec8341f16d017c8b17909c4cba3"
+    },
+    {
+      "targetId": "projection_target.diagram.likec4",
+      "type": "diagram-likec4",
+      "scope": {
+        "kind": "diagram",
+        "id": "architecture"
+      },
+      "path": "docs/architecture/diagrams/architecture.likec4",
+      "ownership": "generated",
+      "rendererVersion": "archcontext.docs-renderer/v1",
+      "format": "likec4",
+      "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+      "outputDigest": "sha256:67366f6ac0c7340ce3f5ce12b9b99cfe04f7baf523742a870838d70dfaf73430"
+    }
+  ]
+}

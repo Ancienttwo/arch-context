@@ -31,7 +31,13 @@ import {
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
-import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext/surfaces/renderer";
+import {
+  exportMermaidModel,
+  loadArchitectureDocumentationInputs,
+  loadNativeModelFromArchContext,
+  renderArchitectureDocumentationProjection,
+  type ArchitectureDocumentationProjectionFile
+} from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
@@ -611,8 +617,11 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "status";
+  if (["plan", "preview", "apply", "drift", "clean"].includes(subcommand)) {
+    return runArchitectureDocsProjectionCommand(args, cwd, daemon);
+  }
   if (!["status", "resolve", "pin", "fetch", "purge"].includes(subcommand)) {
-    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge|plan|preview|apply|drift|clean");
   }
   if (subcommand === "status") {
     return daemon.docs(cwd, { command: "status", provider: "context7" });
@@ -652,6 +661,130 @@ async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
     libraryId: readFlag(args, "--library-id"),
     all: args.includes("--all")
   });
+}
+
+async function runArchitectureDocsProjectionCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "plan";
+  const root = findRepositoryRoot(cwd);
+  const generatedAt = readFlag(args, "--generated-at") ?? new Date(0).toISOString();
+  const projection = buildArchitectureDocsProjection(root, generatedAt);
+  if (subcommand === "drift") {
+    return okEnvelope("docs.drift", {
+      schemaVersion: "archcontext.docs-drift/v1",
+      ok: projection.plan.drift.ok,
+      sourceDigest: projection.plan.sourceDigest,
+      projectionDigest: projection.plan.projectionDigest,
+      rendererVersion: projection.plan.rendererVersion,
+      targetCount: projection.plan.targets.length,
+      fileCount: projection.plan.files.length,
+      drift: projection.plan.drift,
+      rejected: projection.plan.rejected
+    } as unknown as Json);
+  }
+  if (subcommand === "clean") {
+    const orphaned = projection.plan.drift.diffs.filter((diff) => diff.reasonCode === "projection-orphaned");
+    return okEnvelope("docs.clean", {
+      schemaVersion: "archcontext.docs-clean-plan/v1",
+      ok: orphaned.length === 0,
+      orphanedCount: orphaned.length,
+      orphaned,
+      action: orphaned.length === 0 ? "none" : "manual-review-required-before-tombstone"
+    } as unknown as Json);
+  }
+  if (projection.plan.rejected.length > 0) {
+    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection rejected ambiguous ownership: ${projection.plan.rejected.map((diff) => diff.path).join(", ")}`);
+  }
+  const changeSetId = readFlag(args, "--id") ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
+  const operations = [architectureDocsRenderProjectionOperation(root, projection.files)];
+  const plan = await daemon.planUpdate(root, {
+    id: changeSetId,
+    reason: { taskSessionId: readFlag(args, "--task-session-id") ?? "task_docs_projection" },
+    operations
+  });
+  if (!plan.ok) return plan;
+  if (subcommand === "apply") {
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(root);
+    return daemon.applyUpdate(root, {
+      id: changeSetId,
+      approved: args.includes("--approved"),
+      expectedWorktreeDigest
+    });
+  }
+  return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
+    schemaVersion: "archcontext.docs-projection-change-set/v1",
+    sourceDigest: projection.plan.sourceDigest,
+    projectionDigest: projection.plan.projectionDigest,
+    rendererVersion: projection.plan.rendererVersion,
+    targetCount: projection.plan.targets.length,
+    fileCount: projection.files.length,
+    drift: projection.plan.drift,
+    manifestPath: projection.manifest.path,
+    draft: (plan.data as any).draft,
+    preview: (plan.data as any).preview
+  } as unknown as Json);
+}
+
+function buildArchitectureDocsProjection(root: string, generatedAt: string) {
+  const loaded = loadArchitectureDocumentationInputs(root);
+  const sourceDigest = digestJson({
+    model: loaded.model,
+    decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
+  } as unknown as Json);
+  const plan = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    sourceDigest,
+    generatedAt
+  });
+  const manifestBody = `${JSON.stringify({
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+    rendererVersion: plan.rendererVersion,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    targetCount: plan.targets.length,
+    fileCount: plan.files.length,
+    targets: plan.targets.map((target) => ({
+      targetId: target.targetId,
+      type: target.type,
+      scope: target.scope,
+      path: target.path,
+      ownership: target.ownership,
+      rendererVersion: target.rendererVersion,
+      format: target.format,
+      sourceDigest: target.sourceDigest,
+      outputDigest: target.outputDigest
+    }))
+  }, null, 2)}\n`;
+  const manifest = {
+    path: "docs/architecture/.projection-manifest.json",
+    body: manifestBody,
+    digest: digestJson({ path: "docs/architecture/.projection-manifest.json", body: manifestBody } as unknown as Json),
+    target: plan.targets[0]!,
+    generatedBodyDigest: digestJson({ body: manifestBody } as unknown as Json)
+  } satisfies ArchitectureDocumentationProjectionFile;
+  return {
+    plan,
+    manifest,
+    files: [...plan.files, manifest]
+  };
+}
+
+function architectureDocsRenderProjectionOperation(root: string, files: ArchitectureDocumentationProjectionFile[]) {
+  return {
+    op: "render_projection" as const,
+    expectedHash: "missing",
+    projectionFiles: files.map((file) => ({
+      path: file.path,
+      expectedHash: currentBodyHash(root, file.path),
+      body: file.body
+    }))
+  };
+}
+
+function currentBodyHash(root: string, path: string): string {
+  const absolute = resolve(root, path);
+  return existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) : "missing";
 }
 
 async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

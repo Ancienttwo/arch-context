@@ -19,7 +19,8 @@ export function createDefaultManifest(productId: string, productName: string): J
       decisions: ".archcontext/decisions",
       generated: ".archcontext/generated",
       policies: ".archcontext/policies",
-      practices: ".archcontext/practices"
+      practices: ".archcontext/practices",
+      projections: ".archcontext/projections"
     },
     generated: { commitToGit: true, formats: ["markdown", "mermaid"] },
     model: { layout: "split", root: ".archcontext/model" },
@@ -32,6 +33,84 @@ export function createDefaultManifest(productId: string, productName: string): J
       failOn: ["invalid-schema", "prohibited-dependency", "unjustified-compatibility", "stale-context", "incomplete-intervention"]
     },
     runtime: { checkpoint: { changedFileThreshold: 20, requiredBeforeComplete: true }, contextBudgetBytes: 12288 }
+  };
+}
+
+export function createDefaultProjectionTargetManifest(): Json {
+  return {
+    schemaVersion: "archcontext.projection-target-manifest/v1",
+    rendererVersion: "archcontext.docs-renderer/v1",
+    ownership: {
+      humanAuthoredRegions: "preserve",
+      generatedRegions: "replace-by-marker",
+      ambiguousOwnership: "reject"
+    },
+    placementRules: [
+      {
+        id: "projection_rule.architecture.index",
+        targetType: "architecture-index",
+        scope: { kind: "repository" },
+        pathTemplate: "docs/architecture/index.md",
+        ownership: "mixed",
+        format: "markdown"
+      },
+      {
+        id: "projection_rule.entity.summary",
+        targetType: "entity-summary",
+        scope: { kind: "entity", entityKind: "*" },
+        pathTemplate: "docs/architecture/modules/{stableId}.md",
+        ownership: "mixed",
+        format: "markdown"
+      },
+      {
+        id: "projection_rule.relation.summary",
+        targetType: "relation-summary",
+        scope: { kind: "relation" },
+        pathTemplate: "docs/architecture/relations/{stableId}.md",
+        ownership: "mixed",
+        format: "markdown"
+      },
+      {
+        id: "projection_rule.decision.index",
+        targetType: "decision-index",
+        scope: { kind: "decision" },
+        pathTemplate: "docs/architecture/decisions/index.md",
+        ownership: "mixed",
+        format: "markdown"
+      },
+      {
+        id: "projection_rule.architecture.changelog",
+        targetType: "architecture-changelog",
+        scope: { kind: "changelog" },
+        pathTemplate: "docs/architecture/changelog.md",
+        ownership: "mixed",
+        format: "markdown"
+      },
+      {
+        id: "projection_rule.diagram.mermaid",
+        targetType: "diagram-mermaid",
+        scope: { kind: "diagram", id: "architecture" },
+        pathTemplate: "docs/architecture/diagrams/architecture.mmd",
+        ownership: "generated",
+        format: "mermaid"
+      },
+      {
+        id: "projection_rule.diagram.structurizr",
+        targetType: "diagram-structurizr",
+        scope: { kind: "diagram", id: "architecture" },
+        pathTemplate: "docs/architecture/diagrams/architecture.structurizr.json",
+        ownership: "generated",
+        format: "structurizr-json"
+      },
+      {
+        id: "projection_rule.diagram.likec4",
+        targetType: "diagram-likec4",
+        scope: { kind: "diagram", id: "architecture" },
+        pathTemplate: "docs/architecture/diagrams/architecture.likec4",
+        ownership: "generated",
+        format: "likec4"
+      }
+    ]
   };
 }
 
@@ -62,6 +141,7 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
     id: "policy.review",
     failOn: ["invalid-schema", "stale-context", "unjustified-compatibility"]
   });
+  writeFile(root, ".archcontext/projections/targets.json", `${JSON.stringify(createDefaultProjectionTargetManifest(), null, 2)}\n`);
   rebuildGeneratedProjection(root);
 }
 
@@ -116,6 +196,7 @@ export function listModelFiles(root: string): ModelFile[] {
     ".archcontext/decisions",
     ".archcontext/policies",
     ".archcontext/practices",
+    ".archcontext/projections",
     ".archcontext/generated",
     "docs/adr"
   ]);

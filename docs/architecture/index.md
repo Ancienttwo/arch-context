@@ -25,3 +25,25 @@ AL0 ledger authority is frozen in
 <!-- BEGIN ARCHITECTURE PENDING REQUESTS -->
 - (none)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
+
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579" rendererVersion="archcontext.docs-renderer/v1" outputDigest="sha256:d8befba2f9694135b102da8a06b26fef2dac710eec54390c84a88121525d698b" -->
+# Architecture Index
+
+Generated: 1970-01-01T00:00:00.000Z
+
+## Entities
+
+- [Architecture Context](modules/capability-architecture-context.md) — capability / active
+
+## Relations
+
+- No architecture relations recorded.
+
+## Projections
+
+- [Mermaid](diagrams/architecture.mmd)
+- [Structurizr JSON](diagrams/architecture.structurizr.json)
+- [LikeC4](diagrams/architecture.likec4)
+- [Decision index](decisions/index.md)
+- [Architecture changelog](changelog.md)
+<!-- END ARCHCONTEXT:generated target="projection_target.architecture.index" -->

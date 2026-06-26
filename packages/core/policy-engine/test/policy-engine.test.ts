@@ -43,6 +43,8 @@ describe("@archcontext/core/policy-engine", () => {
       try {
         expect(() => assertAllowedArchContextPath(root, ".archcontext/policies/review.yaml")).not.toThrow();
         expect(() => assertAllowedArchContextPath(root, ".archcontext/practices/compatibility.yaml")).not.toThrow();
+        expect(() => assertAllowedArchContextPath(root, "docs/architecture/index.md")).not.toThrow();
+        expect(() => assertAllowedArchContextPath(root, "docs/architecture/modules/module-runtime.md")).not.toThrow();
         expect(evaluateChangeSetPaths(root, ["src/app.ts"])[0].id).toBe("path-denied:src/app.ts");
         expect(() => assertAllowedArchContextPath(root, "../escape.yaml")).toThrow("Repository path");
     } finally {

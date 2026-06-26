@@ -12,6 +12,7 @@ export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-re
 export const ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION = "archcontext.architecture-subject-selector/v1" as const;
 export const ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION = "archcontext.architecture-candidate-delta/v1" as const;
 export const ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION = "archcontext.architecture-candidate-delta-policy/v1" as const;
+export const PROJECTION_TARGET_SCHEMA_VERSION = "archcontext.projection-target/v1" as const;
 
 export type ArchitectureFactAuthority = "declared" | "observed" | "verified" | "proposed" | "projected";
 export type ArchitectureLedgerMode = "yaml" | "dual" | "dual-compare" | "ledger-shadow" | "ledger" | "ledger-authoritative";
@@ -112,6 +113,18 @@ export type ArchitectureCandidateDeltaPolicyReasonCode =
   | "relation-removal"
   | "constraint-relaxation"
   | "owner-authority-change";
+export type ProjectionTargetType =
+  | "architecture-index"
+  | "entity-summary"
+  | "relation-summary"
+  | "decision-index"
+  | "architecture-changelog"
+  | "diagram-mermaid"
+  | "diagram-structurizr"
+  | "diagram-likec4";
+export type ProjectionTargetScopeKind = "repository" | "entity" | "relation" | "decision" | "diagram" | "changelog";
+export type ProjectionTargetOwnership = "generated" | "mixed";
+export type ProjectionTargetFormat = "markdown" | "mermaid" | "structurizr-json" | "likec4";
 
 export interface ArchitectureRepositoryIdentityV1 {
   repositoryId: string;
@@ -422,6 +435,32 @@ export interface ArchitectureCandidateDeltaPolicyEvaluationV1 {
     mappingAmbiguities: number;
   };
   evaluationDigest: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface ProjectionTargetGeneratedRegionV1 {
+  startMarker: string;
+  endMarker: string;
+}
+
+export interface ProjectionTargetScopeV1 {
+  kind: ProjectionTargetScopeKind;
+  id?: string;
+  entityKind?: string;
+}
+
+export interface ProjectionTargetV1 {
+  schemaVersion: typeof PROJECTION_TARGET_SCHEMA_VERSION;
+  targetId: string;
+  type: ProjectionTargetType;
+  scope: ProjectionTargetScopeV1;
+  path: string;
+  ownership: ProjectionTargetOwnership;
+  generatedRegion: ProjectionTargetGeneratedRegionV1;
+  rendererVersion: string;
+  format: ProjectionTargetFormat;
+  sourceDigest: string;
+  outputDigest: string;
   extensions?: Record<string, Json>;
 }
 

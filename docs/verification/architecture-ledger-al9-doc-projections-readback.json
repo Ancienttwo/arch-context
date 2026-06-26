@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al9-doc-projections-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL9-01",
+    "AL9-02",
+    "AL9-03",
+    "AL9-04",
+    "AL9-05",
+    "AL9-06",
+    "AL9-07",
+    "AL9-08",
+    "AL9-11",
+    "AL9-12",
+    "AL9-13",
+    "AL9-15"
+  ],
+  "current": {
+    "projectionTargetSchemaPresent": true,
+    "repoProjectionManifestPresent": true,
+    "placementRuleCount": 8,
+    "placementRuleScopes": [
+      "repository",
+      "entity:*",
+      "relation",
+      "decision",
+      "changelog",
+      "diagram",
+      "diagram",
+      "diagram"
+    ],
+    "driftOk": true,
+    "driftReasonCodes": [],
+    "projectionDigest": "sha256:c6f29e72f2bdcdbfc0721215930e86bad43caf39efac42e311d63b03379f6d3b",
+    "sourceDigest": "sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579",
+    "projectionManifestTracksDigests": true,
+    "docs": {
+      "indexPresent": true,
+      "entitySummaryPresent": true,
+      "decisionIndexPresent": true,
+      "changelogPresent": true,
+      "mermaidPresent": true,
+      "structurizrPresent": true,
+      "likec4Present": true
+    }
+  },
+  "integration": {
+    "initOk": true,
+    "deterministicProjectionDigest": true,
+    "missingDetected": true,
+    "changeSetPreviewAllowed": true,
+    "changeSetApplySucceeded": true,
+    "postApplyDriftOk": true,
+    "humanTextPreserved": true,
+    "manualEditDetected": true,
+    "orphanDetected": true,
+    "cleanReportsOrphan": true,
+    "ambiguousOwnershipRejected": true,
+    "cliCommands": [
+      {
+        "command": "docs plan",
+        "ok": true
+      },
+      {
+        "command": "docs preview",
+        "ok": true
+      },
+      {
+        "command": "docs apply",
+        "ok": true
+      },
+      {
+        "command": "docs drift",
+        "ok": true
+      },
+      {
+        "command": "docs clean",
+        "ok": true
+      }
+    ],
+    "targetCount": 7,
+    "fileCount": 8
+  },
+  "privacy": {
+    "rawSourcePersisted": false,
+    "forbiddenKeys": []
+  },
+  "assertions": {
+    "AL9-01": true,
+    "AL9-02": true,
+    "AL9-03": true,
+    "AL9-04": true,
+    "AL9-05": true,
+    "AL9-06": true,
+    "AL9-07": true,
+    "AL9-08": true,
+    "AL9-11": true,
+    "AL9-12": true,
+    "AL9-13": true,
+    "AL9-15": true
+  },
+  "status": "verified",
+  "failures": []
+}
