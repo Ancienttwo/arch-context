@@ -35,7 +35,9 @@ import {
   type ArchitectureLedgerReplayResult,
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope,
-  type ArchitectureLedgerSnapshotInput
+  type ArchitectureLedgerSnapshotInput,
+  type ArchitectureBookFtsMatch,
+  type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
 import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
@@ -71,7 +73,8 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "source_cursors",
   "waivers",
   "architecture_ledger_operations",
-  "architecture_ledger_fts"
+  "architecture_ledger_fts",
+  "architecture_ledger_search_fts"
 ] as const;
 
 export const SQLITE_PRAGMAS = [
@@ -556,6 +559,23 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       "ALTER TABLE runtime_job_queue ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
       "CREATE INDEX IF NOT EXISTS idx_runtime_job_queue_claim_priority ON runtime_job_queue(storage_repository_id, storage_workspace_id, status, priority DESC, queued_at, job_id)"
     ]
+  },
+  {
+    id: "0009_architecture_ledger_search_fts",
+    statements: [
+      `CREATE VIRTUAL TABLE IF NOT EXISTS architecture_ledger_search_fts USING fts5(
+        doc_id UNINDEXED,
+        storage_repository_id UNINDEXED,
+        storage_workspace_id UNINDEXED,
+        target_kind UNINDEXED,
+        target_id UNINDEXED,
+        subject_id UNINDEXED,
+        title,
+        summary,
+        rationale,
+        evidence_summary
+      )`
+    ]
   }
 ] as const;
 
@@ -941,6 +961,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
   readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState>;
+  queryArchitectureLedgerFts(input: ArchitectureLedgerScope & { query: string; maxItems?: number }): Promise<ArchitectureBookFtsMatch[]>;
   replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult>;
   verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification>;
   rebuildArchitectureLedgerCurrentState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerReplayResult>;
@@ -1757,6 +1778,11 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     return readArchitectureLedgerNeighborhoodFromDb(db, input);
   }
 
+  async queryArchitectureLedgerFts(input: ArchitectureLedgerScope & { query: string; maxItems?: number }): Promise<ArchitectureBookFtsMatch[]> {
+    const db = await this.database();
+    return queryArchitectureLedgerSearchFts(db, input);
+  }
+
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
     const db = await this.database();
     const events = architectureEventsForReplay(db, input);
@@ -1954,6 +1980,15 @@ function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1)
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "event", architectureLedgerPayload(event).summary ?? "", architectureLedgerPayload(event).rationale ?? "", architectureLedgerPayload(event).title ?? "", "");
+  const payload = architectureLedgerPayload(event);
+  insertArchitectureLedgerSearchDoc(db, event, {
+    docId: `event:${event.eventId}`,
+    targetKind: "event",
+    targetId: event.eventId,
+    title: payload.title,
+    summary: payload.summary,
+    rationale: payload.rationale
+  });
 }
 
 function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: ArchitectureEventV1): void {
@@ -1986,6 +2021,14 @@ function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: Architect
       evidence.createdAt
     );
     insertArchitectureLedgerFts(db, "evidence", evidence.summary, "", "", evidence.summary);
+    insertArchitectureLedgerSearchDoc(db, event, {
+      docId: `evidence:${evidence.evidenceId}`,
+      targetKind: "evidence",
+      targetId: evidence.evidenceId,
+      subjectId: evidence.subject,
+      summary: evidence.summary,
+      evidenceSummary: evidence.summary
+    });
   }
   for (const binding of payload.evidenceBindings ?? []) {
     db.prepare(
@@ -2073,6 +2116,15 @@ function persistRecommendation(db: SqliteDatabase, event: ArchitectureEventV1, r
     recommendation.updatedAt
   );
   insertArchitectureLedgerFts(db, "recommendation", recommendation.explanation.join("\n"), "", recommendation.subject, recommendation.explanation.join("\n"));
+  insertArchitectureLedgerSearchDoc(db, event, {
+    docId: `recommendation:${recommendation.recommendationId}`,
+    targetKind: "recommendation",
+    targetId: recommendation.recommendationId,
+    subjectId: recommendation.subject,
+    title: recommendation.subject,
+    summary: recommendation.explanation.join("\n"),
+    evidenceSummary: recommendation.evidenceBindingIds.join("\n")
+  });
 }
 
 function persistAgentJob(db: SqliteDatabase, event: ArchitectureEventV1, job: NonNullable<ArchitectureLedgerEventPayload["agentJobs"]>[number]): void {
@@ -2194,6 +2246,7 @@ function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: Architect
         upsertArchitectureEntity(db, event, operation.entity);
         break;
       case "delete_entity":
+        deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [operation.entityId]);
         db.prepare("DELETE FROM architecture_entities_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND entity_id = ?")
           .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.entityId);
         db.prepare("DELETE FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND (source_entity_id = ? OR target_entity_id = ?)")
@@ -2203,6 +2256,7 @@ function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: Architect
         upsertArchitectureRelation(db, event, operation.relation);
         break;
       case "delete_relation":
+        deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [operation.relationId]);
         db.prepare("DELETE FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND relation_id = ?")
           .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.relationId);
         break;
@@ -2210,6 +2264,7 @@ function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: Architect
         upsertArchitectureConstraint(db, event, operation.constraint);
         break;
       case "delete_constraint":
+        deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [operation.constraintId]);
         db.prepare("DELETE FROM architecture_constraints_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND constraint_id = ?")
           .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.constraintId);
         break;
@@ -2242,6 +2297,15 @@ function upsertArchitectureEntity(db: SqliteDatabase, event: ArchitectureEventV1
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "entity", entity.summary ?? "", "", entity.canonicalName, "");
+  insertArchitectureLedgerSearchDoc(db, event, {
+    docId: `entity:${entity.entityId}`,
+    targetKind: "entity",
+    targetId: entity.entityId,
+    subjectId: entity.entityId,
+    title: entity.canonicalName,
+    summary: entity.summary ?? "",
+    rationale: String(entity.metadata?.rationale ?? "")
+  });
 }
 
 function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEventV1, relation: ArchitectureLedgerRelationRecord): void {
@@ -2269,6 +2333,15 @@ function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEvent
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "relation", relation.summary ?? "", "", relation.relationId, "");
+  insertArchitectureLedgerSearchDoc(db, event, {
+    docId: `relation:${relation.relationId}`,
+    targetKind: "relation",
+    targetId: relation.relationId,
+    subjectId: relation.relationId,
+    title: relation.relationId,
+    summary: relation.summary ?? "",
+    rationale: String(relation.metadata?.rationale ?? "")
+  });
 }
 
 function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEventV1, constraint: ArchitectureLedgerConstraintRecord): void {
@@ -2296,6 +2369,15 @@ function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEve
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "constraint", constraint.summary ?? "", "", constraint.constraintId, "");
+  insertArchitectureLedgerSearchDoc(db, event, {
+    docId: `constraint:${constraint.constraintId}`,
+    targetKind: "constraint",
+    targetId: constraint.constraintId,
+    subjectId: constraint.constraintId,
+    title: constraint.constraintId,
+    summary: constraint.summary ?? "",
+    rationale: String(constraint.metadata?.rationale ?? "")
+  });
 }
 
 function readArchitectureLedgerStateFromDb(db: SqliteDatabase, scope: ArchitectureLedgerScope): ArchitectureLedgerGraphState {
@@ -2474,6 +2556,106 @@ function insertArchitectureLedgerFts(db: SqliteDatabase, kind: string, summary: 
   db.prepare(
     "INSERT INTO architecture_ledger_fts(kind, summary, rationale, title, evidence_summary) VALUES (?, ?, ?, ?, ?)"
   ).run(kind, summary, rationale, title, evidenceSummary);
+}
+
+function insertArchitectureLedgerSearchDoc(db: SqliteDatabase, event: ArchitectureEventV1, doc: {
+  docId: string;
+  targetKind: ArchitectureBookFtsMatch["targetKind"];
+  targetId: string;
+  subjectId?: string;
+  title?: string;
+  summary?: string;
+  rationale?: string;
+  evidenceSummary?: string;
+}): void {
+  db.prepare(
+    `DELETE FROM architecture_ledger_search_fts
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND doc_id = ?`
+  ).run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, doc.docId);
+  db.prepare(
+    `INSERT INTO architecture_ledger_search_fts
+      (doc_id, storage_repository_id, storage_workspace_id, target_kind, target_id, subject_id, title, summary, rationale, evidence_summary)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    doc.docId,
+    event.repository.storageRepositoryId,
+    event.worktree.storageWorkspaceId,
+    doc.targetKind,
+    doc.targetId,
+    doc.subjectId ?? null,
+    doc.title ?? "",
+    doc.summary ?? "",
+    doc.rationale ?? "",
+    doc.evidenceSummary ?? ""
+  );
+}
+
+function deleteArchitectureLedgerSearchDocs(db: SqliteDatabase, scope: ArchitectureLedgerScope, ids: string[]): void {
+  for (const id of ids) {
+    db.prepare(
+      `DELETE FROM architecture_ledger_search_fts
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND (target_id = ? OR subject_id = ?)`
+    ).run(scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId, id, id);
+  }
+}
+
+function queryArchitectureLedgerSearchFts(db: SqliteDatabase, input: ArchitectureLedgerScope & { query: string; maxItems?: number }): ArchitectureBookFtsMatch[] {
+  const matchQuery = sqliteFtsQuery(input.query);
+  if (!matchQuery) return [];
+  const limit = Math.max(1, Math.min(50, Math.floor(input.maxItems ?? 12)));
+  const rows = db.prepare(
+    `SELECT target_kind, target_id, subject_id, title, summary, rationale, evidence_summary,
+        bm25(architecture_ledger_search_fts) AS rank
+      FROM architecture_ledger_search_fts
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+        AND architecture_ledger_search_fts MATCH ?
+      ORDER BY rank, target_kind, target_id
+      LIMIT ?`
+  ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, matchQuery, limit);
+  return rows.map((row): ArchitectureBookFtsMatch => {
+    const title = String(row.title ?? "");
+    const summary = String(row.summary ?? "");
+    const rationale = String(row.rationale ?? "");
+    const evidenceSummary = String(row.evidence_summary ?? "");
+    return {
+      targetKind: String(row.target_kind) as ArchitectureBookFtsMatch["targetKind"],
+      targetId: String(row.target_id),
+      ...(row.subject_id ? { subjectId: String(row.subject_id) } : {}),
+      ...(title ? { title } : {}),
+      ...(summary ? { summary } : {}),
+      matchKind: ftsMatchKind(input.query, { title, summary, rationale, evidenceSummary }),
+      score: ftsRankScore(Number(row.rank ?? 0)),
+      reasonCodes: ["sqlite-fts-match"]
+    };
+  });
+}
+
+function sqliteFtsQuery(query: string): string {
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .slice(0, 8)
+    .map((token) => `"${token.replaceAll("\"", "\"\"")}"`)
+    .join(" OR ");
+}
+
+function ftsRankScore(rank: number): number {
+  if (!Number.isFinite(rank)) return 1;
+  return Math.max(1, Math.min(10, Math.round(10 - Math.min(Math.abs(rank), 9))));
+}
+
+function ftsMatchKind(query: string, doc: { title: string; summary: string; rationale: string; evidenceSummary: string }): ArchitectureBookFtsMatchKind {
+  const tokens = sqliteFtsQuery(query).replaceAll("\"", "").split(/\s+OR\s+/).filter(Boolean);
+  const matches = new Set<ArchitectureBookFtsMatchKind>();
+  for (const token of tokens) {
+    if (doc.title.toLowerCase().includes(token)) matches.add("title");
+    if (doc.summary.toLowerCase().includes(token)) matches.add("summary");
+    if (doc.rationale.toLowerCase().includes(token)) matches.add("rationale");
+    if (doc.evidenceSummary.toLowerCase().includes(token)) matches.add("evidence-summary");
+  }
+  return matches.size === 1 ? [...matches][0]! : "mixed";
 }
 
 function recordArchitectureLedgerOperation(db: SqliteDatabase, input: {

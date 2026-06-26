@@ -215,6 +215,31 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     expect(query.budget.truncated).toBe(true);
     expect(query.reasonCodes).toContain("item-budget-exceeded");
 
+    const fallbackQuery = queryArchitectureLedgerBook({
+      state: plan.state,
+      events: [plan.event],
+      query: "refund",
+      explain: true,
+      maxItems: 5,
+      ftsMatches: [{
+        targetKind: "evidence",
+        targetId: "evidence.adr.refund-api",
+        subjectId: "module.api",
+        summary: "ADR summary says refund flow remains owned by the API module.",
+        matchKind: "summary",
+        score: 9,
+        reasonCodes: ["sqlite-fts-match"]
+      }]
+    });
+    expect(fallbackQuery.results[0]?.id).toBe("module.api");
+    expect(fallbackQuery.results[0]?.scoreBreakdown.ftsFallback).toBeGreaterThan(0);
+    expect(fallbackQuery.results[0]?.explanation?.reasonCodes).toContain("fts-fallback-match");
+    expect(fallbackQuery.results[0]?.explanation?.fallbackMatches?.[0]).toMatchObject({
+      targetKind: "evidence",
+      targetId: "evidence.adr.refund-api",
+      subjectId: "module.api"
+    });
+
     const show = showArchitectureLedgerBookSubject(plan.state, "module.api");
     expect(show.subject?.summary).toBe("Serves checkout requests.");
 
@@ -239,8 +264,13 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     expect(evidence.evidenceItems.length).toBeGreaterThan(0);
     expect(JSON.stringify(evidence)).not.toContain("Checkout calls API");
 
-    const recommendations = queryArchitectureLedgerBookRecommendations({ events: [recommendationEvent as any], openOnly: true });
+    const recommendations = queryArchitectureLedgerBookRecommendations({ events: [recommendationEvent as any], openOnly: true, explain: true });
     expect(recommendations.recommendations.map((recommendation) => recommendation.recommendationId)).toEqual(["recommendation.api-owner"]);
+    expect(recommendations.explanations?.[0]).toMatchObject({
+      targetKind: "recommendation",
+      targetId: "recommendation.api-owner"
+    });
+    expect(recommendations.explanations?.[0]?.reasonCodes).toContain("open-recommendation-filter");
   });
 
   test("imports ADR frontmatter policies and manifest metadata as declared evidence without graph mutation", () => {

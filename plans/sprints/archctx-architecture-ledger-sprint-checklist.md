@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval, MCP resource and context compiler slices complete; AL7 explain/FTS/benchmark/privacy slices remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval, MCP resource, context compiler, explain and FTS fallback slices complete; AL7 benchmark/privacy slices remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -828,8 +828,12 @@ archctx book export --format yaml|markdown|json
 - [x] **AL7-11 · P0 · `context-compiler`** — Consume ledger queries first, then request only missing code facts from CodeGraph.
   - Evidence: `compileTaskContext` accepts an optional ledger reader port, converts Book subjects into bounded code context first, and calls CodeGraph only for missing symbol slots; daemon context, prepare, checkpoint and complete paths pass the runtime ledger-backed port.
   - Verification artifact: `docs/verification/architecture-ledger-al7-context-compiler.md`.
-- [ ] **AL7-12 · P1 · `retrieval`** — Add explain mode showing why each entity or recommendation was selected.
-- [ ] **AL7-13 · P1 · `retrieval`** — Add FTS fallback for architecture prose and ADR summaries; do not add a vector database yet.
+- [x] **AL7-12 · P1 · `retrieval`** — Add explain mode showing why each entity or recommendation was selected.
+  - Evidence: `queryArchitectureLedgerBook` and `queryArchitectureLedgerBookRecommendations` emit optional `archcontext.architecture-book-selection-explanation/v1` readbacks, and `archctx book query|recommendations --explain` passes the opt-in through the daemon.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-retrieval-explain-fts.md`.
+- [x] **AL7-13 · P1 · `retrieval`** — Add FTS fallback for architecture prose and ADR summaries; do not add a vector database yet.
+  - Evidence: local SQLite migration `0009_architecture_ledger_search_fts` adds a metadata-only FTS read model; daemon Book query passes scoped FTS matches into core scoring as fallback signals without changing ledger authority.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-retrieval-explain-fts.md`.
 - [ ] **AL7-14 · P1 · `benchmarks`** — Benchmark cold and warm queries on small, medium and large fixtures.
 - [ ] **AL7-15 · P1 · `privacy`** — Assert responses contain selectors, summaries and digests but no unintended source body.
 
@@ -861,6 +865,11 @@ archctx book export --format yaml|markdown|json
   - Remote readback hardening: Windows Node 24 runner timeout budget is widened for daemon restart session persistence after PR CI showed the assertions completing just beyond Bun's default 5s test budget.
   - Verification artifact: `docs/verification/architecture-ledger-al7-context-compiler.md`.
   - Verification: `bun test packages/core/context-compiler/test/context-compiler.test.ts --timeout 90000`; `bun test packages/core/application/test/control-loop.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger-authoritative runtime read surfaces" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "checkpoint coalesces|runtime jobs enqueue|ledger-authoritative runtime read surfaces" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "daemon restart restores persisted repository sessions" --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts --timeout 120000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "CLI delegates init and context" --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 240000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al7-context-verify-state-XXXXXX) bun run verify`.
+- 2026-06-26: Completed AL7 retrieval explain and FTS fallback slice on branch `codex/architecture-ledger-al7-retrieval-explain-fts`.
+  - Explain mode: Book query and recommendations can include per-result selection explanations under explicit `--explain` opt-in.
+  - FTS fallback: SQLite metadata-only `architecture_ledger_search_fts` indexes Book prose, evidence/ADR summaries and recommendation explanations, then maps matches back to current Book subjects.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-retrieval-explain-fts.md`.
+  - Verification: `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts -t "architecture ledger appends" --timeout 120000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "CLI Book commands" --timeout 120000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts -t "ledger-authoritative runtime read surfaces|init, validate, sync, context, and status share|daemon restart restores persisted repository sessions" --timeout 90000`; `bun test packages/surfaces/mcp-local/test/mcp-local.test.ts -t "Book readbacks" --timeout 120000`; `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 120000`; `bun run typecheck`.
 
 ---
 

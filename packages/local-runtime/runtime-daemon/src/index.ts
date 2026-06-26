@@ -99,6 +99,7 @@ export interface RuntimeBookInput {
   id?: string;
   query?: string;
   task?: string;
+  explain?: boolean;
   depth?: number;
   fromRef?: string;
   toRef?: string;
@@ -1664,8 +1665,14 @@ export class ArchctxDaemon {
       } as unknown as Json);
     }
     if (command === "query") {
+      const query = input.task ?? input.query;
+      const ftsMatches = query ? await this.localStore.queryArchitectureLedgerFts({
+        ...scope,
+        query,
+        maxItems: input.maxItems
+      }) : [];
       return okEnvelope("book.query", {
-        ...queryArchitectureLedgerBook({ state, events: replay.events, query: input.task ?? input.query, ...budget }),
+        ...queryArchitectureLedgerBook({ state, events: replay.events, query, ftsMatches, explain: input.explain, ...budget }),
         freshness
       } as unknown as Json);
     }
@@ -1725,7 +1732,7 @@ export class ArchctxDaemon {
     }
     if (command === "recommendations") {
       return okEnvelope("book.recommendations", {
-        ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, ...budget }),
+        ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, ...budget }),
         freshness
       } as unknown as Json);
     }
@@ -2007,10 +2014,16 @@ export class ArchctxDaemon {
         const readback = await this.architectureLedgerReadback(root);
         const scope = { repository: readback.repository, worktree: readback.worktree };
         const replay = await this.localStore.replayArchitectureLedger(scope);
+        const ftsMatches = await this.localStore.queryArchitectureLedgerFts({
+          ...scope,
+          query: task,
+          maxItems
+        });
         const result = queryArchitectureLedgerBook({
           state: readback.state,
           events: replay.events,
           query: task,
+          ftsMatches,
           maxItems,
           maxBytes
         });

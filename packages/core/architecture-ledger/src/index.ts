@@ -276,6 +276,7 @@ export type ArchitectureBookSubjectKind = "entity" | "relation" | "constraint";
 export interface ArchitectureBookBudgetInput {
   maxItems?: number;
   maxBytes?: number;
+  explain?: boolean;
 }
 
 export interface ArchitectureBookBudgetReadback {
@@ -308,6 +309,36 @@ export interface ArchitectureBookSubjectRecord {
   };
 }
 
+export type ArchitectureBookFtsMatchKind = "title" | "summary" | "rationale" | "evidence-summary" | "mixed";
+
+export interface ArchitectureBookFtsMatch {
+  targetKind: ArchitectureBookSubjectKind | "event" | "evidence" | "recommendation" | "adr";
+  targetId: string;
+  subjectId?: string;
+  title?: string;
+  summary?: string;
+  matchKind: ArchitectureBookFtsMatchKind;
+  score: number;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookSelectionSignal {
+  source: "lexical" | "graph" | "recency" | "importance" | "evidence" | "fts";
+  score: number;
+  reasonCode: string;
+  detail?: string;
+}
+
+export interface ArchitectureBookSelectionExplanation {
+  schemaVersion: "archcontext.architecture-book-selection-explanation/v1";
+  targetKind: ArchitectureBookSubjectKind | "recommendation";
+  targetId: string;
+  matchedTokens: string[];
+  reasonCodes: string[];
+  signals: ArchitectureBookSelectionSignal[];
+  fallbackMatches?: ArchitectureBookFtsMatch[];
+}
+
 export interface ArchitectureBookScoredSubject extends ArchitectureBookSubjectRecord {
   score: number;
   scoreBreakdown: {
@@ -316,7 +347,9 @@ export interface ArchitectureBookScoredSubject extends ArchitectureBookSubjectRe
     recency: number;
     declaredImportance: number;
     evidenceStrength: number;
+    ftsFallback?: number;
   };
+  explanation?: ArchitectureBookSelectionExplanation;
 }
 
 export interface ArchitectureBookQueryResult {
@@ -411,6 +444,7 @@ export interface ArchitectureBookRecommendationsResult {
   schemaVersion: "archcontext.architecture-book-recommendations/v1";
   openOnly: boolean;
   recommendations: RecommendationV2[];
+  explanations?: ArchitectureBookSelectionExplanation[];
   budget: ArchitectureBookBudgetReadback;
   reasonCodes: string[];
 }
@@ -481,20 +515,29 @@ export function queryArchitectureLedgerBook(input: ArchitectureBookBudgetInput &
   state: ArchitectureLedgerGraphState;
   query?: string;
   events?: ArchitectureEventV1[];
+  ftsMatches?: ArchitectureBookFtsMatch[];
 }): ArchitectureBookQueryResult {
   const query = input.query?.trim() ?? "";
   const tokens = tokenizeBookQuery(query);
   const subjects = architectureLedgerBookSubjects(input.state);
-  const baseScored = subjects.map((subject) => scoreBookSubject(subject, tokens));
-  const seedSubjects = baseScored.filter((subject) => subject.scoreBreakdown.taskRelevance > 0);
+  const ftsMatchesBySubject = bookFtsMatchesBySubject(subjects, input.ftsMatches ?? []);
+  const baseScored = subjects.map((subject) => scoreBookSubject(subject, tokens, {
+    ftsFallback: bookFtsFallbackScore(ftsMatchesBySubject.get(subject.id) ?? [])
+  }));
+  const seedSubjects = baseScored.filter((subject) => subject.scoreBreakdown.taskRelevance > 0 || (subject.scoreBreakdown.ftsFallback ?? 0) > 0);
   const graphDistanceScores = bookGraphDistanceScores(input.state, seedSubjects.length > 0 ? seedSubjects : subjects);
   const recencyScores = bookRecencyScores(input.events ?? []);
   const scored = subjects
-    .map((subject) => scoreBookSubject(subject, tokens, {
-      graphDistance: graphDistanceScores.get(subject.id) ?? 0,
-      recency: recencyScores.get(subject.id) ?? 0
-    }))
-    .filter((subject) => tokens.length === 0 || subject.score > 0)
+    .map((subject) => {
+      const ftsMatches = ftsMatchesBySubject.get(subject.id) ?? [];
+      const scoredSubject = scoreBookSubject(subject, tokens, {
+        graphDistance: graphDistanceScores.get(subject.id) ?? 0,
+        recency: recencyScores.get(subject.id) ?? 0,
+        ftsFallback: bookFtsFallbackScore(ftsMatches)
+      });
+      return input.explain ? { ...scoredSubject, explanation: explainBookSubject(scoredSubject, tokens, ftsMatches) } : scoredSubject;
+    })
+    .filter((subject) => tokens.length === 0 || subject.score > 0 || (subject.scoreBreakdown.ftsFallback ?? 0) > 0)
     .sort((left, right) => right.score - left.score || compareBookSubjects(left, right));
   const limited = applyArchitectureBookBudget(scored, input);
   return {
@@ -727,6 +770,7 @@ export function queryArchitectureLedgerBookRecommendations(input: ArchitectureBo
     schemaVersion: "archcontext.architecture-book-recommendations/v1",
     openOnly: input.openOnly ?? false,
     recommendations: limited.items,
+    ...(input.explain ? { explanations: limited.items.map((recommendation) => explainBookRecommendation(recommendation, input.openOnly ?? false)) } : {}),
     budget: limited.budget,
     reasonCodes: limited.budget.reasonCodes
   };
@@ -1127,7 +1171,7 @@ function tokenizeBookQuery(query: string): string[] {
 function scoreBookSubject(
   subject: ArchitectureBookSubjectRecord,
   tokens: string[],
-  signals: { graphDistance?: number; recency?: number } = {}
+  signals: { graphDistance?: number; recency?: number; ftsFallback?: number } = {}
 ): ArchitectureBookScoredSubject {
   const haystacks = {
     id: subject.id.toLowerCase(),
@@ -1149,7 +1193,8 @@ function scoreBookSubject(
   const evidenceStrength = bookEvidenceStrengthScore(subject.metadata);
   const graphDistance = signals.graphDistance ?? 0;
   const recency = signals.recency ?? 0;
-  const score = taskRelevance + graphDistance + recency + declaredImportance + evidenceStrength;
+  const ftsFallback = signals.ftsFallback ?? 0;
+  const score = taskRelevance + graphDistance + recency + declaredImportance + evidenceStrength + ftsFallback;
   return {
     ...subject,
     score,
@@ -1158,9 +1203,126 @@ function scoreBookSubject(
       graphDistance,
       recency,
       declaredImportance,
-      evidenceStrength
+      evidenceStrength,
+      ...(ftsFallback > 0 ? { ftsFallback } : {})
     }
   };
+}
+
+function explainBookSubject(subject: ArchitectureBookScoredSubject, tokens: string[], ftsMatches: ArchitectureBookFtsMatch[]): ArchitectureBookSelectionExplanation {
+  const signals: ArchitectureBookSelectionSignal[] = [];
+  const reasonCodes: string[] = [];
+  const matchedTokens = matchedBookSubjectTokens(subject, tokens);
+  if (tokens.length === 0) reasonCodes.push("empty-query-default-result");
+  if (subject.scoreBreakdown.taskRelevance > 0 && tokens.length > 0) {
+    reasonCodes.push("lexical-match");
+    signals.push({
+      source: "lexical",
+      score: subject.scoreBreakdown.taskRelevance,
+      reasonCode: "matched-query-token",
+      detail: matchedTokens.join(", ")
+    });
+  }
+  if (subject.scoreBreakdown.graphDistance > 0) {
+    reasonCodes.push("graph-neighborhood-boost");
+    signals.push({ source: "graph", score: subject.scoreBreakdown.graphDistance, reasonCode: "near-query-match" });
+  }
+  if (subject.scoreBreakdown.recency > 0) {
+    reasonCodes.push("recent-ledger-change");
+    signals.push({ source: "recency", score: subject.scoreBreakdown.recency, reasonCode: "recent-event-touched-subject" });
+  }
+  if (subject.scoreBreakdown.declaredImportance > 0) {
+    reasonCodes.push("declared-importance");
+    signals.push({ source: "importance", score: subject.scoreBreakdown.declaredImportance, reasonCode: "metadata-importance" });
+  }
+  if (subject.scoreBreakdown.evidenceStrength > 0) {
+    reasonCodes.push("evidence-strength");
+    signals.push({ source: "evidence", score: subject.scoreBreakdown.evidenceStrength, reasonCode: "metadata-evidence-strength" });
+  }
+  if ((subject.scoreBreakdown.ftsFallback ?? 0) > 0) {
+    reasonCodes.push("fts-fallback-match");
+    signals.push({
+      source: "fts",
+      score: subject.scoreBreakdown.ftsFallback ?? 0,
+      reasonCode: "architecture-prose-match",
+      detail: ftsMatches.map((match) => `${match.targetKind}:${match.targetId}`).sort().join(", ")
+    });
+  }
+  return {
+    schemaVersion: "archcontext.architecture-book-selection-explanation/v1",
+    targetKind: subject.kind,
+    targetId: subject.id,
+    matchedTokens,
+    reasonCodes: uniqueSorted(reasonCodes),
+    signals,
+    ...(ftsMatches.length > 0 ? { fallbackMatches: ftsMatches.slice(0, 3).sort(compareBookFtsMatches) } : {})
+  };
+}
+
+function explainBookRecommendation(recommendation: RecommendationV2, openOnly: boolean): ArchitectureBookSelectionExplanation {
+  const reasonCodes = [
+    ...(openOnly ? ["open-recommendation-filter"] : []),
+    `status-${recommendation.status}`,
+    `confidence-${recommendation.confidence}`,
+    `risk-${recommendation.risk}`,
+    `enforcement-${recommendation.enforcement}`,
+    ...(recommendation.evidenceBindingIds.length > 0 ? ["has-evidence-bindings"] : []),
+    ...(recommendation.explanation.length > 0 ? ["has-recommendation-explanation"] : [])
+  ];
+  const signals: ArchitectureBookSelectionSignal[] = [
+    { source: "recency", score: 1, reasonCode: "recommendation-updated-at", detail: recommendation.updatedAt }
+  ];
+  if (recommendation.evidenceBindingIds.length > 0) {
+    signals.push({ source: "evidence", score: recommendation.evidenceBindingIds.length, reasonCode: "recommendation-evidence-binding-count" });
+  }
+  return {
+    schemaVersion: "archcontext.architecture-book-selection-explanation/v1",
+    targetKind: "recommendation",
+    targetId: recommendation.recommendationId,
+    matchedTokens: [],
+    reasonCodes: uniqueSorted(reasonCodes),
+    signals
+  };
+}
+
+function matchedBookSubjectTokens(subject: ArchitectureBookSubjectRecord, tokens: string[]): string[] {
+  const haystack = [
+    subject.id,
+    subject.label,
+    subject.summary ?? "",
+    subject.kind,
+    subject.path ?? ""
+  ].join(" ").toLowerCase();
+  return uniqueSorted(tokens.filter((token) => haystack.includes(token)));
+}
+
+function bookFtsMatchesBySubject(subjects: ArchitectureBookSubjectRecord[], matches: ArchitectureBookFtsMatch[]): Map<string, ArchitectureBookFtsMatch[]> {
+  const subjectIds = new Set(subjects.map((subject) => subject.id));
+  const bySubject = new Map<string, ArchitectureBookFtsMatch[]>();
+  for (const match of matches) {
+    const ids = uniqueSorted([
+      ...(match.subjectId ? [match.subjectId] : []),
+      ...(subjectIds.has(match.targetId) ? [match.targetId] : [])
+    ]);
+    for (const id of ids) {
+      if (!subjectIds.has(id)) continue;
+      const items = bySubject.get(id) ?? [];
+      items.push(match);
+      bySubject.set(id, items);
+    }
+  }
+  return bySubject;
+}
+
+function bookFtsFallbackScore(matches: ArchitectureBookFtsMatch[]): number {
+  return Math.min(30, matches.reduce((total, match) => total + Math.max(1, Math.floor(match.score)), 0));
+}
+
+function compareBookFtsMatches(left: ArchitectureBookFtsMatch, right: ArchitectureBookFtsMatch): number {
+  return right.score - left.score
+    || left.targetKind.localeCompare(right.targetKind)
+    || left.targetId.localeCompare(right.targetId)
+    || (left.subjectId ?? "").localeCompare(right.subjectId ?? "");
 }
 
 function bookGraphDistanceScores(state: ArchitectureLedgerGraphState, seeds: ArchitectureBookSubjectRecord[]): Map<string, number> {

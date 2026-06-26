@@ -1673,12 +1673,14 @@ describe("archctx CLI", () => {
       expect((bookStatus.data as any).freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
       expect((bookStatus.data as any).counts.entities).toBeGreaterThan(0);
 
-      const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2"], root);
+      const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2", "--explain"], root);
       expect(query.ok).toBe(true);
       expect((query.data as any).schemaVersion).toBe("archcontext.architecture-book-query/v1");
       expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture-context");
       expect((query.data as any).results[0].scoreBreakdown.graphDistance).toBeGreaterThan(0);
       expect((query.data as any).results[0].scoreBreakdown.recency).toBeGreaterThan(0);
+      expect((query.data as any).results[0].explanation.schemaVersion).toBe("archcontext.architecture-book-selection-explanation/v1");
+      expect((query.data as any).results[0].explanation.reasonCodes.length).toBeGreaterThan(0);
       expect((query.data as any).freshness.worktreeDigest).toBeTruthy();
 
       const show = await runTestCli("book", ["show", "capability.architecture-context"], root);
@@ -1728,10 +1730,11 @@ describe("archctx CLI", () => {
       expect((evidence.data as any).evidenceItems.length).toBeGreaterThan(0);
       expect(JSON.stringify(evidence.data)).not.toContain("README");
 
-      const recommendations = await runTestCli("book", ["recommendations", "--open"], root);
+      const recommendations = await runTestCli("book", ["recommendations", "--open", "--explain"], root);
       expect(recommendations.ok).toBe(true);
       expect((recommendations.data as any).schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
       expect((recommendations.data as any).recommendations).toEqual([]);
+      expect((recommendations.data as any).explanations).toEqual([]);
 
       const exported = await runTestCli("book", ["export", "--format", "markdown"], root);
       expect(exported.ok).toBe(true);

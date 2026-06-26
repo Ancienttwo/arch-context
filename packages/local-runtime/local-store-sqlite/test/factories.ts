@@ -9,6 +9,7 @@ import {
   replayArchitectureLedgerEvents,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
+  type ArchitectureBookFtsMatch,
   type ArchitectureLedgerGraphState,
   type ArchitectureLedgerReplayInput,
   type ArchitectureLedgerReplayResult,
@@ -501,6 +502,10 @@ export class TestLocalStore implements RuntimeLocalStore {
       relations: state.relations.filter((relation) => relationIds.has(relation.relationId)),
       constraints: state.constraints.filter((constraint) => constraintIds.has(constraint.constraintId))
     };
+  }
+
+  async queryArchitectureLedgerFts(): Promise<ArchitectureBookFtsMatch[]> {
+    return [];
   }
 
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {

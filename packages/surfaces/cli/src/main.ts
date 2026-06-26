@@ -526,7 +526,7 @@ async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemon
   if (subcommand === "query") {
     const task = readFlag(args, "--task") ?? readFlag(args, "--query") ?? args.slice(1).filter((arg) => !arg.startsWith("--")).join(" ").trim();
     if (!task) return errorEnvelope("book.query", "AC_SCHEMA_INVALID", "book query requires --task, --query, or query text");
-    return daemon.book(cwd, { command: "query", task, ...budget });
+    return daemon.book(cwd, { command: "query", task, explain: args.includes("--explain"), ...budget });
   }
   if (subcommand === "show") {
     const id = readFlag(args, "--id") ?? args[1];
@@ -563,7 +563,7 @@ async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemon
     return daemon.book(cwd, { command: "evidence", id, ...budget });
   }
   if (subcommand === "recommendations") {
-    return daemon.book(cwd, { command: "recommendations", openOnly: args.includes("--open"), ...budget });
+    return daemon.book(cwd, { command: "recommendations", openOnly: args.includes("--open"), explain: args.includes("--explain"), ...budget });
   }
   if (subcommand === "export") {
     const format = readFlag(args, "--format") ?? "json";

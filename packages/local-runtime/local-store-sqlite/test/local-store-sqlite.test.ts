@@ -33,11 +33,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0005_external_docs_cache",
       "0006_architecture_ledger",
       "0007_runtime_job_queue",
-      "0008_runtime_job_queue_hardening"
+      "0008_runtime_job_queue_hardening",
+      "0009_architecture_ledger_search_fts"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
     expect(sql.some((statement) => statement.includes("external_docs_cache"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_ledger_search_fts"))).toBe(true);
     expect(sql.some((statement) => statement.includes("architecture_events"))).toBe(true);
     expect(sql.some((statement) => statement.includes("architecture_ledger_operations"))).toBe(true);
     expect(sql.some((statement) => statement.includes("runtime_job_queue"))).toBe(true);
@@ -300,7 +302,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0005_external_docs_cache",
       "0006_architecture_ledger",
       "0007_runtime_job_queue",
-      "0008_runtime_job_queue_hardening"
+      "0008_runtime_job_queue_hardening",
+      "0009_architecture_ledger_search_fts"
     ]);
 
     const snapshot = {
@@ -1068,6 +1071,10 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         snapshotCount: 1,
         failures: []
       });
+      const ftsMatches = await store.queryArchitectureLedgerFts({ ...ARCHITECTURE_LEDGER_SCOPE, query: "root", maxItems: 5 });
+      expect(ftsMatches.length).toBeGreaterThan(0);
+      expect(ftsMatches.some((match) => Boolean(match.subjectId))).toBe(true);
+      expect(ftsMatches[0]?.reasonCodes).toContain("sqlite-fts-match");
       await expect(store.backupArchitectureLedger({ backupPath })).resolves.toMatchObject({ backupPath, integrity: "ok" });
       expect(existsSync(backupPath)).toBe(true);
       store.close();
@@ -1077,6 +1084,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM recent_architecture_changes_view")).toBe(1000);
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM unresolved_evidence_view")).toBe(0);
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_fts WHERE architecture_ledger_fts MATCH 'root'")).toBeGreaterThan(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_search_fts WHERE architecture_ledger_search_fts MATCH 'root'")).toBeGreaterThan(0);
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations")).toBeGreaterThanOrEqual(5);
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations WHERE rebuild_reason IS NOT NULL")).toBe(1);
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events WHERE compacted_by_snapshot_id IS NOT NULL")).toBe(1000);
