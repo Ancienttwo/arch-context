@@ -56,6 +56,32 @@ try {
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_practices"), "mcp must expose practices");
 
+  const stoppedBeforeMcpStart = await runArchctx("daemon", "stop");
+  assert(stoppedBeforeMcpStart.ok === true, "daemon stop before MCP auto-start must succeed");
+  await waitForRemoved(connectionPath, "connection file");
+  await waitForRemoved(lockPath, "lock file");
+
+  const mcpAutoStarted = await runArchctxMcp({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "archcontext_practices",
+      arguments: {
+        root: repo,
+        action: "validate",
+        strict: true,
+        maxBytes: 12_288
+      }
+    }
+  });
+  assert(mcpAutoStarted.result?.content?.ok === true, "mcp runtime tool call must auto-start daemon RPC when no daemon is running");
+  assert(mcpAutoStarted.result?.content?.data?.valid === true, "mcp auto-start practices validate must return a valid catalog");
+  const daemonAfterMcpStart = await runArchctx("daemon", "status");
+  assert(daemonAfterMcpStart.ok === true, "daemon status after MCP auto-start must succeed");
+  assert(daemonAfterMcpStart.data?.running === true, "MCP auto-start must leave the daemon running");
+  assert(daemonAfterMcpStart.data?.rpcVersionCompatible === true, "MCP auto-started daemon must be RPC compatible");
+
   const practices = await runArchctx("practices", "validate", "--strict");
   assert(practices.ok === true, "practices validate must succeed through packaged bin");
   assert(practices.data?.valid === true, "built-in practice catalog must validate through packaged bin");
@@ -67,7 +93,7 @@ try {
 
   const planned = await runArchctxMcp({
     jsonrpc: "2.0",
-    id: 2,
+    id: 3,
     method: "tools/call",
     params: {
       name: "archcontext_plan_update",
@@ -139,7 +165,7 @@ try {
 
   const plannedAfterRestart = await runArchctxMcp({
     jsonrpc: "2.0",
-    id: 3,
+    id: 4,
     method: "tools/call",
     params: {
       name: "archcontext_plan_update",

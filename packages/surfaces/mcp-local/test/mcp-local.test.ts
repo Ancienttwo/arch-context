@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -347,6 +347,86 @@ describe("local MCP server", () => {
     expect(output.length).toBe(1);
     expect(JSON.parse(output[0]).result.tools.length).toBe(6);
     expect(logs).toEqual(["[archctx-mcp] started"]);
+  });
+
+  test("stdio tools/list does not resolve runtime and runtime tool calls reuse injected resolver", async () => {
+    const output: string[] = [];
+    const logs: string[] = [];
+    const resolvedRoots: string[] = [];
+    const practiceRoots: string[] = [];
+    const root = "/tmp/archctx-mcp-resolver-root";
+    const runtime = {
+      practices(runtimeRoot: string, input: { action?: string }) {
+        practiceRoots.push(runtimeRoot);
+        return {
+          ok: true,
+          requestId: "practices",
+          data: {
+            schemaVersion: "archcontext.test-practices/v1",
+            root: runtimeRoot,
+            action: input.action ?? "list"
+          }
+        };
+      }
+    } as unknown as RuntimeDaemonClient;
+    async function* input() {
+      yield JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      yield JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "archcontext_practices",
+          arguments: { root, action: "list" }
+        }
+      });
+      yield JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "archcontext_practices",
+          arguments: { root, action: "source-records" }
+        }
+      });
+    }
+
+    await runStdioMcpLoop(input(), (line) => output.push(line), (line) => logs.push(line), {
+      runtimeResolver: (resolverRoot) => {
+        resolvedRoots.push(resolverRoot);
+        return runtime;
+      }
+    });
+
+    expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 2, 3]);
+    expect(JSON.parse(output[0]).result.tools.length).toBe(6);
+    expect(resolvedRoots).toEqual([root]);
+    expect(practiceRoots).toEqual([root, root]);
+    expect((JSON.parse(output[1]).result.content as any).ok).toBe(true);
+    expect((JSON.parse(output[2]).result.content as any).data.action).toBe("source-records");
+    expect(logs).toEqual(["[archctx-mcp] started"]);
+  });
+
+  test("runtime resolver failure is returned as runtime unavailable", async () => {
+    const root = tempModel();
+    try {
+      const server = new McpLocalServer({
+        runtimeResolver: () => {
+          throw new Error("archctxd test resolver failed");
+        }
+      });
+      const result = await server.callTool("archcontext_prepare_task", {
+        root,
+        task: "remove legacy v1 wrapper",
+        maxItems: 2,
+        maxBytes: 12_288
+      });
+      expect((result.content as any).ok).toBe(false);
+      expect((result.content as any).error.code).toBe("AC_RUNTIME_UNAVAILABLE");
+      expect((result.content as any).error.message).toContain("archctxd test resolver failed");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("CLI and MCP keep prepare task posture semantics aligned", async () => {
