@@ -231,6 +231,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return (await runtime()).landscapeStatus();
     case "ledger":
       return runLedgerCommand(args, cwd, runtime);
+    case "book":
+      return runBookCommand(args, cwd, await runtime());
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
@@ -508,6 +510,69 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
   if (!runtime) throw new Error("ledger command requires runtime daemon");
   return runtime();
+}
+
+async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "status";
+  const maxItems = readOptionalNonNegativeIntegerFlag(args, "--max-items", "book");
+  if (!maxItems.ok) return maxItems.envelope;
+  const maxBytes = readOptionalPositiveIntegerFlag(args, "--max-bytes", "book");
+  if (!maxBytes.ok) return maxBytes.envelope;
+  const budget = {
+    ...(maxItems.value === undefined ? {} : { maxItems: maxItems.value }),
+    ...(maxBytes.value === undefined ? {} : { maxBytes: maxBytes.value })
+  };
+  if (subcommand === "status") return daemon.book(cwd, { command: "status", ...budget });
+  if (subcommand === "query") {
+    const task = readFlag(args, "--task") ?? readFlag(args, "--query") ?? args.slice(1).filter((arg) => !arg.startsWith("--")).join(" ").trim();
+    if (!task) return errorEnvelope("book.query", "AC_SCHEMA_INVALID", "book query requires --task, --query, or query text");
+    return daemon.book(cwd, { command: "query", task, ...budget });
+  }
+  if (subcommand === "show") {
+    const id = readFlag(args, "--id") ?? args[1];
+    if (!id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
+    return daemon.book(cwd, { command: "show", id, ...budget });
+  }
+  if (subcommand === "neighbors") {
+    const id = readFlag(args, "--id") ?? args[1];
+    if (!id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
+    const depth = readOptionalNonNegativeIntegerFlag(args, "--depth", "book.neighbors");
+    if (!depth.ok) return depth.envelope;
+    return daemon.book(cwd, { command: "neighbors", id, ...(depth.value === undefined ? {} : { depth: depth.value }), ...budget });
+  }
+  if (subcommand === "timeline") {
+    const id = readFlag(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
+    return daemon.book(cwd, {
+      command: "timeline",
+      ...(id === undefined ? {} : { id }),
+      ...(readFlag(args, "--since") === undefined ? {} : { sinceRef: readFlag(args, "--since") }),
+      ...budget
+    });
+  }
+  if (subcommand === "diff") {
+    return daemon.book(cwd, {
+      command: "diff",
+      fromRef: readFlag(args, "--from") ?? "empty",
+      toRef: readFlag(args, "--to") ?? "current",
+      ...budget
+    });
+  }
+  if (subcommand === "evidence") {
+    const id = readFlag(args, "--id") ?? args[1];
+    if (!id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
+    return daemon.book(cwd, { command: "evidence", id, ...budget });
+  }
+  if (subcommand === "recommendations") {
+    return daemon.book(cwd, { command: "recommendations", openOnly: args.includes("--open"), ...budget });
+  }
+  if (subcommand === "export") {
+    const format = readFlag(args, "--format") ?? "json";
+    if (format !== "json" && format !== "yaml" && format !== "markdown") {
+      return errorEnvelope("book.export", "AC_SCHEMA_INVALID", "book export --format must be json, yaml, or markdown");
+    }
+    return daemon.book(cwd, { command: "export", format, ...budget });
+  }
+  return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
 }
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

@@ -6,10 +6,17 @@ import {
   architectureLedgerPayload,
   architectureLedgerStateDigest,
   compareArchitectureLedgerStateToYaml,
+  diffArchitectureLedgerBookStates,
   planExternalProjectionChangeToArchitectureLedgerEvent,
   planGitCursorRefreshToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
+  queryArchitectureLedgerBook,
+  queryArchitectureLedgerBookEvidence,
+  queryArchitectureLedgerBookNeighbors,
+  queryArchitectureLedgerBookRecommendations,
+  queryArchitectureLedgerBookTimeline,
   projectArchitectureLedgerStateToYamlFiles,
+  showArchitectureLedgerBookSubject,
   type ArchitectureLedgerModelFile,
   type ArchitectureLedgerScope
 } from "../src/index";
@@ -116,6 +123,124 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     ]);
     expect(architectureLedgerStateDigest(plan.state)).toBe(plan.drift.projectedGraphDigest);
     expect(projectArchitectureLedgerStateToYamlFiles(plan.state)[0]!.body).toContain("schemaVersion: \"archcontext.constraint/v1\"");
+  });
+
+  test("queries Book state, neighbors, timeline, diff, evidence and recommendations with deterministic budgets", () => {
+    const files = [
+      modelFile(".archcontext/model/nodes/module.api.yaml", [
+        "schemaVersion: \"archcontext.node/v1\"",
+        "id: \"module.api\"",
+        "kind: \"module\"",
+        "name: \"API\"",
+        "status: \"active\"",
+        "summary: \"Serves checkout requests.\"",
+        ""
+      ]),
+      modelFile(".archcontext/model/nodes/module.checkout.yaml", [
+        "schemaVersion: \"archcontext.node/v1\"",
+        "id: \"module.checkout\"",
+        "kind: \"module\"",
+        "name: \"Checkout\"",
+        "status: \"active\"",
+        "summary: \"Owns checkout orchestration.\"",
+        ""
+      ]),
+      modelFile(".archcontext/model/relations/relation.checkout-api.yaml", [
+        "schemaVersion: \"archcontext.relation/v1\"",
+        "id: \"relation.checkout-api\"",
+        "kind: \"calls\"",
+        "source: \"module.checkout\"",
+        "target: \"module.api\"",
+        "intent: \"Checkout calls API.\"",
+        ""
+      ]),
+      modelFile(".archcontext/model/constraints/constraint.api-owner.yaml", [
+        "schemaVersion: \"archcontext.constraint/v1\"",
+        "id: \"constraint.api-owner\"",
+        "kind: \"owner-required\"",
+        "subject: \"module.api\"",
+        "severity: \"warning\"",
+        "summary: \"API must have an owner.\"",
+        ""
+      ]),
+      modelFile(".archcontext/manifest.yaml", [
+        "schemaVersion: \"archcontext.manifest/v1\"",
+        "product:",
+        "  id: \"product.checkout\"",
+        "  name: \"Checkout\"",
+        ""
+      ])
+    ];
+    const plan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      files,
+      createdAt: "2026-06-25T02:10:00.000Z"
+    });
+    const renamed = planYamlToArchitectureLedgerImport({
+      ...scope,
+      files: files.map((file) => file.path.endsWith("module.api.yaml")
+        ? modelFile(file.path, file.body.replace("Serves checkout requests.", "Serves checkout and refund requests."))
+        : file),
+      createdAt: "2026-06-25T02:11:00.000Z"
+    });
+    const recommendationEvent = {
+      ...plan.event,
+      eventId: "architecture_event.recommendation",
+      eventType: "architecture.recommendation.run",
+      timestamp: "2026-06-25T02:12:00.000Z",
+      payload: {
+        recommendations: [{
+          schemaVersion: "archcontext.recommendation/v1",
+          recommendationId: "recommendation.api-owner",
+          runId: "recommendation_run.one",
+          fingerprint: "sha256:recommendation",
+          subject: "module.api",
+          status: "open",
+          confidence: "medium",
+          enforcement: "advisory",
+          risk: "medium",
+          uncertainty: "low",
+          evidenceBindingIds: [],
+          explanation: ["API has owner-required constraint evidence."],
+          createdAt: "2026-06-25T02:12:00.000Z",
+          updatedAt: "2026-06-25T02:12:00.000Z"
+        }]
+      }
+    };
+
+    const query = queryArchitectureLedgerBook({ state: plan.state, events: [plan.event], query: "checkout", maxItems: 1, maxBytes: 4096 });
+    expect(query.results.map((result) => result.id)).toEqual(["module.checkout"]);
+    expect(query.results[0]?.scoreBreakdown.graphDistance).toBeGreaterThan(0);
+    expect(query.results[0]?.scoreBreakdown.recency).toBeGreaterThan(0);
+    expect(query.budget.truncated).toBe(true);
+    expect(query.reasonCodes).toContain("item-budget-exceeded");
+
+    const show = showArchitectureLedgerBookSubject(plan.state, "module.api");
+    expect(show.subject?.summary).toBe("Serves checkout requests.");
+
+    const neighbors = queryArchitectureLedgerBookNeighbors({ state: plan.state, id: "module.checkout", depth: 1, maxItems: 10 });
+    expect(neighbors.nodes.map((node) => node.id)).toEqual(["module.checkout", "module.api"]);
+    expect(neighbors.relations.map((relation) => relation.id)).toEqual(["relation.checkout-api"]);
+
+    const timeline = queryArchitectureLedgerBookTimeline({ events: [plan.event], subjectId: "module.api", maxItems: 5 });
+    expect(timeline.events[0]?.affectedSubjects).toEqual(expect.arrayContaining(["module.api", "relation.checkout-api"]));
+
+    const diff = diffArchitectureLedgerBookStates({
+      previousState: plan.state,
+      nextState: renamed.state,
+      fromRef: plan.event.eventId,
+      toRef: renamed.event.eventId
+    });
+    expect(diff.summary.changed).toBe(1);
+    expect(diff.changes).toContainEqual(expect.objectContaining({ id: "module.api", changeKind: "changed" }));
+    expect(diff.changes[0]).toMatchObject({ evidenceIds: [], evidenceBindingIds: [] });
+
+    const evidence = queryArchitectureLedgerBookEvidence({ events: [plan.event], id: "product.checkout" });
+    expect(evidence.evidenceItems.length).toBeGreaterThan(0);
+    expect(JSON.stringify(evidence)).not.toContain("Checkout calls API");
+
+    const recommendations = queryArchitectureLedgerBookRecommendations({ events: [recommendationEvent as any], openOnly: true });
+    expect(recommendations.recommendations.map((recommendation) => recommendation.recommendationId)).toEqual(["recommendation.api-owner"]);
   });
 
   test("imports ADR frontmatter policies and manifest metadata as declared evidence without graph mutation", () => {

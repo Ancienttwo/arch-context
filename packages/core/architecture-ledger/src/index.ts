@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import {
   architectureEventHash,
   architectureSnapshotDigest,
@@ -270,6 +271,150 @@ export interface ArchitectureLedgerIntegrityResult {
   failures: string[];
 }
 
+export type ArchitectureBookSubjectKind = "entity" | "relation" | "constraint";
+
+export interface ArchitectureBookBudgetInput {
+  maxItems?: number;
+  maxBytes?: number;
+}
+
+export interface ArchitectureBookBudgetReadback {
+  maxItems: number;
+  maxBytes: number;
+  returnedItems: number;
+  omittedItems: number;
+  byteLength: number;
+  truncated: boolean;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookSubjectRecord {
+  kind: ArchitectureBookSubjectKind;
+  id: string;
+  label: string;
+  status: string;
+  summary?: string;
+  path?: string;
+  metadata?: Record<string, Json>;
+  relation?: {
+    kind: string;
+    sourceEntityId: string;
+    targetEntityId: string;
+  };
+  constraint?: {
+    kind: string;
+    subjectId: string;
+    severity?: string;
+  };
+}
+
+export interface ArchitectureBookScoredSubject extends ArchitectureBookSubjectRecord {
+  score: number;
+  scoreBreakdown: {
+    taskRelevance: number;
+    graphDistance: number;
+    recency: number;
+    declaredImportance: number;
+    evidenceStrength: number;
+  };
+}
+
+export interface ArchitectureBookQueryResult {
+  schemaVersion: "archcontext.architecture-book-query/v1";
+  query: string;
+  graphDigest: string;
+  results: ArchitectureBookScoredSubject[];
+  budget: ArchitectureBookBudgetReadback;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookShowResult {
+  schemaVersion: "archcontext.architecture-book-show/v1";
+  id: string;
+  found: boolean;
+  subject?: ArchitectureBookSubjectRecord;
+  reasonCode?: "subject-not-found";
+}
+
+export interface ArchitectureBookNeighborsResult {
+  schemaVersion: "archcontext.architecture-book-neighbors/v1";
+  id: string;
+  depth: number;
+  center?: ArchitectureBookSubjectRecord;
+  nodes: (ArchitectureBookSubjectRecord & { distance: number })[];
+  relations: (ArchitectureBookSubjectRecord & { distance: number })[];
+  constraints: (ArchitectureBookSubjectRecord & { distance: number })[];
+  budget: ArchitectureBookBudgetReadback;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookTimelineEntry {
+  eventId: string;
+  eventType: string;
+  timestamp: string;
+  source: ArchitectureEventV1["source"];
+  headSha: string;
+  summary?: string;
+  title?: string;
+  operationCount: number;
+  affectedSubjects: string[];
+  resultingDigest: string;
+}
+
+export interface ArchitectureBookTimelineResult {
+  schemaVersion: "archcontext.architecture-book-timeline/v1";
+  subjectId?: string;
+  sinceEventId?: string;
+  sinceFound: boolean;
+  events: ArchitectureBookTimelineEntry[];
+  budget: ArchitectureBookBudgetReadback;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookDiffChange {
+  kind: ArchitectureBookSubjectKind;
+  id: string;
+  changeKind: "added" | "removed" | "changed";
+  reasonCodes: string[];
+  evidenceIds: string[];
+  evidenceBindingIds: string[];
+  before?: ArchitectureBookSubjectRecord;
+  after?: ArchitectureBookSubjectRecord;
+}
+
+export interface ArchitectureBookDiffResult {
+  schemaVersion: "archcontext.architecture-book-diff/v1";
+  fromRef: string;
+  toRef: string;
+  fromGraphDigest: string;
+  toGraphDigest: string;
+  changes: ArchitectureBookDiffChange[];
+  summary: {
+    added: number;
+    removed: number;
+    changed: number;
+  };
+  budget: ArchitectureBookBudgetReadback;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookEvidenceResult {
+  schemaVersion: "archcontext.architecture-book-evidence/v1";
+  id: string;
+  evidenceItems: EvidenceItemV2[];
+  evidenceBindings: EvidenceBindingV1[];
+  budget: ArchitectureBookBudgetReadback;
+  reasonCodes: string[];
+}
+
+export interface ArchitectureBookRecommendationsResult {
+  schemaVersion: "archcontext.architecture-book-recommendations/v1";
+  openOnly: boolean;
+  recommendations: RecommendationV2[];
+  budget: ArchitectureBookBudgetReadback;
+  reasonCodes: string[];
+}
+
 export function normalizeArchitectureLedgerEvent(event: ArchitectureEventV1, previousEventHash: string | null): ArchitectureEventV1 {
   const normalized = {
     ...event,
@@ -282,6 +427,309 @@ export function normalizeArchitectureLedgerEvent(event: ArchitectureEventV1, pre
 
 export function architectureLedgerStateDigest(state: ArchitectureLedgerGraphState): string {
   return digestJson(canonicalArchitectureLedgerState(state) as unknown as Json);
+}
+
+export function architectureLedgerBookSubjects(state: ArchitectureLedgerGraphState): ArchitectureBookSubjectRecord[] {
+  const subjects: ArchitectureBookSubjectRecord[] = [
+    ...state.entities.map((entity) => ({
+      kind: "entity" as const,
+      id: entity.entityId,
+      label: entity.canonicalName,
+      status: entity.status,
+      ...(entity.summary ? { summary: entity.summary } : {}),
+      ...(entity.path ? { path: entity.path } : {}),
+      ...(entity.metadata ? { metadata: entity.metadata } : {})
+    })),
+    ...state.relations.map((relation) => ({
+      kind: "relation" as const,
+      id: relation.relationId,
+      label: `${relation.sourceEntityId} -> ${relation.targetEntityId}`,
+      status: relation.status,
+      ...(relation.summary ? { summary: relation.summary } : {}),
+      ...(relation.metadata ? { metadata: relation.metadata } : {}),
+      relation: {
+        kind: relation.kind,
+        sourceEntityId: relation.sourceEntityId,
+        targetEntityId: relation.targetEntityId
+      }
+    })),
+    ...state.constraints.map((constraint) => ({
+      kind: "constraint" as const,
+      id: constraint.constraintId,
+      label: constraint.subjectId,
+      status: constraint.status,
+      ...(constraint.summary ? { summary: constraint.summary } : {}),
+      ...(constraint.metadata ? { metadata: constraint.metadata } : {}),
+      constraint: {
+        kind: constraint.kind,
+        subjectId: constraint.subjectId,
+        ...(constraint.severity ? { severity: constraint.severity } : {})
+      }
+    }))
+  ];
+  return subjects.sort(compareBookSubjects);
+}
+
+export function showArchitectureLedgerBookSubject(state: ArchitectureLedgerGraphState, id: string): ArchitectureBookShowResult {
+  const subject = architectureLedgerBookSubjects(state).find((candidate) => candidate.id === id);
+  return subject
+    ? { schemaVersion: "archcontext.architecture-book-show/v1", id, found: true, subject }
+    : { schemaVersion: "archcontext.architecture-book-show/v1", id, found: false, reasonCode: "subject-not-found" };
+}
+
+export function queryArchitectureLedgerBook(input: ArchitectureBookBudgetInput & {
+  state: ArchitectureLedgerGraphState;
+  query?: string;
+  events?: ArchitectureEventV1[];
+}): ArchitectureBookQueryResult {
+  const query = input.query?.trim() ?? "";
+  const tokens = tokenizeBookQuery(query);
+  const subjects = architectureLedgerBookSubjects(input.state);
+  const baseScored = subjects.map((subject) => scoreBookSubject(subject, tokens));
+  const seedSubjects = baseScored.filter((subject) => subject.scoreBreakdown.taskRelevance > 0);
+  const graphDistanceScores = bookGraphDistanceScores(input.state, seedSubjects.length > 0 ? seedSubjects : subjects);
+  const recencyScores = bookRecencyScores(input.events ?? []);
+  const scored = subjects
+    .map((subject) => scoreBookSubject(subject, tokens, {
+      graphDistance: graphDistanceScores.get(subject.id) ?? 0,
+      recency: recencyScores.get(subject.id) ?? 0
+    }))
+    .filter((subject) => tokens.length === 0 || subject.score > 0)
+    .sort((left, right) => right.score - left.score || compareBookSubjects(left, right));
+  const limited = applyArchitectureBookBudget(scored, input);
+  return {
+    schemaVersion: "archcontext.architecture-book-query/v1",
+    query,
+    graphDigest: architectureLedgerStateDigest(input.state),
+    results: limited.items,
+    budget: limited.budget,
+    reasonCodes: limited.budget.reasonCodes
+  };
+}
+
+export function queryArchitectureLedgerBookNeighbors(input: ArchitectureBookBudgetInput & {
+  state: ArchitectureLedgerGraphState;
+  id: string;
+  depth?: number;
+}): ArchitectureBookNeighborsResult {
+  const depth = Math.max(0, Math.floor(input.depth ?? 1));
+  const subjects = architectureLedgerBookSubjects(input.state);
+  const center = subjects.find((subject) => subject.id === input.id);
+  if (!center) {
+    const limited = applyArchitectureBookBudget([], input);
+    return {
+      schemaVersion: "archcontext.architecture-book-neighbors/v1",
+      id: input.id,
+      depth,
+      nodes: [],
+      relations: [],
+      constraints: [],
+      budget: limited.budget,
+      reasonCodes: ["subject-not-found"]
+    };
+  }
+
+  const entityDistances = new Map<string, number>();
+  const relationDistances = new Map<string, number>();
+  const constraintDistances = new Map<string, number>();
+  const queue: { entityId: string; distance: number }[] = [];
+  const enqueueEntity = (entityId: string, distance: number) => {
+    if (distance > depth) return;
+    const existing = entityDistances.get(entityId);
+    if (existing !== undefined && existing <= distance) return;
+    entityDistances.set(entityId, distance);
+    queue.push({ entityId, distance });
+  };
+
+  if (center.kind === "entity") {
+    enqueueEntity(center.id, 0);
+  } else if (center.relation) {
+    relationDistances.set(center.id, 0);
+    enqueueEntity(center.relation.sourceEntityId, Math.min(depth, 1));
+    enqueueEntity(center.relation.targetEntityId, Math.min(depth, 1));
+  } else if (center.constraint) {
+    constraintDistances.set(center.id, 0);
+    enqueueEntity(center.constraint.subjectId, Math.min(depth, 1));
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.distance >= depth) continue;
+    for (const relation of input.state.relations) {
+      if (relation.status === "removed") continue;
+      if (relation.sourceEntityId !== current.entityId && relation.targetEntityId !== current.entityId) continue;
+      const nextDistance = current.distance + 1;
+      relationDistances.set(relation.relationId, Math.min(relationDistances.get(relation.relationId) ?? nextDistance, nextDistance));
+      enqueueEntity(relation.sourceEntityId === current.entityId ? relation.targetEntityId : relation.sourceEntityId, nextDistance);
+    }
+    for (const constraint of input.state.constraints) {
+      if (constraint.status === "removed" || constraint.subjectId !== current.entityId) continue;
+      const nextDistance = current.distance + 1;
+      constraintDistances.set(constraint.constraintId, Math.min(constraintDistances.get(constraint.constraintId) ?? nextDistance, nextDistance));
+    }
+  }
+
+  const tagged = [
+    ...subjects
+      .filter((subject) => subject.kind === "entity" && entityDistances.has(subject.id))
+      .map((subject) => ({ ...subject, distance: entityDistances.get(subject.id)! })),
+    ...subjects
+      .filter((subject) => subject.kind === "relation" && relationDistances.has(subject.id))
+      .map((subject) => ({ ...subject, distance: relationDistances.get(subject.id)! })),
+    ...subjects
+      .filter((subject) => subject.kind === "constraint" && constraintDistances.has(subject.id))
+      .map((subject) => ({ ...subject, distance: constraintDistances.get(subject.id)! }))
+  ].sort((left, right) => left.distance - right.distance || compareBookSubjects(left, right));
+  const limited = applyArchitectureBookBudget(tagged, input);
+  return {
+    schemaVersion: "archcontext.architecture-book-neighbors/v1",
+    id: input.id,
+    depth,
+    center,
+    nodes: limited.items.filter((subject) => subject.kind === "entity"),
+    relations: limited.items.filter((subject) => subject.kind === "relation"),
+    constraints: limited.items.filter((subject) => subject.kind === "constraint"),
+    budget: limited.budget,
+    reasonCodes: limited.budget.reasonCodes
+  };
+}
+
+export function queryArchitectureLedgerBookTimeline(input: ArchitectureBookBudgetInput & {
+  events: ArchitectureEventV1[];
+  subjectId?: string;
+  sinceEventId?: string;
+}): ArchitectureBookTimelineResult {
+  let sinceFound = input.sinceEventId === undefined;
+  const entries: ArchitectureBookTimelineEntry[] = [];
+  for (const event of input.events) {
+    if (!sinceFound) {
+      sinceFound = event.eventId === input.sinceEventId;
+      continue;
+    }
+    const payload = architectureLedgerPayload(event);
+    const operations = payload.operations ?? [];
+    const affectedSubjects = uniqueSorted(operations.flatMap(affectedSubjectsForOperation));
+    if (input.subjectId && !affectedSubjects.includes(input.subjectId)) continue;
+    entries.push({
+      eventId: event.eventId,
+      eventType: event.eventType,
+      timestamp: event.timestamp,
+      source: event.source,
+      headSha: event.headSha,
+      ...(payload.summary ? { summary: payload.summary } : {}),
+      ...(payload.title ? { title: payload.title } : {}),
+      operationCount: operations.length,
+      affectedSubjects,
+      resultingDigest: event.resultingDigest
+    });
+  }
+  const limited = applyArchitectureBookBudget(entries.sort((left, right) => left.timestamp.localeCompare(right.timestamp) || left.eventId.localeCompare(right.eventId)), input);
+  return {
+    schemaVersion: "archcontext.architecture-book-timeline/v1",
+    ...(input.subjectId ? { subjectId: input.subjectId } : {}),
+    ...(input.sinceEventId ? { sinceEventId: input.sinceEventId } : {}),
+    sinceFound,
+    events: limited.items,
+    budget: limited.budget,
+    reasonCodes: [
+      ...(sinceFound ? [] : ["since-ref-not-found"]),
+      ...limited.budget.reasonCodes
+    ]
+  };
+}
+
+export function diffArchitectureLedgerBookStates(input: ArchitectureBookBudgetInput & {
+  previousState: ArchitectureLedgerGraphState;
+  nextState: ArchitectureLedgerGraphState;
+  fromRef: string;
+  toRef: string;
+  events?: ArchitectureEventV1[];
+}): ArchitectureBookDiffResult {
+  const previous = new Map(architectureLedgerBookSubjects(input.previousState).map((subject) => [bookSubjectKey(subject), subject]));
+  const next = new Map(architectureLedgerBookSubjects(input.nextState).map((subject) => [bookSubjectKey(subject), subject]));
+  const evidenceLinks = bookEvidenceLinksBySubject(input.events ?? []);
+  const changes: ArchitectureBookDiffChange[] = [];
+  for (const [key, after] of next) {
+    const before = previous.get(key);
+    const links = evidenceLinks.get(after.id) ?? { evidenceIds: [], evidenceBindingIds: [] };
+    if (!before) {
+      changes.push({ kind: after.kind, id: after.id, changeKind: "added", reasonCodes: ["subject-added"], ...links, after });
+      continue;
+    }
+    if (digestJson(before as unknown as Json) !== digestJson(after as unknown as Json)) {
+      changes.push({ kind: after.kind, id: after.id, changeKind: "changed", reasonCodes: ["subject-changed"], ...links, before, after });
+    }
+  }
+  for (const [key, before] of previous) {
+    if (next.has(key)) continue;
+    const links = evidenceLinks.get(before.id) ?? { evidenceIds: [], evidenceBindingIds: [] };
+    changes.push({ kind: before.kind, id: before.id, changeKind: "removed", reasonCodes: ["subject-removed"], ...links, before });
+  }
+  changes.sort((left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id) || left.changeKind.localeCompare(right.changeKind));
+  const limited = applyArchitectureBookBudget(changes, input);
+  return {
+    schemaVersion: "archcontext.architecture-book-diff/v1",
+    fromRef: input.fromRef,
+    toRef: input.toRef,
+    fromGraphDigest: architectureLedgerStateDigest(input.previousState),
+    toGraphDigest: architectureLedgerStateDigest(input.nextState),
+    changes: limited.items,
+    summary: {
+      added: changes.filter((change) => change.changeKind === "added").length,
+      removed: changes.filter((change) => change.changeKind === "removed").length,
+      changed: changes.filter((change) => change.changeKind === "changed").length
+    },
+    budget: limited.budget,
+    reasonCodes: limited.budget.reasonCodes
+  };
+}
+
+export function queryArchitectureLedgerBookEvidence(input: ArchitectureBookBudgetInput & {
+  events: ArchitectureEventV1[];
+  id: string;
+}): ArchitectureBookEvidenceResult {
+  const evidenceItems: EvidenceItemV2[] = [];
+  const evidenceBindings: EvidenceBindingV1[] = [];
+  for (const event of input.events) {
+    const payload = architectureLedgerPayload(event);
+    for (const item of payload.evidenceItems ?? []) {
+      if (item.evidenceId === input.id || item.subject === input.id || item.selector.id === input.id) evidenceItems.push(item);
+    }
+    for (const binding of payload.evidenceBindings ?? []) {
+      if (binding.bindingId === input.id || binding.evidenceId === input.id || binding.target.id === input.id) evidenceBindings.push(binding);
+    }
+  }
+  const tagged = [
+    ...evidenceItems.map((item) => ({ itemType: "evidenceItem" as const, value: item })),
+    ...evidenceBindings.map((binding) => ({ itemType: "evidenceBinding" as const, value: binding }))
+  ].sort((left, right) => `${left.itemType}:${evidenceRecordId(left.value)}`.localeCompare(`${right.itemType}:${evidenceRecordId(right.value)}`));
+  const limited = applyArchitectureBookBudget(tagged, input);
+  return {
+    schemaVersion: "archcontext.architecture-book-evidence/v1",
+    id: input.id,
+    evidenceItems: limited.items.filter((item) => item.itemType === "evidenceItem").map((item) => item.value as EvidenceItemV2),
+    evidenceBindings: limited.items.filter((item) => item.itemType === "evidenceBinding").map((item) => item.value as EvidenceBindingV1),
+    budget: limited.budget,
+    reasonCodes: limited.budget.reasonCodes
+  };
+}
+
+export function queryArchitectureLedgerBookRecommendations(input: ArchitectureBookBudgetInput & {
+  events: ArchitectureEventV1[];
+  openOnly?: boolean;
+}): ArchitectureBookRecommendationsResult {
+  const recommendations = input.events
+    .flatMap((event) => architectureLedgerPayload(event).recommendations ?? [])
+    .filter((recommendation) => !input.openOnly || recommendation.status === "open")
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.recommendationId.localeCompare(right.recommendationId));
+  const limited = applyArchitectureBookBudget(recommendations, input);
+  return {
+    schemaVersion: "archcontext.architecture-book-recommendations/v1",
+    openOnly: input.openOnly ?? false,
+    recommendations: limited.items,
+    budget: limited.budget,
+    reasonCodes: limited.budget.reasonCodes
+  };
 }
 
 export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYamlImportInput): ArchitectureLedgerYamlImportPlan {
@@ -666,6 +1114,240 @@ function stateFromOperations(operations: ArchitectureLedgerOperation[]): Archite
     },
     payload: { operations } as unknown as Json
   }]);
+}
+
+function compareBookSubjects(left: Pick<ArchitectureBookSubjectRecord, "kind" | "id">, right: Pick<ArchitectureBookSubjectRecord, "kind" | "id">): number {
+  return left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id);
+}
+
+function tokenizeBookQuery(query: string): string[] {
+  return uniqueSorted(query.toLowerCase().split(/[^a-z0-9_.-]+/).map((token) => token.trim()).filter(Boolean));
+}
+
+function scoreBookSubject(
+  subject: ArchitectureBookSubjectRecord,
+  tokens: string[],
+  signals: { graphDistance?: number; recency?: number } = {}
+): ArchitectureBookScoredSubject {
+  const haystacks = {
+    id: subject.id.toLowerCase(),
+    label: subject.label.toLowerCase(),
+    summary: (subject.summary ?? "").toLowerCase(),
+    kind: subject.kind.toLowerCase(),
+    path: (subject.path ?? "").toLowerCase()
+  };
+  let taskRelevance = tokens.length === 0 ? 1 : 0;
+  for (const token of tokens) {
+    if (haystacks.id === token) taskRelevance += 80;
+    else if (haystacks.id.includes(token)) taskRelevance += 40;
+    if (haystacks.label.includes(token)) taskRelevance += 25;
+    if (haystacks.summary.includes(token)) taskRelevance += 15;
+    if (haystacks.kind.includes(token)) taskRelevance += 5;
+    if (haystacks.path.includes(token)) taskRelevance += 5;
+  }
+  const declaredImportance = bookImportanceScore(subject.metadata);
+  const evidenceStrength = bookEvidenceStrengthScore(subject.metadata);
+  const graphDistance = signals.graphDistance ?? 0;
+  const recency = signals.recency ?? 0;
+  const score = taskRelevance + graphDistance + recency + declaredImportance + evidenceStrength;
+  return {
+    ...subject,
+    score,
+    scoreBreakdown: {
+      taskRelevance,
+      graphDistance,
+      recency,
+      declaredImportance,
+      evidenceStrength
+    }
+  };
+}
+
+function bookGraphDistanceScores(state: ArchitectureLedgerGraphState, seeds: ArchitectureBookSubjectRecord[]): Map<string, number> {
+  const maxDepth = 2;
+  const entityDistances = new Map<string, number>();
+  const relationDistances = new Map<string, number>();
+  const constraintDistances = new Map<string, number>();
+  const queue: { entityId: string; distance: number }[] = [];
+  const enqueueEntity = (entityId: string, distance: number) => {
+    if (distance > maxDepth) return;
+    const existing = entityDistances.get(entityId);
+    if (existing !== undefined && existing <= distance) return;
+    entityDistances.set(entityId, distance);
+    queue.push({ entityId, distance });
+  };
+  for (const seed of seeds) {
+    if (seed.kind === "entity") enqueueEntity(seed.id, 0);
+    else if (seed.relation) {
+      relationDistances.set(seed.id, Math.min(relationDistances.get(seed.id) ?? 0, 0));
+      enqueueEntity(seed.relation.sourceEntityId, 1);
+      enqueueEntity(seed.relation.targetEntityId, 1);
+    } else if (seed.constraint) {
+      constraintDistances.set(seed.id, Math.min(constraintDistances.get(seed.id) ?? 0, 0));
+      enqueueEntity(seed.constraint.subjectId, 1);
+    }
+  }
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.distance >= maxDepth) continue;
+    for (const relation of state.relations) {
+      if (relation.status === "removed") continue;
+      if (relation.sourceEntityId !== current.entityId && relation.targetEntityId !== current.entityId) continue;
+      const distance = current.distance + 1;
+      relationDistances.set(relation.relationId, Math.min(relationDistances.get(relation.relationId) ?? distance, distance));
+      enqueueEntity(relation.sourceEntityId === current.entityId ? relation.targetEntityId : relation.sourceEntityId, distance);
+    }
+    for (const constraint of state.constraints) {
+      if (constraint.status === "removed" || constraint.subjectId !== current.entityId) continue;
+      const distance = current.distance + 1;
+      constraintDistances.set(constraint.constraintId, Math.min(constraintDistances.get(constraint.constraintId) ?? distance, distance));
+    }
+  }
+  const scores = new Map<string, number>();
+  for (const [id, distance] of entityDistances) scores.set(id, bookGraphDistanceScore(distance));
+  for (const [id, distance] of relationDistances) scores.set(id, bookGraphDistanceScore(distance));
+  for (const [id, distance] of constraintDistances) scores.set(id, bookGraphDistanceScore(distance));
+  return scores;
+}
+
+function bookGraphDistanceScore(distance: number): number {
+  if (distance <= 0) return 8;
+  if (distance === 1) return 5;
+  if (distance === 2) return 2;
+  return 0;
+}
+
+function bookRecencyScores(events: ArchitectureEventV1[]): Map<string, number> {
+  const scores = new Map<string, number>();
+  const recent = events.slice(-20).reverse();
+  recent.forEach((event, index) => {
+    const score = Math.max(1, 10 - index);
+    const payload = architectureLedgerPayload(event);
+    const subjects = uniqueSorted((payload.operations ?? []).flatMap(affectedSubjectsForOperation));
+    for (const subject of subjects) scores.set(subject, Math.max(scores.get(subject) ?? 0, score));
+  });
+  return scores;
+}
+
+function bookImportanceScore(metadata: Record<string, Json> | undefined): number {
+  const value = String(metadata?.importance ?? metadata?.priority ?? "").toLowerCase();
+  if (value === "critical" || value === "high") return 20;
+  if (value === "medium") return 10;
+  if (value === "low") return 2;
+  return 0;
+}
+
+function bookEvidenceStrengthScore(metadata: Record<string, Json> | undefined): number {
+  const value = String(metadata?.evidenceStrength ?? "").toLowerCase();
+  if (value === "verified") return 12;
+  if (value === "observed") return 8;
+  if (value === "declared") return 4;
+  return 0;
+}
+
+function applyArchitectureBookBudget<T>(
+  items: T[],
+  input: ArchitectureBookBudgetInput
+): { items: T[]; budget: ArchitectureBookBudgetReadback } {
+  const maxItems = Math.max(0, Math.floor(input.maxItems ?? 12));
+  const maxBytes = Math.max(256, Math.floor(input.maxBytes ?? 12_288));
+  const selected: T[] = [];
+  let byteLength = 2;
+  let omittedItems = 0;
+  let hitItemBudget = false;
+  let hitByteBudget = false;
+  for (const item of items) {
+    if (selected.length >= maxItems) {
+      omittedItems += 1;
+      hitItemBudget = true;
+      continue;
+    }
+    const itemBytes = bookByteLength(item) + (selected.length === 0 ? 0 : 1);
+    if (byteLength + itemBytes > maxBytes) {
+      omittedItems += 1;
+      hitByteBudget = true;
+      continue;
+    }
+    selected.push(item);
+    byteLength += itemBytes;
+  }
+  const reasonCodes = [
+    ...(hitItemBudget ? ["item-budget-exceeded"] : []),
+    ...(hitByteBudget ? ["byte-budget-exceeded"] : [])
+  ];
+  return {
+    items: selected,
+    budget: {
+      maxItems,
+      maxBytes,
+      returnedItems: selected.length,
+      omittedItems,
+      byteLength,
+      truncated: omittedItems > 0,
+      reasonCodes
+    }
+  };
+}
+
+function bookByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function affectedSubjectsForOperation(operation: ArchitectureLedgerOperation): string[] {
+  switch (operation.op) {
+    case "upsert_entity":
+      return [operation.entity.entityId];
+    case "delete_entity":
+      return [operation.entityId];
+    case "upsert_relation":
+      return [operation.relation.relationId, operation.relation.sourceEntityId, operation.relation.targetEntityId];
+    case "delete_relation":
+      return [operation.relationId];
+    case "upsert_constraint":
+      return [operation.constraint.constraintId, operation.constraint.subjectId];
+    case "delete_constraint":
+      return [operation.constraintId];
+  }
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort();
+}
+
+function bookSubjectKey(subject: Pick<ArchitectureBookSubjectRecord, "kind" | "id">): string {
+  return `${subject.kind}:${subject.id}`;
+}
+
+function evidenceRecordId(record: EvidenceItemV2 | EvidenceBindingV1): string {
+  return "bindingId" in record ? record.bindingId : record.evidenceId;
+}
+
+function bookEvidenceLinksBySubject(events: ArchitectureEventV1[]): Map<string, { evidenceIds: string[]; evidenceBindingIds: string[] }> {
+  const bySubject = new Map<string, { evidenceIds: Set<string>; evidenceBindingIds: Set<string> }>();
+  const record = (subjectId: string | undefined, link: { evidenceId?: string; evidenceBindingId?: string }) => {
+    if (!subjectId) return;
+    const existing = bySubject.get(subjectId) ?? { evidenceIds: new Set<string>(), evidenceBindingIds: new Set<string>() };
+    if (link.evidenceId) existing.evidenceIds.add(link.evidenceId);
+    if (link.evidenceBindingId) existing.evidenceBindingIds.add(link.evidenceBindingId);
+    bySubject.set(subjectId, existing);
+  };
+  for (const event of events) {
+    const payload = architectureLedgerPayload(event);
+    for (const item of payload.evidenceItems ?? []) {
+      record(item.subject, { evidenceId: item.evidenceId });
+      record(item.selector.id, { evidenceId: item.evidenceId });
+    }
+    for (const binding of payload.evidenceBindings ?? []) {
+      record(binding.target.id, { evidenceId: binding.evidenceId, evidenceBindingId: binding.bindingId });
+    }
+  }
+  return new Map([...bySubject.entries()].map(([subjectId, links]) => [
+    subjectId,
+    {
+      evidenceIds: [...links.evidenceIds].sort(),
+      evidenceBindingIds: [...links.evidenceBindingIds].sort()
+    }
+  ]));
 }
 
 export function projectArchitectureLedgerStateToYamlFiles(state: ArchitectureLedgerGraphState): ArchitectureLedgerProjectionFile[] {

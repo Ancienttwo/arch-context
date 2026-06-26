@@ -1024,6 +1024,14 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(materialized.entities).toHaveLength(1000);
       expect(materialized.relations).toHaveLength(1);
       expect(materialized.constraints).toHaveLength(1);
+      const neighborhood = await store.readArchitectureLedgerNeighborhood({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        id: "entity.0",
+        depth: 1
+      });
+      expect(neighborhood.entities.map((entity) => entity.entityId)).toEqual(["entity.0", "entity.1"]);
+      expect(neighborhood.relations.map((relation) => relation.relationId)).toEqual(["relation.root-to-worker"]);
+      expect(neighborhood.constraints.map((constraint) => constraint.constraintId)).toEqual(["constraint.root-owned"]);
       await expect(store.readArchitectureLedgerSourceCursor({
         ...ARCHITECTURE_LEDGER_SCOPE,
         cursorId: "cursor.root"

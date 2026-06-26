@@ -5,6 +5,7 @@ import {
   architectureLedgerStateDigest,
   emptyArchitectureLedgerState,
   normalizeArchitectureLedgerEvent,
+  queryArchitectureLedgerBookNeighbors,
   replayArchitectureLedgerEvents,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
@@ -487,6 +488,19 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState> {
     return this.stateForScope(input);
+  }
+
+  async readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState> {
+    const state = await this.readArchitectureLedgerState(input);
+    const neighbors = queryArchitectureLedgerBookNeighbors({ state, id: input.id, depth: input.depth, maxItems: 10_000, maxBytes: 1_000_000 });
+    const entityIds = new Set(neighbors.nodes.map((node) => node.id));
+    const relationIds = new Set(neighbors.relations.map((relation) => relation.id));
+    const constraintIds = new Set(neighbors.constraints.map((constraint) => constraint.id));
+    return {
+      entities: state.entities.filter((entity) => entityIds.has(entity.entityId)),
+      relations: state.relations.filter((relation) => relationIds.has(relation.relationId)),
+      constraints: state.constraints.filter((constraint) => constraintIds.has(constraint.constraintId))
+    };
   }
 
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {

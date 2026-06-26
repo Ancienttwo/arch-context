@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 next
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 Book CLI retrieval slice complete; AL7 MCP/context/benchmark slices remain
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -123,7 +123,7 @@ These are target gates, not claims about current performance.
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ☑ |
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ☑ |
 | AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
-| AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◻ |
+| AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◐ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◻ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
 | AL10 | Shadow rollout, migration and GA hardening | P0 | AL0–AL9 | ◻ |
@@ -795,14 +795,30 @@ archctx book export --format yaml|markdown|json
 
 ### Tasks
 
-- [ ] **AL7-01 · P0 · `architecture-ledger`** — Implement current-state query API for nodes, relations, constraints and migration state.
-- [ ] **AL7-02 · P0 · `architecture-ledger`** — Implement graph-neighborhood queries using indexed joins or recursive CTEs.
-- [ ] **AL7-03 · P0 · `architecture-ledger`** — Implement temporal queries by event, commit, timestamp and snapshot.
-- [ ] **AL7-04 · P0 · `architecture-ledger`** — Implement architecture diff between two refs with reason and evidence links.
-- [ ] **AL7-05 · P0 · `retrieval`** — Rank results by task relevance, graph distance, recency, declared importance and evidence strength.
-- [ ] **AL7-06 · P0 · `retrieval`** — Enforce byte/item budgets and deterministic truncation.
-- [ ] **AL7-07 · P0 · `retrieval`** — Return freshness metadata: repository, HEAD SHA, worktree digest, ledger cursor and projection digest.
-- [ ] **AL7-08 · P0 · `cli`** — Implement the Book commands with stable JSON envelopes and reason codes.
+- [x] **AL7-01 · P0 · `architecture-ledger`** — Implement current-state query API for nodes, relations, constraints and migration state.
+  - Evidence: `architectureLedgerBookSubjects`, `queryArchitectureLedgerBook` and `showArchitectureLedgerBookSubject` expose current graph subjects with metadata; migration-state remains represented through existing graph metadata/constraint semantics rather than a new current table.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-02 · P0 · `architecture-ledger`** — Implement graph-neighborhood queries using indexed joins or recursive CTEs.
+  - Evidence: `readArchitectureLedgerNeighborhood` uses SQLite current graph tables and a recursive CTE; Book neighbors then formats bounded entity/relation/constraint results.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-03 · P0 · `architecture-ledger`** — Implement temporal queries by event, commit, timestamp and snapshot.
+  - Evidence: daemon Book refs support `empty`, `current`, event id, `event:<id>`, `commit:<sha>`, `timestamp:<iso>` and `snapshot:<id>`; CLI fixture asserts commit, timestamp and snapshot diff readbacks.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-04 · P0 · `architecture-ledger`** — Implement architecture diff between two refs with reason and evidence links.
+  - Evidence: `diffArchitectureLedgerBookStates` returns added/removed/changed subjects with stable reason codes; evidence lookup returns bounded evidence items and bindings by subject/selector/target id.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-05 · P0 · `retrieval`** — Rank results by task relevance, graph distance, recency, declared importance and evidence strength.
+  - Evidence: Book query score breakdown now includes task relevance, graph distance from current graph, recency from ledger events, and metadata-derived importance/evidence strength.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-06 · P0 · `retrieval`** — Enforce byte/item budgets and deterministic truncation.
+  - Evidence: `applyArchitectureBookBudget` returns max item/byte readback, omitted count, truncation flag and `item-budget-exceeded` / `byte-budget-exceeded` reason codes.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-07 · P0 · `retrieval`** — Return freshness metadata: repository, HEAD SHA, worktree digest, ledger cursor and projection digest.
+  - Evidence: daemon Book success envelopes include `archcontext.book-freshness/v1` with repository/worktree/read authority, HEAD SHA, worktree digest, graph digest, projection digest and ledger cursor.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+- [x] **AL7-08 · P0 · `cli`** — Implement the Book commands with stable JSON envelopes and reason codes.
+  - Evidence: `archctx book status/query/show/neighbors/timeline/diff/evidence/recommendations/export` delegates to daemon Book RPC; CLI fixture covers stable success envelopes and schema errors stay centralized.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
 - [ ] **AL7-09 · P0 · `mcp-local`** — Expose architecture state, timeline, diff and recommendations primarily as MCP resources.
 - [ ] **AL7-10 · P0 · `mcp-local`** — Keep the existing small tool surface; route mutations through existing plan/apply tools rather than adding one tool per query.
 - [ ] **AL7-11 · P0 · `context-compiler`** — Consume ledger queries first, then request only missing code facts from CodeGraph.
@@ -817,7 +833,16 @@ archctx book export --format yaml|markdown|json
 - [ ] **AL7-EG2** — Every response carries freshness and provenance.
 - [ ] **AL7-EG3** — An LLM can answer “what changed, why, what depends on it and what remains risky?” from Book output alone on acceptance fixtures.
 - [ ] **AL7-EG4** — MCP and CLI return semantically equivalent results.
-- [ ] **AL7-EG5** — Context budget overflow is deterministic and explicit.
+- [x] **AL7-EG5** — Context budget overflow is deterministic and explicit.
+  - Evidence: Book query, neighbors, timeline, diff, evidence and recommendations return deterministic item/byte budget readback plus truncation reason codes; focused tests cover item-budget truncation.
+
+### AL7 execution log
+
+- 2026-06-26: Completed AL7 Book CLI retrieval slice on branch `codex/architecture-ledger-al7-book-retrieval`.
+  - Query/read model: current-state Book subjects, graph-neighborhood CTE reads, temporal refs, diff, evidence and recommendations are exposed through the daemon without changing ledger mutation authority.
+  - CLI: `archctx book status/query/show/neighbors/timeline/diff/evidence/recommendations/export` returns stable JSON envelopes with freshness on successful reads.
+  - Verification artifact: `docs/verification/architecture-ledger-al7-book-retrieval.md`.
+  - Focused verification: `bun run typecheck`; `bun test packages/core/architecture-ledger/test/architecture-ledger.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts -t "Book" --timeout 120000`.
 
 ---
 

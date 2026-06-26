@@ -21,15 +21,24 @@ import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@arc
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   architectureLedgerGitCursorFromPlan,
+  architectureLedgerBookSubjects,
   architectureLedgerStateDigest,
   architectureLedgerProjectionDigest,
   compareArchitectureLedgerStateToYaml,
+  diffArchitectureLedgerBookStates,
   planChangeSetApplyToArchitectureLedgerEvent,
   planExternalProjectionChangeToArchitectureLedgerEvent,
   planGitCursorRefreshToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
   planYamlToArchitectureLedgerRebuild,
   projectArchitectureLedgerStateToYamlFiles,
+  queryArchitectureLedgerBook,
+  queryArchitectureLedgerBookEvidence,
+  queryArchitectureLedgerBookNeighbors,
+  queryArchitectureLedgerBookRecommendations,
+  queryArchitectureLedgerBookTimeline,
+  replayArchitectureLedgerEvents,
+  showArchitectureLedgerBookSubject,
   type ArchitectureLedgerAppendResult,
   type ArchitectureLedgerProjectionFile,
   type ArchitectureLedgerScope,
@@ -49,7 +58,7 @@ import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/revi
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -83,6 +92,21 @@ export interface RuntimeCheckpointInput {
   expectedWorktreeDigest?: string;
   maxBytes?: number;
   maxItems?: number;
+}
+
+export interface RuntimeBookInput {
+  command?: "status" | "query" | "show" | "neighbors" | "timeline" | "diff" | "evidence" | "recommendations" | "export";
+  id?: string;
+  query?: string;
+  task?: string;
+  depth?: number;
+  fromRef?: string;
+  toRef?: string;
+  sinceRef?: string;
+  openOnly?: boolean;
+  format?: "yaml" | "markdown" | "json";
+  maxItems?: number;
+  maxBytes?: number;
 }
 
 export interface RuntimeAgentJobEnqueueGitInput {
@@ -454,6 +478,7 @@ export interface RuntimeDaemonClient {
   ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
+  book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -1585,6 +1610,134 @@ export class ArchctxDaemon {
       drift: readback.drift,
       reconcile: readback.reconcile
     } as unknown as Json);
+  }
+
+  async book(root: string, input: RuntimeBookInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const command = input.command ?? "status";
+    const readback = await this.architectureLedgerReadback(root);
+    const scope = { repository: readback.repository, worktree: readback.worktree };
+    const replay = await this.localStore.replayArchitectureLedger(scope);
+    const state = readback.state;
+    const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+    const freshness = {
+      schemaVersion: "archcontext.book-freshness/v1",
+      generatedAt: this.clock(),
+      repository: readback.repository,
+      worktree: readback.worktree,
+      readAuthority: readback.readAuthority,
+      headSha: readback.worktree.headSha,
+      worktreeDigest: readback.worktree.worktreeDigest,
+      graphDigest: readback.graphDigest,
+      projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+      ledgerCursor: {
+        eventCount: replay.events.length,
+        lastEventId: replay.events.at(-1)?.eventId,
+        lastEventHash: replay.events.at(-1)?.eventHash
+      }
+    };
+    const budget = {
+      maxItems: input.maxItems,
+      maxBytes: input.maxBytes
+    };
+    if (command === "status") {
+      return okEnvelope("book.status", {
+        schemaVersion: "archcontext.book-status/v1",
+        freshness,
+        architectureLedger: readback.architectureLedger,
+        counts: {
+          entities: state.entities.length,
+          relations: state.relations.length,
+          constraints: state.constraints.length,
+          events: replay.events.length
+        },
+        drift: {
+          ok: readback.drift.ok,
+          reasonCodes: readback.drift.reasonCodes,
+          reconcileRequired: !readback.reconcile.ok
+        },
+        commands: ["status", "query", "show", "neighbors", "timeline", "diff", "evidence", "recommendations", "export"]
+      } as unknown as Json);
+    }
+    if (command === "query") {
+      return okEnvelope("book.query", {
+        ...queryArchitectureLedgerBook({ state, events: replay.events, query: input.task ?? input.query, ...budget }),
+        freshness
+      } as unknown as Json);
+    }
+    if (command === "show") {
+      if (!input.id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
+      const result = showArchitectureLedgerBookSubject(state, input.id);
+      if (!result.found) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", `Book subject not found: ${input.id}`);
+      return okEnvelope("book.show", { ...result, freshness } as unknown as Json);
+    }
+    if (command === "neighbors") {
+      if (!input.id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
+      const depth = input.depth ?? 1;
+      const neighborhoodState = await this.localStore.readArchitectureLedgerNeighborhood({ ...scope, id: input.id, depth });
+      return okEnvelope("book.neighbors", {
+        ...queryArchitectureLedgerBookNeighbors({ state: neighborhoodState, id: input.id, depth, ...budget }),
+        freshness
+      } as unknown as Json);
+    }
+    if (command === "timeline") {
+      const sinceRef = input.sinceRef ? await architectureBookResolveTimelineSinceRef(this.localStore, scope, replay.events, input.sinceRef) : undefined;
+      if (input.sinceRef && !sinceRef) return errorEnvelope("book.timeline", "AC_SCHEMA_INVALID", `Book timeline --since ref not found: ${input.sinceRef}`);
+      return okEnvelope("book.timeline", {
+        ...queryArchitectureLedgerBookTimeline({
+          events: replay.events,
+          ...(input.id ? { subjectId: input.id } : {}),
+          ...(sinceRef ? { sinceEventId: sinceRef.sinceEventId } : {}),
+          ...budget
+        }),
+        freshness
+      } as unknown as Json);
+    }
+    if (command === "diff") {
+      const fromRef = input.fromRef ?? "empty";
+      const toRef = input.toRef ?? "current";
+      const fromResolved = await architectureBookResolveRef(this.localStore, scope, replay.events, fromRef);
+      const toResolved = await architectureBookResolveRef(this.localStore, scope, replay.events, toRef);
+      if (!fromResolved) return errorEnvelope("book.diff", "AC_SCHEMA_INVALID", `Book diff --from ref not found: ${fromRef}`);
+      if (!toResolved) return errorEnvelope("book.diff", "AC_SCHEMA_INVALID", `Book diff --to ref not found: ${toRef}`);
+      return okEnvelope("book.diff", {
+        ...diffArchitectureLedgerBookStates({
+          previousState: fromResolved.state,
+          nextState: toResolved.state,
+          fromRef,
+          toRef,
+          events: toResolved.events,
+          ...budget
+        }),
+        freshness
+      } as unknown as Json);
+    }
+    if (command === "evidence") {
+      if (!input.id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
+      return okEnvelope("book.evidence", {
+        ...queryArchitectureLedgerBookEvidence({ events: replay.events, id: input.id, ...budget }),
+        freshness
+      } as unknown as Json);
+    }
+    if (command === "recommendations") {
+      return okEnvelope("book.recommendations", {
+        ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, ...budget }),
+        freshness
+      } as unknown as Json);
+    }
+    if (command === "export") {
+      const format = input.format ?? "json";
+      if (!["json", "yaml", "markdown"].includes(format)) return errorEnvelope("book.export", "AC_SCHEMA_INVALID", "book export --format must be json, yaml, or markdown");
+      return okEnvelope("book.export", {
+        schemaVersion: "archcontext.book-export/v1",
+        format,
+        freshness,
+        ...(format === "json" ? { state } : {}),
+        ...(format === "yaml" ? { projectedFiles } : {}),
+        ...(format === "markdown" ? { markdown: architectureBookMarkdown(state) } : {})
+      } as unknown as Json);
+    }
+    return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
   }
 
   async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
@@ -2794,6 +2947,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("ledgerRollback", [root, input]);
   }
 
+  book(root: string, input: RuntimeBookInput = {}) {
+    return this.call("book", [root, input]);
+  }
+
   repoAdd(root: string, name?: string) {
     return this.call("repoAdd", [root, name]);
   }
@@ -3059,6 +3216,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.ledgerRebuild(params[0] as string, params[1] as RuntimeLedgerRebuildInput | undefined);
       case "ledgerRollback":
         return this.daemon.ledgerRollback(params[0] as string, params[1] as RuntimeLedgerRollbackInput | undefined);
+      case "book":
+        return this.daemon.book(params[0] as string, params[1] as RuntimeBookInput | undefined);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -3287,6 +3446,105 @@ function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): Architect
       worktreeDigest: computeWorktreeDigest(workspace.root)
     }
   };
+}
+
+interface ArchitectureBookResolvedRef {
+  events: ArchitectureEventV1[];
+  state: ArchitectureLedgerGraphState;
+  lastEventId?: string;
+}
+
+async function architectureBookResolveRef(
+  store: RuntimeLocalStore,
+  scope: ArchitectureLedgerScope,
+  events: ArchitectureEventV1[],
+  ref: string
+): Promise<ArchitectureBookResolvedRef | undefined> {
+  const trimmed = ref.trim();
+  if (trimmed === "empty" || trimmed === "zero") {
+    return { events: [], state: replayArchitectureLedgerEvents([]) };
+  }
+  if (trimmed === "current" || trimmed === "head") {
+    return { events, state: replayArchitectureLedgerEvents(events), lastEventId: events.at(-1)?.eventId };
+  }
+  const snapshotId = trimmed.startsWith("snapshot:") ? trimmed.slice("snapshot:".length) : undefined;
+  if (snapshotId) {
+    try {
+      const replay = await store.replayArchitectureLedger({ ...scope, snapshotId });
+      return { events: replay.events, state: replay.state, lastEventId: replay.events.at(-1)?.eventId };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("architecture-ledger-snapshot-not-found:")) return undefined;
+      throw error;
+    }
+  }
+  const eventId = trimmed.startsWith("event:") ? trimmed.slice("event:".length) : trimmed;
+  const eventIndex = events.findIndex((event) => event.eventId === eventId);
+  if (eventIndex >= 0) {
+    const selected = events.slice(0, eventIndex + 1);
+    return { events: selected, state: replayArchitectureLedgerEvents(selected), lastEventId: selected.at(-1)?.eventId };
+  }
+  const commitRef = trimmed.startsWith("commit:") ? trimmed.slice("commit:".length) : trimmed.startsWith("sha:") ? trimmed.slice("sha:".length) : undefined;
+  const commitIndex = architectureBookLastIndex(events, (event) => commitRef ? event.headSha === commitRef || event.headSha.startsWith(commitRef) : event.headSha === trimmed);
+  if (commitIndex >= 0) {
+    const selected = events.slice(0, commitIndex + 1);
+    return { events: selected, state: replayArchitectureLedgerEvents(selected), lastEventId: selected.at(-1)?.eventId };
+  }
+  const timestamp = architectureBookTimestampRef(trimmed);
+  if (timestamp !== undefined) {
+    const timestampIndex = architectureBookLastIndex(events, (event) => Date.parse(event.timestamp) <= timestamp);
+    if (timestampIndex < 0) return { events: [], state: replayArchitectureLedgerEvents([]) };
+    const selected = events.slice(0, timestampIndex + 1);
+    return { events: selected, state: replayArchitectureLedgerEvents(selected), lastEventId: selected.at(-1)?.eventId };
+  }
+  return undefined;
+}
+
+async function architectureBookResolveTimelineSinceRef(
+  store: RuntimeLocalStore,
+  scope: ArchitectureLedgerScope,
+  events: ArchitectureEventV1[],
+  ref: string
+): Promise<{ sinceEventId?: string } | undefined> {
+  const resolved = await architectureBookResolveRef(store, scope, events, ref);
+  if (!resolved) return undefined;
+  return { sinceEventId: resolved.lastEventId };
+}
+
+function architectureBookLastIndex(events: ArchitectureEventV1[], predicate: (event: ArchitectureEventV1) => boolean): number {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (predicate(events[index])) return index;
+  }
+  return -1;
+}
+
+function architectureBookTimestampRef(ref: string): number | undefined {
+  const value = ref.startsWith("timestamp:") ? ref.slice("timestamp:".length) : ref.startsWith("time:") ? ref.slice("time:".length) : ref;
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function architectureBookMarkdown(state: ArchitectureLedgerGraphState): string {
+  const subjects = architectureLedgerBookSubjects(state);
+  const lines = [
+    "# Architecture Book",
+    "",
+    "## Entities",
+    ...subjects
+      .filter((subject) => subject.kind === "entity")
+      .map((subject) => `- ${subject.id} (${subject.status}): ${subject.summary ?? subject.label}`),
+    "",
+    "## Relations",
+    ...subjects
+      .filter((subject) => subject.kind === "relation")
+      .map((subject) => `- ${subject.id} (${subject.status}): ${subject.relation?.sourceEntityId} -> ${subject.relation?.targetEntityId}`),
+    "",
+    "## Constraints",
+    ...subjects
+      .filter((subject) => subject.kind === "constraint")
+      .map((subject) => `- ${subject.id} (${subject.status}): ${subject.summary ?? subject.constraint?.subjectId ?? subject.label}`)
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): boolean {

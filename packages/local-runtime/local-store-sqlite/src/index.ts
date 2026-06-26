@@ -940,6 +940,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined>;
   createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
+  readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState>;
   replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult>;
   verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification>;
   rebuildArchitectureLedgerCurrentState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerReplayResult>;
@@ -1751,6 +1752,11 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     return readArchitectureLedgerStateFromDb(db, input);
   }
 
+  async readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState> {
+    const db = await this.database();
+    return readArchitectureLedgerNeighborhoodFromDb(db, input);
+  }
+
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
     const db = await this.database();
     const events = architectureEventsForReplay(db, input);
@@ -2328,6 +2334,95 @@ function readArchitectureLedgerStateFromDb(db: SqliteDatabase, scope: Architectu
       WHERE storage_repository_id = ? AND storage_workspace_id = ?
       ORDER BY constraint_id`
   ).all(...scopeParams).map((row) => ({
+    constraintId: String(row.constraint_id),
+    kind: String(row.kind),
+    subjectId: String(row.subject_id),
+    status: row.status as ArchitectureLedgerConstraintRecord["status"],
+    ...(row.severity ? { severity: row.severity as ArchitectureLedgerConstraintRecord["severity"] } : {}),
+    ...(row.summary ? { summary: String(row.summary) } : {}),
+    ...optionalJsonMetadata(row.metadata_json)
+  }));
+  return { entities, relations, constraints };
+}
+
+function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: ArchitectureLedgerScope & { id: string; depth: number }): ArchitectureLedgerGraphState {
+  const depth = Math.max(0, Math.floor(input.depth));
+  const scopeParams = [input.repository.storageRepositoryId, input.worktree.storageWorkspaceId];
+  const entityIds = [...new Set(db.prepare(
+    `WITH RECURSIVE seed(entity_id) AS (
+        SELECT entity_id FROM architecture_entities_current
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND entity_id = ?
+        UNION
+        SELECT source_entity_id FROM architecture_relations_current
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND relation_id = ?
+        UNION
+        SELECT target_entity_id FROM architecture_relations_current
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND relation_id = ?
+        UNION
+        SELECT subject_id FROM architecture_constraints_current
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND constraint_id = ?
+      ),
+      frontier(entity_id, distance) AS (
+        SELECT entity_id, 0 FROM seed
+        UNION
+        SELECT CASE
+            WHEN relation.source_entity_id = frontier.entity_id THEN relation.target_entity_id
+            ELSE relation.source_entity_id
+          END AS entity_id,
+          frontier.distance + 1 AS distance
+        FROM frontier
+        JOIN architecture_relations_current relation
+          ON relation.storage_repository_id = ? AND relation.storage_workspace_id = ?
+          AND relation.status != 'removed'
+          AND (relation.source_entity_id = frontier.entity_id OR relation.target_entity_id = frontier.entity_id)
+        WHERE frontier.distance < ?
+      )
+      SELECT DISTINCT entity_id FROM frontier`
+  ).all(
+    ...scopeParams, input.id,
+    ...scopeParams, input.id,
+    ...scopeParams, input.id,
+    ...scopeParams, input.id,
+    ...scopeParams, depth
+  ).map((row) => String(row.entity_id)))].sort();
+  if (entityIds.length === 0) return emptyArchitectureLedgerState();
+  const placeholders = entityIds.map(() => "?").join(", ");
+  const entities = db.prepare(
+    `SELECT entity_id, kind, canonical_name, status, path, summary, metadata_json
+      FROM architecture_entities_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND entity_id IN (${placeholders})
+      ORDER BY entity_id`
+  ).all(...scopeParams, ...entityIds).map((row) => ({
+    entityId: String(row.entity_id),
+    kind: String(row.kind),
+    canonicalName: String(row.canonical_name),
+    status: row.status as ArchitectureLedgerEntityRecord["status"],
+    ...(row.path ? { path: String(row.path) } : {}),
+    ...(row.summary ? { summary: String(row.summary) } : {}),
+    ...optionalJsonMetadata(row.metadata_json)
+  }));
+  const relations = db.prepare(
+    `SELECT relation_id, kind, source_entity_id, target_entity_id, status, summary, metadata_json
+      FROM architecture_relations_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+        AND (relation_id = ? OR source_entity_id IN (${placeholders}) OR target_entity_id IN (${placeholders}))
+      ORDER BY relation_id`
+  ).all(...scopeParams, input.id, ...entityIds, ...entityIds).map((row) => ({
+    relationId: String(row.relation_id),
+    kind: String(row.kind),
+    sourceEntityId: String(row.source_entity_id),
+    targetEntityId: String(row.target_entity_id),
+    status: row.status as ArchitectureLedgerRelationRecord["status"],
+    ...(row.summary ? { summary: String(row.summary) } : {}),
+    ...optionalJsonMetadata(row.metadata_json)
+  }));
+  const constraints = db.prepare(
+    `SELECT constraint_id, kind, subject_id, status, severity, summary, metadata_json
+      FROM architecture_constraints_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+        AND (constraint_id = ? OR subject_id IN (${placeholders}))
+      ORDER BY constraint_id`
+  ).all(...scopeParams, input.id, ...entityIds).map((row) => ({
     constraintId: String(row.constraint_id),
     kind: String(row.kind),
     subjectId: String(row.subject_id),

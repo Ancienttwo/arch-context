@@ -1654,6 +1654,97 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("CLI Book commands read ledger state, timeline, diff, evidence and exports with freshness", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      let status = await runTestCli("status", [], root);
+      const rebuild = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuild.ok).toBe(true);
+
+      const bookStatus = await runTestCli("book", ["status"], root);
+      expect(bookStatus.ok).toBe(true);
+      expect((bookStatus.data as any).schemaVersion).toBe("archcontext.book-status/v1");
+      expect((bookStatus.data as any).freshness.graphDigest).toBe((rebuild.data as any).graphDigest);
+      expect((bookStatus.data as any).freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
+      expect((bookStatus.data as any).counts.entities).toBeGreaterThan(0);
+
+      const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2"], root);
+      expect(query.ok).toBe(true);
+      expect((query.data as any).schemaVersion).toBe("archcontext.architecture-book-query/v1");
+      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture-context");
+      expect((query.data as any).results[0].scoreBreakdown.graphDistance).toBeGreaterThan(0);
+      expect((query.data as any).results[0].scoreBreakdown.recency).toBeGreaterThan(0);
+      expect((query.data as any).freshness.worktreeDigest).toBeTruthy();
+
+      const show = await runTestCli("book", ["show", "capability.architecture-context"], root);
+      expect(show.ok).toBe(true);
+      expect((show.data as any).subject.summary).toContain("architecture intent");
+
+      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture-context", "--depth", "1"], root);
+      expect(neighbors.ok).toBe(true);
+      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture-context");
+
+      const timeline = await runTestCli("book", ["timeline", "capability.architecture-context"], root);
+      expect(timeline.ok).toBe(true);
+      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture-context");
+      const allTimeline = await runTestCli("book", ["timeline"], root);
+      expect(allTimeline.ok).toBe(true);
+      const firstTimestamp = (allTimeline.data as any).events[0].timestamp;
+      expect(Date.parse(firstTimestamp)).not.toBeNaN();
+
+      const diff = await runTestCli("book", ["diff", "--from", "empty", "--to", "current"], root);
+      expect(diff.ok).toBe(true);
+      expect((diff.data as any).summary.added).toBeGreaterThan(0);
+      expect((diff.data as any).changes[0]).toHaveProperty("evidenceIds");
+      expect((diff.data as any).changes[0]).toHaveProperty("evidenceBindingIds");
+      const headSha = (bookStatus.data as any).freshness.headSha;
+      const commitDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `commit:${headSha}`], root);
+      expect(commitDiff.ok).toBe(true);
+      expect((commitDiff.data as any).toGraphDigest).toBe((diff.data as any).toGraphDigest);
+      const timestampDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `timestamp:${firstTimestamp}`], root);
+      expect(timestampDiff.ok).toBe(true);
+      expect((timestampDiff.data as any).summary.added).toBeGreaterThan(0);
+      const snapshotStore = new SqliteLocalStore(testRuntimePaths(root).localStorePath);
+      const snapshot = await snapshotStore.createArchitectureLedgerSnapshot({
+        repository: (bookStatus.data as any).freshness.repository,
+        worktree: (bookStatus.data as any).freshness.worktree,
+        sourceMode: "ledger-shadow",
+        projectionDigest: (bookStatus.data as any).freshness.projectionDigest,
+        inputDigests: { modelDigest: (bookStatus.data as any).freshness.graphDigest },
+        createdAt: "2026-06-26T00:00:00.000Z"
+      });
+      snapshotStore.close();
+      const snapshotDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `snapshot:${snapshot.snapshotId}`], root);
+      expect(snapshotDiff.ok).toBe(true);
+      expect((snapshotDiff.data as any).toGraphDigest).toBe((diff.data as any).toGraphDigest);
+
+      const evidence = await runTestCli("book", ["evidence", "product.review-app"], root);
+      expect(evidence.ok).toBe(true);
+      expect((evidence.data as any).evidenceItems.length).toBeGreaterThan(0);
+      expect(JSON.stringify(evidence.data)).not.toContain("README");
+
+      const recommendations = await runTestCli("book", ["recommendations", "--open"], root);
+      expect(recommendations.ok).toBe(true);
+      expect((recommendations.data as any).schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
+      expect((recommendations.data as any).recommendations).toEqual([]);
+
+      const exported = await runTestCli("book", ["export", "--format", "markdown"], root);
+      expect(exported.ok).toBe(true);
+      expect((exported.data as any).markdown).toContain("# Architecture Book");
+      expect((exported.data as any).freshness.projectionDigest).toMatch(/^sha256:/);
+
+      status = await runTestCli("status", [], root);
+      expect((status.data as any).running).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI rollback restores YAML authority projection with backup", async () => {
     const root = createInitializedGitRepo();
     const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
