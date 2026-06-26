@@ -1105,8 +1105,10 @@ archctx book export --format yaml|markdown|json
 - [x] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
   - Evidence: `docs/verification/architecture-ledger-al10-telemetry-readback.json` aggregates the verified AL10 rollout, benchmark, hardening, chaos/security, recommendation-quality, agent-comparison, release-packaging and runbook readbacks into a local opt-in beta telemetry report. `docs/verification/architecture-ledger-al10-telemetry.md` records 3 representative loop runs, 1,000 stress events, dual-mode drift count 0, 190 recommendation scenarios, 26 per-practice support rows, default hook median subagent spawns 0, rollback/chaos/security resolution, zero privacy/eval/quality failures, and the tracked beta risk that hook enqueue p95 remains 154.458 ms against the 150 ms beta target.
 - [ ] **AL10-14 · P1 · `product`** — Interview beta users about whether Book answers replace manual filesystem browsing.
-- [ ] **AL10-15 · P1 · `governance`** — Require an independent reviewer for authority promotion and enforcement enablement.
-- [ ] **AL10-16 · P1 · `release`** — Record final Go/No-Go decision and unresolved risks.
+- [x] **AL10-15 · P1 · `governance`** — Require an independent reviewer for authority promotion and enforcement enablement.
+  - Evidence: `docs/architecture/architecture-ledger-authority-promotion-review.md` requires a human independent reviewer before `ledger-authoritative` promotion or enforcement enablement, requires approval under `docs/approvals/`, and forbids self-attestation by automation, subagents, the patch author or release owner. `docs/verification/architecture-ledger-al10-beta-decision-readback.json` verifies this policy against ADR-0040, the AL0 authority matrix and AL10 telemetry.
+- [x] **AL10-16 · P1 · `release`** — Record final Go/No-Go decision and unresolved risks.
+  - Evidence: `docs/verification/architecture-ledger-al10-beta-decision.md` records a final `NO-GO` for ledger-authoritative promotion and hard enforcement enablement while allowing local opt-in advisory beta/readback to continue. The unresolved risks are missing AL10-14 beta-user interview evidence, missing independent approval artifact, the carried-forward hook enqueue p95 beta risk and open AL10-GA gates.
 
 ### Beta exit gate
 
@@ -1201,6 +1203,13 @@ archctx book export --format yaml|markdown|json
   - Failures and risk: records zero source readback failures, zero eval failures, zero quality violations, zero privacy leaks, zero lost stress events and one tracked beta performance risk: hook enqueue p95 154.458 ms over the 150 ms beta target.
   - Verification artifact: `docs/verification/architecture-ledger-al10-telemetry-readback.json`, `docs/verification/architecture-ledger-al10-telemetry.md`.
   - Verification: `bun run record:al10:telemetry`; `bun run readback:al10:telemetry`; `bun test scripts/architecture-ledger-al10-telemetry-readback.test.ts`; `bun run typecheck`.
+- 2026-06-26: Completed AL10 beta decision governance on branch `codex/architecture-ledger-al10-beta-decision`.
+  - Scope: closes AL10-15 and AL10-16 only; AL10-14 beta-user interviews and all GA gates remain open.
+  - Governance requirement: `docs/architecture/architecture-ledger-authority-promotion-review.md` requires a human independent reviewer before authority promotion to `ledger-authoritative` or hard enforcement enablement, with approval recorded under `docs/approvals/` and no self-attestation by automation, subagents, patch author or release owner.
+  - Decision: `docs/verification/architecture-ledger-al10-beta-decision.md` records `NO-GO` for ledger-authoritative promotion and enforcement enablement; local opt-in advisory beta/readback remains allowed.
+  - Unresolved risks: missing AL10-14 beta-user interview evidence, missing independent approval artifact, hook enqueue p95 154.458 ms over the 150 ms beta target and open AL10-GA gates.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-beta-decision-readback.json`, `docs/verification/architecture-ledger-al10-beta-decision.md`.
+  - Verification: `bun run record:al10:beta-decision`; `bun run readback:al10:beta-decision`; `bun test scripts/architecture-ledger-al10-beta-decision-readback.test.ts`.
 
 ---
 

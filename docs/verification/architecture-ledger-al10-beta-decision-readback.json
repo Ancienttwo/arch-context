@@ -1,0 +1,243 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-beta-decision-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-15",
+    "AL10-16"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "architecture-ledger-local-beta-decision",
+    "authority": "policy and final decision readback for promotion/enforcement",
+    "closedGates": [
+      "AL10-15",
+      "AL10-16"
+    ],
+    "explicitlyOpen": [
+      "AL10-14",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ],
+    "reportMode": "go-no-go-readback",
+    "nonClaims": [
+      "does not close AL10-14 beta-user interviews",
+      "does not close any GA gate",
+      "does not approve ledger-authoritative promotion",
+      "does not enable hard enforcement"
+    ]
+  },
+  "sources": [
+    {
+      "id": "authority-promotion-review",
+      "path": "docs/architecture/architecture-ledger-authority-promotion-review.md"
+    },
+    {
+      "id": "al10-telemetry",
+      "path": "docs/verification/architecture-ledger-al10-telemetry-readback.json"
+    },
+    {
+      "id": "authority-matrix",
+      "path": "docs/architecture/architecture-ledger-authority-matrix.md"
+    },
+    {
+      "id": "adr-0040",
+      "path": "docs/adr/ADR-0040-hybrid-architecture-ledger.md"
+    }
+  ],
+  "sourceReadbacks": [
+    {
+      "id": "authority-promotion-review",
+      "path": "docs/architecture/architecture-ledger-authority-promotion-review.md",
+      "sha256": "sha256:ffff2f3be904671b15bd901b0a91b4c56e1332de4d28d5344a2ebc7c7fa5b4dc",
+      "status": "verified",
+      "requiredTermsPresent": [
+        "independent reviewer",
+        "authority promotion",
+        "enforcement enablement",
+        "docs/approvals/",
+        "no self-attestation",
+        "ADR-0040",
+        "architecture-ledger-authority-matrix.md",
+        "subagents",
+        "ChangeSet",
+        "daemon-owned",
+        "raw source body",
+        "raw diff or patch body",
+        "AL10-14",
+        "hook-enqueue-p95-beta-budget",
+        "ledger-authoritative",
+        "NO-GO"
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "al10-telemetry",
+      "path": "docs/verification/architecture-ledger-al10-telemetry-readback.json",
+      "sha256": "sha256:4266dd26543984e8ad7bab1adf2e4a4e442d1003ce1ec505c32a5f22217d7234",
+      "schemaVersion": "archcontext.architecture-ledger-al10-telemetry-readback/v1",
+      "status": "verified",
+      "gates": [
+        "AL10-13"
+      ],
+      "explicitlyOpen": [
+        "AL10-14",
+        "AL10-15",
+        "AL10-16",
+        "AL10-GA-1",
+        "AL10-GA-2",
+        "AL10-GA-3",
+        "AL10-GA-4",
+        "AL10-GA-5",
+        "AL10-GA-6",
+        "AL10-GA-7"
+      ],
+      "hookEnqueueP95AboveBetaBudget": true,
+      "activeBetaRisks": [
+        {
+          "id": "hook-enqueue-p95-beta-budget",
+          "severity": "tracked-beta-risk",
+          "metric": "hookEnqueueP95Ms",
+          "actualMs": 154.458,
+          "budgetMs": 150
+        }
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "authority-matrix",
+      "path": "docs/architecture/architecture-ledger-authority-matrix.md",
+      "sha256": "sha256:aa4b7f93fe1c08c18c5c7c68869ad08c561d4f6aad4afea43eee61559a887304",
+      "status": "verified",
+      "requiredTermsPresent": [
+        "ChangeSet engine",
+        "Runtime daemon",
+        "Subagent runner",
+        "ledger-authoritative",
+        "EvidenceBinding/v1",
+        "raw source body",
+        "raw diff or patch body"
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "adr-0040",
+      "path": "docs/adr/ADR-0040-hybrid-architecture-ledger.md",
+      "sha256": "sha256:bff479f99c0c0180b21671d80b941fc1393ef3a90d2482fafec3ff0d42a0202a",
+      "status": "verified",
+      "requiredTermsPresent": [
+        "ledger-authoritative",
+        "ChangeSet",
+        "evidence",
+        "raw source bodies",
+        "raw diffs"
+      ],
+      "missingTerms": [],
+      "verified": true
+    }
+  ],
+  "decision": {
+    "decision": "NO-GO",
+    "scope": "ledger-authoritative-promotion-and-enforcement-enablement",
+    "advisoryLocalOptInAllowed": true,
+    "promotionAllowed": false,
+    "enforcementEnablementAllowed": false,
+    "productInterviewEvidenceStatus": "missing",
+    "independentReviewStatus": "required-not-yet-approved",
+    "reasonCount": 4,
+    "unresolvedRisks": [
+      {
+        "id": "missing-beta-user-interviews",
+        "severity": "promotion-blocker",
+        "sourceGate": "AL10-14",
+        "detail": "No real beta-user interview evidence is present for whether Book answers replace manual filesystem browsing."
+      },
+      {
+        "id": "missing-independent-review-approval",
+        "severity": "promotion-blocker",
+        "sourceGate": "AL10-15",
+        "detail": "The policy now requires an independent reviewer, but no approval artifact is recorded under docs/approvals/."
+      },
+      {
+        "id": "hook-enqueue-p95-beta-budget",
+        "severity": "tracked-beta-risk",
+        "sourceGate": "AL10-13",
+        "metric": "hookEnqueueP95Ms",
+        "actualMs": 154.458,
+        "budgetMs": 150,
+        "detail": "Telemetry carries forward the hook enqueue p95 over-budget risk."
+      },
+      {
+        "id": "ga-gates-open",
+        "severity": "promotion-blocker",
+        "sourceGate": "AL10-GA",
+        "detail": "AL10-GA-1 through AL10-GA-7 remain explicitly open."
+      }
+    ],
+    "openGates": [
+      "AL10-14",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ],
+    "evidence": {
+      "telemetryPath": "docs/verification/architecture-ledger-al10-telemetry-readback.json",
+      "policyPath": "docs/architecture/architecture-ledger-authority-promotion-review.md",
+      "authorityMatrixPath": "docs/architecture/architecture-ledger-authority-matrix.md",
+      "adrPath": "docs/adr/ADR-0040-hybrid-architecture-ledger.md"
+    }
+  },
+  "gateBoundary": {
+    "closedGates": [
+      "AL10-15",
+      "AL10-16"
+    ],
+    "explicitlyOpen": [
+      "AL10-14",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ],
+    "noGateOverclaim": true
+  },
+  "privacy": {
+    "forbiddenSecretHitCount": 0,
+    "forbiddenRawContentHitCount": 0,
+    "secretHits": [],
+    "rawContentHits": [],
+    "clean": true
+  },
+  "readbackDigest": "sha256:4cd9984c251b3876e3975af2bd9621de5fa972fd0dd07c1eb3ba5d9ae4b5161c",
+  "assertions": {
+    "AL10-15": true,
+    "AL10-16": true,
+    "sourceReadbacksVerified": true,
+    "independentReviewerRequired": true,
+    "decisionRecorded": true,
+    "advisoryOnlyBoundary": true,
+    "activeRiskCarriedForward": true,
+    "openGatesPreserved": true,
+    "noPrivateContent": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-beta-decision-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-beta-decision-readback.json --json",
+    "recordCommand": "bun scripts/architecture-ledger-al10-beta-decision-readback.ts run --out docs/verification/architecture-ledger-al10-beta-decision-readback.json --report docs/verification/architecture-ledger-al10-beta-decision.md --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-beta-decision.md"
+  },
+  "failures": []
+}
