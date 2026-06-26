@@ -1049,9 +1049,16 @@ export class ArchctxDaemon {
     this.assertRunning();
     const repositoryRoot = findRepositoryRoot(root);
     const scope = await this.architectureLedgerScope(repositoryRoot);
+    const jobs = await this.localStore.listRuntimeAgentJobs(scope);
+    const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
+    if (record && record.job.status !== "running") {
+      return errorEnvelope(
+        "jobs.complete",
+        "AC_PRECONDITION_FAILED",
+        `runtime agent job completion requires a running job: ${input.jobId}`
+      );
+    }
     if (input.status === "succeeded") {
-      const jobs = await this.localStore.listRuntimeAgentJobs(scope);
-      const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
       if (record && isRuntimeAgentJobCursorStale(record.job, scope)) {
         await this.localStore.cancelRuntimeAgentJob({
           jobId: input.jobId,

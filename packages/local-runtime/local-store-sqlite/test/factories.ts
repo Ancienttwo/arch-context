@@ -250,6 +250,7 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord> {
     const record = this.requiredRuntimeAgentJob(input.jobId);
+    if (record.job.status !== "running") throw new Error(`runtime-agent-job-complete-requires-running: ${input.jobId}`);
     if (input.workerId && record.leaseOwner && record.leaseOwner !== input.workerId) {
       throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
     }

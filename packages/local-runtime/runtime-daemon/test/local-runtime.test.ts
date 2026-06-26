@@ -579,6 +579,57 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs reject duplicate terminal completion before replacing output", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:25:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.runtime-duplicate-complete"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      await daemon.jobsClaim(root, {
+        workerId: "worker.duplicate",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:25:01.000Z"
+      });
+      const outputDigest = digestJson({ workerOutput: "first-completion" } as any);
+      const firstComplete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        outputDigest,
+        now: "2026-06-25T02:25:02.000Z"
+      });
+      expect(firstComplete.ok).toBe(true);
+
+      const duplicateComplete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        outputDigest: digestJson({ workerOutput: "duplicate-completion" } as any),
+        now: "2026-06-25T02:25:03.000Z"
+      });
+      expect(duplicateComplete.ok).toBe(false);
+      expect((duplicateComplete as any).error.code).toBe("AC_PRECONDITION_FAILED");
+
+      const succeeded = await daemon.jobsList(root, { statuses: ["succeeded"] });
+      expect((succeeded.data as any).jobs).toHaveLength(1);
+      expect((succeeded.data as any).jobs[0].job.outputDigest).toBe(outputDigest);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("runtime jobs persist provider run metadata on completion", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();

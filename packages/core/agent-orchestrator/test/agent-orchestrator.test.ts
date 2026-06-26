@@ -200,6 +200,37 @@ describe("@archcontext/core/agent-orchestrator", () => {
     );
   });
 
+  test("fake provider fixtures reject malformed output and hallucinated target IDs", async () => {
+    const running = transitionAgentJobStatus(agentJob("fake-provider"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+
+    const malformed = createFakeInvestigationRunner({
+      reportFactory: () => "not an investigation report" as unknown as InvestigationReportV1
+    });
+    await expect(runInvestigationThroughPort({ runner: malformed, job: running, context })).rejects.toThrow(
+      "investigation-report-invalid: report-not-object"
+    );
+
+    const hallucinated = createFakeInvestigationRunner({
+      reportFactory: ({ job }) => {
+        const report = investigationReport(job);
+        return {
+          ...report,
+          findings: [{
+            ...report.findings[0],
+            proposedDelta: {
+              ...report.findings[0].proposedDelta,
+              target: { kind: "node", id: "module.al6.hallucinated" }
+            }
+          }]
+        };
+      }
+    });
+    await expect(runInvestigationThroughPort({ runner: hallucinated, job: running, context })).rejects.toThrow(
+      "investigation-report-invalid: proposed-delta-target-unknown"
+    );
+  });
+
   test("creates Claude and Codex command adapters behind the provider-neutral port", async () => {
     const context = validInvestigationContext();
     const claudeJob = transitionAgentJobStatus(agentJob("claude-code"), { status: "running", now: "2026-06-26T08:01:00.000Z" });

@@ -431,6 +431,51 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
+  test("runtime job queue rejects duplicate completion of terminal jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-duplicate-complete-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const job = runtimeAgentJob("duplicate-complete", { queuedAt: "2026-06-25T01:20:00.000Z" });
+      const outputDigest = digestJson({ output: "first-completion" } as unknown as Json);
+      await store.enqueueRuntimeAgentJob({ job, analysisKind: "architecture-delta", maxAttempts: 1 });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.duplicate",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:20:01.000Z"
+      })).resolves.toMatchObject({
+        job: { jobId: job.jobId, status: "running" },
+        attemptCount: 1
+      });
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        now: "2026-06-25T01:20:02.000Z",
+        outputDigest
+      })).resolves.toMatchObject({
+        job: { status: "succeeded", outputDigest },
+        attemptCount: 1
+      });
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        now: "2026-06-25T01:20:03.000Z",
+        outputDigest: digestJson({ output: "duplicate-completion" } as unknown as Json)
+      })).rejects.toThrow(`runtime-agent-job-complete-requires-running: ${job.jobId}`);
+
+      const succeeded = (await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE))
+        .filter((record) => record.job.status === "succeeded");
+      expect(succeeded).toHaveLength(1);
+      expect(succeeded[0].job.outputDigest).toBe(outputDigest);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
   test("runtime job queue applies priority, queue caps, per-repository concurrency, and local stats", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-hardening-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));

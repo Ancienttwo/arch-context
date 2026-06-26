@@ -692,6 +692,25 @@ describe("archctx CLI", () => {
         attemptCount: 0
       };
       const runtimeClient = {
+        jobsEnqueueGitHook(_root: string, input: any) {
+          calls.push({ method: "enqueue", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.enqueueGitHook",
+            data: {
+              enqueued: true,
+              deduplicated: false,
+              record: {
+                ...queuedJob,
+                job: {
+                  ...queuedJob.job,
+                  runnerPort: input.runnerPort ?? "codex"
+                }
+              }
+            }
+          };
+        },
         jobsList(_root: string, input: any) {
           calls.push({ method: "list", input });
           return {
@@ -759,6 +778,82 @@ describe("archctx CLI", () => {
       expect(calls.find((call) => call.method === "retry").input).toMatchObject({
         jobId: "agent_job.cli_test",
         reason: "transient"
+      });
+
+      const investigate = await runCli("investigate", [
+        "--runner-port",
+        "claude",
+        "--source",
+        "staged",
+        "--event",
+        "manual-investigation",
+        "--analysis-kind",
+        "architecture-delta",
+        "--task-session-id",
+        "task_cli_agents",
+        "--max-attempts",
+        "2",
+        "--max-queued-jobs",
+        "4",
+        "--context-max-items",
+        "3",
+        "--priority",
+        "9",
+        "--cooldown-ms",
+        "1000",
+        "--coalesce-key",
+        "coalesce.cli-agents"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(investigate.ok).toBe(true);
+      expect(investigate.requestId).toBe("investigate");
+      expect((investigate.data as any)).toMatchObject({
+        schemaVersion: "archcontext.investigate-enqueue/v1",
+        enqueued: true,
+        runnerPort: "claude-code",
+        source: "staged",
+        event: "manual-investigation",
+        analysisKind: "architecture-delta"
+      });
+      expect(calls.find((call) => call.method === "enqueue").input).toMatchObject({
+        source: "staged",
+        event: "manual-investigation",
+        runnerPort: "claude-code",
+        taskSessionId: "task_cli_agents",
+        maxAttempts: 2,
+        maxQueuedJobs: 4,
+        contextMaxItems: 3,
+        priority: 9,
+        cooldownMs: 1000,
+        coalesceKey: "coalesce.cli-agents"
+      });
+
+      const agentsStatus = await runCli("agents", ["status", "--status", "queued,running", "--now", "2026-06-25T02:00:00.000Z"], root, { runtimeClient: runtimeClient as any });
+      expect(agentsStatus.ok).toBe(true);
+      expect(agentsStatus.requestId).toBe("agents.status");
+      expect((agentsStatus.data as any)).toMatchObject({
+        schemaVersion: "archcontext.agent-status/v1",
+        statuses: ["queued", "running"],
+        count: 1
+      });
+      expect(calls.filter((call) => call.method === "stats").at(-1).input).toEqual({ now: "2026-06-25T02:00:00.000Z" });
+      expect(calls.filter((call) => call.method === "list").at(-1).input).toEqual({ statuses: ["queued", "running"] });
+
+      const agentsBudget = await runCli("agents", ["budget"], root, { runtimeClient: runtimeClient as any });
+      expect(agentsBudget.ok).toBe(true);
+      expect(agentsBudget.requestId).toBe("agents.budget");
+      expect((agentsBudget.data as any)).toMatchObject({
+        schemaVersion: "archcontext.agent-budget/v1",
+        spawnPolicy: {
+          maxRunsPerTask: 1,
+          maxRunsPerRepositoryPerDay: 4,
+          maxAutomaticRunsForLowRisk: 0,
+          adapterEnabledByRuntimeEnqueue: true
+        },
+        queuePolicy: {
+          maxQueuedJobs: 32,
+          maxRunningJobsPerRepository: 1
+        },
+        authority: "local-runtime-daemon"
       });
     } finally {
       rmSync(root, { recursive: true, force: true });

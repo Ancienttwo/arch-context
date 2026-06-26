@@ -1,6 +1,6 @@
 # Sprint Checklist: ArchContext Architecture Ledger & Passive Architecture Control Loop
 
-> **Status**: Executing - AL0, AL1, AL2, AL3, AL4 and AL5 complete; AL6 provider adapters/run metadata complete, AL6-15/16 remain
+> **Status**: Executing - AL0, AL1, AL2, AL3, AL4, AL5 and AL6 complete; AL7 next
 > **Slug**: `archctx-architecture-ledger`
 > **Created**: 2026-06-24
 > **Updated**: 2026-06-26
@@ -122,7 +122,7 @@ These are target gates, not claims about current performance.
 | AL3 | YAML ↔ ledger migration and dual mode | P0 | AL2 | ☑ |
 | AL4 | Passive Git/runtime change capture | P0 | AL2, AL3 | ☑ |
 | AL5 | Code diff → evidence → architecture delta pipeline | P0 | AL1, AL3, AL4 | ☑ |
-| AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ◐ |
+| AL6 | Provider-neutral subagent orchestration | P1 | AL2, AL4, AL5 | ☑ |
 | AL7 | LLM-first CLI/MCP retrieval surface | P0 | AL2, AL3, AL5 | ◻ |
 | AL8 | Recommendation scheduler, suppression and feedback | P0 | AL1, AL5, AL6, AL7 | ◻ |
 | AL9 | Documentation placement and deterministic projections | P0 | AL3, AL5, AL6 | ◻ |
@@ -708,9 +708,12 @@ A subagent is eligible only when all conditions are true:
 - [x] **AL6-14 · P1 · `agent-orchestrator`** — Add timeout, bounded retries and deterministic fallback to advisory-only output.
   - Evidence: `runInvestigationWithRetry` bounds attempts and timeout, aborts provider execution, and returns deterministic failed advisory-only fallback reports with digest-only error metadata after final failure.
   - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
-- [ ] **AL6-15 · P1 · `cli`** — Add `archctx investigate`, `archctx agents status` and `archctx agents budget`.
-- [ ] **AL6-16 · P1 · `tests`** — Add fake provider fixtures for timeout, malformed output, hallucinated IDs, duplicate results and stale completion.
-  - Partial evidence: current tests cover timeout fallback, malformed command output, hallucinated references and stale completion; duplicate-result fixture remains open.
+- [x] **AL6-15 · P1 · `cli`** — Add `archctx investigate`, `archctx agents status` and `archctx agents budget`.
+  - Evidence: `packages/surfaces/cli/src/main.ts` adds thin CLI read/enqueue surfaces over the runtime daemon; `packages/surfaces/cli/test/cli.test.ts` verifies stable envelopes and flag-to-runtime input mapping.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-cli-fixtures.md`.
+- [x] **AL6-16 · P1 · `tests`** — Add fake provider fixtures for timeout, malformed output, hallucinated IDs, duplicate results and stale completion.
+  - Evidence: timeout fallback remains covered by fake-provider retry tests; malformed fake-provider output and hallucinated target IDs are rejected by `runInvestigationThroughPort`; stale completion is rejected before worker side effects; duplicate terminal completion is rejected at daemon and store boundaries without replacing `outputDigest`.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-cli-fixtures.md`.
 
 ### Exit gate
 
@@ -721,7 +724,7 @@ A subagent is eligible only when all conditions are true:
 - [x] **AL6-EG3** — Agent cannot mutate ledger, YAML or docs directly.
   - Evidence: contracts keep `AgentJob/v1.directMutationAllowed` and `InvestigationReport/v1.directMutationAllowed` as `false`; runner capabilities require `canMutateRepository: false`; tests reject direct-mutation reports; proposal plans forbid ledger/YAML/docs/ChangeSet/tool/command actions, and ChangeSet planning rejects agent/proposal provenance.
 - [x] **AL6-EG4** — Stale or malformed outputs are rejected with actionable reason codes.
-  - Evidence: stale runtime job completion is rejected with `AC_CONTEXT_STALE`; malformed/hallucinated investigation reports are rejected with stable `investigation-report-invalid: <reason-codes>` values including `proposed-delta-required`, `evidence-binding-reference-unverifiable`, `proposed-delta-target-unknown`, `proposed-delta-evidence-reference-unverifiable`, `direct-mutation-forbidden`, `raw-report-payload-forbidden` and `tool-escape-forbidden`.
+  - Evidence: stale runtime job completion is rejected with `AC_CONTEXT_STALE`; duplicate terminal completion is rejected with `AC_PRECONDITION_FAILED`; malformed/hallucinated investigation reports are rejected with stable `investigation-report-invalid: <reason-codes>` values including `report-not-object`, `proposed-delta-required`, `evidence-binding-reference-unverifiable`, `proposed-delta-target-unknown`, `proposed-delta-evidence-reference-unverifiable`, `direct-mutation-forbidden`, `raw-report-payload-forbidden` and `tool-escape-forbidden`.
 - [x] **AL6-EG5** — Provider adapter can be removed without changing domain behavior.
   - Evidence: orchestration tests use a fake provider through `InvestigationRunnerPort`; spawn eligibility, state transitions and budget decisions do not depend on Claude or Codex adapter code.
 
@@ -757,6 +760,11 @@ A subagent is eligible only when all conditions are true:
   - Failure behavior: timeout and bounded retry failures produce deterministic failed advisory reports without raw source, diff, stdout, stderr or prompt bodies.
   - Verification artifact: `docs/verification/architecture-ledger-al6-provider-adapters.md`.
   - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al6-provider-adapters-verify-state-XXXXXX) bun run verify`.
+- 2026-06-26 — AL6 CLI and fixture closeout module completed:
+  - CLI: `archctx investigate` now enqueues bounded runtime agent jobs; `archctx agents status` reads queue status; `archctx agents budget` reports safe default spawn and queue limits.
+  - Fixtures: fake-provider tests reject malformed output and hallucinated IDs; runtime daemon and SQLite store tests reject duplicate terminal completion before replacing output; existing timeout and stale completion coverage remains green.
+  - Verification artifact: `docs/verification/architecture-ledger-al6-cli-fixtures.md`.
+  - Verification: `bun test packages/core/agent-orchestrator/test/agent-orchestrator.test.ts --timeout 90000`; `bun test packages/surfaces/cli/test/cli.test.ts --timeout 90000`; `bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts --timeout 90000`; `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 90000`; `bun run typecheck`; `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`; `git diff --check`; `bun test --timeout 90000`; `ARCHCONTEXT_STATE_DIR=$(mktemp -d /tmp/archctx-al6-cli-fixtures-verify-state-XXXXXX) bun run verify`.
 
 ---
 
@@ -1050,6 +1058,6 @@ For the smallest valuable sequence, start here:
 6. [ ] AL5 deterministic architecture delta for imports, ownership and persistence boundaries.
 7. [ ] AL7 `book status/query/diff` CLI.
 8. [ ] AL9 deterministic architecture changelog projection.
-9. [ ] Only then add AL6 automatic subagent investigation.
+9. [x] AL6 provider-neutral subagent orchestration is complete; automatic investigation scheduling remains AL8 policy-gated.
 
 This sequence delivers a useful SQL-backed Book and passive documentation loop before taking on provider orchestration complexity.

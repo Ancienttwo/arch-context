@@ -1296,6 +1296,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const db = await this.database();
     const record = runtimeAgentJobById(db, input.jobId);
     if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    if (record.job.status !== "running") throw new Error(`runtime-agent-job-complete-requires-running: ${input.jobId}`);
     if (input.workerId && record.leaseOwner && record.leaseOwner !== input.workerId) {
       throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
     }

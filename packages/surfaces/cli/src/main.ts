@@ -7,6 +7,7 @@ import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelo
 import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planYamlToArchitectureLedgerImport } from "@archcontext/core/architecture-ledger";
+import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -282,6 +283,10 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runHookCommand(args, cwd, runtime);
     case "hooks":
       return runHooksCommand(args);
+    case "investigate":
+      return runInvestigateCommand(args, cwd, await runtime());
+    case "agents":
+      return runAgentsCommand(args, cwd, await runtime());
     case "jobs":
       return runJobsCommand(args, cwd, await runtime());
     case "review":
@@ -399,8 +404,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -865,6 +870,100 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
     });
   }
   return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
+}
+
+async function runInvestigateCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const sourceResult = readCliGitChangeSource(args, "investigate", "worktree");
+  if (!sourceResult.ok) return sourceResult.envelope;
+  const runnerPortResult = readAgentRunnerPort(args, "investigate");
+  if (!runnerPortResult.ok) return runnerPortResult.envelope;
+  const maxAttemptsResult = readOptionalPositiveIntegerFlag(args, "--max-attempts", "investigate");
+  if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
+  const maxQueuedJobsResult = readOptionalPositiveIntegerFlag(args, "--max-queued-jobs", "investigate");
+  if (!maxQueuedJobsResult.ok) return maxQueuedJobsResult.envelope;
+  const contextMaxItemsResult = readOptionalPositiveIntegerFlag(args, "--context-max-items", "investigate");
+  if (!contextMaxItemsResult.ok) return contextMaxItemsResult.envelope;
+  const priorityResult = readOptionalIntegerFlag(args, "--priority", "investigate");
+  if (!priorityResult.ok) return priorityResult.envelope;
+  const cooldownMsResult = readOptionalNonNegativeIntegerFlag(args, "--cooldown-ms", "investigate");
+  if (!cooldownMsResult.ok) return cooldownMsResult.envelope;
+
+  const event = readFlag(args, "--event") ?? "manual";
+  const input: RuntimeAgentJobEnqueueGitInput = {
+    source: sourceResult.source,
+    event,
+    analysisKind: readFlag(args, "--analysis-kind") ?? "architecture-delta",
+    ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
+    ...(readFlag(args, "--ref") === undefined ? {} : { ref: readFlag(args, "--ref")! }),
+    ...(readFlag(args, "--base-ref") === undefined ? {} : { baseRef: readFlag(args, "--base-ref")! }),
+    ...(readFlag(args, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(args, "--coalesce-key")! }),
+    ...(readFlag(args, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(args, "--debounce-until")! }),
+    ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
+    ...(maxQueuedJobsResult.value === undefined ? {} : { maxQueuedJobs: maxQueuedJobsResult.value }),
+    ...(contextMaxItemsResult.value === undefined ? {} : { contextMaxItems: contextMaxItemsResult.value }),
+    ...(cooldownMsResult.value === undefined ? {} : { cooldownMs: cooldownMsResult.value }),
+    ...(priorityResult.value === undefined ? {} : { priority: priorityResult.value }),
+    ...(runnerPortResult.runnerPort === undefined ? {} : { runnerPort: runnerPortResult.runnerPort }),
+    ...(readFlag(args, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(args, "--code-facts-digest")! }),
+    generatedProjection: args.includes("--generated-projection"),
+    skipGeneratedProjection: !args.includes("--no-generated-projection-guard")
+  };
+  const result = await daemon.jobsEnqueueGitHook(cwd, input);
+  if (!result.ok || typeof result.data !== "object" || result.data === null) return { ...result, requestId: "investigate" };
+  return {
+    ...result,
+    requestId: "investigate",
+    data: {
+      schemaVersion: "archcontext.investigate-enqueue/v1",
+      ...(result.data as Record<string, Json>),
+      runnerPort: input.runnerPort ?? "codex",
+      analysisKind: input.analysisKind,
+      source: input.source,
+      event
+    } as unknown as Json
+  };
+}
+
+async function runAgentsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand === "status") {
+    const statusResult = readRuntimeAgentJobStatuses(args, "agents.status");
+    if (!statusResult.ok) return statusResult.envelope;
+    const statuses = statusResult.statuses.length === 0 ? ["queued", "running"] as RuntimeAgentJobStatus[] : statusResult.statuses;
+    const stats = await daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
+    if (!stats.ok) return { ...stats, requestId: "agents.status" };
+    const list = await daemon.jobsList(cwd, { statuses });
+    if (!list.ok || typeof list.data !== "object" || list.data === null) return { ...list, requestId: "agents.status" };
+    const jobs = Array.isArray((list.data as any).jobs) ? (list.data as any).jobs : [];
+    return okEnvelope("agents.status", {
+      schemaVersion: "archcontext.agent-status/v1",
+      statuses,
+      stats: stats.data as Json,
+      jobs,
+      count: jobs.length
+    } as unknown as Json);
+  }
+  if (subcommand === "budget") {
+    const stats = await daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
+    if (!stats.ok) return { ...stats, requestId: "agents.budget" };
+    return okEnvelope("agents.budget", {
+      schemaVersion: "archcontext.agent-budget/v1",
+      spawnPolicy: {
+        maxRunsPerTask: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerTask,
+        maxRunsPerRepositoryPerDay: 4,
+        maxRunsPerDay: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerDay,
+        maxAutomaticRunsForLowRisk: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxAutomaticRunsForLowRisk,
+        adapterEnabledByRuntimeEnqueue: true
+      },
+      queuePolicy: {
+        maxQueuedJobs: DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS,
+        maxRunningJobsPerRepository: DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY
+      },
+      stats: stats.data as Json,
+      authority: "local-runtime-daemon"
+    } as unknown as Json);
+  }
+  return errorEnvelope("agents", "AC_SCHEMA_INVALID", "agents requires status|budget");
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -1541,6 +1640,34 @@ function readHookGitChangeSource(args: string[], event: string):
   };
 }
 
+function readCliGitChangeSource(args: string[], requestId: string, defaultSource: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]>):
+  | { ok: true; source: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const requested = readFlag(args, "--source") ?? defaultSource;
+  if (requested === "worktree" || requested === "staged" || requested === "commit") {
+    return { ok: true, source: requested };
+  }
+  return {
+    ok: false,
+    envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${requestId} --source must be worktree, staged, or commit`)
+  };
+}
+
+function readAgentRunnerPort(args: string[], requestId: string):
+  | { ok: true; runnerPort?: AgentJobV1["runnerPort"] }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, "--runner-port") ?? readFlag(args, "--provider");
+  if (raw === undefined) return { ok: true };
+  const normalized = raw === "claude" ? "claude-code" : raw;
+  if (normalized === "codex" || normalized === "claude-code" || normalized === "fake-provider") {
+    return { ok: true, runnerPort: normalized };
+  }
+  return {
+    ok: false,
+    envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${requestId} --runner-port must be codex, claude-code, claude, or fake-provider`)
+  };
+}
+
 function defaultHookGitChangeSource(event: string): NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> {
   if (event === "post-commit") return "commit";
   if (event === "pre-commit") return "staged";
@@ -1567,6 +1694,18 @@ function readOptionalIntegerFlag(args: string[], flag: string, requestId: string
   const value = Number(raw);
   if (!Number.isInteger(value)) {
     return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be an integer`) };
+  }
+  return { ok: true, value };
+}
+
+function readOptionalNonNegativeIntegerFlag(args: string[], flag: string, requestId: string):
+  | { ok: true; value?: number }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return { ok: true };
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be a non-negative integer`) };
   }
   return { ok: true, value };
 }
