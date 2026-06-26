@@ -111,6 +111,8 @@
     "readback:al9:complete-task-provenance": "bun scripts/architecture-ledger-al9-complete-task-provenance-readback.ts inspect --evidence docs/verification/architecture-ledger-al9-complete-task-provenance-readback.json --json",
     "record:al10:rollout-workflow": "bun scripts/architecture-ledger-al10-rollout-workflow-readback.ts run --out docs/verification/architecture-ledger-al10-rollout-workflow-readback.json --report docs/verification/architecture-ledger-al10-rollout-workflow.md --json",
     "readback:al10:rollout-workflow": "bun scripts/architecture-ledger-al10-rollout-workflow-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-rollout-workflow-readback.json --json",
+    "record:al10:representative-benchmark": "bun scripts/architecture-ledger-al10-representative-benchmark-readback.ts run --out docs/verification/architecture-ledger-al10-representative-benchmark-readback.json --report docs/verification/architecture-ledger-al10-representative-benchmark.md --json",
+    "readback:al10:representative-benchmark": "bun scripts/architecture-ledger-al10-representative-benchmark-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-representative-benchmark-readback.json --json",
     "deploy:fg2:staging:secrets": "node deploy/scripts/fg2-staging-secrets.mjs install --env-file _ops/env/fg2-staging.env --environment staging",
     "deploy:fg2:staging": "wrangler deploy --env staging --config wrangler.jsonc",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",

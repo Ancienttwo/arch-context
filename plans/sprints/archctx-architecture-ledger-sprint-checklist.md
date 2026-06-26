@@ -1082,8 +1082,10 @@ archctx book export --format yaml|markdown|json
   - Evidence: runtime `architectureLedger.phaseFlags` reports active phase, supported phases, environment flags, promotion/downgrade paths, and the canonical safe downgrade command; `docs/runbooks/architecture-ledger-rollout.md`; `docs/verification/architecture-ledger-al10-rollout-workflow-readback.json`.
 - [x] **AL10-02 · P0 · `migration`** — Create one-command backup, migrate, verify and rollback workflow.
   - Evidence: `archctx ledger migrate --from-yaml --write --expected-worktree-digest <current>` runs through the daemon, creates a runtime-state SQLite backup, appends `architecture.yaml.import`, rebuilds replay state, checks integrity, verifies drift, returns `ARCHCONTEXT_LEDGER_MODE=dual`, and surfaces the YAML rollback command; `docs/verification/architecture-ledger-al10-rollout-workflow.md`.
-- [ ] **AL10-03 · P0 · `fixtures`** — Run full loop on at least three representative repositories: small app, medium monorepo and architecture-heavy service project.
-- [ ] **AL10-04 · P0 · `benchmarks`** — Measure hook, sync, query, checkpoint, complete, projection and replay performance.
+- [x] **AL10-03 · P0 · `fixtures`** — Run full loop on at least three representative repositories: small app, medium monorepo and architecture-heavy service project.
+  - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark.md` records verified full-loop replay on three temporary Git fixture repositories: small app, medium monorepo and architecture-heavy service.
+- [x] **AL10-04 · P0 · `benchmarks`** — Measure hook, sync, query, checkpoint, complete, projection and replay performance.
+  - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark-readback.json` records hook enqueue, sync, warm Book query, checkpoint, complete, documentation projection, replay and rollback timings across all three representative fixtures.
 - [ ] **AL10-05 · P0 · `chaos`** — Inject daemon crash, DB lock, disk-full, corrupt row, interrupted rebase and provider timeout.
 - [ ] **AL10-06 · P0 · `security`** — Run prompt injection, path traversal, symlink escape, forged evidence, event tamper and stale replay tests.
 - [ ] **AL10-07 · P0 · `privacy`** — Audit SQLite, logs, CLI output, MCP output and agent job payloads for source/diff leakage.
@@ -1099,7 +1101,8 @@ archctx book export --format yaml|markdown|json
 
 ### Beta exit gate
 
-- [ ] **AL10-BETA-1** — Dual-mode drift = 0 across representative replay runs.
+- [x] **AL10-BETA-1** — Dual-mode drift = 0 across representative replay runs.
+  - Evidence: `docs/verification/architecture-ledger-al10-representative-benchmark.md` reports dual-mode drift count 0 across the small app, medium monorepo and architecture-heavy service replay runs.
 - [ ] **AL10-BETA-2** — No event loss/duplication in 1,000-event stress suite.
 - [ ] **AL10-BETA-3** — No source/diff leakage in privacy audit.
 - [ ] **AL10-BETA-4** — Recommendation quality meets AL1 targets.
@@ -1125,6 +1128,13 @@ archctx book export --format yaml|markdown|json
   - Rollback surface: verified migration output recommends `ARCHCONTEXT_LEDGER_MODE=dual` and exposes `archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>` plus YAML downgrade env.
   - Verification artifact: `docs/verification/architecture-ledger-al10-rollout-workflow-readback.json`, `docs/verification/architecture-ledger-al10-rollout-workflow.md`.
   - Verification: `bun run record:al10:rollout-workflow`; `bun run readback:al10:rollout-workflow`; `bun test scripts/architecture-ledger-al10-rollout-workflow-readback.test.ts packages/local-runtime/runtime-daemon/test/local-runtime.test.ts packages/surfaces/cli/test/cli.test.ts --timeout 120000`; `bun run typecheck`.
+- 2026-06-26: Completed AL10 representative replay and benchmark module on branch `codex/architecture-ledger-al10-representative-benchmarks`.
+  - Scope: closes AL10-03, AL10-04 and AL10-BETA-1 only; chaos, security, privacy, blind eval, deterministic-plus-agent comparison, release packaging, telemetry, remaining beta gates and GA gates remain open.
+  - Representative replay: small app, medium monorepo and architecture-heavy service temporary Git fixtures all run init, YAML-to-ledger migration, prepare/query, hook enqueue, sync, checkpoint, docs projection apply, complete, ledger rebuild and YAML rollback.
+  - Drift: dual-mode drift count is 0 across all three representative replay runs.
+  - Benchmark: warm Book query p95 is 96.8 ms, checkpoint p95 is 136.244 ms, projection p95 is 169.13 ms, replay p95 is 138.902 ms, rollback p95 is 153.249 ms; hook enqueue p95 is 154.458 ms, slightly above the 150 ms beta target and kept as a follow-up bottleneck.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-representative-benchmark-readback.json`, `docs/verification/architecture-ledger-al10-representative-benchmark.md`.
+  - Verification: `bun run record:al10:representative-benchmark`; `bun run readback:al10:representative-benchmark`; `bun test scripts/architecture-ledger-al10-representative-benchmark-readback.test.ts --timeout 120000`.
 
 ---
 
