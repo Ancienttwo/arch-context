@@ -1094,7 +1094,8 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-hardening-readback.json` scans SQLite schema/event/operation text, raw CLI outputs, MCP prepare/checkpoint/complete outputs, hook logs and raw agent job payloads for forbidden source/diff keys and sentinel leakage; all five privacy surfaces report `clean: true`.
 - [x] **AL10-08 · P0 · `evals`** — Freeze a blind, no-label recommendation set and publish per-practice support.
   - Evidence: `docs/verification/architecture-ledger-al10-recommendation-quality-readback.json` freezes seven representative practice JSONL datasets by SHA-256, verifies the 30-case blind no-label set has empty evidence arrays, no practice bindings and zero task label hits, and publishes 26 per-practice support rows with 90/90 expected matches.
-- [ ] **AL10-09 · P0 · `evals`** — Compare deterministic-only versus deterministic-plus-agent outcomes and cost.
+- [x] **AL10-09 · P0 · `evals`** — Compare deterministic-only versus deterministic-plus-agent outcomes and cost.
+  - Evidence: `docs/verification/architecture-ledger-al10-agent-comparison-readback.json` compares deterministic-only eval output against a deterministic-plus-agent advisory path over four fake-provider investigation runs; deterministic metrics and quality violation counts have zero delta while plus-agent records 4 runs, 4 attempts, 4,769 estimated tokens, 90 ms duration and $0 external provider cost.
 - [ ] **AL10-10 · P0 · `release`** — Add migration compatibility matrix across supported versions.
 - [ ] **AL10-11 · P0 · `release`** — Verify packaged CLI includes migrations, hooks, renderers and agent adapter contracts.
 - [ ] **AL10-12 · P1 · `runbooks`** — Write incident, corruption recovery, drift recovery, provider disable and full rollback runbooks.
@@ -1167,6 +1168,13 @@ archctx book export --format yaml|markdown|json
   - Per-practice support: 26 practice rows publish 90 expected recommendations, 90 matched recommendations, min recall 100.0% and zero incomplete practice IDs.
   - Verification artifact: `docs/verification/architecture-ledger-al10-recommendation-quality-readback.json`, `docs/verification/architecture-ledger-al10-recommendation-quality.md`.
   - Verification: `bun run record:al10:recommendation-quality`; `bun run readback:al10:recommendation-quality`; `bun test scripts/architecture-ledger-al10-recommendation-quality-readback.test.ts`; `bun evals/run.ts --check`; `bun run typecheck`.
+- 2026-06-26: Completed AL10 deterministic-only versus deterministic-plus-agent comparison on branch `codex/architecture-ledger-al10-agent-comparison`.
+  - Scope: closes AL10-09 only; release packaging, runbooks, telemetry, governance, Go/No-Go and all GA gates remain open.
+  - Outcome comparison: deterministic-only remains the authority; deterministic-plus-agent reuses the same representative eval metrics and records zero metric deltas, zero quality violation deltas and three advisory findings.
+  - Agent path: four fake-provider investigation runs cover blind no-label positive, direct-reference positive, benign negative and waiver-adversarial cases; all run through the real agent port/retry/validation path, remain `advisory-only`, require deterministic validation and make zero direct mutation attempts.
+  - Cost comparison: deterministic-only records zero agent runs/tokens; deterministic-plus-agent records 4 runs, 4 attempts, 4,769 estimated tokens, 90 ms duration, 13,420 input bytes, 5,640 output bytes and $0 external provider cost.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-agent-comparison-readback.json`, `docs/verification/architecture-ledger-al10-agent-comparison.md`.
+  - Verification: `bun run record:al10:agent-comparison`; `bun run readback:al10:agent-comparison`; `bun test scripts/architecture-ledger-al10-agent-comparison-readback.test.ts`; `bun evals/run.ts --check`; `bun run typecheck`.
 
 ---
 

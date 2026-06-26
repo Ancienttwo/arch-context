@@ -119,6 +119,8 @@
     "readback:al10:chaos-security": "bun scripts/architecture-ledger-al10-chaos-security-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-chaos-security-readback.json --json",
     "record:al10:recommendation-quality": "bun scripts/architecture-ledger-al10-recommendation-quality-readback.ts run --out docs/verification/architecture-ledger-al10-recommendation-quality-readback.json --report docs/verification/architecture-ledger-al10-recommendation-quality.md --json",
     "readback:al10:recommendation-quality": "bun scripts/architecture-ledger-al10-recommendation-quality-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-recommendation-quality-readback.json --json",
+    "record:al10:agent-comparison": "bun scripts/architecture-ledger-al10-agent-comparison-readback.ts run --out docs/verification/architecture-ledger-al10-agent-comparison-readback.json --report docs/verification/architecture-ledger-al10-agent-comparison.md --json",
+    "readback:al10:agent-comparison": "bun scripts/architecture-ledger-al10-agent-comparison-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-agent-comparison-readback.json --json",
     "deploy:fg2:staging:secrets": "node deploy/scripts/fg2-staging-secrets.mjs install --env-file _ops/env/fg2-staging.env --environment staging",
     "deploy:fg2:staging": "wrangler deploy --env staging --config wrangler.jsonc",
     "readback:ga:preflight": "node deploy/scripts/production-ga-readback.mjs preflight --environment production --json",
