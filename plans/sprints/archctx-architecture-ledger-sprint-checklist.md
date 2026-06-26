@@ -1096,8 +1096,10 @@ archctx book export --format yaml|markdown|json
   - Evidence: `docs/verification/architecture-ledger-al10-recommendation-quality-readback.json` freezes seven representative practice JSONL datasets by SHA-256, verifies the 30-case blind no-label set has empty evidence arrays, no practice bindings and zero task label hits, and publishes 26 per-practice support rows with 90/90 expected matches.
 - [x] **AL10-09 · P0 · `evals`** — Compare deterministic-only versus deterministic-plus-agent outcomes and cost.
   - Evidence: `docs/verification/architecture-ledger-al10-agent-comparison-readback.json` compares deterministic-only eval output against a deterministic-plus-agent advisory path over four fake-provider investigation runs; deterministic metrics and quality violation counts have zero delta while plus-agent records 4 runs, 4 attempts, 4,769 estimated tokens, 90 ms duration and $0 external provider cost.
-- [ ] **AL10-10 · P0 · `release`** — Add migration compatibility matrix across supported versions.
-- [ ] **AL10-11 · P0 · `release`** — Verify packaged CLI includes migrations, hooks, renderers and agent adapter contracts.
+- [x] **AL10-10 · P0 · `release`** — Add migration compatibility matrix across supported versions.
+  - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` records five supported local SQLite schema states: fresh empty DB, pre-ledger 0005, ledger-v1 0006, pre-search-FTS 0008 and current 0009; all migrate to `0009_architecture_ledger_search_fts`, pass integrity check and include required architecture ledger tables.
+- [x] **AL10-11 · P0 · `release`** — Verify packaged CLI includes migrations, hooks, renderers and agent adapter contracts.
+  - Evidence: `docs/verification/architecture-ledger-al10-release-packaging-readback.json` reuses the FG6 one-package npm dry-run tarball, extracts `archctx-0.1.3.tgz`, verifies 79 package files, Node-only `bin/archctx.mjs`, bounded package contents, and bundle signatures for migrations, hook enqueue/checkpoint, docs projection renderer and agent runner/status/budget contracts.
 - [ ] **AL10-12 · P1 · `runbooks`** — Write incident, corruption recovery, drift recovery, provider disable and full rollback runbooks.
 - [ ] **AL10-13 · P1 · `telemetry`** — Produce local opt-in beta report: runs, drift, recommendations, agent spawn frequency, resolution and failures.
 - [ ] **AL10-14 · P1 · `product`** — Interview beta users about whether Book answers replace manual filesystem browsing.
@@ -1175,6 +1177,13 @@ archctx book export --format yaml|markdown|json
   - Cost comparison: deterministic-only records zero agent runs/tokens; deterministic-plus-agent records 4 runs, 4 attempts, 4,769 estimated tokens, 90 ms duration, 13,420 input bytes, 5,640 output bytes and $0 external provider cost.
   - Verification artifact: `docs/verification/architecture-ledger-al10-agent-comparison-readback.json`, `docs/verification/architecture-ledger-al10-agent-comparison.md`.
   - Verification: `bun run record:al10:agent-comparison`; `bun run readback:al10:agent-comparison`; `bun test scripts/architecture-ledger-al10-agent-comparison-readback.test.ts`; `bun evals/run.ts --check`; `bun run typecheck`.
+- 2026-06-26: Completed AL10 release packaging compatibility/readback on branch `codex/architecture-ledger-al10-release-packaging`.
+  - Scope: closes AL10-10 and AL10-11 only; runbooks, telemetry, product interviews, governance, Go/No-Go and all GA gates remain open.
+  - Migration matrix: fresh empty DB, pre-ledger 0005, ledger-v1 0006, pre-search-FTS 0008 and current 0009 all migrate through `SqliteLocalStore.migrate()` to `0009_architecture_ledger_search_fts` with SQLite integrity `ok` and all required architecture ledger tables present.
+  - Package readback: FG6 npm dry-run builds `archctx-0.1.3.tgz`; extracted package has 79 files, Node-only `bin/archctx.mjs`, `bin/codegraph.mjs`, bounded package contents and no workspace source files.
+  - Bundle contracts: packaged CLI bundle contains signatures for SQLite ledger migrations, hook enqueue/checkpoint fail-open contracts, docs projection renderer/manifest contracts and agent investigate/status/budget runner-port contracts.
+  - Verification artifact: `docs/verification/architecture-ledger-al10-release-packaging-readback.json`, `docs/verification/architecture-ledger-al10-release-packaging.md`.
+  - Verification: `bun run record:al10:release-packaging`; `bun run readback:al10:release-packaging`; `bun test scripts/architecture-ledger-al10-release-packaging-readback.test.ts`.
 
 ---
 
