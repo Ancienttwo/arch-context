@@ -1,5 +1,7 @@
 # FG6 Staging Release Verification
 
+> **Current Release Supersession**: This gate preserves the original FG6 `archctx@0.1.0` evidence. Current public install evidence is `archctx@0.1.4` from `docs/verification/architecture-ledger-al10-npm-release.md` and `docs/verification/fg6-release-distribution-readback.json`; use `docs/runbooks/personal-user-install.md` for the current install command.
+
 - Environment: local checkout `/Users/chris/Projects/arch-context`
 - Started At: 2026-06-22
 - Current slice: FG6 E3 exit gate closure and release distribution blocker
@@ -229,7 +231,7 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 - `npm view archctx@0.1.0 version dist.tarball homepage license --json`: PASS, returns version `0.1.0`, npm tarball URL, homepage `https://archcontext.repoharness.com`, and license `UNLICENSED`.
 - `npm install --prefix <tmp> archctx@0.1.0 && <tmp>/node_modules/.bin/archctx --help`: PASS, public registry install produces the CLI help envelope.
 - `bun test scripts/fg6-rollout-readback.test.ts`: PASS, 4 tests / 32 expects.
-- `docs/runbooks/personal-user-install.md`: records the current individual-user install path using Bun and `npm install -g archctx@0.1.0`.
+- `docs/runbooks/personal-user-install.md`: recorded the FG6 individual-user install path using Bun and `npm install -g archctx@0.1.0`; the same runbook now carries the current `archctx@0.1.4` install command after AL10 release supersession.
 - `docs/verification/fg6-personal-beta-launch-review.md`: records the personal-user Beta launch review, support matrix, known limitations, and deferred collaboration scope.
 - `docs/approvals/fg6-personal-beta-launch.md`: PASS, records human approval by Chris for the personal-user Beta boundary.
 - `bun run readback:fg6:rollout`: BLOCKED as expected for deferred collaboration DRAFT intake, wrote `docs/verification/fg6-rollout-readback.json` and `docs/verification/fg6-rollout-evidence-intake.md` from `_ops/env/fg6-rollout-evidence.json`.
@@ -287,4 +289,4 @@ The deferred rollout intake keeps the generated operator packet deliberately fai
 
 ## Decision
 
-PASS for FG6-01 through FG6-20 and FG6-EG1 through FG6-EG10 under the current personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. Personal-user Beta is approved for `archctx@0.1.0`.
+PASS for FG6-01 through FG6-20 and FG6-EG1 through FG6-EG10 under the personal-user Beta scope. Design partner, opt-in beta, and team collaboration rollout telemetry are deferred to `tasks/todos.md`. The initial FG6 approval artifact was `archctx@0.1.0`; current public npm `latest` is superseded to `archctx@0.1.4`.

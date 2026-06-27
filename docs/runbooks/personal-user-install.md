@@ -1,12 +1,12 @@
 # Personal User Install
 
-This runbook is the current individual-user install path for `archctx@0.1.3`.
+This runbook is the current individual-user install path for `archctx@0.1.4`.
 Team collaboration, design-partner rollout, opt-in beta cohorts, and shared organization rollout evidence are deferred.
 
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Required release artifact: public npm package `archctx@0.1.3`.
+- Required release artifact: public npm package `archctx@0.1.4` (`latest`).
 - Runtime: Node.js 24.x or 25.x, npm, and git must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 - Do not treat this runbook as approved for a published package version until `docs/verification/fg6-release-distribution-readback.json` is verified for that exact version.
@@ -19,7 +19,7 @@ Verify Node/npm/git and install ArchContext:
 node --version
 npm --version
 git --version
-npm install -g archctx@0.1.3
+npm install -g archctx@0.1.4
 archctx --help
 ```
 

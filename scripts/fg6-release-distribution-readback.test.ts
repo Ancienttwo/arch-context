@@ -9,7 +9,7 @@ describe("fg6 release distribution readback", () => {
     const recording = buildReleaseDistributionReadback({
       rootPackage: {
         name: "archcontext",
-        version: "0.1.0",
+        version: "0.1.4",
         private: true
       },
       workspacePackages: [
@@ -17,7 +17,7 @@ describe("fg6 release distribution readback", () => {
           path: "packages/surfaces/package.json",
           manifest: {
             name: "@archcontext/surfaces",
-            version: "0.1.0",
+            version: "0.1.4",
             private: true,
             bin: { archctx: "./cli/bin/archctx" }
           }
@@ -49,9 +49,9 @@ describe("fg6 release distribution readback", () => {
     expect(recording.ok).toBe(false);
     expect(recording.release.ready).toBe(false);
     expect(recording.release.blockers).toContain("root package.json is private");
-    expect(recording.release.blockers).toContain("npm release archctx@0.1.0 is not published");
+    expect(recording.release.blockers).toContain("npm release archctx@0.1.4 is not published");
     expect(recording.release.blockers).toContain("npm release dry-run evidence is missing or failed");
-    expect(recording.release.blockers).toContain("archctx npm package is placeholder/version 0.0.0, not release 0.1.0");
+    expect(recording.release.blockers).toContain("archctx npm package is placeholder/version 0.0.0, not release 0.1.4");
     expect(inspectReleaseDistributionReadback(recording)).toEqual({ ok: true, failures: [] });
   });
 
@@ -59,7 +59,7 @@ describe("fg6 release distribution readback", () => {
     const recording = buildReleaseDistributionReadback({
       rootPackage: {
         name: "archcontext",
-        version: "0.1.0",
+        version: "0.1.4",
         private: true
       },
       workspacePackages: [],
@@ -75,15 +75,15 @@ describe("fg6 release distribution readback", () => {
         ok: true,
         package: {
           name: "archctx",
-          version: "0.1.0",
+          version: "0.1.4",
           homepage: "https://archcontext.repoharness.com"
         },
         artifact: {
-          tarball: "archctx-0.1.0.tgz",
-          publishDryRunId: "archctx@0.1.0"
+          tarball: "archctx-0.1.4.tgz",
+          publishDryRunId: "archctx@0.1.4"
         },
         rollout: {
-          postPublishInstallCommand: "npm install -g archctx@0.1.0"
+          postPublishInstallCommand: "npm install -g archctx@0.1.4"
         }
       },
       registry: [
@@ -92,7 +92,7 @@ describe("fg6 release distribution readback", () => {
         {
           name: "archctx",
           status: "published",
-          version: "0.1.0",
+          version: "0.1.4",
           engines: { node: ">=24 <26" },
           packageManager: null,
           bin: { archctx: "bin/archctx.mjs" }
@@ -111,7 +111,7 @@ describe("fg6 release distribution readback", () => {
     const recording = buildReleaseDistributionReadback({
       rootPackage: {
         name: "archcontext",
-        version: "0.1.0",
+        version: "0.1.4",
         private: true
       },
       workspacePackages: [],
@@ -127,15 +127,15 @@ describe("fg6 release distribution readback", () => {
         ok: true,
         package: {
           name: "archctx",
-          version: "0.1.0",
+          version: "0.1.4",
           homepage: "https://archcontext.repoharness.com"
         },
         artifact: {
-          tarball: "archctx-0.1.0.tgz",
-          publishDryRunId: "archctx@0.1.0"
+          tarball: "archctx-0.1.4.tgz",
+          publishDryRunId: "archctx@0.1.4"
         },
         rollout: {
-          postPublishInstallCommand: "npm install -g archctx@0.1.0"
+          postPublishInstallCommand: "npm install -g archctx@0.1.4"
         }
       },
       registry: [
@@ -156,8 +156,8 @@ describe("fg6 release distribution readback", () => {
     expect(recording.status).toBe("blocked");
     expect(recording.assertions.canonicalNameResolved).toBe(true);
     expect(recording.assertions.npmDryRunVerified).toBe(true);
-    expect(recording.release.postPublishInstallCommand).toBe("npm install -g archctx@0.1.0");
-    expect(recording.release.blockers).toContain("npm release archctx@0.1.0 is not published");
+    expect(recording.release.postPublishInstallCommand).toBe("npm install -g archctx@0.1.4");
+    expect(recording.release.blockers).toContain("npm release archctx@0.1.4 is not published");
     expect(recording.release.blockers).toContain("public npm install command is not available for rollout");
     expect(recording.release.blockers).not.toContain("root package.json is private");
     expect(inspectReleaseDistributionReadback(recording)).toEqual({ ok: true, failures: [] });
