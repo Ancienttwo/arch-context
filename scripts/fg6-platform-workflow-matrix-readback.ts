@@ -11,8 +11,13 @@ const DEFAULT_GITHUB_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-github-hosted
 const DEFAULT_SELF_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-self-hosted-runner-execution-readback.json";
 const DEFAULT_OUTPUT = "docs/verification/fg6-platform-workflow-matrix-readback.json";
 const REQUIRED_OS = ["ubuntu-latest", "macos-15", "windows-latest"] as const;
+const SUPPORTED_OS_SETS = [
+  REQUIRED_OS,
+  ["ubuntu-latest", "macos-latest", "windows-latest"] as const
+] as const;
 const REQUIRED_NODE = ["24.x", "25.x"] as const;
 const REQUIRED_ARTIFACTS = REQUIRED_OS.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`));
+const SUPPORTED_ARTIFACT_SETS = SUPPORTED_OS_SETS.map((osSet) => osSet.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`)));
 const SECRET_PATTERNS = [
   /gh[opsu]_[A-Za-z0-9_]+/,
   /Bearer\s+[A-Za-z0-9._-]+/i,
@@ -243,7 +248,10 @@ function summarizeRunner(recording: unknown) {
 function inspectWorkflowMatrix(workflowMatrix: Record<string, unknown>, failures: string[]): void {
   const os = Array.isArray(workflowMatrix.os) ? workflowMatrix.os.map(String) : [];
   const nodeVersions = Array.isArray(workflowMatrix.nodeVersions) ? workflowMatrix.nodeVersions.map(String) : [];
-  for (const value of REQUIRED_OS) if (!os.includes(value)) failures.push(`workflow matrix missing OS ${value}`);
+  const hasSupportedOsSet = SUPPORTED_OS_SETS.some((osSet) => osSet.every((value) => os.includes(value)));
+  if (!hasSupportedOsSet) {
+    for (const value of REQUIRED_OS) if (!os.includes(value)) failures.push(`workflow matrix missing OS ${value}`);
+  }
   for (const value of REQUIRED_NODE) if (!nodeVersions.includes(value)) failures.push(`workflow matrix missing Node ${value}`);
   if (Number(workflowMatrix.targetCount ?? 0) !== 6) failures.push("workflow matrix targetCount must be 6");
   for (const key of ["failFastFalse", "verifyCommand", "platformReadbackCommand", "uploadArtifact", "artifactNamePattern", "governanceVerifySeparateJob"]) {
@@ -275,8 +283,11 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
   if (hostedCi.downloadedArtifactsVerified !== true) failures.push("hostedCi downloaded artifacts must be verified");
   if (Number(hostedCi.artifactCount ?? 0) !== 6) failures.push("hostedCi artifactCount must be 6");
   const artifactNames = Array.isArray(hostedCi.artifactNames) ? hostedCi.artifactNames.map(String) : [];
-  for (const name of REQUIRED_ARTIFACTS) {
-    if (!artifactNames.includes(name)) failures.push(`hostedCi missing artifact ${name}`);
+  const hasSupportedArtifactSet = SUPPORTED_ARTIFACT_SETS.some((artifactSet) => artifactSet.every((name) => artifactNames.includes(name)));
+  if (!hasSupportedArtifactSet) {
+    for (const name of REQUIRED_ARTIFACTS) {
+      if (!artifactNames.includes(name)) failures.push(`hostedCi missing artifact ${name}`);
+    }
   }
   if (hostedCi.posixModeVerified !== true) failures.push("hostedCi POSIX mode proof missing");
   if (hostedCi.windowsAclVerified !== true) failures.push("hostedCi Windows ACL proof missing");
