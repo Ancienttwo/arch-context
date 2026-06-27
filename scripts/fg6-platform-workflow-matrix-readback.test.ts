@@ -8,7 +8,7 @@ describe("fg6 platform workflow matrix readback evidence", () => {
 
   test("rejects missing matrix targets, weak IPC contract, missing artifacts, and failed runner workflows", () => {
     const recording: any = verifiedRecording();
-    recording.evidence.workflowMatrix.os = ["ubuntu-latest", "macos-latest"];
+    recording.evidence.workflowMatrix.os = ["ubuntu-latest", "macos-15"];
     recording.evidence.workflowMatrix.targetCount = 4;
     recording.evidence.platformIpcContract.usesInstalledBin = false;
     recording.evidence.hostedCi.artifactNames.pop();
@@ -48,7 +48,7 @@ function verifiedRecording() {
     },
     evidence: {
       workflowMatrix: {
-        os: ["ubuntu-latest", "macos-latest", "windows-latest"],
+        os: ["ubuntu-latest", "macos-15", "windows-latest"],
         nodeVersions: ["24.x", "25.x"],
         targetCount: 6,
         failFastFalse: true,
@@ -77,8 +77,8 @@ function verifiedRecording() {
         artifactNames: [
           "platform-ipc-permission-ubuntu-latest-node-24.x",
           "platform-ipc-permission-ubuntu-latest-node-25.x",
-          "platform-ipc-permission-macos-latest-node-24.x",
-          "platform-ipc-permission-macos-latest-node-25.x",
+          "platform-ipc-permission-macos-15-node-24.x",
+          "platform-ipc-permission-macos-15-node-25.x",
           "platform-ipc-permission-windows-latest-node-24.x",
           "platform-ipc-permission-windows-latest-node-25.x"
         ],

@@ -10,7 +10,7 @@ const DEFAULT_FG1_GATE = "docs/verification/fg1-local-product-gate.md";
 const DEFAULT_GITHUB_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-github-hosted-runner-readback.json";
 const DEFAULT_SELF_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-self-hosted-runner-execution-readback.json";
 const DEFAULT_OUTPUT = "docs/verification/fg6-platform-workflow-matrix-readback.json";
-const REQUIRED_OS = ["ubuntu-latest", "macos-latest", "windows-latest"] as const;
+const REQUIRED_OS = ["ubuntu-latest", "macos-15", "windows-latest"] as const;
 const REQUIRED_NODE = ["24.x", "25.x"] as const;
 const REQUIRED_ARTIFACTS = REQUIRED_OS.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`));
 const SECRET_PATTERNS = [
@@ -171,7 +171,7 @@ function inspectWorkflowText(text: string) {
     failFastFalse: /fail-fast:\s*false/.test(text),
     verifyCommand: text.includes("run: bun run verify"),
     platformReadbackCommand: text.includes("node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json"),
-    uploadArtifact: text.includes("actions/upload-artifact@v4"),
+    uploadArtifact: text.includes("actions/upload-artifact@v6"),
     artifactNamePattern: text.includes("platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}"),
     governanceVerifySeparateJob: text.includes("governance-verify:") && text.includes("run: bun run verify:governance")
   };
