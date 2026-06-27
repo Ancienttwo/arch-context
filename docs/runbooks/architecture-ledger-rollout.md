@@ -81,6 +81,33 @@ The write command must:
 Dry-run must report `writes=none`, `backup.status=not-created`, and
 `append.status=not-applied`.
 
+## Promotion Preflight
+
+Promotion into `ledger-authoritative` is gated by an explicit read-only
+preflight. The command does not write runtime config, mutate SQLite, project
+YAML, enable hard enforcement, or claim production GA readiness.
+
+```bash
+archctx ledger promote --mode authoritative --preflight --rollback-plan
+```
+
+The preflight must block when the repository is still in `yaml` or `dual` mode;
+promotion cannot skip directly past the `ledger-shadow` comparison phase. A
+ready result requires:
+
+- active phase is `ledger-shadow`;
+- ledger/YAML drift is clean;
+- reconcile status is clean;
+- unsupported YAML files are absent;
+- ledger current state is present;
+- rollback-to-YAML command is included in the output.
+
+When ready, the output returns
+`recommendedEnvironment.ARCHCONTEXT_LEDGER_MODE=ledger-authoritative` and a
+rollback command with the current worktree digest. The operator still applies
+the environment change outside the command boundary, then verifies readback and
+rollback drill evidence.
+
 ## Rollback
 
 Rollback is mode downgrade plus verification:

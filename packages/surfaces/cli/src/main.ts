@@ -420,7 +420,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -438,6 +438,24 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
   if (subcommand === "drift") {
     const daemon = await requiredLedgerRuntime(runtime);
     return daemon.ledgerDrift(cwd);
+  }
+  if (subcommand === "promote") {
+    if (args.includes("--write") || args.includes("--enable") || args.includes("--apply")) {
+      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote is preflight-only; it does not write runtime config or enable authority");
+    }
+    const mode = readFlag(args, "--mode") ?? args[1];
+    const targetMode = normalizeLedgerPromotionTargetMode(mode);
+    if (!targetMode) {
+      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote requires --mode authoritative");
+    }
+    if (!args.includes("--preflight")) {
+      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote requires --preflight");
+    }
+    if (!args.includes("--rollback-plan")) {
+      return errorEnvelope("ledger.promote", "AC_SCHEMA_INVALID", "ledger promote requires --rollback-plan");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return runLedgerPromotionPreflight(cwd, daemon, targetMode);
   }
   if (subcommand === "project") {
     if (!args.includes("--to-git")) {
@@ -507,12 +525,120 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
       expectedWorktreeDigest
     });
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml, rebuild --from-git, rollback --to-yaml, or project --to-git");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, rebuild --from-git, rollback --to-yaml, or project --to-git");
 }
 
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
   if (!runtime) throw new Error("ledger command requires runtime daemon");
   return runtime();
+}
+
+function normalizeLedgerPromotionTargetMode(value: string | undefined): "ledger-authoritative" | undefined {
+  if (value === "authoritative" || value === "ledger-authoritative" || value === "ledger") return "ledger-authoritative";
+  return undefined;
+}
+
+async function runLedgerPromotionPreflight(cwd: string, daemon: RuntimeDaemonClient, targetMode: "ledger-authoritative") {
+  const stateEnvelope = await daemon.ledgerState(cwd);
+  if (!stateEnvelope.ok) return stateEnvelope;
+  const driftEnvelope = await daemon.ledgerDrift(cwd);
+  if (!driftEnvelope.ok) return driftEnvelope;
+  const state = readObject(stateEnvelope.data);
+  const driftData = readObject(driftEnvelope.data);
+  const architectureLedger = readObject(state.architectureLedger);
+  const phaseFlags = readObject(architectureLedger.phaseFlags);
+  const currentPhase = String(phaseFlags.activePhase ?? architectureLedger.rolloutMode ?? "unknown");
+  const worktree = readObject(state.worktree);
+  const ledger = readObject(state.ledger);
+  const yaml = readObject(state.yaml);
+  const drift = readObject(driftData.drift ?? state.drift);
+  const reconcile = readObject(driftData.reconcile ?? state.reconcile);
+  const worktreeDigest = typeof worktree.worktreeDigest === "string" ? worktree.worktreeDigest : "<current>";
+  const nextRequiredPhase = nextLedgerPromotionPhase(currentPhase);
+  const preconditions = {
+    currentPhase,
+    targetMode,
+    noModeSkip: currentPhase === "ledger-shadow" || currentPhase === targetMode,
+    driftClean: drift.ok === true,
+    reconcileClean: reconcile.ok === true,
+    unsupportedYamlFilesAbsent: Number(yaml.unsupportedFileCount ?? 0) === 0,
+    ledgerStatePresent: Number(ledger.entityCount ?? 0) + Number(ledger.relationCount ?? 0) + Number(ledger.constraintCount ?? 0) > 0,
+    rollbackPlanPresent: true,
+    hardEnforcementUnchanged: true
+  };
+  const alreadyActive = currentPhase === targetMode;
+  const ready = !alreadyActive && Object.values(preconditions).every((value) => value === true || typeof value === "string");
+  const reasonCodes = [
+    ...(alreadyActive ? ["already-ledger-authoritative"] : []),
+    ...(preconditions.noModeSkip ? [] : [`mode-sequence-not-ready:${currentPhase}->${nextRequiredPhase ?? "ledger-shadow"}`]),
+    ...(preconditions.driftClean ? [] : ["ledger-yaml-drift-not-clean"]),
+    ...(preconditions.reconcileClean ? [] : ["ledger-reconcile-not-clean"]),
+    ...(preconditions.unsupportedYamlFilesAbsent ? [] : ["unsupported-yaml-files-present"]),
+    ...(preconditions.ledgerStatePresent ? [] : ["ledger-state-empty"])
+  ];
+  return okEnvelope("ledger.promote", {
+    schemaVersion: "archcontext.runtime-architecture-ledger-promotion-preflight/v1",
+    targetMode,
+    status: alreadyActive ? "already-active" : ready ? "ready" : "blocked",
+    ready,
+    writes: "none",
+    sideEffects: {
+      ledgerModeChanged: false,
+      hardEnforcementChanged: false,
+      sqliteMutated: false,
+      yamlMutated: false
+    },
+    repository: state.repository,
+    worktree: state.worktree,
+    current: {
+      phase: currentPhase,
+      readMode: architectureLedger.readMode,
+      writeMode: architectureLedger.writeMode,
+      readAuthority: architectureLedger.readAuthority,
+      writeAuthority: architectureLedger.writeAuthority,
+      graphDigest: state.graphDigest,
+      ledgerGraphDigest: ledger.graphDigest,
+      yamlGraphDigest: yaml.graphDigest
+    },
+    preconditions,
+    reasonCodes,
+    nextRequiredPhase,
+    recommendedEnvironment: {
+      ARCHCONTEXT_LEDGER_MODE: targetMode,
+      ARCHCONTEXT_LEDGER_READ_MODE: "ledger",
+      ARCHCONTEXT_LEDGER_WRITE_MODE: "ledger-with-projection"
+    },
+    rollbackPlan: {
+      required: true,
+      targetAuthority: "yaml",
+      dryRunCommand: "archctx ledger rollback --to-yaml --dry-run",
+      command: `archctx ledger rollback --to-yaml --write --expected-worktree-digest ${worktreeDigest}`,
+      commandTemplate: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+      environment: {
+        ARCHCONTEXT_LEDGER_MODE: "yaml",
+        ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
+        ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
+      }
+    },
+    boundary: {
+      advisoryDefaultPreserved: true,
+      productionGaClaimed: false,
+      hardEnforcementEnabled: false,
+      operatorActionRequired: true
+    }
+  } as unknown as Json);
+}
+
+function nextLedgerPromotionPhase(currentPhase: string): string | null {
+  if (currentPhase === "yaml") return "dual";
+  if (currentPhase === "dual") return "ledger-shadow";
+  if (currentPhase === "ledger-shadow") return "ledger-authoritative";
+  if (currentPhase === "ledger-authoritative") return null;
+  return "yaml";
+}
+
+function readObject(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
 }
 
 async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

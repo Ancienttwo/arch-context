@@ -1980,6 +1980,108 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("CLI ledger promotion preflight gates authoritative mode without mutating state", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const missingPreflight = await runTestCli("ledger", ["promote", "--mode", "authoritative", "--rollback-plan"], root);
+      expect(missingPreflight.ok).toBe(false);
+      expect((missingPreflight as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      let status = await runTestCli("status", [], root);
+      const migrated = await runTestCli("ledger", [
+        "migrate",
+        "--from-yaml",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(migrated.ok).toBe(true);
+
+      const blocked = await runTestCli("ledger", [
+        "promote",
+        "--mode",
+        "authoritative",
+        "--preflight",
+        "--rollback-plan"
+      ], root);
+      expect(blocked.ok).toBe(true);
+      expect((blocked.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-promotion-preflight/v1",
+        targetMode: "ledger-authoritative",
+        status: "blocked",
+        ready: false,
+        writes: "none",
+        sideEffects: {
+          ledgerModeChanged: false,
+          hardEnforcementChanged: false,
+          sqliteMutated: false,
+          yamlMutated: false
+        },
+        preconditions: {
+          currentPhase: "yaml",
+          noModeSkip: false,
+          driftClean: true,
+          reconcileClean: true,
+          rollbackPlanPresent: true,
+          hardEnforcementUnchanged: true
+        },
+        nextRequiredPhase: "dual"
+      });
+      expect((blocked.data as any).reasonCodes).toContain("mode-sequence-not-ready:yaml->dual");
+
+      const beforeState = await runTestCli("ledger", ["state"], root);
+      await withEnv({
+        ARCHCONTEXT_LEDGER_MODE: "ledger-shadow",
+        ARCHCONTEXT_LEDGER_READ_MODE: undefined,
+        ARCHCONTEXT_LEDGER_WRITE_MODE: undefined
+      }, async () => {
+        const ready = await runTestCli("ledger", [
+          "promote",
+          "--mode",
+          "authoritative",
+          "--preflight",
+          "--rollback-plan"
+        ], root);
+        expect(ready.ok).toBe(true);
+        expect((ready.data as any)).toMatchObject({
+          status: "ready",
+          ready: true,
+          current: {
+            phase: "ledger-shadow",
+            readAuthority: "yaml"
+          },
+          recommendedEnvironment: {
+            ARCHCONTEXT_LEDGER_MODE: "ledger-authoritative",
+            ARCHCONTEXT_LEDGER_READ_MODE: "ledger",
+            ARCHCONTEXT_LEDGER_WRITE_MODE: "ledger-with-projection"
+          },
+          rollbackPlan: {
+            required: true,
+            targetAuthority: "yaml",
+            environment: {
+              ARCHCONTEXT_LEDGER_MODE: "yaml",
+              ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
+              ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
+            }
+          },
+          boundary: {
+            advisoryDefaultPreserved: true,
+            productionGaClaimed: false,
+            hardEnforcementEnabled: false,
+            operatorActionRequired: true
+          }
+        });
+        expect((ready.data as any).rollbackPlan.command).toContain((ready.data as any).worktree.worktreeDigest);
+        expect((ready.data as any).reasonCodes).toEqual([]);
+      });
+
+      const afterState = await runTestCli("ledger", ["state"], root);
+      expect((afterState.data as any).ledger.graphDigest).toBe((beforeState.data as any).ledger.graphDigest);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML", async () => {
     const root = createInitializedGitRepo();
     const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
