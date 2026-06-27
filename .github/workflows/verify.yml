@@ -47,7 +47,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          - macos-15
           - windows-latest
         node-version:
           - 24.x
@@ -75,7 +75,7 @@ jobs:
         run: node scripts/platform-ipc-permission-readback.mjs > platform-ipc-permission-readback.json
 
       - name: Upload platform IPC permission readback
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: platform-ipc-permission-${{ matrix.os }}-node-${{ matrix.node-version }}
           path: platform-ipc-permission-readback.json
