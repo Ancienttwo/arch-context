@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/agent-job.schema.json",
+  "title": "AgentJob",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "jobId", "status", "runnerPort", "repository", "worktree", "fingerprint", "trigger", "budget", "inputDigest", "promptTemplateDigest", "stalePolicy", "directMutationAllowed", "queuedAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.agent-job/v1" },
+    "jobId": { "type": "string", "pattern": "^agent_job\\.[a-zA-Z0-9_-]+$" },
+    "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled", "superseded", "expired"] },
+    "runnerPort": { "enum": ["claude-code", "codex", "fake-provider"] },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "reason"],
+      "properties": {
+        "source": { "enum": ["prepare_task", "checkpoint", "plan_update", "apply_update", "complete_task", "git_hook", "yaml_import", "projection_reconcile", "migration", "manual"] },
+        "reason": { "type": "string" }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxRunsPerTask", "maxRunsPerRepositoryPerDay"],
+      "properties": {
+        "maxRunsPerTask": { "type": "integer", "minimum": 0 },
+        "maxRunsPerRepositoryPerDay": { "type": "integer", "minimum": 0 },
+        "maxRunsPerDay": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "promptTemplateDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "outputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "stalePolicy": { "enum": ["cancel-on-head-change", "advisory-only-on-stale"] },
+    "directMutationAllowed": { "const": false },
+    "queuedAt": { "type": "string" },
+    "updatedAt": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

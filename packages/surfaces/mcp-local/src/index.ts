@@ -1,6 +1,6 @@
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
 import { assertNoCallerProvidedAttestationFields, errorEnvelope, type Json } from "@archcontext/contracts";
-import { createRuntimeRpcClientFromConnectionFile, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
+import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
 
@@ -27,6 +27,13 @@ export interface McpResourceDefinition {
   annotations: {
     safety: "read-only";
   };
+}
+
+export type McpRuntimeResolver = (root: string) => RuntimeDaemonClient | Promise<RuntimeDaemonClient>;
+
+export interface McpLocalServerOptions {
+  runtime?: RuntimeDaemonClient;
+  runtimeResolver?: McpRuntimeResolver;
 }
 
 export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
@@ -62,12 +69,61 @@ export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   }
 ];
 
+const ARCHITECTURE_BOOK_RESOURCES: Array<McpResourceDefinition & { input: RuntimeBookInput }> = [
+  {
+    uri: "archcontext://book/status",
+    name: "Architecture Book status",
+    description: "Read Architecture Book freshness, drift, counts, and supported commands from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "status" }
+  },
+  {
+    uri: "archcontext://book/state",
+    name: "Architecture Book state",
+    description: "Read the current metadata-only Architecture Book state from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "export", format: "json" }
+  },
+  {
+    uri: "archcontext://book/timeline",
+    name: "Architecture Book timeline",
+    description: "Read recent Architecture Book events and freshness metadata from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "timeline", maxItems: 100 }
+  },
+  {
+    uri: "archcontext://book/diff",
+    name: "Architecture Book diff",
+    description: "Read the metadata-only diff from the empty ledger state to the current Architecture Book state.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "diff", fromRef: "empty", toRef: "current", maxItems: 100 }
+  },
+  {
+    uri: "archcontext://book/recommendations",
+    name: "Architecture Book recommendations",
+    description: "Read Architecture Book recommendations from the local daemon.",
+    mimeType: "application/json",
+    annotations: { safety: "read-only" },
+    input: { command: "recommendations", maxItems: 100 }
+  }
+];
+
 export class McpLocalServer {
   readonly resources = new Map<string, Json>();
   private runtimeInstance?: RuntimeDaemonClient;
+  private runtimeResolver?: McpRuntimeResolver;
 
-  constructor(runtime?: RuntimeDaemonClient) {
-    this.runtimeInstance = runtime;
+  constructor(runtimeOrOptions?: RuntimeDaemonClient | McpLocalServerOptions) {
+    if (isMcpLocalServerOptions(runtimeOrOptions)) {
+      this.runtimeInstance = runtimeOrOptions.runtime;
+      this.runtimeResolver = runtimeOrOptions.runtimeResolver;
+    } else {
+      this.runtimeInstance = runtimeOrOptions;
+    }
   }
 
   listTools(): McpToolDefinition[] {
@@ -181,15 +237,18 @@ export class McpLocalServer {
   }
 
   async listResources(root = process.cwd()): Promise<McpResourceDefinition[]> {
-    const localResources = [...this.resources.keys()].map((uri) => ({
-      uri,
-      name: uri,
-      description: "Daemon-budgeted local architecture result.",
-      mimeType: "application/json" as const,
-      annotations: { safety: "read-only" as const }
-    }));
+    const localResources: McpResourceDefinition[] = [
+      ...ARCHITECTURE_BOOK_RESOURCES.map(({ input: _input, ...resource }) => resource),
+      ...[...this.resources.keys()].map((uri) => ({
+        uri,
+        name: uri,
+        description: "Daemon-budgeted local architecture result.",
+        mimeType: "application/json" as const,
+        annotations: { safety: "read-only" as const }
+      }))
+    ];
     try {
-      const status = await (await this.runtime(root)).docs(root, { command: "status", provider: "context7" });
+      const status = await (await this.runtime(root, { allowResolver: false })).docs(root, { command: "status", provider: "context7" });
       if (!status.ok) return localResources;
       const cacheEntries = ((status.data as any)?.cacheEntries ?? []) as Array<Record<string, unknown>>;
       return [
@@ -216,6 +275,14 @@ export class McpLocalServer {
   async readResource(uri: string, root = process.cwd()): Promise<Json | undefined> {
     const local = this.resources.get(uri);
     if (local) return local;
+    const book = architectureBookResourceInput(uri);
+    if (book) {
+      try {
+        return await (await this.runtime(root)).book(root, book) as unknown as Json;
+      } catch (error) {
+        return runtimeUnavailable("book.resource", error).content;
+      }
+    }
     if (!isExternalDocumentationResourceUri(uri)) return undefined;
     try {
       const result = await (await this.runtime(root)).readResource(root, uri);
@@ -247,7 +314,7 @@ export class McpLocalServer {
     };
   }
 
-  private async runtime(root = process.cwd()): Promise<RuntimeDaemonClient> {
+  private async runtime(root = process.cwd(), options: { allowResolver?: boolean } = { allowResolver: true }): Promise<RuntimeDaemonClient> {
     if (this.runtimeInstance) return this.runtimeInstance;
     const client = createRuntimeRpcClientFromConnectionFile(root);
     if (client) {
@@ -257,8 +324,16 @@ export class McpLocalServer {
         return this.runtimeInstance;
       }
     }
+    if (options.allowResolver !== false && this.runtimeResolver) {
+      this.runtimeInstance = await this.runtimeResolver(root);
+      return this.runtimeInstance;
+    }
     throw new Error("archctxd RPC is unavailable; run `archctx daemon start` before using the local MCP surface");
   }
+}
+
+function isMcpLocalServerOptions(value: RuntimeDaemonClient | McpLocalServerOptions | undefined): value is McpLocalServerOptions {
+  return Boolean(value && typeof value === "object" && ("runtime" in value || "runtimeResolver" in value));
 }
 
 function requiredArg(args: Record<string, any>, key: string): string {
@@ -367,8 +442,13 @@ export class SecureMcpTunnelManager {
   }
 }
 
-export async function runStdioMcpLoop(input: AsyncIterable<string>, output: (line: string) => void, log: (line: string) => void = (line) => process.stderr.write(`${line}\n`)): Promise<void> {
-  const server = new McpLocalServer();
+export async function runStdioMcpLoop(
+  input: AsyncIterable<string>,
+  output: (line: string) => void,
+  log: (line: string) => void = (line) => process.stderr.write(`${line}\n`),
+  options: McpLocalServerOptions = {}
+): Promise<void> {
+  const server = new McpLocalServer(options);
   log("[archctx-mcp] started");
   for await (const line of input) {
     const message = JSON.parse(line);
@@ -394,4 +474,8 @@ export async function runStdioMcpLoop(input: AsyncIterable<string>, output: (lin
 
 function isExternalDocumentationResourceUri(uri: string): boolean {
   return /^archcontext:\/\/external-docs\/context7\/sha256:[0-9a-f]{64}$/.test(uri);
+}
+
+function architectureBookResourceInput(uri: string): RuntimeBookInput | undefined {
+  return ARCHITECTURE_BOOK_RESOURCES.find((resource) => resource.uri === uri)?.input;
 }

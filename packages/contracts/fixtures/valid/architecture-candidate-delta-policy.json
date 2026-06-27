@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "archcontext.architecture-candidate-delta-policy/v1",
+  "evaluationId": "candidate_delta_policy.checkout-service",
+  "deltaId": "delta.checkout-service",
+  "repository": {
+    "repositoryId": "repo.checkout",
+    "storageRepositoryId": "repo.storage.checkout"
+  },
+  "worktree": {
+    "workspaceId": "workspace.checkout.main",
+    "storageWorkspaceId": "workspace.storage.checkout.main",
+    "branch": "main",
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "deltaDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "policyVersion": "architecture-candidate-delta-policy/v1",
+  "evaluatedAt": "2026-06-26T00:00:00.000Z",
+  "decisions": [
+    {
+      "decisionId": "candidate_delta_policy_decision.checkout-service",
+      "candidateChangeId": "candidate_change.checkout-service",
+      "target": {
+        "kind": "node",
+        "id": "module.checkout"
+      },
+      "stateDimension": "target-state",
+      "changeKind": "materially_changed",
+      "confidence": "medium",
+      "action": "require-checkpoint",
+      "reasonCodes": ["medium-confidence", "partial-evidence"],
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "summary": {
+    "candidateChanges": 1,
+    "autoAccept": 0,
+    "requireCheckpoint": 1,
+    "requireProof": 0,
+    "requireHumanApproval": 0,
+    "mappingAmbiguities": 0
+  },
+  "evaluationDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

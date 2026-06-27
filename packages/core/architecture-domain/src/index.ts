@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
-import { digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
+import { canonicalize, digestJson, isRepoRelativePosixPath, stableId, stableYaml, type Json } from "@archcontext/contracts";
 
 export interface RepositoryBinding {
   repositoryId: string;
@@ -180,6 +180,50 @@ export function normalizeDottedId(value: string): string {
     .join(".");
 }
 
+export const ARCHITECTURE_DIRECTION_VIOLATION_KINDS = [
+  "boundary-violation",
+  "cross-boundary-import",
+  "cross-boundary-import-added",
+  "declared-layer-violation",
+  "declared-layer-violation-observed",
+  "dependency-direction-violation",
+  "layer-violation"
+] as const;
+
+export type ArchitectureDirectionViolationKind = typeof ARCHITECTURE_DIRECTION_VIOLATION_KINDS[number];
+
+export interface ArchitectureDirectionViolationSubject {
+  kind: ArchitectureDirectionViolationKind;
+  subject: string;
+  source: string;
+  target?: string;
+}
+
+export const ARCHITECTURE_DIRECTION_VIOLATION_PREFIXES = ARCHITECTURE_DIRECTION_VIOLATION_KINDS.map((kind) => `${kind}:`);
+
+export function parseArchitectureDirectionViolationSubject(subject: string): ArchitectureDirectionViolationSubject | undefined {
+  const prefix = ARCHITECTURE_DIRECTION_VIOLATION_PREFIXES.find((candidate) => subject.startsWith(candidate));
+  if (!prefix) return undefined;
+  const body = subject.slice(prefix.length).trim();
+  if (!body) return undefined;
+  const kind = prefix.slice(0, -1) as ArchitectureDirectionViolationKind;
+  const separator = body.indexOf("->");
+  if (separator < 0) return { kind, subject: body, source: body };
+
+  const source = body.slice(0, separator).trim();
+  const target = body.slice(separator + 2).trim();
+  if (!source || !target || target.includes("->")) return undefined;
+  return { kind, subject: body, source, target };
+}
+
+export function isArchitectureDirectionViolationSubject(subject: string): boolean {
+  return parseArchitectureDirectionViolationSubject(subject) !== undefined;
+}
+
+export function isArchitectureDirectionalEdgeViolationSubject(subject: string): boolean {
+  return parseArchitectureDirectionViolationSubject(subject)?.target !== undefined;
+}
+
 export function repoScopedArchitectureId(repositoryId: string, nodeId: string): string {
   return `${normalizeDottedId(repositoryId)}::${normalizeDottedId(nodeId)}`;
 }
@@ -283,6 +327,14 @@ export function landscapeDigest(landscape: Landscape, relations: CrossRepoRelati
 
 export function landscapeYaml(landscape: Landscape): string {
   return stableYaml(landscape as unknown as Json);
+}
+
+export function canonicalArchitectureJson(value: Json): Json {
+  return JSON.parse(canonicalize(value)) as Json;
+}
+
+export function canonicalArchitectureYaml(value: Json): string {
+  return stableYaml(canonicalArchitectureJson(value));
 }
 
 export function parseLandscapeFile(body: string, path = LANDSCAPE_FILE): Landscape {
@@ -416,7 +468,7 @@ function dedupeStrings(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-function parseJsonOrStableYaml(body: string, path: string): Json {
+export function parseJsonOrStableYaml(body: string, path: string): Json {
   const trimmed = body.trim();
   if (!trimmed) throw new Error(`${path}: empty model file`);
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return JSON.parse(trimmed) as Json;
@@ -490,16 +542,28 @@ class StableYamlParser {
     if (separator <= 0) throw new Error(`${this.path}: expected key/value entry`);
     const key = entry.slice(0, separator).trim();
     const rest = entry.slice(separator + 1).trim();
-    object[key] = rest ? parseScalar(rest) : this.parseBlock(indent + 2);
+    object[key] = rest ? parseScalar(rest) : this.parseNestedValue(indent);
   }
 
   private isKeyValue(value: string): boolean {
     return /^[A-Za-z0-9_-]+:/.test(value);
+  }
+
+  private parseNestedValue(parentIndent: number): Json {
+    const next = this.lines[this.index];
+    if (next && next.indent <= parentIndent && (next.text.trim() === "[]" || next.text.trim() === "{}")) {
+      this.index += 1;
+      return parseScalar(next.text.trim());
+    }
+    return this.parseBlock(parentIndent + 2);
   }
 }
 
 function parseScalar(value: string): Json {
   if (value === "[]") return [];
   if (value === "{}") return {};
-  return JSON.parse(value) as Json;
+  if (value === "true" || value === "false" || value === "null") return JSON.parse(value) as Json;
+  if (/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)) return Number(value);
+  if (/^["[{]/.test(value)) return JSON.parse(value) as Json;
+  return value;
 }

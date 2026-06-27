@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import {
   LOCAL_SQLITE_MIGRATIONS,
   SQLITE_PRAGMAS,
@@ -17,6 +18,7 @@ import {
 import { TestLocalStore } from "./factories";
 
 const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = 30_000;
+const LOCAL_STORE_SLOW_TEST_TIMEOUT_MS = 15_000;
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("migration SQL enables required SQLite safety pragmas", () => {
@@ -28,11 +30,20 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0002_indexes",
       "0003_landscape_state",
       "0004_changeset_journal",
-      "0005_external_docs_cache"
+      "0005_external_docs_cache",
+      "0006_architecture_ledger",
+      "0007_runtime_job_queue",
+      "0008_runtime_job_queue_hardening",
+      "0009_architecture_ledger_search_fts"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
     expect(sql.some((statement) => statement.includes("external_docs_cache"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_ledger_search_fts"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_events"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_ledger_operations"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("runtime_job_queue"))).toBe(true);
+    expect(sql.some((statement) => statement.includes("architecture_current_graph_view"))).toBe(true);
     expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
   });
 
@@ -234,7 +245,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
       rmSync(stateRoot, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("invalid legacy SQLite fails without publishing an empty target", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-state-invalid-legacy-repo-"));
@@ -288,7 +299,11 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0002_indexes",
       "0003_landscape_state",
       "0004_changeset_journal",
-      "0005_external_docs_cache"
+      "0005_external_docs_cache",
+      "0006_architecture_ledger",
+      "0007_runtime_job_queue",
+      "0008_runtime_job_queue_hardening",
+      "0009_architecture_ledger_search_fts"
     ]);
 
     const snapshot = {
@@ -307,6 +322,343 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     await store.beginSnapshot(snapshot);
     expect(store.recoverPendingSnapshots()).toBe(1);
   });
+
+  test("runtime job queue deduplicates fingerprints and coalesces queued jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-queue-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const first = runtimeAgentJob("alpha", {
+        fingerprint: "fingerprint.same",
+        queuedAt: "2026-06-25T01:00:00.000Z"
+      });
+      const duplicate = runtimeAgentJob("duplicate", {
+        fingerprint: "fingerprint.same",
+        queuedAt: "2026-06-25T01:00:01.000Z"
+      });
+      const newer = runtimeAgentJob("newer", {
+        fingerprint: "fingerprint.newer",
+        queuedAt: "2026-06-25T01:00:02.000Z"
+      });
+
+      await expect(store.enqueueRuntimeAgentJob({
+        job: first,
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.scope",
+        maxAttempts: 2
+      })).resolves.toMatchObject({ enqueued: true, deduplicated: false, supersededJobIds: [] });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: duplicate,
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.scope"
+      })).resolves.toMatchObject({ enqueued: false, deduplicated: true, record: { job: { jobId: first.jobId } } });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: newer,
+        analysisKind: "architecture-delta",
+        coalesceKey: "coalesce.scope"
+      })).resolves.toMatchObject({ enqueued: true, deduplicated: false, supersededJobIds: [first.jobId] });
+
+      const jobs = await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE);
+      expect(jobs.map((job) => [job.job.jobId, job.job.status, job.supersededByJobId])).toEqual([
+        [first.jobId, "superseded", newer.jobId],
+        [newer.jobId, "queued", undefined]
+      ]);
+      expect(JSON.stringify(jobs)).not.toContain("diff --git");
+      store.close();
+      expect(await sqliteScalar(join(root, "runtime.sqlite"), "SELECT COUNT(*) FROM runtime_job_queue")).toBe(2);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("runtime job queue claims leases, retries failures, and dead-letters exhausted jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-lease-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const job = runtimeAgentJob("lease", { queuedAt: "2026-06-25T01:10:00.000Z" });
+      await store.enqueueRuntimeAgentJob({ job, analysisKind: "architecture-delta", maxAttempts: 2 });
+
+      const firstClaim = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.one",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:10:01.000Z"
+      });
+      expect(firstClaim).toMatchObject({
+        job: { jobId: job.jobId, status: "running" },
+        attemptCount: 1,
+        leaseOwner: "worker.one"
+      });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.two",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:10:02.000Z"
+      })).resolves.toBeUndefined();
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.one",
+        status: "failed",
+        now: "2026-06-25T01:10:03.000Z",
+        error: "fixture-failure"
+      })).resolves.toMatchObject({ job: { status: "failed" }, attemptCount: 1, deadLetteredAt: undefined });
+      await expect(store.retryRuntimeAgentJob({
+        jobId: job.jobId,
+        now: "2026-06-25T01:10:04.000Z",
+        reason: "retry-fixture"
+      })).resolves.toMatchObject({ job: { status: "queued" }, attemptCount: 1 });
+
+      const secondClaim = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.two",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:10:05.000Z"
+      });
+      expect(secondClaim).toMatchObject({ job: { status: "running" }, attemptCount: 2, leaseOwner: "worker.two" });
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.two",
+        status: "failed",
+        now: "2026-06-25T01:10:06.000Z",
+        error: "fixture-failure-two"
+      })).resolves.toMatchObject({
+        job: { status: "failed" },
+        attemptCount: 2,
+        deadLetteredAt: "2026-06-25T01:10:06.000Z"
+      });
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("runtime job queue rejects duplicate completion of terminal jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-duplicate-complete-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const job = runtimeAgentJob("duplicate-complete", { queuedAt: "2026-06-25T01:20:00.000Z" });
+      const outputDigest = digestJson({ output: "first-completion" } as unknown as Json);
+      await store.enqueueRuntimeAgentJob({ job, analysisKind: "architecture-delta", maxAttempts: 1 });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.duplicate",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:20:01.000Z"
+      })).resolves.toMatchObject({
+        job: { jobId: job.jobId, status: "running" },
+        attemptCount: 1
+      });
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        now: "2026-06-25T01:20:02.000Z",
+        outputDigest
+      })).resolves.toMatchObject({
+        job: { status: "succeeded", outputDigest },
+        attemptCount: 1
+      });
+      await expect(store.completeRuntimeAgentJob({
+        jobId: job.jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        now: "2026-06-25T01:20:03.000Z",
+        outputDigest: digestJson({ output: "duplicate-completion" } as unknown as Json)
+      })).rejects.toThrow(`runtime-agent-job-complete-requires-running: ${job.jobId}`);
+
+      const succeeded = (await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE))
+        .filter((record) => record.job.status === "succeeded");
+      expect(succeeded).toHaveLength(1);
+      expect(succeeded[0].job.outputDigest).toBe(outputDigest);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("runtime job queue applies priority, queue caps, per-repository concurrency, and local stats", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-hardening-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const lowOld = runtimeAgentJob("low-old", {
+        fingerprint: "fingerprint.low-old",
+        queuedAt: "2026-06-25T01:30:00.000Z"
+      });
+      const lowNew = runtimeAgentJob("low-new", {
+        fingerprint: "fingerprint.low-new",
+        queuedAt: "2026-06-25T01:30:01.000Z"
+      });
+      const high = runtimeAgentJob("high", {
+        fingerprint: "fingerprint.high",
+        queuedAt: "2026-06-25T01:30:02.000Z"
+      });
+      const rejectedLow = runtimeAgentJob("rejected-low", {
+        fingerprint: "fingerprint.rejected-low",
+        queuedAt: "2026-06-25T01:30:03.000Z"
+      });
+      const otherWorktreeScope = {
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: {
+          ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+          workspaceId: "workspace.architecture-ledger-other",
+          storageWorkspaceId: "workspace.storage.architecture-ledger-other"
+        }
+      };
+      const otherWorktreeJob = {
+        ...runtimeAgentJob("other-worktree", {
+          fingerprint: "fingerprint.other-worktree",
+          queuedAt: "2026-06-25T01:30:04.000Z"
+        }),
+        worktree: otherWorktreeScope.worktree
+      } satisfies AgentJobV1;
+
+      await store.enqueueRuntimeAgentJob({ job: lowOld, analysisKind: "architecture-delta", coalesceKey: "cap.low-old", priority: 0 });
+      await store.enqueueRuntimeAgentJob({ job: lowNew, analysisKind: "architecture-delta", coalesceKey: "cap.low-new", priority: 0 });
+      await store.enqueueRuntimeAgentJob({ job: otherWorktreeJob, analysisKind: "architecture-delta", coalesceKey: "cap.other-worktree", priority: 0 });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: high,
+        analysisKind: "architecture-delta",
+        coalesceKey: "cap.high",
+        priority: 10,
+        maxQueuedJobs: 2
+      })).resolves.toMatchObject({
+        enqueued: true,
+        evictedJobIds: [lowOld.jobId],
+        backpressure: { accepted: true, maxQueuedJobs: 2, priority: 10 }
+      });
+      await expect(store.enqueueRuntimeAgentJob({
+        job: rejectedLow,
+        analysisKind: "architecture-delta",
+        coalesceKey: "cap.rejected-low",
+        priority: 0,
+        maxQueuedJobs: 1
+      })).resolves.toMatchObject({
+        enqueued: false,
+        rejected: true,
+        reasonCode: "backpressure-queue-cap",
+        backpressure: { accepted: false, maxQueuedJobs: 1, priority: 0 }
+      });
+
+      const firstClaim = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.priority",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:30:04.000Z",
+        maxRunningJobs: 1
+      });
+      expect(firstClaim).toMatchObject({ job: { jobId: high.jobId, status: "running" }, priority: 10 });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.second",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:30:05.000Z",
+        maxRunningJobs: 1
+      })).resolves.toBeUndefined();
+      await expect(store.claimRuntimeAgentJob({
+        ...otherWorktreeScope,
+        workerId: "worker.other-worktree",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:30:05.000Z",
+        maxRunningJobs: 1
+      })).resolves.toBeUndefined();
+
+      await expect(store.queueStatsRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        now: "2026-06-25T01:30:06.000Z"
+      })).resolves.toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
+        queuedDepth: 1,
+        runningDepth: 1,
+        activeDepth: 2,
+        countsByStatus: { queued: 1, running: 1, expired: 1 },
+        totalJobCount: 3,
+        lastFailureReason: "backpressure-queue-cap",
+        lastFailureJobId: lowOld.jobId
+      });
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("runtime job queue expires stale head or worktree jobs before new analysis can append", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-stale-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const stale = runtimeAgentJob("stale", {
+        queuedAt: "2026-06-25T01:20:00.000Z",
+        headSha: "0".repeat(40)
+      });
+      const current = runtimeAgentJob("current", {
+        queuedAt: "2026-06-25T01:20:01.000Z"
+      });
+      await store.enqueueRuntimeAgentJob({ job: stale, analysisKind: "architecture-delta", coalesceKey: "stale-a" });
+      await store.enqueueRuntimeAgentJob({ job: current, analysisKind: "architecture-delta", coalesceKey: "stale-b" });
+
+      await expect(store.cancelStaleRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        headSha: ARCHITECTURE_LEDGER_SCOPE.worktree.headSha,
+        worktreeDigest: ARCHITECTURE_LEDGER_SCOPE.worktree.worktreeDigest,
+        now: "2026-06-25T01:20:02.000Z"
+      })).resolves.toMatchObject([{ job: { jobId: stale.jobId, status: "expired" } }]);
+      expect((await store.listRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        statuses: ["queued"]
+      })).map((record) => record.job.jobId)).toEqual([current.jobId]);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime job queue stress fixture preserves 100 rapid git cursor changes without duplicate active jobs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-stress-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    const modes = ["commit", "amend", "rebase", "reset", "branch-switch"] as const;
+    try {
+      await store.migrate();
+      for (let index = 0; index < 100; index += 1) {
+        const mode = modes[index % modes.length]!;
+        await store.enqueueRuntimeAgentJob({
+          job: runtimeAgentJob(`stress-${index}`, {
+            fingerprint: `fingerprint.stress.${index}`,
+            queuedAt: new Date(Date.parse("2026-06-25T01:40:00.000Z") + index * 1000).toISOString(),
+            headSha: index.toString(16).padStart(40, "0"),
+            branch: mode === "branch-switch" ? `feature/al4-${index}` : "main",
+            worktreeDigest: digestJson({ mode, index } as unknown as Json)
+          }),
+          analysisKind: "architecture-delta",
+          coalesceKey: "stress.git-cursor",
+          priority: index % 3,
+          maxQueuedJobs: 8
+        });
+      }
+
+      const jobs = await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE);
+      const active = jobs.filter((record) => record.job.status === "queued" || record.job.status === "running");
+      expect(jobs).toHaveLength(100);
+      expect(new Set(jobs.map((record) => record.job.jobId)).size).toBe(100);
+      expect(active.map((record) => record.job.jobId)).toEqual(["agent_job.stress-99"]);
+      expect(await store.queueStatsRuntimeAgentJobs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        now: "2026-06-25T01:42:00.000Z"
+      })).toMatchObject({
+        queuedDepth: 1,
+        runningDepth: 0,
+        totalJobCount: 100,
+        coalescedJobCount: 99,
+        countsByStatus: { queued: 1, superseded: 99 }
+      });
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("sqlite changeset journal recovers pending temp writes after reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-journal-"));
@@ -381,6 +733,49 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("sqlite changeset recovery keeps projection when ledger append completed before journal commit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-ledger-recover-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const tempPath = `${absolutePath}.archctx-tmp-test`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    const applied = "schemaVersion: archcontext.policy/v1\nid: policy.applied\n";
+    try {
+      writeRepoFile(root, relativePath, original);
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.ledger-recover", relativePath));
+      renameSync(absolutePath, backupPath);
+      writeFileSync(absolutePath, applied, "utf8");
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        tempPath,
+        backupPath,
+        existed: true,
+        operation: "update_entity_fields"
+      });
+      const event = architectureLedgerEvent(42);
+      await first.recordChangeSetLedgerPlan(journalId, { event });
+      await first.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+      first.close();
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(1);
+      expect(readFileSync(absolutePath, "utf8")).toBe(applied);
+      expect(existsSync(tempPath)).toBe(false);
+      expect(existsSync(backupPath)).toBe(false);
+      expect(second.recoverPendingChangeSets()).toBe(0);
+      second.close();
+      expect(await sqliteScalar(dbPath, "SELECT status FROM changeset_journal WHERE changeset_id = 'changeset.ledger-recover'")).toBe("committed");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events WHERE idempotency_key = 'architecture-ledger-test-42'")).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("sqlite store persists repository session, task state, landscape metadata, and committed snapshots across reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-sqlite-store-"));
     const dbPath = join(root, "runtime.sqlite");
@@ -444,7 +839,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
   test("rebuilds derived landscape metadata from Git-tracked repo files and CodeGraph indexing", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-landscape-root-"));
@@ -607,7 +1002,382 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("architecture ledger appends, replays, snapshots, compacts, and exposes metadata-only query surfaces", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const backupPath = join(root, "ledger-backup.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const events = Array.from({ length: 1000 }, (_, index) => architectureLedgerEvent(index));
+      const appended = await store.appendArchitectureEvents({ writer: "runtime-daemon", events });
+      expect(appended.appendedEvents).toHaveLength(1000);
+      expect(appended.duplicateEvents).toHaveLength(0);
+      expect(appended.entityCount).toBe(1000);
+      expect(appended.relationCount).toBe(1);
+      expect(appended.constraintCount).toBe(1);
+
+      const duplicate = await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [events[0]!] });
+      expect(duplicate.appendedEvents).toHaveLength(0);
+      expect(duplicate.duplicateEvents).toHaveLength(1);
+      expect(duplicate.entityCount).toBe(1000);
+
+      const materialized = await store.readArchitectureLedgerState(ARCHITECTURE_LEDGER_SCOPE);
+      expect(materialized.entities).toHaveLength(1000);
+      expect(materialized.relations).toHaveLength(1);
+      expect(materialized.constraints).toHaveLength(1);
+      const neighborhood = await store.readArchitectureLedgerNeighborhood({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        id: "entity.0",
+        depth: 1
+      });
+      expect(neighborhood.entities.map((entity) => entity.entityId)).toEqual(["entity.0", "entity.1"]);
+      expect(neighborhood.relations.map((relation) => relation.relationId)).toEqual(["relation.root-to-worker"]);
+      expect(neighborhood.constraints.map((constraint) => constraint.constraintId)).toEqual(["constraint.root-owned"]);
+      await expect(store.readArchitectureLedgerSourceCursor({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        cursorId: "cursor.root"
+      })).resolves.toMatchObject({
+        cursorId: "cursor.root",
+        source: "codegraph"
+      });
+      const replayed = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      expect(replayed.events).toHaveLength(1000);
+      expect(replayed.graphDigest).toBe(appended.graphDigest);
+      await expect(store.verifyArchitectureLedgerReplay(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
+        ok: true,
+        eventCount: 1000,
+        mismatches: []
+      });
+
+      const rebuilt = await store.rebuildArchitectureLedgerCurrentState(ARCHITECTURE_LEDGER_SCOPE);
+      expect(rebuilt.graphDigest).toBe(appended.graphDigest);
+      const snapshot = await store.createArchitectureLedgerSnapshot({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        sourceMode: "ledger-shadow",
+        projectionDigest: digestJson({ projection: "test" } as unknown as Json),
+        inputDigests: { modelDigest: digestJson({ model: "test" } as unknown as Json) },
+        createdAt: "2026-06-25T00:30:00.000Z"
+      });
+      expect(snapshot.graphDigest).toBe(appended.graphDigest);
+      await expect(store.compactArchitectureLedger({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        beforeSnapshotId: snapshot.snapshotId
+      })).resolves.toEqual({ snapshotId: snapshot.snapshotId, compactedEventCount: 1000 });
+      await expect(store.checkArchitectureLedgerIntegrity(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
+        ok: true,
+        eventCount: 1000,
+        snapshotCount: 1,
+        failures: []
+      });
+      const ftsMatches = await store.queryArchitectureLedgerFts({ ...ARCHITECTURE_LEDGER_SCOPE, query: "root", maxItems: 5 });
+      expect(ftsMatches.length).toBeGreaterThan(0);
+      expect(ftsMatches.some((match) => Boolean(match.subjectId))).toBe(true);
+      expect(ftsMatches[0]?.reasonCodes).toContain("sqlite-fts-match");
+      await expect(store.backupArchitectureLedger({ backupPath })).resolves.toMatchObject({ backupPath, integrity: "ok" });
+      expect(existsSync(backupPath)).toBe(true);
+      store.close();
+
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_current_graph_view")).toBe(1002);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM open_recommendations_view")).toBe(1);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM recent_architecture_changes_view")).toBe(1000);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM unresolved_evidence_view")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_fts WHERE architecture_ledger_fts MATCH 'root'")).toBeGreaterThan(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_search_fts WHERE architecture_ledger_search_fts MATCH 'root'")).toBeGreaterThan(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations")).toBeGreaterThanOrEqual(5);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations WHERE rebuild_reason IS NOT NULL")).toBe(1);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events WHERE compacted_by_snapshot_id IS NOT NULL")).toBe(1000);
+      expect(await sqliteScalar(backupPath, "PRAGMA integrity_check")).toBe("ok");
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  }, LEGACY_SQLITE_MIGRATION_TIMEOUT_MS);
+
+  test("architecture ledger rolls back a failed event batch without partial materialization", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-rollback-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      await expect(store.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [architectureLedgerEvent(0), architectureLedgerEvent(1)],
+        faultAfterEvents: 1
+      })).rejects.toThrow("architecture-ledger-fault-injection");
+      await expect(store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
+        events: [],
+        state: { entities: [], relations: [], constraints: [] }
+      });
+      store.close();
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_entities_current")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_ledger_operations")).toBe(0);
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  }, LEGACY_SQLITE_MIGRATION_TIMEOUT_MS);
 });
+
+const ARCHITECTURE_LEDGER_SCOPE = {
+  repository: {
+    repositoryId: "repo.architecture-ledger-test",
+    storageRepositoryId: "repo.storage.architecture-ledger-test"
+  },
+  worktree: {
+    workspaceId: "workspace.architecture-ledger-test",
+    storageWorkspaceId: "workspace.storage.architecture-ledger-test",
+    branch: "main",
+    headSha: "abc123ledger",
+    worktreeDigest: digestJson({ worktree: "architecture-ledger-test" } as unknown as Json)
+  }
+};
+
+function runtimeAgentJob(suffix: string, input: {
+  fingerprint?: string;
+  queuedAt?: string;
+  headSha?: string;
+  branch?: string;
+  worktreeDigest?: string;
+} = {}): AgentJobV1 {
+  const queuedAt = input.queuedAt ?? "2026-06-25T01:00:00.000Z";
+  const headSha = input.headSha ?? ARCHITECTURE_LEDGER_SCOPE.worktree.headSha;
+  const worktreeDigest = input.worktreeDigest ?? ARCHITECTURE_LEDGER_SCOPE.worktree.worktreeDigest;
+  return {
+    schemaVersion: "archcontext.agent-job/v1",
+    jobId: `agent_job.${suffix}`,
+    status: "queued",
+    runnerPort: "codex",
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: {
+      ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+      branch: input.branch ?? ARCHITECTURE_LEDGER_SCOPE.worktree.branch,
+      headSha,
+      worktreeDigest
+    },
+    fingerprint: input.fingerprint ?? `fingerprint.${suffix}`,
+    trigger: { source: "git_hook", reason: "runtime-job-queue-test" },
+    budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
+    inputDigest: digestJson({ agentInput: suffix } as unknown as Json),
+    promptTemplateDigest: digestJson({ prompt: "runtime-job-queue-test" } as unknown as Json),
+    stalePolicy: "cancel-on-head-change",
+    directMutationAllowed: false,
+    queuedAt,
+    updatedAt: queuedAt
+  };
+}
+
+function architectureLedgerEvent(index: number): ArchitectureEventV1 {
+  const operations: Record<string, Json>[] = [{
+    op: "upsert_entity",
+    entity: {
+      entityId: `entity.${index}`,
+      kind: "module",
+      canonicalName: index === 0 ? "root module" : `module ${index}`,
+      status: "active",
+      path: `src/module-${index}.ts`,
+      summary: index === 0 ? "root architecture entrypoint" : `module ${index} summary`,
+      metadata: { index }
+    }
+  }];
+  if (index === 1) {
+    operations.push(
+      {
+        op: "upsert_relation",
+        relation: {
+          relationId: "relation.root-to-worker",
+          kind: "calls",
+          sourceEntityId: "entity.0",
+          targetEntityId: "entity.1",
+          status: "active",
+          summary: "root delegates to worker",
+          metadata: { route: "checkpoint" }
+        }
+      },
+      {
+        op: "upsert_constraint",
+        constraint: {
+          constraintId: "constraint.root-owned",
+          kind: "ownership",
+          subjectId: "entity.0",
+          status: "active",
+          severity: "warning",
+          summary: "root module has an explicit owner",
+          metadata: { owner: "runtime" }
+        }
+      }
+    );
+  }
+
+  const provenance = {
+    producer: "local-store-sqlite.test",
+    command: "bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts",
+    inputDigest: digestJson({ event: index } as unknown as Json)
+  };
+  const payload: Record<string, Json> = {
+    summary: index === 0 ? "Append root architecture fact" : `Append architecture fact ${index}`,
+    title: index === 0 ? "Root Architecture Decision" : `Architecture Event ${index}`,
+    rationale: "Exercise append-only ledger replay without storing source bodies.",
+    operations
+  };
+  if (index === 0) {
+    const evidenceDigest = digestJson({ evidence: "root" } as unknown as Json);
+    payload.evidenceItems = [{
+      schemaVersion: "archcontext.evidence-item/v2",
+      evidenceId: "evidence.root",
+      kind: "codegraph-summary",
+      strength: "observed",
+      polarity: "positive",
+      origin: "codegraph",
+      subject: "entity.0",
+      selector: { kind: "symbol", id: "entity.0", path: "src/module-0.ts", startLine: 1, endLine: 12 },
+      summary: "root module is observed as the architecture entrypoint",
+      coverage: { level: "complete", scope: "architecture-ledger-test" },
+      supports: ["recommendation", "checkpoint"],
+      provenance,
+      createdAt: "2026-06-25T00:00:00.000Z",
+      digest: evidenceDigest
+    }];
+    payload.evidenceBindings = [{
+      schemaVersion: "archcontext.evidence-binding/v1",
+      bindingId: "binding.root",
+      evidenceId: "evidence.root",
+      target: { kind: "entity", id: "entity.0" },
+      bindingReason: "direct-selector",
+      authorityEffect: "checkpoint-eligible",
+      createdAt: "2026-06-25T00:00:01.000Z",
+      provenance
+    }];
+    payload.recommendationRuns = [{
+      schemaVersion: "archcontext.recommendation-run/v1",
+      runId: "recommendation-run.root",
+      repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+      worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      trigger: { level: "L2", source: "checkpoint" },
+      engineVersion: "test",
+      catalogDigest: digestJson({ catalog: "test" } as unknown as Json),
+      inputDigest: digestJson({ input: "test" } as unknown as Json),
+      outputDigest: digestJson({ output: "test" } as unknown as Json),
+      policyMode: "checkpoint",
+      status: "succeeded",
+      startedAt: "2026-06-25T00:00:02.000Z",
+      completedAt: "2026-06-25T00:00:03.000Z",
+      recommendationIds: ["recommendation.root"],
+      metrics: { matchCount: 1, evidenceBindingCount: 1, unboundEvidenceCount: 0 }
+    }];
+    payload.recommendations = [{
+      schemaVersion: "archcontext.recommendation/v2",
+      recommendationId: "recommendation.root",
+      runId: "recommendation-run.root",
+      fingerprint: "fingerprint.root",
+      subject: "entity.0",
+      practiceId: "decision.record-significant-change",
+      status: "open",
+      confidence: "high",
+      enforcement: "checkpoint",
+      risk: "medium",
+      uncertainty: "low",
+      evidenceBindingIds: ["binding.root"],
+      explanation: ["Root architecture decision needs durable evidence."],
+      createdAt: "2026-06-25T00:00:04.000Z",
+      updatedAt: "2026-06-25T00:00:05.000Z"
+    }];
+    payload.agentJobs = [{
+      schemaVersion: "archcontext.agent-job/v1",
+      jobId: "agent-job.root",
+      status: "queued",
+      runnerPort: "codex",
+      repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+      worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      fingerprint: "agent-job-root",
+      trigger: { source: "checkpoint", reason: "architecture-ledger-test" },
+      budget: { maxRunsPerTask: 1, maxRunsPerRepositoryPerDay: 4 },
+      inputDigest: digestJson({ agentInput: "root" } as unknown as Json),
+      promptTemplateDigest: digestJson({ prompt: "root" } as unknown as Json),
+      stalePolicy: "cancel-on-head-change",
+      directMutationAllowed: false,
+      queuedAt: "2026-06-25T00:00:06.000Z",
+      updatedAt: "2026-06-25T00:00:07.000Z"
+    }];
+    payload.projectionState = {
+      projectionId: "projection.root",
+      path: ".archcontext/architecture/root.json",
+      projectionDigest: digestJson({ projection: "root" } as unknown as Json)
+    };
+    payload.sourceCursors = [{
+      cursorId: "cursor.root",
+      source: "codegraph",
+      digest: digestJson({ cursor: "root" } as unknown as Json)
+    }];
+    payload.waivers = [{
+      waiverId: "waiver.root",
+      targetKind: "recommendation",
+      targetId: "recommendation.root",
+      reason: "fixture"
+    }];
+  }
+
+  return {
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.${String(index).padStart(4, "0")}`,
+    eventType: "architecture.graph.update",
+    payloadVersion: "archcontext.architecture-ledger-payload/v1",
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    baseDigest: digestJson({ base: index } as unknown as Json),
+    resultingDigest: digestJson({ result: index } as unknown as Json),
+    headSha: ARCHITECTURE_LEDGER_SCOPE.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "checkpoint",
+    timestamp: `2026-06-25T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`,
+    idempotencyKey: `architecture-ledger-test-${index}`,
+    provenance,
+    payload: payload as unknown as Json
+  };
+}
+
+async function sqliteScalar(databasePath: string, sql: string): Promise<any> {
+  const bunSqlite = await import("bun:sqlite");
+  const db = new (bunSqlite as any).Database(databasePath, { readonly: true });
+  try {
+    const row = db.query(sql).get() as Record<string, unknown> | undefined;
+    return row ? Object.values(row)[0] : undefined;
+  } finally {
+    db.close();
+  }
+}
+
+function removeTempRoot(root: string): void {
+  const maxAttempts = process.platform === "win32" ? 20 : 1;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (process.platform !== "win32" || !isTransientWindowsCleanupError(error)) {
+        throw error;
+      }
+      sleepSync(100 + attempt * 50);
+    }
+  }
+  if (isTransientWindowsCleanupError(lastError)) {
+    return;
+  }
+  throw lastError;
+}
+
+function isTransientWindowsCleanupError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY";
+}
+
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
 
 async function writeTaskState(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
   const store = new SqliteLocalStore(databasePath);

@@ -1,0 +1,273 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-runbooks-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-12"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "architecture-ledger-operations-runbooks",
+    "authority": "docs/runbooks plus prior AL10 readback evidence",
+    "closedGates": [
+      "AL10-12"
+    ],
+    "explicitlyOpen": [
+      "AL10-13",
+      "AL10-14",
+      "AL10-15",
+      "AL10-16",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ]
+  },
+  "sources": {
+    "runbookPath": "docs/runbooks/architecture-ledger-operations.md",
+    "sourceEvidence": [
+      {
+        "id": "rollout-workflow",
+        "path": "docs/verification/architecture-ledger-al10-rollout-workflow-readback.json"
+      },
+      {
+        "id": "hardening",
+        "path": "docs/verification/architecture-ledger-al10-hardening-readback.json"
+      },
+      {
+        "id": "chaos-security",
+        "path": "docs/verification/architecture-ledger-al10-chaos-security-readback.json"
+      },
+      {
+        "id": "release-packaging",
+        "path": "docs/verification/architecture-ledger-al10-release-packaging-readback.json"
+      },
+      {
+        "id": "agent-comparison",
+        "path": "docs/verification/architecture-ledger-al10-agent-comparison-readback.json"
+      }
+    ]
+  },
+  "runbook": {
+    "path": "docs/runbooks/architecture-ledger-operations.md",
+    "sha256": "sha256:c9cc73dacf9e481469aa48764c12f4a4eb2bd488f272b8105e379b1da655194e",
+    "bytes": 9571
+  },
+  "sectionCoverage": [
+    {
+      "id": "incident",
+      "title": "Incident",
+      "present": true,
+      "hasSignal": true,
+      "hasTriage": true,
+      "hasVerification": true,
+      "hasCommandBlock": true,
+      "requiredTermsPresent": [
+        "Signal:",
+        "Triage:",
+        "Containment:",
+        "Remediation:",
+        "Verification:",
+        "archctx doctor --json",
+        "archctx ledger drift --json",
+        "bun run readback:al10:chaos-security",
+        "archctx privacy-audit",
+        "source bodies"
+      ],
+      "missingTerms": [],
+      "complete": true
+    },
+    {
+      "id": "corruption-recovery",
+      "title": "Corruption Recovery",
+      "present": true,
+      "hasSignal": true,
+      "hasTriage": true,
+      "hasVerification": true,
+      "hasCommandBlock": true,
+      "requiredTermsPresent": [
+        "Signal:",
+        "Triage:",
+        "Containment:",
+        "Remediation:",
+        "Verification:",
+        "runtime.sqlite",
+        "Do not edit SQLite",
+        "archctx ledger rebuild --from-git --expected-worktree-digest <current>",
+        "archctx ledger rebuild --from-git --accept-external-projection --expected-worktree-digest <current>",
+        "bun run readback:al10:release-packaging"
+      ],
+      "missingTerms": [],
+      "complete": true
+    },
+    {
+      "id": "drift-recovery",
+      "title": "Drift Recovery",
+      "present": true,
+      "hasSignal": true,
+      "hasTriage": true,
+      "hasVerification": true,
+      "hasCommandBlock": true,
+      "requiredTermsPresent": [
+        "Signal:",
+        "Triage:",
+        "Decision:",
+        "Remediation from reviewed Git:",
+        "Remediation from reviewed ledger:",
+        "Verification:",
+        "archctx ledger project --to-git --dry-run",
+        "archctx ledger project --to-git --write --expected-worktree-digest <current>",
+        "archctx docs apply --approved",
+        "archctx complete"
+      ],
+      "missingTerms": [],
+      "complete": true
+    },
+    {
+      "id": "provider-disable",
+      "title": "Provider Disable",
+      "present": true,
+      "hasSignal": true,
+      "hasTriage": true,
+      "hasVerification": true,
+      "hasCommandBlock": true,
+      "requiredTermsPresent": [
+        "Signal:",
+        "Triage:",
+        "Containment:",
+        "Remediation:",
+        "Verification:",
+        "ARCHCONTEXT_CONTEXT7_ENABLED=0",
+        "archctx docs purge --all",
+        "unset OPENAI_API_KEY",
+        "archctx investigate --runner-port fake-provider",
+        "advisory-only"
+      ],
+      "missingTerms": [],
+      "complete": true
+    },
+    {
+      "id": "full-rollback",
+      "title": "Full Rollback",
+      "present": true,
+      "hasSignal": true,
+      "hasTriage": true,
+      "hasVerification": true,
+      "hasCommandBlock": true,
+      "requiredTermsPresent": [
+        "Signal:",
+        "Triage:",
+        "Rollback:",
+        "Post-rollback rebuild:",
+        "Verification:",
+        "ARCHCONTEXT_LEDGER_MODE=yaml",
+        "ARCHCONTEXT_LEDGER_READ_MODE=yaml",
+        "ARCHCONTEXT_LEDGER_WRITE_MODE=yaml",
+        "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+        ".archcontext/backups/ledger-rollback/"
+      ],
+      "missingTerms": [],
+      "complete": true
+    }
+  ],
+  "sourceReadbacks": [
+    {
+      "id": "rollout-workflow",
+      "path": "docs/verification/architecture-ledger-al10-rollout-workflow-readback.json",
+      "schemaVersion": "archcontext.architecture-ledger-al10-rollout-workflow-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "requiredTermsPresent": [
+        "writeVerified",
+        "rollbackCommand",
+        "safeDowngradeEnvironmentYaml"
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "hardening",
+      "path": "docs/verification/architecture-ledger-al10-hardening-readback.json",
+      "schemaVersion": "archcontext.architecture-ledger-al10-hardening-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "requiredTermsPresent": [
+        "privacy",
+        "rollback",
+        "stress"
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "chaos-security",
+      "path": "docs/verification/architecture-ledger-al10-chaos-security-readback.json",
+      "schemaVersion": "archcontext.architecture-ledger-al10-chaos-security-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "requiredTermsPresent": [
+        "chaos",
+        "security",
+        "stale"
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "release-packaging",
+      "path": "docs/verification/architecture-ledger-al10-release-packaging-readback.json",
+      "schemaVersion": "archcontext.architecture-ledger-al10-release-packaging-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "requiredTermsPresent": [
+        "releasePackage",
+        "migrationMatrix",
+        "AL10-11"
+      ],
+      "missingTerms": [],
+      "verified": true
+    },
+    {
+      "id": "agent-comparison",
+      "path": "docs/verification/architecture-ledger-al10-agent-comparison-readback.json",
+      "schemaVersion": "archcontext.architecture-ledger-al10-agent-comparison-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "requiredTermsPresent": [
+        "deterministicPlusAgent",
+        "advisoryOnly",
+        "costComparison"
+      ],
+      "missingTerms": [],
+      "verified": true
+    }
+  ],
+  "privacy": {
+    "forbiddenSecretHitCount": 0,
+    "forbiddenRawContentHitCount": 0,
+    "secretHits": [],
+    "rawContentHits": [],
+    "clean": true
+  },
+  "readbackDigest": "sha256:40ea59d44865fabf12d376389823c168a08e90459daaf3b2696187d4ac978028",
+  "assertions": {
+    "AL10-12": true,
+    "allRunbookSectionsPresent": true,
+    "allRunbookSectionsActionable": true,
+    "sourceEvidenceVerified": true,
+    "incidentCoversPrivacyStop": true,
+    "corruptionKeepsGitAsRebuildBoundary": true,
+    "driftHasBothDirections": true,
+    "providerDisableKeepsLocalCore": true,
+    "fullRollbackReturnsYaml": true,
+    "noPrivateContent": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-runbooks-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-runbooks-readback.json --json",
+    "recordCommand": "bun scripts/architecture-ledger-al10-runbooks-readback.ts run --out docs/verification/architecture-ledger-al10-runbooks-readback.json --report docs/verification/architecture-ledger-al10-runbooks.md --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-runbooks.md"
+  },
+  "failures": []
+}

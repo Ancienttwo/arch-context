@@ -43,7 +43,37 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [
+        {
+          "id": "fixture.compatibility.single-owner.positive",
+          "path": "evals/practices/enforcement-waiver-adversarial.jsonl",
+          "description": "Compatibility path with missing owner fails when opted into complete enforcement."
+        }
+      ],
+      "nearNegative": [
+        {
+          "id": "fixture.compatibility.single-owner.near-negative",
+          "path": "evals/practices/benign-negative.jsonl",
+          "description": "Benign legacy wording does not become complete enforcement."
+        }
+      ],
+      "mixedChange": [
+        {
+          "id": "fixture.compatibility.single-owner.mixed-change",
+          "path": "packages/core/practice-engine/test/practice-engine.test.ts",
+          "description": "Mixed implementation and test changes keep production evidence scoped."
+        }
+      ],
+      "baseline": [
+        {
+          "id": "fixture.compatibility.single-owner.baseline",
+          "path": "packages/core/practice-engine/test/practice-engine.test.ts",
+          "description": "Previous checkpoint baseline keeps existing compatibility paths from being treated as new."
+        }
+      ]
+    }
   },
   "provenance": {
     "sourceKind": "archcontext-native",

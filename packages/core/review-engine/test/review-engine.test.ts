@@ -2,16 +2,35 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { digestJson, type PracticeEnforcementEvaluationV1 } from "@archcontext/contracts";
+import { digestJson, type PracticeEnforcementEvaluationV1, type RecommendationV2 } from "@archcontext/contracts";
 import { validateJsonSchema } from "@archcontext/contracts";
-import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewCrossRepoLandscape } from "../src/index";
+import { CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS, completeTaskGate, reviewArchitectureCandidateChangeSet, reviewCrossRepoLandscape } from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const sha = `sha256:${"a".repeat(64)}`;
+const baseRecommendation: RecommendationV2 = {
+  schemaVersion: "archcontext.recommendation/v2",
+  recommendationId: "rec.review-gate",
+  runId: "rec_run.review-gate",
+  fingerprint: digestJson({ recommendation: "review-gate" }),
+  subject: "module.checkout",
+  practiceId: "runtime.queue-boundary",
+  status: "open",
+  confidence: "high",
+  enforcement: "advisory",
+  risk: "high",
+  uncertainty: "high",
+  evidenceBindingIds: [digestJson({ evidence: "review-gate" })],
+  explanation: ["High-risk uncertain recommendation fixture."],
+  createdAt: "2026-06-26T12:00:00.000Z",
+  updatedAt: "2026-06-26T12:00:00.000Z"
+};
 const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
   catalogDigest: `sha256:${"b".repeat(64)}`,
   policyDigest: `sha256:${"c".repeat(64)}`,
+  policyMode: "fail-closed",
+  blocking: true,
   checkResultDigest: `sha256:${"d".repeat(64)}`,
   results: [
     {
@@ -30,15 +49,28 @@ const practiceEnforcement: PracticeEnforcementEvaluationV1 = {
     }
   ],
   violations: [],
+  nonBlockingViolations: [],
   waiversApplied: [],
   actionsRequired: ["remove-new-import-cycle-or-add-a-more-specific-boundary"]
 };
 practiceEnforcement.violations = practiceEnforcement.results;
 
+const failOpenPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
+  ...practiceEnforcement,
+  policyDigest: `sha256:${"f".repeat(64)}`,
+  policyMode: "fail-open",
+  blocking: false,
+  violations: [],
+  nonBlockingViolations: practiceEnforcement.results,
+  actionsRequired: []
+};
+
 const compatibilityPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1",
   catalogDigest: `sha256:${"1".repeat(64)}`,
   policyDigest: `sha256:${"2".repeat(64)}`,
+  policyMode: "fail-closed",
+  blocking: true,
   checkResultDigest: `sha256:${"3".repeat(64)}`,
   results: [
     {
@@ -60,6 +92,7 @@ const compatibilityPracticeEnforcement: PracticeEnforcementEvaluationV1 = {
     }
   ],
   violations: [],
+  nonBlockingViolations: [],
   waiversApplied: [],
   actionsRequired: ["add-compatibility-contract-owner-consumers-removal-and-review-date"]
 };
@@ -83,6 +116,104 @@ describe("@archcontext/core/review-engine", () => {
 
     expect(result.result).toBe("pass");
     expect(result.extensions.digest).toMatch(/^sha256:/);
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("recommendations cannot become complete-stage gates without explicit policy eligibility", () => {
+    const advisoryGate = completeTaskGate({
+      taskSessionId: "task.recommendation-gate",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      recommendations: [{
+        ...baseRecommendation,
+        extensions: { completeStageGate: true }
+      }]
+    });
+    expect(advisoryGate.result).toBe("fail_action_required");
+    expect(advisoryGate.findings.map((finding) => finding.id)).toContain(
+      "recommendation:rec.review-gate:advisory-complete-gate-forbidden"
+    );
+
+    const missingEligibility = completeTaskGate({
+      taskSessionId: "task.recommendation-gate",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      recommendations: [{
+        ...baseRecommendation,
+        enforcement: "complete"
+      }]
+    });
+    expect(missingEligibility.result).toBe("fail_action_required");
+    expect(missingEligibility.findings.map((finding) => finding.id)).toContain(
+      "recommendation:rec.review-gate:complete-eligibility-required"
+    );
+
+    const eligible = completeTaskGate({
+      taskSessionId: "task.recommendation-gate",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      recommendations: [{
+        ...baseRecommendation,
+        enforcement: "complete",
+        extensions: {
+          completeStageEligibility: {
+            eligible: true,
+            policyDigest: digestJson({ policy: "complete-stage-recommendation" })
+          }
+        }
+      }]
+    });
+    expect(eligible.result).toBe("pass");
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, eligible as any).valid).toBe(true);
+  });
+
+  test("active projection drift blocks complete_task and records projection digests", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.projection-drift",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      projectionDrift: {
+        schemaVersion: "archcontext.complete-task-projection-drift/v1",
+        ok: false,
+        sourceDigest: digestJson({ projection: "source" }),
+        projectionDigest: digestJson({ projection: "output" }),
+        rendererVersion: "archcontext.docs-renderer/v1",
+        targetCount: 7,
+        fileCount: 8,
+        driftCount: 1,
+        rejectedCount: 0,
+        reasonCodes: ["projection-file-missing"]
+      }
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.snapshot.projectionDigest).toMatch(/^sha256:/);
+    expect(result.findings).toContainEqual(expect.objectContaining({
+      id: "projection-drift",
+      type: "projection-drift",
+      severity: "error"
+    }));
+    expect(result.extensions.projectionDriftGate).toMatchObject({
+      ok: false,
+      driftCount: 1,
+      reasonCodes: ["projection-file-missing"]
+    });
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
 
@@ -128,6 +259,36 @@ describe("@archcontext/core/review-engine", () => {
       practiceCatalogDigest: practiceEnforcement.catalogDigest,
       practicePolicyDigest: practiceEnforcement.policyDigest,
       practiceCheckResultDigest: practiceEnforcement.checkResultDigest
+    });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("fail-open deterministic practice failures are advisory warnings", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.test",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      practiceEnforcement: failOpenPracticeEnforcement
+    });
+
+    expect(result.result).toBe("pass_with_warnings");
+    expect(result.summary).toEqual({ errors: 0, warnings: 1, notices: 0 });
+    expect(result.practiceViolations).toEqual([]);
+    expect(result.actionsRequired).toEqual([]);
+    expect(result.findings).toEqual([expect.objectContaining({
+      id: "practice-advisory:modularity.no-new-cycle:no-new-cycle",
+      type: "practice-advisory",
+      severity: "warning"
+    })]);
+    expect((result.extensions as any).nonBlockingPracticeViolations).toHaveLength(1);
+    expect(result.snapshot).toMatchObject({
+      practiceCatalogDigest: failOpenPracticeEnforcement.catalogDigest,
+      practicePolicyDigest: failOpenPracticeEnforcement.policyDigest,
+      practiceCheckResultDigest: failOpenPracticeEnforcement.checkResultDigest
     });
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
@@ -224,6 +385,126 @@ describe("@archcontext/core/review-engine", () => {
     }
 
     expect(completeTaskGate(base).result).toBe("pass");
+  });
+
+  test("rejects unsupported architecture candidate ChangeSet mutations", () => {
+    const result = reviewArchitectureCandidateChangeSet({
+      taskSessionId: "task.al5-12",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      changeSet: {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.review-al5-12",
+        status: "proposed",
+        base: { headSha: "abc", worktreeDigest: sha, modelDigest: sha },
+        reason: { taskSessionId: "task.al5-12" },
+        operations: [
+          {
+            op: "delete_entity",
+            entityId: "module.legacy",
+            expectedHash: "unknown",
+            candidateChangeId: "candidate.node.removed",
+            targetKind: "node",
+            targetId: "module.legacy",
+            changeKind: "removed",
+            body: "diff --git a/private.ts b/private.ts\nconst secret = 'redacted';\n"
+          },
+          {
+            op: "update_entity_fields",
+            entityId: "module.api",
+            expectedHash: "unknown",
+            candidateChangeId: "candidate.owner.changed",
+            targetKind: "owner",
+            targetId: "module.api:owner",
+            changeKind: "materially_changed"
+          },
+          {
+            op: "update_entity_fields",
+            entityId: "module.api",
+            expectedHash: "unknown",
+            candidateChangeId: "candidate.constraint.relaxed",
+            targetKind: "constraint",
+            targetId: "constraint.api-boundary",
+            changeKind: "materially_changed",
+            changes: { reason: "boundary-relaxation" }
+          },
+          {
+            op: "create_entity",
+            entityId: "contract.stripe",
+            expectedHash: "missing",
+            candidateChangeId: "candidate.external.contract",
+            targetKind: "constraint",
+            targetId: "external-contract.stripe",
+            changeKind: "added",
+            changes: { claim: "external-contract" }
+          }
+        ] as any,
+        preconditions: ["schema-valid-before", "candidate-delta-policy-evaluated"],
+        postconditions: ["ledger-event-batch-previewed"],
+        requiresConfirmation: true,
+        idempotencyKey: "idem_changeset.review-al5-12"
+      }
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    expect(result.summary.errors).toBe(4);
+    expect(result.findings.map((finding) => finding.type)).toEqual([
+      "unsupported-entity-deletion",
+      "unsupported-owner-change",
+      "unsupported-boundary-relaxation",
+      "unsupported-external-contract-claim"
+    ]);
+    expect(result.actionsRequired).toEqual(result.findings.map((finding) => finding.id));
+    expect(result.extensions.rejectedCandidateChangeIds).toEqual([
+      "candidate.constraint.relaxed",
+      "candidate.external.contract",
+      "candidate.node.removed",
+      "candidate.owner.changed"
+    ]);
+    expect(JSON.stringify(result)).not.toContain("diff --git");
+    expect(JSON.stringify(result)).not.toContain("const secret");
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("passes supported architecture candidate ChangeSet proposals", () => {
+    const result = reviewArchitectureCandidateChangeSet({
+      taskSessionId: "task.al5-12",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      changeSet: {
+        schemaVersion: "archcontext.changeset/v1",
+        id: "changeset.review-supported",
+        status: "proposed",
+        base: { headSha: "abc", worktreeDigest: sha, modelDigest: sha },
+        reason: { taskSessionId: "task.al5-12" },
+        operations: [
+          {
+            op: "create_entity",
+            entityId: "module.new-api",
+            expectedHash: "missing",
+            candidateChangeId: "candidate.node.added",
+            targetKind: "node",
+            targetId: "module.new-api",
+            changeKind: "added"
+          }
+        ] as any,
+        preconditions: ["schema-valid-before", "candidate-delta-policy-evaluated"],
+        postconditions: ["ledger-event-batch-previewed"],
+        requiresConfirmation: true,
+        idempotencyKey: "idem_changeset.review-supported"
+      }
+    });
+
+    expect(result.result).toBe("pass");
+    expect(result.findings).toEqual([]);
+    expect(result.extensions.changeSetDigest).toMatch(/^sha256:/);
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
 
   test("reviews cross-repo landscape drift and pressure", () => {

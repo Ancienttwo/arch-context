@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "archcontext.recommendation-feedback/v1",
+  "feedbackId": "recommendation_feedback.lifecycle_accept",
+  "recommendationId": "recommendation.api-owner",
+  "runId": "recommendation_run.scheduler",
+  "action": "accept",
+  "previousStatus": "open",
+  "nextStatus": "accepted",
+  "actor": {
+    "kind": "cli",
+    "id": "developer",
+    "source": "cli"
+  },
+  "reason": "Architecture owner accepted the recommendation after local readback.",
+  "explicit": true,
+  "implicitAcceptance": false,
+  "repository": {
+    "repositoryId": "repo.arch-context",
+    "storageRepositoryId": "repo.arch-context"
+  },
+  "worktree": {
+    "workspaceId": "workspace.arch-context",
+    "storageWorkspaceId": "workspace.arch-context",
+    "branch": "codex/al8",
+    "headSha": "0123456789abcdef0123456789abcdef01234567",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "createdAt": "2026-06-26T12:05:00.000Z"
+}

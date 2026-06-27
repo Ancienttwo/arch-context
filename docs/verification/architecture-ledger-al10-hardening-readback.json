@@ -1,0 +1,1255 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-hardening-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-07",
+    "AL10-BETA-2",
+    "AL10-BETA-3",
+    "AL10-BETA-5",
+    "AL10-BETA-6"
+  ],
+  "thresholds": {
+    "stressEventCount": 1000,
+    "defaultHookSampleCount": 9,
+    "medianDefaultSpawnCount": 0
+  },
+  "stress": {
+    "databasePath": "$TMPDIR/archctx-al10-ledger-stress-rR8wiS/runtime.sqlite",
+    "eventCount": 1000,
+    "appendedEventCount": 1000,
+    "duplicateAppendCount": 1,
+    "replayEventCount": 1000,
+    "uniqueEventIds": 1000,
+    "entityCount": 1000,
+    "relationCount": 1,
+    "constraintCount": 1,
+    "graphDigest": "sha256:8956942c7b8fda669aa16d33fff54b74d2dff027e6064a7182065173a5699d7a",
+    "materializedDigest": "sha256:8956942c7b8fda669aa16d33fff54b74d2dff027e6064a7182065173a5699d7a",
+    "integrityOk": true,
+    "backupIntegrityOk": true,
+    "sqliteEventRows": 1000,
+    "sqliteCurrentRows": 1002,
+    "ftsRows": 2002,
+    "schemaGuardNoRawColumns": true,
+    "faultRejected": true,
+    "faultRollbackOk": true,
+    "sqliteScan": {
+      "schemaDigest": "sha256:ccf8f3026e8c536f42a77c435fa333a4fe129eb905b65cf0fce00c8164255283",
+      "eventRowsDigest": "sha256:d775aa08471a6d783dada7d59a1ac1f9dee1f2564ac951e8cb0788c97a48bc28",
+      "operationRowsDigest": "sha256:1bcc3e87085373f1fa020e8748e88e7cb0581a8261f0f98fb46dfc2835c13be2",
+      "scannedEventRows": 1000,
+      "forbiddenSchemaKeys": [],
+      "forbiddenSchemaTokens": [],
+      "forbiddenEventTokens": [],
+      "forbiddenOperationTokens": []
+    }
+  },
+  "defaultHook": {
+    "sampleCount": 9,
+    "samples": [
+      {
+        "index": 0,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 95,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:913da9fdc14b1261f9baea55afa8d9fb08900a26fec29cfc99f290f6ecb73f1f",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 1,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 92,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:b8055e20e2590a594d0aeed42fd3a4dade8f24644e094f55fdf1b6e29a89ad1b",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 2,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 93,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:969818560dab37b2d8a161c63e69e4ff6b180f71331edeb6ff42a7ab1a97f6a6",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 3,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 95,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:ddadd92a5d1887a996bee764a10e1606d6d668d8696b2b52eecf5990dcedcc41",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 4,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 91,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:edc391dd5bcfcda9bb1d804b3f2c15dea8dd0452c01cdda1cf3070e83725a86c",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 5,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 91,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:f34989c03e4643a0727b0e2e2a6f3a1e533a8144272d53876fe20f1fdc5d58f3",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 6,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 91,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:2662416697ff135fadc594c40df0c0170614f59c525f0da6dd4f56ff8c44fcd2",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 7,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 91,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:22ddcc63cddf76ebe6d32d10763b89617ee0f9862fb1f4916b5bfa41fc17bce5",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      },
+      {
+        "index": 8,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "enqueued": false,
+        "spawnedJobs": 0,
+        "messageDigest": "sha256:a2fde6d5cdab0ee781667439c43849617f929b1af36f9d3e1cb6b114421b8c17",
+        "output": {
+          "ok": true,
+          "requestId": "hook.enqueue",
+          "schemaVersion": "archcontext.envelope/v1",
+          "data": {
+            "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "accepted": false,
+            "enqueued": false,
+            "failOpen": true,
+            "reasonCode": "runtime-unavailable",
+            "event": "post-edit",
+            "source": "worktree",
+            "pathCount": 1,
+            "egress": "none",
+            "network": "forbidden",
+            "hookLog": {
+              "schemaVersion": "archcontext.hook-log/v1",
+              "event": "post-edit",
+              "elapsedMs": 90,
+              "pathCount": 1,
+              "changedPathDigest": "sha256:dbb669c54e8083c771b6b169bae0f1e6ff053ad2b4b3c41b89002c43ccf3e667",
+              "reasonCode": "runtime-unavailable",
+              "failOpen": true,
+              "egress": "none",
+              "network": "forbidden"
+            },
+            "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+          }
+        }
+      }
+    ],
+    "medianSpawnCount": 0,
+    "totalSpawnedJobs": 0,
+    "defaultHookAllZeroSpawn": true,
+    "defaultHookFailOpenCount": 9,
+    "explicitHighRiskEnqueued": true,
+    "explicitHighRiskJobCount": 1,
+    "explicitHighRiskJobDigest": "sha256:80d484c35085c65dc40fe1ce4ad4c0e5ad0bdab19e30d264779dfe796fb50439",
+    "rawCliAudit": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:4ba2ab2853da1843e736f2677cfc8ef60b87ca49f7b541a3f202453a7cbd64a6"
+    },
+    "rawAgentJobPayloadAudit": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:80d484c35085c65dc40fe1ce4ad4c0e5ad0bdab19e30d264779dfe796fb50439"
+    },
+    "queueStats": {
+      "queuedDepth": 1,
+      "runningDepth": 0,
+      "totalJobCount": 1,
+      "coalescedJobCount": 0
+    },
+    "cliOutputs": [
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 95,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:913da9fdc14b1261f9baea55afa8d9fb08900a26fec29cfc99f290f6ecb73f1f",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 92,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:b8055e20e2590a594d0aeed42fd3a4dade8f24644e094f55fdf1b6e29a89ad1b",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 93,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:969818560dab37b2d8a161c63e69e4ff6b180f71331edeb6ff42a7ab1a97f6a6",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 95,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:ddadd92a5d1887a996bee764a10e1606d6d668d8696b2b52eecf5990dcedcc41",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 91,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:edc391dd5bcfcda9bb1d804b3f2c15dea8dd0452c01cdda1cf3070e83725a86c",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 91,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:f34989c03e4643a0727b0e2e2a6f3a1e533a8144272d53876fe20f1fdc5d58f3",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 91,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:2662416697ff135fadc594c40df0c0170614f59c525f0da6dd4f56ff8c44fcd2",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 91,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:22ddcc63cddf76ebe6d32d10763b89617ee0f9862fb1f4916b5bfa41fc17bce5",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+          "accepted": false,
+          "enqueued": false,
+          "failOpen": true,
+          "reasonCode": "runtime-unavailable",
+          "event": "post-edit",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 90,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:dbb669c54e8083c771b6b169bae0f1e6ff053ad2b4b3c41b89002c43ccf3e667",
+            "reasonCode": "runtime-unavailable",
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "message": "agent-spawn-not-eligible: risk-below-investigation-threshold"
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "recordDigest": "sha256:7b457e243093e80f20fe6a25b248a31f0972266faba8d3d5e0845b4900ad6bed",
+          "recordSummary": {
+            "schemaVersion": "archcontext.agent-job/v1",
+            "status": "queued",
+            "analysisKind": "architecture-delta",
+            "priority": 10,
+            "attemptCount": 0,
+            "jobDigest": "sha256:6cc1139e57a96ee520ce90efdd4559a2525373e8f05000dcf2c99e1b7a55dd90",
+            "coalesceDigest": "sha256:685bedd582403d7411e74860131d52dde763e12556e23b74fc670c4b3da907ea"
+          },
+          "enqueued": true,
+          "deduplicated": false,
+          "supersededJobIds": [],
+          "evictedJobIds": [],
+          "backpressure": {
+            "schemaVersion": "archcontext.runtime-agent-job-backpressure/v1",
+            "accepted": true,
+            "priority": 10,
+            "queuedDepthBefore": 1,
+            "queuedDepthAfter": 1,
+            "runningDepth": 0,
+            "maxQueuedJobs": 8,
+            "evictedJobIds": []
+          },
+          "change": {
+            "schemaVersion": "archcontext.git-change-metadata/v1",
+            "source": "worktree",
+            "baseSha": "092f3e598fb66e17c250818109e855ea383203e2",
+            "headSha": "092f3e598fb66e17c250818109e855ea383203e2",
+            "paths": [
+              {
+                "path": ".archcontext/generated/ARCHITECTURE.md",
+                "status": "added",
+                "rawStatus": "??"
+              },
+              {
+                "path": ".archcontext/manifest.yaml",
+                "status": "added",
+                "rawStatus": "??"
+              },
+              {
+                "path": ".archcontext/model/nodes/capability.architecture-context.yaml",
+                "status": "added",
+                "rawStatus": "??"
+              },
+              {
+                "path": ".archcontext/policies/review.yaml",
+                "status": "added",
+                "rawStatus": "??"
+              },
+              {
+                "path": ".archcontext/product.yaml",
+                "status": "added",
+                "rawStatus": "??"
+              }
+            ],
+            "pathCount": 16,
+            "metadataDigest": "sha256:88743cd842eea9f7197846e3cc728928c5ea50b594507da2f6466aed5246b74e"
+          },
+          "codeFactsDigest": "sha256:5fc500708a503773e8312cab71233534174091d92a2e8cc4a14a2f368d38407b",
+          "analysisKind": "architecture-delta",
+          "expiredJobIds": [],
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-edit",
+            "elapsedMs": 94,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:9a9d8a036aa8b310f1535cd28f1654f206b0a44e51095b0be77c777cfa1d7bef",
+            "reasonCode": "enqueued",
+            "failOpen": false,
+            "egress": "none",
+            "network": "forbidden"
+          }
+        }
+      }
+    ],
+    "logs": [
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 95,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:913da9fdc14b1261f9baea55afa8d9fb08900a26fec29cfc99f290f6ecb73f1f",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 92,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:b8055e20e2590a594d0aeed42fd3a4dade8f24644e094f55fdf1b6e29a89ad1b",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 93,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:969818560dab37b2d8a161c63e69e4ff6b180f71331edeb6ff42a7ab1a97f6a6",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 95,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:ddadd92a5d1887a996bee764a10e1606d6d668d8696b2b52eecf5990dcedcc41",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 91,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:edc391dd5bcfcda9bb1d804b3f2c15dea8dd0452c01cdda1cf3070e83725a86c",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 91,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:f34989c03e4643a0727b0e2e2a6f3a1e533a8144272d53876fe20f1fdc5d58f3",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 91,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:2662416697ff135fadc594c40df0c0170614f59c525f0da6dd4f56ff8c44fcd2",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 91,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:22ddcc63cddf76ebe6d32d10763b89617ee0f9862fb1f4916b5bfa41fc17bce5",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      },
+      {
+        "schemaVersion": "archcontext.hook-log/v1",
+        "event": "post-edit",
+        "elapsedMs": 90,
+        "pathCount": 1,
+        "changedPathDigest": "sha256:dbb669c54e8083c771b6b169bae0f1e6ff053ad2b4b3c41b89002c43ccf3e667",
+        "reasonCode": "runtime-unavailable",
+        "failOpen": true,
+        "egress": "none",
+        "network": "forbidden"
+      }
+    ],
+    "explicitHighRiskJobPayloadAudit": {
+      "scanned": true,
+      "count": 1,
+      "digest": "sha256:80d484c35085c65dc40fe1ce4ad4c0e5ad0bdab19e30d264779dfe796fb50439"
+    }
+  },
+  "rollback": {
+    "migrateVerified": true,
+    "migrateRecommendedMode": "dual",
+    "rollbackOk": true,
+    "targetAuthority": "yaml",
+    "rollbackRecommendedMode": "yaml",
+    "fullRollbackToYaml": true,
+    "rollbackBackupCreated": true,
+    "rollbackCommandPresent": true,
+    "worktreeDigestAfterRollback": "sha256:96b972461964941079232478ca83d9bb66f9401ff4903470d6b2ebe8a4dab497",
+    "outputs": [
+      {
+        "ok": true,
+        "requestId": "ledger.migrate",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "architectureLedger": {
+            "schemaVersion": "archcontext.runtime-architecture-ledger-modes/v1",
+            "rolloutMode": "yaml",
+            "readMode": "yaml",
+            "writeMode": "yaml",
+            "readAuthority": "yaml",
+            "writeAuthority": "yaml",
+            "phaseFlags": {
+              "schemaVersion": "archcontext.runtime-architecture-ledger-phase-flags/v1",
+              "activePhase": "yaml",
+              "supportedPhases": [
+                "yaml",
+                "dual",
+                "ledger-shadow",
+                "ledger-authoritative"
+              ],
+              "environment": {
+                "ARCHCONTEXT_LEDGER_MODE": "yaml",
+                "ARCHCONTEXT_LEDGER_READ_MODE": "yaml",
+                "ARCHCONTEXT_LEDGER_WRITE_MODE": "yaml"
+              },
+              "safeDowngrade": {
+                "to": "yaml",
+                "environment": {
+                  "ARCHCONTEXT_LEDGER_MODE": "yaml",
+                  "ARCHCONTEXT_LEDGER_READ_MODE": "yaml",
+                  "ARCHCONTEXT_LEDGER_WRITE_MODE": "yaml"
+                },
+                "command": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>"
+              },
+              "promotionPath": [
+                "yaml",
+                "dual",
+                "ledger-shadow",
+                "ledger-authoritative"
+              ],
+              "downgradePath": [
+                "yaml"
+              ]
+            }
+          },
+          "repository": {
+            "repositoryId": "repo.f232e940b0a5c4d7",
+            "storageRepositoryId": "repo.22695802815125c9"
+          },
+          "worktree": {
+            "workspaceId": "ws.f232e940b0a5c4d7",
+            "storageWorkspaceId": "ws.f232e940b0a5c4d7",
+            "branch": "master",
+            "headSha": "03612fe8783194df1e28b05120ddbbf833c21354",
+            "worktreeDigest": "sha256:df56df7fa34e9b024f36d9f8d71aedaac5f63bde1239876e77c0beb31aa82a73"
+          },
+          "sourceMode": "git-yaml",
+          "dryRun": false,
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "previousGraphDigest": "sha256:023b767b5310a0c372940f49181294c5e4ed6b0ea139a0e88aa4e5e0fb47dcbc",
+          "sourceDigest": "sha256:e6d47c17a47ce400506221041043160ecbd3c5cd9863ed9cc256c7e610978059",
+          "projectionDigest": "sha256:9aeb389b62961f9ce1351a41dd879ffa96b27d2320a230f76823d7657c21ebd9",
+          "imported": [
+            {
+              "path": ".archcontext/manifest.yaml",
+              "schemaVersion": "archcontext.manifest/v1",
+              "targetKind": "evidence",
+              "targetId": "product.al10-rollback"
+            },
+            {
+              "path": ".archcontext/model/nodes/capability.architecture-context.yaml",
+              "schemaVersion": "archcontext.node/v1",
+              "targetKind": "entity",
+              "targetId": "capability.architecture-context"
+            },
+            {
+              "path": ".archcontext/policies/review.yaml",
+              "schemaVersion": "archcontext.policy/v1",
+              "targetKind": "evidence",
+              "targetId": "policy.review"
+            },
+            {
+              "path": ".archcontext/product.yaml",
+              "schemaVersion": "archcontext.product/v1",
+              "targetKind": "evidence",
+              "targetId": "product.al10-rollback"
+            }
+          ],
+          "ignoredFiles": [
+            {
+              "path": ".archcontext/generated/ARCHITECTURE.md",
+              "reasonCode": "generated-projection"
+            }
+          ],
+          "unsupportedFiles": [],
+          "rollback": {
+            "command": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+            "safeDowngradeEnvironment": {
+              "ARCHCONTEXT_LEDGER_MODE": "yaml",
+              "ARCHCONTEXT_LEDGER_READ_MODE": "yaml",
+              "ARCHCONTEXT_LEDGER_WRITE_MODE": "yaml"
+            }
+          },
+          "status": "verified",
+          "writes": "architecture-ledger",
+          "backup": {
+            "schemaVersion": "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+            "status": "created",
+            "backupPath": "$HOME/Library/Application Support/ArchContext/repositories/repo.22695802815125c9/worktrees/ws.f232e940b0a5c4d7/backups/ledger-migrate/2026-06-26T12-00-00.000Z/runtime.sqlite",
+            "integrity": "ok",
+            "createdAt": "2026-06-26T12:00:00.000Z"
+          },
+          "append": {
+            "status": "appended",
+            "appendedEventCount": 1,
+            "duplicateEventCount": 0,
+            "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "entityCount": 1,
+            "relationCount": 0,
+            "constraintCount": 0
+          },
+          "verification": {
+            "schemaVersion": "archcontext.runtime-architecture-ledger-migration-verification/v1",
+            "ok": true,
+            "replayedEventCount": 1,
+            "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "expectedGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "integrity": {
+              "ok": true,
+              "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "eventCount": 1,
+              "snapshotCount": 0,
+              "failures": []
+            },
+            "driftOk": true,
+            "reconcileOk": true
+          },
+          "drift": {
+            "schemaVersion": "archcontext.architecture-ledger-drift/v1",
+            "ok": true,
+            "semanticDrift": false,
+            "sourceGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "projectedGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "projectionDigest": "sha256:9aeb389b62961f9ce1351a41dd879ffa96b27d2320a230f76823d7657c21ebd9",
+            "reasonCodes": [],
+            "unsupportedFiles": [],
+            "ignoredFiles": [
+              {
+                "path": ".archcontext/generated/ARCHITECTURE.md",
+                "reasonCode": "generated-projection"
+              }
+            ],
+            "projectionDiffs": []
+          },
+          "reconcile": {
+            "schemaVersion": "archcontext.architecture-ledger-reconcile/v1",
+            "ok": true,
+            "reconcileRequired": false,
+            "reasonCodes": [],
+            "ledgerToGit": {
+              "direction": "ledger-to-git-projection",
+              "ok": true,
+              "status": "clean",
+              "sourceGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "expectedProjectionDigest": "sha256:9aeb389b62961f9ce1351a41dd879ffa96b27d2320a230f76823d7657c21ebd9",
+              "reasonCodes": [],
+              "diffCount": 0,
+              "projectionDiffs": []
+            },
+            "gitToLedger": {
+              "direction": "git-to-ledger-state",
+              "ok": true,
+              "status": "clean",
+              "sourceGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "targetGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "reasonCodes": [],
+              "unsupportedFileCount": 0
+            },
+            "reconcileActions": []
+          },
+          "recommendedEnvironment": {
+            "ARCHCONTEXT_LEDGER_MODE": "dual"
+          }
+        }
+      },
+      {
+        "ok": true,
+        "requestId": "ledger.rollback",
+        "schemaVersion": "archcontext.envelope/v1",
+        "data": {
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rollback/v1",
+          "architectureLedger": {
+            "schemaVersion": "archcontext.runtime-architecture-ledger-modes/v1",
+            "rolloutMode": "yaml",
+            "readMode": "yaml",
+            "writeMode": "yaml",
+            "readAuthority": "yaml",
+            "writeAuthority": "yaml",
+            "phaseFlags": {
+              "schemaVersion": "archcontext.runtime-architecture-ledger-phase-flags/v1",
+              "activePhase": "yaml",
+              "supportedPhases": [
+                "yaml",
+                "dual",
+                "ledger-shadow",
+                "ledger-authoritative"
+              ],
+              "environment": {
+                "ARCHCONTEXT_LEDGER_MODE": "yaml",
+                "ARCHCONTEXT_LEDGER_READ_MODE": "yaml",
+                "ARCHCONTEXT_LEDGER_WRITE_MODE": "yaml"
+              },
+              "safeDowngrade": {
+                "to": "yaml",
+                "environment": {
+                  "ARCHCONTEXT_LEDGER_MODE": "yaml",
+                  "ARCHCONTEXT_LEDGER_READ_MODE": "yaml",
+                  "ARCHCONTEXT_LEDGER_WRITE_MODE": "yaml"
+                },
+                "command": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>"
+              },
+              "promotionPath": [
+                "yaml",
+                "dual",
+                "ledger-shadow",
+                "ledger-authoritative"
+              ],
+              "downgradePath": [
+                "yaml"
+              ]
+            }
+          },
+          "repository": {
+            "repositoryId": "repo.f232e940b0a5c4d7",
+            "storageRepositoryId": "repo.22695802815125c9"
+          },
+          "worktree": {
+            "workspaceId": "ws.f232e940b0a5c4d7",
+            "storageWorkspaceId": "ws.f232e940b0a5c4d7",
+            "branch": "master",
+            "headSha": "03612fe8783194df1e28b05120ddbbf833c21354",
+            "worktreeDigest": "sha256:df56df7fa34e9b024f36d9f8d71aedaac5f63bde1239876e77c0beb31aa82a73"
+          },
+          "sourceAuthority": "ledger",
+          "targetAuthority": "yaml",
+          "dryRun": false,
+          "writes": "git-projection",
+          "backup": {
+            "schemaVersion": "archcontext.architecture-ledger-yaml-rollback-backup/v1",
+            "required": true,
+            "path": ".archcontext/backups/ledger-rollback/2026-06-26T12-00-00.000Z",
+            "manifestPath": ".archcontext/backups/ledger-rollback/2026-06-26T12-00-00.000Z/manifest.json",
+            "fileCount": 1,
+            "paths": [
+              ".archcontext/model/nodes/capability.architecture-context.yaml"
+            ],
+            "digest": "sha256:c731f327054c46e228418bf9fb71752c17831c8e67adf8ae3895f448752266c4"
+          },
+          "projectedFileCount": 1,
+          "projectionDigest": "sha256:9aeb389b62961f9ce1351a41dd879ffa96b27d2320a230f76823d7657c21ebd9",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "writtenPaths": [
+            ".archcontext/model/nodes/capability.architecture-context.yaml"
+          ],
+          "removedPaths": [],
+          "drift": {
+            "schemaVersion": "archcontext.architecture-ledger-drift/v1",
+            "ok": true,
+            "semanticDrift": false,
+            "sourceGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "projectedGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+            "projectionDigest": "sha256:9aeb389b62961f9ce1351a41dd879ffa96b27d2320a230f76823d7657c21ebd9",
+            "reasonCodes": [],
+            "unsupportedFiles": [],
+            "ignoredFiles": [
+              {
+                "path": ".archcontext/generated/ARCHITECTURE.md",
+                "reasonCode": "generated-projection"
+              }
+            ],
+            "projectionDiffs": []
+          },
+          "reconcile": {
+            "schemaVersion": "archcontext.architecture-ledger-reconcile/v1",
+            "ok": true,
+            "reconcileRequired": false,
+            "reasonCodes": [],
+            "ledgerToGit": {
+              "direction": "ledger-to-git-projection",
+              "ok": true,
+              "status": "clean",
+              "sourceGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "expectedProjectionDigest": "sha256:9aeb389b62961f9ce1351a41dd879ffa96b27d2320a230f76823d7657c21ebd9",
+              "reasonCodes": [],
+              "diffCount": 0,
+              "projectionDiffs": []
+            },
+            "gitToLedger": {
+              "direction": "git-to-ledger-state",
+              "ok": true,
+              "status": "clean",
+              "sourceGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "targetGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+              "reasonCodes": [],
+              "unsupportedFileCount": 0
+            },
+            "reconcileActions": []
+          },
+          "recommendedEnvironment": {
+            "ARCHCONTEXT_LEDGER_MODE": "yaml"
+          }
+        }
+      }
+    ]
+  },
+  "privacy": {
+    "sqlite": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:814a13f0ef4ca3e1d36f79c0fcd0b11171985c4525ad6ecb7b76cbdf4ce2dede"
+    },
+    "cli": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:4ba2ab2853da1843e736f2677cfc8ef60b87ca49f7b541a3f202453a7cbd64a6"
+    },
+    "mcp": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:2e5b8aea4ac59f9387c453bd06f9b55499330a1372f3987f0ee26de54f5011ff"
+    },
+    "logs": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:8da4a7b5f3c133c7f851c2b78ffc624c2196ea43241b7c3ec0081bec745aa3ea"
+    },
+    "agentJobs": {
+      "clean": true,
+      "forbiddenKeyHits": [],
+      "forbiddenTokenHits": [],
+      "digest": "sha256:80d484c35085c65dc40fe1ce4ad4c0e5ad0bdab19e30d264779dfe796fb50439"
+    },
+    "forbiddenKeyHits": [],
+    "forbiddenTokenHits": [],
+    "overallClean": true,
+    "noRawSourceSentinel": true,
+    "scannedSurfaceCount": 5
+  },
+  "assertions": {
+    "AL10-07": true,
+    "AL10-BETA-2": true,
+    "AL10-BETA-3": true,
+    "AL10-BETA-5": true,
+    "AL10-BETA-6": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-hardening-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-hardening-readback.json --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-hardening.md"
+  },
+  "failures": [],
+  "status": "verified"
+}

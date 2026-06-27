@@ -3,9 +3,24 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { digestJson, validateJsonSchema } from "@archcontext/contracts";
+import {
+  ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION,
+  ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION,
+  architectureEventHash,
+  digestJson,
+  validateJsonSchema,
+  type ArchitectureCandidateDeltaPolicyEvaluationV1,
+  type ArchitectureCandidateDeltaV1
+} from "@archcontext/contracts";
 import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
-import { ChangeSetEngine, type ChangeSetDraft, type ChangeSetJournalFile, type ChangeSetJournalPort } from "../src/index";
+import {
+  ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION,
+  ChangeSetEngine,
+  planArchitectureCandidateChangeSet,
+  type ChangeSetDraft,
+  type ChangeSetJournalFile,
+  type ChangeSetJournalPort
+} from "../src/index";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const digest = `sha256:${"a".repeat(64)}`;
@@ -53,6 +68,238 @@ describe("@archcontext/core/changeset-engine", () => {
     expect(engine.preview("/tmp/repo", denied).allowed).toBe(false);
   });
 
+  test("plans accepted architecture candidates as previewable changesets and ledger event batches", () => {
+    const repository = { repositoryId: "repo.arch-context", storageRepositoryId: "git:arch-context" };
+    const worktree = {
+      workspaceId: "workspace.local",
+      storageWorkspaceId: "worktree:local",
+      branch: "codex/test",
+      headSha: "abc",
+      worktreeDigest: digest
+    };
+    const delta: ArchitectureCandidateDeltaV1 = {
+      schemaVersion: ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION,
+      deltaId: "delta.accepted-candidates",
+      repository,
+      worktree,
+      changeCursor: {
+        source: "git",
+        changeSource: "worktree",
+        headSha: "abc",
+        pathCount: 2,
+        metadataDigest: digest,
+        codeFactsDigest: digest
+      },
+      subjectSelectors: [],
+      changedSubjects: [],
+      rawFacts: [],
+      interpretations: [],
+      declaredSubjectMappings: [],
+      mappingAmbiguities: [],
+      candidateChanges: [
+        {
+          candidateChangeId: "candidate.node.added",
+          kind: "node-added",
+          target: { kind: "node", id: "entity.api" },
+          stateDimension: "target-state",
+          changeKind: "added",
+          subjectSelectorIds: ["selector.api"],
+          mappingIds: ["mapping.api"],
+          ambiguityIds: [],
+          evidenceIds: ["evidence.api"],
+          confidence: "high",
+          heuristic: true,
+          summary: "API module added with complete evidence",
+          digest: digestJson({ candidate: "candidate.node.added" })
+        },
+        {
+          candidateChangeId: "candidate.node.moved",
+          kind: "node-moved",
+          target: { kind: "node", id: "entity.worker" },
+          stateDimension: "target-state",
+          changeKind: "moved",
+          subjectSelectorIds: ["selector.worker"],
+          mappingIds: [],
+          ambiguityIds: [],
+          evidenceIds: [],
+          confidence: "low",
+          heuristic: true,
+          summary: "Worker module moved without proof",
+          digest: digestJson({ candidate: "candidate.node.moved" })
+        }
+      ],
+      evidenceItems: [],
+      evidenceBindings: [],
+      summary: {
+        added: 1,
+        removed: 0,
+        moved: 1,
+        renamed: 0,
+        materiallyChanged: 0,
+        unresolved: 1,
+        mapped: 1,
+        ambiguous: 0,
+        candidateChanges: 2,
+        targetStateChanges: 2,
+        migrationStateProgress: 0,
+        mappingCoverage: {
+          totalChangedSubjects: 2,
+          mappedSubjects: 1,
+          unresolvedSubjects: 1,
+          ambiguousSubjects: 0,
+          coveragePercent: 50
+        },
+        unresolvedSubjects: {
+          total: 1,
+          byReason: {
+            "declared-graph-unavailable": 0,
+            "no-declared-target": 1,
+            "multiple-declared-targets": 0,
+            "relation-endpoint-unmapped": 0
+          },
+          subjectSelectorIds: ["selector.worker"]
+        },
+        evidenceStrengthDistribution: {
+          heuristic: 0,
+          declared: 0,
+          observed: 0,
+          verified: 0
+        }
+      },
+      deltaDigest: digestJson({ delta: "accepted-candidates" })
+    };
+    const policyEvaluation: ArchitectureCandidateDeltaPolicyEvaluationV1 = {
+      schemaVersion: ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION,
+      evaluationId: "candidate-policy.eval.accepted-candidates",
+      deltaId: delta.deltaId,
+      repository,
+      worktree,
+      deltaDigest: delta.deltaDigest,
+      policyVersion: "candidate-delta-policy/v1",
+      evaluatedAt: "2026-06-26T00:00:00.000Z",
+      decisions: [
+        {
+          decisionId: "candidate-policy.decision.auto",
+          candidateChangeId: "candidate.node.added",
+          target: { kind: "node", id: "entity.api" },
+          stateDimension: "target-state",
+          changeKind: "added",
+          confidence: "high",
+          action: "auto-accept",
+          reasonCodes: ["high-confidence-complete-evidence"],
+          evidenceIds: ["evidence.api"],
+          digest: digestJson({ decision: "auto" })
+        },
+        {
+          decisionId: "candidate-policy.decision.proof",
+          candidateChangeId: "candidate.node.moved",
+          target: { kind: "node", id: "entity.worker" },
+          stateDimension: "target-state",
+          changeKind: "moved",
+          confidence: "low",
+          action: "require-proof",
+          reasonCodes: ["low-confidence"],
+          evidenceIds: [],
+          digest: digestJson({ decision: "proof" })
+        }
+      ],
+      summary: {
+        candidateChanges: 2,
+        autoAccept: 1,
+        requireCheckpoint: 0,
+        requireProof: 1,
+        requireHumanApproval: 0,
+        mappingAmbiguities: 0
+      },
+      evaluationDigest: digestJson({ evaluation: "accepted-candidates" })
+    };
+
+    const plan = planArchitectureCandidateChangeSet({
+      delta,
+      policyEvaluation,
+      base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+      reason: { taskSessionId: "task.al5-11" }
+    });
+
+    expect(plan.schemaVersion).toBe(ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION);
+    expect(plan.acceptedCandidateChangeIds).toEqual(["candidate.node.added"]);
+    expect(plan.deferredCandidateChanges).toMatchObject([{ candidateChangeId: "candidate.node.moved", action: "require-proof" }]);
+    expect(validateJsonSchema(readJson("schemas/runtime/changeset.schema.json") as any, plan.changeSet as any).valid).toBe(true);
+
+    const preview = new ChangeSetEngine().preview("/tmp/repo", plan.changeSet);
+    expect(preview).toMatchObject({ allowed: true, paths: [] });
+
+    const operation = plan.changeSet.operations[0] as unknown as Record<string, unknown>;
+    expect(operation).toMatchObject({
+      op: "create_entity",
+      entityId: "entity.api",
+      expectedHash: "missing",
+      candidateChangeId: "candidate.node.added",
+      targetKind: "node",
+      targetId: "entity.api"
+    });
+    expect(operation.body).toBeUndefined();
+
+    const event = plan.eventBatch[0];
+    expect(event.eventType).toBe("architecture_candidate_changeset_planned");
+    expect(event.payloadVersion).toBe(ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION);
+    expect(event.eventHash).toBe(architectureEventHash(event));
+    expect(() =>
+      planArchitectureCandidateChangeSet({
+        delta,
+        policyEvaluation: {
+          ...policyEvaluation,
+          decisions: [{ ...policyEvaluation.decisions[0]!, target: { kind: "node", id: "entity.wrong" } }, policyEvaluation.decisions[1]!]
+        },
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.al5-11" }
+      })
+    ).toThrow("Policy decision target mismatch");
+
+    const repeated = planArchitectureCandidateChangeSet({
+      delta,
+      policyEvaluation,
+      base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+      reason: { taskSessionId: "task.al5-11" }
+    });
+    expect(repeated.changeSet.id).toBe(plan.changeSet.id);
+    expect(repeated.eventBatch[0]?.eventHash).toBe(event.eventHash);
+    expect(repeated.planDigest).toBe(plan.planDigest);
+  });
+
+  test("rejects agent investigation proposals before ChangeSet promotion", () => {
+    const { delta, policyEvaluation } = minimalCandidateDeltaFixture();
+
+    expect(() => planArchitectureCandidateChangeSet({
+      delta: {
+        ...delta,
+        extensions: {
+          source: "investigation-report-proposal",
+          investigationReportId: "investigation_report.al6"
+        }
+      },
+      policyEvaluation,
+      base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+      reason: { taskSessionId: "task.al6-10" }
+    })).toThrow("architecture-candidate-delta-agent-proposal-requires-deterministic-validation");
+
+    expect(() => planArchitectureCandidateChangeSet({
+      delta: {
+        ...delta,
+        candidateChanges: [{
+          ...delta.candidateChanges[0]!,
+          extensions: {
+            proposalId: "investigation_proposal.al6",
+            requiredNextStep: "deterministic-validation"
+          }
+        }]
+      },
+      policyEvaluation,
+      base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+      reason: { taskSessionId: "task.al6-10" }
+    })).toThrow("architecture-candidate-delta-agent-proposal-requires-deterministic-validation");
+  });
+
   test("applies approved changes and rebuilds generated projection", async () => {
     const modelRoot = tempModelRoot();
     try {
@@ -96,6 +343,54 @@ describe("@archcontext/core/changeset-engine", () => {
         operation: "write_waiver"
       });
       expect(journal.records[0].files[0].tempPath).toContain(".archctx-tmp-");
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("applies multi-file render_projection operations through ChangeSet journal", async () => {
+    const modelRoot = tempModelRoot();
+    try {
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const draft = engine.approve(
+        engine.plan({
+          id: "changeset.docs-projection",
+          base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+          reason: { taskSessionId: "task.al9" },
+          operations: [
+            {
+              op: "render_projection",
+              expectedHash: "missing",
+              projectionFiles: [
+                {
+                  path: "docs/architecture/index.md",
+                  expectedHash: "missing",
+                  body: "<!-- BEGIN ARCHCONTEXT:generated target=\"projection_target.architecture.index\" -->\n# Architecture\n<!-- END ARCHCONTEXT:generated target=\"projection_target.architecture.index\" -->\n"
+                },
+                {
+                  path: "docs/architecture/diagrams/architecture.mmd",
+                  expectedHash: "missing",
+                  body: "flowchart LR\n"
+                }
+              ]
+            }
+          ]
+        })
+      );
+
+      expect(engine.preview(modelRoot, draft)).toMatchObject({
+        allowed: true,
+        paths: ["docs/architecture/index.md", "docs/architecture/diagrams/architecture.mmd"]
+      });
+      await expect(engine.apply(modelRoot, draft)).resolves.toMatchObject({ status: "applied" });
+      expect(readFileSync(join(modelRoot, "docs/architecture/index.md"), "utf8")).toContain("Architecture");
+      expect(readFileSync(join(modelRoot, "docs/architecture/diagrams/architecture.mmd"), "utf8")).toContain("flowchart");
+      expect(journal.records[0].files.map((file) => file.path)).toEqual([
+        "docs/architecture/index.md",
+        "docs/architecture/diagrams/architecture.mmd"
+      ]);
+      expect(journal.records[0].files.every((file) => file.operation === "render_projection")).toBe(true);
     } finally {
       rmSync(modelRoot, { recursive: true, force: true });
     }
@@ -148,6 +443,132 @@ describe("@archcontext/core/changeset-engine", () => {
     }
   });
 });
+
+function minimalCandidateDeltaFixture(): {
+  delta: ArchitectureCandidateDeltaV1;
+  policyEvaluation: ArchitectureCandidateDeltaPolicyEvaluationV1;
+} {
+  const repository = { repositoryId: "repo.arch-context", storageRepositoryId: "git:arch-context" };
+  const worktree = {
+    workspaceId: "workspace.local",
+    storageWorkspaceId: "worktree:local",
+    branch: "codex/test",
+    headSha: "abc",
+    worktreeDigest: digest
+  };
+  const delta: ArchitectureCandidateDeltaV1 = {
+    schemaVersion: ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION,
+    deltaId: "delta.agent-proposal-regression",
+    repository,
+    worktree,
+    changeCursor: {
+      source: "git",
+      changeSource: "worktree",
+      headSha: "abc",
+      pathCount: 1,
+      metadataDigest: digest,
+      codeFactsDigest: digest
+    },
+    subjectSelectors: [],
+    changedSubjects: [],
+    rawFacts: [],
+    interpretations: [],
+    declaredSubjectMappings: [],
+    mappingAmbiguities: [],
+    candidateChanges: [
+      {
+        candidateChangeId: "candidate.node.agent-proposal",
+        kind: "node-materially-changed",
+        target: { kind: "node", id: "entity.api" },
+        stateDimension: "target-state",
+        changeKind: "materially_changed",
+        subjectSelectorIds: ["selector.api"],
+        mappingIds: ["mapping.api"],
+        ambiguityIds: [],
+        evidenceIds: ["evidence.api"],
+        confidence: "high",
+        heuristic: true,
+        summary: "API module changed with complete deterministic evidence",
+        digest: digestJson({ candidate: "candidate.node.agent-proposal" })
+      }
+    ],
+    evidenceItems: [],
+    evidenceBindings: [],
+    summary: {
+      added: 0,
+      removed: 0,
+      moved: 0,
+      renamed: 0,
+      materiallyChanged: 1,
+      unresolved: 0,
+      mapped: 1,
+      ambiguous: 0,
+      candidateChanges: 1,
+      targetStateChanges: 1,
+      migrationStateProgress: 0,
+      mappingCoverage: {
+        totalChangedSubjects: 1,
+        mappedSubjects: 1,
+        unresolvedSubjects: 0,
+        ambiguousSubjects: 0,
+        coveragePercent: 100
+      },
+      unresolvedSubjects: {
+        total: 0,
+        byReason: {
+          "declared-graph-unavailable": 0,
+          "no-declared-target": 0,
+          "multiple-declared-targets": 0,
+          "relation-endpoint-unmapped": 0
+        },
+        subjectSelectorIds: []
+      },
+      evidenceStrengthDistribution: {
+        heuristic: 0,
+        declared: 0,
+        observed: 1,
+        verified: 0
+      }
+    },
+    deltaDigest: digestJson({ delta: "agent-proposal-regression" })
+  };
+  return {
+    delta,
+    policyEvaluation: {
+      schemaVersion: ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION,
+      evaluationId: "candidate-policy.eval.agent-proposal-regression",
+      deltaId: delta.deltaId,
+      repository,
+      worktree,
+      deltaDigest: delta.deltaDigest,
+      policyVersion: "candidate-delta-policy/v1",
+      evaluatedAt: "2026-06-26T00:00:00.000Z",
+      decisions: [
+        {
+          decisionId: "candidate-policy.decision.agent-proposal-regression",
+          candidateChangeId: "candidate.node.agent-proposal",
+          target: { kind: "node", id: "entity.api" },
+          stateDimension: "target-state",
+          changeKind: "materially_changed",
+          confidence: "high",
+          action: "auto-accept",
+          reasonCodes: ["high-confidence-complete-evidence"],
+          evidenceIds: ["evidence.api"],
+          digest: digestJson({ decision: "agent-proposal-regression" })
+        }
+      ],
+      summary: {
+        candidateChanges: 1,
+        autoAccept: 1,
+        requireCheckpoint: 0,
+        requireProof: 0,
+        requireHumanApproval: 0,
+        mappingAmbiguities: 0
+      },
+      evaluationDigest: digestJson({ evaluation: "agent-proposal-regression" })
+    }
+  };
+}
 
 class RecordingChangeSetJournal implements ChangeSetJournalPort {
   readonly records: { id: string; root: string; draft: ChangeSetDraft; files: ChangeSetJournalFile[]; status: "pending" | "committed" | "aborted"; reason?: string }[] = [];

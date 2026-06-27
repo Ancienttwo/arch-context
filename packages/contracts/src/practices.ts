@@ -38,10 +38,13 @@ export type PracticeCheckpointReasonCode =
   | "no-baseline"
   | "no-op";
 export type PracticeCheckStatus = "pass" | "fail" | "waived" | "not_applicable";
+export type PracticeEnforcementPolicyMode = "advisory" | "active" | "fail-open" | "fail-closed";
+export type PracticeEnforcementEvaluationMode = "advisory" | "fail-open" | "fail-closed";
 export type PracticeCheckReasonCode =
   | "policy-disabled"
   | "not-opted-in"
   | "not-registered"
+  | "fixture-gate-missing"
   | "heuristic-only"
   | "no-baseline"
   | "no-violation"
@@ -94,6 +97,21 @@ export interface PracticeEnforcementV1 {
   default: PracticeEnforcementLevel;
   promotableTo: PracticeEnforcementLevel;
   repoOptInRequired: boolean;
+  fixtureGate?: PracticeEnforcementFixtureGateV1;
+}
+
+export interface PracticeEnforcementFixtureRefV1 {
+  id: string;
+  path: string;
+  description: string;
+  digest?: string;
+}
+
+export interface PracticeEnforcementFixtureGateV1 {
+  positive: PracticeEnforcementFixtureRefV1[];
+  nearNegative: PracticeEnforcementFixtureRefV1[];
+  mixedChange: PracticeEnforcementFixtureRefV1[];
+  baseline: PracticeEnforcementFixtureRefV1[];
 }
 
 export interface PracticeSourceRefV1 {
@@ -174,10 +192,27 @@ export interface PracticePolicyRuleV1 {
   testEvidence?: PracticePolicyTestEvidenceV1;
 }
 
+export interface PracticeRecommendationSchedulerPolicyV1 {
+  enabled?: boolean;
+  policyMode?: "advisory" | "checkpoint" | "complete";
+  frequency?: {
+    minIntervalMs?: number;
+    cooldownMs?: number;
+  };
+  budgets?: {
+    maxRecommendationsPerRun?: number;
+    maxL3InvestigationsPerRun?: number;
+    maxRunsPerTask?: number;
+    maxRunsPerRepositoryPerDay?: number;
+    maxRunsPerDay?: number;
+  };
+}
+
 export interface PracticeEnforcementPolicyV1 {
   schemaVersion: typeof PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION;
-  mode: "advisory" | "active";
+  mode: PracticeEnforcementPolicyMode;
   rules: PracticePolicyRuleV1[];
+  recommendations?: PracticeRecommendationSchedulerPolicyV1;
 }
 
 export interface PracticeWaiverV1 {
@@ -188,6 +223,7 @@ export interface PracticeWaiverV1 {
   owner: string;
   reason: string;
   createdAt: string;
+  reviewAt: string;
   expiresAt: string;
   evidenceDigest: string;
 }
@@ -272,6 +308,7 @@ export interface PracticeWaiverApplicationV1 {
   practiceId: string;
   checkId?: string;
   owner: string;
+  reviewAt: string;
   expiresAt: string;
 }
 
@@ -295,9 +332,12 @@ export interface PracticeEnforcementEvaluationV1 {
   schemaVersion: "archcontext.practice-enforcement-evaluation/v1";
   catalogDigest: string;
   policyDigest: string;
+  policyMode: PracticeEnforcementEvaluationMode;
+  blocking: boolean;
   checkResultDigest: string;
   results: PracticeCheckResultV1[];
   violations: PracticeCheckResultV1[];
+  nonBlockingViolations: PracticeCheckResultV1[];
   waiversApplied: PracticeWaiverApplicationV1[];
   actionsRequired: string[];
 }

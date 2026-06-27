@@ -44,7 +44,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.security.least-privilege.positive", "path": "evals/practices/enforcement-waiver-adversarial.jsonl", "description": "Security-sensitive permission expansion can be complete-gated only with explicit scoped evidence." }],
+      "nearNegative": [{ "id": "fixture.security.least-privilege.near-negative", "path": "evals/practices/benign-negative.jsonl", "description": "Benign security wording remains non-gating." }],
+      "mixedChange": [{ "id": "fixture.security.least-privilege.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Bound evidence tests prevent unrelated observed evidence from promoting security practice matches." }],
+      "baseline": [{ "id": "fixture.security.least-privilege.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Typed practice bindings anchor security evidence to the expected baseline subject." }]
+    }
   },
   "provenance": {
     "sourceKind": "archcontext-native",

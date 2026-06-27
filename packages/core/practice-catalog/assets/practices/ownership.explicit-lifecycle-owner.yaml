@@ -44,7 +44,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.ownership.explicit-lifecycle-owner.positive", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Governed subjects without lifecycle owners fail complete enforcement." }],
+      "nearNegative": [{ "id": "fixture.ownership.explicit-lifecycle-owner.near-negative", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Plain symbols are not treated as governed owner subjects." }],
+      "mixedChange": [{ "id": "fixture.ownership.explicit-lifecycle-owner.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Owned, missing, split and self-attested subjects are separated in one fixture." }],
+      "baseline": [{ "id": "fixture.ownership.explicit-lifecycle-owner.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Owner registry readback anchors complete enforcement to declared model owners." }]
+    }
   },
   "provenance": {
     "sourceKind": "curated-open-source",

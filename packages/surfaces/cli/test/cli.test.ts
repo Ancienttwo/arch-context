@@ -12,17 +12,18 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
+import { runFastHookEnqueue } from "../src/hook-fast";
 import { runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
-const CLI_PROCESS_TIMEOUT_MS = 30_000;
+const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
-const DAEMON_TEST_TIMEOUT_MS = 30_000;
+const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
-function runTestCli(command: string, args: string[], root: string) {
+function runTestCli(command: string, args: string[], root: string, stateRoot = testStateRoot(root)) {
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
-  process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+  process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
   return runCli(command, args, root, {
     codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
     codeGraphProviderFactory: () => new MockCodeGraphProvider()
@@ -59,6 +60,25 @@ function isIgnorableWindowsCleanupError(error: unknown): boolean {
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
 
+async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
+  for (const path of [localStorePath, `${localStorePath}-wal`, `${localStorePath}-shm`]) {
+    await removeFileWithTransientWindowsRetry(path);
+  }
+}
+
+async function removeFileWithTransientWindowsRetry(path: string): Promise<void> {
+  const deadline = Date.now() + (process.platform === "win32" ? 30_000 : 0);
+  while (true) {
+    try {
+      rmSync(path, { force: true });
+      return;
+    } catch (error) {
+      if (!isIgnorableWindowsCleanupError(error) || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 function expectSameExistingPath(actual: string, expected: string): void {
   expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
 }
@@ -73,6 +93,7 @@ function createInitializedGitRepo(): string {
   writeFileSync(join(root, "README.md"), "# review fixture\n", "utf8");
   initializeArchContextModel(root, "Review App");
   git(root, "init");
+  configureGitFixtureIdentity(root);
   git(root, "add", ".");
   git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   return root;
@@ -87,6 +108,20 @@ async function writeTaskState(databasePath: string, taskSessionId: string, state
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function gitExitCode(root: string, ...args: string[]): number {
+  try {
+    execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    return 0;
+  } catch (error) {
+    return (error as { status?: number }).status ?? 1;
+  }
+}
+
+function configureGitFixtureIdentity(root: string): void {
+  git(root, "config", "user.name", "ArchContext Test");
+  git(root, "config", "user.email", "archcontext@example.test");
 }
 
 function gitOut(root: string, ...args: string[]): string {
@@ -181,6 +216,7 @@ describe("archctx CLI", () => {
         "--waiver-id", "cycle-waiver",
         "--owner", "team-architecture",
         "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--review-at", "2026-07-10T00:00:00.000Z",
         "--expires-at", "2026-07-24T00:00:00.000Z",
         "--evidence-digest", `sha256:${"1".repeat(64)}`,
         "--subject", "module.a->module.b"
@@ -202,6 +238,7 @@ describe("archctx CLI", () => {
         "--practice-id", "modularity.no-new-cycle",
         "--owner", "unknown-team",
         "--reason", "External migration window requires keeping this edge until the upstream cutover is complete.",
+        "--review-at", "2026-07-10T00:00:00.000Z",
         "--expires-at", "2026-07-24T00:00:00.000Z",
         "--evidence-digest", `sha256:${"1".repeat(64)}`,
         "--subject", "module.a->module.b"
@@ -290,7 +327,7 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).update).toMatchObject({
         schemaVersion: "archcontext.update-check/v1",
         packageName: "archctx",
-        currentVersion: "0.1.3",
+        currentVersion: "0.1.4",
         status: "not-checked",
         checkUpdates: false,
         updateAvailable: false
@@ -323,7 +360,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  });
+  }, CLI_PROCESS_TIMEOUT_MS);
 
   test("CLI update check is explicit and doctor can include the same advisory", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-update-check-"));
@@ -345,7 +382,7 @@ describe("archctx CLI", () => {
         expect((update.data as any)).toMatchObject({
           schemaVersion: "archcontext.update-check/v1",
           packageName: "archctx",
-          currentVersion: "0.1.3",
+          currentVersion: "0.1.4",
           latestVersion: "99.0.0",
           source: "env",
           status: "update-available",
@@ -403,6 +440,171 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("hook enqueue uses the runtime job queue with fail-open and generated projection guards", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-hook-enqueue-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const queued = await runCli("hook", [
+        "enqueue",
+        "--event", "post-commit",
+        "--path", "src/app.ts",
+        "--coalesce-key", "hook.post-commit",
+        "--max-attempts", "2",
+        "--max-queued-jobs", "7",
+        "--priority", "3",
+        "--risk", "high",
+        "--uncertainty", "high"
+      ], root, {
+        runtimeClient: {
+          jobsEnqueueGitHook(runtimeRoot: string, input: any) {
+            calls.push({ runtimeRoot, input });
+            return {
+              schemaVersion: "archcontext.envelope/v1",
+              ok: true,
+              requestId: "jobs.enqueueGitHook",
+              data: {
+                enqueued: true,
+                deduplicated: false,
+                record: { job: { jobId: "agent_job.hook_test", status: "queued" } }
+              }
+            };
+          }
+        } as any
+      });
+      expect(queued.ok).toBe(true);
+      expect(queued.requestId).toBe("hook.enqueue");
+      expect((queued.data as any).enqueued).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].runtimeRoot).toBe(root);
+      expect(calls[0].input).toMatchObject({
+        source: "commit",
+        event: "post-commit",
+        analysisKind: "architecture-delta",
+        coalesceKey: "hook.post-commit",
+        maxAttempts: 2,
+        maxQueuedJobs: 7,
+        priority: 3,
+        risk: "high",
+        uncertainty: "high",
+        generatedProjection: false,
+        skipGeneratedProjection: true
+      });
+      expect((queued.data as any).hookLog).toMatchObject({
+        schemaVersion: "archcontext.hook-log/v1",
+        event: "post-commit",
+        pathCount: 1,
+        reasonCode: "enqueued",
+        failOpen: false,
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((queued.data as any).hookLog)).not.toContain("src/app.ts");
+
+      const failOpen = await runCli("hook", ["enqueue", "--event", "post-edit", "--path", "src/offline.ts"], root, {
+        runtimeClient: {
+          jobsEnqueueGitHook() {
+            throw new Error("runtime offline");
+          }
+        } as any
+      });
+      expect(failOpen.ok).toBe(true);
+      expect(failOpen.requestId).toBe("hook.enqueue");
+      expect((failOpen.data as any)).toMatchObject({
+        schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
+        failOpen: true,
+        reasonCode: "runtime-unavailable",
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((failOpen.data as any).hookLog)).not.toContain("src/offline.ts");
+
+      let generatedProjectionCalled = false;
+      const skipped = await runCli("hook", [
+        "enqueue",
+        "--event", "post-write",
+        "--path", ".archcontext/generated/ARCHITECTURE.md"
+      ], root, {
+        runtimeClient: {
+          jobsEnqueueGitHook() {
+            generatedProjectionCalled = true;
+            throw new Error("guard should skip before runtime");
+          }
+        } as any
+      });
+      expect(skipped.ok).toBe(true);
+      expect(generatedProjectionCalled).toBe(false);
+      expect((skipped.data as any)).toMatchObject({
+        schemaVersion: "archcontext.hook-enqueue-skipped/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((skipped.data as any).hookLog)).not.toContain(".archcontext/generated/ARCHITECTURE.md");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fast hook enqueue dispatch preserves fail-open and generated projection guards", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-fast-hook-enqueue-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-fast-hook-state-"));
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      process.env.ARCHCONTEXT_STATE_DIR = stateRoot;
+      const failOpen = await runFastHookEnqueue([
+        "hook",
+        "enqueue",
+        "--event", "post-edit",
+        "--path", "src/offline.ts"
+      ], root);
+      expect(failOpen.handled).toBe(true);
+      expect((failOpen.envelope as any)).toMatchObject({
+        ok: true,
+        requestId: "hook.enqueue",
+        data: {
+          schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
+          failOpen: true,
+          reasonCode: "runtime-unavailable",
+          egress: "none",
+          network: "forbidden",
+          hookLog: {
+            schemaVersion: "archcontext.hook-log/v1",
+            egress: "none",
+            network: "forbidden"
+          }
+        }
+      });
+      expect(JSON.stringify((failOpen.envelope as any).data.hookLog)).not.toContain("src/offline.ts");
+
+      const skipped = await runFastHookEnqueue([
+        "hook",
+        "enqueue",
+        "--event", "post-write",
+        "--path", ".archcontext/generated/ARCHITECTURE.md"
+      ], root);
+      expect(skipped.handled).toBe(true);
+      expect((skipped.envelope as any).data).toMatchObject({
+        schemaVersion: "archcontext.hook-enqueue-skipped/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        egress: "none",
+        network: "forbidden"
+      });
+      expect(JSON.stringify((skipped.envelope as any).data.hookLog)).not.toContain(".archcontext/generated/ARCHITECTURE.md");
+    } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
   test("CLI renders central hook adapter install status and remove configuration", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-hooks-host-"));
     try {
@@ -420,7 +622,7 @@ describe("archctx CLI", () => {
       });
       expect((install.data as any).entrypoint).toMatchObject({
         command: "archctx",
-        args: ["hook", "checkpoint"],
+        args: ["hook", "enqueue"],
         failOpen: true,
         egress: "none",
         network: "forbidden"
@@ -459,15 +661,267 @@ describe("archctx CLI", () => {
       expect(remove.ok).toBe(true);
       expect((remove.data as any).removeConfig).toMatchObject({
         removeAdapter: "repo-harness-hook",
-        removeEntrypoint: "archctx hook checkpoint",
+        removeEntrypoint: "archctx hook enqueue",
+        compatibilityEntrypoint: "archctx hook checkpoint",
         repoHookSourceRequired: false
       });
+
+      const uninstall = await runCli("hooks", ["uninstall", "--host", "generic"], root);
+      expect(uninstall.ok).toBe(true);
+      expect(uninstall.requestId).toBe("hooks.uninstall");
+      expect((uninstall.data as any).removeConfig.removeEntrypoint).toBe("archctx hook enqueue");
+
+      const doctor = await runCli("hooks", ["doctor", "--host", "codex"], root);
+      expect(doctor.ok).toBe(true);
+      expect(doctor.requestId).toBe("hooks.doctor");
+      expect((doctor.data as any).checks).toContainEqual(expect.objectContaining({
+        id: "entrypoint",
+        status: "pass",
+        command: "archctx hook enqueue"
+      }));
 
       const invalid = await runCli("hooks", ["install", "--host", "unknown"], root);
       expect(invalid.ok).toBe(false);
       expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
     } finally {
       removeTempRoot(root);
+    }
+  });
+
+  test("CLI exposes runtime agent jobs list show cancel and retry operations", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-jobs-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const queuedJob = {
+        job: { jobId: "agent_job.cli_test", status: "queued" },
+        attemptCount: 0
+      };
+      const runtimeClient = {
+        jobsEnqueueGitHook(_root: string, input: any) {
+          calls.push({ method: "enqueue", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.enqueueGitHook",
+            data: {
+              enqueued: true,
+              deduplicated: false,
+              record: {
+                ...queuedJob,
+                job: {
+                  ...queuedJob.job,
+                  runnerPort: input.runnerPort ?? "codex"
+                }
+              }
+            }
+          };
+        },
+        jobsList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.list",
+            data: { jobs: [queuedJob], count: 1 }
+          };
+        },
+        jobsStats(_root: string, input: any) {
+          calls.push({ method: "stats", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.stats",
+            data: { schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1", queuedDepth: 1, runningDepth: 0 }
+          };
+        },
+        jobsCancel(_root: string, input: any) {
+          calls.push({ method: "cancel", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.cancel",
+            data: { job: { ...queuedJob, job: { ...queuedJob.job, status: input.status ?? "cancelled" } } }
+          };
+        },
+        jobsRetry(_root: string, input: any) {
+          calls.push({ method: "retry", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "jobs.retry",
+            data: { job: queuedJob }
+          };
+        }
+      };
+
+      const list = await runCli("jobs", ["list", "--status", "queued,failed"], root, { runtimeClient: runtimeClient as any });
+      expect(list.ok).toBe(true);
+      expect(list.requestId).toBe("jobs.list");
+      expect(calls[0]).toEqual({ method: "list", input: { statuses: ["queued", "failed"] } });
+
+      const stats = await runCli("jobs", ["stats", "--now", "2026-06-25T02:00:00.000Z"], root, { runtimeClient: runtimeClient as any });
+      expect(stats.ok).toBe(true);
+      expect(stats.requestId).toBe("jobs.stats");
+      expect(calls.find((call) => call.method === "stats").input).toEqual({ now: "2026-06-25T02:00:00.000Z" });
+
+      const show = await runCli("jobs", ["show", "agent_job.cli_test"], root, { runtimeClient: runtimeClient as any });
+      expect(show.ok).toBe(true);
+      expect(show.requestId).toBe("jobs.show");
+      expect((show.data as any).job.job.jobId).toBe("agent_job.cli_test");
+
+      const cancel = await runCli("jobs", ["cancel", "agent_job.cli_test", "--reason", "manual"], root, { runtimeClient: runtimeClient as any });
+      expect(cancel.ok).toBe(true);
+      expect(cancel.requestId).toBe("jobs.cancel");
+      expect(calls.find((call) => call.method === "cancel").input).toMatchObject({
+        jobId: "agent_job.cli_test",
+        reason: "manual"
+      });
+
+      const retry = await runCli("jobs", ["retry", "agent_job.cli_test", "--reason", "transient"], root, { runtimeClient: runtimeClient as any });
+      expect(retry.ok).toBe(true);
+      expect(retry.requestId).toBe("jobs.retry");
+      expect(calls.find((call) => call.method === "retry").input).toMatchObject({
+        jobId: "agent_job.cli_test",
+        reason: "transient"
+      });
+
+      const investigate = await runCli("investigate", [
+        "--runner-port",
+        "claude",
+        "--source",
+        "staged",
+        "--event",
+        "manual-investigation",
+        "--analysis-kind",
+        "architecture-delta",
+        "--task-session-id",
+        "task_cli_agents",
+        "--max-attempts",
+        "2",
+        "--max-queued-jobs",
+        "4",
+        "--context-max-items",
+        "3",
+        "--priority",
+        "9",
+        "--risk",
+        "high",
+        "--uncertainty",
+        "high",
+        "--cooldown-ms",
+        "1000",
+        "--coalesce-key",
+        "coalesce.cli-agents"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(investigate.ok).toBe(true);
+      expect(investigate.requestId).toBe("investigate");
+      expect((investigate.data as any)).toMatchObject({
+        schemaVersion: "archcontext.investigate-enqueue/v1",
+        enqueued: true,
+        runnerPort: "claude-code",
+        source: "staged",
+        event: "manual-investigation",
+        analysisKind: "architecture-delta"
+      });
+      expect(calls.find((call) => call.method === "enqueue").input).toMatchObject({
+        source: "staged",
+        event: "manual-investigation",
+        runnerPort: "claude-code",
+        taskSessionId: "task_cli_agents",
+        maxAttempts: 2,
+        maxQueuedJobs: 4,
+        contextMaxItems: 3,
+        priority: 9,
+        risk: "high",
+        uncertainty: "high",
+        policyRequestedInvestigation: true,
+        cooldownMs: 1000,
+        coalesceKey: "coalesce.cli-agents"
+      });
+
+      const agentsStatus = await runCli("agents", ["status", "--status", "queued,running", "--now", "2026-06-25T02:00:00.000Z"], root, { runtimeClient: runtimeClient as any });
+      expect(agentsStatus.ok).toBe(true);
+      expect(agentsStatus.requestId).toBe("agents.status");
+      expect((agentsStatus.data as any)).toMatchObject({
+        schemaVersion: "archcontext.agent-status/v1",
+        statuses: ["queued", "running"],
+        count: 1
+      });
+      expect(calls.filter((call) => call.method === "stats").at(-1).input).toEqual({ now: "2026-06-25T02:00:00.000Z" });
+      expect(calls.filter((call) => call.method === "list").at(-1).input).toEqual({ statuses: ["queued", "running"] });
+
+      const agentsBudget = await runCli("agents", ["budget"], root, { runtimeClient: runtimeClient as any });
+      expect(agentsBudget.ok).toBe(true);
+      expect(agentsBudget.requestId).toBe("agents.budget");
+      expect((agentsBudget.data as any)).toMatchObject({
+        schemaVersion: "archcontext.agent-budget/v1",
+        spawnPolicy: {
+          maxRunsPerTask: 1,
+          maxRunsPerRepositoryPerDay: 4,
+          maxAutomaticRunsForLowRisk: 0,
+          adapterEnabledByRuntimeEnqueue: true
+        },
+        queuePolicy: {
+          maxQueuedJobs: 32,
+          maxRunningJobsPerRepository: 1
+        },
+        authority: "local-runtime-daemon"
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI exposes recommendation lifecycle and metrics commands", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-recommendations-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        recommendations(_root: string, input: any) {
+          calls.push(input);
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: `recommendations.${input.command}`,
+            data: {
+              schemaVersion: input.command === "metrics"
+                ? "archcontext.recommendation-lifecycle-metrics/v1"
+                : "archcontext.runtime-recommendation-lifecycle/v1",
+              input
+            }
+          };
+        }
+      };
+
+      const accepted = await runCli("recommendations", [
+        "accept",
+        "--id", "recommendation.cli_test",
+        "--reason", "accepted after local readback",
+        "--actor", "developer.al8",
+        "--expected-worktree-digest", `sha256:${"1".repeat(64)}`,
+        "--agent-job-id", "agent_job.cli"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(accepted.ok).toBe(true);
+      expect(calls[0]).toMatchObject({
+        command: "accept",
+        recommendationId: "recommendation.cli_test",
+        reason: "accepted after local readback",
+        actor: "developer.al8",
+        expectedWorktreeDigest: `sha256:${"1".repeat(64)}`,
+        agentJobId: "agent_job.cli"
+      });
+
+      const metrics = await runCli("recommendations", ["metrics", "--now", "2026-06-26T12:00:00.000Z"], root, { runtimeClient: runtimeClient as any });
+      expect(metrics.ok).toBe(true);
+      expect(calls[1]).toEqual({ command: "metrics", now: "2026-06-26T12:00:00.000Z" });
+
+      const missingReason = await runCli("recommendations", ["reject", "--id", "recommendation.cli_test"], root, { runtimeClient: runtimeClient as any });
+      expect(missingReason.ok).toBe(false);
+      expect((missingReason as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
@@ -1030,6 +1484,51 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("MCP stdio runtime tool call auto-starts the background daemon", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-autostart-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    const lockPath = testRuntimePaths(root).daemonLockPath;
+    try {
+      const init = await runCliProcess(root, "init", "--name", "MCP Auto Start App");
+      expect(init.ok).toBe(true);
+
+      const stopped = await runCliProcess(root, "daemon", "stop");
+      expect(stopped.ok).toBe(true);
+      await expectFileRemoved(connectionPath);
+      await expectFileRemoved(lockPath);
+
+      const mcp = await runCliMcpProcess(root, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "archcontext_practices",
+          arguments: {
+            root,
+            action: "validate",
+            strict: true,
+            maxBytes: 12_288
+          }
+        }
+      });
+      expect(mcp.jsonrpc).toBe("2.0");
+      expect(mcp.id).toBe(1);
+      expect(mcp.result.content.ok).toBe(true);
+      expect(mcp.result.content.data.valid).toBe(true);
+
+      const daemonStatus = await runCliProcess(root, "daemon", "status");
+      expect(daemonStatus.ok).toBe(true);
+      expect(daemonStatus.data.running).toBe(true);
+      expect(daemonStatus.data.rpcVersionCompatible).toBe(true);
+      expect(existsSync(connectionPath)).toBe(true);
+      expect(existsSync(lockPath)).toBe(true);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI recovers stale daemon control files after a crash and reconnects", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-crash-recovery-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -1194,6 +1693,545 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("CLI plans YAML to ledger migration as a read-only dry-run", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const result = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run"], root);
+      expect(result.ok).toBe(true);
+      expect((result.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-migrate/v1");
+      expect((result.data as any).status).toBe("planned");
+      expect((result.data as any).sourceMode).toBe("git-yaml");
+      expect((result.data as any).dryRun).toBe(true);
+      expect((result.data as any).append).toMatchObject({ status: "not-applied" });
+      expect((result.data as any).writes).toBe("none");
+      expect((result.data as any).backup).toMatchObject({ status: "not-created", reason: "dry-run" });
+      expect((result.data as any).verification).toMatchObject({ status: "not-run", reason: "dry-run" });
+      expect((result.data as any).graphDigest).toMatch(/^sha256:/);
+      expect((result.data as any).drift).toMatchObject({ ok: true, semanticDrift: false });
+      expect((result.data as any).ignoredFiles).toContainEqual({
+        path: ".archcontext/generated/ARCHITECTURE.md",
+        reasonCode: "generated-projection"
+      });
+      const state = await runTestCli("ledger", ["state"], root);
+      expect((state.data as any).ledger.entityCount).toBe(0);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rebuilds ledger from Git, reports drift, and projects back to Git", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    try {
+      let status = await runTestCli("status", [], root);
+      const rebuild = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuild.ok).toBe(true);
+      expect((rebuild.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-rebuild/v1");
+      expect((rebuild.data as any).appendedEventCount).toBe(1);
+      expect((rebuild.data as any).graphDigest).toMatch(/^sha256:/);
+
+      rmSync(join(root, projectionPath), { force: true });
+      const drift = await runTestCli("ledger", ["drift", "--json"], root);
+      expect(drift.ok).toBe(true);
+      expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.schemaVersion).toBe("archcontext.architecture-ledger-reconcile/v1");
+      expect((drift.data as any).reconcile.ledgerToGit.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.gitToLedger.reasonCodes).toContain("semantic-drift");
+      expect((drift.data as any).reconcile.reconcileActions.map((action: any) => action.authority)).toContain("ledger");
+
+      status = await runTestCli("status", [], root);
+      const project = await runTestCli("ledger", [
+        "project",
+        "--to-git",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writes).toBe("git-projection");
+      expect((project.data as any).writtenPaths).toContain(projectionPath);
+      expect((project.data as any).reconcile.ok).toBe(true);
+      expect(readFileSync(join(root, projectionPath), "utf8")).toContain("capability.architecture-context");
+
+      const clean = await runTestCli("ledger", ["drift", "--json"], root);
+      expect((clean.data as any).drift.ok).toBe(true);
+      expect((clean.data as any).reconcile.ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI Book commands read ledger state, timeline, diff, evidence and exports with freshness", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      let status = await runTestCli("status", [], root);
+      const rebuild = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuild.ok).toBe(true);
+
+      const bookStatus = await runTestCli("book", ["status"], root);
+      expect(bookStatus.ok).toBe(true);
+      expect((bookStatus.data as any).schemaVersion).toBe("archcontext.book-status/v1");
+      expect((bookStatus.data as any).freshness.graphDigest).toBe((rebuild.data as any).graphDigest);
+      expect((bookStatus.data as any).freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
+      expect((bookStatus.data as any).counts.entities).toBeGreaterThan(0);
+
+      const query = await runTestCli("book", ["query", "--task", "architecture context", "--max-items", "2", "--explain"], root);
+      expect(query.ok).toBe(true);
+      expect((query.data as any).schemaVersion).toBe("archcontext.architecture-book-query/v1");
+      expect((query.data as any).results.map((result: any) => result.id)).toContain("capability.architecture-context");
+      expect((query.data as any).results[0].scoreBreakdown.graphDistance).toBeGreaterThan(0);
+      expect((query.data as any).results[0].scoreBreakdown.recency).toBeGreaterThan(0);
+      expect((query.data as any).results[0].explanation.schemaVersion).toBe("archcontext.architecture-book-selection-explanation/v1");
+      expect((query.data as any).results[0].explanation.reasonCodes.length).toBeGreaterThan(0);
+      expect((query.data as any).freshness.worktreeDigest).toBeTruthy();
+
+      const show = await runTestCli("book", ["show", "capability.architecture-context"], root);
+      expect(show.ok).toBe(true);
+      expect((show.data as any).subject.summary).toContain("architecture intent");
+
+      const neighbors = await runTestCli("book", ["neighbors", "capability.architecture-context", "--depth", "1"], root);
+      expect(neighbors.ok).toBe(true);
+      expect((neighbors.data as any).nodes.map((node: any) => node.id)).toContain("capability.architecture-context");
+
+      const timeline = await runTestCli("book", ["timeline", "capability.architecture-context"], root);
+      expect(timeline.ok).toBe(true);
+      expect((timeline.data as any).events[0].affectedSubjects).toContain("capability.architecture-context");
+      const allTimeline = await runTestCli("book", ["timeline"], root);
+      expect(allTimeline.ok).toBe(true);
+      const firstTimestamp = (allTimeline.data as any).events[0].timestamp;
+      expect(Date.parse(firstTimestamp)).not.toBeNaN();
+
+      const diff = await runTestCli("book", ["diff", "--from", "empty", "--to", "current"], root);
+      expect(diff.ok).toBe(true);
+      expect((diff.data as any).summary.added).toBeGreaterThan(0);
+      expect((diff.data as any).changes[0]).toHaveProperty("evidenceIds");
+      expect((diff.data as any).changes[0]).toHaveProperty("evidenceBindingIds");
+      const headSha = (bookStatus.data as any).freshness.headSha;
+      const commitDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `commit:${headSha}`], root);
+      expect(commitDiff.ok).toBe(true);
+      expect((commitDiff.data as any).toGraphDigest).toBe((diff.data as any).toGraphDigest);
+      const timestampDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `timestamp:${firstTimestamp}`], root);
+      expect(timestampDiff.ok).toBe(true);
+      expect((timestampDiff.data as any).summary.added).toBeGreaterThan(0);
+      const snapshotStore = new SqliteLocalStore(testRuntimePaths(root).localStorePath);
+      const snapshot = await snapshotStore.createArchitectureLedgerSnapshot({
+        repository: (bookStatus.data as any).freshness.repository,
+        worktree: (bookStatus.data as any).freshness.worktree,
+        sourceMode: "ledger-shadow",
+        projectionDigest: (bookStatus.data as any).freshness.projectionDigest,
+        inputDigests: { modelDigest: (bookStatus.data as any).freshness.graphDigest },
+        createdAt: "2026-06-26T00:00:00.000Z"
+      });
+      snapshotStore.close();
+      const snapshotDiff = await runTestCli("book", ["diff", "--from", "empty", "--to", `snapshot:${snapshot.snapshotId}`], root);
+      expect(snapshotDiff.ok).toBe(true);
+      expect((snapshotDiff.data as any).toGraphDigest).toBe((diff.data as any).toGraphDigest);
+
+      const evidence = await runTestCli("book", ["evidence", "product.review-app"], root);
+      expect(evidence.ok).toBe(true);
+      expect((evidence.data as any).evidenceItems.length).toBeGreaterThan(0);
+      expect(JSON.stringify(evidence.data)).not.toContain("README");
+
+      const recommendations = await runTestCli("book", ["recommendations", "--open", "--explain"], root);
+      expect(recommendations.ok).toBe(true);
+      expect((recommendations.data as any).schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
+      expect((recommendations.data as any).recommendations).toEqual([]);
+      expect((recommendations.data as any).explanations).toEqual([]);
+
+      const exported = await runTestCli("book", ["export", "--format", "markdown"], root);
+      expect(exported.ok).toBe(true);
+      expect((exported.data as any).markdown).toContain("# Architecture Book");
+      expect((exported.data as any).freshness.projectionDigest).toMatch(/^sha256:/);
+
+      for (const response of [bookStatus, query, show, neighbors, timeline, allTimeline, diff, evidence, recommendations, exported]) {
+        const data = response.data as any;
+        expect(data.freshness.schemaVersion).toBe("archcontext.book-freshness/v1");
+        expect(data.provenance.schemaVersion).toBe("archcontext.book-provenance/v1");
+        expect(data.provenance.graphDigest).toBe(data.freshness.graphDigest);
+        expect(data.provenance.projectionDigest).toBe(data.freshness.projectionDigest);
+        expect(data.provenance.ledgerCursor.eventCount).toBe(data.freshness.ledgerCursor.eventCount);
+      }
+
+      status = await runTestCli("status", [], root);
+      expect((status.data as any).running).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rollback restores YAML authority projection with backup", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    const stalePath = ".archcontext/model/nodes/module.cli-rollback-stale.yaml";
+    try {
+      let status = await runTestCli("status", [], root);
+      const rebuild = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuild.ok).toBe(true);
+      const canonicalProjection = readFileSync(join(root, projectionPath), "utf8");
+      writeFileSync(join(root, projectionPath), canonicalProjection.replace("Keeps product and architecture intent available to coding agents.", "CLI rollback corrupted projection."), "utf8");
+      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v1\nid: module.cli-rollback-stale\nkind: module\nname: CLI Rollback Stale\nstatus: active\nsummary: CLI rollback stale projection\n", "utf8");
+
+      const dryRun = await runTestCli("ledger", ["rollback", "--to-yaml", "--dry-run"], root);
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).dryRun).toBe(true);
+      expect((dryRun.data as any).drift.ok).toBe(false);
+      expect(existsSync(join(root, stalePath))).toBe(true);
+
+      status = await runTestCli("status", [], root);
+      const rollback = await runTestCli("ledger", [
+        "rollback",
+        "--to-yaml",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rollback.ok).toBe(true);
+      expect((rollback.data as any).schemaVersion).toBe("archcontext.runtime-architecture-ledger-rollback/v1");
+      expect((rollback.data as any).targetAuthority).toBe("yaml");
+      expect((rollback.data as any).removedPaths).toContain(stalePath);
+      expect((rollback.data as any).writtenPaths).toContain(projectionPath);
+      expect((rollback.data as any).drift.ok).toBe(true);
+      const backup = (rollback.data as any).backup;
+      expect(existsSync(join(root, backup.manifestPath))).toBe(true);
+      expect(readFileSync(join(root, backup.path, "model/nodes/capability.architecture-context.yaml"), "utf8")).toContain("CLI rollback corrupted projection.");
+      expect(existsSync(join(root, stalePath))).toBe(false);
+      expect(readFileSync(join(root, projectionPath), "utf8")).toBe(canonicalProjection);
+      expect((await runTestCli("validate", [], root)).ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI migrate writes through daemon-owned backup and verification workflow", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const dryRun = await runTestCli("ledger", ["migrate", "--from-yaml", "--dry-run"], root);
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "planned",
+        dryRun: true,
+        writes: "none",
+        backup: { status: "not-created" },
+        append: { status: "not-applied" }
+      });
+      expect((dryRun.data as any).architectureLedger.phaseFlags).toMatchObject({
+        activePhase: "yaml",
+        safeDowngrade: {
+          to: "yaml"
+        }
+      });
+
+      const missingDigest = await runTestCli("ledger", ["migrate", "--from-yaml", "--write"], root);
+      expect(missingDigest.ok).toBe(false);
+      expect((missingDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const status = await runTestCli("status", [], root);
+      const migrated = await runTestCli("ledger", [
+        "migrate",
+        "--from-yaml",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+
+      expect(migrated.ok).toBe(true);
+      expect((migrated.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "verified",
+        dryRun: false,
+        writes: "architecture-ledger",
+        backup: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+          status: "created",
+          integrity: "ok"
+        },
+        verification: {
+          ok: true,
+          driftOk: true,
+          reconcileOk: true
+        },
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      });
+      expect(existsSync((migrated.data as any).backup.backupPath)).toBe(true);
+      expect(JSON.stringify(migrated.data)).not.toContain("schemaVersion: archcontext.node/v1");
+      const state = await runTestCli("ledger", ["state"], root);
+      expect((state.data as any).ledger.entityCount).toBeGreaterThan(0);
+      expect((state.data as any).drift.ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rebuild reproduces graph after SQLite deletion and project restores deleted YAML", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    try {
+      mkdirSync(join(root, "docs/adr"), { recursive: true });
+      writeFileSync(join(root, "docs/adr/ADR-0099-cli-ledger-import.md"), [
+        "---",
+        "schemaVersion: archcontext.adr/v1",
+        "id: adr.0099.cli-ledger-import",
+        "title: CLI Ledger Import",
+        "status: accepted",
+        "decidedAt: 2026-06-25",
+        "appliesTo:",
+        "  - package.surfaces-cli",
+        "supersedes: []",
+        "---",
+        "",
+        "# CLI Ledger Import",
+        ""
+      ].join("\n"), "utf8");
+      git(root, "add", "docs/adr/ADR-0099-cli-ledger-import.md");
+      git(root, "commit", "-m", "add cli ledger import adr");
+
+      let status = await runTestCli("status", [], root);
+      const first = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(first.ok).toBe(true);
+      expect((first.data as any).imported).toContainEqual(expect.objectContaining({
+        path: "docs/adr/ADR-0099-cli-ledger-import.md",
+        targetKind: "evidence",
+        targetId: "adr.0099.cli-ledger-import"
+      }));
+      const firstGraphDigest = (first.data as any).graphDigest;
+      const originalProjection = readFileSync(join(root, projectionPath), "utf8");
+
+      const paths = testRuntimePaths(root);
+      await removeRuntimeSqliteFiles(paths.localStorePath);
+      status = await runTestCli("status", [], root);
+      const rebuilt = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebuilt.ok).toBe(true);
+      expect((rebuilt.data as any).graphDigest).toBe(firstGraphDigest);
+
+      rmSync(join(root, projectionPath), { force: true });
+      status = await runTestCli("status", [], root);
+      const project = await runTestCli("ledger", [
+        "project",
+        "--to-git",
+        "--write",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writtenPaths).toContain(projectionPath);
+      expect(readFileSync(join(root, projectionPath), "utf8")).toBe(originalProjection);
+      expect(((await runTestCli("ledger", ["drift", "--json"], root)).data as any).drift.ok).toBe(true);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI refreshes ledger cursor across branch, reset, rebase, and worktree changes", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      let status = await runTestCli("status", [], root);
+      const initial = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(initial.ok).toBe(true);
+      expect((initial.data as any).status).toBe("rebuilt");
+      const initialGraphDigest = (initial.data as any).graphDigest;
+      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+
+      git(root, "checkout", "-b", "feature/cursor-refresh");
+      writeFileSync(join(root, "README.md"), "# cursor refresh\n", "utf8");
+      git(root, "add", "README.md");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "cursor refresh");
+      status = await runTestCli("status", [], root);
+      const branchRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(branchRefresh.ok).toBe(true);
+      expect((branchRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((branchRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((branchRefresh.data as any).cursor).toMatchObject({
+        changed: true,
+        branch: "feature/cursor-refresh",
+        headSha: gitOut(root, "rev-parse", "HEAD")
+      });
+
+      git(root, "reset", "--hard", "HEAD~1");
+      status = await runTestCli("status", [], root);
+      const resetRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(resetRefresh.ok).toBe(true);
+      expect((resetRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((resetRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+
+      git(root, "checkout", initialBranch);
+      writeFileSync(join(root, "BASE.md"), "# base cursor refresh\n", "utf8");
+      git(root, "add", "BASE.md");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "base cursor refresh");
+      git(root, "checkout", "feature/cursor-refresh");
+      writeFileSync(join(root, "FEATURE.md"), "# feature cursor refresh\n", "utf8");
+      git(root, "add", "FEATURE.md");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "feature cursor refresh");
+      git(root, "rebase", initialBranch);
+      status = await runTestCli("status", [], root);
+      const rebaseRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rebaseRefresh.ok).toBe(true);
+      expect((rebaseRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((rebaseRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+
+      writeFileSync(join(root, "README.md"), "# dirty cursor refresh\n", "utf8");
+      status = await runTestCli("status", [], root);
+      const dirtyRefresh = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(dirtyRefresh.ok).toBe(true);
+      expect((dirtyRefresh.data as any).status).toBe("cursor-refreshed");
+      expect((dirtyRefresh.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((dirtyRefresh.data as any).cursor.worktreeDigest).toBe((status.data as any).worktreeDigest);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI keeps ledger cursor scoped across detached HEAD and simultaneous worktrees", async () => {
+    const root = createInitializedGitRepo();
+    const sharedStateRoot = testStateRoot(root);
+    const linkedParent = mkdtempSync(join(tmpdir(), "archctx-cli-worktree-parent-"));
+    const linkedRoot = join(linkedParent, "linked");
+    try {
+      let status = await runTestCli("status", [], root, sharedStateRoot);
+      const initial = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root, sharedStateRoot);
+      expect(initial.ok).toBe(true);
+      const initialGraphDigest = (initial.data as any).graphDigest;
+      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+      const initialWorkspaceId = (initial.data as any).worktree.storageWorkspaceId;
+
+      git(root, "checkout", "--detach", "HEAD");
+      status = await runTestCli("status", [], root, sharedStateRoot);
+      const detached = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root, sharedStateRoot);
+      expect(detached.ok).toBe(true);
+      expect((detached.data as any).status).toBe("cursor-refreshed");
+      expect((detached.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((detached.data as any).cursor.branch).toBe("detached");
+
+      git(root, "checkout", initialBranch);
+      git(root, "worktree", "add", "-b", "feature/two-worktree", linkedRoot, initialBranch);
+      status = await runTestCli("status", [], linkedRoot, sharedStateRoot);
+      const linked = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], linkedRoot, sharedStateRoot);
+      expect(linked.ok).toBe(true);
+      expect((linked.data as any).graphDigest).toBe(initialGraphDigest);
+      expect((linked.data as any).worktree.storageWorkspaceId).not.toBe(initialWorkspaceId);
+      expect((linked.data as any).worktree.branch).toBe("feature/two-worktree");
+
+      const rootState = await runTestCli("ledger", ["state"], root, sharedStateRoot);
+      const linkedState = await runTestCli("ledger", ["state"], linkedRoot, sharedStateRoot);
+      expect((rootState.data as any).worktree.storageWorkspaceId).not.toBe((linkedState.data as any).worktree.storageWorkspaceId);
+      expect((rootState.data as any).repository.storageRepositoryId).toBe((linkedState.data as any).repository.storageRepositoryId);
+    } finally {
+      gitExitCode(root, "worktree", "remove", "--force", linkedRoot);
+      removeTempRoot(root);
+      rmSync(linkedParent, { recursive: true, force: true });
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI rebuild rejects merge-conflict YAML projection without mutating ledger state", async () => {
+    const root = createInitializedGitRepo();
+    const projectionPath = ".archcontext/model/nodes/capability.architecture-context.yaml";
+    try {
+      let status = await runTestCli("status", [], root);
+      const initial = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(initial.ok).toBe(true);
+      const initialGraphDigest = (initial.data as any).graphDigest;
+      const initialBranch = gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+
+      git(root, "checkout", "-b", "feature/ledger-merge-conflict");
+      writeFileSync(join(root, projectionPath), readFileSync(join(root, projectionPath), "utf8").replace("Keeps product and architecture intent available to coding agents.", "Feature branch projection conflict."), "utf8");
+      git(root, "add", projectionPath);
+      git(root, "commit", "-m", "feature projection conflict");
+      git(root, "checkout", initialBranch);
+      writeFileSync(join(root, projectionPath), readFileSync(join(root, projectionPath), "utf8").replace("Keeps product and architecture intent available to coding agents.", "Base branch projection conflict."), "utf8");
+      git(root, "add", projectionPath);
+      git(root, "commit", "-m", "base projection conflict");
+
+      expect(gitExitCode(root, "merge", "feature/ledger-merge-conflict")).not.toBe(0);
+      status = await runTestCli("status", [], root);
+      const rejected = await runTestCli("ledger", [
+        "rebuild",
+        "--from-git",
+        "--expected-worktree-digest",
+        (status.data as any).worktreeDigest
+      ], root);
+      expect(rejected.ok).toBe(false);
+      expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      git(root, "merge", "--abort");
+      const state = await runTestCli("ledger", ["state"], root);
+      expect((state.data as any).ledger.graphDigest).toBe(initialGraphDigest);
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI exports and imports interop projections without overwriting Native model", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
     try {
@@ -1226,6 +2264,19 @@ async function runCliProcess(root: string, ...args: string[]): Promise<any> {
   const { stdout, stderr, code } = await collectProcess(child);
   if (code !== 0) throw new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
   return JSON.parse(stdout);
+}
+
+async function runCliMcpProcess(root: string, message: unknown): Promise<any> {
+  const child = spawn(process.execPath, [CLI_ENTRY, "mcp"], {
+    cwd: root,
+    env: testStateEnv(root),
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  const result = collectProcess(child);
+  child.stdin.end(`${JSON.stringify(message)}\n`);
+  const { stdout, stderr, code } = await result;
+  if (code !== 0) throw new Error(`archctx mcp failed (${code}): ${stderr || stdout}`);
+  return JSON.parse(stdout.trim().split("\n").filter(Boolean).at(-1) ?? "");
 }
 
 async function stopDaemonAndWait(root: string): Promise<void> {

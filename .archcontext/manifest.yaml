@@ -7,6 +7,7 @@ content:
   generated: ".archcontext/generated"
   policies: ".archcontext/policies"
   practices: ".archcontext/practices"
+  projections: ".archcontext/projections"
 generated:
   commitToGit: true
   formats:

@@ -1,0 +1,411 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al7-book-readback/v1",
+  "generatedAt": "2026-06-26T07:48:28.709Z",
+  "status": "verified",
+  "thresholds": {
+    "warmQueryP95Ms": 300,
+    "sampleCount": 24
+  },
+  "benchmark": [
+    {
+      "name": "small",
+      "entityCount": 12,
+      "relationCount": 11,
+      "constraintCount": 2,
+      "graphDigest": "sha256:dbdfd27139f70a7411f504026f161f78baa1996c50007bbf36fe1d79c5d1f9a6",
+      "sourceDigest": "sha256:58406501c2ee480b1cc1ba79b638c17ce47656c2fd4c1774370e35eb7abbcb80",
+      "coldQueryMs": 2.194,
+      "warmQueryP95Ms": 0.672,
+      "warmQuerySamplesMs": [
+        0.639,
+        0.493,
+        0.41,
+        0.3,
+        0.817,
+        0.672,
+        0.442,
+        0.42,
+        0.241,
+        0.185,
+        0.141,
+        0.157,
+        0.143,
+        0.169,
+        0.136,
+        0.134,
+        0.132,
+        0.14,
+        0.135,
+        0.138,
+        0.153,
+        0.195,
+        0.145,
+        0.154
+      ],
+      "responseDigests": {
+        "query": "sha256:930f9e77c605cce74a9d13bcf2ffedf54eeb4c74f6f0ebda25174434a033a7b1",
+        "neighbors": "sha256:dafd1afb779104a0727f9f2324194d063b2fa5d229b7f9180808f30411954a5e",
+        "diff": "sha256:0d994c0b7f1f896c408fd51db42cdc7280c5182a04fa1edcd70dbe543babc130",
+        "recommendations": "sha256:c65d399b2b6aafa75a8d1c90a2636d4beac5ca03c072c15e90297e5372a17965"
+      },
+      "bookOutputAcceptance": {
+        "changedWhyDependsRiskAnswerable": true,
+        "whatChanged": "entity:module.al7-small-0:changed",
+        "why": [
+          "subject-changed"
+        ],
+        "dependsOn": [
+          "relation.al7-small-0"
+        ],
+        "remainingRisk": [
+          {
+            "recommendationId": "recommendation.al7-small-risk",
+            "risk": "medium",
+            "uncertainty": "low"
+          }
+        ]
+      },
+      "privacy": {
+        "forbiddenStrings": [
+          "AL7_RAW_SOURCE_SENTINEL_do_not_emit_source_body",
+          "function rawPrivateArchitectureBody"
+        ],
+        "noRawSourceBody": true,
+        "noForbiddenKeys": true,
+        "forbiddenKeyHits": []
+      },
+      "assertions": {
+        "coldMeasured": true,
+        "warmMeasured": true,
+        "warmP95WithinBudget": true,
+        "queryReturnsExpectedSubject": true,
+        "neighborsExposeDependency": true,
+        "timelineCarriesAffectedSubject": true,
+        "diffCarriesReasonCodes": true,
+        "recommendationsExposeRisk": true
+      }
+    },
+    {
+      "name": "medium",
+      "entityCount": 120,
+      "relationCount": 119,
+      "constraintCount": 12,
+      "graphDigest": "sha256:74f204ef40037442b38ef0b14c1c3a4230e491791934807ad571a31e99475fbd",
+      "sourceDigest": "sha256:de0bcf9d207243dbf655d8e0c2d00c5f265fa14850501b2ec15aab9c0ae80ba7",
+      "coldQueryMs": 2.19,
+      "warmQueryP95Ms": 1.977,
+      "warmQuerySamplesMs": [
+        1.595,
+        1.585,
+        1.467,
+        1.338,
+        1.56,
+        1.368,
+        1.298,
+        1.234,
+        1.245,
+        1.422,
+        1.302,
+        2.78,
+        1.227,
+        1.165,
+        1.206,
+        1.977,
+        1.379,
+        1.449,
+        1.569,
+        1.128,
+        1.115,
+        1.293,
+        1.257,
+        1.301
+      ],
+      "responseDigests": {
+        "query": "sha256:d55fc5fbbf93af19867baa05b83e039003fa5453e968759ebcb0410afaeea0a7",
+        "neighbors": "sha256:38a01d7d080d937f72f8d831859076409d7f570e77b5c07b49bfe5534616c906",
+        "diff": "sha256:3feca06d98b8c4b1fe63e905ee46d3556c6dded1c7a5debfad1047425bd1bc29",
+        "recommendations": "sha256:e45707b860d0fa703c1c453fda6f22a60ece8592adeed849e5984e329f08e16b"
+      },
+      "bookOutputAcceptance": {
+        "changedWhyDependsRiskAnswerable": true,
+        "whatChanged": "entity:module.al7-medium-0:changed",
+        "why": [
+          "subject-changed"
+        ],
+        "dependsOn": [
+          "relation.al7-medium-0"
+        ],
+        "remainingRisk": [
+          {
+            "recommendationId": "recommendation.al7-medium-risk",
+            "risk": "medium",
+            "uncertainty": "low"
+          }
+        ]
+      },
+      "privacy": {
+        "forbiddenStrings": [
+          "AL7_RAW_SOURCE_SENTINEL_do_not_emit_source_body",
+          "function rawPrivateArchitectureBody"
+        ],
+        "noRawSourceBody": true,
+        "noForbiddenKeys": true,
+        "forbiddenKeyHits": []
+      },
+      "assertions": {
+        "coldMeasured": true,
+        "warmMeasured": true,
+        "warmP95WithinBudget": true,
+        "queryReturnsExpectedSubject": true,
+        "neighborsExposeDependency": true,
+        "timelineCarriesAffectedSubject": true,
+        "diffCarriesReasonCodes": true,
+        "recommendationsExposeRisk": true
+      }
+    },
+    {
+      "name": "large",
+      "entityCount": 360,
+      "relationCount": 359,
+      "constraintCount": 36,
+      "graphDigest": "sha256:5e70f5939175695e7622345f76d1a1268340bb81cb42191900f984dd3d2191fb",
+      "sourceDigest": "sha256:f1cc041c1dc36e9d64f02adb404ef573e9e405d6664ae94622f60047ba85ed06",
+      "coldQueryMs": 8.389,
+      "warmQueryP95Ms": 7.08,
+      "warmQuerySamplesMs": [
+        4.594,
+        6.321,
+        4.41,
+        5.023,
+        4.436,
+        4.821,
+        4.535,
+        7.608,
+        7.08,
+        5.383,
+        5.208,
+        3.826,
+        3.727,
+        3.769,
+        3.531,
+        3.756,
+        4.429,
+        3.876,
+        3.615,
+        3.679,
+        3.534,
+        3.689,
+        3.728,
+        3.617
+      ],
+      "responseDigests": {
+        "query": "sha256:1b773851592118b53eae88e4b76f7ef44b099f587c65953fd7731f7748027bd8",
+        "neighbors": "sha256:f8b705ef2a1591ca4132309c40a8732d51b01ceded5094c84ce7eb779151e0a5",
+        "diff": "sha256:f8295c7f2206d3d73a06adb103a2e18f4b87621ddd8dbec8ac9f5d0de6e73c50",
+        "recommendations": "sha256:666a8cf2bac2d68129041be49720209e8592a0f8870a7c236a1a37374c6f2774"
+      },
+      "bookOutputAcceptance": {
+        "changedWhyDependsRiskAnswerable": true,
+        "whatChanged": "entity:module.al7-large-0:changed",
+        "why": [
+          "subject-changed"
+        ],
+        "dependsOn": [
+          "relation.al7-large-0"
+        ],
+        "remainingRisk": [
+          {
+            "recommendationId": "recommendation.al7-large-risk",
+            "risk": "medium",
+            "uncertainty": "low"
+          }
+        ]
+      },
+      "privacy": {
+        "forbiddenStrings": [
+          "AL7_RAW_SOURCE_SENTINEL_do_not_emit_source_body",
+          "function rawPrivateArchitectureBody"
+        ],
+        "noRawSourceBody": true,
+        "noForbiddenKeys": true,
+        "forbiddenKeyHits": []
+      },
+      "assertions": {
+        "coldMeasured": true,
+        "warmMeasured": true,
+        "warmP95WithinBudget": true,
+        "queryReturnsExpectedSubject": true,
+        "neighborsExposeDependency": true,
+        "timelineCarriesAffectedSubject": true,
+        "diffCarriesReasonCodes": true,
+        "recommendationsExposeRisk": true
+      }
+    }
+  ],
+  "runtime": {
+    "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+    "rebuildGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+    "freshnessProvenance": {
+      "checkedResponses": [
+        {
+          "requestId": "book.status",
+          "schemaVersion": "archcontext.book-status/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.status",
+          "schemaVersion": "archcontext.book-status/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.export",
+          "schemaVersion": "archcontext.book-export/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.export",
+          "schemaVersion": "archcontext.book-export/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.timeline",
+          "schemaVersion": "archcontext.architecture-book-timeline/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.timeline",
+          "schemaVersion": "archcontext.architecture-book-timeline/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.diff",
+          "schemaVersion": "archcontext.architecture-book-diff/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.diff",
+          "schemaVersion": "archcontext.architecture-book-diff/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.recommendations",
+          "schemaVersion": "archcontext.architecture-book-recommendations/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        },
+        {
+          "requestId": "book.recommendations",
+          "schemaVersion": "archcontext.architecture-book-recommendations/v1",
+          "freshness": "archcontext.book-freshness/v1",
+          "provenance": "archcontext.book-provenance/v1",
+          "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+          "ledgerEvents": 1
+        }
+      ],
+      "allRuntimeResponsesHaveFreshnessAndProvenance": true
+    },
+    "cliMcpEquivalence": [
+      {
+        "command": "archctx book status",
+        "uri": "archcontext://book/status",
+        "equivalent": true,
+        "cliDigest": "sha256:e2d134fb12395c110055d0caea9b13e893d3342532bfc3108ff6905465856e31",
+        "mcpDigest": "sha256:e2d134fb12395c110055d0caea9b13e893d3342532bfc3108ff6905465856e31"
+      },
+      {
+        "command": "archctx book export --format json",
+        "uri": "archcontext://book/state",
+        "equivalent": true,
+        "cliDigest": "sha256:ee775afa798bc8a57d1405f1f214ac576cad6104cf6998da3b143509d62f6404",
+        "mcpDigest": "sha256:ee775afa798bc8a57d1405f1f214ac576cad6104cf6998da3b143509d62f6404"
+      },
+      {
+        "command": "archctx book timeline --max-items 100",
+        "uri": "archcontext://book/timeline",
+        "equivalent": true,
+        "cliDigest": "sha256:24952c11ba5a20e6adff440ba2d6d7ec5bbea709ee56e7dfbb1d625ac3995f49",
+        "mcpDigest": "sha256:24952c11ba5a20e6adff440ba2d6d7ec5bbea709ee56e7dfbb1d625ac3995f49"
+      },
+      {
+        "command": "archctx book diff --from empty --to current --max-items 100",
+        "uri": "archcontext://book/diff",
+        "equivalent": true,
+        "cliDigest": "sha256:3e29143aa876d61e475922c76efdc82fb298743d6180ec2ae0a1249980a42f09",
+        "mcpDigest": "sha256:3e29143aa876d61e475922c76efdc82fb298743d6180ec2ae0a1249980a42f09"
+      },
+      {
+        "command": "archctx book recommendations --max-items 100",
+        "uri": "archcontext://book/recommendations",
+        "equivalent": true,
+        "cliDigest": "sha256:05291af4504415c315a8004ad047b76ee3623ca9d6a9b65be8942d7a89ab98d7",
+        "mcpDigest": "sha256:05291af4504415c315a8004ad047b76ee3623ca9d6a9b65be8942d7a89ab98d7"
+      }
+    ],
+    "privacy": {
+      "forbiddenStrings": [
+        "AL7_RAW_SOURCE_SENTINEL_do_not_emit_source_body",
+        "function rawPrivateArchitectureBody"
+      ],
+      "noRawSourceBody": true,
+      "noForbiddenKeys": true,
+      "forbiddenKeyHits": []
+    }
+  },
+  "privacy": {
+    "forbiddenStrings": [
+      "AL7_RAW_SOURCE_SENTINEL_do_not_emit_source_body",
+      "function rawPrivateArchitectureBody"
+    ],
+    "noRawSourceBody": true,
+    "noForbiddenKeys": true,
+    "allowedFields": [
+      "id",
+      "kind",
+      "summary",
+      "selector",
+      "digest",
+      "freshness",
+      "provenance",
+      "reasonCodes"
+    ]
+  },
+  "assertions": {
+    "AL7-14": true,
+    "AL7-15": true,
+    "AL7-EG1": true,
+    "AL7-EG2": true,
+    "AL7-EG3": true,
+    "AL7-EG4": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al7-book-readback.ts inspect --evidence docs/verification/architecture-ledger-al7-book-readback.json --json",
+    "reportPath": "docs/verification/architecture-ledger-al7-benchmark-privacy.md"
+  },
+  "failures": []
+}

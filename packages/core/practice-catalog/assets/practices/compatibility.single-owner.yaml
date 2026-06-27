@@ -47,7 +47,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.compatibility.single-owner.positive", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Missing durable compatibility contract blocks complete enforcement." }],
+      "nearNegative": [{ "id": "fixture.compatibility.single-owner.near-negative", "path": "evals/practices/benign-negative.jsonl", "description": "Heuristic legacy wording cannot become a complete violation." }],
+      "mixedChange": [{ "id": "fixture.compatibility.single-owner.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Mixed source and test changes keep eligible subjects scoped." }],
+      "baseline": [{ "id": "fixture.compatibility.single-owner.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Previous checkpoint match keeps historical compatibility paths from appearing new." }]
+    }
   },
   "provenance": {
     "sourceKind": "archcontext-native",

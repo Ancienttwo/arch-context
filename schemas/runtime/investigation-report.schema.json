@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/investigation-report.schema.json",
+  "title": "InvestigationReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "reportId", "jobId", "status", "findings", "outputDigest", "createdAt", "directMutationAllowed"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.investigation-report/v1" },
+    "reportId": { "type": "string", "pattern": "^investigation_report\\.[a-zA-Z0-9_-]+$" },
+    "jobId": { "type": "string", "pattern": "^agent_job\\.[a-zA-Z0-9_-]+$" },
+    "status": { "enum": ["succeeded", "failed", "partial"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["findingId", "hypothesis", "evidenceBindingIds", "unknowns", "falsifier", "proposedDelta", "proposedDeltaDigest", "confidence"],
+        "properties": {
+          "findingId": { "type": "string" },
+          "hypothesis": { "type": "string" },
+          "evidenceBindingIds": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" }
+          },
+          "unknowns": { "type": "array", "items": { "type": "string" } },
+          "falsifier": { "type": "string" },
+          "proposedDelta": { "$ref": "#/$defs/architectureCandidateChange" },
+          "proposedDeltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "confidence": { "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
+    "outputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "createdAt": { "type": "string" },
+    "directMutationAllowed": { "const": false },
+    "extensions": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "architectureCandidateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateChangeId",
+        "kind",
+        "target",
+        "stateDimension",
+        "changeKind",
+        "subjectSelectorIds",
+        "mappingIds",
+        "ambiguityIds",
+        "evidenceIds",
+        "confidence",
+        "heuristic",
+        "summary",
+        "digest"
+      ],
+      "properties": {
+        "candidateChangeId": { "type": "string", "pattern": "^candidate_change\\.[a-zA-Z0-9_.-]+$" },
+        "kind": {
+          "enum": [
+            "node-added",
+            "node-removed",
+            "node-moved",
+            "node-renamed",
+            "node-materially-changed",
+            "relation-added",
+            "relation-removed",
+            "relation-moved",
+            "relation-renamed",
+            "relation-materially-changed",
+            "constraint-added",
+            "constraint-removed",
+            "constraint-moved",
+            "constraint-renamed",
+            "constraint-materially-changed",
+            "owner-added",
+            "owner-removed",
+            "owner-moved",
+            "owner-renamed",
+            "owner-materially-changed",
+            "lifecycle-added",
+            "lifecycle-removed",
+            "lifecycle-moved",
+            "lifecycle-renamed",
+            "lifecycle-materially-changed",
+            "migration-state-added",
+            "migration-state-removed",
+            "migration-state-moved",
+            "migration-state-renamed",
+            "migration-state-materially-changed"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "enum": ["node", "relation", "constraint", "owner", "lifecycle", "migration-state"] },
+            "id": { "type": "string" },
+            "parentId": { "type": "string" }
+          }
+        },
+        "stateDimension": { "enum": ["target-state", "migration-state"] },
+        "changeKind": { "enum": ["added", "removed", "moved", "renamed", "materially_changed"] },
+        "subjectSelectorIds": { "type": "array", "items": { "type": "string" } },
+        "mappingIds": { "type": "array", "items": { "type": "string" } },
+        "ambiguityIds": { "type": "array", "items": { "type": "string" } },
+        "evidenceIds": { "type": "array", "items": { "type": "string" } },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "heuristic": { "const": true },
+        "summary": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}

@@ -1,0 +1,386 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-candidate-delta.schema.json",
+  "title": "ArchitectureCandidateDelta",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "deltaId",
+    "repository",
+    "worktree",
+    "changeCursor",
+    "subjectSelectors",
+    "changedSubjects",
+    "rawFacts",
+    "interpretations",
+    "declaredSubjectMappings",
+    "mappingAmbiguities",
+    "candidateChanges",
+    "evidenceItems",
+    "evidenceBindings",
+    "summary",
+    "deltaDigest"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-candidate-delta/v1" },
+    "deltaId": { "type": "string", "pattern": "^delta\\.[a-zA-Z0-9_.-]+$" },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "changeCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "changeSource", "headSha", "pathCount", "metadataDigest", "codeFactsDigest"],
+      "properties": {
+        "source": { "const": "git" },
+        "changeSource": { "enum": ["commit", "staged", "worktree"] },
+        "baseSha": { "type": "string" },
+        "headSha": { "type": "string" },
+        "pathCount": { "type": "integer", "minimum": 0 },
+        "metadataDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "codeFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "subjectSelectors": {
+      "type": "array",
+      "items": { "$ref": "architecture-subject-selector.schema.json" }
+    },
+    "changedSubjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subjectSelectorId", "changeKind", "rawFactIds", "evidenceIds", "digest"],
+        "properties": {
+          "subjectSelectorId": { "type": "string" },
+          "changeKind": { "enum": ["added", "removed", "moved", "renamed", "materially_changed"] },
+          "previousSelectorId": { "type": "string" },
+          "rawFactIds": { "type": "array", "items": { "type": "string" } },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "rawFacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["factId", "kind", "subjectSelectorId", "source", "summary", "evidenceIds", "digest"],
+        "properties": {
+          "factId": { "type": "string", "pattern": "^fact\\.[a-zA-Z0-9_.-]+$" },
+          "kind": { "enum": ["git-path-change", "codegraph-symbol", "codegraph-relation"] },
+          "subjectSelectorId": { "type": "string" },
+          "source": { "enum": ["git", "codegraph"] },
+          "summary": { "type": "string" },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "interpretations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["interpretationId", "kind", "subjectSelectorId", "evidenceIds", "confidence", "coverage", "heuristic", "summary", "digest"],
+        "properties": {
+          "interpretationId": { "type": "string", "pattern": "^interpretation\\.[a-zA-Z0-9_.-]+$" },
+          "kind": { "enum": ["code-subject-added", "code-subject-removed", "code-subject-moved", "code-subject-renamed", "code-subject-materially-changed"] },
+          "subjectSelectorId": { "type": "string" },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "coverage": { "enum": ["complete", "partial", "unknown"] },
+          "heuristic": { "const": true },
+          "summary": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "declaredSubjectMappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mappingId", "subjectSelectorId", "target", "matchReason", "confidence", "evidenceIds", "digest"],
+        "properties": {
+          "mappingId": { "type": "string", "pattern": "^mapping\\.[a-zA-Z0-9_.-]+$" },
+          "subjectSelectorId": { "type": "string" },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "enum": ["entity", "relation", "constraint"] },
+              "id": { "type": "string" }
+            }
+          },
+          "matchReason": {
+            "enum": [
+              "declared-path-exact",
+              "declared-path-prefix",
+              "declared-name-match",
+              "declared-relation-endpoints",
+              "declared-constraint-subject"
+            ]
+          },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "mappingAmbiguities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ambiguityId", "subjectSelectorId", "reasonCode", "candidateTargets", "evidenceIds", "summary", "digest"],
+        "properties": {
+          "ambiguityId": { "type": "string", "pattern": "^ambiguity\\.[a-zA-Z0-9_.-]+$" },
+          "subjectSelectorId": { "type": "string" },
+          "reasonCode": {
+            "enum": [
+              "declared-graph-unavailable",
+              "no-declared-target",
+              "multiple-declared-targets",
+              "relation-endpoint-unmapped"
+            ]
+          },
+          "candidateTargets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["target", "matchReason", "confidence"],
+              "properties": {
+                "target": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "id"],
+                  "properties": {
+                    "kind": { "enum": ["entity", "relation", "constraint"] },
+                    "id": { "type": "string" }
+                  }
+                },
+                "matchReason": {
+                  "enum": [
+                    "declared-path-exact",
+                    "declared-path-prefix",
+                    "declared-name-match",
+                    "declared-relation-endpoints",
+                    "declared-constraint-subject"
+                  ]
+                },
+                "confidence": { "enum": ["low", "medium", "high"] }
+              }
+            }
+          },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "summary": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "candidateChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidateChangeId",
+          "kind",
+          "target",
+          "stateDimension",
+          "changeKind",
+          "subjectSelectorIds",
+          "mappingIds",
+          "ambiguityIds",
+          "evidenceIds",
+          "confidence",
+          "heuristic",
+          "summary",
+          "digest"
+        ],
+        "properties": {
+          "candidateChangeId": { "type": "string", "pattern": "^candidate_change\\.[a-zA-Z0-9_.-]+$" },
+          "kind": {
+            "enum": [
+              "node-added",
+              "node-removed",
+              "node-moved",
+              "node-renamed",
+              "node-materially-changed",
+              "relation-added",
+              "relation-removed",
+              "relation-moved",
+              "relation-renamed",
+              "relation-materially-changed",
+              "constraint-added",
+              "constraint-removed",
+              "constraint-moved",
+              "constraint-renamed",
+              "constraint-materially-changed",
+              "owner-added",
+              "owner-removed",
+              "owner-moved",
+              "owner-renamed",
+              "owner-materially-changed",
+              "lifecycle-added",
+              "lifecycle-removed",
+              "lifecycle-moved",
+              "lifecycle-renamed",
+              "lifecycle-materially-changed",
+              "migration-state-added",
+              "migration-state-removed",
+              "migration-state-moved",
+              "migration-state-renamed",
+              "migration-state-materially-changed"
+            ]
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": { "enum": ["node", "relation", "constraint", "owner", "lifecycle", "migration-state"] },
+              "id": { "type": "string" },
+              "parentId": { "type": "string" }
+            }
+          },
+          "stateDimension": { "enum": ["target-state", "migration-state"] },
+          "changeKind": { "enum": ["added", "removed", "moved", "renamed", "materially_changed"] },
+          "subjectSelectorIds": { "type": "array", "items": { "type": "string" } },
+          "mappingIds": { "type": "array", "items": { "type": "string" } },
+          "ambiguityIds": { "type": "array", "items": { "type": "string" } },
+          "evidenceIds": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "enum": ["low", "medium", "high"] },
+          "heuristic": { "const": true },
+          "summary": { "type": "string" },
+          "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+          "extensions": { "type": "object", "additionalProperties": true }
+        }
+      }
+    },
+    "evidenceItems": {
+      "type": "array",
+      "items": { "$ref": "evidence-item.schema.json" }
+    },
+    "evidenceBindings": {
+      "type": "array",
+      "items": { "$ref": "evidence-binding.schema.json" }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "added",
+        "removed",
+        "moved",
+        "renamed",
+        "materiallyChanged",
+        "unresolved",
+        "mapped",
+        "ambiguous",
+        "candidateChanges",
+        "targetStateChanges",
+        "migrationStateProgress",
+        "mappingCoverage",
+        "unresolvedSubjects",
+        "evidenceStrengthDistribution"
+      ],
+      "properties": {
+        "added": { "type": "integer", "minimum": 0 },
+        "removed": { "type": "integer", "minimum": 0 },
+        "moved": { "type": "integer", "minimum": 0 },
+        "renamed": { "type": "integer", "minimum": 0 },
+        "materiallyChanged": { "type": "integer", "minimum": 0 },
+        "unresolved": { "type": "integer", "minimum": 0 },
+        "mapped": { "type": "integer", "minimum": 0 },
+        "ambiguous": { "type": "integer", "minimum": 0 },
+        "candidateChanges": { "type": "integer", "minimum": 0 },
+        "targetStateChanges": { "type": "integer", "minimum": 0 },
+        "migrationStateProgress": { "type": "integer", "minimum": 0 },
+        "mappingCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "totalChangedSubjects",
+            "mappedSubjects",
+            "unresolvedSubjects",
+            "ambiguousSubjects",
+            "coveragePercent"
+          ],
+          "properties": {
+            "totalChangedSubjects": { "type": "integer", "minimum": 0 },
+            "mappedSubjects": { "type": "integer", "minimum": 0 },
+            "unresolvedSubjects": { "type": "integer", "minimum": 0 },
+            "ambiguousSubjects": { "type": "integer", "minimum": 0 },
+            "coveragePercent": { "type": "number", "minimum": 0, "maximum": 100 }
+          }
+        },
+        "unresolvedSubjects": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "byReason", "subjectSelectorIds"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "byReason": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "declared-graph-unavailable",
+                "no-declared-target",
+                "multiple-declared-targets",
+                "relation-endpoint-unmapped"
+              ],
+              "properties": {
+                "declared-graph-unavailable": { "type": "integer", "minimum": 0 },
+                "no-declared-target": { "type": "integer", "minimum": 0 },
+                "multiple-declared-targets": { "type": "integer", "minimum": 0 },
+                "relation-endpoint-unmapped": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "subjectSelectorIds": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "evidenceStrengthDistribution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["heuristic", "declared", "observed", "verified"],
+          "properties": {
+            "heuristic": { "type": "integer", "minimum": 0 },
+            "declared": { "type": "integer", "minimum": 0 },
+            "observed": { "type": "integer", "minimum": 0 },
+            "verified": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

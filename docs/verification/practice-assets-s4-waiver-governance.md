@@ -17,7 +17,7 @@ Out of scope: new deterministic checkers such as dependency-direction, owner-req
 
 Concrete write path:
 
-1. `archctx practices waive --practice-id ... --owner ... --expires-at ... --evidence-digest ... --subject ...` parses required waiver fields in the CLI.
+1. `archctx practices waive --practice-id ... --owner ... --review-at ... --expires-at ... --evidence-digest ... --subject ...` parses required waiver fields in the CLI.
 2. The CLI calls `RuntimeDaemonClient.planPracticeWaiver`; no file is written by the CLI command.
 3. Runtime opens the repo session, validates the current model, loads owner truth from `.archcontext/model/nodes/**`, validates the waiver, and rejects unknown owners.
 4. Runtime creates a deterministic `.archcontext/waivers/<waiver-id>.json` body and plans a ChangeSet operation `{ op: "write_waiver", path, expectedHash, body }`.
@@ -25,7 +25,7 @@ Concrete write path:
 6. The actual file write requires the existing apply path with explicit approval and matching worktree digest. Apply writes through the ChangeSet engine journal and rollback machinery.
 7. `archctx practices waivers` reads JSON-compatible `.archcontext/waivers/*` files, validates each waiver against the current owner registry, and returns waiver digests for audit.
 
-Error paths covered: missing CLI fields, missing scope, unknown owner, invalid waiver id, path allowlist denial, stale worktree digest at apply, and existing expected-hash mismatch.
+Error paths covered: missing CLI fields, invalid review window, missing scope, unknown owner, invalid waiver id, path allowlist denial, stale worktree digest at apply, and existing expected-hash mismatch.
 
 ## P3 Decision
 

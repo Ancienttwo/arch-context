@@ -45,7 +45,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.compatibility.expiry-contract.positive", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Invalid or vague expiry evidence blocks complete enforcement." }],
+      "nearNegative": [{ "id": "fixture.compatibility.expiry-contract.near-negative", "path": "evals/practices/benign-negative.jsonl", "description": "General compatibility wording remains advisory without scoped evidence." }],
+      "mixedChange": [{ "id": "fixture.compatibility.expiry-contract.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Mixed migration evidence distinguishes review date from removal condition." }],
+      "baseline": [{ "id": "fixture.compatibility.expiry-contract.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Complete migration evidence passes with stable baseline subjects." }]
+    }
   },
   "provenance": {
     "sourceKind": "archcontext-native",

@@ -4,7 +4,8 @@ import {
   type CrossRepoRelation,
   type Landscape
 } from "@archcontext/core/architecture-domain";
-import { digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext, type PracticeGuidanceResultV1, type WorkspaceRef } from "@archcontext/contracts";
+import type { ArchitectureBookBudgetReadback, ArchitectureBookScoredSubject } from "@archcontext/core/architecture-ledger";
+import { digestJson, type CodeFactsPort, type Json, type ModelStorePort, type NormalizedCodeContext, type NormalizedEdge, type NormalizedSymbol, type ObservedEvidence, type PracticeGuidanceResultV1, type WorkspaceRef } from "@archcontext/contracts";
 import type { ArchitecturePosture } from "@archcontext/core/architecture-domain";
 import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { matchPracticesForTask } from "@archcontext/core/practice-engine";
@@ -46,6 +47,10 @@ export interface CompiledTaskContext {
     catalogDigest: string;
     practiceGuidanceDigest: string;
     pressureSignals?: PressureSignal[];
+    architectureLedgerDigest?: string;
+    architectureLedgerQueryDigest?: string;
+    architectureLedgerResultCount?: number;
+    codeFactsMode?: "codegraph" | "ledger-first" | "ledger-only";
     landscapeDigest?: string;
     activeRepositories?: string[];
     crossRepoRelations?: string[];
@@ -66,22 +71,57 @@ export interface LandscapeCodeFactsPort {
   }): Promise<NormalizedCodeContext>;
 }
 
+export interface ArchitectureContextLedgerReadback {
+  schemaVersion: "archcontext.context-ledger-readback/v1";
+  query: string;
+  graphDigest: string;
+  subjects: ArchitectureBookScoredSubject[];
+  budget?: ArchitectureBookBudgetReadback;
+  freshness?: Json;
+  resource?: { type: "architecture-book"; uri: string; digest?: string };
+}
+
+export interface ArchitectureContextLedgerPort {
+  queryForTask(input: {
+    workspace: WorkspaceRef;
+    task: string;
+    maxItems: number;
+    maxBytes?: number;
+  }): Promise<ArchitectureContextLedgerReadback | undefined>;
+}
+
 export async function compileTaskContext(input: {
   workspace: WorkspaceRef;
   task: string;
   codeFacts: CodeFactsPort;
   modelStore: ModelStorePort;
+  architectureLedger?: ArchitectureContextLedgerPort;
   budget: ContextBudget;
   changedPaths?: string[];
 }): Promise<CompiledTaskContext> {
-  const codeFacts = await input.codeFacts.ensureReady(input.workspace);
   const model = await input.modelStore.validateModel(input.workspace);
-  const codeContext = await input.codeFacts.buildTaskContext({
+  const ledgerReadback = await input.architectureLedger?.queryForTask({
+    workspace: input.workspace,
     task: input.task,
-    maxSymbols: input.budget.maxItems,
-    includeSource: false,
-    changedPaths: input.changedPaths
+    maxItems: input.budget.maxItems,
+    maxBytes: input.budget.maxBytes
   });
+  const ledgerContext = ledgerReadback ? codeContextFromLedger(input.task, input.workspace, ledgerReadback) : emptyCodeContext(input.task, "no-ledger");
+  const missingSymbols = Math.max(0, input.budget.maxItems - ledgerContext.symbols.length);
+  const codeFacts = missingSymbols > 0
+    ? input.changedPaths === undefined
+      ? await input.codeFacts.ensureReady(input.workspace)
+      : await input.codeFacts.sync({ workspace: input.workspace, changedPaths: input.changedPaths })
+    : undefined;
+  const codeGraphContext = missingSymbols > 0
+    ? await input.codeFacts.buildTaskContext({
+      task: input.task,
+      maxSymbols: missingSymbols,
+      includeSource: false,
+      changedPaths: input.changedPaths
+    })
+    : emptyCodeContext(input.task, "ledger-satisfied");
+  const codeContext = mergeCodeContexts(input.task, input.budget.maxItems, ledgerContext, codeGraphContext);
   const pressure = detectArchitecturePressure({
     task: input.task,
     symbols: codeContext.symbols.map((symbol) => `${symbol.id} ${symbol.name} ${symbol.kind} ${symbol.path}`),
@@ -96,6 +136,7 @@ export async function compileTaskContext(input: {
   });
   const posture = decidePosture(pressure, confidence);
   const resources = [
+    ...(ledgerReadback?.resource ? [ledgerReadback.resource] : []),
     { type: "code-context", uri: `archcontext://code-context/${codeContext.digest}`, digest: codeContext.digest },
     { type: "model", uri: `archcontext://model/${model.modelDigest}`, digest: model.modelDigest }
   ];
@@ -145,17 +186,32 @@ export async function compileTaskContext(input: {
       realConstraints: trimmedPracticeGuidance.realConstraints,
       unknowns: trimmedPracticeGuidance.unknowns,
       requiredCheckpoints: unique(["before-task-complete", ...trimmedPracticeGuidance.requiredCheckpoints]),
-      resources: [...resources.slice(0, 1), ...trimmedPracticeGuidance.resources],
+      resources: [...resources, ...trimmedPracticeGuidance.resources],
       practiceGuidance: trimmedPracticeGuidance
     };
   }
   return finalizeContext(context, {
-    codeFactsDigest: codeFacts.schemaDigest,
+    codeFactsDigest: codeFacts
+      ? digestJson({
+        source: ledgerReadback ? "ledger-first-codegraph" : "codegraph",
+        codeGraphSchemaDigest: codeFacts.schemaDigest,
+        architectureLedgerDigest: ledgerReadback?.graphDigest,
+        codeContextDigest: codeContext.digest
+      } as unknown as Json)
+      : digestJson({
+        source: "architecture-ledger",
+        architectureLedgerDigest: ledgerReadback?.graphDigest,
+        codeContextDigest: codeContext.digest
+      } as unknown as Json),
     modelDigest: model.modelDigest,
     codeContextDigest: codeContext.digest,
     catalogDigest: practiceGuidance.catalogDigest,
     practiceGuidanceDigest: digestJson(practiceGuidance as unknown as Json),
     pressureSignals: pressure.signals,
+    architectureLedgerDigest: ledgerReadback?.graphDigest,
+    architectureLedgerQueryDigest: ledgerReadback ? digestJson(ledgerReadback as unknown as Json) : undefined,
+    architectureLedgerResultCount: ledgerReadback?.subjects.length,
+    codeFactsMode: ledgerReadback ? (codeFacts ? "ledger-first" : "ledger-only") : "codegraph",
     maxBytes: input.budget.maxBytes
   });
 }
@@ -250,7 +306,7 @@ export async function compileLandscapeTaskContext(input: {
       decisions: trimmedPracticeGuidance.decisions,
       realConstraints: unique(["cross-repo-content-local-only", "git-worktree-is-collaboration-boundary", ...trimmedPracticeGuidance.realConstraints]),
       requiredCheckpoints: unique(["before-task-complete", "landscape-scope-review", ...trimmedPracticeGuidance.requiredCheckpoints]),
-      resources: [...resources.slice(0, 2), ...trimmedPracticeGuidance.resources],
+      resources: [...resources, ...trimmedPracticeGuidance.resources],
       practiceGuidance: trimmedPracticeGuidance
     };
   }
@@ -280,6 +336,10 @@ function finalizeContext(
     catalogDigest: string;
     practiceGuidanceDigest: string;
     pressureSignals: PressureSignal[];
+    architectureLedgerDigest?: string;
+    architectureLedgerQueryDigest?: string;
+    architectureLedgerResultCount?: number;
+    codeFactsMode?: "codegraph" | "ledger-first" | "ledger-only";
     landscapeDigest?: string;
     activeRepositories?: string[];
     crossRepoRelations?: string[];
@@ -296,6 +356,10 @@ function finalizeContext(
       catalogDigest: digests.catalogDigest,
       practiceGuidanceDigest: digests.practiceGuidanceDigest,
       pressureSignals: digests.pressureSignals,
+      architectureLedgerDigest: digests.architectureLedgerDigest,
+      architectureLedgerQueryDigest: digests.architectureLedgerQueryDigest,
+      architectureLedgerResultCount: digests.architectureLedgerResultCount,
+      codeFactsMode: digests.codeFactsMode,
       landscapeDigest: digests.landscapeDigest,
       activeRepositories: digests.activeRepositories,
       crossRepoRelations: digests.crossRepoRelations,
@@ -328,4 +392,100 @@ function trimPracticeGuidance(guidance: PracticeGuidanceResultV1, maxMatches: nu
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function codeContextFromLedger(task: string, workspace: WorkspaceRef, readback: ArchitectureContextLedgerReadback): NormalizedCodeContext {
+  const freshness = jsonObject(readback.freshness);
+  const worktreeDigest = typeof freshness?.worktreeDigest === "string"
+    ? freshness.worktreeDigest
+    : readback.graphDigest;
+  const symbols = readback.subjects.map((subject): NormalizedSymbol => ({
+    id: subject.id,
+    name: subject.label,
+    kind: `architecture-${subject.kind}`,
+    path: subject.path ?? `.archcontext/ledger/${subject.kind}/${subject.id}`
+  }));
+  const edges = readback.subjects
+    .filter((subject) => subject.kind === "relation" && subject.relation)
+    .map((subject): NormalizedEdge => ({
+      source: subject.relation!.sourceEntityId,
+      target: subject.relation!.targetEntityId,
+      kind: normalizeRelationKind(subject.relation!.kind),
+      confidence: subject.scoreBreakdown.evidenceStrength > 0 ? "high" : "medium"
+    }));
+  const evidence = readback.subjects.map((subject): ObservedEvidence => ({
+    id: `ledger.${subject.kind}.${stableEvidenceId(subject.id)}`,
+    selector: { path: subject.path ?? `.archcontext/ledger/${subject.kind}/${subject.id}`, symbolId: subject.id },
+    summary: `Architecture Book matched ${subject.kind} ${subject.id}: ${subject.summary ?? subject.label}`,
+    confidence: "observed",
+    snapshot: {
+      repositoryId: workspace.repositoryId,
+      headSha: workspace.headSha,
+      worktreeDigest
+    }
+  }));
+  return {
+    task,
+    symbols,
+    edges,
+    evidence,
+    digest: digestJson({ source: "architecture-ledger", task, graphDigest: readback.graphDigest, symbols, edges, evidence } as unknown as Json)
+  };
+}
+
+function mergeCodeContexts(task: string, maxSymbols: number, first: NormalizedCodeContext, second: NormalizedCodeContext): NormalizedCodeContext {
+  const symbols = uniqueBy([...first.symbols, ...second.symbols], (symbol) => symbol.id).slice(0, maxSymbols);
+  const symbolIds = new Set(symbols.map((symbol) => symbol.id));
+  const edges = uniqueBy([...first.edges, ...second.edges], (edge) => `${edge.kind}:${edge.source}->${edge.target}`)
+    .filter((edge) => symbolIds.has(edge.source) || symbolIds.has(edge.target));
+  const evidence = uniqueBy([...first.evidence, ...second.evidence], (item) => item.id);
+  return {
+    task,
+    symbols,
+    edges,
+    evidence,
+    digest: digestJson({
+      source: "merged-code-context",
+      task,
+      inputs: [first.digest, second.digest],
+      symbols,
+      edges,
+      evidence
+    } as unknown as Json)
+  };
+}
+
+function emptyCodeContext(task: string, reason: string): NormalizedCodeContext {
+  return {
+    task,
+    symbols: [],
+    edges: [],
+    evidence: [],
+    digest: digestJson({ source: "empty-code-context", task, reason })
+  };
+}
+
+function normalizeRelationKind(kind: string): NormalizedEdge["kind"] {
+  if (kind === "calls" || kind === "reads" || kind === "writes" || kind === "implements") return kind;
+  return "imports";
+}
+
+function stableEvidenceId(id: string): string {
+  return id.replace(/[^A-Za-z0-9_.-]/g, "_");
+}
+
+function uniqueBy<T>(items: T[], keyOf: (item: T) => string): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const item of items) {
+    const key = keyOf(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function jsonObject(value: Json | undefined): Record<string, Json> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 }

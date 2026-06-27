@@ -1,4 +1,5 @@
 import { digestJson, type Json, type PracticeCheckResultV1, type PracticeCheckV1, type PracticeEnforcementLevel, type PracticeMatchV1, type PracticePolicyRuleV1 } from "@archcontext/contracts";
+import { isArchitectureDirectionalEdgeViolationSubject } from "@archcontext/core/architecture-domain";
 import { validateCompatibilityContract, type CompatibilityContractInput } from "@archcontext/core/policy-engine";
 
 export interface PracticeOwnerRegistry {
@@ -35,16 +36,6 @@ const REGISTERED_CHECKS: Record<string, RegisteredPracticeCheck> = {
   "owner-required": ownerRequired,
   "required-test-evidence": requiredTestEvidence
 };
-
-const DEPENDENCY_DIRECTION_VIOLATION_PREFIXES = [
-  "boundary-violation:",
-  "cross-boundary-import:",
-  "cross-boundary-import-added:",
-  "declared-layer-violation:",
-  "declared-layer-violation-observed:",
-  "dependency-direction-violation:",
-  "layer-violation:"
-];
 
 const GOVERNED_OWNER_PREFIXES = [
   "governed:",
@@ -434,7 +425,7 @@ function dependencyDirectionViolationSubjects(match: PracticeMatchV1): string[] 
     .filter((evidence) =>
       evidence.strength !== "heuristic" &&
       (evidence.kind === "architecture-model" || evidence.kind === "import-edge") &&
-      DEPENDENCY_DIRECTION_VIOLATION_PREFIXES.some((prefix) => evidence.subject.startsWith(prefix))
+      isArchitectureDirectionalEdgeViolationSubject(evidence.subject)
     )
     .map((evidence) => evidence.subject)
     .sort();

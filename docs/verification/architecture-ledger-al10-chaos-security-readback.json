@@ -1,0 +1,239 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-chaos-security-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-05",
+    "AL10-06"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "architecture-ledger-runtime",
+    "authority": "SQLite operational ledger plus Git projection guards",
+    "closedGates": [
+      "AL10-05",
+      "AL10-06"
+    ],
+    "explicitlyOpen": [
+      "AL10-BETA-4",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6"
+    ]
+  },
+  "thresholds": {
+    "chaosCaseCount": 6,
+    "securityCaseCount": 6,
+    "requiredChaosCases": [
+      "daemon-crash",
+      "db-lock",
+      "disk-full",
+      "corrupt-row",
+      "interrupted-rebase",
+      "provider-timeout"
+    ],
+    "requiredSecurityCases": [
+      "prompt-injection",
+      "path-traversal",
+      "symlink-escape",
+      "forged-evidence",
+      "event-tamper",
+      "stale-replay"
+    ]
+  },
+  "chaos": {
+    "daemonCrash": {
+      "ok": true,
+      "caseId": "daemon-crash",
+      "failureClass": "daemon-crash",
+      "guard": "recoverStaleDaemonControlFiles",
+      "reasonCode": "dead-connection-pid,stale-lock-file",
+      "details": {
+        "removed": [
+          "dead-connection-pid",
+          "stale-lock-file"
+        ],
+        "connectionRemoved": true,
+        "lockRemoved": true,
+        "connectionPath": "$TMPDIR/archctx-al10-daemon-state-OLEekj/repositories/repo.fe8732bb93b4fc11/worktrees/ws.fe8732bb93b4fc11/archctxd.json",
+        "lockPath": "$TMPDIR/archctx-al10-daemon-state-OLEekj/repositories/repo.fe8732bb93b4fc11/worktrees/ws.fe8732bb93b4fc11/archctxd.lock"
+      }
+    },
+    "dbLock": {
+      "ok": true,
+      "caseId": "db-lock",
+      "failureClass": "db-lock",
+      "guard": "sqlite busy lock rejection",
+      "reasonCode": "database-locked",
+      "details": {
+        "databasePath": "$TMPDIR/archctx-al10-db-lock-12ZZWh/runtime.sqlite",
+        "rejected": true,
+        "message": "database is locked",
+        "busyTimeoutMs": 1
+      }
+    },
+    "diskFull": {
+      "ok": true,
+      "caseId": "disk-full",
+      "failureClass": "disk-full",
+      "guard": "backupArchitectureLedger write-path failure handling",
+      "reasonCode": "filesystem-write-failure",
+      "details": {
+        "injection": "filesystem write failure proxy for disk-full",
+        "rejected": true,
+        "message": "EEXIST: file already exists, mkdir '$TMPDIR/archctx-al10-disk-full-YB8Ulh/backup-parent-is-file'",
+        "integrityOkAfterFailure": true,
+        "eventCountAfterFailure": 1,
+        "graphDigestAfterFailure": "sha256:1a6e2d0118da3ca5442f59717561d07ea9878671fd428b3d208974650eb52e56"
+      }
+    },
+    "corruptRow": {
+      "ok": true,
+      "caseId": "corrupt-row",
+      "failureClass": "corrupt-row",
+      "guard": "checkArchitectureLedgerIntegrity",
+      "reasonCode": "materialized-current-state-does-not-match-replay",
+      "details": {
+        "integrityOk": false,
+        "failures": [
+          "materialized-current-state-does-not-match-replay"
+        ],
+        "eventCount": 1,
+        "graphDigest": "sha256:08b81e9669ce5f56dd625e93a5dfd239f496ff49c6de77b6102c2b70489e5ac0"
+      }
+    },
+    "interruptedRebase": {
+      "ok": true,
+      "caseId": "interrupted-rebase",
+      "failureClass": "interrupted-rebase",
+      "guard": "ledger rebuild --from-git YAML parser and stale write guard",
+      "reasonCode": "AC_SCHEMA_INVALID",
+      "details": {
+        "rebaseExitCode": 1,
+        "rejectedOk": false,
+        "errorCode": "AC_SCHEMA_INVALID",
+        "graphDigestPreserved": true,
+        "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506"
+      }
+    },
+    "providerTimeout": {
+      "ok": true,
+      "caseId": "provider-timeout",
+      "failureClass": "provider-timeout",
+      "guard": "runInvestigationWithRetry deterministic fallback",
+      "reasonCode": "timeout",
+      "details": {
+        "outcome": "timeout",
+        "attempts": 2,
+        "maxAttempts": 2,
+        "timeoutMs": 1,
+        "fallbackUsed": true,
+        "reportStatus": "failed",
+        "outputDigest": "sha256:a4a36a4a0a5b417b9cffe26db951937aaa3947659ac99eeacaadcb41abd015e4"
+      }
+    }
+  },
+  "security": {
+    "promptInjection": {
+      "ok": true,
+      "caseId": "prompt-injection",
+      "guard": "planInvestigationReportProposal and runInvestigationThroughPort",
+      "reasonCode": "tool-escape-forbidden",
+      "details": {
+        "inertInputDigest": true,
+        "injectionTextEmitted": false,
+        "validationValid": false,
+        "issueCodes": [
+          "tool-escape-forbidden"
+        ],
+        "throughPortRejected": true,
+        "throughPortReason": "investigation-report-invalid: tool-escape-forbidden"
+      }
+    },
+    "pathTraversal": {
+      "ok": true,
+      "caseId": "path-traversal",
+      "guard": "assertRepoRelativePath",
+      "reasonCode": "repo-relative-path-required",
+      "details": {
+        "rejected": true,
+        "allowedKnownProjectionPath": true,
+        "message": "Repository path must be relative POSIX path: ../escape.yaml"
+      }
+    },
+    "symlinkEscape": {
+      "ok": true,
+      "caseId": "symlink-escape",
+      "guard": "migrateLegacyLocalStoreIfNeeded trusted legacy source check",
+      "reasonCode": "legacy-sqlite-symlink-rejected",
+      "details": {
+        "rejected": true,
+        "targetPublished": false,
+        "message": "Legacy SQLite source must not be a symbolic link: /private$TMPDIR/archctx-al10-symlink-root-jxG8Bi/.archcontext/.local/runtime.sqlite"
+      }
+    },
+    "forgedEvidence": {
+      "ok": true,
+      "caseId": "forged-evidence",
+      "guard": "CLI review/complete caller-provided attestation field rejection",
+      "reasonCode": "AC_SCHEMA_INVALID,AC_SCHEMA_INVALID,AC_SCHEMA_INVALID",
+      "details": {
+        "forgedReviewOk": false,
+        "forgedDigestOk": false,
+        "forgedPracticeOk": false,
+        "errorCodes": [
+          "AC_SCHEMA_INVALID",
+          "AC_SCHEMA_INVALID",
+          "AC_SCHEMA_INVALID"
+        ]
+      }
+    },
+    "eventTamper": {
+      "ok": true,
+      "caseId": "event-tamper",
+      "guard": "checkArchitectureLedgerIntegrity replay/materialized digest comparison",
+      "reasonCode": "materialized-current-state-does-not-match-replay",
+      "details": {
+        "integrityOk": false,
+        "failures": [
+          "materialized-current-state-does-not-match-replay"
+        ],
+        "replayDigestChanged": true,
+        "beforeDigest": "sha256:fa84acde3100ee2df5239d38d544ea7c8f0d1996d2902fbd9fc78f424870d82c",
+        "afterDigest": "sha256:afea0c884d390b20cc9cf42c533528e3a80ddf15c50383e2bdf81b6b5385a682"
+      }
+    },
+    "staleReplay": {
+      "ok": true,
+      "caseId": "stale-replay",
+      "guard": "runtime jobsComplete stale head/worktree rejection",
+      "reasonCode": "AC_CONTEXT_STALE",
+      "details": {
+        "jobIdDigest": "sha256:aad40c518a223e7f053b098e6ccdb1bc8d3657120e82415ede9a151ef5da9713",
+        "claimed": true,
+        "completionOk": false,
+        "errorCode": "AC_CONTEXT_STALE",
+        "expiredJobCount": 1,
+        "lastError": "stale-head-or-worktree"
+      }
+    }
+  },
+  "privacy": {
+    "clean": true,
+    "forbiddenKeyHits": [],
+    "forbiddenTokenHits": [],
+    "scannedSurfaceCount": 2,
+    "digest": "sha256:b61ca543e84bfd19483e99612c00d1899e30296d84b25a5dbe6f2606ba54cc09"
+  },
+  "assertions": {
+    "AL10-05": true,
+    "AL10-06": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-chaos-security-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-chaos-security-readback.json --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-chaos-security.md"
+  },
+  "failures": []
+}

@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.practice-catalog-manifest/v1",
   "catalogVersion": "2026.06.0",
-  "productVersion": "0.1.3",
+  "productVersion": "0.1.4",
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "entries": [
     {
@@ -16,7 +16,7 @@
     {
       "id": "api.contract-before-implementation",
       "revision": 1,
-      "digest": "sha256:a5037b6bee0bde83d7493185dd4cc42e5d935b7b4fae4c1357ab4a9550d1d935",
+      "digest": "sha256:feda012bf57e5d3b8cef58fc1f9a7d8a44a4f894325f294dc91e3eec5cc01274",
       "sourceIds": [
         "archcontext.adr.0012"
       ]
@@ -51,7 +51,7 @@
     {
       "id": "compatibility.expiry-contract",
       "revision": 1,
-      "digest": "sha256:3db0c50ccfaff92219ecb2830e03915f4e69d63fd797a27afaf87977080d8aba",
+      "digest": "sha256:fac35fddef8cc263ea8af18052c2ceae86484f340192c84b2358c130bf16d411",
       "sourceIds": [
         "archcontext.adr.0010"
       ]
@@ -68,7 +68,7 @@
     {
       "id": "compatibility.single-owner",
       "revision": 1,
-      "digest": "sha256:52c1f1ed2128f56e0a3e4f07303efa34bda507da54bd0e7914d7cf17f6f27843",
+      "digest": "sha256:10cd2ee205eb6440efb12cb88d6e4256f90bb71e575a51a2c8eb0912da1ae4b3",
       "sourceIds": [
         "archcontext.adr.0010",
         "madr"
@@ -176,7 +176,7 @@
     {
       "id": "migration.target-and-removal-state",
       "revision": 1,
-      "digest": "sha256:c71b3d1428e70c83526870af03c08e0c76ed8f9943640d431af828870579e8ba",
+      "digest": "sha256:d2803800c9deb288113e5f087c96e35bb45d9f2dae0d8a9350e1434f7369cd7e",
       "sourceIds": [
         "archcontext.adr.0009",
         "madr"
@@ -194,7 +194,7 @@
     {
       "id": "modularity.no-new-cycle",
       "revision": 1,
-      "digest": "sha256:bf1daadfc73113350b8559edfb36614f424e64ebc31c348303b12ea0de5c46dd",
+      "digest": "sha256:411e860fd6ddbfd12dc6dd2a90a09f618d64842efbe0fd08b01f6e12ef98038e",
       "sourceIds": [
         "archunit"
       ]
@@ -211,7 +211,7 @@
     {
       "id": "modularity.respect-dependency-direction",
       "revision": 1,
-      "digest": "sha256:b1ba78d5e52127130d1f14ea4f4e0ac7b5f2a269f33edea39d989bbb907ca784",
+      "digest": "sha256:b14a5f8d63aa306bb275e2de6c282856347579dcddad2c9728fdfd87662f8623",
       "sourceIds": [
         "archcontext.spec",
         "archunit"
@@ -264,7 +264,7 @@
     {
       "id": "ownership.explicit-lifecycle-owner",
       "revision": 1,
-      "digest": "sha256:628e460457009e3f3c1c42bda8e88361d19b34afdf473d8f29f82938a8410d62",
+      "digest": "sha256:c0ba742d5ff505305292fb6cd508d27bbabe94e2ba045b316ace4e783d16944e",
       "sourceIds": [
         "archcontext.spec",
         "backstage"
@@ -309,7 +309,7 @@
     {
       "id": "security.least-privilege",
       "revision": 1,
-      "digest": "sha256:5f620bbf66beaad5a3eee70e13bf51fd003e95e9f06da9c4e37cc74ec5e49455",
+      "digest": "sha256:cd6ac2258d32c3df30427c62762cfc58e64cca74087e7e54455eecde54f89f08",
       "sourceIds": [
         "archcontext.adr.0036"
       ]
@@ -389,5 +389,5 @@
     "structurizr.dsl",
     "twelve-factor"
   ],
-  "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14"
+  "catalogDigest": "sha256:89829151a844ca84c522924c43d7b174ff613b0b50dbbb2c7174a20d9ac3ab47"
 }

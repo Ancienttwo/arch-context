@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
-import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -21,16 +22,25 @@ import {
   runtimeRpcCompatibilityIssue,
   type RuntimeRpcCompatibilityIssue,
   type RuntimeDaemonClient,
+  type RuntimeAgentJobEnqueueGitInput,
+  type RuntimeRecommendationInput,
   type RuntimeDeps
 } from "@archcontext/local-runtime/runtime-daemon";
 import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfaces/adapter-likec4";
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
-import { exportMermaidModel, loadNativeModelFromArchContext } from "@archcontext/surfaces/renderer";
+import {
+  exportMermaidModel,
+  loadArchitectureDocumentationInputs,
+  loadNativeModelFromArchContext,
+  renderArchitectureDocumentationProjection,
+  type ArchitectureDocumentationProjectionFile
+} from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
 const CLI_ENTRY = fileURLToPath(import.meta.url);
-const DAEMON_START_TIMEOUT_MS = 15_000;
+const DAEMON_START_TIMEOUT_ENV = "ARCHCONTEXT_DAEMON_START_TIMEOUT_MS";
+const DAEMON_START_TIMEOUT_MS = process.platform === "win32" ? 150_000 : 15_000;
 const RELEASE_PACKAGE_NAME = "archctx";
 const UPDATE_CHECK_ENV = "ARCHCONTEXT_CHECK_UPDATES";
 const LATEST_VERSION_ENV = "ARCHCONTEXT_LATEST_VERSION";
@@ -39,6 +49,9 @@ const HOOK_ADAPTER_SCHEMA_VERSION = "archcontext.hook-adapter/v1";
 const HOOK_LOG_SCHEMA_VERSION = "archcontext.hook-log/v1";
 const HOOK_ADAPTER_NAME = "repo-harness-hook";
 const HOOK_CHECKPOINT_TIMEOUT_MS = 5_000;
+const HOOK_ENQUEUE_TIMEOUT_MS = 5_000;
+const RUNTIME_AGENT_JOB_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled", "superseded", "expired"] as const;
+type RuntimeAgentJobStatus = AgentJobV1["status"];
 
 class RuntimeVersionUnsupportedError extends Error {
   constructor(readonly issue: RuntimeRpcCompatibilityIssue) {
@@ -48,7 +61,12 @@ class RuntimeVersionUnsupportedError extends Error {
 
 if (import.meta.main) {
   if (command === "mcp" && args.length === 0) {
-    await runStdioMcpLoop(stdinLines(), (line) => process.stdout.write(`${line}\n`));
+    await runStdioMcpLoop(
+      stdinLines(),
+      (line) => process.stdout.write(`${line}\n`),
+      (line) => process.stderr.write(`${line}\n`),
+      { runtimeResolver: (root) => createOrStartRuntimeRpcClient(root) }
+    );
   } else if (command === "daemon" && args[0] === "start" && args.includes("--foreground")) {
     await runForegroundDaemon(process.cwd(), args).catch((error) => {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -221,6 +239,12 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "landscape":
       return (await runtime()).landscapeStatus();
+    case "ledger":
+      return runLedgerCommand(args, cwd, runtime);
+    case "book":
+      return runBookCommand(args, cwd, await runtime());
+    case "recommendations":
+      return runRecommendationsCommand(args, cwd, await runtime());
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
@@ -274,6 +298,12 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runHookCommand(args, cwd, runtime);
     case "hooks":
       return runHooksCommand(args);
+    case "investigate":
+      return runInvestigateCommand(args, cwd, await runtime());
+    case "agents":
+      return runAgentsCommand(args, cwd, await runtime());
+    case "jobs":
+      return runJobsCommand(args, cwd, await runtime());
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -389,8 +419,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx hook checkpoint --event post-edit --path src/app.ts", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -399,10 +429,193 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   }
 }
 
+async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Promise<RuntimeDaemonClient>) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand === "status" || subcommand === "state") {
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerState(cwd);
+  }
+  if (subcommand === "drift") {
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerDrift(cwd);
+  }
+  if (subcommand === "project") {
+    if (!args.includes("--to-git")) {
+      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project currently requires --to-git");
+    }
+    const write = args.includes("--write");
+    if (write && args.includes("--dry-run")) {
+      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project accepts --dry-run or --write, not both");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (write && !expectedWorktreeDigest) {
+      return errorEnvelope("ledger.project", "AC_SCHEMA_INVALID", "ledger project --to-git --write requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerProject(cwd, { dryRun: !write, expectedWorktreeDigest });
+  }
+  if (subcommand === "rebuild") {
+    if (!args.includes("--from-git")) {
+      return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (!expectedWorktreeDigest) {
+      return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild --from-git requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerRebuild(cwd, {
+      fromGit: true,
+      expectedWorktreeDigest,
+      acceptExternalProjection: args.includes("--accept-external-projection")
+    });
+  }
+  if (subcommand === "rollback") {
+    if (!args.includes("--to-yaml")) {
+      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
+    }
+    const write = args.includes("--write");
+    if (write && args.includes("--dry-run")) {
+      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback accepts --dry-run or --write, not both");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (write && !expectedWorktreeDigest) {
+      return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback --to-yaml --write requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerRollback(cwd, {
+      toYaml: true,
+      dryRun: !write,
+      expectedWorktreeDigest
+    });
+  }
+  if (subcommand === "migrate") {
+    if (!args.includes("--from-yaml")) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml");
+    }
+    const write = args.includes("--write");
+    if (write && args.includes("--dry-run")) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --dry-run or --write, not both");
+    }
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+    if (write && !expectedWorktreeDigest) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires --expected-worktree-digest");
+    }
+    const daemon = await requiredLedgerRuntime(runtime);
+    return daemon.ledgerMigrate(cwd, {
+      fromYaml: true,
+      dryRun: !write,
+      expectedWorktreeDigest
+    });
+  }
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, migrate --from-yaml, rebuild --from-git, rollback --to-yaml, or project --to-git");
+}
+
+async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
+  if (!runtime) throw new Error("ledger command requires runtime daemon");
+  return runtime();
+}
+
+async function runBookCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "status";
+  const maxItems = readOptionalNonNegativeIntegerFlag(args, "--max-items", "book");
+  if (!maxItems.ok) return maxItems.envelope;
+  const maxBytes = readOptionalPositiveIntegerFlag(args, "--max-bytes", "book");
+  if (!maxBytes.ok) return maxBytes.envelope;
+  const budget = {
+    ...(maxItems.value === undefined ? {} : { maxItems: maxItems.value }),
+    ...(maxBytes.value === undefined ? {} : { maxBytes: maxBytes.value })
+  };
+  if (subcommand === "status") return daemon.book(cwd, { command: "status", ...budget });
+  if (subcommand === "query") {
+    const task = readFlag(args, "--task") ?? readFlag(args, "--query") ?? args.slice(1).filter((arg) => !arg.startsWith("--")).join(" ").trim();
+    if (!task) return errorEnvelope("book.query", "AC_SCHEMA_INVALID", "book query requires --task, --query, or query text");
+    return daemon.book(cwd, { command: "query", task, explain: args.includes("--explain"), ...budget });
+  }
+  if (subcommand === "show") {
+    const id = readFlag(args, "--id") ?? args[1];
+    if (!id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
+    return daemon.book(cwd, { command: "show", id, ...budget });
+  }
+  if (subcommand === "neighbors") {
+    const id = readFlag(args, "--id") ?? args[1];
+    if (!id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
+    const depth = readOptionalNonNegativeIntegerFlag(args, "--depth", "book.neighbors");
+    if (!depth.ok) return depth.envelope;
+    return daemon.book(cwd, { command: "neighbors", id, ...(depth.value === undefined ? {} : { depth: depth.value }), ...budget });
+  }
+  if (subcommand === "timeline") {
+    const id = readFlag(args, "--id") ?? (args[1]?.startsWith("--") ? undefined : args[1]);
+    return daemon.book(cwd, {
+      command: "timeline",
+      ...(id === undefined ? {} : { id }),
+      ...(readFlag(args, "--since") === undefined ? {} : { sinceRef: readFlag(args, "--since") }),
+      ...budget
+    });
+  }
+  if (subcommand === "diff") {
+    return daemon.book(cwd, {
+      command: "diff",
+      fromRef: readFlag(args, "--from") ?? "empty",
+      toRef: readFlag(args, "--to") ?? "current",
+      ...budget
+    });
+  }
+  if (subcommand === "evidence") {
+    const id = readFlag(args, "--id") ?? args[1];
+    if (!id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
+    return daemon.book(cwd, { command: "evidence", id, ...budget });
+  }
+  if (subcommand === "recommendations") {
+    return daemon.book(cwd, { command: "recommendations", openOnly: args.includes("--open"), explain: args.includes("--explain"), ...budget });
+  }
+  if (subcommand === "export") {
+    const format = readFlag(args, "--format") ?? "json";
+    if (format !== "json" && format !== "yaml" && format !== "markdown") {
+      return errorEnvelope("book.export", "AC_SCHEMA_INVALID", "book export --format must be json, yaml, or markdown");
+    }
+    return daemon.book(cwd, { command: "export", format, ...budget });
+  }
+  return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
+}
+
+async function runRecommendationsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "metrics";
+  if (subcommand === "metrics") {
+    return daemon.recommendations(cwd, {
+      command: "metrics",
+      ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
+    });
+  }
+  if (!["acknowledge", "accept", "reject", "defer", "waive", "resolve"].includes(subcommand)) {
+    return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+  }
+  const recommendationId = readFlag(args, "--id") ?? readFlag(args, "--recommendation-id") ?? args[1];
+  if (!recommendationId || recommendationId.startsWith("--")) {
+    return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} requires --id`);
+  }
+  const reason = readFlag(args, "--reason");
+  if (!reason) return errorEnvelope(`recommendations.${subcommand}`, "AC_SCHEMA_INVALID", `recommendations ${subcommand} requires --reason`);
+  const input: RuntimeRecommendationInput = {
+    command: subcommand as RuntimeRecommendationInput["command"],
+    recommendationId,
+    reason,
+    actor: readFlag(args, "--actor") ?? "developer",
+    ...(readFlag(args, "--actor-kind") === undefined ? {} : { actorKind: readFlag(args, "--actor-kind")! as any }),
+    ...(readFlag(args, "--source") === undefined ? {} : { source: readFlag(args, "--source")! as any }),
+    ...(readFlag(args, "--expected-worktree-digest") === undefined ? {} : { expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest")! }),
+    ...(readFlag(args, "--agent-job-id") === undefined ? {} : { agentJobId: readFlag(args, "--agent-job-id")! }),
+    ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
+  };
+  return daemon.recommendations(cwd, input);
+}
+
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "status";
+  if (["plan", "preview", "apply", "drift", "clean"].includes(subcommand)) {
+    return runArchitectureDocsProjectionCommand(args, cwd, daemon);
+  }
   if (!["status", "resolve", "pin", "fetch", "purge"].includes(subcommand)) {
-    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge");
+    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge|plan|preview|apply|drift|clean");
   }
   if (subcommand === "status") {
     return daemon.docs(cwd, { command: "status", provider: "context7" });
@@ -444,6 +657,130 @@ async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
   });
 }
 
+async function runArchitectureDocsProjectionCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "plan";
+  const root = findRepositoryRoot(cwd);
+  const generatedAt = readFlag(args, "--generated-at") ?? new Date(0).toISOString();
+  const projection = buildArchitectureDocsProjection(root, generatedAt);
+  if (subcommand === "drift") {
+    return okEnvelope("docs.drift", {
+      schemaVersion: "archcontext.docs-drift/v1",
+      ok: projection.plan.drift.ok,
+      sourceDigest: projection.plan.sourceDigest,
+      projectionDigest: projection.plan.projectionDigest,
+      rendererVersion: projection.plan.rendererVersion,
+      targetCount: projection.plan.targets.length,
+      fileCount: projection.plan.files.length,
+      drift: projection.plan.drift,
+      rejected: projection.plan.rejected
+    } as unknown as Json);
+  }
+  if (subcommand === "clean") {
+    const orphaned = projection.plan.drift.diffs.filter((diff) => diff.reasonCode === "projection-orphaned");
+    return okEnvelope("docs.clean", {
+      schemaVersion: "archcontext.docs-clean-plan/v1",
+      ok: orphaned.length === 0,
+      orphanedCount: orphaned.length,
+      orphaned,
+      action: orphaned.length === 0 ? "none" : "manual-review-required-before-tombstone"
+    } as unknown as Json);
+  }
+  if (projection.plan.rejected.length > 0) {
+    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection rejected ambiguous ownership: ${projection.plan.rejected.map((diff) => diff.path).join(", ")}`);
+  }
+  const changeSetId = readFlag(args, "--id") ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
+  const operations = [architectureDocsRenderProjectionOperation(root, projection.files)];
+  const plan = await daemon.planUpdate(root, {
+    id: changeSetId,
+    reason: { taskSessionId: readFlag(args, "--task-session-id") ?? "task_docs_projection" },
+    operations
+  });
+  if (!plan.ok) return plan;
+  if (subcommand === "apply") {
+    const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(root);
+    return daemon.applyUpdate(root, {
+      id: changeSetId,
+      approved: args.includes("--approved"),
+      expectedWorktreeDigest
+    });
+  }
+  return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
+    schemaVersion: "archcontext.docs-projection-change-set/v1",
+    sourceDigest: projection.plan.sourceDigest,
+    projectionDigest: projection.plan.projectionDigest,
+    rendererVersion: projection.plan.rendererVersion,
+    targetCount: projection.plan.targets.length,
+    fileCount: projection.files.length,
+    drift: projection.plan.drift,
+    manifestPath: projection.manifest.path,
+    draft: (plan.data as any).draft,
+    preview: (plan.data as any).preview
+  } as unknown as Json);
+}
+
+function buildArchitectureDocsProjection(root: string, generatedAt: string) {
+  const loaded = loadArchitectureDocumentationInputs(root);
+  const sourceDigest = digestJson({
+    model: loaded.model,
+    decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
+  } as unknown as Json);
+  const plan = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    sourceDigest,
+    generatedAt
+  });
+  const manifestBody = `${JSON.stringify({
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+    rendererVersion: plan.rendererVersion,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    targetCount: plan.targets.length,
+    fileCount: plan.files.length,
+    targets: plan.targets.map((target) => ({
+      targetId: target.targetId,
+      type: target.type,
+      scope: target.scope,
+      path: target.path,
+      ownership: target.ownership,
+      rendererVersion: target.rendererVersion,
+      format: target.format,
+      sourceDigest: target.sourceDigest,
+      outputDigest: target.outputDigest
+    }))
+  }, null, 2)}\n`;
+  const manifest = {
+    path: "docs/architecture/.projection-manifest.json",
+    body: manifestBody,
+    digest: digestJson({ path: "docs/architecture/.projection-manifest.json", body: manifestBody } as unknown as Json),
+    target: plan.targets[0]!,
+    generatedBodyDigest: digestJson({ body: manifestBody } as unknown as Json)
+  } satisfies ArchitectureDocumentationProjectionFile;
+  return {
+    plan,
+    manifest,
+    files: [...plan.files, manifest]
+  };
+}
+
+function architectureDocsRenderProjectionOperation(root: string, files: ArchitectureDocumentationProjectionFile[]) {
+  return {
+    op: "render_projection" as const,
+    expectedHash: "missing",
+    projectionFiles: files.map((file) => ({
+      path: file.path,
+      expectedHash: currentBodyHash(root, file.path),
+      body: file.body
+    }))
+  };
+}
+
+function currentBodyHash(root: string, path: string): string {
+  const absolute = resolve(root, path);
+  return existsSync(absolute) ? digestJson({ body: readFileSync(absolute, "utf8") } as unknown as Json) : "missing";
+}
+
 async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "list";
   if (subcommand === "list") {
@@ -468,7 +805,7 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
     return daemon.practiceWaivers(cwd);
   }
   if (subcommand === "waive") {
-    const required = ["--practice-id", "--owner", "--reason", "--expires-at", "--evidence-digest"];
+    const required = ["--practice-id", "--owner", "--reason", "--review-at", "--expires-at", "--evidence-digest"];
     const missing = required.filter((flag) => !readFlag(args, flag));
     if (missing.length > 0) return errorEnvelope("practices.waive", "AC_SCHEMA_INVALID", `practices waive requires ${missing.join(", ")}`);
     const subjects = readRepeatedFlag(args, "--subject");
@@ -485,6 +822,7 @@ async function runPracticesCommand(args: string[], cwd: string, daemon: RuntimeD
       owner: readFlag(args, "--owner")!,
       reason: readFlag(args, "--reason")!,
       ...(readFlag(args, "--created-at") === undefined ? {} : { createdAt: readFlag(args, "--created-at")! }),
+      reviewAt: readFlag(args, "--review-at")!,
       expiresAt: readFlag(args, "--expires-at")!,
       evidenceDigest: readFlag(args, "--evidence-digest")!,
       ...(subjects.length === 0 ? {} : { subjects }),
@@ -511,9 +849,13 @@ async function runCheckpointCommand(args: string[], cwd: string, daemon: Runtime
 }
 
 async function runHookCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
-  const subcommand = args[0] ?? "status";
-  if (subcommand !== "checkpoint") return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires checkpoint");
-  const checkpointArgs = args.slice(1);
+  const subcommand = args[0] ?? "enqueue";
+  if (subcommand === "checkpoint") return runHookCheckpointCommand(args.slice(1), cwd, runtime);
+  if (subcommand === "enqueue") return runHookEnqueueCommand(args.slice(1), cwd, runtime);
+  return errorEnvelope("hook", "AC_SCHEMA_INVALID", "hook requires enqueue|checkpoint");
+}
+
+async function runHookCheckpointCommand(checkpointArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const started = Date.now();
   const event = readFlag(checkpointArgs, "--event") ?? "post-edit";
   const changedPaths = [...readRepeatedFlag(checkpointArgs, "--path"), ...readRepeatedFlag(checkpointArgs, "--changed")];
@@ -571,10 +913,108 @@ async function runHookCommand(args: string[], cwd: string, runtime: () => Promis
   }
 }
 
+async function runHookEnqueueCommand(enqueueArgs: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
+  const started = Date.now();
+  const event = readFlag(enqueueArgs, "--event") ?? "post-edit";
+  const changedPaths = [...readRepeatedFlag(enqueueArgs, "--path"), ...readRepeatedFlag(enqueueArgs, "--changed")];
+  const sourceResult = readHookGitChangeSource(enqueueArgs, event);
+  if (!sourceResult.ok) return sourceResult.envelope;
+  const maxAttemptsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-attempts", "hook.enqueue");
+  if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
+  const maxQueuedJobsResult = readOptionalPositiveIntegerFlag(enqueueArgs, "--max-queued-jobs", "hook.enqueue");
+  if (!maxQueuedJobsResult.ok) return maxQueuedJobsResult.envelope;
+  const priorityResult = readOptionalIntegerFlag(enqueueArgs, "--priority", "hook.enqueue");
+  if (!priorityResult.ok) return priorityResult.envelope;
+  const generatedProjection = enqueueArgs.includes("--generated-projection");
+  if (shouldSkipGeneratedProjectionHook(enqueueArgs, changedPaths)) {
+    return okEnvelope("hook.enqueue", {
+      schemaVersion: "archcontext.hook-enqueue-skipped/v1",
+      accepted: false,
+      enqueued: false,
+      skipped: true,
+      failOpen: false,
+      reasonCode: "archcontext-generated-projection",
+      event,
+      source: sourceResult.source,
+      pathCount: changedPaths.length,
+      egress: "none",
+      network: "forbidden",
+      hookLog: hookLogRecord({
+        event,
+        changedPaths,
+        reasonCode: "archcontext-generated-projection",
+        elapsedMs: Date.now() - started,
+        failOpen: false
+      })
+    } as Json);
+  }
+
+  const input: RuntimeAgentJobEnqueueGitInput = {
+    source: sourceResult.source,
+    event,
+    analysisKind: readFlag(enqueueArgs, "--analysis-kind") ?? "architecture-delta",
+    ...(readFlag(enqueueArgs, "--risk") === undefined ? {} : { risk: readFlag(enqueueArgs, "--risk")! as any }),
+    ...(readFlag(enqueueArgs, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(enqueueArgs, "--uncertainty")! as any }),
+    ...(enqueueArgs.includes("--policy-requested") ? { policyRequestedInvestigation: true } : {}),
+    ...(readFlag(enqueueArgs, "--ref") === undefined ? {} : { ref: readFlag(enqueueArgs, "--ref")! }),
+    ...(readFlag(enqueueArgs, "--base-ref") === undefined ? {} : { baseRef: readFlag(enqueueArgs, "--base-ref")! }),
+    ...(readFlag(enqueueArgs, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(enqueueArgs, "--coalesce-key")! }),
+    ...(readFlag(enqueueArgs, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(enqueueArgs, "--debounce-until")! }),
+    ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
+    ...(maxQueuedJobsResult.value === undefined ? {} : { maxQueuedJobs: maxQueuedJobsResult.value }),
+    ...(priorityResult.value === undefined ? {} : { priority: priorityResult.value }),
+    ...(readFlag(enqueueArgs, "--runner-port") === undefined ? {} : { runnerPort: readFlag(enqueueArgs, "--runner-port")! as any }),
+    ...(readFlag(enqueueArgs, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(enqueueArgs, "--code-facts-digest")! }),
+    generatedProjection,
+    skipGeneratedProjection: !enqueueArgs.includes("--no-generated-projection-guard")
+  };
+
+  try {
+    const result = await (await runtime()).jobsEnqueueGitHook(cwd, input);
+    if (!result.ok || typeof result.data !== "object" || result.data === null) return result;
+    const data = result.data as Record<string, Json>;
+    return {
+      ...result,
+      requestId: "hook.enqueue",
+      data: {
+        ...data,
+        hookLog: hookLogRecord({
+          event,
+          changedPaths,
+          reasonCode: hookEnqueueReasonCode(data),
+          elapsedMs: Date.now() - started,
+          failOpen: false
+        })
+      } as Json
+    };
+  } catch (error) {
+    return okEnvelope("hook.enqueue", {
+      schemaVersion: "archcontext.hook-enqueue-fail-open/v1",
+      accepted: false,
+      enqueued: false,
+      failOpen: true,
+      reasonCode: "runtime-unavailable",
+      event,
+      source: sourceResult.source,
+      pathCount: changedPaths.length,
+      egress: "none",
+      network: "forbidden",
+      hookLog: hookLogRecord({
+        event,
+        changedPaths,
+        reasonCode: "runtime-unavailable",
+        elapsedMs: Date.now() - started,
+        failOpen: true
+      }),
+      message: error instanceof Error ? error.message : String(error)
+    } as Json);
+  }
+}
+
 function runHooksCommand(args: string[]) {
   const subcommand = args[0] ?? "status";
-  if (!["install", "status", "remove"].includes(subcommand)) {
-    return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "hooks requires install|status|remove");
+  if (!["install", "status", "remove", "uninstall", "doctor"].includes(subcommand)) {
+    return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "hooks requires install|status|remove|uninstall|doctor");
   }
   const host = readAgentHost(args);
   if (!host) return errorEnvelope("hooks", "AC_SCHEMA_INVALID", "--host must be codex, claude, or generic");
@@ -595,12 +1035,169 @@ function runHooksCommand(args: string[]) {
       configExample: hookHostConfigExample(host)
     } as any);
   }
-  return okEnvelope("hooks.remove", {
+  if (subcommand === "doctor") {
+    return okEnvelope("hooks.doctor", {
+      ...adapter,
+      installed: "config-ready",
+      writes: "manual-host-config",
+      checks: [
+        { id: "entrypoint", status: "pass", command: "archctx hook enqueue" },
+        { id: "fail-open", status: "pass", schemaVersion: "archcontext.hook-enqueue-fail-open/v1" },
+        { id: "egress", status: "pass", egress: "none", network: "forbidden" },
+        { id: "recursion-guard", status: "pass", generatedProjectionFlag: "--generated-projection" }
+      ]
+    } as any);
+  }
+  return okEnvelope(subcommand === "uninstall" ? "hooks.uninstall" : "hooks.remove", {
     ...adapter,
     installed: false,
     writes: "manual-host-config",
     removeConfig: hookHostRemoveConfig(host)
   } as any);
+}
+
+async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "list";
+  if (subcommand === "list") {
+    const statusResult = readRuntimeAgentJobStatuses(args, "jobs.list");
+    if (!statusResult.ok) return statusResult.envelope;
+    return daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+  }
+  if (subcommand === "stats") {
+    return daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
+  }
+  if (subcommand === "show") {
+    const jobId = readFlag(args, "--job-id") ?? args[1];
+    if (!jobId) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", "jobs show requires <job-id> or --job-id");
+    const statusResult = readRuntimeAgentJobStatuses(args, "jobs.show");
+    if (!statusResult.ok) return statusResult.envelope;
+    const list = await daemon.jobsList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+    if (!list.ok || typeof list.data !== "object" || list.data === null) return list;
+    const jobs = Array.isArray((list.data as any).jobs) ? (list.data as any).jobs : [];
+    const job = jobs.find((record: any) => record?.job?.jobId === jobId);
+    if (!job) return errorEnvelope("jobs.show", "AC_SCHEMA_INVALID", `runtime agent job not found: ${jobId}`);
+    return okEnvelope("jobs.show", { job, found: true } as unknown as Json);
+  }
+  if (subcommand === "cancel") {
+    const jobId = readFlag(args, "--job-id") ?? args[1];
+    if (!jobId) return errorEnvelope("jobs.cancel", "AC_SCHEMA_INVALID", "jobs cancel requires <job-id> or --job-id");
+    const status = readFlag(args, "--status");
+    if (status !== undefined && !["cancelled", "superseded", "expired"].includes(status)) {
+      return errorEnvelope("jobs.cancel", "AC_SCHEMA_INVALID", "jobs cancel --status must be cancelled, superseded, or expired");
+    }
+    return daemon.jobsCancel(cwd, {
+      jobId,
+      ...(status === undefined ? {} : { status: status as Extract<RuntimeAgentJobStatus, "cancelled" | "superseded" | "expired"> }),
+      ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! }),
+      ...(readFlag(args, "--superseded-by-job-id") === undefined ? {} : { supersededByJobId: readFlag(args, "--superseded-by-job-id")! })
+    });
+  }
+  if (subcommand === "retry") {
+    const jobId = readFlag(args, "--job-id") ?? args[1];
+    if (!jobId) return errorEnvelope("jobs.retry", "AC_SCHEMA_INVALID", "jobs retry requires <job-id> or --job-id");
+    return daemon.jobsRetry(cwd, {
+      jobId,
+      ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! })
+    });
+  }
+  return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
+}
+
+async function runInvestigateCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const sourceResult = readCliGitChangeSource(args, "investigate", "worktree");
+  if (!sourceResult.ok) return sourceResult.envelope;
+  const runnerPortResult = readAgentRunnerPort(args, "investigate");
+  if (!runnerPortResult.ok) return runnerPortResult.envelope;
+  const maxAttemptsResult = readOptionalPositiveIntegerFlag(args, "--max-attempts", "investigate");
+  if (!maxAttemptsResult.ok) return maxAttemptsResult.envelope;
+  const maxQueuedJobsResult = readOptionalPositiveIntegerFlag(args, "--max-queued-jobs", "investigate");
+  if (!maxQueuedJobsResult.ok) return maxQueuedJobsResult.envelope;
+  const contextMaxItemsResult = readOptionalPositiveIntegerFlag(args, "--context-max-items", "investigate");
+  if (!contextMaxItemsResult.ok) return contextMaxItemsResult.envelope;
+  const priorityResult = readOptionalIntegerFlag(args, "--priority", "investigate");
+  if (!priorityResult.ok) return priorityResult.envelope;
+  const cooldownMsResult = readOptionalNonNegativeIntegerFlag(args, "--cooldown-ms", "investigate");
+  if (!cooldownMsResult.ok) return cooldownMsResult.envelope;
+
+  const event = readFlag(args, "--event") ?? "manual";
+  const input: RuntimeAgentJobEnqueueGitInput = {
+    source: sourceResult.source,
+    event,
+    analysisKind: readFlag(args, "--analysis-kind") ?? "architecture-delta",
+    ...(readFlag(args, "--risk") === undefined ? {} : { risk: readFlag(args, "--risk")! as any }),
+    ...(readFlag(args, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(args, "--uncertainty")! as any }),
+    policyRequestedInvestigation: true,
+    ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
+    ...(readFlag(args, "--ref") === undefined ? {} : { ref: readFlag(args, "--ref")! }),
+    ...(readFlag(args, "--base-ref") === undefined ? {} : { baseRef: readFlag(args, "--base-ref")! }),
+    ...(readFlag(args, "--coalesce-key") === undefined ? {} : { coalesceKey: readFlag(args, "--coalesce-key")! }),
+    ...(readFlag(args, "--debounce-until") === undefined ? {} : { debounceUntil: readFlag(args, "--debounce-until")! }),
+    ...(maxAttemptsResult.value === undefined ? {} : { maxAttempts: maxAttemptsResult.value }),
+    ...(maxQueuedJobsResult.value === undefined ? {} : { maxQueuedJobs: maxQueuedJobsResult.value }),
+    ...(contextMaxItemsResult.value === undefined ? {} : { contextMaxItems: contextMaxItemsResult.value }),
+    ...(cooldownMsResult.value === undefined ? {} : { cooldownMs: cooldownMsResult.value }),
+    ...(priorityResult.value === undefined ? {} : { priority: priorityResult.value }),
+    ...(runnerPortResult.runnerPort === undefined ? {} : { runnerPort: runnerPortResult.runnerPort }),
+    ...(readFlag(args, "--code-facts-digest") === undefined ? {} : { codeFactsDigest: readFlag(args, "--code-facts-digest")! }),
+    generatedProjection: args.includes("--generated-projection"),
+    skipGeneratedProjection: !args.includes("--no-generated-projection-guard")
+  };
+  const result = await daemon.jobsEnqueueGitHook(cwd, input);
+  if (!result.ok || typeof result.data !== "object" || result.data === null) return { ...result, requestId: "investigate" };
+  return {
+    ...result,
+    requestId: "investigate",
+    data: {
+      schemaVersion: "archcontext.investigate-enqueue/v1",
+      ...(result.data as Record<string, Json>),
+      runnerPort: input.runnerPort ?? "codex",
+      analysisKind: input.analysisKind,
+      source: input.source,
+      event
+    } as unknown as Json
+  };
+}
+
+async function runAgentsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand === "status") {
+    const statusResult = readRuntimeAgentJobStatuses(args, "agents.status");
+    if (!statusResult.ok) return statusResult.envelope;
+    const statuses = statusResult.statuses.length === 0 ? ["queued", "running"] as RuntimeAgentJobStatus[] : statusResult.statuses;
+    const stats = await daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
+    if (!stats.ok) return { ...stats, requestId: "agents.status" };
+    const list = await daemon.jobsList(cwd, { statuses });
+    if (!list.ok || typeof list.data !== "object" || list.data === null) return { ...list, requestId: "agents.status" };
+    const jobs = Array.isArray((list.data as any).jobs) ? (list.data as any).jobs : [];
+    return okEnvelope("agents.status", {
+      schemaVersion: "archcontext.agent-status/v1",
+      statuses,
+      stats: stats.data as Json,
+      jobs,
+      count: jobs.length
+    } as unknown as Json);
+  }
+  if (subcommand === "budget") {
+    const stats = await daemon.jobsStats(cwd, { ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! }) });
+    if (!stats.ok) return { ...stats, requestId: "agents.budget" };
+    return okEnvelope("agents.budget", {
+      schemaVersion: "archcontext.agent-budget/v1",
+      spawnPolicy: {
+        maxRunsPerTask: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerTask,
+        maxRunsPerRepositoryPerDay: 4,
+        maxRunsPerDay: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxRunsPerDay,
+        maxAutomaticRunsForLowRisk: DEFAULT_AGENT_ORCHESTRATION_POLICY.maxAutomaticRunsForLowRisk,
+        adapterEnabledByRuntimeEnqueue: true
+      },
+      queuePolicy: {
+        maxQueuedJobs: DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS,
+        maxRunningJobsPerRepository: DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY
+      },
+      stats: stats.data as Json,
+      authority: "local-runtime-daemon"
+    } as unknown as Json);
+  }
+  return errorEnvelope("agents", "AC_SCHEMA_INVALID", "agents requires status|budget");
 }
 
 async function runGithubCommand(args: string[], cwd: string, deps: CliRuntimeDeps) {
@@ -1175,6 +1772,14 @@ function hookAdapterContract(host: AgentHost) {
     repoLocalRuntime: "not-vendored",
     entrypoint: {
       command: "archctx",
+      args: ["hook", "enqueue"],
+      timeoutMs: HOOK_ENQUEUE_TIMEOUT_MS,
+      failOpen: true,
+      egress: "none",
+      network: "forbidden"
+    },
+    fallbackEntrypoint: {
+      command: "archctx",
       args: ["hook", "checkpoint"],
       timeoutMs: HOOK_CHECKPOINT_TIMEOUT_MS,
       failOpen: true,
@@ -1184,12 +1789,19 @@ function hookAdapterContract(host: AgentHost) {
     acceptedInput: {
       eventFlag: "--event",
       changedPathFlags: ["--path", "--changed"],
+      sourceFlag: "--source",
+      generatedProjectionFlag: "--generated-projection",
       toolCallIdFlag: "--tool-call-id",
       taskSessionIdFlag: "--task-session-id"
     },
     output: {
+      successRequestId: "hook.enqueue",
+      queueRequestId: "jobs.enqueueGitHook",
+      successData: "runtime-agent-job-record",
+      skipSchemaVersion: "archcontext.hook-enqueue-skipped/v1",
+      failOpenSchemaVersion: "archcontext.hook-enqueue-fail-open/v1",
       checkpointSchemaVersion: "archcontext.practice-checkpoint/v1",
-      failOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
+      checkpointFailOpenSchemaVersion: "archcontext.hook-checkpoint-fail-open/v1"
     },
     logContract: {
       schemaVersion: HOOK_LOG_SCHEMA_VERSION,
@@ -1206,15 +1818,16 @@ function hookHostConfigExample(host: AgentHost) {
     writes: "manual-host-config",
     adapter: {
       command: HOOK_ADAPTER_NAME,
-      args: ["archcontext-checkpoint"],
+      args: ["archcontext-enqueue"],
       invokes: {
         command: "archctx",
-        args: ["hook", "checkpoint", "--event", "post-edit"]
+        args: ["hook", "enqueue", "--event", "post-edit"]
       }
     },
     eventMap: {
-      postEdit: "archctx hook checkpoint --event post-edit --path <changed-path>",
-      postWrite: "archctx hook checkpoint --event post-write --path <changed-path>"
+      postEdit: "archctx hook enqueue --event post-edit --path <changed-path>",
+      postWrite: "archctx hook enqueue --event post-write --path <changed-path>",
+      generatedProjection: "archctx hook enqueue --event post-write --generated-projection --path .archcontext/generated/<file>"
     },
     centralFirst: true,
     repoHookSourceRequired: false
@@ -1226,7 +1839,8 @@ function hookHostRemoveConfig(host: AgentHost) {
     host,
     configPath: host === "codex" ? "~/.codex/hooks.json" : host === "claude" ? "~/.claude/settings.json" : "agent-host-config",
     removeAdapter: HOOK_ADAPTER_NAME,
-    removeEntrypoint: "archctx hook checkpoint",
+    removeEntrypoint: "archctx hook enqueue",
+    compatibilityEntrypoint: "archctx hook checkpoint",
     repoHookSourceRequired: false
   };
 }
@@ -1245,6 +1859,121 @@ function hookLogRecord(input: { event: string; changedPaths: string[]; reasonCod
     egress: "none",
     network: "forbidden"
   };
+}
+
+function readHookGitChangeSource(args: string[], event: string):
+  | { ok: true; source: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const requested = readFlag(args, "--source") ?? defaultHookGitChangeSource(event);
+  if (requested === "worktree" || requested === "staged" || requested === "commit") {
+    return { ok: true, source: requested };
+  }
+  return {
+    ok: false,
+    envelope: errorEnvelope("hook.enqueue", "AC_SCHEMA_INVALID", "hook enqueue --source must be worktree, staged, or commit")
+  };
+}
+
+function readCliGitChangeSource(args: string[], requestId: string, defaultSource: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]>):
+  | { ok: true; source: NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const requested = readFlag(args, "--source") ?? defaultSource;
+  if (requested === "worktree" || requested === "staged" || requested === "commit") {
+    return { ok: true, source: requested };
+  }
+  return {
+    ok: false,
+    envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${requestId} --source must be worktree, staged, or commit`)
+  };
+}
+
+function readAgentRunnerPort(args: string[], requestId: string):
+  | { ok: true; runnerPort?: AgentJobV1["runnerPort"] }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, "--runner-port") ?? readFlag(args, "--provider");
+  if (raw === undefined) return { ok: true };
+  const normalized = raw === "claude" ? "claude-code" : raw;
+  if (normalized === "codex" || normalized === "claude-code" || normalized === "fake-provider") {
+    return { ok: true, runnerPort: normalized };
+  }
+  return {
+    ok: false,
+    envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${requestId} --runner-port must be codex, claude-code, claude, or fake-provider`)
+  };
+}
+
+function defaultHookGitChangeSource(event: string): NonNullable<RuntimeAgentJobEnqueueGitInput["source"]> {
+  if (event === "post-commit") return "commit";
+  if (event === "pre-commit") return "staged";
+  return "worktree";
+}
+
+function readOptionalPositiveIntegerFlag(args: string[], flag: string, requestId: string):
+  | { ok: true; value?: number }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return { ok: true };
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be a positive integer`) };
+  }
+  return { ok: true, value };
+}
+
+function readOptionalIntegerFlag(args: string[], flag: string, requestId: string):
+  | { ok: true; value?: number }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return { ok: true };
+  const value = Number(raw);
+  if (!Number.isInteger(value)) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be an integer`) };
+  }
+  return { ok: true, value };
+}
+
+function readOptionalNonNegativeIntegerFlag(args: string[], flag: string, requestId: string):
+  | { ok: true; value?: number }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const raw = readFlag(args, flag);
+  if (raw === undefined) return { ok: true };
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `${flag} must be a non-negative integer`) };
+  }
+  return { ok: true, value };
+}
+
+function shouldSkipGeneratedProjectionHook(args: string[], changedPaths: string[]): boolean {
+  if (args.includes("--no-generated-projection-guard")) return false;
+  if (args.includes("--generated-projection")) return true;
+  return changedPaths.length > 0 && changedPaths.every(isArchContextGeneratedProjectionPath);
+}
+
+function isArchContextGeneratedProjectionPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
+}
+
+function hookEnqueueReasonCode(data: Record<string, Json>): string {
+  if (data.reasonCode !== undefined) return String(data.reasonCode);
+  if (data.skipped === true) return "skipped";
+  if (data.deduplicated === true) return "deduplicated";
+  if (data.enqueued === true) return "enqueued";
+  return "unknown";
+}
+
+function readRuntimeAgentJobStatuses(args: string[], requestId: string):
+  | { ok: true; statuses: RuntimeAgentJobStatus[] }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const statuses = readRepeatedFlag(args, "--status")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = statuses.find((status) => !(RUNTIME_AGENT_JOB_STATUSES as readonly string[]).includes(status));
+  if (invalid) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `unknown runtime agent job status: ${invalid}`) };
+  }
+  return { ok: true, statuses: statuses as RuntimeAgentJobStatus[] };
 }
 
 function readAgentHost(args: string[]): AgentHost | undefined {
@@ -1529,26 +2258,7 @@ function isPrivatePath(path: string): boolean {
 async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliRuntimeHandle> {
   if (deps.runtimeClient) return { client: deps.runtimeClient, close: async () => undefined };
   if (!deps.disableRpcDiscovery && !hasEmbeddedRuntimeDeps(deps)) {
-    const fileIssue = runtimeRpcCompatibilityIssue(cwd);
-    if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
-    const client = createRuntimeRpcClientFromConnectionFile(cwd);
-    if (client) {
-      const health = await client.health().catch(() => undefined);
-      const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
-      if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
-      if ((health as any)?.ok === true) return { client, close: async () => undefined };
-      recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
-    } else {
-      recoverStaleDaemonControlFiles(cwd);
-    }
-    const started = await startBackgroundDaemon([], cwd);
-    if (!started.ok) throw new Error(started.error?.message ?? "archctxd did not start");
-    const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
-    if (startedClient) {
-      const health = await startedClient.health().catch(() => undefined);
-      if ((health as any)?.ok === true) return { client: startedClient, close: async () => undefined };
-    }
-    throw new Error("archctxd started but no healthy runtime RPC connection was available");
+    return { client: await createOrStartRuntimeRpcClient(cwd), close: async () => undefined };
   }
   const {
     runtimeClient: _runtimeClient,
@@ -1567,6 +2277,33 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
     devicePrivateKeySigner: runtimeDeps.devicePrivateKeySigner ?? devicePrivateKeyStore
   });
   return { client: daemon, close: () => daemon.stop() };
+}
+
+async function createOrStartRuntimeRpcClient(cwd: string): Promise<RuntimeDaemonClient> {
+  const fileIssue = runtimeRpcCompatibilityIssue(cwd);
+  if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
+  const client = createRuntimeRpcClientFromConnectionFile(cwd);
+  if (client) {
+    const health = await client.health().catch(() => undefined);
+    const healthIssue = runtimeRpcCompatibilityIssueFromHealth(cwd, client, health);
+    if (healthIssue) throw new RuntimeVersionUnsupportedError(healthIssue);
+    if ((health as any)?.ok === true) return client;
+    recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
+  } else {
+    recoverStaleDaemonControlFiles(cwd);
+  }
+  const started = await startBackgroundDaemon([], cwd);
+  if (!started.ok) throw new Error(mcpDaemonStartRecoveryMessage(started.error?.message ?? "archctxd did not start"));
+  const startedClient = createRuntimeRpcClientFromConnectionFile(cwd);
+  if (startedClient) {
+    const health = await startedClient.health().catch(() => undefined);
+    if ((health as any)?.ok === true) return startedClient;
+  }
+  throw new Error(mcpDaemonStartRecoveryMessage("archctxd started but no healthy runtime RPC connection was available"));
+}
+
+function mcpDaemonStartRecoveryMessage(message: string): string {
+  return message.includes("archctx daemon") ? message : `${message}; run \`archctx daemon start\` before using the local MCP surface`;
 }
 
 function hasEmbeddedRuntimeDeps(deps: CliRuntimeDeps): boolean {
@@ -1667,6 +2404,8 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
   mkdirSync(controlDir, { recursive: true });
   const logFd = openSync(logPath, "a", 0o600);
   try {
+    let childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    let childError: Error | undefined;
     const child = spawn(process.execPath, [
       CLI_ENTRY,
       "daemon",
@@ -1680,10 +2419,16 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
       env: process.env,
       stdio: ["ignore", logFd, logFd]
     });
+    child.once("exit", (code, signal) => {
+      childExit = { code, signal };
+    });
+    child.once("error", (error) => {
+      childError = error;
+    });
     child.unref();
-    const ready = await waitForDaemonReady(cwd, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
+    const ready = await waitForDaemonReady(cwd, daemonStartTimeoutMs(args), () => childExit !== undefined || childError !== undefined);
     if (!ready) {
-      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", `archctxd did not become ready; log=${logPath}; logTail=${readFileTail(logPath)}`);
+      return errorEnvelope("daemon.start", "AC_RUNTIME_UNAVAILABLE", daemonStartFailureMessage(logPath, childExit, childError));
     }
     return okEnvelope("daemon.start", {
       running: true,
@@ -1710,7 +2455,7 @@ async function upgradeDaemon(args: string[], cwd: string) {
   }
   if (issue.pidAlive && issue.pid !== undefined) {
     process.kill(issue.pid, "SIGTERM");
-    const stopped = await waitForPidExit(issue.pid, Number(readFlag(args, "--timeout-ms") ?? DAEMON_START_TIMEOUT_MS));
+    const stopped = await waitForPidExit(issue.pid, daemonStartTimeoutMs(args));
     if (!stopped) {
       return errorEnvelope("daemon.upgrade", "AC_RUNTIME_VERSION_UNSUPPORTED", `Incompatible archctxd pid ${issue.pid} did not stop; stop it manually, then run archctx daemon upgrade.`);
     }
@@ -1831,11 +2576,32 @@ function recoveryData(recovery: { removed: string[] }) {
   return recovery.removed.length > 0 ? { recoveredStaleControlFiles: recovery.removed } : {};
 }
 
-async function waitForDaemonReady(cwd: string, timeoutMs: number) {
+function daemonStartTimeoutMs(args: string[]): number {
+  const configured = readFlag(args, "--timeout-ms") ?? process.env[DAEMON_START_TIMEOUT_ENV];
+  if (configured === undefined) return DAEMON_START_TIMEOUT_MS;
+  const parsed = Number(configured);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DAEMON_START_TIMEOUT_MS;
+}
+
+function daemonStartFailureMessage(
+  logPath: string,
+  childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined,
+  childError: Error | undefined
+): string {
+  const childState = childError
+    ? `childError=${childError.message}`
+    : childExit
+      ? `childExit=${childExit.code ?? "null"}/${childExit.signal ?? "none"}`
+      : "childState=still-running";
+  return `archctxd did not become ready; ${childState}; log=${logPath}; logTail=${readFileTail(logPath)}`;
+}
+
+async function waitForDaemonReady(cwd: string, timeoutMs: number, shouldStop?: () => boolean) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const ready = await runningDaemonInfo(cwd);
     if (ready) return ready;
+    if (shouldStop?.()) return undefined;
     await sleep(50);
   }
   return undefined;
@@ -1902,6 +2668,19 @@ function renderResult(result: any, format: string): string {
   if (format !== "human") return JSON.stringify(result, null, 2);
   if (!result.ok) return `ERROR ${result.error?.code}: ${result.error?.message}`;
   return `OK ${result.requestId}\n${JSON.stringify(result.data, null, 2)}`;
+}
+
+function readCurrentBranch(root: string): string {
+  try {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return branch === "HEAD" ? "detached" : branch;
+  } catch {
+    return "unknown";
+  }
 }
 
 function readFlag(args: string[], flag: string): string | undefined {

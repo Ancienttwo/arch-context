@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "archcontext.practice-enforcement-policy/v1",
+  "mode": "active",
+  "recommendations": {
+    "budgets": {
+      "maxRecommendationsPerRun": -1
+    }
+  },
+  "rules": []
+}

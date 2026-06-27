@@ -3,10 +3,11 @@
 > **Status**: Approved
 > **Date**: 2026-06-22
 > **Scope**: archctx-local-github-governance FG6 personal-user Beta
+> **Current Release Supersession**: AL10 official npm release moved the current personal-user install artifact to `archctx@0.1.4` on 2026-06-27; this review remains the historical FG6 approval for the same personal-user boundary.
 
 ## Decision Requested
 
-Approve a personal-user Beta for `archctx@0.1.0`.
+Approve a personal-user Beta for the then-active `archctx@0.1.0` public artifact. The current install artifact is `archctx@0.1.4` under the same personal-user boundary, as verified by `docs/verification/architecture-ledger-al10-npm-release.md` and `docs/verification/fg6-release-distribution-readback.json`.
 
 This launch boundary is limited to one local developer installing the public npm package and using the no-cloud Local Core workflow on their own repository. It does not approve design-partner rollout, opt-in beta cohorts, team collaboration, shared organization policy rollout, or multi-seat workflows.
 
@@ -14,7 +15,8 @@ This launch boundary is limited to one local developer installing the public npm
 
 The personal-user launch boundary is:
 
-- Public package: `archctx@0.1.0` from npm.
+- Historical launch package: `archctx@0.1.0` from npm.
+- Current install package: `archctx@0.1.4` from npm `latest`.
 - Install runbook: `docs/runbooks/personal-user-install.md`.
 - Local no-cloud workflow: `doctor -> init -> sync -> context -> prepare -> status`.
 - Verification ledger: `docs/verification/acceptance-ledger.json`.
@@ -29,7 +31,7 @@ Out of scope for this launch:
 
 ## P2 Trace
 
-The launch trace starts from the public npm artifact:
+The original launch trace starts from the FG6 public npm artifact:
 
 1. `archctx@0.1.0` is published and registry-visible.
 2. `bun run readback:fg6:release-distribution` verifies the public install command `npm install -g archctx`.
@@ -38,6 +40,8 @@ The launch trace starts from the public npm artifact:
 5. `docs/verification/fg6-local-no-cloud-readback.json` proves the local first-run path completes without GitHub App, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 6. `bun run verify:governance` replays the aggregate evidence gate.
 7. The hosted Ubuntu/macOS/Windows by Node 24/25 matrix passes on the readback head before this launch review returns to Approved.
+
+Current release supersession trace: `docs/verification/architecture-ledger-al10-npm-release.md` records `archctx@0.1.4` published to npm `latest`, `docs/verification/fg6-release-distribution-readback.json` verifies the public install command against `0.1.4`, and `docs/runbooks/personal-user-install.md` now carries the current exact install command. This does not widen the FG6 launch boundary.
 
 ## P3 Decision Rationale
 
@@ -67,7 +71,8 @@ Personal-user Beta support is constrained to the verified local runtime matrix:
 - OS: `ubuntu-latest`, `macos-latest`, `windows-latest`.
 - Node lanes verified in CI: `24.x`, `25.x`.
 - Runtime required by published CLI: Bun `>=1.3.10`.
-- Package: `archctx@0.1.0`.
+- Package: current `archctx@0.1.4`.
+- Historical package: initial FG6 approval artifact `archctx@0.1.0`.
 - Default posture: local-only, no provider credential required.
 
 ## Known Limitations
@@ -80,4 +85,4 @@ Personal-user Beta support is constrained to the verified local runtime matrix:
 
 ## Launch Decision
 
-Approved for personal-user Beta in `docs/approvals/fg6-personal-beta-launch.md`.
+Approved for the personal-user Beta boundary in `docs/approvals/fg6-personal-beta-launch.md`. Current exact npm version is governed by the release distribution readback and `docs/runbooks/personal-user-install.md`.

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "archcontext.evidence-item/v2",
+  "evidenceId": "evidence.al0.boundary-import",
+  "kind": "import-edge-added",
+  "strength": "observed",
+  "polarity": "positive",
+  "origin": "codegraph",
+  "subject": "relation.module-api-imports-runtime",
+  "selector": {
+    "kind": "relation",
+    "id": "relation.module-api-imports-runtime",
+    "path": "packages/core/application/src/index.ts",
+    "startLine": 1,
+    "endLine": 1
+  },
+  "summary": "CodeGraph observed an import edge for the changed subject.",
+  "coverage": {
+    "level": "partial",
+    "scope": "changed-paths"
+  },
+  "supports": ["recommendation", "checkpoint"],
+  "provenance": {
+    "producer": "codegraph-adapter",
+    "command": "codegraph explore",
+    "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

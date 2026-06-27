@@ -1,0 +1,324 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al4-closeout-readback/v1",
+  "generatedAt": "2026-06-25T16:37:57.341Z",
+  "status": "verified",
+  "gates": {
+    "AL4-EG1": {
+      "name": "Hook enqueue overhead p95 <= 150 ms",
+      "status": "verified",
+      "thresholdMs": 150,
+      "p95Ms": 120,
+      "sampleCount": 24,
+      "samples": [
+        {
+          "elapsedMs": 114,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 113,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 112,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 112,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 109,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 110,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 109,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 108,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 133,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 120,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 111,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 108,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 103,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 113,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 108,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 106,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 107,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        },
+        {
+          "elapsedMs": 106,
+          "reasonCode": "deduplicated",
+          "egress": "none",
+          "network": "forbidden"
+        }
+      ]
+    },
+    "AL4-EG2": {
+      "name": "No default hook network provider or LLM",
+      "status": "verified",
+      "generatedProjectionSkip": {
+        "schemaVersion": "archcontext.envelope/v1",
+        "ok": true,
+        "requestId": "hook.enqueue",
+        "data": {
+          "schemaVersion": "archcontext.hook-enqueue-skipped/v1",
+          "accepted": false,
+          "enqueued": false,
+          "skipped": true,
+          "failOpen": false,
+          "reasonCode": "archcontext-generated-projection",
+          "event": "post-write",
+          "source": "worktree",
+          "pathCount": 1,
+          "egress": "none",
+          "network": "forbidden",
+          "hookLog": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "event": "post-write",
+            "elapsedMs": 1,
+            "pathCount": 1,
+            "changedPathDigest": "sha256:401f151aae8580cdbec68a78a70d092fd8807f174452f97a1ecfd0b330ea3ea8",
+            "reasonCode": "archcontext-generated-projection",
+            "failOpen": false,
+            "egress": "none",
+            "network": "forbidden"
+          }
+        }
+      },
+      "doctor": {
+        "schemaVersion": "archcontext.envelope/v1",
+        "ok": true,
+        "requestId": "hooks.doctor",
+        "data": {
+          "schemaVersion": "archcontext.hook-adapter/v1",
+          "host": "codex",
+          "adapterName": "repo-harness-hook",
+          "ownership": "central-first",
+          "hookRuntime": "external-user-level",
+          "repoLocalRuntime": "not-vendored",
+          "entrypoint": {
+            "command": "archctx",
+            "args": [
+              "hook",
+              "enqueue"
+            ],
+            "timeoutMs": 5000,
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "fallbackEntrypoint": {
+            "command": "archctx",
+            "args": [
+              "hook",
+              "checkpoint"
+            ],
+            "timeoutMs": 5000,
+            "failOpen": true,
+            "egress": "none",
+            "network": "forbidden"
+          },
+          "acceptedInput": {
+            "eventFlag": "--event",
+            "changedPathFlags": [
+              "--path",
+              "--changed"
+            ],
+            "sourceFlag": "--source",
+            "generatedProjectionFlag": "--generated-projection",
+            "toolCallIdFlag": "--tool-call-id",
+            "taskSessionIdFlag": "--task-session-id"
+          },
+          "output": {
+            "successRequestId": "hook.enqueue",
+            "queueRequestId": "jobs.enqueueGitHook",
+            "successData": "runtime-agent-job-record",
+            "skipSchemaVersion": "archcontext.hook-enqueue-skipped/v1",
+            "failOpenSchemaVersion": "archcontext.hook-enqueue-fail-open/v1",
+            "checkpointSchemaVersion": "archcontext.practice-checkpoint/v1",
+            "checkpointFailOpenSchemaVersion": "archcontext.hook-checkpoint-fail-open/v1"
+          },
+          "logContract": {
+            "schemaVersion": "archcontext.hook-log/v1",
+            "allowedFields": [
+              "schemaVersion",
+              "event",
+              "elapsedMs",
+              "pathCount",
+              "changedPathDigest",
+              "reasonCode",
+              "failOpen",
+              "egress",
+              "network"
+            ],
+            "forbiddenContent": [
+              "source",
+              "diff",
+              "patch",
+              "symbolBody",
+              "architectureModelBody",
+              "secret"
+            ]
+          },
+          "installed": "config-ready",
+          "writes": "manual-host-config",
+          "checks": [
+            {
+              "id": "entrypoint",
+              "status": "pass",
+              "command": "archctx hook enqueue"
+            },
+            {
+              "id": "fail-open",
+              "status": "pass",
+              "schemaVersion": "archcontext.hook-enqueue-fail-open/v1"
+            },
+            {
+              "id": "egress",
+              "status": "pass",
+              "egress": "none",
+              "network": "forbidden"
+            },
+            {
+              "id": "recursion-guard",
+              "status": "pass",
+              "generatedProjectionFlag": "--generated-projection"
+            }
+          ]
+        }
+      }
+    },
+    "AL4-EG4": {
+      "name": "Stale jobs cannot complete as successful worker output",
+      "status": "verified",
+      "jobId": "agent_job.73f34ec24d5d8d802b679462018ca8df",
+      "claimed": true,
+      "rejected": true,
+      "errorCode": "AC_CONTEXT_STALE",
+      "expired": true,
+      "completion": {
+        "schemaVersion": "archcontext.envelope/v1",
+        "ok": false,
+        "requestId": "jobs.complete",
+        "error": {
+          "code": "AC_CONTEXT_STALE",
+          "severity": "warning",
+          "retryable": true,
+          "action": "prepare-task-again",
+          "message": "runtime agent job is stale for current HEAD/worktree: agent_job.73f34ec24d5d8d802b679462018ca8df"
+        }
+      }
+    },
+    "AL4-EG5": {
+      "name": "Existing user hooks remain chained and functional",
+      "status": "verified",
+      "exitCode": 0,
+      "markerWritten": true,
+      "stderr": ""
+    }
+  },
+  "failures": []
+}

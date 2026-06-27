@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al8-lifecycle-feedback-readback/v1",
+  "generatedAt": "2026-06-26T09:31:37.329Z",
+  "status": "verified",
+  "gates": [
+    "AL8-11",
+    "AL8-12",
+    "AL8-13"
+  ],
+  "recommendationId": "recommendation.d5176409778c1e2a",
+  "lifecycle": {
+    "cliOk": true,
+    "requestId": "recommendations.accept",
+    "previousStatus": "open",
+    "nextStatus": "accepted",
+    "appendedEventCount": 1,
+    "duplicateRejected": true,
+    "duplicateErrorCode": "AC_PRECONDITION_FAILED"
+  },
+  "feedback": {
+    "schemaVersion": "archcontext.recommendation-feedback/v1",
+    "feedbackId": "recommendation_feedback.dcaefdae824839fa",
+    "explicit": true,
+    "implicitAcceptance": false,
+    "actorKind": "subagent",
+    "actorSource": "subagent"
+  },
+  "book": {
+    "openCount": 0,
+    "latestStatuses": [
+      "accepted"
+    ],
+    "explanationReasonCodes": [
+      "confidence-medium",
+      "enforcement-advisory",
+      "has-evidence-bindings",
+      "has-recommendation-explanation",
+      "risk-medium",
+      "status-accepted"
+    ]
+  },
+  "metrics": {
+    "schemaVersion": "archcontext.recommendation-lifecycle-metrics/v1",
+    "recommendationCount": 1,
+    "feedbackCount": 1,
+    "acceptedRecommendationRate": 1,
+    "agentAssistedResolutionRate": 1,
+    "timeToResolution": {
+      "resolvedRecommendationCount": 1,
+      "averageMs": 600000,
+      "p50Ms": 600000,
+      "maxMs": 600000
+    },
+    "reasonCodes": [
+      "explicit-feedback-only",
+      "local-ledger-replay",
+      "recommendation-signals-present",
+      "resolved-recommendations-present"
+    ]
+  },
+  "sqlite": {
+    "feedbackRows": 1,
+    "recommendationRows": 1,
+    "feedbackDigest": "sha256:3dbc8385d2f1b0caf384c33cdba471faa716470adab22a191114a3f4b3f2c41f"
+  },
+  "privacy": {
+    "containsForbiddenToken": false,
+    "topLevelRawFieldSeen": false
+  },
+  "failures": []
+}

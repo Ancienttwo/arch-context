@@ -3,16 +3,22 @@ import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { dirname, join, resolve } from "node:path";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS } from "@archcontext/local-runtime/local-store-sqlite";
+import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import {
+  architectureDocumentationSourceDigest,
+  loadArchitectureDocumentationInputs,
+  renderArchitectureDocumentationProjection
+} from "@archcontext/core/projection-engine";
 import {
   ArchctxRuntimeRpcServer,
   RUNTIME_RPC_VERSION,
@@ -30,6 +36,8 @@ import {
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-state-"));
 const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
+const DEVELOPER_REVIEW_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
+const WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
 type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
 
@@ -46,8 +54,12 @@ function tempRepo(): string {
 }
 
 function removeTempRepo(root: string): void {
+  removeTempPath(root);
+}
+
+function removeTempPath(path: string): void {
   try {
-    rmSync(root, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+    rmSync(path, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100 });
   } catch (error) {
     if (isIgnorableWindowsCleanupError(error)) return;
     throw error;
@@ -70,6 +82,47 @@ function normalizeExistingPath(path: string): string {
 
 function readText(path: string): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
+function writeArchitectureDocsProjection(root: string): void {
+  const loaded = loadArchitectureDocumentationInputs(root);
+  const sourceDigest = architectureDocumentationSourceDigest({
+    model: loaded.model,
+    decisions: loaded.decisions
+  });
+  const plan = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    sourceDigest
+  });
+  const manifestBody = `${JSON.stringify({
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+    rendererVersion: plan.rendererVersion,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    targetCount: plan.targets.length,
+    fileCount: plan.files.length,
+    targets: plan.targets.map((target) => ({
+      targetId: target.targetId,
+      type: target.type,
+      scope: target.scope,
+      path: target.path,
+      ownership: target.ownership,
+      rendererVersion: target.rendererVersion,
+      format: target.format,
+      sourceDigest: target.sourceDigest,
+      outputDigest: target.outputDigest
+    }))
+  }, null, 2)}\n`;
+  for (const file of [
+    ...plan.files.map((file) => ({ path: file.path, body: file.body })),
+    { path: "docs/architecture/.projection-manifest.json", body: manifestBody }
+  ]) {
+    const absolute = resolve(root, file.path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, file.body, "utf8");
+  }
 }
 
 function createStartedTestDaemon(deps: Parameters<typeof createStartedDaemon>[0] = {}) {
@@ -432,6 +485,474 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs enqueue Git metadata through daemon boundary and claim a lease", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:00:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const first = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        taskSessionId: "task.runtime-agent",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-test",
+        maxAttempts: 2,
+        cooldownMs: 1_000,
+        contextMaxItems: 2
+      });
+      const duplicate = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        taskSessionId: "task.runtime-agent",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-test",
+        maxAttempts: 2,
+        cooldownMs: 1_000,
+        contextMaxItems: 2
+      });
+      expect(first.ok).toBe(true);
+      expect(duplicate.ok).toBe(true);
+      expect((first.data as any).enqueued).toBe(true);
+      expect((first.data as any).backpressure).toMatchObject({ accepted: true, maxQueuedJobs: 32, priority: 0 });
+      expect((duplicate.data as any).deduplicated).toBe(true);
+      expect((first.data as any).change.paths).toEqual([{ path: "src/changed.ts", status: "added", rawStatus: "??" }]);
+      expect(JSON.stringify(first.data)).not.toContain("export const changed");
+
+      const list = await daemon.jobsList(root, { statuses: ["queued"] });
+      expect((list.data as any).count).toBe(1);
+      const queued = (list.data as any).jobs[0];
+      expect(queued.job.trigger).toMatchObject({ source: "git_hook", reason: "post-edit" });
+      expect(queued.debounceUntil).toBe("2026-06-25T02:00:01.000Z");
+      expect(queued.job.inputDigest).toBe(queued.job.extensions.investigationContext.inputDigest);
+      expect(queued.job.extensions.investigationContext).toMatchObject({
+        schemaVersion: "archcontext.investigation-context-bundle/v1",
+        taskSessionId: "task.runtime-agent",
+        fingerprint: queued.job.fingerprint,
+        extensions: {
+          ledgerContext: {
+            schemaVersion: "archcontext.investigation-ledger-context/v1",
+            selected: {
+              entities: [],
+              relations: [],
+              constraints: [],
+              evidenceBindings: [],
+              candidateChanges: []
+            }
+          },
+          gitChange: {
+            pathCount: 1,
+            changedPaths: [{ path: "src/changed.ts", status: "added", rawStatus: "??" }]
+          },
+          analysisKind: "architecture-delta"
+        }
+      });
+      expect(queued.job.extensions.queuePlanDigest).toMatch(/^sha256:/);
+      expect(JSON.stringify(queued.job.extensions)).not.toContain("export const changed");
+      expect(JSON.stringify(queued.job.extensions)).not.toContain("diff --git");
+
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.al4",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:00:01.000Z"
+      });
+      expect((claim.data as any).job).toMatchObject({
+        job: { status: "running" },
+        attemptCount: 1,
+        leaseOwner: "worker.al4"
+      });
+      const secondClaim = await daemon.jobsClaim(root, {
+        workerId: "worker.al4-second",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:00:02.000Z"
+      });
+      expect((secondClaim.data as any).job).toBeUndefined();
+
+      const stats = await daemon.jobsStats(root, { now: "2026-06-25T02:00:03.000Z" });
+      expect((stats.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-queue-stats/v1",
+        queuedDepth: 0,
+        runningDepth: 1,
+        activeDepth: 1,
+        totalJobCount: 1
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs reject stale successful completion before worker side effects", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:20:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-stale-complete"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.stale",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:20:01.000Z"
+      });
+      expect((claim.data as any).job.job.jobId).toBe(jobId);
+
+      execFileSync("git", ["add", "src/changed.ts"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "advance-head"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.stale",
+        status: "succeeded",
+        outputDigest: digestJson({ staleWorkerOutput: true } as any),
+        now: "2026-06-25T02:20:02.000Z"
+      });
+
+      expect(complete.ok).toBe(false);
+      expect((complete as any).error.code).toBe("AC_CONTEXT_STALE");
+      const expired = await daemon.jobsList(root, { statuses: ["expired"] });
+      expect((expired.data as any).jobs).toHaveLength(1);
+      expect((expired.data as any).jobs[0].job.jobId).toBe(jobId);
+      expect((expired.data as any).jobs[0].lastError).toBe("stale-head-or-worktree");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs reject duplicate terminal completion before replacing output", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:25:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-duplicate-complete"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      await daemon.jobsClaim(root, {
+        workerId: "worker.duplicate",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:25:01.000Z"
+      });
+      const outputDigest = digestJson({ workerOutput: "first-completion" } as any);
+      const firstComplete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        outputDigest,
+        now: "2026-06-25T02:25:02.000Z"
+      });
+      expect(firstComplete.ok).toBe(true);
+
+      const duplicateComplete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.duplicate",
+        status: "succeeded",
+        outputDigest: digestJson({ workerOutput: "duplicate-completion" } as any),
+        now: "2026-06-25T02:25:03.000Z"
+      });
+      expect(duplicateComplete.ok).toBe(false);
+      expect((duplicateComplete as any).error.code).toBe("AC_PRECONDITION_FAILED");
+
+      const succeeded = await daemon.jobsList(root, { statuses: ["succeeded"] });
+      expect((succeeded.data as any).jobs).toHaveLength(1);
+      expect((succeeded.data as any).jobs[0].job.outputDigest).toBe(outputDigest);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs persist provider run metadata on completion", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:30:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-metadata"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.metadata",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:30:01.000Z"
+      });
+      const claimedJob = (claim.data as any).job.job;
+      const outputDigest = digestJson({ workerOutput: "metadata" } as any);
+
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.metadata",
+        status: "succeeded",
+        outputDigest,
+        runMetadata: {
+          schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
+          runnerId: "runner.codex",
+          provider: "codex",
+          modelId: "codex-test",
+          promptTemplateDigest: claimedJob.promptTemplateDigest,
+          inputDigest: claimedJob.inputDigest,
+          outputDigest,
+          startedAt: "2026-06-25T02:30:01.000Z",
+          completedAt: "2026-06-25T02:30:04.000Z",
+          durationMs: 3_000,
+          outcome: "succeeded",
+          attempts: 1,
+          maxAttempts: 1,
+          fallbackUsed: false
+        },
+        now: "2026-06-25T02:30:04.000Z"
+      });
+
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).job.job.extensions.agentRun).toMatchObject({
+        schemaVersion: "archcontext.agent-investigation-run-metadata/v1",
+        runnerId: "runner.codex",
+        provider: "codex",
+        modelId: "codex-test",
+        outputDigest,
+        outcome: "succeeded",
+        attempts: 1,
+        fallbackUsed: false
+      });
+      const succeeded = await daemon.jobsList(root, { statuses: ["succeeded"] });
+      expect((succeeded.data as any).jobs[0].job.extensions.agentRun).toMatchObject({
+        provider: "codex",
+        durationMs: 3_000,
+        outputDigest
+      });
+      expect(JSON.stringify((succeeded.data as any).jobs[0].job.extensions.agentRun)).not.toContain("export const changed");
+      expect(JSON.stringify((succeeded.data as any).jobs[0].job.extensions.agentRun)).not.toContain("diff --git");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs store agent documentation drafts only inside advisory proposal metadata", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:35:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-proposal-plan"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.proposal",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:35:01.000Z"
+      });
+      const claimedJob = (claim.data as any).job.job;
+      const outputDigest = digestJson({ workerOutput: "proposal-plan" } as any);
+      const proposedDeltaDigest = digestJson({ delta: "selected" } as any);
+      const prose = "## Context\n\nThe deterministic delta selected module.runtime.proposal for review.\n";
+      const proseDigest = digestJson({ prose } as any);
+      const documentationDraftInput = {
+        schemaVersion: "archcontext.agent-documentation-draft/v1",
+        draftId: "agent_doc_draft.runtime_proposal",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        kind: "adr-prose",
+        title: "Runtime proposal ADR prose",
+        prose,
+        proseDigest,
+        targetPath: "docs/adr/ADR-0041-runtime-proposal.md",
+        proposedDeltaDigests: [proposedDeltaDigest],
+        evidenceBindingIds: ["binding.runtime.proposal"],
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        promptTemplateDigest: claimedJob.promptTemplateDigest,
+        acceptedProjection: false,
+        authority: "advisory-only",
+        requiredNextStep: "deterministic-validation",
+        createdAt: "2026-06-25T02:35:03.000Z"
+      };
+      const proposalPlanInput = {
+        schemaVersion: "archcontext.investigation-report-proposal-plan/v1",
+        proposalId: "investigation_proposal.runtime_proposal",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        repository: claimedJob.repository,
+        worktree: claimedJob.worktree,
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        proposedDeltaDigests: [proposedDeltaDigest],
+        proposedDeltas: [],
+        documentationDraftDigests: [digestJson(documentationDraftInput as any)],
+        documentationDrafts: [{
+          ...documentationDraftInput,
+          draftDigest: digestJson(documentationDraftInput as any)
+        }],
+        evidenceBindingIds: ["binding.runtime.proposal"],
+        evidenceIds: ["evidence.runtime.proposal"],
+        validationDigest: digestJson({ validation: "proposal" } as any),
+        directMutationAllowed: false,
+        requiredNextStep: "deterministic-validation",
+        forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
+        authority: "advisory-only",
+        retention: "no-raw-source-or-diff-bodies",
+        createdAt: "2026-06-25T02:35:03.000Z"
+      };
+      const proposalPlan = {
+        ...proposalPlanInput,
+        proposalDigest: digestJson(proposalPlanInput as any)
+      } as any;
+
+      const invalid = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.proposal",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          documentationDrafts: [{
+            ...proposalPlan.documentationDrafts[0],
+            acceptedProjection: true
+          }]
+        },
+        now: "2026-06-25T02:35:03.500Z"
+      } as any);
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.proposal",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan,
+        now: "2026-06-25T02:35:04.000Z"
+      });
+
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).job.job.extensions.agentRun.proposalPlan.documentationDrafts[0]).toMatchObject({
+        draftId: "agent_doc_draft.runtime_proposal",
+        acceptedProjection: false,
+        authority: "advisory-only",
+        inputDigest: claimedJob.inputDigest,
+        outputDigest
+      });
+      expect(existsSync(join(root, "docs/adr/ADR-0041-runtime-proposal.md"))).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs skip generated projection hook changes without enqueueing", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:10:00.000Z"
+      });
+      mkdirSync(join(root, ".archcontext", "generated"), { recursive: true });
+      writeFileSync(join(root, ".archcontext", "generated", "ARCHITECTURE.md"), "<!-- Generated by ArchContext. Do not edit by hand. -->\n", "utf8");
+
+      const skipped = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-write"
+      });
+      expect(skipped.ok).toBe(true);
+      expect((skipped.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        source: "worktree"
+      });
+      expect((skipped.data as any).change.paths).toEqual([
+        { path: ".archcontext/generated/ARCHITECTURE.md", status: "added", rawStatus: "??" }
+      ]);
+      expect(JSON.stringify(skipped.data)).not.toContain("Do not edit by hand");
+
+      const list = await daemon.jobsList(root);
+      expect((list.data as any).count).toBe(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs skip clean hook changes without enqueueing", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:11:00.000Z"
+      });
+
+      const skipped = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-write"
+      });
+      expect(skipped.ok).toBe(true);
+      expect((skipped.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "no-changed-paths",
+        source: "worktree",
+        analysisKind: "architecture-delta"
+      });
+
+      const list = await daemon.jobsList(root);
+      expect((list.data as any).count).toBe(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("checkpoint restores persisted baseline after daemon restart", async () => {
     const root = tempRepo();
     const facts = mutableCycleFacts();
@@ -507,6 +1028,99 @@ describe("local runtime foundation", () => {
       expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
       expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
     } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("complete_task reports fail-open practice policy findings without blocking completion", async () => {
+    const root = tempRepo();
+    const facts = mutableCycleFacts();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ codeFacts: facts.port });
+      await daemon.init(root, "Practice Fail Open App");
+      mkdirSync(join(root, ".archcontext/policies"), { recursive: true });
+      writeFileSync(join(root, ".archcontext/policies/practices.yaml"), JSON.stringify({
+        schemaVersion: "archcontext.practice-enforcement-policy/v1",
+        mode: "fail-open",
+        rules: [
+          {
+            practiceId: "modularity.no-new-cycle",
+            enforcement: "complete",
+            checkIds: ["no-new-cycle"]
+          }
+        ]
+      }, null, 2), "utf8");
+
+      const prepare = await daemon.prepare(root, "remove import cycle", 12_288, 5, "task_fail_open");
+      expect(prepare.ok).toBe(true);
+      facts.setCycle(true);
+
+      const review = await daemon.completeTask(root, {
+        taskSessionId: "task_fail_open",
+        task: "remove import cycle"
+      });
+
+      expect(review.ok).toBe(true);
+      expect((review.data as any).result).toBe("pass_with_warnings");
+      expect((review.data as any).summary).toMatchObject({ errors: 0, warnings: 1 });
+      expect((review.data as any).practiceViolations).toEqual([]);
+      expect((review.data as any).actionsRequired).toEqual([]);
+      expect((review.data as any).findings).toContainEqual(expect.objectContaining({
+        id: "practice-advisory:modularity.no-new-cycle:no-new-cycle",
+        type: "practice-advisory",
+        severity: "warning"
+      }));
+      expect((review.data as any).extensions.nonBlockingPracticeViolations).toHaveLength(1);
+      expect((review.data as any).snapshot.practiceCatalogDigest).toMatch(/^sha256:/);
+      expect((review.data as any).snapshot.practicePolicyDigest).toMatch(/^sha256:/);
+      expect((review.data as any).snapshot.practiceCheckResultDigest).toMatch(/^sha256:/);
+    } finally {
+      await daemon?.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("complete_task blocks active documentation projection drift until projections are reconciled", async () => {
+    const root = tempRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon({ clock: () => "2026-06-26T10:40:00.000Z" });
+      await daemon.init(root, "Projection Gate App");
+
+      const beforeActivation = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish non-architecture setup before docs projection activation"
+      });
+      expect(beforeActivation.ok).toBe(true);
+      expect((beforeActivation.data as any).snapshot.projectionDigest).toBeUndefined();
+
+      mkdirSync(join(root, "docs/architecture"), { recursive: true });
+      writeFileSync(join(root, "docs/architecture/.projection-manifest.json"), "{}\n", "utf8");
+      const drifted = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish architecture projection update"
+      });
+      expect(drifted.ok).toBe(true);
+      expect((drifted.data as any).result).toBe("fail_action_required");
+      expect((drifted.data as any).findings).toContainEqual(expect.objectContaining({
+        id: "projection-drift",
+        type: "projection-drift",
+        severity: "error"
+      }));
+      expect((drifted.data as any).extensions.projectionDriftGate.reasonCodes).toContain("projection-file-missing");
+
+      writeArchitectureDocsProjection(root);
+      const clean = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish architecture projection update"
+      });
+      expect(clean.ok).toBe(true);
+      expect((clean.data as any).result).toBe("pass");
+      expect((clean.data as any).snapshot.projectionDigest).toMatch(/^sha256:/);
+      expect((clean.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
+    } finally {
+      await daemon?.stop();
       removeTempRepo(root);
     }
   });
@@ -801,6 +1415,7 @@ describe("local runtime foundation", () => {
         checkId: "no-new-cycle",
         owner: "unknown-team",
         reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
+        reviewAt: "2026-07-10T00:00:00.000Z",
         expiresAt: "2026-07-24T00:00:00.000Z",
         evidenceDigest: `sha256:${"1".repeat(64)}`,
         subjects: ["module.a->module.b"]
@@ -817,6 +1432,7 @@ describe("local runtime foundation", () => {
         owner: "team-architecture",
         reason: "External migration window requires keeping this edge until the upstream cutover is complete.",
         createdAt: "2026-06-24T00:00:00.000Z",
+        reviewAt: "2026-07-10T00:00:00.000Z",
         expiresAt: "2026-07-24T00:00:00.000Z",
         evidenceDigest: `sha256:${"1".repeat(64)}`,
         subjects: ["module.a->module.b"]
@@ -846,9 +1462,629 @@ describe("local runtime foundation", () => {
       expect((waivers.data as any).waivers[0]).toMatchObject({
         practiceId: "modularity.no-new-cycle",
         checkId: "no-new-cycle",
-        owner: "team-architecture"
+        owner: "team-architecture",
+        reviewAt: "2026-07-10T00:00:00.000Z"
       });
       expect((waivers.data as any).waivers[0].waiverDigest).toMatch(/^sha256:/);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("dual architecture ledger mode appends an apply_update event after a successful ChangeSet", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "dual" },
+        clock: () => "2026-06-25T03:00:00.000Z"
+      });
+      await daemon.init(root, "Dual Ledger App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.dual-ledger-node",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.dual-ledger.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.dual-ledger\nkind: module\nname: Dual Ledger\nstatus: active\nsummary: Dual ledger node\n"
+        }]
+      });
+      expect(plan.ok).toBe(true);
+
+      const apply = await daemon.applyUpdate(root, {
+        id: "changeset.dual-ledger-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+
+      expect(apply.ok).toBe(true);
+      expect((apply.data as any)).toMatchObject({
+        status: "applied",
+        architectureLedger: {
+          rolloutMode: "dual",
+          readMode: "dual-compare",
+          writeMode: "dual",
+          readAuthority: "yaml",
+          append: {
+            status: "appended",
+            appendedEventCount: 1
+          }
+        }
+      });
+      expect(readText(join(root, ".archcontext/model/nodes/module.dual-ledger.yaml"))).toContain("module.dual-ledger");
+      expect(store.architectureEventAppends).toHaveLength(1);
+      const event = store.architectureEventAppends[0]!.events[0]!;
+      const journal = [...store.changeSetJournals.values()][0]!;
+      expect(journal.status).toBe("committed");
+      expect(journal.ledger?.plannedEvent?.idempotencyKey).toBe(event.idempotencyKey);
+      expect(journal.ledger?.append?.appendedEvents.map((appended) => appended.idempotencyKey)).toContain(event.idempotencyKey);
+      expect(event).toMatchObject({
+        eventType: "architecture.changeset.apply",
+        source: "apply_update",
+        actor: { kind: "daemon", id: "archctxd" }
+      });
+      expect((event.payload as any).operations.map((operation: any) => operation.entity?.entityId)).toContain("module.dual-ledger");
+      expect(JSON.stringify(event.payload)).not.toContain("schemaVersion: archcontext.node/v1");
+      expect((await daemon.runtimeStatus(root)).data).toMatchObject({
+        architectureLedger: {
+          rolloutMode: "dual",
+          readMode: "dual-compare",
+          writeMode: "dual"
+        }
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger-authoritative write mode appends an event while keeping Git projection updates reviewable", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T03:02:00.000Z"
+      });
+      await daemon.init(root, "Ledger Projection App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-projection-node",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.ledger-projection.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-projection\nkind: module\nname: Ledger Projection\nstatus: active\nsummary: Ledger projection node\n"
+        }]
+      });
+
+      const apply = await daemon.applyUpdate(root, {
+        id: "changeset.ledger-projection-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+
+      expect(apply.ok).toBe(true);
+      expect((apply.data as any).architectureLedger).toMatchObject({
+        rolloutMode: "ledger-authoritative",
+        readMode: "ledger",
+        writeMode: "ledger-with-projection",
+        readAuthority: "ledger",
+        writeAuthority: "ledger-with-projection",
+        append: {
+          status: "appended",
+          appendedEventCount: 1
+        }
+      });
+      expect(readText(join(root, ".archcontext/model/nodes/module.ledger-projection.yaml"))).toContain("module.ledger-projection");
+      expect(store.architectureEventAppends[0]!.events[0]!.payload).toMatchObject({
+        changeSet: {
+          id: "changeset.ledger-projection-node"
+        },
+        projectionState: {
+          path: ".archcontext",
+          writeMode: "ledger-with-projection"
+        }
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("dual architecture ledger mode rolls back YAML writes when ledger append fails before commit", async () => {
+    class FailingLedgerStore extends TestLocalStore {
+      async appendArchitectureEvents(input: Parameters<TestLocalStore["appendArchitectureEvents"]>[0]): ReturnType<TestLocalStore["appendArchitectureEvents"]> {
+        this.architectureEventAppends.push(input);
+        throw new Error("ledger-append-down");
+      }
+    }
+    const root = tempRepo();
+    const store = new FailingLedgerStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "dual" },
+        clock: () => "2026-06-25T03:05:00.000Z"
+      });
+      await daemon.init(root, "Dual Ledger Rollback App");
+      const path = ".archcontext/model/nodes/module.dual-rollback.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.dual-ledger-rollback",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.dual-rollback\nkind: module\nname: Dual Rollback\nstatus: active\nsummary: Dual rollback node\n"
+        }]
+      });
+
+      await expect(daemon.applyUpdate(root, {
+        id: "changeset.dual-ledger-rollback",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      })).rejects.toThrow("ledger-append-down");
+
+      expect(existsSync(join(root, path))).toBe(false);
+      expect([...store.changeSetJournals.values()].some((journal) => journal.status === "aborted" && journal.reason === "ledger-append-down")).toBe(true);
+      expect(store.architectureEventAppends).toHaveLength(1);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger read mode returns SQLite current state and Git drift readback", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:00:00.000Z"
+      });
+      await daemon.init(root, "Ledger Read App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-read-node",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.ledger-read.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-read\nkind: module\nname: Ledger Read\nstatus: active\nsummary: Ledger read node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-read-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+
+      const state = await daemon.ledgerState(root);
+
+      expect(state.ok).toBe(true);
+      expect((state.data as any).architectureLedger).toMatchObject({
+        rolloutMode: "ledger-authoritative",
+        readMode: "ledger",
+        readAuthority: "ledger"
+      });
+      expect((state.data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.ledger-read");
+      expect((state.data as any).ledger.graphDigest).toMatch(/^sha256:/);
+      expect((state.data as any).drift.semanticDrift).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime recommendation lifecycle appends explicit feedback and reports local metrics", async () => {
+    const root = createInitializedGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-26T12:05:00.000Z"
+      });
+      const plan = await appendRecommendationRunFixture(store, root, "2026-06-26T12:00:00.000Z");
+      const recommendationId = plan.recommendations[0].recommendationId;
+
+      const accepted = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId,
+        reason: "accepted after agent-assisted local readback",
+        actor: "worker.al8",
+        actorKind: "subagent",
+        source: "subagent",
+        agentJobId: "agent_job.al8",
+        now: "2026-06-26T12:10:00.000Z"
+      });
+
+      expect(accepted.ok).toBe(true);
+      expect((accepted.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
+        action: "accept",
+        recommendationId,
+        previousStatus: "open",
+        nextStatus: "accepted",
+        privacy: {
+          writes: "architecture-ledger-event-only",
+          rawSourcePersisted: false,
+          rawDiffPersisted: false,
+          implicitAcceptance: false
+        }
+      });
+      expect((accepted.data as any).feedback).toMatchObject({
+        schemaVersion: "archcontext.recommendation-feedback/v1",
+        action: "accept",
+        explicit: true,
+        implicitAcceptance: false,
+        actor: { kind: "subagent", source: "subagent" }
+      });
+      expect(JSON.stringify(accepted.data)).not.toContain("sourceCode");
+      expect(JSON.stringify(accepted.data)).not.toContain("diff --git");
+      expect(store.architectureEventAppends.at(-1)?.events[0]?.eventType).toBe("architecture.recommendation.lifecycle");
+      expect((store.architectureEventAppends.at(-1)?.events[0]?.payload as any).feedback).toHaveLength(1);
+
+      const open = await daemon.book(root, { command: "recommendations", openOnly: true });
+      expect((open.data as any).recommendations).toEqual([]);
+      const all = await daemon.book(root, { command: "recommendations" });
+      expect((all.data as any).recommendations.map((recommendation: any) => recommendation.status)).toEqual(["accepted"]);
+
+      const metrics = await daemon.recommendations(root, { command: "metrics", now: "2026-06-26T12:11:00.000Z" });
+      expect((metrics.data as any)).toMatchObject({
+        schemaVersion: "archcontext.recommendation-lifecycle-metrics/v1",
+        recommendationCount: 1,
+        feedbackCount: 1,
+        acceptedRecommendationRate: 1,
+        agentAssistedResolutionRate: 1
+      });
+
+      const duplicate = await daemon.recommendations(root, {
+        command: "accept",
+        recommendationId,
+        reason: "duplicate accept should not append",
+        now: "2026-06-26T12:12:00.000Z"
+      });
+      expect(duplicate.ok).toBe(false);
+      expect((duplicate as any).error.code).toBe("AC_PRECONDITION_FAILED");
+    } finally {
+      removeTempRepo(root);
+    }
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
+
+  test("ledger-authoritative runtime read surfaces use SQLite current state when Git projection drifts", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:03:00.000Z"
+      });
+      await daemon.init(root, "Ledger Runtime Read App");
+      const path = ".archcontext/model/nodes/module.ledger-runtime-read.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-runtime-read-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-runtime-read\nkind: module\nname: Ledger Runtime Read\nstatus: active\nsummary: Runtime reads from ledger state\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-runtime-read-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      const ledger = await daemon.ledgerState(root);
+      rmSync(join(root, path), { force: true });
+
+      const validate = await daemon.validate(root);
+      const validation = validate.data as any;
+      const yamlDigest = digestJson(listModelFiles(root).map((file) => ({ path: file.path, digest: file.digest })) as any);
+      expect(validate.ok).toBe(true);
+      expect(validation.valid).toBe(true);
+      expect(validation.architectureLedger).toMatchObject({
+        readAuthority: "ledger",
+        graphDigest: (ledger.data as any).ledger.graphDigest,
+        entityCount: (ledger.data as any).ledger.entityCount
+      });
+      expect(listModelFiles(root).map((file) => file.path)).not.toContain(path);
+      expect(validation.modelDigest).not.toBe(yamlDigest);
+
+      const context = await daemon.context(root, "change ledger runtime read model", 4);
+      expect(context.ok).toBe(true);
+      const contextData = context.data as any;
+      expect(contextData.extensions.modelDigest).toBe(validation.modelDigest);
+      expect(contextData.extensions.architectureLedgerDigest).toBe((ledger.data as any).ledger.graphDigest);
+      expect(["ledger-first", "ledger-only"]).toContain(contextData.extensions.codeFactsMode);
+      expect(contextData.relevantNodes).toContain("module.ledger-runtime-read");
+      expect((contextData.resources as any[]).some((resource) => resource.type === "architecture-book" && resource.digest === (ledger.data as any).ledger.graphDigest)).toBe(true);
+      expect((contextData.resources as any[]).some((resource) => resource.type === "model" && resource.digest === validation.modelDigest)).toBe(true);
+
+      const prepare = await daemon.prepare(root, "change ledger runtime read model", 12_288, 4, "task_ledger_runtime_reads");
+      expect((prepare.data as any).context.extensions.modelDigest).toBe(validation.modelDigest);
+      expect((prepare.data as any).context.extensions.architectureLedgerDigest).toBe((ledger.data as any).ledger.graphDigest);
+      const complete = await daemon.completeTask(root, {
+        taskSessionId: "task_ledger_runtime_reads",
+        task: "change ledger runtime read model"
+      });
+      expect((complete.data as any).snapshot.modelDigest).toBe(validation.modelDigest);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger project restores missing Git projection from SQLite current state", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:05:00.000Z"
+      });
+      await daemon.init(root, "Ledger Project App");
+      const path = ".archcontext/model/nodes/module.ledger-project.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-project-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-project-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      rmSync(join(root, path), { force: true });
+
+      const drift = await daemon.ledgerDrift(root);
+      expect((drift.data as any).drift.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.schemaVersion).toBe("archcontext.architecture-ledger-reconcile/v1");
+      expect((drift.data as any).reconcile.ledgerToGit.reasonCodes).toContain("projection-file-missing");
+      expect((drift.data as any).reconcile.gitToLedger.reasonCodes).toContain("semantic-drift");
+      expect((drift.data as any).reconcile.reconcileActions.map((action: any) => action.authority)).toContain("ledger");
+      const status = await daemon.runtimeStatus(root);
+      const project = await daemon.ledgerProject(root, {
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writes).toBe("git-projection");
+      expect((project.data as any).writtenPaths).toContain(path);
+      expect((project.data as any).reconcile.ok).toBe(true);
+      expect(readText(join(root, path))).toContain("module.ledger-project");
+      const cleanDrift = await daemon.ledgerDrift(root);
+      expect((cleanDrift.data as any).drift.ok).toBe(true);
+      expect((cleanDrift.data as any).reconcile.ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger rollback restores YAML authority projection from SQLite current state with backup", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:08:00.000Z"
+      });
+      await daemon.init(root, "Ledger Rollback App");
+      const path = ".archcontext/model/nodes/module.ledger-rollback.yaml";
+      const stalePath = ".archcontext/model/nodes/module.rollback-stale.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-rollback-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Ledger rollback node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-rollback-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      writeFileSync(join(root, path), "schemaVersion: archcontext.node/v1\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Corrupted rollback projection\n", "utf8");
+      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v1\nid: module.rollback-stale\nkind: module\nname: Stale Rollback\nstatus: active\nsummary: Stale rollback projection\n", "utf8");
+
+      const dryRun = await daemon.ledgerRollback(root, { toYaml: true, dryRun: true });
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).dryRun).toBe(true);
+      expect((dryRun.data as any).writes).toBe("none");
+      expect((dryRun.data as any).drift.ok).toBe(false);
+      expect(existsSync(join(root, stalePath))).toBe(true);
+
+      const status = await daemon.runtimeStatus(root);
+      const rollback = await daemon.ledgerRollback(root, {
+        toYaml: true,
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(rollback.ok).toBe(true);
+      expect((rollback.data as any).targetAuthority).toBe("yaml");
+      expect((rollback.data as any).recommendedEnvironment).toMatchObject({ ARCHCONTEXT_LEDGER_MODE: "yaml" });
+      expect((rollback.data as any).removedPaths).toContain(stalePath);
+      expect((rollback.data as any).writtenPaths).toContain(path);
+      expect((rollback.data as any).drift.ok).toBe(true);
+      const backup = (rollback.data as any).backup;
+      expect(backup.path).toMatch(/\.archcontext\/backups\/ledger-rollback\//);
+      expect(existsSync(join(root, backup.manifestPath))).toBe(true);
+      expect(readText(join(root, backup.path, "model/nodes/module.ledger-rollback.yaml"))).toContain("Corrupted rollback projection");
+      expect(readText(join(root, backup.path, "model/nodes/module.rollback-stale.yaml"))).toContain("Stale rollback projection");
+      expect(readText(join(root, path))).toContain("Ledger rollback node");
+      expect(existsSync(join(root, stalePath))).toBe(false);
+
+      const yamlDaemon = await createStartedTestDaemon({
+        architectureLedger: { rolloutMode: "yaml" },
+        localStore: new TestLocalStore()
+      });
+      expect((await yamlDaemon.validate(root)).ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger migrate write creates a backup, verifies replay, and advertises safe downgrade", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "yaml" },
+        clock: () => "2026-06-26T08:00:00.000Z"
+      });
+      await daemon.init(root, "Ledger Migrate App");
+
+      const dryRun = await daemon.ledgerMigrate(root, { fromYaml: true, dryRun: true });
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "planned",
+        dryRun: true,
+        writes: "none",
+        backup: { status: "not-created", reason: "dry-run" },
+        append: { status: "not-applied" },
+        verification: { status: "not-run", reason: "dry-run" }
+      });
+      expect((dryRun.data as any).architectureLedger.phaseFlags.safeDowngrade.environment).toMatchObject({
+        ARCHCONTEXT_LEDGER_MODE: "yaml"
+      });
+
+      const status = await daemon.runtimeStatus(root);
+      const migrated = await daemon.ledgerMigrate(root, {
+        fromYaml: true,
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(migrated.ok).toBe(true);
+      expect((migrated.data as any)).toMatchObject({
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        status: "verified",
+        dryRun: false,
+        writes: "architecture-ledger",
+        backup: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+          status: "created",
+          integrity: "ok"
+        },
+        append: {
+          status: "appended",
+          appendedEventCount: 1
+        },
+        verification: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-migration-verification/v1",
+          ok: true,
+          driftOk: true,
+          reconcileOk: true
+        },
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      });
+      expect(existsSync((migrated.data as any).backup.backupPath)).toBe(true);
+      expect((migrated.data as any).rollback).toMatchObject({
+        command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+        safeDowngradeEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "yaml"
+        }
+      });
+      expect((migrated.data as any).verification.graphDigest).toBe((migrated.data as any).graphDigest);
+      expect(store.architectureEventAppends.at(-1)?.events[0]?.eventType).toBe("architecture.yaml.import");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger rebuild from Git appends once and no-ops when current state already matches Git", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T04:10:00.000Z"
+      });
+      await daemon.init(root, "Ledger Rebuild App");
+      const status = await daemon.runtimeStatus(root);
+      const first = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+      const second = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(first.ok).toBe(true);
+      expect((first.data as any).appendedEventCount).toBe(1);
+      expect((first.data as any).graphDigest).toMatch(/^sha256:/);
+      expect((second.data as any).appendedEventCount).toBe(0);
+      expect((second.data as any).duplicateEventCount).toBe(0);
+      expect(((await daemon.ledgerState(root)).data as any).yaml.importedCount).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger rebuild from Git proposes external projection changes before explicit reconcile", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:15:00.000Z"
+      });
+      await daemon.init(root, "Ledger Delete Rebuild App");
+      const path = ".archcontext/model/nodes/module.rebuild-delete.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.rebuild-delete-node",
+        operations: [{
+          op: "create_entity",
+          path,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.rebuild-delete\nkind: module\nname: Rebuild Delete\nstatus: active\nsummary: Rebuild delete node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.rebuild-delete-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.rebuild-delete");
+
+      rmSync(join(root, path), { force: true });
+      const status = await daemon.runtimeStatus(root);
+      const proposed = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(proposed.ok).toBe(true);
+      expect((proposed.data as any).status).toBe("external-projection-proposed");
+      expect((proposed.data as any).reconcileRequired).toBe(true);
+      expect((proposed.data as any).appendedEventCount).toBe(1);
+      expect((proposed.data as any).proposedExternalProjectionChange).toMatchObject({
+        baseGraphDigest: expect.stringMatching(/^sha256:/),
+        proposedGraphDigest: expect.stringMatching(/^sha256:/)
+      });
+      expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).toContain("module.rebuild-delete");
+
+      const accepted = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        acceptExternalProjection: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+      expect(accepted.ok).toBe(true);
+      expect((accepted.data as any).status).toBe("external-projection-accepted");
+      expect(((await daemon.ledgerState(root)).data as any).state.entities.map((entity: any) => entity.entityId)).not.toContain("module.rebuild-delete");
     } finally {
       removeTempRepo(root);
     }
@@ -904,7 +2140,7 @@ describe("local runtime foundation", () => {
         repositories: [repositoryFingerprint(root)],
         repositoryId: repositoryFingerprint(root),
         headSha: (before.data as any).headSha,
-        worktreeDigest: (before.data as any).worktreeDigest
+        worktreeDigest: computeWorktreeDigest(root)
       });
       await second.stop();
       second = undefined;
@@ -913,7 +2149,7 @@ describe("local runtime foundation", () => {
       await first?.stop().catch(() => undefined);
       removeTempRepo(root);
     }
-  });
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
   test("prepares Developer Review from Challenge head in a detached clean worktree", async () => {
     const root = createGitRepo();
@@ -968,10 +2204,10 @@ describe("local runtime foundation", () => {
     } finally {
       if (worktree) removeDetachedReviewWorktree(worktree);
       await daemon?.stop().catch(() => undefined);
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempPath(tempRoot);
       removeTempRepo(root);
     }
-  });
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
 
   test("computes Developer Review digest bundle from detached worktree model policy codefacts and runtime", async () => {
     const root = createInitializedGitRepo();
@@ -1020,10 +2256,10 @@ describe("local runtime foundation", () => {
     } finally {
       if (worktree) removeDetachedReviewWorktree(worktree);
       await daemon?.stop().catch(() => undefined);
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTempPath(tempRoot);
       removeTempRepo(root);
     }
-  });
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
 
   test("runs deterministic Developer Review inside detached worktree and persists the local result", async () => {
     const root = createInitializedGitRepo();
@@ -1475,8 +2711,9 @@ describe("local runtime foundation", () => {
 
   test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
     const root = tempRepo();
+    let daemon: Awaited<ReturnType<typeof createStartedProductionDaemon>> | undefined;
     try {
-      const daemon = await createStartedProductionDaemon({ root });
+      daemon = await createStartedProductionDaemon({ root });
       expect(daemon.compositionReport()).toMatchObject({
         mode: "production",
         productionSafe: true,
@@ -1489,6 +2726,7 @@ describe("local runtime foundation", () => {
         }
       });
       await daemon.stop();
+      daemon = undefined;
 
       const codeFacts = new CodeGraphAdapter(new MockCodeGraphProvider());
       expect(() => assertProductionRuntimeDeps({ codeFacts })).toThrow("codeFacts");
@@ -1496,9 +2734,10 @@ describe("local runtime foundation", () => {
       expect(() => assertProductionRuntimeDeps({ localStore: new TestLocalStore() })).toThrow("localStore");
       expect(() => assertProductionRuntimeDeps({ clock: () => "2026-06-20T00:00:00.000Z" })).toThrow("clock");
     } finally {
+      if (daemon) await daemon.stop().catch(() => undefined);
       removeTempRepo(root);
     }
-  });
+  }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
   test("runtime RPC ignores insecure connection files and recovers stale locks", async () => {
     const root = tempRepo();
@@ -1653,6 +2892,74 @@ function createGitRepo(): string {
   execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return root;
+}
+
+async function appendRecommendationRunFixture(store: TestLocalStore, root: string, now: string) {
+  const paths = runtimeStatePaths(root);
+  const repository = {
+    repositoryId: repositoryFingerprint(root),
+    storageRepositoryId: paths.storageRepositoryId
+  };
+  const worktree = {
+    workspaceId: paths.workspaceId,
+    storageWorkspaceId: paths.storageWorkspaceId,
+    branch: gitOut(root, "branch", "--show-current") || "HEAD",
+    headSha: gitOut(root, "rev-parse", "HEAD"),
+    worktreeDigest: computeWorktreeDigest(root)
+  };
+  const plan = planRecommendationRun({
+    repository,
+    worktree,
+    triggerSource: "checkpoint",
+    policyMode: "advisory",
+    catalogDigest: digestJson({ fixture: "runtime-recommendation-catalog" } as any),
+    inputCursor: {
+      source: "candidate-delta",
+      baseDigest: digestJson({ base: "runtime-recommendation" } as any),
+      headDigest: digestJson({ head: "runtime-recommendation" } as any),
+      headSha: worktree.headSha,
+      candidateDeltaDigest: digestJson({ delta: "runtime-recommendation" } as any)
+    },
+    candidates: [{
+      practiceId: "practice.runtime-boundary",
+      subject: "module.runtime-ledger",
+      confidence: "medium",
+      enforcement: "advisory",
+      evidenceBindingIds: ["binding.al8.lifecycle"],
+      explanation: ["Runtime ledger recommendation requires explicit lifecycle feedback."],
+      riskSignals: ["boundary-change"],
+      uncertaintySignals: [],
+      score: 52
+    }],
+    now
+  });
+  const graphDigest = digestJson({ fixture: "empty-architecture-graph" } as any);
+  const inputDigest = digestJson({ runId: plan.run.runId, recommendationIds: plan.run.recommendationIds } as any);
+  await store.appendArchitectureEvents({
+    writer: "runtime-daemon",
+    events: [{
+      schemaVersion: "archcontext.architecture-event/v1",
+      eventId: `architecture_event.recommendation_run.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
+      eventType: "architecture.recommendation.run",
+      payloadVersion: "archcontext.recommendation-run/v1",
+      repository,
+      worktree,
+      baseDigest: graphDigest,
+      resultingDigest: graphDigest,
+      headSha: worktree.headSha,
+      actor: { kind: "daemon", id: "archctxd" },
+      source: "checkpoint",
+      timestamp: now,
+      idempotencyKey: `architecture-ledger-recommendation-run:${plan.run.runId}`,
+      provenance: {
+        producer: "runtime-daemon-test",
+        command: "appendRecommendationRunFixture",
+        inputDigest
+      },
+      payload: recommendationRunLedgerPayload(plan) as any
+    }]
+  });
+  return plan;
 }
 
 function createInitializedGitRepo(): string {

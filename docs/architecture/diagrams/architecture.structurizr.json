@@ -1,0 +1,27 @@
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579" rendererVersion="archcontext.docs-renderer/v1" outputDigest="sha256:73dacc1be73cb7217763a768252bc55c52ec9ec8341f16d017c8b17909c4cba3" -->
+{
+  "schemaVersion": "archcontext.structurizr-export/v1",
+  "name": "ArchContext Architecture",
+  "model": {
+    "elements": [
+      {
+        "id": "capability.architecture-context",
+        "name": "Architecture Context",
+        "type": "Software System",
+        "tags": [
+          "capability"
+        ]
+      }
+    ],
+    "relationships": []
+  },
+  "views": {
+    "systemLandscape": {
+      "key": "archcontext-landscape",
+      "include": [
+        "capability.architecture-context"
+      ]
+    }
+  }
+}
+<!-- END ARCHCONTEXT:generated target="projection_target.diagram.structurizr" -->

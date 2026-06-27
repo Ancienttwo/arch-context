@@ -1,0 +1,260 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al8-scheduler-readback/v1",
+  "generatedAt": "2026-06-26T08:12:01.007Z",
+  "status": "verified",
+  "scope": {
+    "repository": {
+      "repositoryId": "repo.arch-context.al8",
+      "storageRepositoryId": "repo.storage.arch-context.al8"
+    },
+    "worktree": {
+      "workspaceId": "workspace.arch-context.al8",
+      "storageWorkspaceId": "workspace.storage.arch-context.al8",
+      "branch": "codex/architecture-ledger-al8-scheduler-core",
+      "headSha": "0123456789abcdef0123456789abcdef01234567",
+      "worktreeDigest": "sha256:58be3bc63657f79fadcc2eb994ff8f808e130393b24d30c2ac72810fb71ee68b"
+    }
+  },
+  "inputCursor": {
+    "source": "candidate-delta",
+    "baseDigest": "sha256:f1a067fb5fadbe813e27849dfa18214d581008323b710ce8a162ea906acc071e",
+    "headDigest": "sha256:7a2caef5035a1a1b55adecfac13d4ae39195a96aaf7702d905122cb54abfa198",
+    "headSha": "0123456789abcdef0123456789abcdef01234567",
+    "changedPathDigest": "sha256:01691d2258173c9a3d309e29c7d3f7c9bf19d18d85f067aec233f6f11356790d",
+    "candidateDeltaDigest": "sha256:c4c6a67439cac1b27fe0be68d6f670d094971306f6e99192aba8fe2b823f16d3"
+  },
+  "scheduler": {
+    "primaryRun": {
+      "runId": "recommendation_run.e2003e3d1890dbe0",
+      "triggerLevel": "L3",
+      "engineVersion": "archcontext.recommendation-scheduler/v1",
+      "catalogDigest": "sha256:58436e2384c8ec4fae8f4cc318c064d86c5d6c7a2fbd48f2c1b3acbd6568939a",
+      "inputDigest": "sha256:e2003e3d1890dbe0e6de8ef9be862349675c696ba39af2033db6fc5193cebf1f",
+      "outputDigest": "sha256:4dd27a39b20eee34a758a7a9a6212ae5b8ca54cc87a2e7c0ef942067d11962d7",
+      "recommendationIds": [
+        "recommendation.371c7a724a3d1682",
+        "recommendation.cffe755a8ed9dee3"
+      ],
+      "fingerprints": [
+        "sha256:371c7a724a3d1682e6bbb90653748efcaa145f1e07b5881f69f8ec941fbeafdd",
+        "sha256:cffe755a8ed9dee360f812163e4ff772fc107bf9b1d5d593cc3baf7aad438ce9"
+      ],
+      "suppressed": [],
+      "investigationEligibleRecommendationIds": [
+        "recommendation.371c7a724a3d1682"
+      ],
+      "risks": [
+        "high",
+        "medium"
+      ],
+      "uncertainties": [
+        "high",
+        "low"
+      ]
+    },
+    "duplicateRun": {
+      "runId": "recommendation_run.374935ac4d2a0d08",
+      "triggerLevel": "L3",
+      "engineVersion": "archcontext.recommendation-scheduler/v1",
+      "catalogDigest": "sha256:58436e2384c8ec4fae8f4cc318c064d86c5d6c7a2fbd48f2c1b3acbd6568939a",
+      "inputDigest": "sha256:374935ac4d2a0d082db9827062da22e4dba0373a6bcd100c414773b3e8fe5a87",
+      "outputDigest": "sha256:7e319111c5bd185f74aa85a90adb9c5a428c0fc5eea751083f8ac34589c2bfa7",
+      "recommendationIds": [],
+      "fingerprints": [],
+      "suppressed": [
+        {
+          "reasonCode": "duplicate-active-fingerprint",
+          "fingerprint": "sha256:371c7a724a3d1682e6bbb90653748efcaa145f1e07b5881f69f8ec941fbeafdd",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "previousRecommendationId": "recommendation.371c7a724a3d1682"
+        },
+        {
+          "reasonCode": "duplicate-active-fingerprint",
+          "fingerprint": "sha256:cffe755a8ed9dee360f812163e4ff772fc107bf9b1d5d593cc3baf7aad438ce9",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "previousRecommendationId": "recommendation.cffe755a8ed9dee3"
+        }
+      ],
+      "investigationEligibleRecommendationIds": [],
+      "risks": [],
+      "uncertainties": []
+    },
+    "cooldownRun": {
+      "runId": "recommendation_run.61c61fd7c7ae289a",
+      "triggerLevel": "L1",
+      "engineVersion": "archcontext.recommendation-scheduler/v1",
+      "catalogDigest": "sha256:58436e2384c8ec4fae8f4cc318c064d86c5d6c7a2fbd48f2c1b3acbd6568939a",
+      "inputDigest": "sha256:61c61fd7c7ae289a1aa673105e5d1ce7c74abe1961298c3b433f9f7bf19407f1",
+      "outputDigest": "sha256:6de918b326d7038a26546b5da85e2644dc35d147a3929d88c2004579f134713d",
+      "recommendationIds": [],
+      "fingerprints": [],
+      "suppressed": [
+        {
+          "reasonCode": "cooldown-active",
+          "fingerprint": "sha256:cffe755a8ed9dee360f812163e4ff772fc107bf9b1d5d593cc3baf7aad438ce9",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "cooldownUntil": "2026-06-30T12:00:00.000Z"
+        }
+      ],
+      "investigationEligibleRecommendationIds": [],
+      "risks": [],
+      "uncertainties": []
+    },
+    "lifecycle": {
+      "before": "open",
+      "after": "accepted",
+      "lifecycle": {
+        "previousStatus": "open",
+        "status": "accepted",
+        "action": "accept",
+        "actor": "developer",
+        "reason": "AL8 lifecycle readback",
+        "transitionedAt": "2026-06-26T12:05:00.000Z"
+      }
+    }
+  },
+  "sqlite": {
+    "recommendationRuns": 3,
+    "recommendations": 2,
+    "feedback": 0,
+    "openRecommendations": 2,
+    "runIds": [
+      "recommendation_run.374935ac4d2a0d08",
+      "recommendation_run.61c61fd7c7ae289a",
+      "recommendation_run.e2003e3d1890dbe0"
+    ],
+    "recommendationIds": [
+      "recommendation.371c7a724a3d1682",
+      "recommendation.cffe755a8ed9dee3"
+    ]
+  },
+  "append": {
+    "appendedEvents": 3,
+    "duplicateEvents": 0,
+    "graphDigest": "sha256:023b767b5310a0c372940f49181294c5e4ed6b0ea139a0e88aa4e5e0fb47dcbc",
+    "entityCount": 0,
+    "relationCount": 0,
+    "constraintCount": 0
+  },
+  "replay": {
+    "eventCount": 3,
+    "graphDigest": "sha256:023b767b5310a0c372940f49181294c5e4ed6b0ea139a0e88aa4e5e0fb47dcbc",
+    "emptyGraphStable": true
+  },
+  "book": {
+    "schemaVersion": "archcontext.architecture-book-recommendations/v1",
+    "openOnly": true,
+    "recommendationCount": 2,
+    "recommendationIds": [
+      "recommendation.371c7a724a3d1682",
+      "recommendation.cffe755a8ed9dee3"
+    ],
+    "risks": [
+      "high",
+      "medium"
+    ],
+    "uncertainties": [
+      "high",
+      "low"
+    ],
+    "explanations": [
+      {
+        "schemaVersion": "archcontext.architecture-book-selection-explanation/v1",
+        "targetKind": "recommendation",
+        "targetId": "recommendation.371c7a724a3d1682",
+        "matchedTokens": [],
+        "reasonCodes": [
+          "confidence-low",
+          "enforcement-checkpoint",
+          "has-evidence-bindings",
+          "has-recommendation-explanation",
+          "open-recommendation-filter",
+          "risk-high",
+          "status-open"
+        ],
+        "signals": [
+          {
+            "source": "recency",
+            "score": 1,
+            "reasonCode": "recommendation-updated-at",
+            "detail": "2026-06-26T12:00:00.000Z"
+          },
+          {
+            "source": "evidence",
+            "score": 2,
+            "reasonCode": "recommendation-evidence-binding-count"
+          }
+        ]
+      },
+      {
+        "schemaVersion": "archcontext.architecture-book-selection-explanation/v1",
+        "targetKind": "recommendation",
+        "targetId": "recommendation.cffe755a8ed9dee3",
+        "matchedTokens": [],
+        "reasonCodes": [
+          "confidence-medium",
+          "enforcement-advisory",
+          "has-evidence-bindings",
+          "has-recommendation-explanation",
+          "open-recommendation-filter",
+          "risk-medium",
+          "status-open"
+        ],
+        "signals": [
+          {
+            "source": "recency",
+            "score": 1,
+            "reasonCode": "recommendation-updated-at",
+            "detail": "2026-06-26T12:00:00.000Z"
+          },
+          {
+            "source": "evidence",
+            "score": 1,
+            "reasonCode": "recommendation-evidence-binding-count"
+          }
+        ]
+      }
+    ],
+    "budget": {
+      "maxItems": 20,
+      "maxBytes": 32768,
+      "returnedItems": 2,
+      "omittedItems": 0,
+      "byteLength": 3161,
+      "truncated": false,
+      "reasonCodes": []
+    },
+    "reasonCodes": []
+  },
+  "privacy": {
+    "forbiddenStrings": [
+      "AL8_RAW_SOURCE_SENTINEL_do_not_emit_source_body",
+      "function rawPrivateArchitectureBody"
+    ],
+    "noRawSourceBody": true,
+    "noForbiddenKeys": true,
+    "forbiddenKeyHits": []
+  },
+  "assertions": {
+    "AL8-01": true,
+    "AL8-02": true,
+    "AL8-03": true,
+    "AL8-04": true,
+    "AL8-05": true,
+    "AL8-06": true,
+    "AL8-07": true,
+    "AL8-08": true,
+    "AL8-14": true,
+    "AL8-EG1": true,
+    "AL8-EG2": true,
+    "AL8-EG5": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al8-scheduler-readback.ts inspect --evidence docs/verification/architecture-ledger-al8-scheduler-readback.json --json",
+    "reportPath": "docs/verification/architecture-ledger-al8-scheduler-core.md"
+  },
+  "failures": []
+}

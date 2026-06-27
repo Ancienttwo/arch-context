@@ -1,0 +1,321 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-release-packaging-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-10",
+    "AL10-11"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "release-packaging",
+    "authority": "local SQLite migration sequence plus FG6 one-package npm dry-run tarball",
+    "closedGates": [
+      "AL10-10",
+      "AL10-11"
+    ],
+    "explicitlyOpen": [
+      "AL10-12",
+      "AL10-13",
+      "AL10-14",
+      "AL10-15",
+      "AL10-16",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ]
+  },
+  "supportedMigrationStates": [
+    {
+      "id": "fresh-empty",
+      "from": "empty local store",
+      "applyCount": 0
+    },
+    {
+      "id": "pre-ledger-0005",
+      "from": "0005_external_docs_cache",
+      "applyCount": 5
+    },
+    {
+      "id": "ledger-v1-0006",
+      "from": "0006_architecture_ledger",
+      "applyCount": 6
+    },
+    {
+      "id": "pre-search-fts-0008",
+      "from": "0008_runtime_job_queue_hardening",
+      "applyCount": 8
+    },
+    {
+      "id": "current-0009",
+      "from": "0009_architecture_ledger_search_fts",
+      "applyCount": 9
+    }
+  ],
+  "migrationIds": [
+    "0001_runtime_state",
+    "0002_indexes",
+    "0003_landscape_state",
+    "0004_changeset_journal",
+    "0005_external_docs_cache",
+    "0006_architecture_ledger",
+    "0007_runtime_job_queue",
+    "0008_runtime_job_queue_hardening",
+    "0009_architecture_ledger_search_fts"
+  ],
+  "migrationMatrix": [
+    {
+      "id": "fresh-empty",
+      "from": "empty local store",
+      "fromAppliedCount": 0,
+      "toAppliedCount": 9,
+      "fromLatestMigrationId": null,
+      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "fromHasLedgerTables": false,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    },
+    {
+      "id": "pre-ledger-0005",
+      "from": "0005_external_docs_cache",
+      "fromAppliedCount": 5,
+      "toAppliedCount": 9,
+      "fromLatestMigrationId": "0005_external_docs_cache",
+      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "fromHasLedgerTables": false,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    },
+    {
+      "id": "ledger-v1-0006",
+      "from": "0006_architecture_ledger",
+      "fromAppliedCount": 6,
+      "toAppliedCount": 9,
+      "fromLatestMigrationId": "0006_architecture_ledger",
+      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "fromHasLedgerTables": false,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    },
+    {
+      "id": "pre-search-fts-0008",
+      "from": "0008_runtime_job_queue_hardening",
+      "fromAppliedCount": 8,
+      "toAppliedCount": 9,
+      "fromLatestMigrationId": "0008_runtime_job_queue_hardening",
+      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "fromHasLedgerTables": false,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    },
+    {
+      "id": "current-0009",
+      "from": "0009_architecture_ledger_search_fts",
+      "fromAppliedCount": 9,
+      "toAppliedCount": 9,
+      "fromLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "fromHasLedgerTables": true,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    }
+  ],
+  "releasePackage": {
+    "fg6": {
+      "ok": true,
+      "schemaVersion": "archcontext.fg6-npm-release-dry-run/v1",
+      "taskId": "FG6-release-distribution-dry-run",
+      "status": "verified"
+    },
+    "package": {
+      "name": "archctx",
+      "version": "0.1.4-beta.0",
+      "private": false,
+      "bin": {
+        "archctx": "./bin/archctx.mjs",
+        "codegraph": "./bin/codegraph.mjs"
+      },
+      "engines": {
+        "node": ">=24 <26"
+      },
+      "dependencies": {
+        "@colbymchenry/codegraph": "1.0.1",
+        "@node-rs/jieba": "^2.0.1"
+      }
+    },
+    "artifact": {
+      "artifactDir": "_ops/npm/al10-release-packaging",
+      "tarball": "archctx-0.1.4-beta.0.tgz",
+      "tarballSha256": "sha256:87bc02be0a03f6c0b7d91abdf45f55638030741c912024e44aad019bfb304566",
+      "tarballBytes": 273998,
+      "unpackedBytes": 1444220
+    },
+    "bin": {
+      "path": "bin/archctx.mjs",
+      "bytes": 1184447,
+      "sha256": "sha256:d3b860353222bae8ffc01aa9c0b733fa8b719e01926f9b240d38f046e0016add",
+      "shebang": "#!/usr/bin/env node"
+    },
+    "packageFiles": [
+      "NOTICE.md",
+      "README.md",
+      "assets/catalog.yaml",
+      "assets/practices/api.contract-before-implementation.yaml",
+      "assets/practices/compatibility.expiry-contract.yaml",
+      "assets/practices/compatibility.single-owner.yaml",
+      "assets/practices/data.single-authoritative-model.yaml",
+      "assets/practices/decision.record-significant-change.yaml",
+      "assets/practices/migration.target-and-removal-state.yaml",
+      "assets/practices/modularity.no-new-cycle.yaml",
+      "assets/practices/modularity.respect-dependency-direction.yaml",
+      "assets/practices/observability.boundary-telemetry.yaml",
+      "assets/practices/ownership.explicit-lifecycle-owner.yaml",
+      "assets/practices/s6-expanded.yaml",
+      "assets/practices/security.least-privilege.yaml",
+      "assets/practices/supply-chain.pinned-dependencies.yaml",
+      "assets/profiles/s6.yaml",
+      "assets/README.md",
+      "assets/sources/core.yaml",
+      "assets/sources/s6.yaml",
+      "bin/archctx.mjs",
+      "bin/codegraph.mjs",
+      "package.json",
+      "schemas/cloud/attestation-v2.schema.json",
+      "schemas/cloud/attestation.schema.json",
+      "schemas/cloud/check-delivery.schema.json",
+      "schemas/cloud/cloud-egress-envelope.schema.json",
+      "schemas/cloud/device-identity.schema.json",
+      "schemas/cloud/entitlement.schema.json",
+      "schemas/cloud/governance-key-status.schema.json",
+      "schemas/cloud/org-runner-identity.schema.json",
+      "schemas/cloud/review-challenge-v2.schema.json",
+      "schemas/cloud/runner-identity.schema.json",
+      "schemas/integrations/adapter-fidelity.schema.json",
+      "schemas/integrations/chatgpt-ga-tool.schema.json",
+      "schemas/integrations/likec4-mapping.schema.json",
+      "schemas/integrations/structurizr-mapping.schema.json",
+      "schemas/repo/architecture-intervention.schema.json",
+      "schemas/repo/architecture-node.schema.json",
+      "schemas/repo/architecture-relation.schema.json",
+      "schemas/repo/compatibility-contract.schema.json",
+      "schemas/repo/constraint.schema.json",
+      "schemas/repo/cross-repo-relation.schema.json",
+      "schemas/repo/landscape.schema.json",
+      "schemas/repo/practices/practice-policy.schema.json",
+      "schemas/repo/practices/practice-profile.schema.json",
+      "schemas/repo/practices/practice-source.schema.json",
+      "schemas/repo/practices/practice-waiver.schema.json",
+      "schemas/repo/practices/practice.schema.json",
+      "schemas/runtime/agent-job.schema.json",
+      "schemas/runtime/architecture-candidate-delta-policy.schema.json",
+      "schemas/runtime/architecture-candidate-delta.schema.json",
+      "schemas/runtime/architecture-event.schema.json",
+      "schemas/runtime/architecture-snapshot.schema.json",
+      "schemas/runtime/architecture-subject-selector.schema.json",
+      "schemas/runtime/changeset.schema.json",
+      "schemas/runtime/evidence-binding.schema.json",
+      "schemas/runtime/evidence-item.schema.json",
+      "schemas/runtime/explorer-projection.schema.json",
+      "schemas/runtime/explorer-service.schema.json",
+      "schemas/runtime/external-document-resource.schema.json",
+      "schemas/runtime/investigation-report.schema.json",
+      "schemas/runtime/notification-event.schema.json",
+      "schemas/runtime/notification-provider.schema.json",
+      "schemas/runtime/practice-catalog-manifest.schema.json",
+      "schemas/runtime/practice-check-result.schema.json",
+      "schemas/runtime/practice-checkpoint.schema.json",
+      "schemas/runtime/practice-guidance.schema.json",
+      "schemas/runtime/practice-match.schema.json",
+      "schemas/runtime/product-version-manifest.schema.json",
+      "schemas/runtime/projection-target.schema.json",
+      "schemas/runtime/recommendation-feedback.schema.json",
+      "schemas/runtime/recommendation-run.schema.json",
+      "schemas/runtime/recommendation.schema.json",
+      "schemas/runtime/retrieval-config.schema.json",
+      "schemas/runtime/retrieval-decision.schema.json",
+      "schemas/runtime/retrieval-eval.schema.json",
+      "schemas/runtime/review-result.schema.json",
+      "schemas/runtime/task-context.schema.json"
+    ],
+    "bundleSignatures": [
+      {
+        "id": "migrations",
+        "description": "SQLite architecture ledger migrations and current tables",
+        "requiredCount": 5,
+        "presentCount": 5,
+        "missing": [],
+        "passed": true
+      },
+      {
+        "id": "hooks",
+        "description": "hook enqueue/checkpoint contracts and fail-open output",
+        "requiredCount": 5,
+        "presentCount": 5,
+        "missing": [],
+        "passed": true
+      },
+      {
+        "id": "renderers",
+        "description": "architecture docs projection renderer and manifest contract",
+        "requiredCount": 5,
+        "presentCount": 5,
+        "missing": [],
+        "passed": true
+      },
+      {
+        "id": "agent-adapter-contracts",
+        "description": "agent enqueue/status/budget contracts and runner-port validation",
+        "requiredCount": 7,
+        "presentCount": 7,
+        "missing": [],
+        "passed": true
+      }
+    ],
+    "assertions": {
+      "packagedCliIncludesRequiredFiles": true,
+      "bundleIncludesMigrations": true,
+      "bundleIncludesHooks": true,
+      "bundleIncludesRenderers": true,
+      "bundleIncludesAgentAdapterContracts": true,
+      "nodeOnlyRuntime": true,
+      "packageContentsBounded": true,
+      "noSourceFilesPackaged": true
+    }
+  },
+  "readbackDigest": "sha256:c9d8aeba962a01d4faf414da40f873c207804a4952bab80bd87c0db9c69aeb7b",
+  "assertions": {
+    "AL10-10": true,
+    "AL10-11": true,
+    "migrationMatrixCoversFreshAndIncremental": true,
+    "currentMigrationIsLatest": true,
+    "sqliteIntegrityClean": true,
+    "releaseDryRunVerified": true,
+    "nodeOnlyPackagedCli": true,
+    "packageContentsBounded": true,
+    "noSourceFilesPackaged": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-release-packaging-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-release-packaging-readback.json --json",
+    "recordCommand": "bun scripts/architecture-ledger-al10-release-packaging-readback.ts run --out docs/verification/architecture-ledger-al10-release-packaging-readback.json --report docs/verification/architecture-ledger-al10-release-packaging.md --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-release-packaging.md"
+  },
+  "failures": []
+}

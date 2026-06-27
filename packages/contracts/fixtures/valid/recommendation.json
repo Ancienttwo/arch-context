@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "archcontext.recommendation/v2",
+  "recommendationId": "rec.al0.boundary-import",
+  "runId": "rec_run.al0_contract",
+  "fingerprint": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "subject": "relation.module-api-imports-runtime",
+  "practiceId": "modularity.respect-dependency-direction",
+  "status": "open",
+  "confidence": "medium",
+  "enforcement": "advisory",
+  "risk": "medium",
+  "uncertainty": "low",
+  "evidenceBindingIds": ["binding.evidence.al0.boundary-import"],
+  "explanation": ["Recommendation is supported by a typed predicate subject and bound evidence."],
+  "createdAt": "2026-06-25T00:00:00.000Z",
+  "updatedAt": "2026-06-25T00:00:00.000Z"
+}

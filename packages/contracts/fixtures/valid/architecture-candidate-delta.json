@@ -1,0 +1,188 @@
+{
+  "schemaVersion": "archcontext.architecture-candidate-delta/v1",
+  "deltaId": "delta.checkout-service",
+  "repository": {
+    "repositoryId": "repo.checkout",
+    "storageRepositoryId": "repo.storage.checkout"
+  },
+  "worktree": {
+    "workspaceId": "workspace.checkout.main",
+    "storageWorkspaceId": "workspace.storage.checkout.main",
+    "branch": "main",
+    "headSha": "abc123",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "changeCursor": {
+    "source": "git",
+    "changeSource": "commit",
+    "baseSha": "abc122",
+    "headSha": "abc123",
+    "pathCount": 1,
+    "metadataDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "codeFactsDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "subjectSelectors": [
+    {
+      "schemaVersion": "archcontext.architecture-subject-selector/v1",
+      "selectorId": "subject.path.src-checkout-service",
+      "kind": "path",
+      "repositoryId": "repo.checkout",
+      "stableKey": "path:src/checkout/service.ts",
+      "path": "src/checkout/service.ts",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "changedSubjects": [
+    {
+      "subjectSelectorId": "subject.path.src-checkout-service",
+      "changeKind": "materially_changed",
+      "rawFactIds": ["fact.git.src-checkout-service"],
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+    }
+  ],
+  "rawFacts": [
+    {
+      "factId": "fact.git.src-checkout-service",
+      "kind": "git-path-change",
+      "subjectSelectorId": "subject.path.src-checkout-service",
+      "source": "git",
+      "summary": "Git reports materially_changed path src/checkout/service.ts.",
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "interpretations": [
+    {
+      "interpretationId": "interpretation.al5.src-checkout-service",
+      "kind": "code-subject-materially-changed",
+      "subjectSelectorId": "subject.path.src-checkout-service",
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "confidence": "medium",
+      "coverage": "partial",
+      "heuristic": true,
+      "summary": "Code subject changed; architecture mapping is not yet asserted.",
+      "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  ],
+  "declaredSubjectMappings": [
+    {
+      "mappingId": "mapping.checkout-service",
+      "subjectSelectorId": "subject.path.src-checkout-service",
+      "target": {
+        "kind": "entity",
+        "id": "module.checkout"
+      },
+      "matchReason": "declared-path-prefix",
+      "confidence": "medium",
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "mappingAmbiguities": [],
+  "candidateChanges": [
+    {
+      "candidateChangeId": "candidate_change.checkout-service",
+      "kind": "node-materially-changed",
+      "target": {
+        "kind": "node",
+        "id": "module.checkout"
+      },
+      "stateDimension": "target-state",
+      "changeKind": "materially_changed",
+      "subjectSelectorIds": ["subject.path.src-checkout-service"],
+      "mappingIds": ["mapping.checkout-service"],
+      "ambiguityIds": [],
+      "evidenceIds": ["evidence.al5.src-checkout-service"],
+      "confidence": "medium",
+      "heuristic": true,
+      "summary": "Declared architecture node module.checkout may be materially changed by changed code.",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "evidenceItems": [
+    {
+      "schemaVersion": "archcontext.evidence-item/v2",
+      "evidenceId": "evidence.al5.src-checkout-service",
+      "kind": "git-path-change",
+      "strength": "observed",
+      "polarity": "positive",
+      "origin": "codegraph",
+      "subject": "subject.path.src-checkout-service",
+      "selector": {
+        "kind": "path",
+        "id": "subject.path.src-checkout-service",
+        "path": "src/checkout/service.ts"
+      },
+      "summary": "Observed changed path src/checkout/service.ts without source body or diff body.",
+      "coverage": {
+        "level": "partial",
+        "scope": "git-change"
+      },
+      "supports": ["recommendation", "checkpoint"],
+      "provenance": {
+        "producer": "architecture-delta",
+        "command": "buildArchitectureCandidateDelta",
+        "inputDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      "createdAt": "2026-06-25T00:00:00.000Z",
+      "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "schemaVersion": "archcontext.evidence-binding/v1",
+      "bindingId": "binding.al5.src-checkout-service",
+      "evidenceId": "evidence.al5.src-checkout-service",
+      "target": {
+        "kind": "subject",
+        "id": "subject.path.src-checkout-service"
+      },
+      "bindingReason": "change-cursor",
+      "authorityEffect": "context-only",
+      "createdAt": "2026-06-25T00:00:00.000Z",
+      "provenance": {
+        "producer": "architecture-delta",
+        "command": "buildArchitectureCandidateDelta",
+        "inputDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+      }
+    }
+  ],
+  "summary": {
+    "added": 0,
+    "removed": 0,
+    "moved": 0,
+    "renamed": 0,
+    "materiallyChanged": 1,
+    "unresolved": 0,
+    "mapped": 1,
+    "ambiguous": 0,
+    "candidateChanges": 1,
+    "targetStateChanges": 1,
+    "migrationStateProgress": 0,
+    "mappingCoverage": {
+      "totalChangedSubjects": 1,
+      "mappedSubjects": 1,
+      "unresolvedSubjects": 0,
+      "ambiguousSubjects": 0,
+      "coveragePercent": 100
+    },
+    "unresolvedSubjects": {
+      "total": 0,
+      "byReason": {
+        "declared-graph-unavailable": 0,
+        "no-declared-target": 0,
+        "multiple-declared-targets": 0,
+        "relation-endpoint-unmapped": 0
+      },
+      "subjectSelectorIds": []
+    },
+    "evidenceStrengthDistribution": {
+      "heuristic": 0,
+      "declared": 0,
+      "observed": 1,
+      "verified": 0
+    }
+  },
+  "deltaDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+}

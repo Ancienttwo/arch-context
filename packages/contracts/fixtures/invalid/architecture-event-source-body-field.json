@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "archcontext.architecture-event/v1",
+  "eventId": "arch_event.invalid_source_body",
+  "eventType": "authority.contract.freeze",
+  "payloadVersion": "v1",
+  "repository": {
+    "repositoryId": "repo.archcontext",
+    "storageRepositoryId": "storage-repo.archcontext"
+  },
+  "worktree": {
+    "workspaceId": "workspace.main",
+    "storageWorkspaceId": "storage-workspace.main",
+    "branch": "main",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "baseDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "resultingDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "actor": {
+    "kind": "daemon",
+    "id": "archctxd.local"
+  },
+  "source": "apply_update",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "idempotencyKey": "invalid-source-body",
+  "provenance": {
+    "producer": "archctx",
+    "command": "archctx apply",
+    "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "payload": {
+    "kind": "authority-contract",
+    "subjectIds": ["adr.0040.hybrid-architecture-ledger"],
+    "summary": "Invalid event includes source body.",
+    "changesDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "sourceBody": "private code"
+}

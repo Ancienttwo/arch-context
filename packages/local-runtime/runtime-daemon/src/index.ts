@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,22 +18,75 @@ import {
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
 import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import {
+  ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
+  architectureLedgerGitCursorFromPlan,
+  architectureLedgerBookSubjects,
+  architectureLedgerPayload,
+  architectureLedgerStateDigest,
+  architectureLedgerProjectionDigest,
+  compareArchitectureLedgerStateToYaml,
+  diffArchitectureLedgerBookStates,
+  planChangeSetApplyToArchitectureLedgerEvent,
+  planExternalProjectionChangeToArchitectureLedgerEvent,
+  planGitCursorRefreshToArchitectureLedgerEvent,
+  planYamlToArchitectureLedgerImport,
+  planYamlToArchitectureLedgerRebuild,
+  projectArchitectureLedgerStateToYamlFiles,
+  queryArchitectureLedgerBook,
+  queryArchitectureLedgerBookEvidence,
+  queryArchitectureLedgerBookNeighbors,
+  queryArchitectureLedgerBookRecommendations,
+  queryArchitectureLedgerBookTimeline,
+  replayArchitectureLedgerEvents,
+  showArchitectureLedgerBookSubject,
+  type ArchitectureLedgerAppendResult,
+  type ArchitectureLedgerProjectionFile,
+  type ArchitectureLedgerScope,
+  type ArchitectureLedgerGraphState
+} from "@archcontext/core/architecture-ledger";
+import {
+  aggregateRecommendationLifecycleMetrics,
+  createRecommendationFeedback,
+  recommendationLifecycleLedgerPayload,
+  transitionRecommendationLifecycle,
+  type RecommendationFeedbackAction,
+  type RecommendationFeedbackSource
+} from "@archcontext/core/recommendation-engine";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
+import {
+  buildInvestigationContextBundleFromLedgerQuery,
+  createInvestigationAgentJob,
+  planRuntimeAgentQueueControls,
+  type AgentInvestigationRunMetadata,
+  type InvestigationReportProposalPlan
+} from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
-import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, validatePracticeWaiver } from "@archcontext/core/practice-engine";
-import { completeTaskGate, type CompleteTaskInput } from "@archcontext/core/review-engine";
+import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
+import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
+import {
+  architectureDocumentationSourceDigest,
+  loadArchitectureDocumentationInputs,
+  renderArchitectureDocumentationProjection
+} from "@archcontext/core/projection-engine";
+import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
-import { findRepositoryRoot, prepareDetachedReviewWorktree, readHeadSha, readTrackedTreeEntries, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation } from "@archcontext/local-runtime/git-adapter";
+import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
-import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
+
+const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
+const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
+const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 
 export interface RuntimeStatus {
   running: boolean;
   sessions: number;
   repositories: string[];
+  architectureLedger: RuntimeArchitectureLedgerModes;
 }
 
 export interface RepositorySession {
@@ -53,6 +107,89 @@ export interface RuntimeCheckpointInput {
   expectedWorktreeDigest?: string;
   maxBytes?: number;
   maxItems?: number;
+}
+
+export interface RuntimeBookInput {
+  command?: "status" | "query" | "show" | "neighbors" | "timeline" | "diff" | "evidence" | "recommendations" | "export";
+  id?: string;
+  query?: string;
+  task?: string;
+  explain?: boolean;
+  depth?: number;
+  fromRef?: string;
+  toRef?: string;
+  sinceRef?: string;
+  openOnly?: boolean;
+  format?: "yaml" | "markdown" | "json";
+  maxItems?: number;
+  maxBytes?: number;
+}
+
+export interface RuntimeRecommendationInput {
+  command: "metrics" | RecommendationFeedbackAction;
+  recommendationId?: string;
+  reason?: string;
+  actor?: string;
+  actorKind?: ArchitectureActorKind;
+  source?: RecommendationFeedbackSource;
+  expectedWorktreeDigest?: string;
+  agentJobId?: string;
+  now?: string;
+}
+
+export interface RuntimeAgentJobEnqueueGitInput {
+  source?: GitChangeSource;
+  ref?: string;
+  baseRef?: string;
+  event?: string;
+  taskSessionId?: string;
+  analysisKind?: string;
+  risk?: InvestigationContextRisk;
+  uncertainty?: InvestigationContextUncertainty;
+  policyRequestedInvestigation?: boolean;
+  coalesceKey?: string;
+  contextMaxItems?: number;
+  cooldownMs?: number;
+  debounceUntil?: string;
+  maxAttempts?: number;
+  priority?: number;
+  maxQueuedJobs?: number;
+  runnerPort?: AgentJobV1["runnerPort"];
+  codeFactsDigest?: string;
+  generatedProjection?: boolean;
+  skipGeneratedProjection?: boolean;
+}
+
+export interface RuntimeAgentJobClaimRpcInput {
+  workerId: string;
+  leaseMs?: number;
+  now?: string;
+  maxRunningJobs?: number;
+}
+
+export interface RuntimeAgentJobCompleteRpcInput {
+  jobId: string;
+  status: Extract<AgentJobV1["status"], "succeeded" | "failed">;
+  workerId?: string;
+  outputDigest?: string;
+  runMetadata?: AgentInvestigationRunMetadata;
+  proposalPlan?: InvestigationReportProposalPlan;
+  error?: string;
+  now?: string;
+}
+
+export interface RuntimeAgentJobRetryRpcInput {
+  jobId: string;
+  reason?: string;
+  now?: string;
+}
+
+export interface RuntimeAgentJobCancelRpcInput {
+  jobId: string;
+  status?: Extract<AgentJobV1["status"], "cancelled" | "superseded" | "expired">;
+  reason?: string;
+  supersededByJobId?: string;
+  now?: string;
 }
 
 export interface RuntimeDocsInput {
@@ -85,10 +222,70 @@ export interface RuntimePracticeWaiverInput {
   owner: string;
   reason: string;
   createdAt?: string;
+  reviewAt: string;
   expiresAt: string;
   evidenceDigest: string;
   subjects?: string[];
   pathGlobs?: string[];
+}
+
+export interface RuntimeLedgerProjectInput {
+  dryRun?: boolean;
+  expectedWorktreeDigest?: string;
+}
+
+export interface RuntimeLedgerRebuildInput {
+  fromGit?: boolean;
+  expectedWorktreeDigest?: string;
+  acceptExternalProjection?: boolean;
+}
+
+export interface RuntimeLedgerMigrateInput {
+  fromYaml?: boolean;
+  dryRun?: boolean;
+  expectedWorktreeDigest?: string;
+}
+
+export interface RuntimeLedgerRollbackInput {
+  toYaml?: boolean;
+  dryRun?: boolean;
+  expectedWorktreeDigest?: string;
+}
+
+export type RuntimeArchitectureLedgerRolloutMode = "yaml" | "dual" | "ledger-shadow" | "ledger-authoritative";
+export type RuntimeArchitectureLedgerReadMode = "yaml" | "dual-compare" | "ledger-shadow" | "ledger";
+export type RuntimeArchitectureLedgerWriteMode = "yaml" | "dual" | "ledger-with-projection";
+
+export interface RuntimeArchitectureLedgerModes {
+  schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1";
+  rolloutMode: RuntimeArchitectureLedgerRolloutMode;
+  readMode: RuntimeArchitectureLedgerReadMode;
+  writeMode: RuntimeArchitectureLedgerWriteMode;
+  readAuthority: "yaml" | "ledger";
+  writeAuthority: "yaml" | "dual" | "ledger-with-projection";
+  phaseFlags: RuntimeArchitectureLedgerPhaseFlags;
+}
+
+export interface RuntimeArchitectureLedgerPhaseFlags {
+  schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1";
+  activePhase: RuntimeArchitectureLedgerRolloutMode;
+  supportedPhases: RuntimeArchitectureLedgerRolloutMode[];
+  environment: {
+    ARCHCONTEXT_LEDGER_MODE: RuntimeArchitectureLedgerRolloutMode;
+    ARCHCONTEXT_LEDGER_READ_MODE: RuntimeArchitectureLedgerReadMode;
+    ARCHCONTEXT_LEDGER_WRITE_MODE: RuntimeArchitectureLedgerWriteMode;
+  };
+  safeDowngrade: {
+    to: "yaml";
+    environment: {
+      ARCHCONTEXT_LEDGER_MODE: "yaml";
+      ARCHCONTEXT_LEDGER_READ_MODE: "yaml";
+      ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml";
+    };
+    command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>";
+  };
+  promotionPath: RuntimeArchitectureLedgerRolloutMode[];
+  downgradePath: RuntimeArchitectureLedgerRolloutMode[];
 }
 
 interface CheckpointCoalesceEntry {
@@ -205,6 +402,7 @@ export interface RuntimeDeps {
   changeSetEngine?: ChangeSetEngine;
   externalDocumentation?: ExternalDocumentationPort;
   devicePrivateKeySigner?: DevicePrivateKeySignerPort;
+  architectureLedger?: Partial<Pick<RuntimeArchitectureLedgerModes, "rolloutMode" | "readMode" | "writeMode">>;
   localStorePath?: string;
   clock?: () => string;
   maxRepoSessions?: number;
@@ -229,6 +427,7 @@ export interface RuntimeCompositionReport {
     changeSetEngine: "default" | "injected";
     externalDocumentation: "context7" | "injected";
   };
+  architectureLedger: RuntimeArchitectureLedgerModes;
   localStorePath?: string;
   blockedProductionInjections: string[];
 }
@@ -321,6 +520,13 @@ export interface RuntimeDaemonClient {
   context(root: string, task: string, maxSymbols?: number): Promise<JsonEnvelope> | JsonEnvelope;
   prepare(root: string, task: string, maxBytes?: number, maxItems?: number, taskSessionId?: string): Promise<JsonEnvelope> | JsonEnvelope;
   checkpoint(root: string, input: RuntimeCheckpointInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsEnqueueGitHook(root: string, input?: RuntimeAgentJobEnqueueGitInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsList(root: string, input?: { statuses?: AgentJobV1["status"][] }): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsStats(root: string, input?: { now?: string }): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
+  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> | JsonEnvelope;
   docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
   readResource(root: string, uri: string): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -329,6 +535,14 @@ export interface RuntimeDaemonClient {
   planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerMigrate(root: string, input?: RuntimeLedgerMigrateInput): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerRebuild(root: string, input?: RuntimeLedgerRebuildInput): Promise<JsonEnvelope> | JsonEnvelope;
+  ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
+  book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
+  recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -381,6 +595,84 @@ interface ModelFileSummary {
   path: string;
   schemaVersion: string;
   digest: string;
+}
+
+interface ArchitectureLedgerReadModelValidation {
+  valid: boolean;
+  errors: string[];
+  modelDigest: string;
+  architectureLedger: RuntimeArchitectureLedgerModes & {
+    graphDigest: string;
+    entityCount: number;
+    relationCount: number;
+    constraintCount: number;
+  };
+}
+
+interface ArchitectureLedgerReadModel {
+  files: ModelFile[];
+  state: ArchitectureLedgerGraphState;
+  graphDigest: string;
+}
+
+class ArchitectureLedgerReadModelStore implements ModelStorePort {
+  constructor(
+    private readonly fallback: ModelStorePort,
+    private readonly localStore: RuntimeLocalStore,
+    private readonly architectureLedger: RuntimeArchitectureLedgerModes
+  ) {}
+
+  loadManifest(workspace: WorkspaceRef): Promise<unknown> {
+    return this.fallback.loadManifest(workspace);
+  }
+
+  async loadModel(workspace: WorkspaceRef): Promise<unknown[]> {
+    if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.loadModel(workspace);
+    return (await this.loadLedgerModel(workspace)).files;
+  }
+
+  async validateModel(workspace: WorkspaceRef): Promise<{ valid: boolean; errors: string[]; modelDigest: string }> {
+    if (this.architectureLedger.readAuthority !== "ledger") return this.fallback.validateModel(workspace);
+    const readback = await this.loadLedgerModel(workspace);
+    const errors = validateModelFiles(readback.files);
+    const result: ArchitectureLedgerReadModelValidation = {
+      valid: errors.length === 0,
+      errors,
+      modelDigest: modelDigestForFiles(readback.files),
+      architectureLedger: {
+        ...this.architectureLedger,
+        readAuthority: "ledger",
+        graphDigest: readback.graphDigest,
+        entityCount: readback.state.entities.length,
+        relationCount: readback.state.relations.length,
+        constraintCount: readback.state.constraints.length
+      }
+    };
+    return result;
+  }
+
+  writeChangeSetPreview(changeSet: unknown): Promise<{ digest: string; summary: string }> {
+    return this.fallback.writeChangeSetPreview(changeSet);
+  }
+
+  private async loadLedgerModel(workspace: WorkspaceRef): Promise<ArchitectureLedgerReadModel> {
+    const state = await this.localStore.readArchitectureLedgerState(architectureLedgerScopeForWorkspace(workspace));
+    const projectedFiles: ModelFile[] = projectArchitectureLedgerStateToYamlFiles(state).map((file) => ({
+      path: file.path,
+      body: file.body,
+      schemaVersion: schemaVersionFromModelBody(file.body),
+      digest: file.digest
+    }));
+    const fallbackFiles = (await this.fallback.loadModel(workspace))
+      .filter(isModelFile)
+      .filter((file) => !isArchitectureLedgerManagedModelPath(file.path));
+    const files = [...fallbackFiles, ...projectedFiles].sort((left, right) => left.path.localeCompare(right.path));
+    return {
+      files,
+      state,
+      graphDigest: architectureLedgerStateDigest(state)
+    };
+  }
 }
 
 interface PersistedPracticeCheckpointBaseline {
@@ -441,11 +733,13 @@ export class ArchctxDaemon {
   private readonly codeFacts: CodeFactsPort;
   private readonly codeGraphProviderFactory: (repository: RepositoryRegistration) => CodeGraphProvider;
   private readonly modelStore: ModelStorePort;
+  private readonly readModelStore: ModelStorePort;
   private readonly localStore: RuntimeLocalStore;
   private readonly changeSetEngine: ChangeSetEngine;
   private readonly externalDocumentation: ExternalDocumentationPort;
   private readonly externalDocumentationInjected: boolean;
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
+  private readonly architectureLedger: RuntimeArchitectureLedgerModes;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -464,6 +758,8 @@ export class ArchctxDaemon {
     this.codeGraphProviderFactory = deps.codeGraphProviderFactory ?? ((repository) => new CodeGraphCliProvider(repository.root ?? repository.repositoryId));
     this.modelStore = deps.modelStore ?? new YamlModelStore();
     this.localStore = deps.localStore ?? new SqliteLocalStore(deps.localStorePath ?? defaultLocalStorePath());
+    this.architectureLedger = runtimeArchitectureLedgerModes(deps.architectureLedger);
+    this.readModelStore = new ArchitectureLedgerReadModelStore(this.modelStore, this.localStore, this.architectureLedger);
     this.changeSetEngine = deps.changeSetEngine ?? new ChangeSetEngine({
       modelStore: this.modelStore,
       projection: { rebuildGeneratedProjection },
@@ -478,7 +774,7 @@ export class ArchctxDaemon {
     });
     this.externalDocumentationInjected = deps.externalDocumentation !== undefined;
     this.maxRepoSessions = deps.maxRepoSessions ?? 8;
-    this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded");
+    this.composition = runtimeCompositionReport(deps, options.compositionMode ?? "embedded", this.architectureLedger);
   }
 
   async start(): Promise<void> {
@@ -502,7 +798,8 @@ export class ArchctxDaemon {
     return {
       running: this.running,
       sessions: this.sessions.size,
-      repositories: [...this.sessions.keys()].sort()
+      repositories: [...this.sessions.keys()].sort(),
+      architectureLedger: this.architectureLedger
     };
   }
 
@@ -536,7 +833,7 @@ export class ArchctxDaemon {
   async validate(root: string): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const result = await this.modelStore.validateModel(session.workspace);
+    const result = await this.readModelStore.validateModel(session.workspace);
     session.modelDigest = result.modelDigest;
     return okEnvelope("validate", result as unknown as Json);
   }
@@ -548,7 +845,8 @@ export class ArchctxDaemon {
       workspace: session.workspace,
       task,
       codeFacts: this.codeFacts,
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
+      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -561,7 +859,8 @@ export class ArchctxDaemon {
       workspace: session.workspace,
       task,
       codeFacts: this.codeFacts,
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
+      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes, maxItems }
     });
     const context = await this.augmentPrepareContextWithExternalDocs(session, task, result.context, maxBytes);
@@ -614,7 +913,8 @@ export class ArchctxDaemon {
       expectedWorktreeDigest: input.expectedWorktreeDigest,
       previous: baseline,
       codeFacts: this.codeFacts,
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
+      architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
       budget: { maxBytes: input.maxBytes ?? 12_288, maxItems: input.maxItems ?? 12 }
     });
     await this.savePracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId, result.nextSnapshot);
@@ -637,6 +937,286 @@ export class ArchctxDaemon {
     });
     this.pruneCheckpointCoalesced();
     return okEnvelope("checkpoint", data);
+  }
+
+  async jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    const session = await this.openSession(repositoryRoot);
+    const scope = await this.architectureLedgerScope(repositoryRoot);
+    const source = input.source ?? "worktree";
+    const metadata = readGitChangeMetadata(repositoryRoot, source, input);
+    const analysisKind = input.analysisKind ?? "architecture-delta";
+    if (shouldSkipGeneratedProjectionJob(metadata, input)) {
+      return okEnvelope("jobs.enqueueGitHook", {
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "archcontext-generated-projection",
+        event: input.event ?? source,
+        source,
+        change: metadata,
+        analysisKind,
+        expiredJobIds: [],
+        hook: {
+          failOpen: false,
+          egress: "none",
+          network: "forbidden"
+        }
+      } as unknown as Json);
+    }
+    if (metadata.paths.length === 0) {
+      return okEnvelope("jobs.enqueueGitHook", {
+        schemaVersion: "archcontext.runtime-agent-job-skip/v1",
+        skipped: true,
+        enqueued: false,
+        reasonCode: "no-changed-paths",
+        event: input.event ?? source,
+        source,
+        change: metadata,
+        analysisKind,
+        expiredJobIds: [],
+        hook: {
+          failOpen: false,
+          egress: "none",
+          network: "forbidden"
+        }
+      } as unknown as Json);
+    }
+    const now = this.clock();
+    const codeFactsDigestValue = input.codeFactsDigest
+      ?? session.codeFactsDigest
+      ?? digestJson({
+        schemaVersion: "archcontext.git-hook-codefacts-fallback/v1",
+        source,
+        headSha: metadata.headSha,
+        metadataDigest: metadata.metadataDigest
+      } as unknown as Json);
+    const fingerprint = computeGitChangeFingerprint({
+      repositoryId: scope.repository.storageRepositoryId,
+      baseSha: metadata.baseSha ?? scope.worktree.headSha,
+      headSha: metadata.headSha,
+      paths: metadata.paths,
+      codeFactsDigest: codeFactsDigestValue,
+      analysisKind
+    });
+    const jobWorktree = {
+      ...scope.worktree,
+      headSha: metadata.headSha
+    };
+    const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
+    const taskSessionId = input.taskSessionId ?? "task_runtime_agent";
+    const trigger = { source: "git_hook" as const, reason: input.event ?? source };
+    const risk = runtimeInvestigationRisk(input.risk ?? (metadata.paths.length > 0 ? "medium" : "low"));
+    const uncertainty = runtimeInvestigationUncertainty(input.uncertainty ?? "high");
+    const context = buildInvestigationContextBundleFromLedgerQuery({
+      repository: scope.repository,
+      worktree: jobWorktree,
+      taskSessionId,
+      fingerprint,
+      trigger,
+      risk,
+      uncertainty,
+      summary: `${analysisKind} investigation for ${metadata.paths.length} changed path(s).`,
+      ledger: {
+        graphDigest: architectureLedgerStateDigest(ledgerState),
+        entities: ledgerState.entities,
+        relations: ledgerState.relations,
+        constraints: ledgerState.constraints,
+        evidenceBindings: [],
+        candidateChanges: [],
+        maxItems: input.contextMaxItems ?? 12
+      },
+      extensions: {
+        gitChange: {
+          source,
+          event: input.event ?? source,
+          metadataDigest: metadata.metadataDigest,
+          pathCount: metadata.paths.length,
+          changedPaths: metadata.paths
+            .slice(0, input.contextMaxItems ?? 12)
+            .map((path) => ({ path: path.path, status: path.status, rawStatus: path.rawStatus })),
+          omittedPathCount: Math.max(0, metadata.paths.length - (input.contextMaxItems ?? 12))
+        },
+        codeFactsDigest: codeFactsDigestValue,
+        analysisKind
+      } as Record<string, Json>
+    });
+    const promptTemplateDigest = digestJson({
+        schemaVersion: "archcontext.runtime-agent-job-prompt-template/v1",
+        analysisKind
+      } as unknown as Json);
+    const job = createInvestigationAgentJob({
+      repository: scope.repository,
+      worktree: jobWorktree,
+      taskSessionId,
+      fingerprint,
+      trigger,
+      risk,
+      uncertainty,
+      deterministicAnalysisFound: metadata.paths.length > 0,
+      policyRequestedInvestigation: input.policyRequestedInvestigation === true,
+      documentationSynthesisUseful: true,
+      budgetUsage: { taskRuns: 0, repositoryRunsToday: 0, totalRunsToday: 0 },
+      now,
+      policy: {
+        adapterEnabled: true,
+        maxRunsPerTask: 1,
+        maxRunsPerRepositoryPerDay: 4,
+        cooldownMs: input.cooldownMs ?? 0
+      },
+      jobId: runtimeAgentJobId(fingerprint, context.inputDigest, now),
+      runnerPort: input.runnerPort ?? "codex",
+      inputDigest: context.inputDigest,
+      promptTemplateDigest
+    });
+    const queuePlan = planRuntimeAgentQueueControls({
+      job,
+      analysisKind,
+      now,
+      coalesceKey: input.coalesceKey,
+      cooldownMs: input.cooldownMs,
+      maxQueuedJobs: input.maxQueuedJobs ?? RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS,
+      priority: input.priority ?? RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY
+    });
+    const jobWithContext: AgentJobV1 = {
+      ...job,
+      extensions: {
+        ...(job.extensions ?? {}),
+        investigationContext: context as unknown as Json,
+        queuePlanDigest: digestJson(queuePlan as unknown as Json)
+      }
+    };
+    const expired = await this.localStore.cancelStaleRuntimeAgentJobs({
+      ...scope,
+      headSha: scope.worktree.headSha,
+      worktreeDigest: scope.worktree.worktreeDigest,
+      now,
+      reason: "enqueue-newer-git-hook-job"
+    });
+    const enqueue = await this.localStore.enqueueRuntimeAgentJob({
+      job: jobWithContext,
+      analysisKind: queuePlan.enqueue.analysisKind,
+      coalesceKey: queuePlan.enqueue.coalesceKey,
+      maxAttempts: input.maxAttempts,
+      debounceUntil: input.debounceUntil ?? queuePlan.enqueue.debounceUntil,
+      priority: queuePlan.enqueue.priority,
+      maxQueuedJobs: queuePlan.enqueue.maxQueuedJobs
+    });
+    return okEnvelope("jobs.enqueueGitHook", {
+      ...enqueue,
+      change: metadata,
+      codeFactsDigest: codeFactsDigestValue,
+      analysisKind,
+      expiredJobIds: expired.map((record) => record.job.jobId)
+    } as unknown as Json);
+  }
+
+  async jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    const jobs = await this.localStore.listRuntimeAgentJobs({ ...scope, statuses: input.statuses });
+    return okEnvelope("jobs.list", { jobs, count: jobs.length } as unknown as Json);
+  }
+
+  async jobsStats(root: string, input: { now?: string } = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    const stats = await this.localStore.queueStatsRuntimeAgentJobs({ ...scope, now: input.now ?? this.clock() });
+    return okEnvelope("jobs.stats", stats as unknown as Json);
+  }
+
+  async jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.workerId) return errorEnvelope("jobs.claim", "AC_SCHEMA_INVALID", "jobs.claim requires workerId");
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.claimRuntimeAgentJob({
+      ...scope,
+      workerId: input.workerId,
+      leaseMs: input.leaseMs ?? 60_000,
+      now: input.now ?? this.clock(),
+      maxRunningJobs: input.maxRunningJobs ?? RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS
+    });
+    return okEnvelope("jobs.claim", { job } as unknown as Json);
+  }
+
+  async jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    const scope = await this.architectureLedgerScope(repositoryRoot);
+    const jobs = await this.localStore.listRuntimeAgentJobs(scope);
+    const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
+    if (record && record.job.status !== "running") {
+      return errorEnvelope(
+        "jobs.complete",
+        "AC_PRECONDITION_FAILED",
+        `runtime agent job completion requires a running job: ${input.jobId}`
+      );
+    }
+    if (input.status === "succeeded") {
+      if (record && isRuntimeAgentJobCursorStale(record.job, scope)) {
+        await this.localStore.cancelRuntimeAgentJob({
+          jobId: input.jobId,
+          status: "expired",
+          now: input.now ?? this.clock(),
+          reason: "stale-head-or-worktree"
+        });
+        return errorEnvelope(
+          "jobs.complete",
+          "AC_CONTEXT_STALE",
+          `runtime agent job is stale for current HEAD/worktree: ${input.jobId}`
+        );
+      }
+    }
+    if (input.proposalPlan) {
+      const validation = validateRuntimeAgentProposalPlan({
+        proposalPlan: input.proposalPlan,
+        job: record?.job,
+        jobId: input.jobId,
+        outputDigest: input.outputDigest
+      });
+      if (!validation.ok) return errorEnvelope("jobs.complete", "AC_SCHEMA_INVALID", validation.reason);
+    }
+    const runMetadata = input.proposalPlan
+      ? {
+        ...(input.runMetadata ?? {}),
+        proposalPlan: input.proposalPlan
+      } as unknown as Json
+      : input.runMetadata as unknown as Json | undefined;
+    const job = await this.localStore.completeRuntimeAgentJob({
+      jobId: input.jobId,
+      status: input.status,
+      workerId: input.workerId,
+      outputDigest: input.outputDigest,
+      runMetadata,
+      error: input.error,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.complete", { job } as unknown as Json);
+  }
+
+  async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.retryRuntimeAgentJob({
+      jobId: input.jobId,
+      reason: input.reason,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.retry", { job } as unknown as Json);
+  }
+
+  async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const job = await this.localStore.cancelRuntimeAgentJob({
+      jobId: input.jobId,
+      status: input.status ?? "cancelled",
+      reason: input.reason,
+      supersededByJobId: input.supersededByJobId,
+      now: input.now ?? this.clock()
+    });
+    return okEnvelope("jobs.cancel", { job } as unknown as Json);
   }
 
   practices(root: string, input: PracticeCatalogCommandInput): JsonEnvelope {
@@ -666,7 +1246,7 @@ export class ArchctxDaemon {
   async planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const model = await this.modelStore.validateModel(session.workspace);
+    const model = await this.readModelStore.validateModel(session.workspace);
     let ownerRegistry: ReturnType<typeof loadPracticeWaiverOwnerRegistry>;
     try {
       ownerRegistry = loadPracticeWaiverOwnerRegistry(session.workspace.root);
@@ -684,6 +1264,7 @@ export class ArchctxDaemon {
       owner: input.owner,
       reason: input.reason,
       createdAt: input.createdAt ?? this.clock(),
+      reviewAt: input.reviewAt,
       expiresAt: input.expiresAt,
       evidenceDigest: input.evidenceDigest
     };
@@ -883,7 +1464,7 @@ export class ArchctxDaemon {
   }): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
-    const model = await this.modelStore.validateModel(session.workspace);
+    const model = await this.readModelStore.validateModel(session.workspace);
     const draft = this.changeSetEngine.plan({
       id: input.id,
       base: {
@@ -911,12 +1492,12 @@ export class ArchctxDaemon {
     } catch (error) {
       if (!currentHeadSha) throw error;
     }
-    const model = await this.modelStore.validateModel(session.workspace);
+    const model = await this.readModelStore.validateModel(session.workspace);
     const codeFacts = await this.codeFacts.sync({ workspace: session.workspace });
     const taskSessionId = input.taskSessionId ?? "task_runtime";
     const baseline = await this.readPracticeCheckpointBaseline(session.workspace.repositoryId, taskSessionId);
     const practicePolicy = loadPracticeEnforcementPolicy(session.workspace.root);
-    const practiceEnforcement = practicePolicy.mode === "active"
+    const practiceEnforcement = shouldEvaluatePracticeEnforcement(practicePolicy)
       ? evaluatePracticeEnforcement({
         catalog: loadPracticeCatalog({ root: session.workspace.root }),
         policy: practicePolicy,
@@ -925,7 +1506,8 @@ export class ArchctxDaemon {
           workspace: session.workspace,
           task: input.task ?? baseline?.task ?? taskSessionId,
           codeFacts: this.codeFacts,
-          modelStore: this.modelStore,
+          modelStore: this.readModelStore,
+          architectureLedger: this.runtimeArchitectureLedgerContextPort(root),
           budget: { maxBytes: 12_288, maxItems: 12 }
         })).practiceGuidance.matches,
         previousMatches: baseline?.matches,
@@ -935,6 +1517,7 @@ export class ArchctxDaemon {
         now: this.clock()
       })
       : undefined;
+    const projectionDrift = this.completeTaskProjectionDrift(session.workspace.root);
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
@@ -943,6 +1526,7 @@ export class ArchctxDaemon {
       worktreeDigest: computeWorktreeDigest(session.workspace.root),
       modelDigest: model.modelDigest,
       codeFactsDigest: codeFactsDigest(codeFacts),
+      ...(projectionDrift === undefined ? {} : { projectionDrift }),
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
       ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
@@ -952,6 +1536,10 @@ export class ArchctxDaemon {
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
+  }
+
+  private completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
+    return completeTaskProjectionDrift(root);
   }
 
   private manualExternalDocumentation(): ExternalDocumentationPort {
@@ -1031,14 +1619,874 @@ export class ArchctxDaemon {
     expectedWorktreeDigest: string;
   }): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (!input.expectedWorktreeDigest) throw new Error("apply_update requires expectedWorktreeDigest");
+    return this.withWriter(async () => {
+      if (!input.expectedWorktreeDigest) throw new Error("apply_update requires expectedWorktreeDigest");
+      const current = computeWorktreeDigest(root);
+      if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
+      const session = await this.openSession(root);
+      const draft = this.changesets.get(input.id);
+      if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
+      const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
+      let ledgerAppend: Json | undefined;
+      const writesLedger = architectureLedgerWriteAppendsEvents(this.architectureLedger.writeMode);
+      const result = await this.changeSetEngine.apply(root, approved, {
+        approved: input.approved,
+        afterModelValidatedBeforeCommit: writesLedger
+          ? async ({ journalId }) => {
+            const appended = await this.appendAppliedChangeSetToArchitectureLedger(root, session, approved, journalId);
+            ledgerAppend = {
+              status: "appended",
+              appendedEventCount: appended.appendedEvents.length,
+              duplicateEventCount: appended.duplicateEvents.length,
+              graphDigest: appended.graphDigest,
+              entityCount: appended.entityCount,
+              relationCount: appended.relationCount,
+              constraintCount: appended.constraintCount
+            };
+          }
+          : undefined
+      });
+      return okEnvelope("apply_update", {
+        ...result,
+        architectureLedger: {
+          ...this.architectureLedger,
+          append: writesLedger ? ledgerAppend ?? { status: "not-appended" } : { status: "not-applicable" }
+        }
+      } as unknown as Json);
+    });
+  }
+
+  private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft, journalId?: string) {
+    const paths = runtimeStatePaths(root);
+    const plan = planChangeSetApplyToArchitectureLedgerEvent({
+      repository: {
+        repositoryId: session.workspace.repositoryId,
+        storageRepositoryId: paths.storageRepositoryId
+      },
+      worktree: {
+        workspaceId: paths.workspaceId,
+        storageWorkspaceId: paths.storageWorkspaceId,
+        branch: readCurrentBranch(root),
+        headSha: session.workspace.headSha,
+        worktreeDigest: computeWorktreeDigest(root)
+      },
+      draft,
+      files: listModelFiles(root),
+      createdAt: this.clock(),
+      writeMode: this.architectureLedger.writeMode === "ledger-with-projection" ? "ledger-with-projection" : "dual",
+      command: "archctx apply"
+    });
+    if (journalId) await this.localStore.recordChangeSetLedgerPlan(journalId, { event: plan.event });
+    const result = await this.localStore.appendArchitectureEvents({
+      writer: "runtime-daemon",
+      events: [plan.event]
+    });
+    if (journalId) await this.localStore.recordChangeSetLedgerAppend(journalId, { result });
+    return result;
+  }
+
+  async ledgerState(root: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    return okEnvelope("ledger.state", await this.architectureLedgerReadback(root) as unknown as Json);
+  }
+
+  async ledgerDrift(root: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const readback = await this.architectureLedgerReadback(root);
+    return okEnvelope("ledger.drift", {
+      schemaVersion: "archcontext.runtime-architecture-ledger-drift/v1",
+      architectureLedger: readback.architectureLedger,
+      repository: readback.repository,
+      worktree: readback.worktree,
+      ledger: readback.ledger,
+      yaml: readback.yaml,
+      drift: readback.drift,
+      reconcile: readback.reconcile
+    } as unknown as Json);
+  }
+
+  async book(root: string, input: RuntimeBookInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const command = input.command ?? "status";
+    const readback = await this.architectureLedgerReadback(root);
+    const scope = { repository: readback.repository, worktree: readback.worktree };
+    const replay = await this.localStore.replayArchitectureLedger(scope);
+    const state = readback.state;
+    const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+    const freshness = {
+      schemaVersion: "archcontext.book-freshness/v1",
+      generatedAt: this.clock(),
+      repository: readback.repository,
+      worktree: readback.worktree,
+      readAuthority: readback.readAuthority,
+      headSha: readback.worktree.headSha,
+      worktreeDigest: readback.worktree.worktreeDigest,
+      graphDigest: readback.graphDigest,
+      projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+      ledgerCursor: {
+        eventCount: replay.events.length,
+        lastEventId: replay.events.at(-1)?.eventId,
+        lastEventHash: replay.events.at(-1)?.eventHash
+      }
+    };
+    const provenance = {
+      schemaVersion: "archcontext.book-provenance/v1",
+      source: "architecture-ledger",
+      producer: "runtime-daemon",
+      readAuthority: freshness.readAuthority,
+      repositoryId: readback.repository.repositoryId,
+      storageRepositoryId: readback.repository.storageRepositoryId,
+      workspaceId: readback.worktree.workspaceId,
+      storageWorkspaceId: readback.worktree.storageWorkspaceId,
+      branch: readback.worktree.branch,
+      headSha: freshness.headSha,
+      worktreeDigest: freshness.worktreeDigest,
+      graphDigest: freshness.graphDigest,
+      projectionDigest: freshness.projectionDigest,
+      ledgerCursor: freshness.ledgerCursor,
+      generatedAt: freshness.generatedAt
+    };
+    const budget = {
+      maxItems: input.maxItems,
+      maxBytes: input.maxBytes
+    };
+    if (command === "status") {
+      return okEnvelope("book.status", {
+        schemaVersion: "archcontext.book-status/v1",
+        freshness,
+        provenance,
+        architectureLedger: readback.architectureLedger,
+        counts: {
+          entities: state.entities.length,
+          relations: state.relations.length,
+          constraints: state.constraints.length,
+          events: replay.events.length
+        },
+        drift: {
+          ok: readback.drift.ok,
+          reasonCodes: readback.drift.reasonCodes,
+          reconcileRequired: !readback.reconcile.ok
+        },
+        commands: ["status", "query", "show", "neighbors", "timeline", "diff", "evidence", "recommendations", "export"]
+      } as unknown as Json);
+    }
+    if (command === "query") {
+      const query = input.task ?? input.query;
+      const ftsMatches = query ? await this.localStore.queryArchitectureLedgerFts({
+        ...scope,
+        query,
+        maxItems: input.maxItems
+      }) : [];
+      return okEnvelope("book.query", {
+        ...queryArchitectureLedgerBook({ state, events: replay.events, query, ftsMatches, explain: input.explain, ...budget }),
+        freshness,
+        provenance
+      } as unknown as Json);
+    }
+    if (command === "show") {
+      if (!input.id) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", "book show requires <entity-id> or --id");
+      const result = showArchitectureLedgerBookSubject(state, input.id);
+      if (!result.found) return errorEnvelope("book.show", "AC_SCHEMA_INVALID", `Book subject not found: ${input.id}`);
+      return okEnvelope("book.show", { ...result, freshness, provenance } as unknown as Json);
+    }
+    if (command === "neighbors") {
+      if (!input.id) return errorEnvelope("book.neighbors", "AC_SCHEMA_INVALID", "book neighbors requires <entity-id> or --id");
+      const depth = input.depth ?? 1;
+      const neighborhoodState = await this.localStore.readArchitectureLedgerNeighborhood({ ...scope, id: input.id, depth });
+      return okEnvelope("book.neighbors", {
+        ...queryArchitectureLedgerBookNeighbors({ state: neighborhoodState, id: input.id, depth, ...budget }),
+        freshness,
+        provenance
+      } as unknown as Json);
+    }
+    if (command === "timeline") {
+      const sinceRef = input.sinceRef ? await architectureBookResolveTimelineSinceRef(this.localStore, scope, replay.events, input.sinceRef) : undefined;
+      if (input.sinceRef && !sinceRef) return errorEnvelope("book.timeline", "AC_SCHEMA_INVALID", `Book timeline --since ref not found: ${input.sinceRef}`);
+      return okEnvelope("book.timeline", {
+        ...queryArchitectureLedgerBookTimeline({
+          events: replay.events,
+          ...(input.id ? { subjectId: input.id } : {}),
+          ...(sinceRef ? { sinceEventId: sinceRef.sinceEventId } : {}),
+          ...budget
+        }),
+        freshness,
+        provenance
+      } as unknown as Json);
+    }
+    if (command === "diff") {
+      const fromRef = input.fromRef ?? "empty";
+      const toRef = input.toRef ?? "current";
+      const fromResolved = await architectureBookResolveRef(this.localStore, scope, replay.events, fromRef);
+      const toResolved = await architectureBookResolveRef(this.localStore, scope, replay.events, toRef);
+      if (!fromResolved) return errorEnvelope("book.diff", "AC_SCHEMA_INVALID", `Book diff --from ref not found: ${fromRef}`);
+      if (!toResolved) return errorEnvelope("book.diff", "AC_SCHEMA_INVALID", `Book diff --to ref not found: ${toRef}`);
+      return okEnvelope("book.diff", {
+        ...diffArchitectureLedgerBookStates({
+          previousState: fromResolved.state,
+          nextState: toResolved.state,
+          fromRef,
+          toRef,
+          events: toResolved.events,
+          ...budget
+        }),
+        freshness,
+        provenance
+      } as unknown as Json);
+    }
+    if (command === "evidence") {
+      if (!input.id) return errorEnvelope("book.evidence", "AC_SCHEMA_INVALID", "book evidence requires <finding-or-entity-id> or --id");
+      return okEnvelope("book.evidence", {
+        ...queryArchitectureLedgerBookEvidence({ events: replay.events, id: input.id, ...budget }),
+        freshness,
+        provenance
+      } as unknown as Json);
+    }
+    if (command === "recommendations") {
+      return okEnvelope("book.recommendations", {
+        ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, ...budget }),
+        freshness,
+        provenance
+      } as unknown as Json);
+    }
+    if (command === "export") {
+      const format = input.format ?? "json";
+      if (!["json", "yaml", "markdown"].includes(format)) return errorEnvelope("book.export", "AC_SCHEMA_INVALID", "book export --format must be json, yaml, or markdown");
+      return okEnvelope("book.export", {
+        schemaVersion: "archcontext.book-export/v1",
+        format,
+        freshness,
+        provenance,
+        ...(format === "json" ? { state } : {}),
+        ...(format === "yaml" ? { projectedFiles } : {}),
+        ...(format === "markdown" ? { markdown: architectureBookMarkdown(state) } : {})
+      } as unknown as Json);
+    }
+    return errorEnvelope("book", "AC_SCHEMA_INVALID", "book requires status|query|show|neighbors|timeline|diff|evidence|recommendations|export");
+  }
+
+  async recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    const command = input.command;
+    const readMetrics = async () => {
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      return okEnvelope("recommendations.metrics", {
+        ...aggregateRecommendationLifecycleMetrics({
+          recommendationRuns: artifacts.recommendationRuns,
+          recommendations: artifacts.recommendations,
+          feedback: artifacts.feedback,
+          generatedAt: input.now ?? this.clock()
+        }),
+        freshness: {
+          schemaVersion: "archcontext.recommendation-lifecycle-freshness/v1",
+          repository: scope.repository,
+          worktree: scope.worktree,
+          ledgerCursor: {
+            eventCount: replay.events.length,
+            lastEventId: replay.events.at(-1)?.eventId,
+            lastEventHash: replay.events.at(-1)?.eventHash
+          },
+          graphDigest: replay.graphDigest
+        }
+      } as unknown as Json);
+    };
+    if (command === "metrics") return readMetrics();
+    if (!isRecommendationLifecycleCliAction(command)) {
+      return errorEnvelope("recommendations", "AC_SCHEMA_INVALID", "recommendations requires acknowledge|accept|reject|defer|waive|resolve|metrics");
+    }
+    if (!input.recommendationId) {
+      return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} requires --id`);
+    }
+    if (!input.reason?.trim()) {
+      return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendations ${command} requires --reason`);
+    }
+
+    return this.withWriter(async () => {
+      if (input.expectedWorktreeDigest) {
+        this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, `recommendations ${command}`);
+      }
+      const now = input.now ?? this.clock();
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      const current = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
+      if (!current) {
+        return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
+      }
+      let next: RecommendationV2;
+      try {
+        next = transitionRecommendationLifecycle(current, {
+          action: command,
+          now,
+          actor: input.actor ?? "developer",
+          reason: input.reason
+        });
+      } catch (error) {
+        return errorEnvelope(
+          `recommendations.${command}`,
+          "AC_PRECONDITION_FAILED",
+          error instanceof Error ? error.message : String(error)
+        );
+      }
+      if (next.status === current.status) {
+        return errorEnvelope(
+          `recommendations.${command}`,
+          "AC_PRECONDITION_FAILED",
+          `recommendation lifecycle no-op: ${current.status}->${next.status}`
+        );
+      }
+      const feedback = createRecommendationFeedback({
+        repository: scope.repository,
+        worktree: scope.worktree,
+        previous: current,
+        next,
+        action: command,
+        now,
+        actorId: input.actor ?? "developer",
+        actorKind: recommendationActorKind(input),
+        source: input.source ?? "cli",
+        reason: input.reason!.trim(),
+        ...(input.agentJobId ? { agentJobId: input.agentJobId } : {})
+      });
+      const inputDigest = digestJson({
+        schemaVersion: "archcontext.recommendation-lifecycle-event-input/v1",
+        recommendationId: current.recommendationId,
+        runId: current.runId,
+        action: command,
+        previousStatus: current.status,
+        nextStatus: next.status,
+        feedbackId: feedback.feedbackId,
+        graphDigest: replay.graphDigest
+      } as unknown as Json);
+      const event: ArchitectureEventV1 = {
+        schemaVersion: "archcontext.architecture-event/v1",
+        eventId: `architecture_event.recommendation_lifecycle.${shortDigest(inputDigest)}`,
+        eventType: "architecture.recommendation.lifecycle",
+        payloadVersion: "archcontext.recommendation-feedback/v1",
+        repository: scope.repository,
+        worktree: scope.worktree,
+        baseDigest: replay.graphDigest,
+        resultingDigest: replay.graphDigest,
+        headSha: scope.worktree.headSha,
+        actor: { kind: feedback.actor.kind, id: feedback.actor.id },
+        source: "manual",
+        timestamp: now,
+        idempotencyKey: `architecture-ledger-recommendation-lifecycle:${feedback.feedbackId}:${current.status}:${next.status}`,
+        provenance: {
+          producer: "runtime-daemon",
+          command: `archctx recommendations ${command}`,
+          inputDigest
+        },
+        payload: {
+          ...recommendationLifecycleLedgerPayload({ recommendation: next, feedback }),
+          title: `Recommendation ${command}`,
+          summary: `Recommendation ${current.recommendationId} transitioned from ${current.status} to ${next.status}.`,
+          recommendationLifecycle: {
+            schemaVersion: "archcontext.recommendation-lifecycle-transition/v1",
+            recommendationId: current.recommendationId,
+            runId: current.runId,
+            action: command,
+            previousStatus: current.status,
+            nextStatus: next.status,
+            feedbackId: feedback.feedbackId
+          }
+        } as unknown as Json
+      };
+      const append = await this.localStore.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [event]
+      });
+      const metrics = aggregateRecommendationLifecycleMetrics({
+        recommendationRuns: artifacts.recommendationRuns,
+        recommendations: [...artifacts.recommendations, next],
+        feedback: [...artifacts.feedback, feedback],
+        generatedAt: now
+      });
+      return okEnvelope(`recommendations.${command}`, {
+        schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1",
+        action: command,
+        recommendationId: current.recommendationId,
+        previousStatus: current.status,
+        nextStatus: next.status,
+        recommendation: next,
+        feedback,
+        metrics,
+        append: {
+          status: "appended",
+          appendedEventCount: append.appendedEvents.length,
+          duplicateEventCount: append.duplicateEvents.length,
+          graphDigest: append.graphDigest,
+          entityCount: append.entityCount,
+          relationCount: append.relationCount,
+          constraintCount: append.constraintCount
+        },
+        privacy: {
+          writes: "architecture-ledger-event-only",
+          rawSourcePersisted: false,
+          rawDiffPersisted: false,
+          promptPersisted: false,
+          implicitAcceptance: false
+        }
+      } as unknown as Json);
+    });
+  }
+
+  async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const writes = input.dryRun === false;
+    const project = async () => {
+      if (writes) this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger project --to-git");
+      const scope = await this.architectureLedgerScope(root);
+      const state = await this.localStore.readArchitectureLedgerState(scope);
+      const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+      if (writes) writeArchitectureProjectionFiles(root, projectedFiles);
+      const drift = compareArchitectureLedgerStateToYaml({
+        state,
+        files: listModelFiles(root),
+        createdAt: this.clock(),
+        command: "archctx ledger project --to-git"
+      });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
+      return okEnvelope("ledger.project", {
+        schemaVersion: "archcontext.runtime-architecture-ledger-project/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        dryRun: !writes,
+        writes: writes ? "git-projection" : "none",
+        projectedFileCount: projectedFiles.length,
+        projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+        graphDigest: architectureLedgerStateDigest(state),
+        writtenPaths: writes ? projectedFiles.map((file) => file.path) : [],
+        projectedFiles: writes ? undefined : projectedFiles,
+        drift,
+        reconcile
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(project) : project();
+  }
+
+  async ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.fromYaml) return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml");
+    const writes = input.dryRun === false;
+    const migrate = async () => {
+      const repositoryRoot = root;
+      if (writes) this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "ledger migrate --from-yaml");
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const files = listModelFiles(repositoryRoot);
+      const command = writes
+        ? "archctx ledger migrate --from-yaml --write"
+        : "archctx ledger migrate --from-yaml --dry-run";
+      const plan = planYamlToArchitectureLedgerImport({
+        ...scope,
+        files,
+        createdAt: this.clock(),
+        command
+      });
+      const previousState = await this.localStore.readArchitectureLedgerState(scope);
+      const previousGraphDigest = architectureLedgerStateDigest(previousState);
+      const base = {
+        schemaVersion: "archcontext.runtime-architecture-ledger-migrate/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        sourceMode: "git-yaml",
+        dryRun: !writes,
+        graphDigest: plan.graphDigest,
+        previousGraphDigest,
+        sourceDigest: plan.sourceDigest,
+        projectionDigest: plan.projectionDigest,
+        imported: plan.imported,
+        ignoredFiles: plan.ignoredFiles,
+        unsupportedFiles: plan.unsupportedFiles,
+        rollback: {
+          command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+          safeDowngradeEnvironment: this.architectureLedger.phaseFlags.safeDowngrade.environment
+        }
+      } as const;
+      if (!writes) {
+        return okEnvelope("ledger.migrate", {
+          ...base,
+          status: plan.unsupportedFiles.length > 0 ? "blocked" : "planned",
+          writes: "none",
+          backup: { status: "not-created", reason: "dry-run" },
+          append: { status: "not-applied" },
+          verification: { status: "not-run", reason: "dry-run" },
+          drift: plan.drift,
+          reconcile: reconcileArchitectureLedgerDrift({ drift: plan.drift })
+        } as unknown as Json);
+      }
+      if (plan.unsupportedFiles.length > 0) {
+        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires supported YAML model files");
+      }
+      const paths = runtimeStatePaths(repositoryRoot);
+      const backupCreatedAt = this.clock();
+      const backupPath = uniqueRuntimeBackupPath(join(
+        paths.workspaceStateDir,
+        "backups",
+        "ledger-migrate",
+        safePathSegment(backupCreatedAt),
+        "runtime.sqlite"
+      ));
+      const backup = await this.localStore.backupArchitectureLedger({ backupPath });
+      const append = await this.localStore.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [plan.event]
+      });
+      const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
+      const integrity = await this.localStore.checkArchitectureLedgerIntegrity(scope);
+      const drift = compareArchitectureLedgerStateToYaml({
+        state: replay.state,
+        files: listModelFiles(repositoryRoot),
+        createdAt: this.clock(),
+        command
+      });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
+      const verified = integrity.ok && replay.graphDigest === plan.graphDigest && drift.ok && reconcile.ok;
+      return okEnvelope("ledger.migrate", {
+        ...base,
+        status: verified ? "verified" : "verification-failed",
+        writes: "architecture-ledger",
+        backup: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-sqlite-backup/v1",
+          status: "created",
+          backupPath: backup.backupPath,
+          integrity: backup.integrity,
+          createdAt: backupCreatedAt
+        },
+        append: {
+          status: "appended",
+          appendedEventCount: append.appendedEvents.length,
+          duplicateEventCount: append.duplicateEvents.length,
+          graphDigest: append.graphDigest,
+          entityCount: append.entityCount,
+          relationCount: append.relationCount,
+          constraintCount: append.constraintCount
+        },
+        verification: {
+          schemaVersion: "archcontext.runtime-architecture-ledger-migration-verification/v1",
+          ok: verified,
+          replayedEventCount: replay.events.length,
+          graphDigest: replay.graphDigest,
+          expectedGraphDigest: plan.graphDigest,
+          integrity,
+          driftOk: drift.ok,
+          reconcileOk: reconcile.ok
+        },
+        drift,
+        reconcile,
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(migrate) : migrate();
+  }
+
+  async ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.toYaml) return errorEnvelope("ledger.rollback", "AC_SCHEMA_INVALID", "ledger rollback currently requires --to-yaml");
+    const writes = input.dryRun === false;
+    const rollback = async () => {
+      if (writes) this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rollback --to-yaml");
+      const scope = await this.architectureLedgerScope(root);
+      const state = await this.localStore.readArchitectureLedgerState(scope);
+      const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+      const currentManagedFiles = listModelFiles(root).filter((file) => isArchitectureLedgerManagedModelPath(file.path));
+      const backupPlan = architectureProjectionRollbackBackup(currentManagedFiles);
+      const writeResult = writes
+        ? replaceArchitectureProjectionFilesForYamlRollback(root, projectedFiles, currentManagedFiles, this.clock())
+        : { backup: backupPlan.backup, writtenPaths: [], removedPaths: [] };
+      const drift = compareArchitectureLedgerStateToYaml({
+        state,
+        files: listModelFiles(root),
+        createdAt: this.clock(),
+        command: "archctx ledger rollback --to-yaml"
+      });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
+      return okEnvelope("ledger.rollback", {
+        schemaVersion: "archcontext.runtime-architecture-ledger-rollback/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        sourceAuthority: "ledger",
+        targetAuthority: "yaml",
+        dryRun: !writes,
+        writes: writes ? "git-projection" : "none",
+        backup: writeResult.backup,
+        projectedFileCount: projectedFiles.length,
+        projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+        graphDigest: architectureLedgerStateDigest(state),
+        writtenPaths: writeResult.writtenPaths,
+        removedPaths: writeResult.removedPaths,
+        projectedFiles: writes ? undefined : projectedFiles,
+        drift,
+        reconcile,
+        recommendedEnvironment: {
+          ARCHCONTEXT_LEDGER_MODE: "yaml"
+        }
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(rollback) : rollback();
+  }
+
+  async ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (!input.fromGit) return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild currently requires --from-git");
+    return this.withWriter(async () => {
+      this.assertFreshWorktree(root, input.expectedWorktreeDigest, "ledger rebuild --from-git");
+      const scope = await this.architectureLedgerScope(root);
+      const files = listModelFiles(root);
+      const previousState = await this.localStore.readArchitectureLedgerState(scope);
+      const previousGraphDigest = architectureLedgerStateDigest(previousState);
+      const rebuildCommand = input.acceptExternalProjection
+        ? "archctx ledger rebuild --from-git --accept-external-projection"
+        : "archctx ledger rebuild --from-git";
+      const plan = planYamlToArchitectureLedgerRebuild({
+        ...scope,
+        files,
+        createdAt: this.clock(),
+        command: rebuildCommand,
+        previousState
+      });
+      if (plan.unsupportedFiles.length > 0) {
+        return errorEnvelope("ledger.rebuild", "AC_SCHEMA_INVALID", "ledger rebuild requires supported YAML model files");
+      }
+      const cursor = architectureLedgerGitCursorFromPlan({ ...scope, plan });
+      const previousCursor = await this.localStore.readArchitectureLedgerSourceCursor({
+        ...scope,
+        cursorId: ARCHITECTURE_LEDGER_GIT_CURSOR_ID
+      });
+      const cursorChanged = previousCursor?.cursorDigest !== cursor.cursorDigest;
+      const previousStateEmpty = isEmptyArchitectureLedgerState(previousState);
+      let append: ArchitectureLedgerAppendResult = {
+        appendedEvents: [],
+        duplicateEvents: [],
+        graphDigest: previousGraphDigest,
+        entityCount: previousState.entities.length,
+        relationCount: previousState.relations.length,
+        constraintCount: previousState.constraints.length
+      };
+      let rebuildStatus: "unchanged" | "cursor-refreshed" | "rebuilt" | "external-projection-proposed" | "external-projection-accepted" = "unchanged";
+      let proposedExternalProjectionChange: Json | undefined;
+      if (previousGraphDigest === plan.graphDigest) {
+        if (cursorChanged) {
+          const cursorPlan = planGitCursorRefreshToArchitectureLedgerEvent({
+            ...scope,
+            cursor,
+            graphDigest: plan.graphDigest,
+            createdAt: this.clock(),
+            command: rebuildCommand
+          });
+          append = await this.localStore.appendArchitectureEvents({
+            writer: "runtime-daemon",
+            events: [cursorPlan.event]
+          });
+          rebuildStatus = "cursor-refreshed";
+        }
+      } else if (!previousStateEmpty && !input.acceptExternalProjection) {
+        const proposal = planExternalProjectionChangeToArchitectureLedgerEvent({
+          ...scope,
+          files,
+          createdAt: this.clock(),
+          command: rebuildCommand,
+          previousState
+        });
+        append = await this.localStore.appendArchitectureEvents({
+          writer: "runtime-daemon",
+          events: [proposal.event]
+        });
+        rebuildStatus = "external-projection-proposed";
+        proposedExternalProjectionChange = {
+          eventId: proposal.event.eventId,
+          baseGraphDigest: proposal.baseGraphDigest,
+          proposedGraphDigest: proposal.proposedGraphDigest,
+          sourceDigest: proposal.sourceDigest,
+          projectionDigest: proposal.projectionDigest,
+          reasonCodes: proposal.drift.reasonCodes,
+          reconcileCommand: "archctx ledger rebuild --from-git --accept-external-projection --expected-worktree-digest <current>"
+        } as unknown as Json;
+      } else {
+        append = await this.localStore.appendArchitectureEvents({
+          writer: "runtime-daemon",
+          events: [plan.event]
+        });
+        rebuildStatus = previousStateEmpty ? "rebuilt" : "external-projection-accepted";
+      }
+      const replay = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
+      const drift = compareArchitectureLedgerStateToYaml({
+        state: replay.state,
+        files: listModelFiles(root),
+        createdAt: this.clock(),
+        command: "archctx ledger rebuild --from-git"
+      });
+      const reconcile = reconcileArchitectureLedgerDrift({ drift });
+      return okEnvelope("ledger.rebuild", {
+        schemaVersion: "archcontext.runtime-architecture-ledger-rebuild/v1",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        sourceMode: "git-yaml",
+        status: rebuildStatus,
+        reconcileRequired: rebuildStatus === "external-projection-proposed",
+        appendedEventCount: append.appendedEvents.length,
+        duplicateEventCount: append.duplicateEvents.length,
+        replayedEventCount: replay.events.length,
+        graphDigest: replay.graphDigest,
+        previousGraphDigest,
+        proposedGraphDigest: plan.graphDigest,
+        cursor: {
+          changed: cursorChanged,
+          cursorDigest: cursor.cursorDigest,
+          previousCursorDigest: typeof previousCursor?.cursorDigest === "string" ? previousCursor.cursorDigest : undefined,
+          sourceDigest: cursor.sourceDigest,
+          projectionDigest: cursor.projectionDigest,
+          branch: cursor.branch,
+          headSha: cursor.headSha,
+          worktreeDigest: cursor.worktreeDigest
+        },
+        proposedExternalProjectionChange,
+        imported: plan.imported,
+        ignoredFiles: plan.ignoredFiles,
+        unsupportedFiles: plan.unsupportedFiles,
+        drift,
+        reconcile
+      } as unknown as Json);
+    });
+  }
+
+  private async architectureLedgerReadback(root: string) {
+    const scope = await this.architectureLedgerScope(root);
+    const files = listModelFiles(root);
+    const yamlPlan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      files,
+      createdAt: this.clock(),
+      command: "archctx ledger state"
+    });
+    const ledgerState = await this.localStore.readArchitectureLedgerState(scope);
+    const ledgerGraphDigest = architectureLedgerStateDigest(ledgerState);
+    const drift = compareArchitectureLedgerStateToYaml({
+      state: ledgerState,
+      files,
+      createdAt: this.clock(),
+      command: "archctx ledger drift --json"
+    });
+    const reconcile = reconcileArchitectureLedgerDrift({ drift });
+    const readAuthority = this.architectureLedger.readMode === "ledger" ? "ledger" : "yaml";
+    const state = readAuthority === "ledger" ? ledgerState : yamlPlan.state;
+    const graphDigest = readAuthority === "ledger" ? ledgerGraphDigest : yamlPlan.graphDigest;
+    return {
+      schemaVersion: "archcontext.runtime-architecture-ledger-state/v1",
+      architectureLedger: { ...this.architectureLedger, readAuthority },
+      repository: scope.repository,
+      worktree: scope.worktree,
+      readAuthority,
+      state,
+      graphDigest,
+      entityCount: state.entities.length,
+      relationCount: state.relations.length,
+      constraintCount: state.constraints.length,
+      ledger: {
+        graphDigest: ledgerGraphDigest,
+        entityCount: ledgerState.entities.length,
+        relationCount: ledgerState.relations.length,
+        constraintCount: ledgerState.constraints.length
+      },
+      yaml: {
+        graphDigest: yamlPlan.graphDigest,
+        sourceDigest: yamlPlan.sourceDigest,
+        importedCount: yamlPlan.imported.length,
+        ignoredFileCount: yamlPlan.ignoredFiles.length,
+        unsupportedFileCount: yamlPlan.unsupportedFiles.length
+      },
+      drift,
+      reconcile
+    };
+  }
+
+  private architectureLedgerContextPort(root: string): ArchitectureContextLedgerPort {
+    return {
+      queryForTask: async ({ task, maxItems, maxBytes }) => {
+        const readback = await this.architectureLedgerReadback(root);
+        const scope = { repository: readback.repository, worktree: readback.worktree };
+        const replay = await this.localStore.replayArchitectureLedger(scope);
+        const ftsMatches = await this.localStore.queryArchitectureLedgerFts({
+          ...scope,
+          query: task,
+          maxItems
+        });
+        const result = queryArchitectureLedgerBook({
+          state: readback.state,
+          events: replay.events,
+          query: task,
+          ftsMatches,
+          maxItems,
+          maxBytes
+        });
+        const projectedFiles = projectArchitectureLedgerStateToYamlFiles(readback.state);
+        const freshness = {
+          schemaVersion: "archcontext.book-freshness/v1",
+          generatedAt: this.clock(),
+          repository: readback.repository,
+          worktree: readback.worktree,
+          readAuthority: readback.readAuthority,
+          headSha: readback.worktree.headSha,
+          worktreeDigest: readback.worktree.worktreeDigest,
+          graphDigest: readback.graphDigest,
+          projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
+          ledgerCursor: {
+            eventCount: replay.events.length,
+            lastEventId: replay.events.at(-1)?.eventId,
+            lastEventHash: replay.events.at(-1)?.eventHash
+          }
+        };
+        return {
+          schemaVersion: "archcontext.context-ledger-readback/v1",
+          query: result.query,
+          graphDigest: result.graphDigest,
+          subjects: result.results,
+          budget: result.budget,
+          freshness: freshness as unknown as Json,
+          resource: {
+            type: "architecture-book",
+            uri: `archcontext://book/query/${result.graphDigest}`,
+            digest: result.graphDigest
+          }
+        };
+      }
+    };
+  }
+
+  private runtimeArchitectureLedgerContextPort(root: string): ArchitectureContextLedgerPort | undefined {
+    return this.running ? this.architectureLedgerContextPort(root) : undefined;
+  }
+
+  private async architectureLedgerScope(root: string): Promise<ArchitectureLedgerScope> {
+    const session = await this.openSession(root);
+    const paths = runtimeStatePaths(root);
+    return {
+      repository: {
+        repositoryId: session.workspace.repositoryId,
+        storageRepositoryId: paths.storageRepositoryId
+      },
+      worktree: {
+        workspaceId: paths.workspaceId,
+        storageWorkspaceId: paths.storageWorkspaceId,
+        branch: readCurrentBranch(root),
+        headSha: session.workspace.headSha,
+        worktreeDigest: computeWorktreeDigest(root)
+      }
+    };
+  }
+
+  private assertFreshWorktree(root: string, expectedWorktreeDigest: string | undefined, command: string): void {
+    if (!expectedWorktreeDigest) throw new Error(`${command} requires expectedWorktreeDigest`);
     const current = computeWorktreeDigest(root);
-    if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
-    const draft = this.changesets.get(input.id);
-    if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
-    const approved = input.approved ? this.changeSetEngine.approve(draft) : draft;
-    const result = await this.changeSetEngine.apply(root, approved, { approved: input.approved });
-    return okEnvelope("apply_update", result as unknown as Json);
+    if (current !== expectedWorktreeDigest) throw new Error(`Worktree digest changed before ${command}`);
   }
 
   prepareDeveloperReviewWorktree(input: {
@@ -1555,7 +3003,7 @@ export class ArchctxDaemon {
       workspaces,
       task,
       codeFacts: new MultiRepoCodeGraphAdapter(this.createLandscapeCodeGraphProviders()),
-      modelStore: this.modelStore,
+      modelStore: this.readModelStore,
       budget: { maxBytes: 12_288, maxItems: maxSymbols }
     });
     return okEnvelope("context", context as unknown as Json);
@@ -1570,8 +3018,8 @@ export class ArchctxDaemon {
       ...status,
       repositoryId,
       headSha: session?.workspace.headSha ?? readHeadSha(root),
-      worktreeDigest: session?.snapshot.worktreeDigest ?? computeWorktreeDigest(root)
-    } as Json);
+      worktreeDigest: computeWorktreeDigest(root)
+    } as unknown as Json);
   }
 
   async openSession(root: string): Promise<RepositorySession> {
@@ -1597,7 +3045,7 @@ export class ArchctxDaemon {
       worktreeDigest: binding.worktreeDigest,
       updatedAt: this.clock()
     });
-    const validation = await this.modelStore.validateModel(workspace).catch(() => undefined);
+    const validation = await this.readModelStore.validateModel(workspace).catch(() => undefined);
     const session: RepositorySession = {
       workspace,
       snapshot,
@@ -1718,8 +3166,8 @@ export class ArchctxDaemon {
   private async buildExplorerProjection(root: string, query?: string): Promise<ExplorerProjection> {
     const session = await this.openSession(root);
     await this.codeFacts.ensureReady(session.workspace);
-    const model = await this.modelStore.validateModel(session.workspace).catch(() => undefined);
-    const modelFiles = await this.modelStore.loadModel(session.workspace).catch(() => []) as ModelFileSummary[];
+    const model = await this.readModelStore.validateModel(session.workspace).catch(() => undefined);
+    const modelFiles = await this.readModelStore.loadModel(session.workspace).catch(() => []) as ModelFileSummary[];
     const codeContext = await this.codeFacts.buildTaskContext({ task: "architecture explorer", maxSymbols: 80, includeSource: false });
     const modelNodes = modelFiles.map((file) => ({
       id: file.path,
@@ -1887,6 +3335,34 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("checkpoint", [root, input]);
   }
 
+  jobsEnqueueGitHook(root: string, input: RuntimeAgentJobEnqueueGitInput = {}) {
+    return this.call("jobsEnqueueGitHook", [root, input]);
+  }
+
+  jobsList(root: string, input: { statuses?: AgentJobV1["status"][] } = {}) {
+    return this.call("jobsList", [root, input]);
+  }
+
+  jobsStats(root: string, input: { now?: string } = {}) {
+    return this.call("jobsStats", [root, input]);
+  }
+
+  jobsClaim(root: string, input: RuntimeAgentJobClaimRpcInput) {
+    return this.call("jobsClaim", [root, input]);
+  }
+
+  jobsComplete(root: string, input: RuntimeAgentJobCompleteRpcInput) {
+    return this.call("jobsComplete", [root, input]);
+  }
+
+  jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput) {
+    return this.call("jobsRetry", [root, input]);
+  }
+
+  jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput) {
+    return this.call("jobsCancel", [root, input]);
+  }
+
   docs(root: string, input: RuntimeDocsInput) {
     return this.call("docs", [root, input]);
   }
@@ -1917,6 +3393,38 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
 
   applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string }) {
     return this.call("applyUpdate", [root, input]);
+  }
+
+  ledgerState(root: string) {
+    return this.call("ledgerState", [root]);
+  }
+
+  ledgerDrift(root: string) {
+    return this.call("ledgerDrift", [root]);
+  }
+
+  ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }) {
+    return this.call("ledgerProject", [root, input]);
+  }
+
+  ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }) {
+    return this.call("ledgerMigrate", [root, input]);
+  }
+
+  ledgerRebuild(root: string, input: RuntimeLedgerRebuildInput = {}) {
+    return this.call("ledgerRebuild", [root, input]);
+  }
+
+  ledgerRollback(root: string, input: RuntimeLedgerRollbackInput = { dryRun: true }) {
+    return this.call("ledgerRollback", [root, input]);
+  }
+
+  book(root: string, input: RuntimeBookInput = {}) {
+    return this.call("book", [root, input]);
+  }
+
+  recommendations(root: string, input: RuntimeRecommendationInput) {
+    return this.call("recommendations", [root, input]);
   }
 
   repoAdd(root: string, name?: string) {
@@ -2144,6 +3652,20 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.prepare(params[0] as string, params[1] as string, params[2] as number | undefined, params[3] as number | undefined, params[4] as string | undefined);
       case "checkpoint":
         return this.daemon.checkpoint(params[0] as string, params[1] as RuntimeCheckpointInput);
+      case "jobsEnqueueGitHook":
+        return this.daemon.jobsEnqueueGitHook(params[0] as string, params[1] as RuntimeAgentJobEnqueueGitInput | undefined);
+      case "jobsList":
+        return this.daemon.jobsList(params[0] as string, params[1] as { statuses?: AgentJobV1["status"][] } | undefined);
+      case "jobsStats":
+        return this.daemon.jobsStats(params[0] as string, params[1] as { now?: string } | undefined);
+      case "jobsClaim":
+        return this.daemon.jobsClaim(params[0] as string, params[1] as RuntimeAgentJobClaimRpcInput);
+      case "jobsComplete":
+        return this.daemon.jobsComplete(params[0] as string, params[1] as RuntimeAgentJobCompleteRpcInput);
+      case "jobsRetry":
+        return this.daemon.jobsRetry(params[0] as string, params[1] as RuntimeAgentJobRetryRpcInput);
+      case "jobsCancel":
+        return this.daemon.jobsCancel(params[0] as string, params[1] as RuntimeAgentJobCancelRpcInput);
       case "docs":
         return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
       case "readResource":
@@ -2160,6 +3682,22 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
       case "applyUpdate":
         return this.daemon.applyUpdate(params[0] as string, params[1] as any);
+      case "ledgerState":
+        return this.daemon.ledgerState(params[0] as string);
+      case "ledgerDrift":
+        return this.daemon.ledgerDrift(params[0] as string);
+      case "ledgerProject":
+        return this.daemon.ledgerProject(params[0] as string, params[1] as RuntimeLedgerProjectInput | undefined);
+      case "ledgerMigrate":
+        return this.daemon.ledgerMigrate(params[0] as string, params[1] as RuntimeLedgerMigrateInput | undefined);
+      case "ledgerRebuild":
+        return this.daemon.ledgerRebuild(params[0] as string, params[1] as RuntimeLedgerRebuildInput | undefined);
+      case "ledgerRollback":
+        return this.daemon.ledgerRollback(params[0] as string, params[1] as RuntimeLedgerRollbackInput | undefined);
+      case "book":
+        return this.daemon.book(params[0] as string, params[1] as RuntimeBookInput | undefined);
+      case "recommendations":
+        return this.daemon.recommendations(params[0] as string, params[1] as RuntimeRecommendationInput);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -2209,6 +3747,46 @@ export class ArchctxRuntimeRpcServer {
         };
     }
   }
+}
+
+function recommendationArtifactsFromEvents(events: readonly ArchitectureEventV1[]): {
+  recommendationRuns: RecommendationRunV1[];
+  recommendations: RecommendationV2[];
+  feedback: RecommendationFeedbackV1[];
+} {
+  const recommendationRuns: RecommendationRunV1[] = [];
+  const recommendations: RecommendationV2[] = [];
+  const feedback: RecommendationFeedbackV1[] = [];
+  for (const event of events) {
+    const payload = architectureLedgerPayload(event);
+    recommendationRuns.push(...(payload.recommendationRuns ?? []) as unknown as RecommendationRunV1[]);
+    recommendations.push(...(payload.recommendations ?? []) as unknown as RecommendationV2[]);
+    feedback.push(...(payload.feedback ?? []) as unknown as RecommendationFeedbackV1[]);
+  }
+  return { recommendationRuns, recommendations, feedback };
+}
+
+function latestRecommendationById(recommendations: readonly RecommendationV2[], recommendationId: string): RecommendationV2 | undefined {
+  return recommendations
+    .filter((recommendation) => recommendation.recommendationId === recommendationId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+function isRecommendationLifecycleCliAction(command: string): command is RecommendationFeedbackAction {
+  return ["acknowledge", "accept", "reject", "defer", "waive", "resolve"].includes(command);
+}
+
+function recommendationActorKind(input: RuntimeRecommendationInput): ArchitectureActorKind {
+  if (input.actorKind) return input.actorKind;
+  if (input.source === "mcp") return "mcp";
+  if (input.source === "daemon") return "daemon";
+  if (input.source === "system") return "system";
+  if (input.source === "subagent") return "subagent";
+  return "cli";
+}
+
+function shortDigest(digest: string): string {
+  return digest.replace(/^sha256:/, "").slice(0, 16);
 }
 
 export function defaultDaemonControlDir(root = process.cwd()): string {
@@ -2331,6 +3909,38 @@ function modelFileDigestSummary(value: unknown): { path: string; digest: string 
   return { path: record.path, digest: record.digest };
 }
 
+function readGitChangeMetadata(root: string, source: GitChangeSource, input: RuntimeAgentJobEnqueueGitInput): GitChangeMetadata {
+  const repositoryRoot = findRepositoryRoot(root);
+  if (source === "commit") return readCommitChangeMetadata(repositoryRoot, input.ref ?? "HEAD");
+  if (source === "staged") return readStagedChangeMetadata(repositoryRoot, input.baseRef ?? "HEAD");
+  return readWorktreeChangeMetadata(repositoryRoot);
+}
+
+function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: RuntimeAgentJobEnqueueGitInput): boolean {
+  if (input.skipGeneratedProjection === false) return false;
+  if (input.generatedProjection === true) return true;
+  return metadata.paths.length > 0 && metadata.paths.every((path) => isArchContextGeneratedProjectionPath(path.path));
+}
+
+function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedgerScope): boolean {
+  return job.worktree.headSha !== scope.worktree.headSha
+    || job.worktree.worktreeDigest !== scope.worktree.worktreeDigest;
+}
+
+function isArchContextGeneratedProjectionPath(path: string): boolean {
+  return path.replace(/\\/g, "/").startsWith(".archcontext/generated/");
+}
+
+function runtimeAgentJobId(fingerprint: string, inputDigest: string, queuedAt: string): string {
+  return `agent_job.${digestJson({
+    schemaVersion: "archcontext.runtime-agent-job-id/v1",
+    fingerprint,
+    inputDigest,
+    queuedAt,
+    nonce: randomBytes(6).toString("hex")
+  } as unknown as Json).replace(/^sha256:/, "").slice(0, 32)}`;
+}
+
 function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
   return digestJson({
     schemaVersion: "archcontext.code-facts-digest/v1",
@@ -2339,6 +3949,169 @@ function codeFactsDigest(snapshot: CodeFactsSnapshot): string {
     schemaDigest: snapshot.schemaDigest,
     workspaceDigest: snapshot.workspaceDigest
   } as unknown as Json);
+}
+
+function architectureLedgerScopeForWorkspace(workspace: WorkspaceRef): ArchitectureLedgerScope {
+  const paths = runtimeStatePaths(workspace.root);
+  return {
+    repository: {
+      repositoryId: workspace.repositoryId,
+      storageRepositoryId: paths.storageRepositoryId
+    },
+    worktree: {
+      workspaceId: paths.workspaceId,
+      storageWorkspaceId: paths.storageWorkspaceId,
+      branch: readCurrentBranch(workspace.root),
+      headSha: workspace.headSha,
+      worktreeDigest: computeWorktreeDigest(workspace.root)
+    }
+  };
+}
+
+interface ArchitectureBookResolvedRef {
+  events: ArchitectureEventV1[];
+  state: ArchitectureLedgerGraphState;
+  lastEventId?: string;
+}
+
+async function architectureBookResolveRef(
+  store: RuntimeLocalStore,
+  scope: ArchitectureLedgerScope,
+  events: ArchitectureEventV1[],
+  ref: string
+): Promise<ArchitectureBookResolvedRef | undefined> {
+  const trimmed = ref.trim();
+  if (trimmed === "empty" || trimmed === "zero") {
+    return { events: [], state: replayArchitectureLedgerEvents([]) };
+  }
+  if (trimmed === "current" || trimmed === "head") {
+    return { events, state: replayArchitectureLedgerEvents(events), lastEventId: events.at(-1)?.eventId };
+  }
+  const snapshotId = trimmed.startsWith("snapshot:") ? trimmed.slice("snapshot:".length) : undefined;
+  if (snapshotId) {
+    try {
+      const replay = await store.replayArchitectureLedger({ ...scope, snapshotId });
+      return { events: replay.events, state: replay.state, lastEventId: replay.events.at(-1)?.eventId };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("architecture-ledger-snapshot-not-found:")) return undefined;
+      throw error;
+    }
+  }
+  const eventId = trimmed.startsWith("event:") ? trimmed.slice("event:".length) : trimmed;
+  const eventIndex = events.findIndex((event) => event.eventId === eventId);
+  if (eventIndex >= 0) {
+    const selected = events.slice(0, eventIndex + 1);
+    return { events: selected, state: replayArchitectureLedgerEvents(selected), lastEventId: selected.at(-1)?.eventId };
+  }
+  const commitRef = trimmed.startsWith("commit:") ? trimmed.slice("commit:".length) : trimmed.startsWith("sha:") ? trimmed.slice("sha:".length) : undefined;
+  const commitIndex = architectureBookLastIndex(events, (event) => commitRef ? event.headSha === commitRef || event.headSha.startsWith(commitRef) : event.headSha === trimmed);
+  if (commitIndex >= 0) {
+    const selected = events.slice(0, commitIndex + 1);
+    return { events: selected, state: replayArchitectureLedgerEvents(selected), lastEventId: selected.at(-1)?.eventId };
+  }
+  const timestamp = architectureBookTimestampRef(trimmed);
+  if (timestamp !== undefined) {
+    const timestampIndex = architectureBookLastIndex(events, (event) => Date.parse(event.timestamp) <= timestamp);
+    if (timestampIndex < 0) return { events: [], state: replayArchitectureLedgerEvents([]) };
+    const selected = events.slice(0, timestampIndex + 1);
+    return { events: selected, state: replayArchitectureLedgerEvents(selected), lastEventId: selected.at(-1)?.eventId };
+  }
+  return undefined;
+}
+
+async function architectureBookResolveTimelineSinceRef(
+  store: RuntimeLocalStore,
+  scope: ArchitectureLedgerScope,
+  events: ArchitectureEventV1[],
+  ref: string
+): Promise<{ sinceEventId?: string } | undefined> {
+  const resolved = await architectureBookResolveRef(store, scope, events, ref);
+  if (!resolved) return undefined;
+  return { sinceEventId: resolved.lastEventId };
+}
+
+function architectureBookLastIndex(events: ArchitectureEventV1[], predicate: (event: ArchitectureEventV1) => boolean): number {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (predicate(events[index])) return index;
+  }
+  return -1;
+}
+
+function architectureBookTimestampRef(ref: string): number | undefined {
+  const value = ref.startsWith("timestamp:") ? ref.slice("timestamp:".length) : ref.startsWith("time:") ? ref.slice("time:".length) : ref;
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value)) return undefined;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function architectureBookMarkdown(state: ArchitectureLedgerGraphState): string {
+  const subjects = architectureLedgerBookSubjects(state);
+  const lines = [
+    "# Architecture Book",
+    "",
+    "## Entities",
+    ...subjects
+      .filter((subject) => subject.kind === "entity")
+      .map((subject) => `- ${subject.id} (${subject.status}): ${subject.summary ?? subject.label}`),
+    "",
+    "## Relations",
+    ...subjects
+      .filter((subject) => subject.kind === "relation")
+      .map((subject) => `- ${subject.id} (${subject.status}): ${subject.relation?.sourceEntityId} -> ${subject.relation?.targetEntityId}`),
+    "",
+    "## Constraints",
+    ...subjects
+      .filter((subject) => subject.kind === "constraint")
+      .map((subject) => `- ${subject.id} (${subject.status}): ${subject.summary ?? subject.constraint?.subjectId ?? subject.label}`)
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function isEmptyArchitectureLedgerState(state: ArchitectureLedgerGraphState): boolean {
+  return state.entities.length === 0 && state.relations.length === 0 && state.constraints.length === 0;
+}
+
+function validateModelFiles(files: ModelFile[]): string[] {
+  const errors: string[] = [];
+  const paths = new Set(files.map((file) => file.path));
+  for (const required of [".archcontext/manifest.yaml", ".archcontext/product.yaml"]) {
+    if (!paths.has(required)) errors.push(`missing ${required}`);
+  }
+  for (const file of files) {
+    if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
+  }
+  return errors;
+}
+
+function modelDigestForFiles(files: ModelFile[]): string {
+  return digestJson(files.map((file) => ({ path: file.path, digest: file.digest })) as unknown as Json);
+}
+
+function isModelFile(value: unknown): value is ModelFile {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const file = value as Partial<ModelFile>;
+  return typeof file.path === "string"
+    && typeof file.body === "string"
+    && typeof file.schemaVersion === "string"
+    && typeof file.digest === "string";
+}
+
+function isArchitectureLedgerManagedModelPath(path: string): boolean {
+  return path.startsWith(".archcontext/model/nodes/")
+    || path.startsWith(".archcontext/model/relations/")
+    || path.startsWith(".archcontext/model/constraints/");
+}
+
+function schemaVersionFromModelBody(body: string): string {
+  const match = body.match(/schemaVersion:\s*"?([^"\n]+)"?/);
+  if (match) return match[1].trim();
+  try {
+    const parsed = JSON.parse(body) as { schemaVersion?: unknown };
+    if (typeof parsed.schemaVersion === "string") return parsed.schemaVersion;
+  } catch {
+    // Stable YAML projection files are handled by the regex path above.
+  }
+  return "";
 }
 
 function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: RuntimeCompositionReport): AttestationV2["runtime"] {
@@ -2431,6 +4204,16 @@ function createDeveloperReviewRunPaths(input: {
 function safeControlFileSegment(value: string): string {
   const sanitized = value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 80);
   return sanitized.length > 0 ? sanitized : "developer-review";
+}
+
+function runtimeInvestigationRisk(value: unknown): InvestigationContextRisk {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  throw new Error("runtime-agent-risk-invalid");
+}
+
+function runtimeInvestigationUncertainty(value: unknown): InvestigationContextUncertainty {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  throw new Error("runtime-agent-uncertainty-invalid");
 }
 
 function safePracticeWaiverId(explicit: string | undefined, waiver: PracticeWaiverV1): string {
@@ -2742,7 +4525,11 @@ export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
   }
 }
 
-function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMode): RuntimeCompositionReport {
+function runtimeCompositionReport(
+  deps: RuntimeDeps,
+  mode: RuntimeCompositionMode,
+  architectureLedger: RuntimeArchitectureLedgerModes
+): RuntimeCompositionReport {
   const blocked = blockedProductionInjections(deps);
   return {
     mode,
@@ -2755,9 +4542,215 @@ function runtimeCompositionReport(deps: RuntimeDeps, mode: RuntimeCompositionMod
       changeSetEngine: deps.changeSetEngine ? "injected" : "default",
       externalDocumentation: deps.externalDocumentation ? "injected" : "context7"
     },
+    architectureLedger,
     localStorePath: deps.localStorePath,
     blockedProductionInjections: blocked
   };
+}
+
+function runtimeArchitectureLedgerModes(input: RuntimeDeps["architectureLedger"] = {}): RuntimeArchitectureLedgerModes {
+  const rolloutMode = readRuntimeArchitectureLedgerRolloutMode(input.rolloutMode ?? process.env.ARCHCONTEXT_LEDGER_MODE ?? "yaml");
+  const defaults = architectureLedgerDefaultsForRolloutMode(rolloutMode);
+  const readMode = readRuntimeArchitectureLedgerReadMode(input.readMode ?? process.env.ARCHCONTEXT_LEDGER_READ_MODE ?? defaults.readMode);
+  const writeMode = readRuntimeArchitectureLedgerWriteMode(input.writeMode ?? process.env.ARCHCONTEXT_LEDGER_WRITE_MODE ?? defaults.writeMode);
+  return {
+    schemaVersion: "archcontext.runtime-architecture-ledger-modes/v1",
+    rolloutMode,
+    readMode,
+    writeMode,
+    readAuthority: architectureLedgerReadAuthority(readMode),
+    writeAuthority: writeMode,
+    phaseFlags: runtimeArchitectureLedgerPhaseFlags(rolloutMode, readMode, writeMode)
+  };
+}
+
+function runtimeArchitectureLedgerPhaseFlags(
+  rolloutMode: RuntimeArchitectureLedgerRolloutMode,
+  readMode: RuntimeArchitectureLedgerReadMode,
+  writeMode: RuntimeArchitectureLedgerWriteMode
+): RuntimeArchitectureLedgerPhaseFlags {
+  const supportedPhases: RuntimeArchitectureLedgerRolloutMode[] = ["yaml", "dual", "ledger-shadow", "ledger-authoritative"];
+  const activeIndex = supportedPhases.indexOf(rolloutMode);
+  return {
+    schemaVersion: "archcontext.runtime-architecture-ledger-phase-flags/v1",
+    activePhase: rolloutMode,
+    supportedPhases,
+    environment: {
+      ARCHCONTEXT_LEDGER_MODE: rolloutMode,
+      ARCHCONTEXT_LEDGER_READ_MODE: readMode,
+      ARCHCONTEXT_LEDGER_WRITE_MODE: writeMode
+    },
+    safeDowngrade: {
+      to: "yaml",
+      environment: {
+        ARCHCONTEXT_LEDGER_MODE: "yaml",
+        ARCHCONTEXT_LEDGER_READ_MODE: "yaml",
+        ARCHCONTEXT_LEDGER_WRITE_MODE: "yaml"
+      },
+      command: "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>"
+    },
+    promotionPath: activeIndex < 0 ? supportedPhases : supportedPhases.slice(activeIndex),
+    downgradePath: activeIndex < 0 ? ["yaml"] : supportedPhases.slice(0, activeIndex + 1).reverse()
+  };
+}
+
+function architectureLedgerDefaultsForRolloutMode(
+  mode: RuntimeArchitectureLedgerRolloutMode
+): Pick<RuntimeArchitectureLedgerModes, "readMode" | "writeMode"> {
+  switch (mode) {
+    case "yaml":
+      return { readMode: "yaml", writeMode: "yaml" };
+    case "dual":
+      return { readMode: "dual-compare", writeMode: "dual" };
+    case "ledger-shadow":
+      return { readMode: "ledger-shadow", writeMode: "dual" };
+    case "ledger-authoritative":
+      return { readMode: "ledger", writeMode: "ledger-with-projection" };
+  }
+}
+
+function readRuntimeArchitectureLedgerRolloutMode(value: string): RuntimeArchitectureLedgerRolloutMode {
+  if (value === "yaml" || value === "dual" || value === "ledger-shadow" || value === "ledger-authoritative") return value;
+  if (value === "ledger") return "ledger-authoritative";
+  throw new Error(`invalid ARCHCONTEXT_LEDGER_MODE: ${value}`);
+}
+
+function readRuntimeArchitectureLedgerReadMode(value: string): RuntimeArchitectureLedgerReadMode {
+  if (value === "yaml" || value === "dual-compare" || value === "ledger-shadow" || value === "ledger") return value;
+  throw new Error(`invalid architecture ledger read mode: ${value}`);
+}
+
+function readRuntimeArchitectureLedgerWriteMode(value: string): RuntimeArchitectureLedgerWriteMode {
+  if (value === "yaml" || value === "dual" || value === "ledger-with-projection") return value;
+  throw new Error(`invalid architecture ledger write mode: ${value}`);
+}
+
+function architectureLedgerReadAuthority(mode: RuntimeArchitectureLedgerReadMode): RuntimeArchitectureLedgerModes["readAuthority"] {
+  return mode === "ledger" ? "ledger" : "yaml";
+}
+
+function architectureLedgerWriteAppendsEvents(mode: RuntimeArchitectureLedgerWriteMode): boolean {
+  return mode === "dual" || mode === "ledger-with-projection";
+}
+
+function readCurrentBranch(root: string): string {
+  try {
+    const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return branch === "HEAD" ? "detached" : branch;
+  } catch {
+    return "unknown";
+  }
+}
+
+interface ArchitectureProjectionRollbackWriteResult {
+  backup: Json;
+  writtenPaths: string[];
+  removedPaths: string[];
+}
+
+function writeArchitectureProjectionFiles(root: string, files: ArchitectureLedgerProjectionFile[]): void {
+  for (const file of files) {
+    const absolute = resolve(root, file.path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, file.body.endsWith("\n") ? file.body : `${file.body}\n`, "utf8");
+  }
+}
+
+function replaceArchitectureProjectionFilesForYamlRollback(
+  root: string,
+  projectedFiles: ArchitectureLedgerProjectionFile[],
+  currentFiles: ModelFile[],
+  createdAt: string
+): ArchitectureProjectionRollbackWriteResult {
+  const targetPaths = new Set(projectedFiles.map((file) => file.path));
+  const backupBase = `.archcontext/backups/ledger-rollback/${safePathSegment(createdAt)}`;
+  const backupRelativePath = uniqueBackupPath(root, backupBase);
+  const manifestPath = `${backupRelativePath}/manifest.json`;
+  const { backup, manifest } = architectureProjectionRollbackBackup(currentFiles, {
+    createdAt,
+    path: backupRelativePath,
+    manifestPath
+  });
+  for (const file of currentFiles) {
+    const backupPath = join(backupRelativePath, archContextRelativePath(file.path));
+    const absolute = resolve(root, backupPath);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, file.body, "utf8");
+  }
+  const manifestAbsolute = resolve(root, manifestPath);
+  mkdirSync(dirname(manifestAbsolute), { recursive: true });
+  writeFileSync(manifestAbsolute, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const removedPaths: string[] = [];
+  for (const file of currentFiles) {
+    if (targetPaths.has(file.path)) continue;
+    rmSync(resolve(root, file.path), { force: true });
+    removedPaths.push(file.path);
+  }
+  writeArchitectureProjectionFiles(root, projectedFiles);
+  return {
+    backup,
+    writtenPaths: projectedFiles.map((file) => file.path),
+    removedPaths
+  };
+}
+
+function architectureProjectionRollbackBackup(
+  files: ModelFile[],
+  options: { createdAt?: string; path?: string; manifestPath?: string } = {}
+): { backup: Json; manifest: Json } {
+  const manifest = {
+    schemaVersion: "archcontext.architecture-ledger-yaml-rollback-backup/v1",
+    createdAt: options.createdAt,
+    fileCount: files.length,
+    files: files.map((file) => ({
+      path: file.path,
+      schemaVersion: file.schemaVersion,
+      digest: file.digest
+    }))
+  } as unknown as Json;
+  const backup = {
+    schemaVersion: "archcontext.architecture-ledger-yaml-rollback-backup/v1",
+    required: true,
+    path: options.path,
+    manifestPath: options.manifestPath,
+    fileCount: files.length,
+    paths: files.map((file) => file.path),
+    digest: digestJson(manifest)
+  } as unknown as Json;
+  return { backup, manifest };
+}
+
+function uniqueBackupPath(root: string, backupBase: string): string {
+  let candidate = backupBase;
+  let suffix = 2;
+  while (existsSync(resolve(root, candidate))) {
+    candidate = `${backupBase}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function uniqueRuntimeBackupPath(backupBase: string): string {
+  let candidate = backupBase;
+  let suffix = 2;
+  while (existsSync(candidate)) {
+    candidate = backupBase.replace(/\.sqlite$/, `-${suffix}.sqlite`);
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "-");
+}
+
+function archContextRelativePath(path: string): string {
+  return path.startsWith(".archcontext/") ? path.slice(".archcontext/".length) : path;
 }
 
 function blockedProductionInjections(deps: RuntimeDeps): string[] {
@@ -2873,6 +4866,72 @@ function parsePracticeCheckpointBaselineState(
     return undefined;
   }
   return record as PersistedPracticeCheckpointBaseline;
+}
+
+function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
+  if (!existsSync(resolve(root, "docs/architecture/.projection-manifest.json"))) return undefined;
+  const loaded = loadArchitectureDocumentationInputs(root);
+  const sourceDigest = architectureDocumentationSourceDigest({
+    model: loaded.model,
+    decisions: loaded.decisions
+  });
+  const plan = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    sourceDigest
+  });
+  return {
+    schemaVersion: "archcontext.complete-task-projection-drift/v1",
+    ok: plan.drift.ok && plan.rejected.length === 0,
+    sourceDigest: plan.sourceDigest,
+    projectionDigest: plan.projectionDigest,
+    rendererVersion: plan.rendererVersion,
+    targetCount: plan.targets.length,
+    fileCount: plan.files.length,
+    driftCount: plan.drift.diffs.length,
+    rejectedCount: plan.rejected.length,
+    reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((diff) => diff.reasonCode)])].sort()
+  };
+}
+
+function validateRuntimeAgentProposalPlan(input: {
+  proposalPlan: InvestigationReportProposalPlan;
+  job?: AgentJobV1;
+  jobId: string;
+  outputDigest?: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const plan = input.proposalPlan;
+  if (plan.schemaVersion !== "archcontext.investigation-report-proposal-plan/v1") {
+    return { ok: false, reason: "proposalPlan schemaVersion mismatch" };
+  }
+  if (plan.jobId !== input.jobId) return { ok: false, reason: "proposalPlan jobId must match completed job" };
+  if (input.job && plan.inputDigest !== input.job.inputDigest) {
+    return { ok: false, reason: "proposalPlan inputDigest must match completed job" };
+  }
+  if (input.outputDigest && plan.outputDigest !== input.outputDigest) {
+    return { ok: false, reason: "proposalPlan outputDigest must match completed job outputDigest" };
+  }
+  if (plan.directMutationAllowed !== false || plan.authority !== "advisory-only") {
+    return { ok: false, reason: "proposalPlan must remain advisory-only and directMutationAllowed=false" };
+  }
+  const selectedDeltaDigests = new Set(plan.proposedDeltaDigests);
+  for (const draft of plan.documentationDrafts ?? []) {
+    if (draft.jobId !== plan.jobId) return { ok: false, reason: `documentation draft jobId mismatch: ${draft.draftId}` };
+    if (draft.reportId !== plan.reportId) return { ok: false, reason: `documentation draft reportId mismatch: ${draft.draftId}` };
+    if (draft.inputDigest !== plan.inputDigest) return { ok: false, reason: `documentation draft inputDigest mismatch: ${draft.draftId}` };
+    if (draft.outputDigest !== plan.outputDigest) return { ok: false, reason: `documentation draft outputDigest mismatch: ${draft.draftId}` };
+    if (draft.acceptedProjection !== false || draft.authority !== "advisory-only") {
+      return { ok: false, reason: `documentation draft must not be an accepted projection: ${draft.draftId}` };
+    }
+    if (digestJson({ prose: draft.prose } as unknown as Json) !== draft.proseDigest) {
+      return { ok: false, reason: `documentation draft proseDigest mismatch: ${draft.draftId}` };
+    }
+    if (draft.proposedDeltaDigests.length === 0 || draft.proposedDeltaDigests.some((digest) => !selectedDeltaDigests.has(digest))) {
+      return { ok: false, reason: `documentation draft must reference selected deterministic deltas: ${draft.draftId}` };
+    }
+  }
+  return { ok: true };
 }
 
 function requestRpcVersionHeader(request: IncomingMessage): string | undefined {

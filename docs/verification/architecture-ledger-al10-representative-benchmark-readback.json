@@ -1,0 +1,508 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-representative-benchmark-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-03",
+    "AL10-04",
+    "AL10-BETA-1"
+  ],
+  "thresholds": {
+    "warmQueryP95Ms": 300,
+    "hookEnqueueP95Ms": 150,
+    "checkpointP95Ms": 3000,
+    "querySamples": 8
+  },
+  "fixtures": [
+    {
+      "name": "small-app",
+      "label": "Small App",
+      "kind": "small-app",
+      "repositoryShape": {
+        "entityCount": 10,
+        "relationCount": 9,
+        "constraintCount": 2,
+        "packageCount": 1,
+        "changedPath": "src/app/module-0.ts"
+      },
+      "loop": {
+        "migration": {
+          "dryRunPlanned": true,
+          "status": "verified",
+          "writeVerified": true,
+          "recommendedMode": "dual",
+          "backupCreated": true,
+          "replayIntegrityVerified": true,
+          "appendedEventCount": 1,
+          "driftOk": true,
+          "driftReasonCodes": [],
+          "graphDigest": "sha256:03e819cf352f413184972385066e6be68f3115ad650286f902d9d430891a4e69"
+        },
+        "drift": {
+          "afterMigrate": true,
+          "afterReplay": true,
+          "docsAfterProjection": true
+        },
+        "rollback": {
+          "executable": true,
+          "targetAuthority": "yaml",
+          "recommendedMode": "yaml"
+        },
+        "complete": {
+          "result": "pass",
+          "pass": true,
+          "findingIds": []
+        },
+        "hook": {
+          "enqueued": true,
+          "failOpen": false,
+          "pathCount": 1
+        },
+        "query": {
+          "returnsExpectedSubject": true,
+          "coldMs": 57.304,
+          "warmP95Ms": 54.657,
+          "sampleCount": 8,
+          "responseDigest": "sha256:7c6ed6b5176e5af865232428cb5dbbd34ab5fa3f858bf063b9059a2ef1e9c1ad"
+        }
+      },
+      "metrics": {
+        "init": {
+          "ok": true,
+          "elapsedMs": 20.817,
+          "requestId": "init",
+          "digest": "sha256:cd1eec1e06eb28c18126d8dc90e163a62bc661a99714c8a5576bcc1d703ac0f4"
+        },
+        "migrationDryRun": {
+          "ok": true,
+          "elapsedMs": 52.36,
+          "requestId": "ledger.migrate",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "digest": "sha256:0a98c7d97d57d8f59298ce5642b8a286b33f81b85b7c799617f655e23784b05b"
+        },
+        "migrationWrite": {
+          "ok": true,
+          "elapsedMs": 75.926,
+          "requestId": "ledger.migrate",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "digest": "sha256:1a292889f96ab9e804223abb7e934ee875a46f306e9d832b6b23f8024951542f"
+        },
+        "prepare": {
+          "ok": true,
+          "elapsedMs": 136.526,
+          "requestId": "prepare",
+          "digest": "sha256:c1d1dbac274b0d456eda2f079f0d90294d77a12546e04e2add6baa0126837d5e"
+        },
+        "hookEnqueue": {
+          "ok": true,
+          "elapsedMs": 120.03,
+          "requestId": "jobs.enqueueGitHook",
+          "digest": "sha256:f91b34980b810b96d76604a9123747f3a150413409ce09dd0eeb04425fdb2d90"
+        },
+        "sync": {
+          "ok": true,
+          "elapsedMs": 13.108,
+          "requestId": "sync",
+          "digest": "sha256:e71251042c239e7cb738488450e1b483394bd0cb2587866b8eff32900a110732"
+        },
+        "query": {
+          "ok": true,
+          "elapsedMs": 54.657,
+          "requestId": "book.query",
+          "schemaVersion": "archcontext.architecture-book-query/v1",
+          "digest": "sha256:7c6ed6b5176e5af865232428cb5dbbd34ab5fa3f858bf063b9059a2ef1e9c1ad",
+          "count": 12
+        },
+        "checkpoint": {
+          "ok": true,
+          "elapsedMs": 70.772,
+          "requestId": "checkpoint",
+          "schemaVersion": "archcontext.practice-checkpoint/v1",
+          "reasonCode": "no-op",
+          "digest": "sha256:b11a35709584c37235db53e586a82110f7ce70f6e52012928bd4fc371e547157"
+        },
+        "projection": {
+          "ok": true,
+          "elapsedMs": 48.799,
+          "requestId": "apply_update",
+          "schemaVersion": "archcontext.changeset/v1",
+          "digest": "sha256:73fb88588d50670f97e7e678965e0c31bafe2eb83ed165760528ada657b20c98"
+        },
+        "complete": {
+          "ok": true,
+          "elapsedMs": 33.697,
+          "requestId": "complete",
+          "schemaVersion": "archcontext.review/v1",
+          "digest": "sha256:2a4998f0622b57944eedc19ccbf29f00b8ca3d9435e9f43ad3f4876a2917a00b"
+        },
+        "replay": {
+          "ok": true,
+          "elapsedMs": 54.601,
+          "requestId": "ledger.rebuild",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rebuild/v1",
+          "digest": "sha256:afa578ca59925069cc11db0104fda64d75a36c1d696e92774bf10a7d916582f8",
+          "count": 1
+        },
+        "rollback": {
+          "ok": true,
+          "elapsedMs": 67.482,
+          "requestId": "ledger.rollback",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rollback/v1",
+          "digest": "sha256:b1208f91095a7b468315efc5692446b338f765fcfcd0c3010ab3f38106a13b16"
+        }
+      },
+      "privacy": {
+        "noRawSourceSentinel": true,
+        "noForbiddenKeys": true,
+        "forbiddenKeys": []
+      },
+      "assertions": {
+        "fullLoopComplete": true,
+        "allRequiredMetricsMeasured": true,
+        "dualModeDriftClean": true,
+        "queryWithinBudget": true,
+        "hookWithinBudget": true,
+        "checkpointWithinBudget": true,
+        "noSourceLeak": true
+      }
+    },
+    {
+      "name": "medium-monorepo",
+      "label": "Medium Monorepo",
+      "kind": "medium-monorepo",
+      "repositoryShape": {
+        "entityCount": 54,
+        "relationCount": 105,
+        "constraintCount": 6,
+        "packageCount": 6,
+        "changedPath": "packages/pkg-0/src/module-0.ts"
+      },
+      "loop": {
+        "migration": {
+          "dryRunPlanned": true,
+          "status": "verified",
+          "writeVerified": true,
+          "recommendedMode": "dual",
+          "backupCreated": true,
+          "replayIntegrityVerified": true,
+          "appendedEventCount": 1,
+          "driftOk": true,
+          "driftReasonCodes": [],
+          "graphDigest": "sha256:c382804bcd7e2f22503ff037ef0ec338bd0c97401054b1c590d4ca0040b22db5"
+        },
+        "drift": {
+          "afterMigrate": true,
+          "afterReplay": true,
+          "docsAfterProjection": true
+        },
+        "rollback": {
+          "executable": true,
+          "targetAuthority": "yaml",
+          "recommendedMode": "yaml"
+        },
+        "complete": {
+          "result": "pass",
+          "pass": true,
+          "findingIds": []
+        },
+        "hook": {
+          "enqueued": true,
+          "failOpen": false,
+          "pathCount": 1
+        },
+        "query": {
+          "returnsExpectedSubject": true,
+          "coldMs": 68.341,
+          "warmP95Ms": 70.68,
+          "sampleCount": 8,
+          "responseDigest": "sha256:e9e554772723c78e98e3794275cac4788d0188dc42c8c477b13c5d9a19ff02c6"
+        }
+      },
+      "metrics": {
+        "init": {
+          "ok": true,
+          "elapsedMs": 14.204,
+          "requestId": "init",
+          "digest": "sha256:359110361e2f0e1a587851ad1d85da489443078c08aa24c9cf456a9ec95763f2"
+        },
+        "migrationDryRun": {
+          "ok": true,
+          "elapsedMs": 65.381,
+          "requestId": "ledger.migrate",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "digest": "sha256:818430e2d9345e172307b77aa7af4dc3a301a0fedd3c6f4c7fae940163e4de65"
+        },
+        "migrationWrite": {
+          "ok": true,
+          "elapsedMs": 100.266,
+          "requestId": "ledger.migrate",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "digest": "sha256:97d63c85d810086349fea0d6efc3becd3fb84f02d192b00873824d0bf3d2cfae"
+        },
+        "prepare": {
+          "ok": true,
+          "elapsedMs": 96.279,
+          "requestId": "prepare",
+          "digest": "sha256:c1d1dbac274b0d456eda2f079f0d90294d77a12546e04e2add6baa0126837d5e"
+        },
+        "hookEnqueue": {
+          "ok": true,
+          "elapsedMs": 136.045,
+          "requestId": "jobs.enqueueGitHook",
+          "digest": "sha256:8f97c1f14d1678410ee2839ef81ac8871e379274f8a61779e95e55c6c06f4ce9"
+        },
+        "sync": {
+          "ok": true,
+          "elapsedMs": 17.937,
+          "requestId": "sync",
+          "digest": "sha256:e71251042c239e7cb738488450e1b483394bd0cb2587866b8eff32900a110732"
+        },
+        "query": {
+          "ok": true,
+          "elapsedMs": 70.68,
+          "requestId": "book.query",
+          "schemaVersion": "archcontext.architecture-book-query/v1",
+          "digest": "sha256:e9e554772723c78e98e3794275cac4788d0188dc42c8c477b13c5d9a19ff02c6",
+          "count": 12
+        },
+        "checkpoint": {
+          "ok": true,
+          "elapsedMs": 97.962,
+          "requestId": "checkpoint",
+          "schemaVersion": "archcontext.practice-checkpoint/v1",
+          "reasonCode": "no-op",
+          "digest": "sha256:b11a35709584c37235db53e586a82110f7ce70f6e52012928bd4fc371e547157"
+        },
+        "projection": {
+          "ok": true,
+          "elapsedMs": 107.38,
+          "requestId": "apply_update",
+          "schemaVersion": "archcontext.changeset/v1",
+          "digest": "sha256:73fb88588d50670f97e7e678965e0c31bafe2eb83ed165760528ada657b20c98"
+        },
+        "complete": {
+          "ok": true,
+          "elapsedMs": 54.446,
+          "requestId": "complete",
+          "schemaVersion": "archcontext.review/v1",
+          "digest": "sha256:2a4998f0622b57944eedc19ccbf29f00b8ca3d9435e9f43ad3f4876a2917a00b"
+        },
+        "replay": {
+          "ok": true,
+          "elapsedMs": 91.603,
+          "requestId": "ledger.rebuild",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rebuild/v1",
+          "digest": "sha256:88e91d21d7d7b3e79c51e977b0fcca3dc0c01601005d8761892396ef11f582ee",
+          "count": 1
+        },
+        "rollback": {
+          "ok": true,
+          "elapsedMs": 102.07,
+          "requestId": "ledger.rollback",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rollback/v1",
+          "digest": "sha256:b06b27cf9fd1358da51b0bd760d648e380a97218517fd5121797f899a05991c7"
+        }
+      },
+      "privacy": {
+        "noRawSourceSentinel": true,
+        "noForbiddenKeys": true,
+        "forbiddenKeys": []
+      },
+      "assertions": {
+        "fullLoopComplete": true,
+        "allRequiredMetricsMeasured": true,
+        "dualModeDriftClean": true,
+        "queryWithinBudget": true,
+        "hookWithinBudget": true,
+        "checkpointWithinBudget": true,
+        "noSourceLeak": true
+      }
+    },
+    {
+      "name": "architecture-heavy-service",
+      "label": "Architecture-Heavy Service",
+      "kind": "architecture-heavy-service",
+      "repositoryShape": {
+        "entityCount": 108,
+        "relationCount": 213,
+        "constraintCount": 18,
+        "packageCount": 9,
+        "changedPath": "services/architecture-heavy/bounded-context-0/module-0.ts"
+      },
+      "loop": {
+        "migration": {
+          "dryRunPlanned": true,
+          "status": "verified",
+          "writeVerified": true,
+          "recommendedMode": "dual",
+          "backupCreated": true,
+          "replayIntegrityVerified": true,
+          "appendedEventCount": 1,
+          "driftOk": true,
+          "driftReasonCodes": [],
+          "graphDigest": "sha256:d7880e6b127e5c9abb85f311b691779f19573de0de5dba1f4e4d13af3a6294f5"
+        },
+        "drift": {
+          "afterMigrate": true,
+          "afterReplay": true,
+          "docsAfterProjection": true
+        },
+        "rollback": {
+          "executable": true,
+          "targetAuthority": "yaml",
+          "recommendedMode": "yaml"
+        },
+        "complete": {
+          "result": "pass",
+          "pass": true,
+          "findingIds": []
+        },
+        "hook": {
+          "enqueued": true,
+          "failOpen": false,
+          "pathCount": 1
+        },
+        "query": {
+          "returnsExpectedSubject": true,
+          "coldMs": 97.017,
+          "warmP95Ms": 96.8,
+          "sampleCount": 8,
+          "responseDigest": "sha256:5d79267d65bf4c326119bc753bcc98e9e693821d46f9017d8769867c210054d4"
+        }
+      },
+      "metrics": {
+        "init": {
+          "ok": true,
+          "elapsedMs": 14.465,
+          "requestId": "init",
+          "digest": "sha256:584e0b52a14507960781fca721c0a74f7a0ddc8d80aea1718fb1caf6ab9cf8ab"
+        },
+        "migrationDryRun": {
+          "ok": true,
+          "elapsedMs": 85.541,
+          "requestId": "ledger.migrate",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "digest": "sha256:83d342f4996f9f9317543a1807979adefa529c20bd2a332505421c247ca8e3bc"
+        },
+        "migrationWrite": {
+          "ok": true,
+          "elapsedMs": 132.531,
+          "requestId": "ledger.migrate",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-migrate/v1",
+          "digest": "sha256:c67007824f09fe015917920390ebad05fb538813681668318c244833bbec8535"
+        },
+        "prepare": {
+          "ok": true,
+          "elapsedMs": 128.315,
+          "requestId": "prepare",
+          "digest": "sha256:c1d1dbac274b0d456eda2f079f0d90294d77a12546e04e2add6baa0126837d5e"
+        },
+        "hookEnqueue": {
+          "ok": true,
+          "elapsedMs": 154.458,
+          "requestId": "jobs.enqueueGitHook",
+          "digest": "sha256:994ca0a2b1f2994454aecdcddf518426ed8cfe3eed45e130a8df9c0841615114"
+        },
+        "sync": {
+          "ok": true,
+          "elapsedMs": 24.593,
+          "requestId": "sync",
+          "digest": "sha256:e71251042c239e7cb738488450e1b483394bd0cb2587866b8eff32900a110732"
+        },
+        "query": {
+          "ok": true,
+          "elapsedMs": 96.8,
+          "requestId": "book.query",
+          "schemaVersion": "archcontext.architecture-book-query/v1",
+          "digest": "sha256:5d79267d65bf4c326119bc753bcc98e9e693821d46f9017d8769867c210054d4",
+          "count": 12
+        },
+        "checkpoint": {
+          "ok": true,
+          "elapsedMs": 136.244,
+          "requestId": "checkpoint",
+          "schemaVersion": "archcontext.practice-checkpoint/v1",
+          "reasonCode": "no-op",
+          "digest": "sha256:b11a35709584c37235db53e586a82110f7ce70f6e52012928bd4fc371e547157"
+        },
+        "projection": {
+          "ok": true,
+          "elapsedMs": 169.13,
+          "requestId": "apply_update",
+          "schemaVersion": "archcontext.changeset/v1",
+          "digest": "sha256:73fb88588d50670f97e7e678965e0c31bafe2eb83ed165760528ada657b20c98"
+        },
+        "complete": {
+          "ok": true,
+          "elapsedMs": 85.346,
+          "requestId": "complete",
+          "schemaVersion": "archcontext.review/v1",
+          "digest": "sha256:2a4998f0622b57944eedc19ccbf29f00b8ca3d9435e9f43ad3f4876a2917a00b"
+        },
+        "replay": {
+          "ok": true,
+          "elapsedMs": 138.902,
+          "requestId": "ledger.rebuild",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rebuild/v1",
+          "digest": "sha256:e22e33e0be2850bcd2c324d88f83b03bbc0d325f5bc4f54116e25b347b005c10",
+          "count": 1
+        },
+        "rollback": {
+          "ok": true,
+          "elapsedMs": 153.249,
+          "requestId": "ledger.rollback",
+          "schemaVersion": "archcontext.runtime-architecture-ledger-rollback/v1",
+          "digest": "sha256:d846996a604d34b76fbb0cc613d5d14afb42cdb1d52a549ef73497952ec25cf2"
+        }
+      },
+      "privacy": {
+        "noRawSourceSentinel": true,
+        "noForbiddenKeys": true,
+        "forbiddenKeys": []
+      },
+      "assertions": {
+        "fullLoopComplete": true,
+        "allRequiredMetricsMeasured": true,
+        "dualModeDriftClean": true,
+        "queryWithinBudget": true,
+        "hookWithinBudget": false,
+        "checkpointWithinBudget": true,
+        "noSourceLeak": true
+      }
+    }
+  ],
+  "benchmark": {
+    "fixtureCount": 3,
+    "totalEntities": 172,
+    "totalRelations": 327,
+    "totalConstraints": 26,
+    "hookEnqueueP95Ms": 154.458,
+    "syncP95Ms": 24.593,
+    "warmQueryP95Ms": 96.8,
+    "checkpointP95Ms": 136.244,
+    "completeP95Ms": 85.346,
+    "projectionP95Ms": 169.13,
+    "replayP95Ms": 138.902,
+    "rollbackP95Ms": 153.249,
+    "dualModeDriftCount": 0
+  },
+  "privacy": {
+    "noRawSourceSentinel": true,
+    "noForbiddenKeys": true,
+    "forbiddenKeys": []
+  },
+  "assertions": {
+    "AL10-03": true,
+    "AL10-04": true,
+    "AL10-BETA-1": true,
+    "warmQueryP95WithinBetaBudget": true,
+    "hookEnqueueP95WithinBetaBudget": false,
+    "checkpointP95WithinBetaBudget": true,
+    "privacyClean": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-representative-benchmark-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-representative-benchmark-readback.json --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-representative-benchmark.md"
+  },
+  "failures": [],
+  "status": "verified"
+}

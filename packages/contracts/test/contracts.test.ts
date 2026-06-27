@@ -43,6 +43,11 @@ import {
   type ReviewChallengeV2
 } from "../src/github-governance";
 import {
+  LEDGER_AUTHORITY_MATRIX,
+  architectureEventHash,
+  architectureSnapshotDigest
+} from "../src/ledger";
+import {
   ARCHCONTEXT_PACKAGE_MANAGER,
   ARCHCONTEXT_PRODUCT_VERSION,
   ARCHCONTEXT_SCHEMA_SET_VERSION,
@@ -73,6 +78,19 @@ const schemaByFixture: Record<string, string> = {
   "explorer-service": "schemas/runtime/explorer-service.schema.json",
   "product-version-manifest": "schemas/runtime/product-version-manifest.schema.json",
   "external-document-resource": "schemas/runtime/external-document-resource.schema.json",
+  "architecture-event": "schemas/runtime/architecture-event.schema.json",
+  "architecture-snapshot": "schemas/runtime/architecture-snapshot.schema.json",
+  "architecture-subject-selector": "schemas/runtime/architecture-subject-selector.schema.json",
+  "architecture-candidate-delta": "schemas/runtime/architecture-candidate-delta.schema.json",
+  "architecture-candidate-delta-policy": "schemas/runtime/architecture-candidate-delta-policy.schema.json",
+  "projection-target": "schemas/runtime/projection-target.schema.json",
+  "evidence-item": "schemas/runtime/evidence-item.schema.json",
+  "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
+  "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
+  "recommendation": "schemas/runtime/recommendation.schema.json",
+  "recommendation-feedback": "schemas/runtime/recommendation-feedback.schema.json",
+  "agent-job": "schemas/runtime/agent-job.schema.json",
+  "investigation-report": "schemas/runtime/investigation-report.schema.json",
   "practice-catalog-manifest": "schemas/runtime/practice-catalog-manifest.schema.json",
   "practice-match": "schemas/runtime/practice-match.schema.json",
   "practice-guidance": "schemas/runtime/practice-guidance.schema.json",
@@ -140,6 +158,15 @@ describe("JSON schema contracts", () => {
       expect(result.issues, file).toEqual([]);
       expect(result.valid, file).toBe(true);
     }
+  });
+
+  test("practice policy schema accepts explicit fail-open and fail-closed modes", () => {
+    const schema = readJson("schemas/repo/practices/practice-policy.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/practice-policy.json") as Record<string, Json>;
+
+    expect(validateJsonSchema(schema as any, { ...fixture, mode: "fail-open" } as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, mode: "fail-closed" } as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, mode: "enforce" } as Json).valid).toBe(false);
   });
 
   test("runner identity scope schema keeps repository and organization shapes disjoint", () => {
@@ -316,6 +343,39 @@ describe("JSON schema contracts", () => {
     expect(fixture.thresholds.minContextRecallLift).toBeGreaterThan(0);
     expect(fixture.decision).toBe("keep-lexical");
   });
+
+  test("architecture ledger contracts freeze authority and digest rules", () => {
+    expect(LEDGER_AUTHORITY_MATRIX.declared.writer).toContain("ChangeSet-approved Git projection");
+    expect(LEDGER_AUTHORITY_MATRIX.observed.conflictPolicy).toContain("cannot overwrite declared facts");
+    expect(LEDGER_AUTHORITY_MATRIX.proposed.conflictPolicy).toContain("non-authoritative");
+    expect(LEDGER_AUTHORITY_MATRIX.projected.conflictPolicy).toContain("drift");
+
+    const event = readJson("packages/contracts/fixtures/valid/architecture-event.json") as any;
+    expect(architectureEventHash({ ...event, eventHash: `sha256:${"f".repeat(64)}` })).toBe(architectureEventHash(event));
+
+    const snapshot = readJson("packages/contracts/fixtures/valid/architecture-snapshot.json") as any;
+    expect(architectureSnapshotDigest({
+      ...snapshot,
+      snapshotId: "arch_snapshot.different_id",
+      createdAt: "2026-06-25T01:00:00.000Z"
+    })).toBe(architectureSnapshotDigest(snapshot));
+  });
+
+  test("architecture ledger schemas reject unsupported versions", () => {
+    const schema = readJson("schemas/runtime/architecture-event.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/architecture-event.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, { ...fixture, schemaVersion: "archcontext.architecture-event/v2" }).valid).toBe(false);
+  });
+
+  test("recommendation feedback requires explicit local feedback and rejects raw private fields", () => {
+    const schema = readJson("schemas/runtime/recommendation-feedback.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/recommendation-feedback.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, implicitAcceptance: true }).valid).toBe(false);
+    for (const field of ["sourceCode", "rawDiff", "prompt", "completion"]) {
+      expect(validateJsonSchema(schema as any, { ...fixture, [field]: "private content" }).valid).toBe(false);
+    }
+  });
 });
 
 function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
@@ -343,6 +403,17 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.explorer-service/v1": "explorer-service",
     "archcontext.product-version-manifest/v1": "product-version-manifest",
     "archcontext.practice-catalog-manifest/v1": "practice-catalog-manifest",
+    "archcontext.architecture-event/v1": "architecture-event",
+    "archcontext.architecture-snapshot/v1": "architecture-snapshot",
+    "archcontext.projection-target/v1": "projection-target",
+    "archcontext.evidence-item/v2": "evidence-item",
+    "archcontext.evidence-binding/v1": "evidence-binding",
+    "archcontext.architecture-candidate-delta-policy/v1": "architecture-candidate-delta-policy",
+    "archcontext.recommendation-run/v1": "recommendation-run",
+    "archcontext.recommendation/v2": "recommendation",
+    "archcontext.recommendation-feedback/v1": "recommendation-feedback",
+    "archcontext.agent-job/v1": "agent-job",
+    "archcontext.investigation-report/v1": "investigation-report",
     "archcontext.retrieval-config/v1": "retrieval-config",
     "archcontext.retrieval-eval/v1": "retrieval-eval",
     "archcontext.retrieval-decision/v1": "retrieval-decision",

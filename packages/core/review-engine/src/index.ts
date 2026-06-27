@@ -4,9 +4,11 @@ import {
   findCallerProvidedAttestationFields,
   type CallerProvidedAttestationField,
   type Json,
-  type PracticeEnforcementEvaluationV1
+  type PracticeEnforcementEvaluationV1,
+  type RecommendationV2
 } from "@archcontext/contracts";
 import { validateLandscape, type CrossRepoRelation, type Landscape } from "@archcontext/core/architecture-domain";
+import type { ChangeOperation, ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import { detectCrossRepoPressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract, type CompatibilityContractInput, type PolicyFinding } from "@archcontext/core/policy-engine";
 import type { ArchitecturePosture } from "@archcontext/core/architecture-domain";
@@ -24,6 +26,46 @@ export interface CompleteTaskInput {
   cleanupRequired?: number;
   cleanupCompleted?: number;
   practiceEnforcement?: PracticeEnforcementEvaluationV1;
+  recommendations?: RecommendationV2[];
+  projectionDrift?: CompleteTaskProjectionDriftInput;
+}
+
+export interface CompleteTaskProjectionDriftInput {
+  schemaVersion: "archcontext.complete-task-projection-drift/v1";
+  ok: boolean;
+  sourceDigest: string;
+  projectionDigest: string;
+  rendererVersion: string;
+  targetCount: number;
+  fileCount: number;
+  driftCount: number;
+  rejectedCount: number;
+  reasonCodes: string[];
+}
+
+export interface ReviewArchitectureCandidateChangeSetInput {
+  taskSessionId: string;
+  changeSet: ChangeSetDraft;
+  headSha: string;
+  currentHeadSha: string;
+  worktreeDigest: string;
+  modelDigest: string;
+  codeFactsDigest: string;
+}
+
+interface CandidateChangeOperationMetadata extends ChangeOperation {
+  candidateChangeId?: unknown;
+  targetKind?: unknown;
+  targetId?: unknown;
+  targetParentId?: unknown;
+  stateDimension?: unknown;
+  changeKind?: unknown;
+  confidence?: unknown;
+  evidenceIds?: unknown;
+  subjectSelectorIds?: unknown;
+  mappingIds?: unknown;
+  ambiguityIds?: unknown;
+  changes?: unknown;
 }
 
 export type CallerProvidedReviewConclusionField = Exclude<CallerProvidedAttestationField, "modelDigest">;
@@ -32,14 +74,18 @@ export const CALLER_PROVIDED_REVIEW_CONCLUSION_FIELDS = CALLER_PROVIDED_ATTESTAT
   .filter((field): field is CallerProvidedReviewConclusionField => field !== "modelDigest");
 
 export function assertNoCallerProvidedReviewConclusionFields(value: unknown): void {
-  const fields = findCallerProvidedAttestationFields(withoutTrustedPracticeEnforcement(value))
+  const fields = findCallerProvidedAttestationFields(withoutTrustedGateInputs(value))
     .filter((field): field is CallerProvidedReviewConclusionField => field !== "modelDigest");
   if (fields.length > 0) throw new Error(`review-conclusion-field-forbidden: ${fields.join(",")}`);
 }
 
-function withoutTrustedPracticeEnforcement(value: unknown): unknown {
+function withoutTrustedGateInputs(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const { practiceEnforcement: _practiceEnforcement, ...rest } = value as Record<string, unknown>;
+  const {
+    practiceEnforcement: _practiceEnforcement,
+    recommendations: _recommendations,
+    ...rest
+  } = value as Record<string, unknown>;
   return rest;
 }
 
@@ -57,6 +103,7 @@ export function completeTaskGate(input: CompleteTaskInput) {
     findings.push({ id: "cleanup-incomplete", type: "incomplete-intervention", severity: "error", message: "Intervention cleanup is incomplete." });
   }
   const practiceViolations = staleContext ? [] : input.practiceEnforcement?.violations ?? [];
+  const nonBlockingPracticeViolations = staleContext ? [] : input.practiceEnforcement?.nonBlockingViolations ?? [];
   const waiversApplied = staleContext ? [] : input.practiceEnforcement?.waiversApplied ?? [];
   const actionsRequired = staleContext ? [] : input.practiceEnforcement?.actionsRequired ?? [];
   const { practiceFindings, suppressedPracticeFindings } = dedupePracticeFindings(
@@ -71,7 +118,15 @@ export function completeTaskGate(input: CompleteTaskInput) {
     })),
     findings
   );
-  findings.push(...practiceFindings);
+  const advisoryPracticeFindings = nonBlockingPracticeViolations.map((violation) => ({
+    id: `practice-advisory:${violation.practiceId}:${violation.checkId}`,
+    type: "practice-advisory",
+    severity: "warning" as const,
+    message: violation.message
+  }));
+  const recommendationGateFindings = staleContext ? [] : reviewRecommendationCompleteGateEligibility(input.recommendations ?? []);
+  const projectionDriftFindings = staleContext ? [] : reviewProjectionDrift(input.projectionDrift);
+  findings.push(...practiceFindings, ...advisoryPracticeFindings, ...recommendationGateFindings, ...projectionDriftFindings);
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
@@ -84,6 +139,11 @@ export function completeTaskGate(input: CompleteTaskInput) {
       worktreeDigest: input.worktreeDigest,
       modelDigest: input.modelDigest,
       codeFactsDigest: input.codeFactsDigest,
+      ...(input.projectionDrift === undefined ? {} : {
+        projectionSourceDigest: input.projectionDrift.sourceDigest,
+        projectionDigest: input.projectionDrift.projectionDigest,
+        projectionRendererVersion: input.projectionDrift.rendererVersion
+      }),
       ...(input.practiceEnforcement === undefined ? {} : {
         practiceCatalogDigest: input.practiceEnforcement.catalogDigest,
         practicePolicyDigest: input.practiceEnforcement.policyDigest,
@@ -107,7 +167,118 @@ export function completeTaskGate(input: CompleteTaskInput) {
     extensions: {
       digest: digestJson(result as unknown as Json),
       ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {}),
-      ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings })
+      ...(nonBlockingPracticeViolations.length === 0 ? {} : { nonBlockingPracticeViolations }),
+      ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings }),
+      ...(recommendationGateFindings.length === 0 ? {} : { recommendationGateFindings }),
+      ...(projectionDriftFindings.length === 0 ? {} : { projectionDriftGate: input.projectionDrift })
+    }
+  };
+}
+
+function reviewProjectionDrift(projectionDrift: CompleteTaskProjectionDriftInput | undefined): PolicyFinding[] {
+  if (!projectionDrift || projectionDrift.ok) return [];
+  return [{
+    id: "projection-drift",
+    type: "projection-drift",
+    severity: "error",
+    message: `Architecture documentation projection drift must be reconciled before completion: ${projectionDrift.reasonCodes.join(",") || "unknown"}`
+  }];
+}
+
+function reviewRecommendationCompleteGateEligibility(recommendations: RecommendationV2[]): PolicyFinding[] {
+  return recommendations.flatMap((recommendation) => {
+    const findings: PolicyFinding[] = [];
+    if (recommendation.enforcement === "advisory" && hasCompleteStageGateClaim(recommendation.extensions)) {
+      findings.push({
+        id: `recommendation:${recommendation.recommendationId}:advisory-complete-gate-forbidden`,
+        type: "recommendation-advisory-complete-gate-forbidden",
+        severity: "error",
+        message: `Advisory recommendation ${recommendation.recommendationId} cannot be used as a complete-stage gate.`
+      });
+    }
+    if (recommendation.enforcement === "complete" && isActiveRecommendationStatus(recommendation.status) && !hasCompleteStageEligibility(recommendation.extensions)) {
+      findings.push({
+        id: `recommendation:${recommendation.recommendationId}:complete-eligibility-required`,
+        type: "recommendation-complete-eligibility-required",
+        severity: "error",
+        message: `Complete-stage recommendation ${recommendation.recommendationId} requires explicit policy eligibility.`
+      });
+    }
+    return findings;
+  });
+}
+
+function isActiveRecommendationStatus(status: RecommendationV2["status"]): boolean {
+  return status === "open" || status === "acknowledged" || status === "accepted";
+}
+
+function hasCompleteStageGateClaim(extensions: RecommendationV2["extensions"]): boolean {
+  if (!extensions) return false;
+  if (extensions.completeStageGate === true) return true;
+  return hasCompleteStageEligibility(extensions);
+}
+
+function hasCompleteStageEligibility(extensions: RecommendationV2["extensions"]): boolean {
+  const eligibility = extensions?.completeStageEligibility;
+  if (!eligibility || typeof eligibility !== "object" || Array.isArray(eligibility)) return false;
+  const record = eligibility as Record<string, unknown>;
+  return record.eligible === true && typeof record.policyDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(record.policyDigest);
+}
+
+export function reviewArchitectureCandidateChangeSet(input: ReviewArchitectureCandidateChangeSetInput) {
+  assertNoCallerProvidedReviewConclusionFields({
+    taskSessionId: input.taskSessionId,
+    headSha: input.headSha,
+    currentHeadSha: input.currentHeadSha,
+    worktreeDigest: input.worktreeDigest,
+    modelDigest: input.modelDigest,
+    codeFactsDigest: input.codeFactsDigest
+  });
+  const findings: PolicyFinding[] = [];
+  const staleContext = input.headSha !== input.currentHeadSha;
+  if (staleContext) {
+    findings.push({ id: "stale-context", type: "stale-context", severity: "error", message: "Candidate ChangeSet HEAD does not match current HEAD." });
+  }
+  for (const [index, operation] of input.changeSet.operations.entries()) {
+    findings.push(...reviewCandidateChangeOperation(operation, index));
+  }
+  const errors = findings.filter((finding) => finding.severity === "error").length;
+  const warnings = findings.filter((finding) => finding.severity === "warning").length;
+  const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
+  const rejectedCandidateChangeIds = uniqueSorted(findings.map(candidateChangeIdFromFinding).filter((id): id is string => id !== undefined));
+  const result = {
+    schemaVersion: "archcontext.review/v1",
+    reviewId: `review_${digestJson({
+      kind: "architecture-candidate-changeset-review",
+      taskSessionId: input.taskSessionId,
+      changeSetId: input.changeSet.id,
+      changeSetDigest: digestJson(input.changeSet as unknown as Json),
+      headSha: input.currentHeadSha
+    } as unknown as Json).slice(-12)}`,
+    taskSessionId: input.taskSessionId,
+    snapshot: {
+      headSha: input.currentHeadSha,
+      worktreeDigest: input.worktreeDigest,
+      modelDigest: input.modelDigest,
+      codeFactsDigest: input.codeFactsDigest
+    },
+    posture: errors > 0 ? ("proof-required" as const) : ("structural" as const),
+    result: outcome,
+    summary: { errors, warnings, notices: 0 },
+    findings,
+    actionsRequired: findings
+      .filter((finding) => finding.severity === "error")
+      .map((finding) => finding.id),
+    cleanup: { required: 0, completed: 0 }
+  };
+  return {
+    ...result,
+    extensions: {
+      digest: digestJson(result as unknown as Json),
+      changeSetId: input.changeSet.id,
+      changeSetDigest: digestJson(input.changeSet as unknown as Json),
+      reviewMode: "architecture-candidate-changeset",
+      rejectedCandidateChangeIds
     }
   };
 }
@@ -138,6 +309,99 @@ function dedupePracticeFindings(
 
 function isCompatibilityFinding(finding: PolicyFinding): boolean {
   return finding.type === "unjustified-compatibility-path" || finding.type === "invalid-compatibility-contract";
+}
+
+function reviewCandidateChangeOperation(operation: ChangeOperation, index: number): PolicyFinding[] {
+  const metadata = operation as CandidateChangeOperationMetadata;
+  const candidateChangeId = stringField(metadata.candidateChangeId) ?? `operation-${index}`;
+  const targetKind = stringField(metadata.targetKind);
+  const changeKind = stringField(metadata.changeKind);
+  const targetId = stringField(metadata.targetId) ?? metadata.entityId ?? candidateChangeId;
+  const findings: PolicyFinding[] = [];
+  if (isUnsupportedEntityDeletion(operation, targetKind, changeKind)) {
+    findings.push(candidateFinding({
+      candidateChangeId,
+      reason: "unsupported-entity-deletion",
+      targetId,
+      message: `Unsupported architecture candidate deletion for ${targetId}; deletion requires explicit human review and a supported migration path.`
+    }));
+  }
+  if (targetKind === "owner") {
+    findings.push(candidateFinding({
+      candidateChangeId,
+      reason: "unsupported-owner-change",
+      targetId,
+      message: `Unsupported architecture owner change for ${targetId}; ownership authority changes require explicit human approval.`
+    }));
+  }
+  if (isBoundaryRelaxation(metadata, targetKind, changeKind)) {
+    findings.push(candidateFinding({
+      candidateChangeId,
+      reason: "unsupported-boundary-relaxation",
+      targetId,
+      message: `Unsupported architecture boundary relaxation for ${targetId}; constraint weakening requires proof and a durable compatibility contract.`
+    }));
+  }
+  if (containsExternalContractClaim(metadata)) {
+    findings.push(candidateFinding({
+      candidateChangeId,
+      reason: "unsupported-external-contract-claim",
+      targetId,
+      message: `Unsupported external contract claim for ${targetId}; external contracts require declared evidence and human review.`
+    }));
+  }
+  return dedupeFindings(findings);
+}
+
+function candidateFinding(input: { candidateChangeId: string; reason: string; targetId: string; message: string }): PolicyFinding {
+  return {
+    id: `architecture-candidate:${input.candidateChangeId}:${input.reason}`,
+    type: input.reason,
+    severity: "error",
+    message: input.message
+  };
+}
+
+function isUnsupportedEntityDeletion(operation: ChangeOperation, targetKind: string | undefined, changeKind: string | undefined): boolean {
+  if (operation.op !== "delete_entity" && changeKind !== "removed") return false;
+  return targetKind === undefined || targetKind === "node" || targetKind === "relation" || targetKind === "constraint";
+}
+
+function isBoundaryRelaxation(operation: CandidateChangeOperationMetadata, targetKind: string | undefined, changeKind: string | undefined): boolean {
+  if (targetKind !== "constraint") return false;
+  if (changeKind === "added") return false;
+  return changeKind === "removed" || changeKind === "moved" || changeKind === "renamed" || changeKind === "materially_changed" || metadataContainsToken(operation, "boundary-relaxation") || metadataContainsToken(operation, "boundary relaxation");
+}
+
+function containsExternalContractClaim(operation: CandidateChangeOperationMetadata): boolean {
+  return metadataContainsToken(operation, "external-contract") || metadataContainsToken(operation, "external contract");
+}
+
+function metadataContainsToken(operation: CandidateChangeOperationMetadata, token: string): boolean {
+  const { body: _body, ...metadataOnly } = operation as unknown as Record<string, unknown>;
+  return JSON.stringify(metadataOnly).toLowerCase().includes(token);
+}
+
+function stringField(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function dedupeFindings(findings: PolicyFinding[]): PolicyFinding[] {
+  const seen = new Set<string>();
+  return findings.filter((finding) => {
+    if (seen.has(finding.id)) return false;
+    seen.add(finding.id);
+    return true;
+  });
+}
+
+function candidateChangeIdFromFinding(finding: PolicyFinding): string | undefined {
+  const match = /^architecture-candidate:([^:]+):/.exec(finding.id);
+  return match?.[1];
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
 export function reviewCrossRepoLandscape(input: { landscape: Landscape; relations: CrossRepoRelation[] }) {

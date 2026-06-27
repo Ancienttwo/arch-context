@@ -1,0 +1,495 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-recommendation-quality-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-08",
+    "AL10-BETA-4"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "practice-recommendation-evals",
+    "authority": "evals/run.ts representative recommendation suite plus frozen JSONL digests",
+    "closedGates": [
+      "AL10-08",
+      "AL10-BETA-4"
+    ],
+    "explicitlyOpen": [
+      "AL10-09",
+      "AL10-10",
+      "AL10-11",
+      "AL10-12",
+      "AL10-13",
+      "AL10-14",
+      "AL10-15",
+      "AL10-16",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ]
+  },
+  "thresholds": {
+    "practiceTop3Recall": 0.92,
+    "recommendationPrecisionAt3": 0.8,
+    "benignPrecision": 0.95,
+    "noKeywordStructuralRecall": 0.9,
+    "directPracticeReferenceRecall": 1,
+    "evidenceShuffleContaminationRate": 0,
+    "heuristicOnlyHardGateRate": 0,
+    "dynamicDocHardGateRate": 0,
+    "waiverRejectedRate": 1,
+    "noKeywordStructuralPositiveCases": 30,
+    "directPracticeReferenceCases": 30,
+    "negativePracticeCases": 60,
+    "enforcementWaiverAdversarialCases": 20
+  },
+  "evalDigest": "sha256:51a50dfbcabe2d1e237b3774b263ee34491807479ef2a1ff89c259c1767baa7c",
+  "summary": {
+    "positiveCases": 60,
+    "noKeywordStructuralPositiveCases": 30,
+    "directPracticeReferenceCases": 30,
+    "negativeCases": 80,
+    "adversarialCases": 20,
+    "totalScenarios": 190,
+    "chineseCases": 65,
+    "chineseRatio": 0.3421,
+    "keywordHeavyBenignNegativeCases": 30,
+    "budgetIrrelevantResourceCases": 20,
+    "enforcementWaiverAdversarialCases": 20
+  },
+  "metrics": {
+    "top3Recall": 1,
+    "recommendationPrecisionAt3": 1,
+    "recommendationRecallAt3": 0.4444,
+    "benignPrecision": 1,
+    "noKeywordStructuralRecall": 1,
+    "directPracticeReferenceRecall": 1,
+    "evidenceShuffleContaminationRate": 0,
+    "heuristicOnlyHardGateRate": 0,
+    "dynamicDocHardGateRate": 0,
+    "waiverRejectedRate": 1
+  },
+  "frozenDatasets": [
+    {
+      "id": "structural-positive",
+      "role": "labeled-positive",
+      "path": "evals/practices/structural-positive.jsonl",
+      "lineCount": 30,
+      "caseCount": 30,
+      "sha256": "sha256:8b83c7e7bd63f03fddae7163f45ba4ee7765fd5ff1ae5c63d6c1c06a1076a214",
+      "firstCaseId": "practice-pos-001",
+      "lastCaseId": "practice-pos-030",
+      "scenarioTypes": [
+        "structural-positive"
+      ],
+      "languages": [
+        "en"
+      ]
+    },
+    {
+      "id": "no-keyword-structural-positive",
+      "role": "blind-no-label-positive",
+      "path": "evals/practices/no-keyword-structural-positive.jsonl",
+      "lineCount": 30,
+      "caseCount": 30,
+      "sha256": "sha256:d391c93e55a296279407646d0075f210f33eb35d4791d3079de8c801814641a9",
+      "firstCaseId": "practice-no-label-001",
+      "lastCaseId": "practice-no-label-030",
+      "scenarioTypes": [
+        "no-keyword-structural-positive"
+      ],
+      "languages": [
+        "en",
+        "zh"
+      ]
+    },
+    {
+      "id": "direct-practice-reference",
+      "role": "typed-evidence-reference",
+      "path": "evals/practices/direct-practice-reference.jsonl",
+      "lineCount": 30,
+      "caseCount": 30,
+      "sha256": "sha256:f9e6f7d39093ce34c707361999f66c1bd7e67f1b7e9ec318e3a70d6f04dfb2f5",
+      "firstCaseId": "practice-direct-ref-001",
+      "lastCaseId": "practice-direct-ref-030",
+      "scenarioTypes": [
+        "direct-practice-reference"
+      ],
+      "languages": [
+        "en",
+        "zh"
+      ]
+    },
+    {
+      "id": "benign-negative",
+      "role": "benign-negative",
+      "path": "evals/practices/benign-negative.jsonl",
+      "lineCount": 30,
+      "caseCount": 30,
+      "sha256": "sha256:27346166a65a941e6ad5ba3a06ceb7457a488a0740bd26b9628e690554de01c3",
+      "firstCaseId": "practice-neg-001",
+      "lastCaseId": "practice-neg-030",
+      "scenarioTypes": [
+        "benign-negative"
+      ],
+      "languages": [
+        "en"
+      ]
+    },
+    {
+      "id": "keyword-heavy-benign-negative",
+      "role": "keyword-heavy-negative",
+      "path": "evals/practices/keyword-heavy-benign-negative.jsonl",
+      "lineCount": 30,
+      "caseCount": 30,
+      "sha256": "sha256:1491d43ad71018de5f88adcb9c01efd7d17639afff5c80f0dd88e672b70b8a1d",
+      "firstCaseId": "practice-keyword-neg-001",
+      "lastCaseId": "practice-keyword-neg-030",
+      "scenarioTypes": [
+        "keyword-heavy-benign-negative"
+      ],
+      "languages": [
+        "en",
+        "zh"
+      ]
+    },
+    {
+      "id": "budget-irrelevant-resource",
+      "role": "context-budget-negative",
+      "path": "evals/practices/budget-irrelevant-resource.jsonl",
+      "lineCount": 20,
+      "caseCount": 20,
+      "sha256": "sha256:429c6a611778e1634d846ba70b8c3b1a2c6a2ddbe329743111f27d7176c2a114",
+      "firstCaseId": "practice-budget-neg-001",
+      "lastCaseId": "practice-budget-neg-020",
+      "scenarioTypes": [
+        "budget-irrelevant-resource"
+      ],
+      "languages": [
+        "en",
+        "zh"
+      ]
+    },
+    {
+      "id": "enforcement-waiver-adversarial",
+      "role": "adversarial-waiver-negative",
+      "path": "evals/practices/enforcement-waiver-adversarial.jsonl",
+      "lineCount": 20,
+      "caseCount": 20,
+      "sha256": "sha256:f7331631179b2480d24043f5116afe7d5df9f657ff3142f7ee285e6ad1d5eb2c",
+      "firstCaseId": "practice-adversarial-001",
+      "lastCaseId": "practice-adversarial-020",
+      "scenarioTypes": [
+        "enforcement-waiver-adversarial"
+      ],
+      "languages": [
+        "en"
+      ]
+    }
+  ],
+  "noLabel": {
+    "path": "evals/practices/no-keyword-structural-positive.jsonl",
+    "sha256": "sha256:d391c93e55a296279407646d0075f210f33eb35d4791d3079de8c801814641a9",
+    "caseCount": 30,
+    "threshold": 30,
+    "allNoLabelIds": true,
+    "idMismatches": [],
+    "allScenarioTypesNoKeywordStructural": true,
+    "scenarioTypeMismatches": [],
+    "noEvidence": true,
+    "evidenceCaseIds": [],
+    "noPracticeBindings": true,
+    "practiceBindingCaseIds": [],
+    "practiceIdTaskHitCaseIds": [],
+    "datasetMetadataViolationCount": 0,
+    "recall": 1,
+    "verified": true
+  },
+  "supportSummary": {
+    "practiceCount": 26,
+    "expectedTotal": 90,
+    "matchedTotal": 90,
+    "minRecall": 1,
+    "incompletePracticeIds": [],
+    "highConfidenceMatches": 90,
+    "mediumConfidenceMatches": 0,
+    "lowConfidenceMatches": 0
+  },
+  "perPracticeSupport": [
+    {
+      "practiceId": "api.backward-compatible-error-shape",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "api.contract-before-implementation",
+      "expected": 5,
+      "matched": 5,
+      "recall": 1,
+      "highConfidence": 5,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "api.schema-version-contract",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "compatibility.expiry-contract",
+      "expected": 8,
+      "matched": 8,
+      "recall": 1,
+      "highConfidence": 8,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "compatibility.single-owner",
+      "expected": 8,
+      "matched": 8,
+      "recall": 1,
+      "highConfidence": 8,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "data.event-version-lineage",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "data.migration-backfill-evidence",
+      "expected": 2,
+      "matched": 2,
+      "recall": 1,
+      "highConfidence": 2,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "data.single-authoritative-model",
+      "expected": 7,
+      "matched": 7,
+      "recall": 1,
+      "highConfidence": 7,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "decision.decision-review-date",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "decision.record-significant-change",
+      "expected": 6,
+      "matched": 6,
+      "recall": 1,
+      "highConfidence": 6,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "decision.supersession-link",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "decision.tradeoff-options-recorded",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "migration.parallel-run-observability",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "migration.target-and-removal-state",
+      "expected": 7,
+      "matched": 7,
+      "recall": 1,
+      "highConfidence": 7,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "modularity.layer-contract-declared",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "modularity.no-new-cycle",
+      "expected": 6,
+      "matched": 6,
+      "recall": 1,
+      "highConfidence": 6,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "modularity.no-shared-internal-imports",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "modularity.respect-dependency-direction",
+      "expected": 6,
+      "matched": 6,
+      "recall": 1,
+      "highConfidence": 6,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "observability.boundary-telemetry",
+      "expected": 7,
+      "matched": 7,
+      "recall": 1,
+      "highConfidence": 7,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "observability.error-budget-signal",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "observability.queue-boundary-metrics",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "observability.release-health-probe",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "ownership.escalation-contact",
+      "expected": 1,
+      "matched": 1,
+      "recall": 1,
+      "highConfidence": 1,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "ownership.explicit-lifecycle-owner",
+      "expected": 7,
+      "matched": 7,
+      "recall": 1,
+      "highConfidence": 7,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "security.least-privilege",
+      "expected": 6,
+      "matched": 6,
+      "recall": 1,
+      "highConfidence": 6,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    },
+    {
+      "practiceId": "supply-chain.pinned-dependencies",
+      "expected": 2,
+      "matched": 2,
+      "recall": 1,
+      "highConfidence": 2,
+      "mediumConfidence": 0,
+      "lowConfidence": 0
+    }
+  ],
+  "qualityViolations": {
+    "datasetMetadataViolations": [],
+    "prohibitedMatchIds": [],
+    "evidenceMinimumViolations": [],
+    "enforcementCeilingViolations": [],
+    "missedPositiveIds": [],
+    "missedNoKeywordStructuralIds": [],
+    "missedDirectReferenceIds": [],
+    "negativeNonAdvisoryCaseIds": [],
+    "evidenceShuffleViolationIds": [],
+    "waiverRejectionMissIds": [],
+    "hardGateMissIds": []
+  },
+  "failedEvalGates": [],
+  "assertions": {
+    "AL10-08": true,
+    "AL10-BETA-4": true,
+    "frozenDatasetDigestsPresent": true,
+    "noLabelCaseMinimum": true,
+    "noLabelTaskAndEvidenceLeakFree": true,
+    "noLabelDatasetMetadataClean": true,
+    "perPracticeSupportPublished": true,
+    "perPracticeSupportComplete": true,
+    "al1PracticeTop3Recall": true,
+    "al1RecommendationPrecisionAt3": true,
+    "al1NoKeywordStructuralRecall": true,
+    "al1DirectPracticeReferenceRecall": true,
+    "al1EvidenceShuffleClean": true,
+    "hardGateFalsePositiveClean": true,
+    "qualityViolationArraysEmpty": true,
+    "noFailedEvalGates": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-recommendation-quality-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-recommendation-quality-readback.json --json",
+    "evalCommand": "bun evals/run.ts --check",
+    "reportPath": "docs/verification/architecture-ledger-al10-recommendation-quality.md"
+  },
+  "failures": []
+}

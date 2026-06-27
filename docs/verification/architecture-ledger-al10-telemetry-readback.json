@@ -1,0 +1,427 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-telemetry-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-13"
+  ],
+  "status": "verified",
+  "scope": {
+    "repo": "architecture-ledger-local-beta-telemetry",
+    "authority": "local opt-in beta report from existing verified AL10 readback evidence",
+    "closedGates": [
+      "AL10-13"
+    ],
+    "explicitlyOpen": [
+      "AL10-14",
+      "AL10-15",
+      "AL10-16",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ],
+    "reportMode": "local-opt-in-readback",
+    "nonClaims": [
+      "not production telemetry",
+      "not beta-user interview evidence",
+      "not independent governance approval",
+      "not final Go/No-Go"
+    ]
+  },
+  "sources": [
+    {
+      "id": "rollout-workflow",
+      "path": "docs/verification/architecture-ledger-al10-rollout-workflow-readback.json",
+      "expectedGates": [
+        "AL10-01",
+        "AL10-02"
+      ]
+    },
+    {
+      "id": "representative-benchmark",
+      "path": "docs/verification/architecture-ledger-al10-representative-benchmark-readback.json",
+      "expectedGates": [
+        "AL10-03",
+        "AL10-04",
+        "AL10-BETA-1"
+      ]
+    },
+    {
+      "id": "hardening",
+      "path": "docs/verification/architecture-ledger-al10-hardening-readback.json",
+      "expectedGates": [
+        "AL10-07",
+        "AL10-BETA-2",
+        "AL10-BETA-3",
+        "AL10-BETA-5",
+        "AL10-BETA-6"
+      ]
+    },
+    {
+      "id": "chaos-security",
+      "path": "docs/verification/architecture-ledger-al10-chaos-security-readback.json",
+      "expectedGates": [
+        "AL10-05",
+        "AL10-06"
+      ]
+    },
+    {
+      "id": "recommendation-quality",
+      "path": "docs/verification/architecture-ledger-al10-recommendation-quality-readback.json",
+      "expectedGates": [
+        "AL10-08",
+        "AL10-BETA-4"
+      ]
+    },
+    {
+      "id": "agent-comparison",
+      "path": "docs/verification/architecture-ledger-al10-agent-comparison-readback.json",
+      "expectedGates": [
+        "AL10-09"
+      ]
+    },
+    {
+      "id": "release-packaging",
+      "path": "docs/verification/architecture-ledger-al10-release-packaging-readback.json",
+      "expectedGates": [
+        "AL10-10",
+        "AL10-11"
+      ]
+    },
+    {
+      "id": "runbooks",
+      "path": "docs/verification/architecture-ledger-al10-runbooks-readback.json",
+      "expectedGates": [
+        "AL10-12"
+      ]
+    }
+  ],
+  "sourceReadbacks": [
+    {
+      "id": "rollout-workflow",
+      "path": "docs/verification/architecture-ledger-al10-rollout-workflow-readback.json",
+      "sha256": "sha256:c2fb9cfc830bd92b55a931a627207ddd020c6c8683d79b840da7ad3aa44cf232",
+      "schemaVersion": "archcontext.architecture-ledger-al10-rollout-workflow-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-01",
+        "AL10-02"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "phaseFlags",
+        "writeVerified",
+        "rollbackCommand"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "representative-benchmark",
+      "path": "docs/verification/architecture-ledger-al10-representative-benchmark-readback.json",
+      "sha256": "sha256:e47bbcab45c50c3afce7d04fce5e649c5ab90968b96f27597fbd473482cd7b3a",
+      "schemaVersion": "archcontext.architecture-ledger-al10-representative-benchmark-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-03",
+        "AL10-04",
+        "AL10-BETA-1"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "dualModeDriftCount",
+        "hookEnqueueP95Ms",
+        "fixtureCount"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "hardening",
+      "path": "docs/verification/architecture-ledger-al10-hardening-readback.json",
+      "sha256": "sha256:7e7876dba4a32ea319ba7ff257f5e1509b8ea5843aa7f8478a7ccbef705d5413",
+      "schemaVersion": "archcontext.architecture-ledger-al10-hardening-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-07",
+        "AL10-BETA-2",
+        "AL10-BETA-3",
+        "AL10-BETA-5",
+        "AL10-BETA-6"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "stress",
+        "defaultHook",
+        "overallClean",
+        "fullRollbackToYaml"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "chaos-security",
+      "path": "docs/verification/architecture-ledger-al10-chaos-security-readback.json",
+      "sha256": "sha256:806b76a8a9c768bbc4609726dc7d500e7df2d0b97fdd10dff5430b3737b4c4a3",
+      "schemaVersion": "archcontext.architecture-ledger-al10-chaos-security-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-05",
+        "AL10-06"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "chaos",
+        "security",
+        "stale-replay"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "recommendation-quality",
+      "path": "docs/verification/architecture-ledger-al10-recommendation-quality-readback.json",
+      "sha256": "sha256:b74831c11b36158d4e43ad28263d6f1ce391fb18c30f38fa43d32a3289873afa",
+      "schemaVersion": "archcontext.architecture-ledger-al10-recommendation-quality-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-08",
+        "AL10-BETA-4"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "metrics",
+        "supportSummary",
+        "noLabel",
+        "qualityViolations"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "agent-comparison",
+      "path": "docs/verification/architecture-ledger-al10-agent-comparison-readback.json",
+      "sha256": "sha256:a2b34016c227a9c93721e2282d1675b2de71309b2da6837584db755d29b079c8",
+      "schemaVersion": "archcontext.architecture-ledger-al10-agent-comparison-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-09"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "deterministicPlusAgent",
+        "costComparison",
+        "advisoryOnly"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "release-packaging",
+      "path": "docs/verification/architecture-ledger-al10-release-packaging-readback.json",
+      "sha256": "sha256:6af1036a90a0e6993cf8cfd96821cb23c7adbcc01db9bca23d1e6b0c72538ca1",
+      "schemaVersion": "archcontext.architecture-ledger-al10-release-packaging-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-10",
+        "AL10-11"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "migrationMatrix",
+        "releasePackage",
+        "bundleSignatures"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    },
+    {
+      "id": "runbooks",
+      "path": "docs/verification/architecture-ledger-al10-runbooks-readback.json",
+      "sha256": "sha256:54e97c1c1e23a7911f852dfc0c1ee48b33dc9dee0e08e0011fabe7a613790ff3",
+      "schemaVersion": "archcontext.architecture-ledger-al10-runbooks-readback/v1",
+      "status": "verified",
+      "ok": true,
+      "gates": [
+        "AL10-12"
+      ],
+      "missingGates": [],
+      "requiredTermsPresent": [
+        "sectionCoverage",
+        "sourceReadbacks",
+        "architecture-ledger-operations.md"
+      ],
+      "missingTerms": [],
+      "failureCount": 0,
+      "verified": true
+    }
+  ],
+  "runs": {
+    "telemetrySourceCount": 8,
+    "verifiedSourceCount": 8,
+    "closedGateEvidenceCount": 18,
+    "representativeFixtureCount": 3,
+    "fullLoopReplayCount": 3,
+    "totalEntities": 172,
+    "totalRelations": 327,
+    "totalConstraints": 26,
+    "stressEventCount": 1000,
+    "stressReplayEventCount": 1000,
+    "chaosCaseCount": 6,
+    "securityCaseCount": 6,
+    "recommendationScenarioCount": 190,
+    "recommendationPracticeCount": 26,
+    "agentComparisonRunCount": 4,
+    "releaseMigrationStateCount": 5,
+    "runbookSectionCount": 5
+  },
+  "drift": {
+    "representativeFixtureCount": 3,
+    "fixtureDriftCleanCount": 3,
+    "dualModeDriftCount": 0,
+    "rolloutDriftClean": true,
+    "rollbackAuthority": "yaml",
+    "rollbackRestoresYaml": true,
+    "knownUnresolvedDriftCount": 0
+  },
+  "recommendations": {
+    "scenarioCount": 190,
+    "positiveCases": 60,
+    "noKeywordStructuralPositiveCases": 30,
+    "directPracticeReferenceCases": 30,
+    "negativeCases": 80,
+    "adversarialCases": 20,
+    "practiceCount": 26,
+    "expectedSupportTotal": 90,
+    "matchedSupportTotal": 90,
+    "minPracticeRecall": 1,
+    "supportComplete": true,
+    "top3Recall": 1,
+    "recommendationPrecisionAt3": 1,
+    "noKeywordStructuralRecall": 1,
+    "directPracticeReferenceRecall": 1,
+    "benignPrecision": 1,
+    "evidenceShuffleContaminationRate": 0,
+    "hardGateFalsePositiveRate": 0,
+    "waiverRejectedRate": 1,
+    "qualityViolationCount": 0,
+    "failedEvalGateCount": 0,
+    "thresholds": {
+      "practiceTop3Recall": 0.92,
+      "recommendationPrecisionAt3": 0.8,
+      "noKeywordStructuralRecall": 0.9,
+      "directPracticeReferenceRecall": 1,
+      "benignPrecision": 0.95
+    }
+  },
+  "agentSpawn": {
+    "defaultHookSampleCount": 9,
+    "defaultMedianSpawnCount": 0,
+    "defaultTotalSpawnedJobs": 0,
+    "defaultHookAllZeroSpawn": true,
+    "defaultPathZeroSpawn": true,
+    "explicitHighRiskEnqueued": true,
+    "agentComparisonRunCount": 4,
+    "succeededAgentRuns": 4,
+    "failedAgentRuns": 0,
+    "fallbackRunCount": 0,
+    "advisoryFindings": 3,
+    "advisoryOnly": true,
+    "directMutationAttempts": 0,
+    "attempts": 4,
+    "durationMs": 90,
+    "estimatedAgentTokens": 4769,
+    "actualExternalProviderCostUsd": 0
+  },
+  "resolution": {
+    "rollbackDemonstrated": true,
+    "rollbackTargetAuthority": "yaml",
+    "chaosCaseCount": 6,
+    "chaosCaseOkCount": 6,
+    "securityCaseCount": 6,
+    "securityCaseOkCount": 6,
+    "privacySurfacesClean": true,
+    "privacySurfaceCount": 5,
+    "releaseMigrationStateCount": 5,
+    "releaseMigrationStatesVerified": 5,
+    "runbookSectionsVerified": 5,
+    "remainingOpenGates": [
+      "AL10-14",
+      "AL10-15",
+      "AL10-16",
+      "AL10-GA-1",
+      "AL10-GA-2",
+      "AL10-GA-3",
+      "AL10-GA-4",
+      "AL10-GA-5",
+      "AL10-GA-6",
+      "AL10-GA-7"
+    ]
+  },
+  "failureTelemetry": {
+    "sourceReadbackFailureCount": 0,
+    "failedSourceReadbackCount": 0,
+    "failedEvalGateCount": 0,
+    "qualityViolationCount": 0,
+    "privacyLeakCount": 0,
+    "stressLostEventCount": 0,
+    "unexpectedDuplicateEventCount": 0,
+    "hookEnqueueP95AboveBetaBudget": true,
+    "activeBetaRiskCount": 1,
+    "activeBetaRisks": [
+      {
+        "id": "hook-enqueue-p95-beta-budget",
+        "severity": "tracked-beta-risk",
+        "metric": "hookEnqueueP95Ms",
+        "actualMs": 154.458,
+        "budgetMs": 150,
+        "impact": "AL10-04 measured the path, but the beta telemetry report keeps the p95 over-budget observation visible for follow-up."
+      }
+    ],
+    "remainingOpenGateCount": 10
+  },
+  "privacy": {
+    "forbiddenSecretHitCount": 0,
+    "forbiddenRawContentHitCount": 0,
+    "secretHits": [],
+    "rawContentHits": [],
+    "clean": true
+  },
+  "readbackDigest": "sha256:ab9bd226fca527abc75c3862c4d1e7bcc73de18d3c497eaafd72df6237215748",
+  "assertions": {
+    "AL10-13": true,
+    "sourceReadbacksVerified": true,
+    "runTelemetryCovered": true,
+    "driftTelemetryClean": true,
+    "recommendationTelemetryCovered": true,
+    "agentSpawnTelemetryCovered": true,
+    "resolutionTelemetryCovered": true,
+    "failureTelemetryCovered": true,
+    "performanceRiskCaptured": true,
+    "openGatesPreserved": true,
+    "noPrivateContent": true
+  },
+  "readback": {
+    "command": "bun scripts/architecture-ledger-al10-telemetry-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-telemetry-readback.json --json",
+    "recordCommand": "bun scripts/architecture-ledger-al10-telemetry-readback.ts run --out docs/verification/architecture-ledger-al10-telemetry-readback.json --report docs/verification/architecture-ledger-al10-telemetry.md --json",
+    "reportPath": "docs/verification/architecture-ledger-al10-telemetry.md"
+  },
+  "failures": []
+}

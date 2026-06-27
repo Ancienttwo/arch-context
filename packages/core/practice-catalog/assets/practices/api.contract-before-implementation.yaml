@@ -44,7 +44,13 @@
   "enforcement": {
     "default": "advisory",
     "promotableTo": "complete",
-    "repoOptInRequired": true
+    "repoOptInRequired": true,
+    "fixtureGate": {
+      "positive": [{ "id": "fixture.api.contract-before-implementation.positive", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Policy-declared test evidence can satisfy complete enforcement." }],
+      "nearNegative": [{ "id": "fixture.api.contract-before-implementation.near-negative", "path": "evals/practices/benign-negative.jsonl", "description": "Benign API wording does not become complete enforcement." }],
+      "mixedChange": [{ "id": "fixture.api.contract-before-implementation.mixed-change", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Partial command-only evidence still fails the required subject proof." }],
+      "baseline": [{ "id": "fixture.api.contract-before-implementation.baseline", "path": "packages/core/practice-engine/test/practice-engine.test.ts", "description": "Policy-declared test evidence is evaluated against explicit match subjects." }]
+    }
   },
   "provenance": {
     "sourceKind": "archcontext-native",

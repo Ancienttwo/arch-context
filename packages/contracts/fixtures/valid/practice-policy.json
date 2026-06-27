@@ -1,6 +1,21 @@
 {
   "schemaVersion": "archcontext.practice-enforcement-policy/v1",
   "mode": "active",
+  "recommendations": {
+    "enabled": true,
+    "policyMode": "advisory",
+    "frequency": {
+      "minIntervalMs": 60000,
+      "cooldownMs": 604800000
+    },
+    "budgets": {
+      "maxRecommendationsPerRun": 25,
+      "maxL3InvestigationsPerRun": 1,
+      "maxRunsPerTask": 1,
+      "maxRunsPerRepositoryPerDay": 25,
+      "maxRunsPerDay": 100
+    }
+  },
   "rules": [
     {
       "practiceId": "api.contract-before-implementation",

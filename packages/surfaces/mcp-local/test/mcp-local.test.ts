@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
-import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -16,6 +17,20 @@ function tempModel(): string {
   writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
   initializeArchContextModel(root, "MCP App");
   return root;
+}
+
+function tempGitModel(): string {
+  const root = tempModel();
+  git(root, "init");
+  git(root, "config", "user.email", "archcontext@example.test");
+  git(root, "config", "user.name", "ArchContext Test");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "fixture");
+  return root;
+}
+
+function git(root: string, ...args: string[]): void {
+  execFileSync("git", args, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 }
 
 async function createTestServer(): Promise<McpLocalServer> {
@@ -70,6 +85,13 @@ function runTestCli(command: string, args: string[], root: string) {
     codeGraphProviderFactory: () => new MockCodeGraphProvider(),
     localStore: new TestLocalStore()
   });
+}
+
+async function readToolEnvelope(server: McpLocalServer, result: { content: any; resourceUri?: string }, root?: string) {
+  if (result.content?.ok === true || result.content?.ok === false) return result.content;
+  const uri = result.resourceUri ?? result.content?.resourceUri;
+  if (typeof uri !== "string") return result.content;
+  return await server.readResource(uri, root);
 }
 
 describe("local MCP server", () => {
@@ -142,6 +164,97 @@ describe("local MCP server", () => {
         }
       });
       expect(await server.readResource("https://example.test/context7", root)).toBeUndefined();
+    } finally {
+      await daemon.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("MCP exposes Architecture Book readbacks as resources without expanding the tool surface", async () => {
+    const root = tempGitModel();
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore(),
+      clock: () => "2026-06-26T00:00:00.000Z"
+    });
+    try {
+      await daemon.init(root, "MCP Book App");
+      const rebuild = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      });
+      expect(rebuild.ok).toBe(true);
+      const server = new McpLocalServer(daemon);
+
+      expect(server.listTools().map((tool) => tool.name)).toEqual(LOCAL_MCP_TOOLS.map((tool) => tool.name));
+      const resources = await server.listResources(root);
+      const resourceUris = resources.map((resource) => resource.uri);
+      expect(resourceUris).toEqual(expect.arrayContaining([
+        "archcontext://book/status",
+        "archcontext://book/state",
+        "archcontext://book/timeline",
+        "archcontext://book/diff",
+        "archcontext://book/recommendations"
+      ]));
+
+      const status = await server.readResource("archcontext://book/status", root) as any;
+      const daemonStatus = await daemon.book(root, { command: "status" }) as any;
+      expect(status).toMatchObject({
+        ok: true,
+        requestId: "book.status",
+        data: {
+          schemaVersion: "archcontext.book-status/v1",
+          freshness: {
+            schemaVersion: "archcontext.book-freshness/v1"
+          },
+          provenance: {
+            schemaVersion: "archcontext.book-provenance/v1"
+          }
+        }
+      });
+      expect(status.data.counts).toEqual(daemonStatus.data.counts);
+      expect(status.data.freshness.graphDigest).toBe(daemonStatus.data.freshness.graphDigest);
+      expect(status.data.provenance.graphDigest).toBe(status.data.freshness.graphDigest);
+      expect(typeof status.data.freshness.ledgerCursor.eventCount).toBe("number");
+      expect(status.data.freshness.ledgerCursor.eventCount).toBeGreaterThan(0);
+
+      const state = await server.readResource("archcontext://book/state", root) as any;
+      expect(state).toMatchObject({
+        ok: true,
+        requestId: "book.export",
+        data: {
+          schemaVersion: "archcontext.book-export/v1",
+          format: "json",
+          freshness: { schemaVersion: "archcontext.book-freshness/v1" },
+          provenance: { schemaVersion: "archcontext.book-provenance/v1" }
+        }
+      });
+      expect(state.data.state.entities.length).toBeGreaterThan(0);
+
+      const timeline = await server.readResource("archcontext://book/timeline", root) as any;
+      expect(timeline.ok).toBe(true);
+      expect(timeline.data.schemaVersion).toBe("archcontext.architecture-book-timeline/v1");
+      expect(timeline.data.events.length).toBeGreaterThan(0);
+      expect(timeline.data.freshness.graphDigest).toBe(status.data.freshness.graphDigest);
+
+      const diff = await server.readResource("archcontext://book/diff", root) as any;
+      expect(diff.ok).toBe(true);
+      expect(diff.data.schemaVersion).toBe("archcontext.architecture-book-diff/v1");
+      expect(diff.data.summary.added).toBeGreaterThan(0);
+      expect(diff.data.freshness.projectionDigest).toBe(status.data.freshness.projectionDigest);
+
+      const recommendations = await server.readResource("archcontext://book/recommendations", root) as any;
+      expect(recommendations.ok).toBe(true);
+      expect(recommendations.data.schemaVersion).toBe("archcontext.architecture-book-recommendations/v1");
+      expect(recommendations.data.freshness.worktreeDigest).toBe(status.data.freshness.worktreeDigest);
+      for (const bookResource of [status, state, timeline, diff, recommendations]) {
+        expect(bookResource.data.freshness.schemaVersion).toBe("archcontext.book-freshness/v1");
+        expect(bookResource.data.provenance.schemaVersion).toBe("archcontext.book-provenance/v1");
+        expect(bookResource.data.provenance.graphDigest).toBe(bookResource.data.freshness.graphDigest);
+        expect(bookResource.data.provenance.ledgerCursor.eventCount).toBe(bookResource.data.freshness.ledgerCursor.eventCount);
+      }
+      expect(JSON.stringify({ state, timeline, diff, recommendations })).not.toContain("sourceCode");
     } finally {
       await daemon.stop();
       rmSync(root, { recursive: true, force: true });
@@ -236,6 +349,86 @@ describe("local MCP server", () => {
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 
+  test("stdio tools/list does not resolve runtime and runtime tool calls reuse injected resolver", async () => {
+    const output: string[] = [];
+    const logs: string[] = [];
+    const resolvedRoots: string[] = [];
+    const practiceRoots: string[] = [];
+    const root = "/tmp/archctx-mcp-resolver-root";
+    const runtime = {
+      practices(runtimeRoot: string, input: { action?: string }) {
+        practiceRoots.push(runtimeRoot);
+        return {
+          ok: true,
+          requestId: "practices",
+          data: {
+            schemaVersion: "archcontext.test-practices/v1",
+            root: runtimeRoot,
+            action: input.action ?? "list"
+          }
+        };
+      }
+    } as unknown as RuntimeDaemonClient;
+    async function* input() {
+      yield JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+      yield JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "archcontext_practices",
+          arguments: { root, action: "list" }
+        }
+      });
+      yield JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: {
+          name: "archcontext_practices",
+          arguments: { root, action: "source-records" }
+        }
+      });
+    }
+
+    await runStdioMcpLoop(input(), (line) => output.push(line), (line) => logs.push(line), {
+      runtimeResolver: (resolverRoot) => {
+        resolvedRoots.push(resolverRoot);
+        return runtime;
+      }
+    });
+
+    expect(output.map((line) => JSON.parse(line).id)).toEqual([1, 2, 3]);
+    expect(JSON.parse(output[0]).result.tools.length).toBe(6);
+    expect(resolvedRoots).toEqual([root]);
+    expect(practiceRoots).toEqual([root, root]);
+    expect((JSON.parse(output[1]).result.content as any).ok).toBe(true);
+    expect((JSON.parse(output[2]).result.content as any).data.action).toBe("source-records");
+    expect(logs).toEqual(["[archctx-mcp] started"]);
+  });
+
+  test("runtime resolver failure is returned as runtime unavailable", async () => {
+    const root = tempModel();
+    try {
+      const server = new McpLocalServer({
+        runtimeResolver: () => {
+          throw new Error("archctxd test resolver failed");
+        }
+      });
+      const result = await server.callTool("archcontext_prepare_task", {
+        root,
+        task: "remove legacy v1 wrapper",
+        maxItems: 2,
+        maxBytes: 12_288
+      });
+      expect((result.content as any).ok).toBe(false);
+      expect((result.content as any).error.code).toBe("AC_RUNTIME_UNAVAILABLE");
+      expect((result.content as any).error.message).toContain("archctxd test resolver failed");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI and MCP keep prepare task posture semantics aligned", async () => {
     const root = tempModel();
     try {
@@ -247,10 +440,11 @@ describe("local MCP server", () => {
         maxItems: 2,
         maxBytes: 12_288
       });
-      expect((cli.data as any).posture).toBe((mcp.content as any).data.posture);
-      expect((cli.data as any).context.practiceGuidance.catalogDigest).toBe((mcp.content as any).data.context.practiceGuidance.catalogDigest);
+      const mcpEnvelope = await readToolEnvelope(server, mcp, root) as any;
+      expect((cli.data as any).posture).toBe(mcpEnvelope.data.posture);
+      expect((cli.data as any).context.practiceGuidance.catalogDigest).toBe(mcpEnvelope.data.context.practiceGuidance.catalogDigest);
       expect((cli.data as any).context.practiceGuidance.matches.map((match: any) => match.practiceId)).toEqual(
-        (mcp.content as any).data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
+        mcpEnvelope.data.context.practiceGuidance.matches.map((match: any) => match.practiceId)
       );
       const checkpoint = await server.callTool("archcontext_checkpoint", {
         root,
@@ -261,7 +455,7 @@ describe("local MCP server", () => {
       expect((checkpoint.content as any).ok).toBe(true);
       expect((checkpoint.content as any).data.schemaVersion).toBe("archcontext.practice-checkpoint/v1");
       expect((checkpoint.content as any).data.delta.unchanged.length).toBeGreaterThan(0);
-      expect(JSON.stringify(mcp.content)).not.toContain("sourceCode");
+      expect(JSON.stringify(mcpEnvelope)).not.toContain("sourceCode");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -285,10 +479,11 @@ describe("local MCP server", () => {
         maxItems: 2,
         maxBytes: 12_288
       });
-      expect((result.content as any).ok).toBe(true);
+      const envelope = await readToolEnvelope(server, result, root) as any;
+      expect(envelope.ok).toBe(true);
       const status = await new RuntimeRpcClient(connection).runtimeStatus(root);
       expect((status.data as any).sessions).toBe(1);
-      expect(JSON.stringify(result.content)).not.toContain("sourceCode");
+      expect(JSON.stringify(envelope)).not.toContain("sourceCode");
       await rpc.stop();
       stopped = true;
     } finally {

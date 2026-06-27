@@ -7,10 +7,14 @@ import {
   type EffectivePracticeAssetV1,
   type Json,
   type PracticeCheckResultV1,
+  type PracticeEnforcementEvaluationMode,
   type PracticeEnforcementEvaluationV1,
   type PracticeEnforcementLevel,
+  type PracticeEnforcementPolicyMode,
   type PracticeEnforcementPolicyV1,
+  type PracticeEnforcementFixtureGateV1,
   type PracticeMatchV1,
+  type PracticeRecommendationSchedulerPolicyV1,
   type PracticeWaiverApplicationV1,
   type PracticeWaiverV1
 } from "@archcontext/contracts";
@@ -48,6 +52,7 @@ export interface PracticeWaiverValidationOptions {
 }
 
 const ENFORCEMENT_RANK: Record<PracticeEnforcementLevel, number> = { advisory: 0, checkpoint: 1, complete: 2 };
+const POLICY_MODES = new Set<PracticeEnforcementPolicyMode>(["advisory", "active", "fail-open", "fail-closed"]);
 const DEFAULT_POLICY: PracticeEnforcementPolicyV1 = {
   schemaVersion: PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION,
   mode: "advisory",
@@ -57,6 +62,16 @@ const EMPTY_EVALUATION_VERSION = "archcontext.practice-enforcement-evaluation/v1
 
 export function defaultPracticeEnforcementPolicy(): PracticeEnforcementPolicyV1 {
   return DEFAULT_POLICY;
+}
+
+export function practiceEnforcementPolicyMode(policy: PracticeEnforcementPolicyV1): PracticeEnforcementEvaluationMode {
+  if (policy.mode === "active" || policy.mode === "fail-closed") return "fail-closed";
+  if (policy.mode === "fail-open") return "fail-open";
+  return "advisory";
+}
+
+export function shouldEvaluatePracticeEnforcement(policy: PracticeEnforcementPolicyV1): boolean {
+  return practiceEnforcementPolicyMode(policy) !== "advisory";
 }
 
 export function loadPracticeEnforcementPolicy(root: string): PracticeEnforcementPolicyV1 {
@@ -121,8 +136,9 @@ export function loadPracticeWaiverOwnerRegistry(root: string): PracticeWaiverOwn
 export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPolicyV1, path = "practice policy"): PracticeEnforcementPolicyV1 {
   if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error(`practice-policy-invalid: ${path}`);
   if (policy.schemaVersion !== PRACTICE_ENFORCEMENT_POLICY_SCHEMA_VERSION) throw new Error(`practice-policy-schema-version: ${path}`);
-  if (policy.mode !== "advisory" && policy.mode !== "active") throw new Error(`practice-policy-mode-invalid: ${path}`);
+  if (!POLICY_MODES.has(policy.mode)) throw new Error(`practice-policy-mode-invalid: ${path}`);
   if (!Array.isArray(policy.rules)) throw new Error(`practice-policy-rules-invalid: ${path}`);
+  validateRecommendationSchedulerPolicy(policy.recommendations, path);
   const seen = new Set<string>();
   for (const rule of policy.rules) {
     if (!rule.practiceId || !/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/.test(rule.practiceId)) throw new Error(`practice-policy-rule-id-invalid: ${path}`);
@@ -136,6 +152,21 @@ export function validatePracticeEnforcementPolicy(policy: PracticeEnforcementPol
   return policy;
 }
 
+export function practiceHasCompleteEnforcementFixtureGate(gate: PracticeEnforcementFixtureGateV1 | undefined): boolean {
+  return ["positive", "nearNegative", "mixedChange", "baseline"].every((kind) => {
+    const entries = gate?.[kind as keyof PracticeEnforcementFixtureGateV1];
+    return Array.isArray(entries) && entries.some((entry) =>
+      typeof entry.id === "string"
+      && entry.id.trim().length > 0
+      && typeof entry.path === "string"
+      && entry.path.trim().length > 0
+      && typeof entry.description === "string"
+      && entry.description.trim().length > 0
+      && (entry.digest === undefined || /^sha256:[a-f0-9]{64}$/.test(entry.digest))
+    );
+  });
+}
+
 export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practice waiver", options: PracticeWaiverValidationOptions = {}): PracticeWaiverV1 {
   if (!waiver || typeof waiver !== "object" || Array.isArray(waiver)) throw new Error(`practice-waiver-invalid: ${path}`);
   if (waiver.schemaVersion !== PRACTICE_WAIVER_SCHEMA_VERSION) throw new Error(`practice-waiver-schema-version: ${path}`);
@@ -144,7 +175,11 @@ export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practic
   if (!waiver.owner || waiver.owner.trim().length < 2) throw new Error(`practice-waiver-owner-required: ${path}`);
   if (options.allowedOwners && !options.allowedOwners.includes(waiver.owner)) throw new Error(`practice-waiver-owner-unknown: ${path}`);
   if (isVagueReason(waiver.reason)) throw new Error(`practice-waiver-reason-not-durable: ${path}`);
-  if (Number.isNaN(Date.parse(waiver.createdAt)) || Number.isNaN(Date.parse(waiver.expiresAt))) throw new Error(`practice-waiver-date-invalid: ${path}`);
+  const createdAt = Date.parse(waiver.createdAt);
+  const reviewAt = Date.parse(waiver.reviewAt);
+  const expiresAt = Date.parse(waiver.expiresAt);
+  if (Number.isNaN(createdAt) || Number.isNaN(reviewAt) || Number.isNaN(expiresAt)) throw new Error(`practice-waiver-date-invalid: ${path}`);
+  if (reviewAt < createdAt || reviewAt >= expiresAt) throw new Error(`practice-waiver-review-window-invalid: ${path}`);
   if (!/^sha256:[a-f0-9]{64}$/.test(waiver.evidenceDigest)) throw new Error(`practice-waiver-evidence-digest-invalid: ${path}`);
   validateScope(waiver.scope, path);
   if ((waiver.scope.subjects?.length ?? 0) === 0 && (waiver.scope.pathGlobs?.length ?? 0) === 0) throw new Error(`practice-waiver-scope-required: ${path}`);
@@ -153,7 +188,8 @@ export function validatePracticeWaiver(waiver: PracticeWaiverV1, path = "practic
 
 export function evaluatePracticeEnforcement(input: PracticeEnforcementInput): PracticeEnforcementEvaluationV1 {
   const policyDigest = digestJson(input.policy as unknown as Json);
-  if (input.policy.mode !== "active") return emptyEvaluation(input.catalog.catalogDigest, policyDigest);
+  const policyMode = practiceEnforcementPolicyMode(input.policy);
+  if (policyMode === "advisory") return emptyEvaluation(input.catalog.catalogDigest, policyDigest, policyMode);
 
   const matchesById = new Map(input.matches.map((match) => [match.practiceId, match]));
   const previousById = new Map((input.previousMatches ?? []).map((match) => [match.practiceId, match]));
@@ -166,6 +202,16 @@ export function evaluatePracticeEnforcement(input: PracticeEnforcementInput): Pr
     if (!match || !effective) continue;
     if (ENFORCEMENT_RANK[rule.enforcement] > ENFORCEMENT_RANK[effective.asset.enforcement.promotableTo]) {
       results.push(notApplicable(match, "not-opted-in", rule.enforcement, "Practice cannot be promoted to complete enforcement."));
+      continue;
+    }
+    if (rule.enforcement === "complete" && !practiceHasCompleteEnforcementFixtureGate(effective.asset.enforcement.fixtureGate)) {
+      results.push(notApplicable(
+        match,
+        "fixture-gate-missing",
+        rule.enforcement,
+        "Practice cannot hard-gate complete until positive, near-negative, mixed-change and baseline fixtures are declared.",
+        "fixture-gate"
+      ));
       continue;
     }
     if (match.sourceTrust === "external-dynamic" || match.evidence.every((evidence) => evidence.strength === "heuristic")) {
@@ -193,30 +239,36 @@ export function evaluatePracticeEnforcement(input: PracticeEnforcementInput): Pr
     }
   }
 
-  return finalizeEvaluation(input.catalog.catalogDigest, policyDigest, results);
+  return finalizeEvaluation(input.catalog.catalogDigest, policyDigest, policyMode, results);
 }
 
 export function practiceWaiverEvidenceDigest(result: Pick<PracticeCheckResultV1, "practiceId" | "checkId" | "subjects">): string {
   return digestJson({ practiceId: result.practiceId, checkId: result.checkId, subjects: [...result.subjects].sort() } as Json);
 }
 
-function emptyEvaluation(catalogDigest: string, policyDigest: string): PracticeEnforcementEvaluationV1 {
-  return finalizeEvaluation(catalogDigest, policyDigest, []);
+function emptyEvaluation(catalogDigest: string, policyDigest: string, policyMode: PracticeEnforcementEvaluationMode): PracticeEnforcementEvaluationV1 {
+  return finalizeEvaluation(catalogDigest, policyDigest, policyMode, []);
 }
 
-function finalizeEvaluation(catalogDigest: string, policyDigest: string, results: PracticeCheckResultV1[]): PracticeEnforcementEvaluationV1 {
+function finalizeEvaluation(catalogDigest: string, policyDigest: string, policyMode: PracticeEnforcementEvaluationMode, results: PracticeCheckResultV1[]): PracticeEnforcementEvaluationV1 {
   const sortedResults = results.sort((a, b) => a.practiceId.localeCompare(b.practiceId) || a.checkId.localeCompare(b.checkId));
-  const violations = sortedResults.filter((result) => result.status === "fail");
+  const failedResults = sortedResults.filter((result) => result.status === "fail");
+  const blocking = policyMode === "fail-closed";
+  const violations = blocking ? failedResults : [];
+  const nonBlockingViolations = blocking ? [] : failedResults;
   const waiversApplied = sortedResults.flatMap((result) => result.waiver ? [result.waiver] : []);
   const actionsRequired = [...new Set(violations.map((result) => result.remediation.action).filter((action) => action !== "none"))].sort();
-  const checkResultDigest = digestJson({ catalogDigest, policyDigest, results: sortedResults } as unknown as Json);
+  const checkResultDigest = digestJson({ catalogDigest, policyDigest, policyMode, blocking, results: sortedResults } as unknown as Json);
   return {
     schemaVersion: EMPTY_EVALUATION_VERSION,
     catalogDigest,
     policyDigest,
+    policyMode,
+    blocking,
     checkResultDigest,
     results: sortedResults,
     violations,
+    nonBlockingViolations,
     waiversApplied,
     actionsRequired
   };
@@ -235,6 +287,7 @@ function applyWaiver(result: PracticeCheckResultV1, waivers: PracticeWaiverV1[],
       practiceId: matching.practiceId,
       ...(matching.checkId === undefined ? {} : { checkId: matching.checkId }),
       owner: matching.owner,
+      reviewAt: matching.reviewAt,
       expiresAt: matching.expiresAt
     }
   };
@@ -303,6 +356,27 @@ function validateTestEvidence(testEvidence: { commands?: string[]; subjects?: st
   for (const subject of subjects) {
     if (typeof subject !== "string" || subject.trim().length === 0) throw new Error(`practice-policy-test-subject-invalid: ${path}`);
   }
+}
+
+function validateRecommendationSchedulerPolicy(policy: PracticeRecommendationSchedulerPolicyV1 | undefined, path: string): void {
+  if (policy === undefined) return;
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) throw new Error(`practice-policy-recommendations-invalid: ${path}`);
+  if (policy.enabled !== undefined && typeof policy.enabled !== "boolean") throw new Error(`practice-policy-recommendations-enabled-invalid: ${path}`);
+  if (policy.policyMode !== undefined && !["advisory", "checkpoint", "complete"].includes(policy.policyMode)) {
+    throw new Error(`practice-policy-recommendations-mode-invalid: ${path}`);
+  }
+  validateNonNegativeInteger(policy.frequency?.minIntervalMs, "practice-policy-recommendations-min-interval-invalid", path);
+  validateNonNegativeInteger(policy.frequency?.cooldownMs, "practice-policy-recommendations-cooldown-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRecommendationsPerRun, "practice-policy-recommendations-max-run-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxL3InvestigationsPerRun, "practice-policy-recommendations-max-l3-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRunsPerTask, "practice-policy-recommendations-max-task-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRunsPerRepositoryPerDay, "practice-policy-recommendations-max-repository-day-invalid", path);
+  validateNonNegativeInteger(policy.budgets?.maxRunsPerDay, "practice-policy-recommendations-max-day-invalid", path);
+}
+
+function validateNonNegativeInteger(value: number | undefined, code: string, path: string): void {
+  if (value === undefined) return;
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${code}: ${path}`);
 }
 
 function isVagueReason(reason: string): boolean {

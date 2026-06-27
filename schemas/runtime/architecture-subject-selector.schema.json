@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/architecture-subject-selector.schema.json",
+  "title": "ArchitectureSubjectSelector",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "selectorId", "kind", "repositoryId", "stableKey", "digest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.architecture-subject-selector/v1" },
+    "selectorId": { "type": "string", "pattern": "^subject\\.[a-zA-Z0-9_.-]+$" },
+    "kind": { "enum": ["repository", "path", "symbol", "node", "relation", "api", "datastore", "external-contract"] },
+    "repositoryId": { "type": "string" },
+    "stableKey": { "type": "string" },
+    "path": { "type": "string" },
+    "symbolId": { "type": "string" },
+    "name": { "type": "string" },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target", "kind"],
+      "properties": {
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "kind": { "type": "string" }
+      }
+    },
+    "externalId": { "type": "string" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

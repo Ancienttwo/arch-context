@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/recommendation-feedback.schema.json",
+  "title": "RecommendationFeedback",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "feedbackId", "recommendationId", "runId", "action", "previousStatus", "nextStatus", "actor", "reason", "explicit", "implicitAcceptance", "repository", "worktree", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.recommendation-feedback/v1" },
+    "feedbackId": { "type": "string", "pattern": "^(recommendation_feedback|rec_feedback)\\.[a-zA-Z0-9_.-]+$" },
+    "recommendationId": { "type": "string", "pattern": "^(recommendation|rec)\\.[a-zA-Z0-9_.-]+$" },
+    "runId": { "type": "string", "pattern": "^(recommendation_run|rec_run)\\.[a-zA-Z0-9_.-]+$" },
+    "action": { "enum": ["acknowledge", "accept", "reject", "defer", "waive", "resolve"] },
+    "previousStatus": { "enum": ["open", "acknowledged", "accepted", "rejected", "deferred", "waived", "resolved", "superseded", "expired"] },
+    "nextStatus": { "enum": ["open", "acknowledged", "accepted", "rejected", "deferred", "waived", "resolved", "superseded", "expired"] },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "source"],
+      "properties": {
+        "kind": { "enum": ["developer", "daemon", "hook", "cli", "mcp", "subagent", "migration", "system"] },
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "enum": ["cli", "mcp", "manual", "daemon", "system", "subagent"] }
+      }
+    },
+    "reason": { "type": "string", "minLength": 1 },
+    "explicit": { "const": true },
+    "implicitAcceptance": { "const": false },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "createdAt": { "type": "string" },
+    "extensions": { "type": "object", "additionalProperties": true }
+  }
+}

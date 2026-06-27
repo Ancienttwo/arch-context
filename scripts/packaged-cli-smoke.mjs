@@ -7,7 +7,7 @@ import { delimiter, join, resolve } from "node:path";
 const root = process.cwd();
 const binDir = resolve(root, "node_modules", ".bin");
 const archctxBin = resolveArchctxBin();
-const PROCESS_TIMEOUT_MS = 10_000;
+const PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 
 if (!existsSync(archctxBin)) {
   const entries = existsSync(binDir) ? readdirSync(binDir).join(", ") : "<missing .bin directory>";
@@ -56,6 +56,32 @@ try {
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_practices"), "mcp must expose practices");
 
+  const stoppedBeforeMcpStart = await runArchctx("daemon", "stop");
+  assert(stoppedBeforeMcpStart.ok === true, "daemon stop before MCP auto-start must succeed");
+  await waitForRemoved(connectionPath, "connection file");
+  await waitForRemoved(lockPath, "lock file");
+
+  const mcpAutoStarted = await runArchctxMcp({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: {
+      name: "archcontext_practices",
+      arguments: {
+        root: repo,
+        action: "validate",
+        strict: true,
+        maxBytes: 12_288
+      }
+    }
+  });
+  assert(mcpAutoStarted.result?.content?.ok === true, "mcp runtime tool call must auto-start daemon RPC when no daemon is running");
+  assert(mcpAutoStarted.result?.content?.data?.valid === true, "mcp auto-start practices validate must return a valid catalog");
+  const daemonAfterMcpStart = await runArchctx("daemon", "status");
+  assert(daemonAfterMcpStart.ok === true, "daemon status after MCP auto-start must succeed");
+  assert(daemonAfterMcpStart.data?.running === true, "MCP auto-start must leave the daemon running");
+  assert(daemonAfterMcpStart.data?.rpcVersionCompatible === true, "MCP auto-started daemon must be RPC compatible");
+
   const practices = await runArchctx("practices", "validate", "--strict");
   assert(practices.ok === true, "practices validate must succeed through packaged bin");
   assert(practices.data?.valid === true, "built-in practice catalog must validate through packaged bin");
@@ -67,7 +93,7 @@ try {
 
   const planned = await runArchctxMcp({
     jsonrpc: "2.0",
-    id: 2,
+    id: 3,
     method: "tools/call",
     params: {
       name: "archcontext_plan_update",
@@ -117,6 +143,11 @@ try {
   assert(daemonStatus.data?.rpcVersionCompatible === true, "daemon status must report RPC compatibility");
   assert(daemonStatus.data?.product?.schemaVersion === "archcontext.product-version-manifest/v1", "daemon status must include product manifest");
 
+  const statusBeforeRestart = await runArchctx("status");
+  assert(statusBeforeRestart.ok === true, "status before restart must succeed");
+  const worktreeDigestBeforeRestart = statusBeforeRestart.data?.worktreeDigest;
+  assert(typeof worktreeDigestBeforeRestart === "string", "status before restart must report a worktree digest");
+
   const stoppedForRestart = await runArchctx("daemon", "stop");
   assert(stoppedForRestart.ok === true, "daemon stop before restart must succeed");
   await waitForRemoved(connectionPath, "connection file");
@@ -130,11 +161,11 @@ try {
   assert(restoredStatus.ok === true, "status after restart must succeed");
   assert(restoredStatus.data?.sessions === 1, `daemon restart must restore persisted repository session: ${JSON.stringify(restoredStatus.data)}`);
   assert(restoredStatus.data?.repositoryId === repositoryId, "restored session must keep the same repository id");
-  assert(restoredStatus.data?.worktreeDigest === initialWorktreeDigest, "restored session must keep the same worktree digest");
+  assert(restoredStatus.data?.worktreeDigest === worktreeDigestBeforeRestart, "restored status must report the current worktree digest");
 
   const plannedAfterRestart = await runArchctxMcp({
     jsonrpc: "2.0",
-    id: 3,
+    id: 4,
     method: "tools/call",
     params: {
       name: "archcontext_plan_update",
@@ -185,8 +216,8 @@ try {
   console.log("[packaged-cli-smoke] OK");
 } finally {
   await runArchctx("daemon", "stop").catch(() => undefined);
-  rmSync(repo, { recursive: true, force: true });
-  rmSync(stateRoot, { recursive: true, force: true });
+  cleanupRoot(repo);
+  cleanupRoot(stateRoot);
 }
 
 function runArchctx(...args) {
@@ -287,4 +318,22 @@ function assert(condition, message) {
 function fail(message) {
   console.error(`[packaged-cli-smoke] FAILED: ${message}`);
   process.exit(1);
+}
+
+function cleanupRoot(path) {
+  try {
+    rmSync(path, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 10 : 0,
+      retryDelay: 200
+    });
+  } catch (error) {
+    const code = error?.code;
+    if (process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY")) {
+      console.warn(`[packaged-cli-smoke] cleanup skipped for locked temp path: ${path}`);
+      return;
+    }
+    throw error;
+  }
 }

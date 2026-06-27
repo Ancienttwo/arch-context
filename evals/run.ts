@@ -40,7 +40,7 @@ import {
   runRetrievalEval,
   type RetrievalDocument
 } from "../packages/core/retrieval/src/index";
-import type { ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
+import { isArchitectureDirectionViolationSubject, type ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
 import { digestJson } from "../packages/contracts/src/index";
 import type {
   EffectivePracticeAssetV1,
@@ -57,7 +57,7 @@ import type {
   RetrievalEvalSet
 } from "../packages/contracts/src/index";
 
-const DATE = "2026-06-20";
+const DATE = "2026-06-25";
 
 export const THRESHOLDS = {
   compatibilityRecall: 0.85,
@@ -65,8 +65,10 @@ export const THRESHOLDS = {
   contextConstraintRecall: 0.95,
   contextIrrelevantRatio: 0.15,
   practiceTop3Recall: 0.92,
+  recommendationPrecisionAt3: 0.8,
   benignPrecision: 0.95,
-  noKeywordStructuralRecall: 0.85,
+  noKeywordStructuralRecall: 0.9,
+  evidenceShuffleContaminationRate: 0,
   heuristicOnlyHardGateRate: 0,
   dynamicDocHardGateRate: 0,
   waiverRejectedRate: 1,
@@ -219,11 +221,18 @@ interface PracticeCaseEvidence {
   };
   summary: string;
   confidence: "heuristic" | "observed" | "verified";
-  practiceBindings?: {
-    practiceId: string;
-    triggerId?: string;
-    subject?: string;
-  }[];
+  practiceBindings?: PracticeCaseEvidenceBinding[];
+}
+
+interface PracticeCaseEvidenceBinding {
+  practiceId: string;
+  triggerId?: string;
+  subject?: string;
+  provenance: "codegraph" | "model-store-yaml" | "checkpoint" | "runtime-daemon" | "user" | "subagent" | "external-doc";
+  coverage: {
+    level: "complete" | "partial" | "unknown";
+    scope: string;
+  };
 }
 
 interface PracticeAdversarialCase {
@@ -475,11 +484,17 @@ interface ChineseRetrievalResult {
 
 interface PracticeResult {
   top3Recall: number;
+  recommendationPrecisionAt3: number;
+  recommendationRecallAt3: number;
   benignPrecision: number;
+  benignAdvisoryFalsePositiveRate: number;
   noKeywordStructuralRecall: number;
   directPracticeReferenceRecall: number;
   matchedExpected: number;
   expectedTotal: number;
+  recommendationCorrectAt3: number;
+  recommendationRetrievedAt3: number;
+  recommendationExpectedAt3: number;
   directReferenceMatchedExpected: number;
   directReferenceExpectedTotal: number;
   positiveCases: number;
@@ -498,6 +513,24 @@ interface PracticeResult {
   waiverRejectedRate: number;
   negativeNonAdvisoryMatches: number;
   negativeNonAdvisoryCaseIds: string[];
+  benignAdvisoryFalsePositiveCaseIds: string[];
+  evidenceShuffleCases: number;
+  evidenceShuffleViolations: number;
+  evidenceShuffleContaminationRate: number;
+  evidenceShuffleViolationIds: string[];
+  perPracticeSupport: {
+    practiceId: string;
+    expected: number;
+    matched: number;
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  }[];
+  confidenceCalibration: {
+    samples: number;
+    ece: number;
+    brier: number;
+  };
   heuristicOnlyHardGateViolations: number;
   heuristicOnlyHardGateTotal: number;
   dynamicDocHardGateViolations: number;
@@ -600,6 +633,9 @@ function scorePracticeMatching(
   let negativeNonAdvisoryMatches = 0;
   let noKeywordMatchedExpected = 0;
   let noKeywordExpectedTotal = 0;
+  let recommendationCorrectAt3 = 0;
+  let recommendationRetrievedAt3 = 0;
+  let recommendationExpectedAt3 = 0;
   const missedPositiveIds: PracticeResult["missedPositiveIds"] = [];
   const missedNoKeywordStructuralIds: PracticeResult["missedNoKeywordStructuralIds"] = [];
   const missedDirectReferenceIds: PracticeResult["missedDirectReferenceIds"] = [];
@@ -607,6 +643,16 @@ function scorePracticeMatching(
   const evidenceMinimumViolations: PracticeResult["evidenceMinimumViolations"] = [];
   const enforcementCeilingViolations: PracticeResult["enforcementCeilingViolations"] = [];
   const negativeNonAdvisoryCaseIds: string[] = [];
+  const benignAdvisoryFalsePositiveCaseIds: string[] = [];
+  const perPracticeSupport = new Map<string, {
+    practiceId: string;
+    expected: number;
+    matched: number;
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  }>();
+  const calibrationSamples: { confidence: PracticeMatchV1["confidence"]; relevant: boolean }[] = [];
   const datasetMetadataViolations = validatePracticeDatasetMetadata(positiveCases, directReferenceCases, negativeCases, adversarialCases, assetsById);
 
   for (const item of positiveCases) {
@@ -622,6 +668,12 @@ function scorePracticeMatching(
       noKeywordMatchedExpected += matched.length;
       if (matched.length !== expected.length) missedNoKeywordStructuralIds.push({ id: item.id, expected, actual });
     }
+    const metrics = recommendationMetricsForCase(item, guidance.matches);
+    recommendationCorrectAt3 += metrics.correct;
+    recommendationRetrievedAt3 += metrics.retrieved;
+    recommendationExpectedAt3 += metrics.expected;
+    recordPracticeSupport(item, guidance.matches, perPracticeSupport);
+    calibrationSamples.push(...confidenceSamplesForCase(item, guidance.matches));
     validatePracticeMatchExpectations(item, guidance.matches, evidenceMinimumViolations, enforcementCeilingViolations, prohibitedMatchIds);
   }
 
@@ -633,6 +685,12 @@ function scorePracticeMatching(
     const matched = expected.filter((id) => actual.includes(id));
     directReferenceMatchedExpected += matched.length;
     if (matched.length !== expected.length) missedDirectReferenceIds.push({ id: item.id, expected, actual });
+    const metrics = recommendationMetricsForCase(item, guidance.matches);
+    recommendationCorrectAt3 += metrics.correct;
+    recommendationRetrievedAt3 += metrics.retrieved;
+    recommendationExpectedAt3 += metrics.expected;
+    recordPracticeSupport(item, guidance.matches, perPracticeSupport);
+    calibrationSamples.push(...confidenceSamplesForCase(item, guidance.matches));
     validatePracticeMatchExpectations(item, guidance.matches, evidenceMinimumViolations, enforcementCeilingViolations, prohibitedMatchIds);
   }
 
@@ -641,10 +699,18 @@ function scorePracticeMatching(
     const nonAdvisory = guidance.matches.filter((match) => match.enforcement !== "advisory");
     negativeNonAdvisoryMatches += nonAdvisory.length;
     if (nonAdvisory.length > 0) negativeNonAdvisoryCaseIds.push(item.id);
+    if (guidance.matches.length > 0) benignAdvisoryFalsePositiveCaseIds.push(item.id);
+    const metrics = recommendationMetricsForCase(item, guidance.matches);
+    recommendationCorrectAt3 += metrics.correct;
+    recommendationRetrievedAt3 += metrics.retrieved;
+    recommendationExpectedAt3 += metrics.expected;
+    calibrationSamples.push(...confidenceSamplesForCase(item, guidance.matches));
     validatePracticeMatchExpectations(item, guidance.matches, evidenceMinimumViolations, enforcementCeilingViolations, prohibitedMatchIds);
   }
 
   const adversarial = scorePracticeAdversarial(catalog, adversarialCases);
+  const evidenceShuffle = scorePracticeEvidenceShuffle([...positiveCases, ...directReferenceCases], catalog);
+  const calibration = confidenceCalibration(calibrationSamples);
   const chineseCases = [
     ...positiveCases,
     ...directReferenceCases,
@@ -655,11 +721,17 @@ function scorePracticeMatching(
 
   return {
     top3Recall: round(matchedExpected / Math.max(1, expectedTotal)),
+    recommendationPrecisionAt3: round(recommendationCorrectAt3 / Math.max(1, recommendationRetrievedAt3)),
+    recommendationRecallAt3: round(recommendationCorrectAt3 / Math.max(1, recommendationExpectedAt3)),
     benignPrecision: round((negativeCases.length - negativeNonAdvisoryCaseIds.length) / Math.max(1, negativeCases.length)),
+    benignAdvisoryFalsePositiveRate: round(benignAdvisoryFalsePositiveCaseIds.length / Math.max(1, negativeCases.length)),
     noKeywordStructuralRecall: round(noKeywordMatchedExpected / Math.max(1, noKeywordExpectedTotal)),
     directPracticeReferenceRecall: round(directReferenceMatchedExpected / Math.max(1, directReferenceExpectedTotal)),
     matchedExpected,
     expectedTotal,
+    recommendationCorrectAt3,
+    recommendationRetrievedAt3,
+    recommendationExpectedAt3,
     directReferenceMatchedExpected,
     directReferenceExpectedTotal,
     positiveCases: positiveCases.length,
@@ -678,6 +750,13 @@ function scorePracticeMatching(
     waiverRejectedRate: round(adversarial.waiverRejected / Math.max(1, adversarial.waiverAdversarialTotal)),
     negativeNonAdvisoryMatches,
     negativeNonAdvisoryCaseIds,
+    benignAdvisoryFalsePositiveCaseIds,
+    evidenceShuffleCases: evidenceShuffle.cases,
+    evidenceShuffleViolations: evidenceShuffle.violations,
+    evidenceShuffleContaminationRate: round(evidenceShuffle.violations / Math.max(1, evidenceShuffle.cases)),
+    evidenceShuffleViolationIds: evidenceShuffle.violationIds,
+    perPracticeSupport: [...perPracticeSupport.values()].sort((left, right) => left.practiceId.localeCompare(right.practiceId)),
+    confidenceCalibration: calibration,
     heuristicOnlyHardGateViolations: adversarial.heuristicOnlyHardGateViolations,
     heuristicOnlyHardGateTotal: adversarial.heuristicOnlyHardGateTotal,
     dynamicDocHardGateViolations: adversarial.dynamicDocHardGateViolations,
@@ -758,6 +837,125 @@ function validatePracticeMatchExpectations(
   }
 }
 
+function recommendationMetricsForCase(item: PracticeCase, matches: PracticeMatchV1[]): { correct: number; retrieved: number; expected: number } {
+  const expected = new Set(item.expectedPracticeIds ?? []);
+  const top3 = matches.slice(0, 3).filter(isEvidenceBoundPrecisionMatch);
+  return {
+    correct: top3.filter((match) => expected.has(match.practiceId)).length,
+    retrieved: top3.length,
+    expected: expected.size
+  };
+}
+
+function isEvidenceBoundPrecisionMatch(match: PracticeMatchV1): boolean {
+  if (match.enforcement === "advisory") return false;
+  if (match.explanation.some((line) => line.startsWith("Evidence binding:"))) return true;
+  return match.evidence.some((evidence) =>
+    evidence.subject.startsWith("cycle:") ||
+    isArchitectureDirectionViolationSubject(evidence.subject)
+  );
+}
+
+function recordPracticeSupport(
+  item: PracticeCase,
+  matches: PracticeMatchV1[],
+  support: Map<string, {
+    practiceId: string;
+    expected: number;
+    matched: number;
+    highConfidence: number;
+    mediumConfidence: number;
+    lowConfidence: number;
+  }>
+): void {
+  const matchesById = new Map(matches.map((match) => [match.practiceId, match]));
+  for (const practiceId of item.expectedPracticeIds ?? []) {
+    const row = support.get(practiceId) ?? {
+      practiceId,
+      expected: 0,
+      matched: 0,
+      highConfidence: 0,
+      mediumConfidence: 0,
+      lowConfidence: 0
+    };
+    row.expected += 1;
+    const match = matchesById.get(practiceId);
+    if (match) {
+      row.matched += 1;
+      if (match.confidence === "high") row.highConfidence += 1;
+      else if (match.confidence === "medium") row.mediumConfidence += 1;
+      else row.lowConfidence += 1;
+    }
+    support.set(practiceId, row);
+  }
+}
+
+function confidenceSamplesForCase(item: PracticeCase, matches: PracticeMatchV1[]): { confidence: PracticeMatchV1["confidence"]; relevant: boolean }[] {
+  const expected = new Set(item.expectedPracticeIds ?? []);
+  return matches.slice(0, 3).map((match) => ({
+    confidence: match.confidence,
+    relevant: expected.has(match.practiceId)
+  }));
+}
+
+function confidenceCalibration(samples: { confidence: PracticeMatchV1["confidence"]; relevant: boolean }[]): PracticeResult["confidenceCalibration"] {
+  const probabilities: Record<PracticeMatchV1["confidence"], number> = { high: 0.9, medium: 0.6, low: 0.3 };
+  const byConfidence = new Map<PracticeMatchV1["confidence"], { total: number; relevant: number; probability: number }>();
+  let brierTotal = 0;
+  for (const sample of samples) {
+    const probability = probabilities[sample.confidence];
+    const observed = sample.relevant ? 1 : 0;
+    brierTotal += (probability - observed) ** 2;
+    const row = byConfidence.get(sample.confidence) ?? { total: 0, relevant: 0, probability };
+    row.total += 1;
+    if (sample.relevant) row.relevant += 1;
+    byConfidence.set(sample.confidence, row);
+  }
+  let ece = 0;
+  for (const row of byConfidence.values()) {
+    const accuracy = row.relevant / Math.max(1, row.total);
+    ece += (row.total / Math.max(1, samples.length)) * Math.abs(row.probability - accuracy);
+  }
+  return {
+    samples: samples.length,
+    ece: round(ece),
+    brier: round(brierTotal / Math.max(1, samples.length))
+  };
+}
+
+function scorePracticeEvidenceShuffle(cases: PracticeCase[], catalog: ReturnType<typeof loadPracticeCatalog>): { cases: number; violations: number; violationIds: string[] } {
+  const candidates = cases.filter((item) => (item.expectedPracticeIds ?? []).length > 0);
+  let total = 0;
+  const violationIds: string[] = [];
+  for (let index = 0; index < candidates.length; index += 1) {
+    const target = candidates[index];
+    const donor = candidates[(index + 1) % candidates.length];
+    const expected = new Set(target.expectedPracticeIds ?? []);
+    const injectedPracticeId = (donor.expectedPracticeIds ?? []).find((practiceId) => !expected.has(practiceId));
+    const subject = target.symbols[0];
+    if (!injectedPracticeId || !subject) continue;
+    total += 1;
+    const mutated: PracticeCase = {
+      ...target,
+      evidence: [
+        ...(target.evidence ?? []),
+        {
+          id: `evidence.shuffle.${target.id}.${injectedPracticeId.replace(/\./g, "-")}`,
+          selector: { path: subject.path, symbolId: subject.id },
+          summary: `Observed unrelated applicability for ${injectedPracticeId} near ${subject.path}.`,
+          confidence: "verified"
+        }
+      ]
+    };
+    const baselineActual = new Set(matchPracticeCase(target, catalog).matches.map((match) => match.practiceId));
+    const actual = matchPracticeCase(mutated, catalog).matches.map((match) => match.practiceId);
+    if (!baselineActual.has(injectedPracticeId) && actual.includes(injectedPracticeId)) {
+      violationIds.push(`${target.id}->${injectedPracticeId}`);
+    }
+  }
+  return { cases: total, violations: violationIds.length, violationIds };
+}
+
 function validatePracticeDatasetMetadata(
   positiveCases: PracticeCase[],
   directReferenceCases: PracticeCase[],
@@ -779,6 +977,11 @@ function validatePracticeDatasetMetadata(
     }
     if (item.scenarioType === "direct-practice-reference" && !(item.evidence ?? []).some((evidence) => (evidence.practiceBindings ?? []).length > 0)) {
       violations.push(`${item.id}:direct-reference-practice-binding`);
+    }
+    for (const evidence of item.evidence ?? []) {
+      for (const binding of evidence.practiceBindings ?? []) {
+        if (!isCompletePracticeCaseEvidenceBinding(binding)) violations.push(`${item.id}:${evidence.id}:practice-binding-contract`);
+      }
     }
     for (const practiceId of [...(item.expectedPracticeIds ?? []), ...(item.prohibitedPracticeIds ?? [])]) {
       if (!assetsById.has(practiceId)) violations.push(`${item.id}:unknown-practice:${practiceId}`);
@@ -806,6 +1009,19 @@ function validatePracticeDatasetMetadata(
     }
   }
   return violations;
+}
+
+function isCompletePracticeCaseEvidenceBinding(binding: Partial<PracticeCaseEvidenceBinding>): binding is PracticeCaseEvidenceBinding {
+  return typeof binding.practiceId === "string" &&
+    binding.practiceId.length > 0 &&
+    (binding.triggerId === undefined || typeof binding.triggerId === "string") &&
+    (binding.subject === undefined || typeof binding.subject === "string") &&
+    typeof binding.provenance === "string" &&
+    ["codegraph", "model-store-yaml", "checkpoint", "runtime-daemon", "user", "subagent", "external-doc"].includes(binding.provenance) &&
+    typeof binding.coverage?.level === "string" &&
+    ["complete", "partial", "unknown"].includes(binding.coverage.level) &&
+    typeof binding.coverage.scope === "string" &&
+    binding.coverage.scope.length > 0;
 }
 
 function taskContainsExpectedPracticeTerms(item: PracticeCase, assetsById: Map<string, EffectivePracticeAssetV1>): boolean {
@@ -987,6 +1203,7 @@ function baseWaiver(result: Pick<PracticeMatchV1, "practiceId"> & { checkId: str
     owner: "team-architecture",
     reason: "External migration window requires keeping this edge until the cutover date.",
     createdAt: "2026-06-24T00:00:00.000Z",
+    reviewAt: "2026-07-10T00:00:00.000Z",
     expiresAt: "2026-07-24T00:00:00.000Z",
     evidenceDigest: practiceWaiverEvidenceDigest(result)
   };
@@ -1058,6 +1275,11 @@ export function buildReport(input: RepresentativeEvalResult): string {
   const driftFn = drift.falseNegativeIds.length
     ? drift.falseNegativeIds.map((item) => `\`${item.id}\` (${item.pattern}: expected ${item.expected}, got ${item.actual})`).join(", ")
     : "none";
+  const perPracticeSupport = practices.perPracticeSupport.length
+    ? practices.perPracticeSupport
+      .map((item) => `\`${item.practiceId}\` ${item.matched}/${item.expected} (H/M/L ${item.highConfidence}/${item.mediumConfidence}/${item.lowConfidence})`)
+      .join(", ")
+    : "none";
 
   const backlog: string[] = [];
   if (compatibility.recall < THRESHOLDS.compatibilityRecall) {
@@ -1107,6 +1329,12 @@ export function buildReport(input: RepresentativeEvalResult): string {
         `Missed: ${practices.missedPositiveIds.map((item) => `\`${item.id}\``).join(", ")}.`
     );
   }
+  if (practices.recommendationPrecisionAt3 < THRESHOLDS.recommendationPrecisionAt3) {
+    backlog.push(
+      `- **Recommendation precision@3 ${pct(practices.recommendationPrecisionAt3)} < ${pct(THRESHOLDS.recommendationPrecisionAt3)}.** ` +
+        "Fix: reduce advisory recommendations that are not supported by expected practice labels in held-out practice cases."
+    );
+  }
   if (practices.positiveCases < THRESHOLDS.positivePracticeCases || practices.negativeCases < THRESHOLDS.negativePracticeCases) {
     backlog.push(
       `- **Practice dataset is undersized.** Observed ${practices.positiveCases} positive / ${practices.negativeCases} negative; ` +
@@ -1138,6 +1366,12 @@ export function buildReport(input: RepresentativeEvalResult): string {
     backlog.push(
       `- **No-keyword structural recall ${pct(practices.noKeywordStructuralRecall)} < ${pct(THRESHOLDS.noKeywordStructuralRecall)}.** ` +
         `Missed: ${practices.missedNoKeywordStructuralIds.map((item) => `\`${item.id}\``).join(", ")}.`
+    );
+  }
+  if (practices.evidenceShuffleContaminationRate > THRESHOLDS.evidenceShuffleContaminationRate) {
+    backlog.push(
+      `- **Evidence shuffle contamination ${pct(practices.evidenceShuffleContaminationRate)} > 0.0%.** ` +
+        `Unbound payload labels moved recommendations in: ${practices.evidenceShuffleViolationIds.map((id) => `\`${id}\``).join(", ")}.`
     );
   }
   if (practices.heuristicOnlyHardGateRate > THRESHOLDS.heuristicOnlyHardGateRate) {
@@ -1241,11 +1475,16 @@ ${retrieval.missedConstraintQueries.length ? `- Queries missing expected constra
 - Negative corpus: ${practices.negativeCases} benign/budget cases; adversarial corpus: ${practices.adversarialCases} enforcement/waiver cases.
 - Scenario mix: ${practices.chineseCases}/${practices.totalScenarios} Chinese or mixed Chinese/English cases (${pct(practices.chineseRatio)}), ${practices.noKeywordStructuralPositiveCases} no-keyword structural positives, ${practices.directPracticeReferenceCases} direct-reference positives, ${practices.keywordHeavyBenignNegativeCases} keyword-heavy benign negatives, ${practices.budgetIrrelevantResourceCases} budget/irrelevant resource cases.
 - Top-3 recall: **${pct(practices.top3Recall)}** (${practices.matchedExpected}/${practices.expectedTotal}), threshold ${pct(THRESHOLDS.practiceTop3Recall)}.
+- Evidence-bound non-advisory recommendation precision@3: **${pct(practices.recommendationPrecisionAt3)}** (${practices.recommendationCorrectAt3}/${practices.recommendationRetrievedAt3}), threshold ${pct(THRESHOLDS.recommendationPrecisionAt3)}; recall@3 **${pct(practices.recommendationRecallAt3)}** (${practices.recommendationCorrectAt3}/${practices.recommendationExpectedAt3}).
 - Benign precision: **${pct(practices.benignPrecision)}**, threshold ${pct(THRESHOLDS.benignPrecision)}; non-advisory matches in benign negatives: **${practices.negativeNonAdvisoryMatches}**.
+- Benign advisory false-positive rate: **${pct(practices.benignAdvisoryFalsePositiveRate)}** (${practices.benignAdvisoryFalsePositiveCaseIds.length}/${practices.negativeCases}).
 - No-keyword structural recall: **${pct(practices.noKeywordStructuralRecall)}**, threshold ${pct(THRESHOLDS.noKeywordStructuralRecall)}.
 - Direct-reference recall: **${pct(practices.directPracticeReferenceRecall)}** (${practices.directReferenceMatchedExpected}/${practices.directReferenceExpectedTotal}), threshold ${pct(THRESHOLDS.directPracticeReferenceRecall)}.
+- Evidence-shuffle contamination: **${pct(practices.evidenceShuffleContaminationRate)}** (${practices.evidenceShuffleViolations}/${practices.evidenceShuffleCases}); violations: ${practices.evidenceShuffleViolationIds.length ? practices.evidenceShuffleViolationIds.map((id) => `\`${id}\``).join(", ") : "none"}.
 - Heuristic-only hard-gate rate: **${pct(practices.heuristicOnlyHardGateRate)}** (${practices.heuristicOnlyHardGateViolations}/${practices.heuristicOnlyHardGateTotal}); dynamic-doc hard-gate rate: **${pct(practices.dynamicDocHardGateRate)}** (${practices.dynamicDocHardGateViolations}/${practices.dynamicDocHardGateTotal}).
 - Invalid/tampered waiver rejection: **${pct(practices.waiverRejectedRate)}** (${practices.waiverRejected}/${practices.waiverAdversarialTotal}).
+- Confidence calibration: ECE **${pct(practices.confidenceCalibration.ece)}**, Brier **${practices.confidenceCalibration.brier}** over ${practices.confidenceCalibration.samples} top-3 samples.
+- Per-practice support: ${perPracticeSupport}.
 - Dataset metadata violations: ${practices.datasetMetadataViolations.length ? practices.datasetMetadataViolations.map((item) => `\`${item}\``).join(", ") : "none"}.
 - Evidence minimum violations: ${practices.evidenceMinimumViolations.length ? practices.evidenceMinimumViolations.map((item) => `\`${item.id}:${item.practiceId}\``).join(", ") : "none"}.
 - Enforcement ceiling violations: ${practices.enforcementCeilingViolations.length ? practices.enforcementCeilingViolations.map((item) => `\`${item.id}:${item.practiceId}\``).join(", ") : "none"}.
@@ -1328,6 +1567,13 @@ export function runRepresentativeEval(): RepresentativeEvalResult {
       pass: practices.top3Recall >= THRESHOLDS.practiceTop3Recall
     },
     {
+      target: "Recommendation precision@3",
+      metric: "evidence-bound non-advisory precision @ top-k 3",
+      threshold: `≥ ${pct(THRESHOLDS.recommendationPrecisionAt3)}`,
+      observed: pct(practices.recommendationPrecisionAt3),
+      pass: practices.recommendationPrecisionAt3 >= THRESHOLDS.recommendationPrecisionAt3
+    },
+    {
       target: "Practice dataset scale",
       metric: "positive / negative cases",
       threshold: `≥ ${THRESHOLDS.positivePracticeCases} / ≥ ${THRESHOLDS.negativePracticeCases}`,
@@ -1407,6 +1653,13 @@ export function runRepresentativeEval(): RepresentativeEvalResult {
       threshold: `≥ ${pct(THRESHOLDS.directPracticeReferenceRecall)}`,
       observed: pct(practices.directPracticeReferenceRecall),
       pass: practices.directPracticeReferenceRecall >= THRESHOLDS.directPracticeReferenceRecall
+    },
+    {
+      target: "Practice evidence-shuffle contamination",
+      metric: "contamination rate",
+      threshold: "0.0%",
+      observed: pct(practices.evidenceShuffleContaminationRate),
+      pass: practices.evidenceShuffleContaminationRate === THRESHOLDS.evidenceShuffleContaminationRate
     },
     {
       target: "Practice heuristic-only hard-gate rate",

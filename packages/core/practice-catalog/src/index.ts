@@ -499,6 +499,7 @@ function validatePracticeAsset(value: unknown, path: string, errors: PracticeCat
     invalid = true;
   }
   invalid = validatePracticeGlobs(asset, path, errors) || invalid;
+  invalid = validatePracticeEnforcementFixtureGate(asset, path, errors) || invalid;
   for (const check of Array.isArray(asset.checks) ? asset.checks : []) {
     invalid = validatePracticeCheck(check, path, asset.id, errors) || invalid;
   }
@@ -524,6 +525,76 @@ function validatePracticeGlobs(asset: PracticeAssetV1, path: string, errors: Pra
         message: `Practice glob must be repo-relative POSIX pattern: ${glob}`
       });
       invalid = true;
+    }
+  }
+  return invalid;
+}
+
+function validatePracticeEnforcementFixtureGate(asset: PracticeAssetV1, path: string, errors: PracticeCatalogIssue[]): boolean {
+  if (asset.enforcement?.promotableTo !== "complete") return false;
+  const gate = asset.enforcement.fixtureGate;
+  if (!gate) {
+    errors.push({
+      code: "practice-enforcement-fixture-gate-missing",
+      path: displayPath(path),
+      practiceId: asset.id,
+      message: `Complete-enforcement practice requires positive, near-negative, mixed-change and baseline fixtures: ${asset.id}`
+    });
+    return true;
+  }
+  let invalid = false;
+  for (const kind of ["positive", "nearNegative", "mixedChange", "baseline"] as const) {
+    const refs = gate[kind];
+    if (!Array.isArray(refs) || refs.length === 0) {
+      errors.push({
+        code: "practice-enforcement-fixture-kind-missing",
+        path: displayPath(path),
+        practiceId: asset.id,
+        message: `Complete-enforcement practice ${asset.id} is missing ${kind} fixtures.`
+      });
+      invalid = true;
+      continue;
+    }
+    for (const ref of refs) {
+      if (!ref || typeof ref !== "object" || typeof ref.id !== "string" || typeof ref.path !== "string" || typeof ref.description !== "string") {
+        errors.push({
+          code: "practice-enforcement-fixture-invalid",
+          path: displayPath(path),
+          practiceId: asset.id,
+          message: `Invalid ${kind} fixture declaration for ${asset.id}.`
+        });
+        invalid = true;
+        continue;
+      }
+      if (ref.id.trim().length === 0 || ref.path.trim().length === 0 || ref.description.trim().length === 0) {
+        errors.push({
+          code: "practice-enforcement-fixture-empty",
+          path: displayPath(path),
+          practiceId: asset.id,
+          message: `Empty ${kind} fixture declaration for ${asset.id}.`
+        });
+        invalid = true;
+      }
+      try {
+        assertRepoRelativePath(ref.path);
+      } catch (error) {
+        errors.push({
+          code: "practice-enforcement-fixture-path-invalid",
+          path: displayPath(path),
+          practiceId: asset.id,
+          message: error instanceof Error ? error.message : String(error)
+        });
+        invalid = true;
+      }
+      if (ref.digest !== undefined && !/^sha256:[a-f0-9]{64}$/.test(ref.digest)) {
+        errors.push({
+          code: "practice-enforcement-fixture-digest-invalid",
+          path: displayPath(path),
+          practiceId: asset.id,
+          message: `Invalid ${kind} fixture digest for ${asset.id}.`
+        });
+        invalid = true;
+      }
     }
   }
   return invalid;

@@ -17,6 +17,7 @@ import {
   landscapeYaml,
   listRepoFiles,
   parseCrossRepoRelationFile,
+  parseArchitectureDirectionViolationSubject,
   parseLandscapeFile,
   parseRepoScopedArchitectureId,
   repoScopedArchitectureId,
@@ -24,6 +25,11 @@ import {
   validateLandscape,
   repositoryFingerprint,
   assertAdapterDoesNotOverwriteNativeCore,
+  canonicalArchitectureJson,
+  canonicalArchitectureYaml,
+  isArchitectureDirectionViolationSubject,
+  isArchitectureDirectionalEdgeViolationSubject,
+  parseJsonOrStableYaml,
   stripAdapterProtectedNativeFields
 } from "../src/index";
 
@@ -96,6 +102,44 @@ describe("@archcontext/core/architecture-domain", () => {
     }
   });
 
+  test("stable YAML parser and canonical serializer round-trip nested architecture JSON", () => {
+    const value = {
+      schemaVersion: "archcontext.node/v1",
+      id: "module.checkout",
+      metadata: {
+        owners: ["team-checkout", "team-platform"],
+        flags: { beta: true, score: 2 }
+      },
+      name: "Checkout"
+    };
+    const yaml = canonicalArchitectureYaml(value as any);
+    expect(yaml.indexOf("id: \"module.checkout\"")).toBeLessThan(yaml.indexOf("metadata:"));
+    expect(parseJsonOrStableYaml(yaml, ".archcontext/model/nodes/module.checkout.yaml")).toEqual(canonicalArchitectureJson(value as any));
+  });
+
+  test("stable YAML parser accepts plain YAML scalars from hand-written model files", () => {
+    expect(parseJsonOrStableYaml([
+      "schemaVersion: archcontext.node/v1",
+      "id: module.checkout",
+      "kind: module",
+      "name: Checkout",
+      "status: active",
+      "metadata:",
+      "  score: 2",
+      "  beta: true"
+    ].join("\n"), ".archcontext/model/nodes/module.checkout.yaml")).toEqual({
+      schemaVersion: "archcontext.node/v1",
+      id: "module.checkout",
+      kind: "module",
+      name: "Checkout",
+      status: "active",
+      metadata: {
+        score: 2,
+        beta: true
+      }
+    });
+  });
+
   test("intervention ids are stable and bounded", () => {
     expect(createInterventionId("Unify Subscription & Payment State")).toBe(
       "intervention.unify-subscription-payment-state"
@@ -109,6 +153,28 @@ describe("@archcontext/core/architecture-domain", () => {
     expect(id).toBe("repo.checkout::module.billing-api");
     expect(parseRepoScopedArchitectureId(id)).toEqual({ repositoryId: "repo.checkout", nodeId: "module.billing-api" });
     expect(() => parseRepoScopedArchitectureId("module.billing-api")).toThrow("repo-scoped");
+  });
+
+  test("direction violation subjects bind boundary membership and edge direction", () => {
+    const subject = "declared-layer-violation:module.web->module.persistence";
+
+    expect(parseArchitectureDirectionViolationSubject(subject)).toEqual({
+      kind: "declared-layer-violation",
+      subject: "module.web->module.persistence",
+      source: "module.web",
+      target: "module.persistence"
+    });
+    expect(parseArchitectureDirectionViolationSubject("boundary-violation:module.api")).toEqual({
+      kind: "boundary-violation",
+      subject: "module.api",
+      source: "module.api"
+    });
+    expect(isArchitectureDirectionViolationSubject("cross-boundary-import-added:module.ui->module.data")).toBe(true);
+    expect(isArchitectureDirectionalEdgeViolationSubject("cross-boundary-import-added:module.ui->module.data")).toBe(true);
+    expect(isArchitectureDirectionalEdgeViolationSubject("cross-boundary-import-added:module.ui")).toBe(false);
+    expect(isArchitectureDirectionViolationSubject("cycle:module.a->module.b->module.a")).toBe(false);
+    expect(isArchitectureDirectionViolationSubject("declared-layer-violation:")).toBe(false);
+    expect(isArchitectureDirectionalEdgeViolationSubject("declared-layer-violation:module.a->module.b->module.c")).toBe(false);
   });
 
   test("landscape registration validates cross-repo edges and exposes metadata-only SaaS summary", () => {

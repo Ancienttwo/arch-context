@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "archcontext.architecture-subject-selector/v1",
+  "selectorId": "subject.path.src-checkout-service",
+  "kind": "path",
+  "repositoryId": "repo.checkout",
+  "stableKey": "path:src/checkout/service.ts",
+  "path": "src/checkout/service.ts",
+  "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

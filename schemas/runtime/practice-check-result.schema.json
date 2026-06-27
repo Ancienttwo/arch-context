@@ -14,7 +14,7 @@
     "status": { "type": "string", "enum": ["pass", "fail", "waived", "not_applicable"] },
     "reasonCode": {
       "type": "string",
-      "enum": ["policy-disabled", "not-opted-in", "not-registered", "heuristic-only", "no-baseline", "no-violation", "violation", "waived", "invalid-waiver"]
+      "enum": ["policy-disabled", "not-opted-in", "not-registered", "fixture-gate-missing", "heuristic-only", "no-baseline", "no-violation", "violation", "waived", "invalid-waiver"]
     },
     "deterministic": { "const": true },
     "subjects": { "type": "array", "items": { "type": "string" } },
