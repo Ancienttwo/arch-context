@@ -21,6 +21,13 @@ Scope: official public npm release for the `archctx` one-package distribution. T
 - `beta` remains `0.1.4-beta.0`.
 - `archctx@0.1.4` is registry-visible with Node engine `>=24 <26`, `archctx` and `codegraph` bins, homepage `https://archcontext.repoharness.com`, and license `UNLICENSED`.
 
+## Source And Artifact Provenance
+
+- Root source manifest: `package.json` is `archcontext@0.1.4`, `private: true`.
+- Private source packages: `@archcontext/contracts`, `@archcontext/core`, `@archcontext/local-runtime`, `@archcontext/surfaces`, and `@archcontext/cloud` are version-aligned at `0.1.4`.
+- Generated npm artifact: `archctx@0.1.4`, publishable, generated through `docs/verification/fg6-npm-release-dry-run.json`.
+- Release/source/help consistency readback: `bun run readback:release`.
+
 ## Install Smoke
 
 The clean install smoke used a temporary npm prefix with `node@24` and `archctx@latest`.
@@ -40,6 +47,8 @@ The clean install smoke used a temporary npm prefix with `node@24` and `archctx@
 - `npm view archctx@0.1.4 name version dist.tarball dist.shasum dist.integrity bin engines homepage license --json --registry=https://registry.npmjs.org/`
 - `bun run readback:fg6:release-distribution`
 - `bun scripts/fg6-release-distribution-readback.ts inspect --evidence docs/verification/fg6-release-distribution-readback.json --json`
+- `bun run readback:release`
+- `bun scripts/release-provenance-readback.ts inspect --evidence docs/verification/release-provenance-readback.json --json`
 - temporary `node@24` + `archctx@latest` install smoke
 
 ## Boundary

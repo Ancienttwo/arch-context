@@ -12,14 +12,22 @@ No GitHub App, Cloud account, subscription, or LLM provider is required for Loca
 
 ## Install The Local Product
 
-From this checkout, install the single local product package and verify the packaged `archctx` entrypoint:
+Public npm path for an individual local user:
+
+```bash
+npm install -g archctx@latest
+archctx help
+archctx doctor
+```
+
+Checkout development path for this repository:
 
 ```bash
 bun install
 node scripts/packaged-cli-smoke.mjs
 ```
 
-The smoke test proves the installed `archctx` command owns the CLI, daemon launcher, and MCP stdio entrypoint.
+Both paths install or verify one local product command named `archctx`. The public npm artifact is the generated `archctx` package; this checkout's root and workspace `package.json` files are private source manifests. The smoke test proves the installed `archctx` command owns the CLI, daemon launcher, and MCP stdio entrypoint.
 
 ## Start In A Repository
 
@@ -76,6 +84,7 @@ LLM advisory is also optional and separate. Local Core commands do not require p
 ```bash
 bun test scripts/local-core-quickstart-doc.test.ts
 node scripts/packaged-cli-smoke.mjs
+bun run readback:release
 node scripts/platform-ipc-permission-readback.mjs
 bun run verify:acceptance-ledger
 bun run check:sprint

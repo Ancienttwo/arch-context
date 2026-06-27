@@ -1,0 +1,309 @@
+{
+  "schemaVersion": "archcontext.release-provenance-readback/v1",
+  "taskId": "release-source-truth-cleanup",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-06-27T12:16:08.840Z",
+  "packageRelationship": {
+    "rootWorkspacePackage": {
+      "path": "package.json",
+      "name": "archcontext",
+      "version": "0.1.4",
+      "private": true,
+      "role": "workspace-source-manifest"
+    },
+    "privateSourcePackages": [
+      {
+        "path": "packages/contracts/package.json",
+        "name": "@archcontext/contracts",
+        "version": "0.1.4",
+        "private": true,
+        "binNames": []
+      },
+      {
+        "path": "packages/core/package.json",
+        "name": "@archcontext/core",
+        "version": "0.1.4",
+        "private": true,
+        "binNames": []
+      },
+      {
+        "path": "packages/local-runtime/package.json",
+        "name": "@archcontext/local-runtime",
+        "version": "0.1.4",
+        "private": true,
+        "binNames": []
+      },
+      {
+        "path": "packages/surfaces/package.json",
+        "name": "@archcontext/surfaces",
+        "version": "0.1.4",
+        "private": true,
+        "binNames": [
+          "archctx"
+        ]
+      },
+      {
+        "path": "packages/cloud/package.json",
+        "name": "@archcontext/cloud",
+        "version": "0.1.4",
+        "private": true,
+        "binNames": []
+      }
+    ],
+    "generatedNpmPackage": {
+      "name": "archctx",
+      "version": "0.1.4",
+      "private": false,
+      "sourceEvidence": "docs/verification/fg6-npm-release-dry-run.json",
+      "publishedEvidence": "docs/verification/architecture-ledger-al10-npm-release-readback.json"
+    }
+  },
+  "versions": {
+    "product": "0.1.4",
+    "root": "0.1.4",
+    "sourcePackages": [
+      {
+        "path": "package.json",
+        "version": "0.1.4"
+      },
+      {
+        "path": "packages/contracts/package.json",
+        "version": "0.1.4"
+      },
+      {
+        "path": "packages/core/package.json",
+        "version": "0.1.4"
+      },
+      {
+        "path": "packages/local-runtime/package.json",
+        "version": "0.1.4"
+      },
+      {
+        "path": "packages/surfaces/package.json",
+        "version": "0.1.4"
+      },
+      {
+        "path": "packages/cloud/package.json",
+        "version": "0.1.4"
+      }
+    ],
+    "npmLatest": "0.1.4",
+    "distTags": {
+      "latest": "0.1.4",
+      "beta": "0.1.4-beta.0"
+    }
+  },
+  "helpSurface": {
+    "source": {
+      "command": "bun packages/surfaces/cli/src/main.ts help",
+      "ok": true,
+      "commandCount": 36,
+      "commands": [
+        "init",
+        "sync",
+        "validate",
+        "context",
+        "status",
+        "daemon",
+        "repo",
+        "landscape",
+        "ledger",
+        "book",
+        "recommendations",
+        "explore",
+        "prepare",
+        "practices",
+        "checkpoint",
+        "hook",
+        "hooks",
+        "investigate",
+        "agents",
+        "jobs",
+        "plan",
+        "apply",
+        "review",
+        "complete",
+        "github",
+        "config",
+        "mcp",
+        "install",
+        "uninstall",
+        "doctor",
+        "update",
+        "paths",
+        "privacy-audit",
+        "export",
+        "import",
+        "tunnel"
+      ]
+    },
+    "published": {
+      "command": "npx -y archctx@latest help",
+      "ok": true,
+      "commandCount": 36,
+      "commands": [
+        "init",
+        "sync",
+        "validate",
+        "context",
+        "status",
+        "daemon",
+        "repo",
+        "landscape",
+        "ledger",
+        "book",
+        "recommendations",
+        "explore",
+        "prepare",
+        "practices",
+        "checkpoint",
+        "hook",
+        "hooks",
+        "investigate",
+        "agents",
+        "jobs",
+        "plan",
+        "apply",
+        "review",
+        "complete",
+        "github",
+        "config",
+        "mcp",
+        "install",
+        "uninstall",
+        "doctor",
+        "update",
+        "paths",
+        "privacy-audit",
+        "export",
+        "import",
+        "tunnel"
+      ]
+    },
+    "officialReleaseCommandCount": 36
+  },
+  "releaseArtifacts": {
+    "dryRun": {
+      "status": "verified",
+      "ok": true,
+      "package": {
+        "name": "archctx",
+        "version": "0.1.4",
+        "private": false,
+        "bin": {
+          "archctx": "./bin/archctx.mjs",
+          "codegraph": "./bin/codegraph.mjs"
+        }
+      }
+    },
+    "distribution": {
+      "status": "verified",
+      "ok": true,
+      "release": {
+        "ready": true,
+        "packageName": "archctx",
+        "installCommand": "npm install -g archctx",
+        "postPublishInstallCommand": "npm install -g archctx@0.1.4",
+        "version": "0.1.4",
+        "blockers": []
+      }
+    },
+    "officialNpmRelease": {
+      "status": "verified",
+      "package": {
+        "name": "archctx",
+        "version": "0.1.4",
+        "distTag": "latest",
+        "installCommand": "npm install -g archctx@latest",
+        "explicitInstallCommand": "npm install -g archctx@0.1.4",
+        "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.1.4.tgz",
+        "shasum": "d5688ff53b14ba5a5f71cc3877bdfbb204e026ef",
+        "sha256": "d7c3746721ba590173857002bb671d28986a5df63c30ed87bfbe34209577972e",
+        "integrity": "sha512-ZvMTWgqwYxvqJ7cFK8JEOAfFxjpxLgbx3opPUOBAeziWSPAOxo7rN62VF2QsZBg0Wq9+X306m6tgXHkZ+ShEVw==",
+        "bin": {
+          "archctx": "bin/archctx.mjs",
+          "codegraph": "bin/codegraph.mjs"
+        },
+        "engines": {
+          "node": ">=24 <26"
+        },
+        "homepage": "https://archcontext.repoharness.com",
+        "license": "UNLICENSED"
+      },
+      "smoke": {
+        "nodeVersion": "v24.18.0",
+        "installPackage": "archctx@latest",
+        "helpOk": true,
+        "helpRequestId": "help",
+        "helpCommandCount": 36,
+        "doctorOk": true,
+        "doctorProductVersion": "0.1.4",
+        "doctorCliVersion": "0.1.4",
+        "doctorDaemonVersion": "0.1.4",
+        "doctorMcpVersion": "0.1.4",
+        "updateCheckOk": true,
+        "updateCheckCurrentVersion": "0.1.4",
+        "updateCheckLatestVersion": "0.1.4",
+        "updateCheckStatus": "current"
+      }
+    },
+    "registry": {
+      "package": {
+        "name": "archctx",
+        "version": "0.1.4",
+        "bin": {
+          "archctx": "bin/archctx.mjs",
+          "codegraph": "bin/codegraph.mjs"
+        },
+        "engines": {
+          "node": ">=24 <26"
+        },
+        "homepage": "https://archcontext.repoharness.com",
+        "license": "UNLICENSED",
+        "dist.tarball": "https://registry.npmjs.org/archctx/-/archctx-0.1.4.tgz",
+        "dist.shasum": "d5688ff53b14ba5a5f71cc3877bdfbb204e026ef",
+        "dist.integrity": "sha512-ZvMTWgqwYxvqJ7cFK8JEOAfFxjpxLgbx3opPUOBAeziWSPAOxo7rN62VF2QsZBg0Wq9+X306m6tgXHkZ+ShEVw=="
+      },
+      "tags": {
+        "latest": "0.1.4",
+        "beta": "0.1.4-beta.0"
+      },
+      "versions": [
+        "0.0.0",
+        "0.1.0",
+        "0.1.1",
+        "0.1.2",
+        "0.1.3",
+        "0.1.4-beta.0",
+        "0.1.4"
+      ]
+    }
+  },
+  "docs": {
+    "quickstart": "docs/runbooks/local-core-quickstart.md",
+    "personalInstall": "docs/runbooks/personal-user-install.md",
+    "distributionAdr": "docs/adr/ADR-0034-one-package-local-product-distribution.md"
+  },
+  "assertions": {
+    "sourceManifestVersionsAligned": true,
+    "sourcePackagesRemainPrivate": true,
+    "productManifestMatchesRoot": true,
+    "generatedPackageMatchesRoot": true,
+    "distributionReadbackVerified": true,
+    "officialNpmReadbackVerified": true,
+    "registryLatestMatchesRoot": true,
+    "registryMetadataMatchesOfficialRelease": true,
+    "sourceHelpSucceeded": true,
+    "publishedHelpSucceeded": true,
+    "sourceHelpMatchesPublishedHelp": true,
+    "officialSmokeHelpCountMatchesSource": true,
+    "sourceIncludesLedgerBetaCommands": true,
+    "quickstartDocumentsNpmAndCheckoutPaths": true,
+    "personalInstallDocumentsLatestAndPinnedPaths": true,
+    "distributionBoundaryDocumented": true,
+    "readbackScriptInstalled": true,
+    "authorityPromotionNotImplied": true
+  },
+  "failures": []
+}

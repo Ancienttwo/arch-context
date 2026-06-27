@@ -13,15 +13,23 @@ Team collaboration, design-partner rollout, opt-in beta cohorts, and shared orga
 
 ## Install
 
-Verify Node/npm/git and install ArchContext:
+Verify Node/npm/git and install the current npm release:
 
 ```bash
 node --version
 npm --version
 git --version
-npm install -g archctx@0.1.4
+npm install -g archctx@latest
 archctx --help
 ```
+
+For pinned reproduction of the current verified release:
+
+```bash
+npm install -g archctx@0.1.4
+```
+
+The npm package is the generated public `archctx` artifact. The repository root package `archcontext` and workspace packages remain private source manifests for building and verifying that artifact.
 
 ## First Run
 

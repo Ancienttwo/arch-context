@@ -18,6 +18,7 @@ describe("local core quickstart runbook", () => {
     }
 
     for (const command of [
+      "npm install -g archctx@latest",
       "bun install",
       "node scripts/packaged-cli-smoke.mjs",
       "archctx doctor",
@@ -28,11 +29,14 @@ describe("local core quickstart runbook", () => {
       "archctx status",
       "archctx mcp install --host codex",
       "archctx mcp status --host codex",
-      "archctx daemon stop"
+      "archctx daemon stop",
+      "bun run readback:release"
     ]) {
       expect(DOC).toContain(command);
     }
 
+    expect(DOC).toContain("Checkout development path");
+    expect(DOC).toContain("generated `archctx` package");
     expect(DOC).toContain("No GitHub App, Cloud account, subscription, or LLM provider is required for Local Core.");
     expect(DOC).toContain("Local Core remains usable without installing it.");
     expect(DOC).toContain("Local Core commands do not require provider keys");
