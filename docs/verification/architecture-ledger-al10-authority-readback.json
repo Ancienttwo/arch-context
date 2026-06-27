@@ -1,0 +1,271 @@
+{
+  "schemaVersion": "archcontext.architecture-ledger-al10-authority-readback/v1",
+  "generatedAt": "1970-01-01T00:00:00.000Z",
+  "gates": [
+    "AL10-local-authority-readback"
+  ],
+  "scope": {
+    "repo": "local-architecture-ledger-authority-readback",
+    "authority": "temporary runtime state plus current Git .archcontext YAML",
+    "closedGates": [
+      "AL10-local-authority-readback"
+    ],
+    "explicitlyOpen": [
+      "production-ga",
+      "hard-enforcement",
+      "rollback-write-drill",
+      "independent-security-review",
+      "representative-beta-readback"
+    ]
+  },
+  "source": {
+    "stateRoot": "$TMPDIR/archctx-al10-authority-state-*",
+    "gitHead": "378a23bad72b9e96080cb75db1132d95e5bf17df",
+    "initialWorktreeDigest": "sha256:b84d5ad9ef23dbb3fbe6ca92f8833060a3c7d21fe73fa908f8c633353504e37c"
+  },
+  "migration": {
+    "status": "verified",
+    "writes": "architecture-ledger",
+    "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+    "previousGraphDigest": "sha256:023b767b5310a0c372940f49181294c5e4ed6b0ea139a0e88aa4e5e0fb47dcbc",
+    "importedCount": 44,
+    "ignoredFileCount": 1,
+    "unsupportedFileCount": 0,
+    "backupStatus": "created",
+    "backupIntegrity": "ok",
+    "appendedEventCount": 1,
+    "duplicateEventCount": 0,
+    "entityCount": 1,
+    "relationCount": 0,
+    "constraintCount": 0,
+    "verificationOk": true,
+    "driftOk": true,
+    "reconcileOk": true,
+    "recommendedMode": "dual",
+    "rollbackCommandTemplate": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>"
+  },
+  "sqlite": {
+    "path": "$ARCHCONTEXT_STATE_DIR/repositories/<repo>/worktrees/<workspace>/runtime.sqlite",
+    "source": "environment",
+    "integrity": "ok",
+    "schemaMigrationCount": 9,
+    "architectureEvents": 1,
+    "architectureEntitiesCurrent": 1,
+    "architectureRelationsCurrent": 0,
+    "architectureConstraintsCurrent": 0
+  },
+  "dual": {
+    "status": {
+      "rolloutMode": "dual",
+      "readMode": "dual-compare",
+      "writeMode": "dual",
+      "readAuthority": "yaml",
+      "writeAuthority": "dual",
+      "activePhase": "dual",
+      "promotionPath": [
+        "dual",
+        "ledger-shadow",
+        "ledger-authoritative"
+      ],
+      "downgradePath": [
+        "dual",
+        "yaml"
+      ],
+      "worktreeDigest": "sha256:b84d5ad9ef23dbb3fbe6ca92f8833060a3c7d21fe73fa908f8c633353504e37c"
+    },
+    "promotionPreflight": {
+      "status": "blocked",
+      "ready": false,
+      "targetMode": "ledger-authoritative",
+      "currentPhase": "dual",
+      "readAuthority": "yaml",
+      "writeAuthority": "dual",
+      "ledgerGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "yamlGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "reasonCodes": [
+        "mode-sequence-not-ready:dual->ledger-shadow"
+      ],
+      "nextRequiredPhase": "ledger-shadow",
+      "rollbackCommandTemplate": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+      "sideEffects": {
+        "ledgerModeChanged": false,
+        "hardEnforcementChanged": false,
+        "sqliteMutated": false,
+        "yamlMutated": false
+      },
+      "boundary": {
+        "advisoryDefaultPreserved": true,
+        "productionGaClaimed": false,
+        "hardEnforcementEnabled": false,
+        "operatorActionRequired": true
+      }
+    },
+    "rollbackDryRun": {
+      "sourceAuthority": "ledger",
+      "targetAuthority": "yaml",
+      "dryRun": true,
+      "writes": "none",
+      "backupRequired": true,
+      "backupFileCount": 1,
+      "backupDigest": "sha256:1282bf130f2e7d0c535500fedac8b28e2c41e8f1a9c6990e3f935c8971b80536",
+      "projectedFileCount": 1,
+      "writtenPathCount": 0,
+      "removedPathCount": 0,
+      "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "driftOk": true,
+      "reconcileOk": true,
+      "recommendedMode": "yaml"
+    }
+  },
+  "ledgerShadow": {
+    "status": {
+      "rolloutMode": "ledger-shadow",
+      "readMode": "ledger-shadow",
+      "writeMode": "dual",
+      "readAuthority": "yaml",
+      "writeAuthority": "dual",
+      "activePhase": "ledger-shadow",
+      "promotionPath": [
+        "ledger-shadow",
+        "ledger-authoritative"
+      ],
+      "downgradePath": [
+        "ledger-shadow",
+        "dual",
+        "yaml"
+      ],
+      "worktreeDigest": "sha256:ef2b7b632de3b846c870b4ff68b2bef937b88667543e638b76e29e1a7da7a021"
+    },
+    "promotionPreflight": {
+      "status": "ready",
+      "ready": true,
+      "targetMode": "ledger-authoritative",
+      "currentPhase": "ledger-shadow",
+      "readAuthority": "yaml",
+      "writeAuthority": "dual",
+      "ledgerGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "yamlGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "reasonCodes": [],
+      "nextRequiredPhase": "ledger-authoritative",
+      "rollbackCommandTemplate": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+      "sideEffects": {
+        "ledgerModeChanged": false,
+        "hardEnforcementChanged": false,
+        "sqliteMutated": false,
+        "yamlMutated": false
+      },
+      "boundary": {
+        "advisoryDefaultPreserved": true,
+        "productionGaClaimed": false,
+        "hardEnforcementEnabled": false,
+        "operatorActionRequired": true
+      }
+    }
+  },
+  "authoritative": {
+    "expectedEnvironment": {
+      "ARCHCONTEXT_LEDGER_MODE": "ledger-authoritative",
+      "ARCHCONTEXT_LEDGER_READ_MODE": "ledger",
+      "ARCHCONTEXT_LEDGER_WRITE_MODE": "ledger-with-projection"
+    },
+    "status": {
+      "rolloutMode": "ledger-authoritative",
+      "readMode": "ledger",
+      "writeMode": "ledger-with-projection",
+      "readAuthority": "ledger",
+      "writeAuthority": "ledger-with-projection",
+      "activePhase": "ledger-authoritative",
+      "promotionPath": [
+        "ledger-authoritative"
+      ],
+      "downgradePath": [
+        "ledger-authoritative",
+        "ledger-shadow",
+        "dual",
+        "yaml"
+      ],
+      "worktreeDigest": "sha256:d0a846e31016ebb362d3bb096f6285337640d8b713875b9f6c2af7d9788b230e"
+    },
+    "drift": {
+      "activePhase": "ledger-authoritative",
+      "readAuthority": "ledger",
+      "writeAuthority": "ledger-with-projection",
+      "ledgerGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "yamlGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "entityCount": 1,
+      "relationCount": 0,
+      "constraintCount": 0,
+      "importedCount": 44,
+      "ignoredFileCount": 1,
+      "unsupportedFileCount": 0,
+      "driftOk": true,
+      "semanticDrift": false,
+      "driftReasonCodes": [],
+      "reconcileOk": true,
+      "reconcileRequired": false,
+      "reconcileReasonCodes": []
+    },
+    "promotionPreflight": {
+      "status": "already-active",
+      "ready": false,
+      "targetMode": "ledger-authoritative",
+      "currentPhase": "ledger-authoritative",
+      "readAuthority": "ledger",
+      "writeAuthority": "ledger-with-projection",
+      "ledgerGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "yamlGraphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "reasonCodes": [
+        "already-ledger-authoritative"
+      ],
+      "nextRequiredPhase": null,
+      "rollbackCommandTemplate": "archctx ledger rollback --to-yaml --write --expected-worktree-digest <current>",
+      "sideEffects": {
+        "ledgerModeChanged": false,
+        "hardEnforcementChanged": false,
+        "sqliteMutated": false,
+        "yamlMutated": false
+      },
+      "boundary": {
+        "advisoryDefaultPreserved": true,
+        "productionGaClaimed": false,
+        "hardEnforcementEnabled": false,
+        "operatorActionRequired": true
+      }
+    },
+    "rollbackDryRun": {
+      "sourceAuthority": "ledger",
+      "targetAuthority": "yaml",
+      "dryRun": true,
+      "writes": "none",
+      "backupRequired": true,
+      "backupFileCount": 1,
+      "backupDigest": "sha256:1282bf130f2e7d0c535500fedac8b28e2c41e8f1a9c6990e3f935c8971b80536",
+      "projectedFileCount": 1,
+      "writtenPathCount": 0,
+      "removedPathCount": 0,
+      "graphDigest": "sha256:fba04f73f5be28739417dbcb3c6713b0928468098bb7281d522f024155dff506",
+      "driftOk": true,
+      "reconcileOk": true,
+      "recommendedMode": "yaml"
+    }
+  },
+  "assertions": {
+    "dualMigrationVerified": true,
+    "runtimeSqliteCurrent": true,
+    "dualBlocksAuthoritativeSkip": true,
+    "dualRollbackDryRunClean": true,
+    "ledgerShadowReady": true,
+    "authoritativeReadsFromLedger": true,
+    "authoritativeDriftClean": true,
+    "authoritativeAlreadyActivePreflight": true,
+    "authoritativeRollbackDryRunClean": true,
+    "noRawBodiesPersisted": true
+  },
+  "privacy": {
+    "rawBodiesPersisted": false,
+    "forbiddenKeys": []
+  },
+  "readbackDigest": "sha256:8aa1c042caafb0c42207281a8d2713f3001f504b6974c71094da5af345fb4169",
+  "status": "verified",
+  "failures": []
+}

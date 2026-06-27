@@ -126,6 +126,8 @@
     "readback:al10:release-packaging": "bun scripts/architecture-ledger-al10-release-packaging-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-release-packaging-readback.json --json",
     "record:al10:runbooks": "bun scripts/architecture-ledger-al10-runbooks-readback.ts run --out docs/verification/architecture-ledger-al10-runbooks-readback.json --report docs/verification/architecture-ledger-al10-runbooks.md --json",
     "readback:al10:runbooks": "bun scripts/architecture-ledger-al10-runbooks-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-runbooks-readback.json --json",
+    "record:al10:authority": "bun scripts/architecture-ledger-al10-authority-readback.ts run --out docs/verification/architecture-ledger-al10-authority-readback.json --report docs/verification/architecture-ledger-al10-authority.md --json",
+    "readback:al10:authority": "bun scripts/architecture-ledger-al10-authority-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-authority-readback.json --json",
     "record:al10:telemetry": "bun scripts/architecture-ledger-al10-telemetry-readback.ts run --out docs/verification/architecture-ledger-al10-telemetry-readback.json --report docs/verification/architecture-ledger-al10-telemetry.md --json",
     "readback:al10:telemetry": "bun scripts/architecture-ledger-al10-telemetry-readback.ts inspect --evidence docs/verification/architecture-ledger-al10-telemetry-readback.json --json",
     "record:al10:beta-decision": "bun scripts/architecture-ledger-al10-beta-decision-readback.ts run --out docs/verification/architecture-ledger-al10-beta-decision-readback.json --report docs/verification/architecture-ledger-al10-beta-decision.md --json",
