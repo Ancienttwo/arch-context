@@ -625,6 +625,7 @@ export type LegacyLocalStoreMigrationStatus =
   | "legacy-invalid"
   | "target-current"
   | "target-incomplete"
+  | "target-upgraded"
   | "migrated"
   | "target-quarantined-and-migrated";
 
@@ -761,7 +762,7 @@ export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Recor
       integrityCheck.target = "failed";
       integrityCheck.error = error instanceof Error ? error.message : String(error);
       if (!legacyExists) {
-        throw new Error(`ArchContext runtime state target is not a valid SQLite database and no legacy store is available: ${paths.localStorePath}`);
+        return upgradeExistingLocalStoreTarget(paths, integrityCheck);
       }
     }
   }
@@ -797,6 +798,32 @@ export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Recor
     throw new Error(`ArchContext legacy SQLite migration failed: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
+    releaseLegacyMigrationLock(lock);
+  }
+}
+
+function upgradeExistingLocalStoreTarget(
+  paths: RuntimeStatePaths,
+  integrityCheck: LegacyLocalStoreMigration["integrityCheck"]
+): LegacyLocalStoreMigration {
+  const lock = acquireLegacyMigrationLock(paths);
+  try {
+    assertUpgradeableLocalStoreTarget(paths.localStorePath);
+    integrityCheck.target = assertSqliteIntegrity(paths.localStorePath);
+    migrateSqliteDatabaseSync(paths.localStorePath);
+    compactSqliteDatabase(paths.localStorePath);
+    integrityCheck.target = assertCurrentLocalStore(paths.localStorePath);
+    delete integrityCheck.error;
+    const markerPath = writeLegacyMigrationMarker(paths, integrityCheck, []);
+    return legacyMigrationResult(true, undefined, paths, [paths.localStorePath], {
+      status: "target-upgraded",
+      integrityCheck,
+      markerPath,
+      quarantinedFiles: []
+    });
+  } catch (error) {
+    throw new Error(`ArchContext runtime state target is not a valid SQLite database and no legacy store is available: ${paths.localStorePath}; target upgrade failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
     releaseLegacyMigrationLock(lock);
   }
 }
@@ -2876,6 +2903,21 @@ function assertCurrentLocalStoreSchema(db: SqliteDatabase, path: string): void {
   const missingMigrations = LOCAL_SQLITE_MIGRATIONS.map((migration) => migration.id).filter((id) => !migrations.has(id));
   if (missingMigrations.length > 0) {
     throw new Error(`SQLite local store schema incomplete for ${path}: missing migrations ${missingMigrations.join(", ")}`);
+  }
+}
+
+function assertUpgradeableLocalStoreTarget(path: string): void {
+  const db = openSqliteDatabaseSync(path);
+  try {
+    const integrity = sqliteIntegrityCheckOpenDatabase(db, path);
+    const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String(row.name)));
+    const hasArchContextMarker = ["schema_migrations", "task_states", "repository_sessions", "snapshots"].some((table) => tables.has(table));
+    if (!hasArchContextMarker) {
+      throw new Error(`SQLite target is not an ArchContext local store candidate: ${path}`);
+    }
+    if (integrity !== "ok") throw new Error(`SQLite integrity_check failed for ${path}: ${integrity}`);
+  } finally {
+    db.close();
   }
 }
 

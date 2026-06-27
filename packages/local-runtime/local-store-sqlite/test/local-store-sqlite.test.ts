@@ -195,6 +195,55 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   );
 
   test(
+    "schema-incomplete target without legacy SQLite upgrades in place",
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-state-old-target-repo-"));
+      const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-old-target-root-"));
+      try {
+        const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        await writeOldRuntimeTarget(paths.localStorePath, "task_old", { source: "old-target" });
+
+        const before = inspectLegacyLocalStoreMigration(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        expect(before.status).toBe("target-incomplete");
+
+        const migration = migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        expect(migration.migrated).toBe(true);
+        expect(migration.status).toBe("target-upgraded");
+        expect(migration.integrityCheck.target).toBe("ok");
+        expect(migration.integrityCheck.error).toBeUndefined();
+        expect(migration.copiedFiles).toEqual([paths.localStorePath]);
+        expect(migration.quarantinedFiles).toEqual([]);
+        await expectTaskState(paths.localStorePath, "task_old", { source: "old-target" });
+
+        const after = inspectLegacyLocalStoreMigration(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+        expect(after.status).toBe("target-current");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(stateRoot, { recursive: true, force: true });
+      }
+    },
+    LEGACY_SQLITE_MIGRATION_TIMEOUT_MS
+  );
+
+  test("unrelated schema-incomplete target without legacy SQLite still requires repair or delete", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-unrelated-target-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-unrelated-target-root-"));
+    try {
+      const paths = runtimeStatePaths(root, { ARCHCONTEXT_STATE_DIR: stateRoot });
+      await writeIncompleteSqliteTarget(paths.localStorePath);
+
+      expect(() => migrateLegacyLocalStoreIfNeeded(root, { ARCHCONTEXT_STATE_DIR: stateRoot })).toThrow(
+        "target upgrade failed"
+      );
+      expect(existsSync(paths.localStorePath)).toBe(true);
+      expect(existsSync(join(dirname(paths.localStorePath), "quarantine"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test(
     "valid existing target is not overwritten by stale legacy SQLite",
     async () => {
       const root = mkdtempSync(join(tmpdir(), "archctx-state-existing-target-repo-"));
@@ -1393,6 +1442,26 @@ async function writeIncompleteSqliteTarget(databasePath: string): Promise<void> 
   try {
     db.exec("CREATE TABLE unrelated_table (id INTEGER PRIMARY KEY, note TEXT)");
     db.exec("INSERT INTO unrelated_table(note) VALUES ('valid-but-incomplete')");
+  } finally {
+    db.close();
+  }
+}
+
+async function writeOldRuntimeTarget(databasePath: string, taskSessionId: string, state: unknown): Promise<void> {
+  mkdirSync(dirname(databasePath), { recursive: true });
+  const bunSqlite = await import("bun:sqlite");
+  const db = new (bunSqlite as any).Database(databasePath, { create: true });
+  try {
+    for (const pragma of SQLITE_PRAGMAS) db.exec(pragma);
+    for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 6)) {
+      for (const statement of migration.statements) db.exec(statement);
+      db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-06-23T00:00:00.000Z");
+    }
+    db.query("INSERT OR REPLACE INTO task_states (task_session_id, payload_json, updated_at) VALUES (?, ?, ?)").run(
+      taskSessionId,
+      JSON.stringify(state),
+      "2026-06-23T00:00:00.000Z"
+    );
   } finally {
     db.close();
   }

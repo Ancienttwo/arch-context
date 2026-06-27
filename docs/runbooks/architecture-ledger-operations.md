@@ -105,6 +105,12 @@ Signal: SQLite integrity check fails, `runtime.sqlite` cannot be opened, local
 store schema migrations are incomplete, WAL/SHM files are inconsistent, or the
 daemon reports local-store corruption.
 
+If the target `runtime.sqlite` is an older ArchContext local-store schema and no
+repo-local legacy source exists, current runtimes upgrade it in place through the
+normal SQLite migration path. Unrelated SQLite files, malformed files, and
+untrusted repo-local legacy sources still require operator repair or isolation;
+the daemon must not silently adopt them.
+
 Triage:
 
 ```bash
