@@ -132,7 +132,9 @@ export function buildReleaseProvenanceReadback(input: {
   const publishedCommands = input.publishedHelp.commands;
   const assertions = {
     sourceManifestVersionsAligned: allSourcePackages.every((entry) => entry.version === root.version),
-    sourcePackagesRemainPrivate: allSourcePackages.every((entry) => entry.private === true),
+    sourceRuntimePackagesRemainPrivate: root.private === true
+      && workspaces.every((entry) => entry.private === true
+        || (entry.name === "@archcontext/contracts" && entry.binNames.length === 0)),
     productManifestMatchesRoot: product.name === RELEASE_PACKAGE_NAME
       && product.version === root.version
       && product.distribution === "one-package",

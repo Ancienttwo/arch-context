@@ -14,3 +14,8 @@ evidence are version-aligned to keep the one-package release artifact coherent.
 ModelContext remains outside this release path. It should not consume the
 `archctx` CLI package as a contracts dependency; that package remains the
 installed product surface.
+
+Publish/readback completed for `archctx@0.1.5` on npm `latest`. Registry
+metadata now reports `license: Apache-2.0`, the published shasum matches the
+local release tarball, direct `npx archctx@0.1.5 help` succeeds, and both FG6
+release-distribution and release-provenance readbacks are verified.

@@ -55,7 +55,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
       private: true
     },
     workspacePackages: [
-      sourcePackage("packages/contracts/package.json", "@archcontext/contracts"),
+      sourcePackage("packages/contracts/package.json", "@archcontext/contracts", undefined, false),
       sourcePackage("packages/core/package.json", "@archcontext/core"),
       sourcePackage("packages/local-runtime/package.json", "@archcontext/local-runtime"),
       sourcePackage("packages/surfaces/package.json", "@archcontext/surfaces", { archctx: "./cli/bin/archctx" }),
@@ -155,13 +155,13 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
   };
 }
 
-function sourcePackage(path: string, name: string, bin?: Record<string, string>) {
+function sourcePackage(path: string, name: string, bin?: Record<string, string>, isPrivate = true) {
   return {
     path,
     manifest: {
       name,
       version: RELEASE_VERSION,
-      private: true,
+      private: isPrivate,
       ...(bin ? { bin } : {})
     }
   };
