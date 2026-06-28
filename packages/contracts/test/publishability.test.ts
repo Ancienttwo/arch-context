@@ -13,12 +13,14 @@ describe("@archcontext/contracts publishability", () => {
   test("package manifest exposes only the public contracts surface", () => {
     const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
       private?: boolean;
+      license?: string;
       files?: string[];
       publishConfig?: { access?: string };
       exports?: Record<string, string>;
     };
 
     expect(manifest.private).toBe(false);
+    expect(manifest.license).toBe("Apache-2.0");
     expect(manifest.publishConfig?.access).toBe("public");
     expect(manifest.files).toEqual(["src", "fixtures"]);
     expect(manifest.exports?.["."]).toBe("./src/index.ts");

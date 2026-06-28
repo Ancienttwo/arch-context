@@ -2,7 +2,7 @@
 
 > Date: 2026-06-28
 > Package: `@archcontext/contracts@0.1.4`
-> Source commit: `b34d6a6d89fcf3e55da070a0e6738c07851c1369`
+> Package license: `Apache-2.0`
 > Status: blocked on npm `@archcontext` scope authorization
 
 ## Summary
@@ -12,6 +12,11 @@ published to the public npm registry. The current npm identity can authenticate
 as `ancienttwo`, yet cannot administer or publish under the `@archcontext`
 scope.
 
+The package now declares the npm-visible SPDX license metadata as
+`Apache-2.0`; the publishability test and publish helper both gate on that
+field so the npm registry cannot silently miss the license on the next publish
+attempt.
+
 The correct decision is to keep ModelContext on its staged
 `@modelcontext/contracts` path until `@archcontext/contracts` is registry
 published and read back as installable.
@@ -19,12 +24,16 @@ published and read back as installable.
 ## Code Readiness
 
 - `packages/contracts/package.json` declares `private: false`.
+- `packages/contracts/package.json` declares `license: Apache-2.0`.
 - `publishConfig.access` is `public`.
 - Package contents are restricted to `src`, `fixtures`, and `package.json`.
 - `packages/contracts/test/publishability.test.ts` verifies the manifest and
   `npm pack --dry-run` contents.
+- `scripts/publish-archcontext-contracts.mjs` is the canonical npm preflight,
+  publish, registry readback, and clean-room install/import smoke helper.
 
-Clean `origin/main` readback at `b34d6a6d89fcf3e55da070a0e6738c07851c1369`:
+Clean `origin/main` readback at `b34d6a6d89fcf3e55da070a0e6738c07851c1369`
+before the npm-scope blocker was filed:
 
 ```text
 repo-harness run check-task-sync
@@ -39,6 +48,18 @@ Package boundary audit passed (5 workspaces).
 bun test packages/contracts/test/contracts.test.ts packages/contracts/test/publishability.test.ts scripts/sprint-status-check.test.ts --timeout 90000
 167 pass
 0 fail
+```
+
+Current preflight helper behavior is intentionally safe to run while blocked:
+
+```text
+bun run readback:contracts:npm-scope
+[contracts-publish] blocked
+license: Apache-2.0
+manifest: ok
+pack: ok
+scope access: npm error code E403
+registry readback: E404 Not Found - GET https://registry.npmjs.org/@archcontext%2fcontracts
 ```
 
 ## Registry Readback
@@ -81,7 +102,7 @@ exit=1
 Package registry readback:
 
 ```text
-npm view @archcontext/contracts version dist-tags versions --json --registry=https://registry.npmjs.org/
+npm view @archcontext/contracts name version license dist.tarball dist.shasum dist.integrity --json --registry=https://registry.npmjs.org/
 E404 Not Found - GET https://registry.npmjs.org/@archcontext%2fcontracts
 exit=1
 ```
@@ -112,7 +133,8 @@ Do:
 
 - grant the `ancienttwo` npm account publish/admin rights for the `@archcontext`
   scope, or create/claim that npm organization under the correct owner account;
-- rerun the publish command with a temporary npm userconfig;
+- rerun `bun run readback:contracts:npm-scope`;
+- rerun `bun run publish:contracts` with a temporary npm userconfig;
 - read back the package from npm;
 - run a clean-room install/import smoke;
 - then enable the ModelContext public-contract dependency path.
@@ -120,15 +142,9 @@ Do:
 ## Retry Commands After Scope Access Is Fixed
 
 ```bash
-npm publish ./packages/contracts \
-  --access public \
-  --ignore-scripts \
-  --registry=https://registry.npmjs.org/
+bun run readback:contracts:npm-scope
 
-npm view @archcontext/contracts@0.1.4 \
-  name version dist.tarball dist.shasum dist.integrity \
-  --json \
-  --registry=https://registry.npmjs.org/
+bun run publish:contracts
 
 WORK="$(mktemp -d /tmp/archctx-contracts-consume.XXXXXX)"
 cd "$WORK"
