@@ -164,7 +164,7 @@ export function buildReleaseProvenanceReadback(input: {
       && input.docs.quickstart.includes("bun install")
       && input.docs.quickstart.includes("Checkout development path"),
     personalInstallDocumentsLatestAndPinnedPaths: input.docs.personalInstall.includes("npm install -g archctx@latest")
-      && input.docs.personalInstall.includes("npm install -g archctx@0.1.4"),
+      && input.docs.personalInstall.includes(`npm install -g archctx@${root.version}`),
     distributionBoundaryDocumented: input.docs.distributionAdr.includes("Generated npm package")
       && input.docs.distributionAdr.includes("Root workspace package")
       && input.docs.distributionAdr.includes("Private source packages"),

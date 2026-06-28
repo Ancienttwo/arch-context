@@ -229,7 +229,7 @@ async function buildLocalProductTarball(artifactDir) {
       codegraph: "./bin/codegraph.mjs"
     },
     homepage: releaseHomeUrl,
-    license: "UNLICENSED",
+    license: "Apache-2.0",
     publishConfig: {
       registry: "https://registry.npmjs.org/"
     },
@@ -422,6 +422,7 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
   assert(!bin.startsWith("#!/usr/bin/env bun"), "release bin must not require bun");
   const manifest = JSON.parse(readFileSync(join(stageDir, "package.json"), "utf8"));
   assert(!("packageManager" in manifest), "release package must not declare a packageManager runtime contract");
+  assert(manifest.license === "Apache-2.0", "release package must declare Apache-2.0 license");
   assert(manifest.engines?.node === rootManifest.engines?.node, "release package must declare the root node engine");
   assert(!("bun" in (manifest.engines ?? {})), "release package must not declare a bun engine");
   assert(manifest.bin?.codegraph === "./bin/codegraph.mjs", "release package must expose the bundled codegraph shim");

@@ -2,14 +2,14 @@
   "schemaVersion": "archcontext.local-product-tarball-smoke/v1",
   "package": {
     "name": "archctx",
-    "version": "0.1.3",
-    "tarball": "archctx-0.1.3.tgz",
-    "stageDir": "$TMPDIR/archctx-local-product-stage-WlVc0t"
+    "version": "0.1.5",
+    "tarball": "archctx-0.1.5.tgz",
+    "stageDir": "$TMPDIR/archctx-local-product-stage-zssOzf"
   },
   "install": {
     "installer": "npm install <local-tarball>",
-    "installDir": "$TMPDIR/archctx-local-product-install-0aTewL",
-    "bin": "$TMPDIR/archctx-local-product-install-0aTewL/node_modules/.bin/archctx"
+    "installDir": "$TMPDIR/archctx-local-product-install-ysXUiY",
+    "bin": "$TMPDIR/archctx-local-product-install-ysXUiY/node_modules/.bin/archctx"
   },
   "runtime": {
     "cli": true,
@@ -39,19 +39,19 @@
       "practiceCount": 41,
       "sourceCount": 19,
       "profileCount": 8,
-      "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14"
+      "catalogDigest": "sha256:6da748c8c6230d18597951e5ff2de7d483e90caed61435cbd80418a5339c0299"
     }
   },
   "product": {
     "distribution": "one-package",
-    "version": "0.1.3",
+    "version": "0.1.5",
     "rpcSchemaVersion": "archcontext.runtime-rpc/v1"
   },
   "lifecycle": {
     "install": "passed",
     "upgrade": "reinstall-retained-state",
     "uninstall": "package-removed-state-retained",
-    "retainedStore": "$TMPDIR/archctx-local-product-state-lT53Jm/repositories/repo.f9eed5d32141578c/worktrees/ws.95dfe50b64337b53/runtime.sqlite",
-    "stateRoot": "$TMPDIR/archctx-local-product-state-lT53Jm"
+    "retainedStore": "$TMPDIR/archctx-local-product-state-nc51Fw/repositories/repo.5048d82366cc9dd9/worktrees/ws.34aebccbab64ebf5/runtime.sqlite",
+    "stateRoot": "$TMPDIR/archctx-local-product-state-nc51Fw"
   }
 }

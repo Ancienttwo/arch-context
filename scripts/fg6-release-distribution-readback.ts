@@ -113,6 +113,7 @@ export function buildReleaseDistributionReadback(input: {
   const assertions = {
     canonicalNameResolved: dryRunReady || releaseCandidates.length === 1,
     npmDryRunVerified: dryRunReady,
+    npmDryRunLicenseApache: npmDryRun?.license === "Apache-2.0",
     rootManifestPublishable: rootPackage.private === false,
     workspaceReleaseManifestPublishable: publishableManifests.some((entry) => entry.binNames.includes("archctx")),
     npmReleasePublished: releaseCandidates.length >= 1,
@@ -121,6 +122,7 @@ export function buildReleaseDistributionReadback(input: {
       && !("bun" in readRecord(releaseCandidate?.engines))
       && !releaseCandidate?.packageManager
       && isArchctxReleaseBinPath(readRecord(releaseCandidate?.bin).archctx),
+    publishedLicenseApache: releaseCandidates.length >= 1 && releaseCandidate?.license === "Apache-2.0",
     placeholderIsNotRelease: placeholderRegistry?.name !== "archctx" || placeholderRegistry.version !== rootPackage.version,
     installCommandPublic: dryRunReady && releaseCandidates.length >= 1,
     homeUrlCorrect: EXPECTED_HOME_URL === "https://archcontext.repoharness.com"
@@ -133,6 +135,10 @@ export function buildReleaseDistributionReadback(input: {
   if (!assertions.npmReleasePublished) blockers.push(`npm release ${releasePackageName || "archctx"}@${rootPackage.version} is not published`);
   if (assertions.npmReleasePublished && !assertions.publishedRuntimeNodeOnly) {
     blockers.push(`npm release ${releasePackageName || "archctx"}@${rootPackage.version} is not a Node-only CLI artifact`);
+  }
+  if (!assertions.npmDryRunLicenseApache) blockers.push("npm release dry-run package license is not Apache-2.0");
+  if (assertions.npmReleasePublished && !assertions.publishedLicenseApache) {
+    blockers.push(`npm release ${releasePackageName || "archctx"}@${rootPackage.version} license is not Apache-2.0`);
   }
   if (releaseCandidates.length === 0 && placeholderRegistry?.name === "archctx" && placeholderRegistry.version !== rootPackage.version && !dryRunReady) {
     blockers.push(`archctx npm package is placeholder/version ${placeholderRegistry.version}, not release ${rootPackage.version}`);
@@ -258,6 +264,7 @@ function summarizeDryRun(recording?: Record<string, unknown>) {
     packageName: String(pkg.name ?? ""),
     version: String(pkg.version ?? ""),
     homepage: String(pkg.homepage ?? ""),
+    license: String(pkg.license ?? ""),
     tarball: String(artifact.tarball ?? ""),
     publishDryRunId: String(artifact.publishDryRunId ?? ""),
     postPublishInstallCommand: String(rollout.postPublishInstallCommand ?? "")

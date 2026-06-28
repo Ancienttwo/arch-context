@@ -13,15 +13,15 @@ describe("fg6 npm release dry-run", () => {
     const recording = buildNpmReleaseDryRunReadback({
       rootManifest: {
         name: "archcontext",
-        version: "0.1.4",
+        version: "0.1.5",
         engines: { node: ">=24 <26" }
       },
       packageJson: {
         name: "archctx",
-        version: "0.1.4",
+        version: "0.1.5",
         private: false,
         homepage: "https://archcontext.repoharness.com",
-        license: "UNLICENSED",
+        license: "Apache-2.0",
         engines: { node: ">=24 <26" },
         bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
         dependencies: {
@@ -34,14 +34,14 @@ describe("fg6 npm release dry-run", () => {
       artifactDir: "/tmp/archctx-artifact",
       pack: [
         {
-          filename: "archctx-0.1.4.tgz"
+          filename: "archctx-0.1.5.tgz"
         }
       ],
       publishDryRun: {
-        id: "archctx@0.1.4",
+        id: "archctx@0.1.5",
         name: "archctx",
-        version: "0.1.4",
-        filename: "archctx-0.1.4.tgz",
+        version: "0.1.5",
+        filename: "archctx-0.1.5.tgz",
         integrity: "sha512-test",
         shasum: "abc",
         size: 100,
@@ -74,7 +74,7 @@ describe("fg6 npm release dry-run", () => {
     expect(recording.ok).toBe(true);
     expect(recording.package.name).toBe("archctx");
     expect(recording.releaseAssets.sourceRecordCount).toBe(1);
-    expect(recording.rollout.postPublishInstallCommand).toBe("npm install -g archctx@0.1.4");
+    expect(recording.rollout.postPublishInstallCommand).toBe("npm install -g archctx@0.1.5");
     expect(inspectNpmReleaseDryRun(recording)).toEqual({ ok: true, failures: [] });
     rmSync(stageDir, { recursive: true, force: true });
   });
@@ -83,12 +83,12 @@ describe("fg6 npm release dry-run", () => {
     const recording = buildNpmReleaseDryRunReadback({
       rootManifest: {
         name: "archcontext",
-        version: "0.1.4",
+        version: "0.1.5",
         engines: { node: ">=24 <26" }
       },
       packageJson: {
         name: "archcontext",
-        version: "0.1.4",
+        version: "0.1.5",
         private: false,
         homepage: "https://github.com/Ancienttwo/arch-context#readme",
         packageManager: "bun@1.3.10",
@@ -104,14 +104,14 @@ describe("fg6 npm release dry-run", () => {
       artifactDir: "/tmp/archctx-artifact",
       pack: [
         {
-          filename: "archcontext-0.1.4.tgz"
+          filename: "archcontext-0.1.5.tgz"
         }
       ],
       publishDryRun: {
-        id: "archcontext@0.1.4",
+        id: "archcontext@0.1.5",
         name: "archcontext",
-        version: "0.1.4",
-        filename: "archcontext-0.1.4.tgz",
+        version: "0.1.5",
+        filename: "archcontext-0.1.5.tgz",
         files: [
           { path: "bin/archctx.mjs" },
           { path: "README.md" },

@@ -12,6 +12,7 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
+import { ARCHCONTEXT_PRODUCT_VERSION } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { runCli } from "../src/main";
 
@@ -327,7 +328,7 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).update).toMatchObject({
         schemaVersion: "archcontext.update-check/v1",
         packageName: "archctx",
-        currentVersion: "0.1.4",
+        currentVersion: ARCHCONTEXT_PRODUCT_VERSION,
         status: "not-checked",
         checkUpdates: false,
         updateAvailable: false
@@ -382,7 +383,7 @@ describe("archctx CLI", () => {
         expect((update.data as any)).toMatchObject({
           schemaVersion: "archcontext.update-check/v1",
           packageName: "archctx",
-          currentVersion: "0.1.4",
+          currentVersion: ARCHCONTEXT_PRODUCT_VERSION,
           latestVersion: "99.0.0",
           source: "env",
           status: "update-available",

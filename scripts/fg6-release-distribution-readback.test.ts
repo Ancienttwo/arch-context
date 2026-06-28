@@ -76,7 +76,8 @@ describe("fg6 release distribution readback", () => {
         package: {
           name: "archctx",
           version: "0.1.4",
-          homepage: "https://archcontext.repoharness.com"
+          homepage: "https://archcontext.repoharness.com",
+          license: "Apache-2.0"
         },
         artifact: {
           tarball: "archctx-0.1.4.tgz",
@@ -93,6 +94,7 @@ describe("fg6 release distribution readback", () => {
           name: "archctx",
           status: "published",
           version: "0.1.4",
+          license: "Apache-2.0",
           engines: { node: ">=24 <26" },
           packageManager: null,
           bin: { archctx: "bin/archctx.mjs" }
@@ -128,7 +130,8 @@ describe("fg6 release distribution readback", () => {
         package: {
           name: "archctx",
           version: "0.1.4",
-          homepage: "https://archcontext.repoharness.com"
+          homepage: "https://archcontext.repoharness.com",
+          license: "Apache-2.0"
         },
         artifact: {
           tarball: "archctx-0.1.4.tgz",
@@ -202,7 +205,8 @@ describe("fg6 release distribution readback", () => {
         package: {
           name: "archctx",
           version: "0.1.1",
-          homepage: "https://archcontext.repoharness.com"
+          homepage: "https://archcontext.repoharness.com",
+          license: "Apache-2.0"
         },
         artifact: {
           tarball: "archctx-0.1.1.tgz",
@@ -219,6 +223,7 @@ describe("fg6 release distribution readback", () => {
           name: "archctx",
           status: "published",
           version: "0.1.1",
+          license: "Apache-2.0",
           engines: { node: ">=24 <26", bun: ">=1.3.10" },
           packageManager: "bun@1.3.10",
           bin: { archctx: "./bin/archctx.mjs" }

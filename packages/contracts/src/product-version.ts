@@ -1,5 +1,5 @@
 export const ARCHCONTEXT_PRODUCT_NAME = "archctx";
-export const ARCHCONTEXT_PRODUCT_VERSION = "0.1.4";
+export const ARCHCONTEXT_PRODUCT_VERSION = "0.1.5";
 export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.3.10";
 export const ARCHCONTEXT_NODE_RANGE = ">=24 <26";
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v1";

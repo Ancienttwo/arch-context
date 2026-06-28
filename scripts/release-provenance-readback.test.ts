@@ -6,6 +6,7 @@ import {
 } from "./release-provenance-readback";
 
 const HELP_COMMANDS = ["ledger", "book", "recommendations", "investigate", "agents", "jobs"];
+const RELEASE_VERSION = productVersionManifest().product.version;
 
 describe("release provenance readback", () => {
   test("verifies source manifests, generated npm package, registry, docs, and help surface", () => {
@@ -50,7 +51,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
   return {
     rootPackage: {
       name: "archcontext",
-      version: "0.1.4",
+      version: RELEASE_VERSION,
       private: true
     },
     workspacePackages: [
@@ -70,7 +71,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
       ok: true,
       package: {
         name: "archctx",
-        version: "0.1.4",
+        version: RELEASE_VERSION,
         private: false,
         bin: {
           archctx: "./bin/archctx.mjs",
@@ -84,7 +85,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
       ok: true,
       release: {
         packageName: "archctx",
-        version: "0.1.4"
+        version: RELEASE_VERSION
       }
     },
     officialRelease: {
@@ -92,8 +93,8 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
       status: "verified",
       package: {
         name: "archctx",
-        version: "0.1.4",
-        tarball: "https://registry.npmjs.org/archctx/-/archctx-0.1.4.tgz",
+        version: RELEASE_VERSION,
+        tarball: `https://registry.npmjs.org/archctx/-/archctx-${RELEASE_VERSION}.tgz`,
         shasum: "abc",
         integrity: "sha512-test",
         bin: {
@@ -114,9 +115,9 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
     },
     registryPackage: {
       name: "archctx",
-      version: "0.1.4",
+      version: RELEASE_VERSION,
       dist: {
-        tarball: "https://registry.npmjs.org/archctx/-/archctx-0.1.4.tgz",
+        tarball: `https://registry.npmjs.org/archctx/-/archctx-${RELEASE_VERSION}.tgz`,
         shasum: "abc",
         integrity: "sha512-test"
       },
@@ -130,10 +131,10 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
     },
     registryTags: {
       "dist-tags": {
-        latest: "0.1.4",
+        latest: RELEASE_VERSION,
         beta: "0.1.4-beta.0"
       },
-      versions: ["0.1.4"]
+      versions: ["0.1.4-beta.0", "0.1.4", RELEASE_VERSION]
     },
     sourceHelp: {
       command: "bun packages/surfaces/cli/src/main.ts help",
@@ -147,7 +148,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
     },
     docs: {
       quickstart: "npm install -g archctx@latest\nbun install\nCheckout development path\n",
-      personalInstall: "npm install -g archctx@latest\nnpm install -g archctx@0.1.4\n",
+      personalInstall: `npm install -g archctx@latest\nnpm install -g archctx@${RELEASE_VERSION}\n`,
       distributionAdr: "Root workspace package\nPrivate source packages\nGenerated npm package\n"
     },
     generatedAt: "2026-06-27T00:00:00.000Z"
@@ -159,7 +160,7 @@ function sourcePackage(path: string, name: string, bin?: Record<string, string>)
     path,
     manifest: {
       name,
-      version: "0.1.4",
+      version: RELEASE_VERSION,
       private: true,
       ...(bin ? { bin } : {})
     }

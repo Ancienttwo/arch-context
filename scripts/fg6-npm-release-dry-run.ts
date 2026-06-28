@@ -117,6 +117,7 @@ export function buildNpmReleaseDryRunReadback(input: {
     packageNameResolved: input.packageJson.name === RELEASE_PACKAGE_NAME,
     packageVersionMatchesRoot: input.packageJson.version === input.rootManifest.version,
     packagePublishable: input.packageJson.private === false,
+    packageLicenseApache: input.packageJson.license === "Apache-2.0",
     nodeRuntimeDeclared: readRecord(input.packageJson.engines).node === readRecord(input.rootManifest.engines).node,
     noBunRuntimeDeclared: !("packageManager" in input.packageJson)
       && !("bun" in readRecord(input.packageJson.engines)),
@@ -201,6 +202,7 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (record.status !== "verified" || record.ok !== true) failures.push("dry-run must be verified ok");
   if (pkg.name !== RELEASE_PACKAGE_NAME) failures.push("package name must be archctx");
   if (pkg.private !== false) failures.push("release package must be publishable");
+  if (pkg.license !== "Apache-2.0") failures.push("release package license must be Apache-2.0");
   if (pkg.homepage !== HOME_URL) failures.push("homepage must be archcontext.repoharness.com");
   if (pkg.packageManager !== null) failures.push("release package must not declare packageManager runtime");
   if (readRecord(pkg.engines).node !== ">=24 <26") failures.push("engines.node must be declared");
@@ -242,7 +244,7 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifes
       "README.md"
     ],
     homepage: HOME_URL,
-    license: "UNLICENSED",
+    license: "Apache-2.0",
     publishConfig: {
       registry: REGISTRY
     },
