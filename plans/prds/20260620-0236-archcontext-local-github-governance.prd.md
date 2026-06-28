@@ -1,9 +1,10 @@
 # ArchContext Follow-up PRD：本地产品封装、GitHub 治理与客户控制 Runner
 
-> **Status**: Accepted for FG0 Contract Execution
+> **Status**: Approved
+> **Execution Phase**: Accepted for FG0 Contract Execution
 > **Slug**: archcontext-local-github-governance  
 > **Created**: 2026-06-20  
-> **Updated**: 2026-06-20  
+> **Updated**: 2026-06-28
 > **Version**: v1.0 Draft  
 > **Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`  
 > **Source Spec**: `docs/spec.md`  
@@ -14,6 +15,23 @@
 > **核心结论：ArchContext 本地 Runtime 是产品核心；GitHub App 是可选治理桥梁；客户控制 Runner 是自动执行和较高信任证明的载体。GitHub App 与 SaaS 不配置 LLM Provider，也不读取代码执行 Review。**
 
 ---
+
+## AI Quick-Read Card
+
+- Product boundary: local ArchContext runtime stays primary; GitHub App and customer Runner are optional governance surfaces.
+- Trust boundary: GitHub App / SaaS do not read source code or run LLM review; higher-trust execution happens on customer-controlled Runner.
+- Execution state: approved for FG0 contract execution, with later FG phases gated by acceptance-ledger evidence.
+
+## Problem
+
+The original PRD left ambiguity around installation composition, repository scope, GitHub App value when local agents run outside GitHub, Developer vs. Organization Attestation, and the exact privacy claim behind no Contents permission. This follow-up freezes those boundaries so implementation cannot drift into cloud code review, private source ingestion, or unsupported trust claims.
+
+## Acceptance Scenarios
+
+- A local-only user can install and run ArchContext without ModelContext, GitHub App, cloud account, or LLM provider.
+- A Developer Review can publish metadata-only governance checks without SaaS access to source, diff, symbols, or findings.
+- An Organization Runner can produce higher-trust attestation only from customer-controlled execution, bound to runner identity and workflow evidence.
+- Each FG phase advances only when its acceptance-ledger entries and verification artifacts prove the claimed state.
 
 # 目录
 

@@ -67,9 +67,10 @@ async function validateGovernanceFollowupPlan(root, failures) {
   }
 
   const draftIntake = prd.includes("**Status**: Draft for Architecture Review");
-  const fg0Accepted = prd.includes("**Status**: Accepted for FG0 Contract Execution");
+  const fg0Accepted = prd.includes("**Status**: Accepted for FG0 Contract Execution")
+    || (prd.includes("**Status**: Approved") && prd.includes("**Execution Phase**: Accepted for FG0 Contract Execution"));
   if (!draftIntake && !fg0Accepted) {
-    failures.push(`${prdPath}: follow-up PRD status must be Draft for Architecture Review or Accepted for FG0 Contract Execution`);
+    failures.push(`${prdPath}: follow-up PRD status must be Draft for Architecture Review or Approved with Execution Phase: Accepted for FG0 Contract Execution`);
   }
   if (!prd.includes("**Source PRD**: `plans/prds/20260619-2039-archcontext.prd.md`")) {
     failures.push(`${prdPath}: Source PRD must point at the canonical ArchContext PRD`);

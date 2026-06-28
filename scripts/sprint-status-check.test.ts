@@ -128,6 +128,31 @@ describe("sprint-status-check", () => {
     );
   });
 
+  test("accepts local GitHub governance follow-up with canonical Approved PRD status", async () => {
+    await withFixture(
+      `# Sprint 2
+
+> **Status**: Complete（repo-local deterministic；production / governance evidence pending）
+`,
+      async (root) => {
+        await writeGovernanceFollowup(root, {
+          prdStatus: [
+            "> **Status**: Approved",
+            "> **Execution Phase**: Accepted for FG0 Contract Execution"
+          ].join("\n"),
+          sprintStatus: "> **Status**: Executing — FG0 Complete",
+          total: "| **合计** | | **141** | **51** | **23 / 192** |",
+          completedTask: [
+            "| FG0-01 | ☑ | 评审并接受 Follow-up PRD | docs/product | E0 | — |",
+            "| FG0-EG5 | ☑ | Acceptance ledger 可校验不存在无证据的完成状态 | E1 | `bun run verify:acceptance-ledger` |"
+          ].join("\n")
+        });
+        await writeFg0Evidence(root);
+        await expect(collectSprintStatusFailures(root)).resolves.toEqual([]);
+      }
+    );
+  });
+
   test("accepts local GitHub governance follow-up with FG1 partial ledger evidence", async () => {
     await withFixture(
       `# Sprint 2

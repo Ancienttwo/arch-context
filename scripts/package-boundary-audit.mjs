@@ -22,6 +22,7 @@ for (const file of listFiles(root)) {
   const source = readFileSync(file, "utf8");
   checkProductionFallbacks(file, source);
   checkArchitectureLedgerBypass(file, source);
+  checkModelContextPrivateBoundary(file, source);
   for (const specifier of importSpecifiers(source)) {
     if (specifier.startsWith(".")) {
       checkRelativeImport(owner, file, specifier);
@@ -143,6 +144,24 @@ function checkArchitectureLedgerBypass(file, source) {
   ];
   for (const [pattern, reason] of forbidden) {
     if (pattern.test(source)) findings.push(`${display(file)} ${reason}; route ledger writes through runtime-daemon`);
+  }
+}
+
+function checkModelContextPrivateBoundary(file, source) {
+  if (isTestFile(file)) return;
+  const forbidden = [
+    [/@modelcontext\//, "imports a ModelContext package"],
+    [/model-context\//i, "references the ModelContext repo path"],
+    [/\bModelContext\b/, "references the private ModelContext product"],
+    [/\bmodelctx\b/, "references the private ModelContext runtime"],
+    [/\bPGlite\b|@electric-sql\/pglite/i, "references the private/local ModelContext database backend"],
+    [/\bpgvector\b/i, "references the private ModelContext vector backend"],
+    [/\bTeamWorkspace\b|\bteam workspace\b/i, "references private team workspace code"],
+    [/\bRBAC\b/, "references private team RBAC code"],
+    [/\bPostgresStore\b/, "references private Postgres storage code"]
+  ];
+  for (const [pattern, reason] of forbidden) {
+    if (pattern.test(source)) findings.push(`${display(file)} ${reason}; keep team/model backend code in model-context`);
   }
 }
 
