@@ -1,8 +1,16 @@
 {
   "name": "@archcontext/contracts",
   "version": "0.1.4",
-  "private": true,
+  "private": false,
   "type": "module",
+  "license": "UNLICENSED",
+  "files": [
+    "src",
+    "fixtures"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/index.ts"
   }
