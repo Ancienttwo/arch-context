@@ -1,9 +1,14 @@
 # ArchContext Contracts npm Scope Note
 
 `@archcontext/contracts@0.1.4` is package-ready on `origin/main`, but public npm
-publish is blocked by `@archcontext` scope authorization. The current
-authenticated npm identity is `ancienttwo`; scope package, org, and team
-readbacks return `E403`, while `npm view @archcontext/contracts` returns `E404`.
+publish under the `@archcontext` org scope is blocked by scope authorization and
+the npm org cost boundary. The no-org distribution target is now
+`@ancienttwo/archcontext-contracts@0.1.4`; the internal workspace package remains
+`@archcontext/contracts`.
+
+The current authenticated npm identity is `ancienttwo`. Personal-scope preflight
+passes; original `@archcontext` scope package, org, and team readbacks return
+`E403`, while `npm view @archcontext/contracts` returns `E404`.
 
 The package manifest now declares the npm-visible SPDX license as
 `Apache-2.0`; `packages/contracts/test/publishability.test.ts` and
@@ -13,13 +18,14 @@ publish can pass.
 Canonical retry surface:
 
 ```bash
-bun run readback:contracts:npm-scope
+bun run preflight:contracts:npm
 bun run publish:contracts
 ```
 
 Durable readback:
 `docs/verification/archcontext-contracts-npm-scope-readback.md`.
 
-Do not switch ModelContext to `@archcontext/contracts` or enable
-`MODELCONTEXT_REQUIRE_ARCHCONTEXT_CONTRACTS=1` until the package is published and
-clean-room install/import readback passes.
+Do not switch ModelContext to the public dependency or enable
+`MODELCONTEXT_REQUIRE_ARCHCONTEXT_CONTRACTS=1` until
+`@ancienttwo/archcontext-contracts` is published and clean-room install/import
+readback passes.

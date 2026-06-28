@@ -1,16 +1,20 @@
-# ArchContext Contracts npm Scope Readback
+# ArchContext Contracts npm Distribution Readback
 
 > Date: 2026-06-28
-> Package: `@archcontext/contracts@0.1.4`
+> Source package: `@archcontext/contracts@0.1.4`
+> npm package: `@ancienttwo/archcontext-contracts@0.1.4`
 > Package license: `Apache-2.0`
-> Status: blocked on npm `@archcontext` scope authorization
+> Status: ready to publish on the no-org personal npm scope
 
 ## Summary
 
-`@archcontext/contracts` is package-ready in the repository, but it is not
-published to the public npm registry. The current npm identity can authenticate
-as `ancienttwo`, yet cannot administer or publish under the `@archcontext`
-scope.
+`@archcontext/contracts` remains the ArchContext workspace source package name,
+but public npm distribution now targets `@ancienttwo/archcontext-contracts` to
+avoid the paid npm organization requirement for `@archcontext`.
+
+The current npm identity can authenticate as `ancienttwo`. The personal scope
+preflight passes, while the original `@archcontext` organization scope remains
+unusable without creating or claiming a paid org.
 
 The package now declares the npm-visible SPDX license metadata as
 `Apache-2.0`; the publishability test and publish helper both gate on that
@@ -18,8 +22,8 @@ field so the npm registry cannot silently miss the license on the next publish
 attempt.
 
 The correct decision is to keep ModelContext on its staged
-`@modelcontext/contracts` path until `@archcontext/contracts` is registry
-published and read back as installable.
+`@modelcontext/contracts` path until `@ancienttwo/archcontext-contracts` is
+registry-published and read back as installable.
 
 ## Code Readiness
 
@@ -31,6 +35,9 @@ published and read back as installable.
   `npm pack --dry-run` contents.
 - `scripts/publish-archcontext-contracts.mjs` is the canonical npm preflight,
   publish, registry readback, and clean-room install/import smoke helper.
+- The helper prepares a temporary publish package named
+  `@ancienttwo/archcontext-contracts`; it does not rename the internal
+  `@archcontext/contracts` workspace package.
 
 Clean `origin/main` readback at `b34d6a6d89fcf3e55da070a0e6738c07851c1369`
 before the npm-scope blocker was filed:
@@ -50,16 +57,18 @@ bun test packages/contracts/test/contracts.test.ts packages/contracts/test/publi
 0 fail
 ```
 
-Current preflight helper behavior is intentionally safe to run while blocked:
+Current preflight helper behavior on the no-org personal scope:
 
 ```text
-bun run readback:contracts:npm-scope
-[contracts-publish] blocked
+bun run preflight:contracts:npm
+[contracts-publish] ready
+package: @ancienttwo/archcontext-contracts@0.1.4
+source package: @archcontext/contracts
 license: Apache-2.0
 manifest: ok
 pack: ok
-scope access: npm error code E403
-registry readback: E404 Not Found - GET https://registry.npmjs.org/@archcontext%2fcontracts
+scope access: ok (personal-scope)
+registry readback: not-published
 ```
 
 ## Registry Readback
@@ -75,7 +84,7 @@ ancienttwo
 exit=0
 ```
 
-Scope package access:
+Original `@archcontext` scope package access:
 
 ```text
 npm access list packages @archcontext --json --registry=https://registry.npmjs.org/
@@ -99,7 +108,7 @@ E403 Forbidden - GET https://registry.npmjs.org/-/org/archcontext/team?format=cl
 exit=1
 ```
 
-Package registry readback:
+Original `@archcontext/contracts` package registry readback:
 
 ```text
 npm view @archcontext/contracts name version license dist.tarball dist.shasum dist.integrity --json --registry=https://registry.npmjs.org/
@@ -107,7 +116,7 @@ E404 Not Found - GET https://registry.npmjs.org/@archcontext%2fcontracts
 exit=1
 ```
 
-Publish retry:
+Original `@archcontext/contracts` publish retry:
 
 ```text
 npm publish ./packages/contracts --access public --ignore-scripts --json --registry=https://registry.npmjs.org/
@@ -116,14 +125,26 @@ The requested resource '@archcontext/contracts@0.1.4' could not be found or you 
 exit=1
 ```
 
+No-org personal-scope preflight:
+
+```text
+node scripts/publish-archcontext-contracts.mjs preflight --json
+status=ready
+package=@ancienttwo/archcontext-contracts@0.1.4
+sourcePackage=@archcontext/contracts
+license=Apache-2.0
+scopeAccess=personal-scope
+registryReadback=not-published
+```
+
 ## Decision
 
 This is not a package-content, test, tarball, or local build problem. It is an
-npm scope authorization blocker.
+npm organization scope cost/authorization blocker.
 
 Do not:
 
-- rename the package to a different scope as a workaround;
+- rename the internal workspace package away from `@archcontext/contracts`;
 - publish an unscoped compatibility package;
 - switch ModelContext to `@archcontext/contracts` before registry readback;
 - enable `MODELCONTEXT_REQUIRE_ARCHCONTEXT_CONTRACTS=1` in CI before the package
@@ -131,27 +152,26 @@ Do not:
 
 Do:
 
-- grant the `ancienttwo` npm account publish/admin rights for the `@archcontext`
-  scope, or create/claim that npm organization under the correct owner account;
-- rerun `bun run readback:contracts:npm-scope`;
+- publish the no-org npm distribution as `@ancienttwo/archcontext-contracts`;
+- rerun `bun run preflight:contracts:npm`;
 - rerun `bun run publish:contracts` with a temporary npm userconfig;
 - read back the package from npm;
 - run a clean-room install/import smoke;
 - then enable the ModelContext public-contract dependency path.
 
-## Retry Commands After Scope Access Is Fixed
+## Publish Commands
 
 ```bash
-bun run readback:contracts:npm-scope
+bun run preflight:contracts:npm
 
 bun run publish:contracts
 
 WORK="$(mktemp -d /tmp/archctx-contracts-consume.XXXXXX)"
 cd "$WORK"
 printf '{"type":"module"}\n' > package.json
-bun add @archcontext/contracts@0.1.4
+bun add @ancienttwo/archcontext-contracts@0.1.4
 cat > smoke.ts <<'TS'
-import { digestJson, productVersionManifest } from "@archcontext/contracts";
+import { digestJson, productVersionManifest } from "@ancienttwo/archcontext-contracts";
 if (!digestJson({ ok: true }).startsWith("sha256:")) throw new Error("bad digest");
 if (productVersionManifest().product.version !== "0.1.4") throw new Error("bad version");
 console.log("ok");

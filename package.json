@@ -92,6 +92,7 @@
     "readback:fg6:npm-release-dry-run": "bun scripts/fg6-npm-release-dry-run.ts run --out docs/verification/fg6-npm-release-dry-run.json --json",
     "readback:fg6:local-product-tarball": "node scripts/local-product-tarball-smoke.mjs --out docs/verification/fg6-local-product-tarball-smoke.json",
     "readback:fg6:release-distribution": "bun scripts/fg6-release-distribution-readback.ts run --out docs/verification/fg6-release-distribution-readback.json --json",
+    "preflight:contracts:npm": "node scripts/publish-archcontext-contracts.mjs preflight",
     "readback:contracts:npm-scope": "node scripts/publish-archcontext-contracts.mjs preflight --allow-blocked",
     "publish:contracts": "node scripts/publish-archcontext-contracts.mjs publish --confirm-publish",
     "readback:release": "bun scripts/release-provenance-readback.ts run --out docs/verification/release-provenance-readback.json --report docs/verification/release-provenance.md --json",

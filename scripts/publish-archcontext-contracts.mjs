@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,8 @@ const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const packageRoot = join(root, "packages/contracts");
 const packageManifestPath = join(packageRoot, "package.json");
 const registry = readFlag("--registry") ?? "https://registry.npmjs.org/";
+const sourcePackageName = "@archcontext/contracts";
+const publishPackageName = readFlag("--package-name") ?? process.env.ARCHCONTEXT_CONTRACTS_NPM_NAME ?? "@ancienttwo/archcontext-contracts";
 const json = process.argv.includes("--json");
 const allowBlocked = process.argv.includes("--allow-blocked");
 const confirmPublish = process.argv.includes("--confirm-publish");
@@ -16,7 +18,7 @@ const keepTemp = process.argv.includes("--keep-temp");
 const command = readCommand();
 
 if (!["preflight", "publish"].includes(command)) {
-  console.error("usage: node scripts/publish-archcontext-contracts.mjs [preflight|publish] [--confirm-publish] [--json] [--allow-blocked] [--registry <url>]");
+  console.error("usage: node scripts/publish-archcontext-contracts.mjs [preflight|publish] [--confirm-publish] [--json] [--allow-blocked] [--registry <url>] [--package-name <name>]");
   process.exit(2);
 }
 if (command === "publish" && !confirmPublish) {
@@ -41,7 +43,7 @@ function preflightContracts() {
     checks: context.checks,
     blockers,
     nextCommand: blockers.length === 0
-      ? `node scripts/publish-archcontext-contracts.mjs publish --confirm-publish --registry ${registry}`
+      ? `node scripts/publish-archcontext-contracts.mjs publish --confirm-publish --registry ${registry}${publishPackageName === "@ancienttwo/archcontext-contracts" ? "" : ` --package-name ${publishPackageName}`}`
       : "fix npm scope authorization, then rerun preflight"
   };
 }
@@ -52,16 +54,18 @@ function publishContracts() {
   const publishedBefore = before.checks.registryReadback.published === true;
   let publish = { skipped: publishedBefore, exitCode: 0, reason: publishedBefore ? "already-published" : "" };
   if (blockers.length === 0 && !publishedBefore) {
+    const publishRoot = preparePublishPackage(before.sourceManifest);
     const env = npmEnv();
     const publishResult = run("npm", [
       "publish",
-      packageRoot,
+      publishRoot,
       "--access",
       "public",
       "--ignore-scripts",
       "--registry",
       registry
     ], { env });
+    cleanupPublishPackage(publishRoot);
     publish = {
       skipped: false,
       exitCode: publishResult.status,
@@ -96,20 +100,29 @@ function publishContracts() {
 function buildContext() {
   const manifest = JSON.parse(readFileSync(packageManifestPath, "utf8"));
   const expected = {
-    name: "@archcontext/contracts",
+    sourceName: sourcePackageName,
+    publishName: publishPackageName,
     version: manifest.version,
     license: "Apache-2.0",
     files: ["src", "fixtures"],
     exportRoot: "./src/index.ts"
   };
-  const pack = npmPackDryRun();
+  const pack = npmPackDryRun(manifest);
   const env = npmEnv();
   const whoami = run("npm", ["whoami", "--registry", registry], { env });
-  const access = run("npm", ["access", "list", "packages", "@archcontext", "--json", "--registry", registry], { env });
-  const registryReadback = readRegistryPackage(expected.name, expected.version, env);
+  const npmIdentity = {
+    ok: whoami.status === 0,
+    account: whoami.status === 0 ? whoami.stdout.trim() : null,
+    exitCode: whoami.status,
+    error: whoami.status === 0 ? null : summarizeFailure(whoami)
+  };
+  const scopeAccess = checkScopeAccess(expected.publishName, npmIdentity.account, env);
+  const registryReadback = readRegistryPackage(expected.publishName, expected.version, env);
   return {
+    sourceManifest: manifest,
     package: {
-      name: manifest.name,
+      name: expected.publishName,
+      sourceName: manifest.name,
       version: manifest.version,
       private: manifest.private,
       publishConfigAccess: manifest.publishConfig?.access ?? null,
@@ -120,7 +133,7 @@ function buildContext() {
     expected,
     checks: {
       manifest: {
-        ok: manifest.name === expected.name
+        ok: manifest.name === expected.sourceName
           && manifest.private === false
           && manifest.license === expected.license
           && manifest.publishConfig?.access === "public"
@@ -128,17 +141,8 @@ function buildContext() {
           && manifest.exports?.["."] === expected.exportRoot
       },
       pack,
-      npmIdentity: {
-        ok: whoami.status === 0,
-        account: whoami.status === 0 ? whoami.stdout.trim() : null,
-        exitCode: whoami.status,
-        error: whoami.status === 0 ? null : summarizeFailure(whoami)
-      },
-      scopeAccess: {
-        ok: access.status === 0,
-        exitCode: access.status,
-        error: access.status === 0 ? null : summarizeFailure(access)
-      },
+      npmIdentity,
+      scopeAccess,
       registryReadback
     }
   };
@@ -150,10 +154,10 @@ function collectPreflightBlockers(context, publishing) {
   if (!context.checks.pack.ok) blockers.push(`npm pack dry-run failed: ${context.checks.pack.reason}`);
   if (!context.checks.npmIdentity.ok) blockers.push(`npm identity unavailable: ${context.checks.npmIdentity.error}`);
   if (context.checks.scopeAccess.ok !== true && context.checks.registryReadback.published !== true) {
-    blockers.push(`npm @archcontext scope is not accessible: ${context.checks.scopeAccess.error}`);
+    blockers.push(`npm scope for ${context.expected.publishName} is not accessible: ${context.checks.scopeAccess.error}`);
   }
-  if (!publishing && context.checks.registryReadback.published !== true) {
-    blockers.push(`registry does not expose ${context.package.name}@${context.package.version}`);
+  if (context.checks.registryReadback.published !== true && context.checks.registryReadback.notFound !== true) {
+    blockers.push(`registry readback failed for ${context.package.name}@${context.package.version}: ${context.checks.registryReadback.error}`);
   }
   if (context.checks.registryReadback.published === true && context.checks.registryReadback.license !== context.expected.license) {
     blockers.push(`registry license is ${context.checks.registryReadback.license ?? "missing"}, expected ${context.expected.license}`);
@@ -161,8 +165,10 @@ function collectPreflightBlockers(context, publishing) {
   return blockers;
 }
 
-function npmPackDryRun() {
-  const result = run("npm", ["pack", packageRoot, "--dry-run", "--json"], { env: npmEnv() });
+function npmPackDryRun(manifest) {
+  const publishRoot = preparePublishPackage(manifest);
+  const result = run("npm", ["pack", publishRoot, "--dry-run", "--json"], { env: npmEnv() });
+  cleanupPublishPackage(publishRoot);
   if (result.status !== 0) {
     return { ok: false, exitCode: result.status, fileCount: 0, reason: summarizeFailure(result) };
   }
@@ -176,6 +182,7 @@ function npmPackDryRun() {
     return {
       ok,
       exitCode: 0,
+      packageName: entry.name,
       fileCount: files.length,
       shasum: entry.shasum,
       integrity: entry.integrity,
@@ -201,11 +208,13 @@ function readRegistryPackage(name, version, env) {
     registry
   ], { env });
   if (result.status !== 0) {
-    return { published: false, exitCode: result.status, error: summarizeFailure(result) };
+    const error = summarizeFailure(result);
+    return { published: false, notFound: /E404/.test(error), exitCode: result.status, error };
   }
   const metadata = JSON.parse(result.stdout || "{}");
   return {
     published: metadata.name === name && metadata.version === version,
+    notFound: false,
     exitCode: 0,
     license: metadata.license ?? null,
     tarball: metadata.dist?.tarball ?? metadata["dist.tarball"] ?? null,
@@ -213,6 +222,46 @@ function readRegistryPackage(name, version, env) {
     integrity: metadata.dist?.integrity ?? metadata["dist.integrity"] ?? null,
     error: null
   };
+}
+
+function preparePublishPackage(manifest) {
+  const workspace = mkdtempSync(join(tmpdir(), "archctx-contracts-publish."));
+  cpSync(join(packageRoot, "src"), join(workspace, "src"), { recursive: true });
+  cpSync(join(packageRoot, "fixtures"), join(workspace, "fixtures"), { recursive: true });
+  writeFileSync(join(workspace, "package.json"), `${JSON.stringify({
+    name: publishPackageName,
+    version: manifest.version,
+    private: false,
+    type: manifest.type,
+    license: manifest.license,
+    files: manifest.files,
+    publishConfig: manifest.publishConfig,
+    exports: manifest.exports
+  }, null, 2)}\n`, "utf8");
+  return workspace;
+}
+
+function cleanupPublishPackage(workspace) {
+  if (!keepTemp) rmSync(workspace, { recursive: true, force: true });
+}
+
+function checkScopeAccess(name, account, env) {
+  const scope = packageScope(name);
+  if (!scope) return { ok: true, exitCode: 0, reason: "unscoped", error: null };
+  if (account && scope === account) return { ok: true, exitCode: 0, reason: "personal-scope", error: null };
+  const result = run("npm", ["access", "list", "packages", `@${scope}`, "--json", "--registry", registry], { env });
+  return {
+    ok: result.status === 0,
+    exitCode: result.status,
+    reason: result.status === 0 ? "org-scope" : null,
+    error: result.status === 0 ? null : summarizeFailure(result)
+  };
+}
+
+function packageScope(name) {
+  if (!name.startsWith("@")) return null;
+  const slash = name.indexOf("/");
+  return slash === -1 ? null : name.slice(1, slash);
 }
 
 function runCleanRoomSmoke(name, version) {
@@ -281,13 +330,14 @@ function renderHuman(result) {
   const lines = [
     `[contracts-publish] ${result.status}`,
     `package: ${result.package.name}@${result.package.version}`,
+    `source package: ${result.package.sourceName}`,
     `license: ${result.package.license}`,
     `registry: ${result.registry}`,
     `manifest: ${result.checks.manifest.ok ? "ok" : "failed"}`,
     `pack: ${result.checks.pack.ok ? `ok (${result.checks.pack.fileCount} files)` : result.checks.pack.reason}`,
     `npm identity: ${result.checks.npmIdentity.ok ? result.checks.npmIdentity.account : result.checks.npmIdentity.error}`,
-    `scope access: ${result.checks.scopeAccess.ok ? "ok" : result.checks.scopeAccess.error}`,
-    `registry readback: ${result.checks.registryReadback.published ? "published" : result.checks.registryReadback.error}`
+    `scope access: ${result.checks.scopeAccess.ok ? `ok (${result.checks.scopeAccess.reason})` : result.checks.scopeAccess.error}`,
+    `registry readback: ${result.checks.registryReadback.published ? "published" : result.checks.registryReadback.notFound ? "not-published" : result.checks.registryReadback.error}`
   ];
   if (result.publish) lines.push(`publish: ${result.publish.skipped ? result.publish.reason : result.publish.reason || `exit ${result.publish.exitCode}`}`);
   if (result.smoke) lines.push(`clean-room smoke: ${result.smoke.ok ? "ok" : result.smoke.reason}`);
@@ -312,7 +362,7 @@ function readCommand() {
   const args = process.argv.slice(2);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--registry") {
+    if (arg === "--registry" || arg === "--package-name") {
       index += 1;
       continue;
     }
