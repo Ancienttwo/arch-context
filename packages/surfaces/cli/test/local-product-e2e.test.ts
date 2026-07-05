@@ -54,7 +54,11 @@ describe("local product first-experience E2E", () => {
       git(otherRepo, "add", ".");
       git(otherRepo, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "other");
 
-      const denied = await runArchctx(repo, "repo", "add", "--root", otherRepo, "--name", "other");
+      // `repo add` now exits non-zero on an ok:false envelope (verify's `&&` chains rely on
+      // this), so this expected-failure path must use the non-throwing raw process helper.
+      const deniedRaw = await runArchctxRaw(repo, "repo", "add", "--root", otherRepo, "--name", "other");
+      expect(deniedRaw.code).not.toBe(0);
+      const denied = JSON.parse(deniedRaw.stdout);
       expect(denied.ok).toBe(false);
       expect(denied.error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
       expect(denied.error.action).toBe("stay-within-single-repository");
@@ -325,6 +329,15 @@ function runArchctx(cwd: string, ...args: string[]): Promise<any> {
       })
       .catch(rejectPromise);
   });
+}
+
+function runArchctxRaw(cwd: string, ...args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const label = `archctx ${args.join(" ")}`;
+  const child = spawn(ARCHCTX_BIN, args, {
+    cwd,
+    env: testEnv()
+  });
+  return collectProcess(child, label);
 }
 
 function collectProcess(child: ChildProcessWithoutNullStreams, label: string): Promise<{ stdout: string; stderr: string; code: number | null }> {
