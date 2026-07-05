@@ -2174,6 +2174,38 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("archctx daemon start --idle-timeout-ms exits the real background process on its own once idle", async () => {
+    // Real end-to-end proof for the daemon idle self-exit: `archctxd` is spawned
+    // `detached`+`unref()`'d with no other exit signal (F5,
+    // tasks/reviews/audit-approve-gh-publishing.review.md), so without this the process would
+    // accumulate as a cross-day zombie. This drives the actual spawned background process (not an
+    // in-process server instance) through a real short idle window and confirms both the OS
+    // process and its connection file are gone afterward.
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-idle-exit-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    const lockPath = testRuntimePaths(root).daemonLockPath;
+    try {
+      const started = await runCliProcess(root, "daemon", "start", "--idle-timeout-ms", "1000");
+      expect(started.ok).toBe(true);
+      expect(started.data.background).toBe(true);
+      const childPid: number = started.data.childPid;
+      expect(typeof childPid).toBe("number");
+      expect(existsSync(connectionPath)).toBe(true);
+
+      await expectFileRemoved(connectionPath);
+      await expectFileRemoved(lockPath);
+      await expectPidGone(childPid);
+
+      const status = await runCliProcess(root, "daemon", "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.running).toBe(false);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI detects a daemon started from a stale entrypoint and replaces it through daemon upgrade", async () => {
     // Regression test for F3b/F1b (audit-approve-gh-publishing.review.md, third cut): a real
     // `archctxd` is spawned `detached`+`unref()`'d with no idle shutdown, so an already-running
@@ -2202,6 +2234,40 @@ describe("archctx CLI", () => {
         action: "upgrade-archctx-runtime"
       });
       expect(String(ordinaryStatus.error.message)).toContain("archctx daemon upgrade");
+
+      // `daemon status` and `doctor` talk to the daemon's connection-file fast path directly
+      // (unlike `status`, which goes through `createOrStartRuntimeRpcClient`'s fail-closed check),
+      // so they previously kept reporting `running: true` for this same stale-but-healthy daemon.
+      // Both must now surface the same stale-daemon-entry signal instead.
+      const staleDaemonStatus = await runCliProcess(root, "daemon", "status");
+      expect(staleDaemonStatus.ok).toBe(true);
+      expect(staleDaemonStatus.data).toMatchObject({
+        running: true,
+        rpcVersionCompatible: false,
+        pid: firstConnection.pid,
+        versionUnsupported: {
+          reason: "stale-daemon-entry",
+          received: "2000-01-01T00:00:00.000Z",
+          action: "upgrade-archctx-runtime",
+          command: "archctx daemon upgrade"
+        }
+      });
+      expect(staleDaemonStatus.data.versionUnsupported.expected).toEqual(expect.any(String));
+
+      const staleDoctor = await runCliProcess(root, "doctor");
+      expect(staleDoctor.ok).toBe(true);
+      expect(staleDoctor.data.daemon).toMatchObject({
+        running: true,
+        rpcVersionCompatible: false,
+        pid: firstConnection.pid,
+        versionUnsupported: {
+          reason: "stale-daemon-entry",
+          received: "2000-01-01T00:00:00.000Z",
+          action: "upgrade-archctx-runtime",
+          command: "archctx daemon upgrade"
+        }
+      });
+      expect(staleDoctor.data.daemon.versionUnsupported.expected).toEqual(expect.any(String));
 
       const startAgain = await runCliProcess(root, "daemon", "start");
       expect(startAgain.ok).toBe(false);

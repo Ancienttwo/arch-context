@@ -2482,6 +2482,13 @@ async function doctorDaemon(cwd: string) {
     };
   }
   const health = await client.health().catch(() => undefined);
+  if ((health as any)?.ok === true) {
+    // Mirrors `runDaemonCommand("status")`'s healthy branch: the RPC wire schema alone cannot
+    // rule out a stale already-running daemon (see `cliEntryStalenessIssue`), so `doctor` must not
+    // report a stale daemon as simply running/compatible either.
+    const stalenessIssue = cliEntryStalenessIssue(cwd);
+    if (stalenessIssue?.pidAlive) return incompatibleDaemonStatus(stalenessIssue);
+  }
   return {
     running: (health as any)?.ok === true,
     staleConnection: (health as any)?.ok !== true,
@@ -2705,7 +2712,7 @@ async function runDaemonCommand(args: string[], cwd: string) {
   if (subcommand === "status") {
     const client = createRuntimeRpcClientFromConnectionFile(cwd);
     if (!client) {
-      const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd);
+      const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
       if (compatibilityIssue?.pidAlive) {
         return okEnvelope("daemon.status", incompatibleDaemonStatus(compatibilityIssue) as any);
       }
@@ -2723,6 +2730,13 @@ async function runDaemonCommand(args: string[], cwd: string) {
       return okEnvelope("daemon.status", incompatibleDaemonStatus(healthIssue) as any);
     }
     if ((health as any)?.ok === true) {
+      // The RPC wire schema can stay unchanged across a source edit that only touches
+      // daemon-resident behavior, so a healthy version-compatible response alone does not rule
+      // out talking to a stale already-running daemon (see `cliEntryStalenessIssue`).
+      const stalenessIssue = cliEntryStalenessIssue(cwd);
+      if (stalenessIssue?.pidAlive) {
+        return okEnvelope("daemon.status", incompatibleDaemonStatus(stalenessIssue) as any);
+      }
       return okEnvelope("daemon.status", {
         running: true,
         product: (health as any).product,
@@ -2784,13 +2798,15 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
   try {
     let childExit: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     let childError: Error | undefined;
+    const idleTimeoutFlag = readFlag(args, "--idle-timeout-ms");
     const child = spawn(process.execPath, [
       CLI_ENTRY,
       "daemon",
       "start",
       "--foreground",
       "--port",
-      readFlag(args, "--port") ?? "0"
+      readFlag(args, "--port") ?? "0",
+      ...(idleTimeoutFlag === undefined ? [] : ["--idle-timeout-ms", idleTimeoutFlag])
     ], {
       cwd,
       detached: true,
@@ -3014,9 +3030,11 @@ export async function runForegroundDaemon(cwd: string, args: string[]): Promise<
   const stopped = new Promise<void>((resolve) => {
     resolveStopped = resolve;
   });
+  const idleTimeoutFlag = readFlag(args, "--idle-timeout-ms");
   const server = new ArchctxRuntimeRpcServer(daemon, {
     root: cwd,
     port: Number(readFlag(args, "--port") ?? 0),
+    idleTimeoutMs: idleTimeoutFlag === undefined ? undefined : Number(idleTimeoutFlag),
     onStop: resolveStopped
   });
   const connection = await server.start();

@@ -105,6 +105,28 @@ const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 // drift between the two.
 export const AUDIT_RUN_DEFAULT_TIMEOUT_MS = 600_000;
 const AUDIT_APPROVE_GH_TOKEN_ENV = "ARCHCONTEXT_GH_ISSUES_TOKEN";
+// `archctxd` is spawned `detached`+`unref()`'d (see `startBackgroundDaemon` in the CLI) with no
+// other exit signal, so left alone it runs forever, accumulating cross-day zombie processes (see
+// F5 in tasks/reviews/audit-approve-gh-publishing.review.md). This is the default idle window
+// `ArchctxRuntimeRpcServer` waits, counted from its last completed RPC request (or from `start()`
+// if none happened yet), before checking whether it is safe to exit on its own. Exported so the
+// CLI can pass it through unchanged and tests can assert against it without duplicating the
+// literal. `0` disables idle exit (the daemon runs until explicitly stopped).
+export const DEFAULT_DAEMON_IDLE_TIMEOUT_MS = 30 * 60_000;
+const DAEMON_IDLE_TIMEOUT_ENV = "ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS";
+
+/** Flag (`explicit`, already parsed by the CLI) wins over the env var, which wins over the
+ * default. A non-finite or negative env value is treated as unset rather than thrown, matching
+ * this file's existing tolerant `process.env` parsing (see `runtimeArchitectureLedgerModes`). */
+function resolveDaemonIdleTimeoutMs(explicit: number | undefined): number {
+  if (explicit !== undefined && Number.isFinite(explicit)) return Math.max(0, Math.trunc(explicit));
+  const envValue = process.env[DAEMON_IDLE_TIMEOUT_ENV];
+  if (envValue !== undefined) {
+    const parsed = Number(envValue);
+    if (Number.isFinite(parsed) && parsed >= 0) return Math.trunc(parsed);
+  }
+  return DEFAULT_DAEMON_IDLE_TIMEOUT_MS;
+}
 
 const AUDIT_PROMPT_TEMPLATE = `You are performing a read-only architecture audit of this repository for ArchContext.
 
@@ -635,7 +657,13 @@ export interface RuntimeRpcServerOptions {
   lockPath?: string;
   connectionPath?: string;
   clock?: () => string;
+  /** `undefined` resolves to the `ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS` env var, then
+   * `DEFAULT_DAEMON_IDLE_TIMEOUT_MS`. `0` disables idle exit. */
+  idleTimeoutMs?: number;
   onStop?: () => void;
+  /** Injectable for tests only: called instead of `process.exit` when the idle timer decides to
+   * exit, so an in-process test can observe the call without terminating the test runner. */
+  exit?: (code: number) => void;
 }
 
 export interface RuntimeDaemonClient {
@@ -954,6 +982,29 @@ export class ArchctxDaemon {
 
   compositionReport(): RuntimeCompositionReport {
     return this.composition;
+  }
+
+  /**
+   * Whether the daemon currently has real background work that must not be interrupted: a
+   * queued or running `runtime_job_queue` entry in any currently open repository session's
+   * scope, or an audit investigation this daemon is actively driving
+   * (`auditRunAbortControllers`). Used by `ArchctxRuntimeRpcServer`'s idle-exit timer to decide
+   * whether it is safe to shut the process down even when no RPC request happens to be in
+   * flight at the moment the timer fires — `auditRun`'s synchronous claim already marks its job
+   * "running" in the queue for the investigation's entire multi-minute lifetime, independent of
+   * whether the RPC call that started it is still open (see `auditRun`). Scoped to sessions this
+   * daemon currently has open rather than every scope ever persisted to the local store: the
+   * daemon only drives work for repositories it has a live session for, so this is the most
+   * direct existing signal without scanning storage for repositories nothing is tracking.
+   */
+  async hasActiveBackgroundWork(): Promise<boolean> {
+    if (this.auditRunAbortControllers.size > 0) return true;
+    for (const session of this.sessions.values()) {
+      const scope = architectureLedgerScopeForWorkspace(session.workspace);
+      const stats = await this.localStore.queueStatsRuntimeAgentJobs(scope);
+      if (stats.queuedDepth > 0 || stats.runningDepth > 0) return true;
+    }
+    return false;
   }
 
   async init(root: string, productName?: string): Promise<JsonEnvelope> {
@@ -4301,8 +4352,13 @@ export class ArchctxRuntimeRpcServer {
   private server?: Server;
   private connection?: RuntimeRpcConnection;
   private lockFd?: number;
+  private readonly idleTimeoutMs: number;
+  private idleTimer?: NodeJS.Timeout;
+  private inFlightRpcRequests = 0;
 
-  constructor(private readonly daemon: ArchctxDaemon, private readonly options: RuntimeRpcServerOptions = {}) {}
+  constructor(private readonly daemon: ArchctxDaemon, private readonly options: RuntimeRpcServerOptions = {}) {
+    this.idleTimeoutMs = resolveDaemonIdleTimeoutMs(options.idleTimeoutMs);
+  }
 
   async start(): Promise<RuntimeRpcConnection> {
     if (this.server) return this.connection!;
@@ -4336,10 +4392,12 @@ export class ArchctxRuntimeRpcServer {
     };
     writeFileSync(connectionPath, JSON.stringify(this.connection, null, 2), { mode: 0o600 });
     chmodSync(connectionPath, 0o600);
+    this.armIdleTimer();
     return this.connection;
   }
 
   async stop(): Promise<void> {
+    this.clearIdleTimer();
     const server = this.server;
     this.server = undefined;
     const connection = this.connection;
@@ -4355,6 +4413,59 @@ export class ArchctxRuntimeRpcServer {
     this.lockFd = undefined;
     if (connection) rmSync(connection.lockPath, { force: true });
     this.options.onStop?.();
+  }
+
+  private armIdleTimer(): void {
+    if (this.idleTimeoutMs <= 0 || !this.server) return;
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = setTimeout(() => void this.checkIdleAndMaybeExit(), this.idleTimeoutMs);
+    this.idleTimer.unref();
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) clearTimeout(this.idleTimer);
+    this.idleTimer = undefined;
+  }
+
+  /**
+   * Fires once `idleTimeoutMs` elapses since the last completed RPC request (or since `start()`
+   * if none happened yet — see `armIdleTimer` calls). `archctxd` is spawned `detached`+`unref()`'d
+   * with no other exit signal (F5, tasks/reviews/audit-approve-gh-publishing.review.md), so
+   * without this it runs forever, accumulating cross-day zombie processes. Exits only when
+   * genuinely idle: no in-flight RPC request, no queued/running `runtime_job_queue` entry in any
+   * open session's scope, and no in-flight audit investigation
+   * (`ArchctxDaemon.hasActiveBackgroundWork`). Any one of those being non-idle just reschedules
+   * the same full timeout rather than exiting or busy-polling — this is a single-machine,
+   * low-frequency background daemon, not a service under concurrent load, so the worst case of a
+   * missed exit is one more idle period, and the worst case of losing the final race against a
+   * brand-new request is one CLI retry against a freshly spawned daemon.
+   */
+  private async checkIdleAndMaybeExit(): Promise<void> {
+    if (!this.server || !this.connection) return;
+    if (this.inFlightRpcRequests > 0) {
+      this.armIdleTimer();
+      return;
+    }
+    // Fail-closed: if the activity check itself throws (e.g. the local store hiccups), treat the
+    // daemon as busy rather than risk exiting mid-work.
+    const hasActiveWork = await this.daemon.hasActiveBackgroundWork().catch(() => true);
+    if (hasActiveWork || this.inFlightRpcRequests > 0 || !this.connection) {
+      this.armIdleTimer();
+      return;
+    }
+    // Remove the connection file before tearing anything else down: a CLI invocation that finds
+    // no connection file spawns a fresh daemon immediately (`createOrStartRuntimeRpcClient`)
+    // instead of racing this exiting process's own control files or a server about to stop
+    // accepting connections.
+    rmSync(this.connection.connectionPath, { force: true });
+    try {
+      await this.stop();
+    } finally {
+      // exit must be unconditional: a stop() failure here would otherwise leave the process
+      // resident with its connection file already removed — the exact zombie shape this idle
+      // exit path exists to eliminate.
+      (this.options.exit ?? process.exit)(0);
+    }
   }
 
   private async handleRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -4399,9 +4510,15 @@ export class ArchctxRuntimeRpcServer {
       writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
       return;
     }
-    const result = await this.dispatch(body.method ?? "", body.params ?? []);
-    writeJson(response, 200, result);
-    if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
+    this.inFlightRpcRequests += 1;
+    try {
+      const result = await this.dispatch(body.method ?? "", body.params ?? []);
+      writeJson(response, 200, result);
+      if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
+    } finally {
+      this.inFlightRpcRequests -= 1;
+      this.armIdleTimer();
+    }
   }
 
   private isAuthorized(request: IncomingMessage): boolean {

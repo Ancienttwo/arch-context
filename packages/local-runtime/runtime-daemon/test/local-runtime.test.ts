@@ -83,6 +83,19 @@ function isIgnorableWindowsCleanupError(error: unknown): boolean {
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number, description: string): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await sleep(20);
+  }
+  throw new Error(`Timed out waiting for: ${description}`);
+}
+
 function expectSameExistingPath(actual: string, expected: string): void {
   expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
 }
@@ -3848,6 +3861,127 @@ describe("local runtime foundation", () => {
       removeTempRepo(root);
     }
   });
+
+  // Regression tests for the daemon idle self-exit (`archctxd` is spawned `detached`+`unref()`'d
+  // with no other exit signal — see F5 in tasks/reviews/audit-approve-gh-publishing.review.md,
+  // which caused cross-day zombie processes). `exit` is injected so the idle path's real
+  // `process.exit(0)` call never terminates this test runner; real-process termination is covered
+  // separately by the CLI-level `--idle-timeout-ms` e2e test.
+  test("idle RPC server exits itself once genuinely idle, and a completed RPC request resets the deadline", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-exit-token",
+      idleTimeoutMs: 300,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      // Completing an RPC request well before the original 300ms deadline must push the deadline
+      // out again: checking after the *original* deadline has already elapsed (but before the
+      // reset one) proves the reset actually happened rather than the timer never having started.
+      await sleep(200);
+      const init = await new RuntimeRpcClient(connection).init(root, "Idle Reset App");
+      expect(init.ok).toBe(true);
+      await sleep(150);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+
+      await waitUntil(() => exitCodes.length > 0, 3_000, "idle-exit callback after reset");
+      expect(exitCodes).toEqual([0]);
+      expect(existsSync(connection.connectionPath)).toBe(false);
+      expect(existsSync(connection.lockPath)).toBe(false);
+      expect(daemon.status().running).toBe(false);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
+  test("idle RPC server does not exit while a runtime_job_queue entry is queued", async () => {
+    const root = createGitRepo();
+    const daemon = await createStartedTestDaemon();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+    const enqueue = await daemon.jobsEnqueueGitHook(root, {
+      source: "worktree",
+      event: "post-edit",
+      taskSessionId: "task.idle-busy-queue",
+      analysisKind: "architecture-delta",
+      risk: "high",
+      uncertainty: "high"
+    });
+    expect((enqueue.data as any).enqueued).toBe(true);
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-busy-queue-token",
+      idleTimeoutMs: 150,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      await sleep(450);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
+  test("idle RPC server does not exit while an audit investigation abort controller is active", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    // Simulates `auditRun`'s tracked background investigation without driving a real one: this
+    // exercises the RPC server's idle check against `ArchctxDaemon.hasActiveBackgroundWork`
+    // in isolation from the audit subsystem itself.
+    (daemon as unknown as { auditRunAbortControllers: Map<string, AbortController> })
+      .auditRunAbortControllers.set("agent_job.idle-test", new AbortController());
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-busy-audit-token",
+      idleTimeoutMs: 150,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      await sleep(450);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
+  test("idle timeout of 0 disables idle exit", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-disabled-token",
+      idleTimeoutMs: 0,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      await sleep(450);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
 
   test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
     const root = tempRepo();

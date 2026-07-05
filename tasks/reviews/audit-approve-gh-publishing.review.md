@@ -78,6 +78,12 @@ e2e 復現路徑驗證：fixture repo 真審計（claude ~9 分鐘）全程 CLI 
 
 Gatekeeper 二度 PASS（mtime 三態安裝形態核實、startedAt wall-clock 免疫鏈核實、全入口 grep 覆蓋核實、新測試斷真實不變量無 fake 樁；verify 親跑 exit 0）。兩個 MEDIUM findings：upgrade 返回字段語義漂移（ship 前已修——按 reason 分流 `previousStartedAt`/`entrypointMtime`，消費者空集核實）；`daemon status`/`doctor` 展示路徑未接入 stale 檢測（唯讀診斷不產工件，留給 daemon 生命週期治理刀）。
 
+## Daemon 生命週期治理刀驗收（2026-07-06，commit 42a32a9）
+
+idle 自退出（默認 30 分鐘，flag/env 可配，0=禁用；每次 /rpc dispatch reset；到期三重檢查 in-flight/後台工作 fail-closed/二次確認後摘 connection file → stop → exit 必達 try/finally）+ status/doctor 接入 stale-daemon-entry 檢測（含 !client 第四處）。e2e 冒煙：真 daemon 5s idle 精確退出、控制檔全清；過程中現場撞到並用新檢測清掉一個 4.5 小時殭屍。Gatekeeper 三度 PASS 零阻擋（競態窗口有界自癒、逐出 session 的 queued job 可由 restore/lease 恢復無永久孤兒、health GET 排除語義正確）；其 gated_auto LOW（stop throw 時 exit 不達）已按給定修法收掉。verify 948 pass exit 0。
+
+新增已知 gap（gatekeeper 獨立評估確認，未修）：**verify 的 `&&` 鏈不看 CLI envelope `ok` 值**——CLI 非 foreground 路徑從不把 ok:false 映射為非零 exit，`verify:practices` 段撞運行時錯誤（如過期 daemon）時吐錯誤信封但整鏈照樣 PASS。侷限於 practices 段、pre-existing，但它是全部驗收證據的可信度基石，列為下一刀首選。
+
 ## 殘餘風險
 
 1. ~~真 gh 端到端未驗~~ → 已由上節閉合（fixture 級全鏈 + 真 issue 發布 + 冪等；中型 repo 深審質量見 F6）。
