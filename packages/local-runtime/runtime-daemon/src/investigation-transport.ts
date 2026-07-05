@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
-import type {
-  CommandInvestigationRunnerTransport,
-  CommandInvestigationRunnerTransportInput,
-  CommandInvestigationRunnerTransportResult
+import {
+  InvestigationRunnerFailure,
+  investigationFailureShape,
+  type CommandInvestigationRunnerTransport,
+  type CommandInvestigationRunnerTransportInput,
+  type CommandInvestigationRunnerTransportResult
 } from "@archcontext/core/agent-orchestrator";
 
 export interface NodeInvestigationTransportOptions {
@@ -90,7 +92,11 @@ function runNodeInvestigationTransport(
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
       if (input.maxOutputBytes !== undefined && Buffer.byteLength(stdout, "utf8") > input.maxOutputBytes) {
-        settleReject(new Error("agent-investigation-output-too-large"));
+        settleReject(new InvestigationRunnerFailure(
+          "agent-investigation-output-too-large",
+          "transport-output-too-large",
+          investigationFailureShape({ stdout })
+        ));
       }
     });
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -117,25 +123,47 @@ function runNodeInvestigationTransport(
  * Any unexpected shape (non-zero exit, non-JSON envelope, is_error, non-JSON result) is reported
  * back as a non-zero exit with the best available diagnostic text so the caller's existing
  * fallback-report path (in `runInvestigationWithRetry`) takes over — this function never throws.
+ * Each failure branch also stamps a privacy-safe `reasonCode` + `shape` (lengths/boundary chars/
+ * fence heuristic only, never the content) onto the result so that path can tell the branches
+ * apart instead of seeing an undifferentiated non-zero exit.
  */
 function unwrapClaudeCodeEnvelope(exitCode: number, stdout: string, stderr: string): CommandInvestigationRunnerTransportResult {
-  if (exitCode !== 0) return { exitCode, stdout, stderr };
+  if (exitCode !== 0) {
+    return { exitCode, stdout, stderr, reasonCode: "transport-process-exit-nonzero", shape: investigationFailureShape({ stdout }) };
+  }
   let envelope: unknown;
   try {
     envelope = JSON.parse(stdout);
   } catch {
-    return { exitCode: 1, stdout, stderr };
+    return { exitCode: 1, stdout, stderr, reasonCode: "transport-envelope-not-json", shape: investigationFailureShape({ stdout }) };
   }
-  if (!isPlainObject(envelope)) return { exitCode: 1, stdout, stderr };
+  if (!isPlainObject(envelope)) {
+    return { exitCode: 1, stdout, stderr, reasonCode: "transport-envelope-not-json", shape: investigationFailureShape({ stdout }) };
+  }
   if (envelope.is_error === true) {
-    return { exitCode: 1, stdout: String(envelope.result ?? ""), stderr };
+    const result = String(envelope.result ?? "");
+    return {
+      exitCode: 1,
+      stdout: result,
+      stderr,
+      reasonCode: "transport-envelope-is-error",
+      shape: investigationFailureShape({ stdout, result })
+    };
   }
-  if (typeof envelope.result !== "string") return { exitCode: 1, stdout, stderr };
+  if (typeof envelope.result !== "string") {
+    return { exitCode: 1, stdout, stderr, reasonCode: "transport-result-not-string", shape: investigationFailureShape({ stdout }) };
+  }
   try {
     const report = JSON.parse(envelope.result);
     return { exitCode: 0, stdout: JSON.stringify({ report }) };
   } catch {
-    return { exitCode: 1, stdout: envelope.result, stderr };
+    return {
+      exitCode: 1,
+      stdout: envelope.result,
+      stderr,
+      reasonCode: "transport-result-not-json",
+      shape: investigationFailureShape({ stdout, result: envelope.result })
+    };
   }
 }
 

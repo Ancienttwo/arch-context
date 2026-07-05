@@ -450,6 +450,91 @@ describe("@archcontext/core/agent-orchestrator", () => {
     expect(JSON.stringify(result)).not.toContain("sourceBody");
   });
 
+  test("classifies a parseRunnerReport JSON failure as runner-report-not-json in run metadata, not generic 'failed'", async () => {
+    const running = transitionAgentJobStatus(agentJob("codex"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const runner = createCodexInvestigationRunner({
+      transport: async () => ({ exitCode: 0, stdout: "not json" })
+    });
+
+    const result = await runInvestigationWithRetry({
+      runner,
+      job: running,
+      context,
+      maxAttempts: 1,
+      clock: () => "2026-06-26T08:01:05.000Z"
+    });
+
+    expect(result.metadata.outcome).toBe("failed");
+    expect(result.metadata.errorReasonCode).toBe("runner-report-not-json");
+    expect(result.metadata.errorShape).toMatchObject({
+      schemaVersion: "archcontext.investigation-failure-shape/v1",
+      stdoutLength: Buffer.byteLength("not json", "utf8")
+    });
+    expect(JSON.stringify(result)).not.toContain("diff --git");
+  });
+
+  test("classifies a schema-invalid report as runner-report-schema-invalid and records schema issue paths (not content)", async () => {
+    const running = transitionAgentJobStatus(agentJob("fake-provider"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const runner = createFakeInvestigationRunner({
+      reportFactory: () => "not an investigation report" as unknown as InvestigationReportV1
+    });
+
+    const result = await runInvestigationWithRetry({
+      runner,
+      job: running,
+      context,
+      maxAttempts: 1,
+      clock: () => "2026-06-26T08:01:05.000Z"
+    });
+
+    expect(result.metadata.outcome).toBe("failed");
+    expect(result.metadata.errorReasonCode).toBe("runner-report-schema-invalid");
+    expect(result.metadata.errorShape?.schemaIssues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reasonCode: "report-not-object", path: "$" })])
+    );
+  });
+
+  test("falls back to runner-command-failed when a transport reports a non-zero exit without its own reasonCode", async () => {
+    const running = transitionAgentJobStatus(agentJob("codex"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const runner = createCodexInvestigationRunner({
+      transport: async () => ({ exitCode: 1, stdout: "", stderr: "boom" })
+    });
+
+    const result = await runInvestigationWithRetry({
+      runner,
+      job: running,
+      context,
+      maxAttempts: 1,
+      clock: () => "2026-06-26T08:01:05.000Z"
+    });
+
+    expect(result.metadata.errorReasonCode).toBe("runner-command-failed");
+  });
+
+  test("classifies the orchestrator-level output-cap recheck as runner-output-too-large, distinct from the transport-level cap", async () => {
+    const running = transitionAgentJobStatus(agentJob("codex"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const oversized = "x".repeat(64);
+    const runner = createCodexInvestigationRunner({
+      transport: async () => ({ exitCode: 0, stdout: oversized })
+    });
+
+    const result = await runInvestigationWithRetry({
+      runner,
+      job: running,
+      context,
+      maxAttempts: 1,
+      maxOutputBytes: 8,
+      clock: () => "2026-06-26T08:01:05.000Z"
+    });
+
+    expect(result.metadata.errorReasonCode).toBe("runner-output-too-large");
+    expect(result.metadata.errorShape).toMatchObject({ stdoutLength: Buffer.byteLength(oversized, "utf8") });
+  });
+
   test("validates typed investigation reports against context evidence and ledger refs", () => {
     const running = transitionAgentJobStatus(agentJob(), { status: "running", now: "2026-06-26T08:01:00.000Z" });
     const context = validInvestigationContext();
