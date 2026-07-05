@@ -70,6 +70,14 @@ e2e 復現路徑驗證：fixture repo 真審計（claude ~9 分鐘）全程 CLI 
 - **F3b [P1] 真實 CLI 路徑不走 production 工廠**：乾淨環境（殭屍 daemon 清除、connection 檔不存在）下真實 `archctx audit run` 的新 job `queuedAt` 仍 epoch——實測服務者是 **CLI 進程內 runtime**（`createStartedDaemon` embedded 構造、epoch clock；佐證：approve 時 PAT env 加在 CLI 命令前綴即生效）。`createCliRuntime`（cli/main.ts:2583）的分支邏輯聲稱無 embedded deps 就走 RPC discovery，與實測矛盾——分支取值或 discovery 失敗路徑待定位。F3 的修復在 production 工廠層正確但真實 CLI 落不到它。
 - **F1b [P2] 進程內模式下 `--no-wait` CLI 不退出**：F1 的後台驅動 promise + claude 子進程掛住 event loop，`--no-wait` 輸出 envelope 後進程繼續存活直到審計完成（ps 實測 CLI 進程即「daemon」本體）。RPC 模式無此問題；與 F3b 同根（不該進程內跑的路徑進程內跑了）。
 
+## F3b/F1b 修復（stale-daemon-entry 檢測）驗收（2026-07-05）
+
+定位推翻了第三刀段記錄的兩個假設（運行時探針證據）：CLI 分支選擇本來就正確（depsKeys=[] → RPC 分支），RPC 失敗是硬 throw 無靜默回退。**真實根因：過期 daemon 靜默復用**——daemon detached+unref 永不自退出（本機實測累積 66 個跨天殭屍），connection-file 快路徑只查 RPC wire schema 版本，對「daemon 常駐期間源碼已更新」無感；第三刀 e2e 的 epoch 時間戳（F3b）與 CLI 不退出（F1b）都是復用了源碼修復前起的舊 daemon 的表象。
+
+修法：復用既有 RuntimeVersionUnsupportedError 模式新增 `stale-daemon-entry` 判據——CLI entry mtime 對比 connection file 的 wall-clock startedAt（該時間戳走 `new Date()` fallback，對被偵測的凍結 clock bug 免疫），接入 createOrStartRuntimeRpcClient / startBackgroundDaemon / upgradeDaemon 三處，fail-closed 指引 `archctx daemon upgrade`。e2e 期間發生一次非注入真實復現（編輯源碼後剛起的 daemon 變真過期）被新檢測原生攔截。乾淨環境終驗：`audit run --no-wait` 0.2s 退出、新 daemon production clock、`queuedAt` 真實時間、audit list 可見。
+
+Gatekeeper 二度 PASS（mtime 三態安裝形態核實、startedAt wall-clock 免疫鏈核實、全入口 grep 覆蓋核實、新測試斷真實不變量無 fake 樁；verify 親跑 exit 0）。兩個 MEDIUM findings：upgrade 返回字段語義漂移（ship 前已修——按 reason 分流 `previousStartedAt`/`entrypointMtime`，消費者空集核實）；`daemon status`/`doctor` 展示路徑未接入 stale 檢測（唯讀診斷不產工件，留給 daemon 生命週期治理刀）。
+
 ## 殘餘風險
 
 1. ~~真 gh 端到端未驗~~ → 已由上節閉合（fixture 級全鏈 + 真 issue 發布 + 冪等；中型 repo 深審質量見 F6）。

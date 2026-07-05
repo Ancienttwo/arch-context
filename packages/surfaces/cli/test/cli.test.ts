@@ -2174,6 +2174,65 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("CLI detects a daemon started from a stale entrypoint and replaces it through daemon upgrade", async () => {
+    // Regression test for F3b/F1b (audit-approve-gh-publishing.review.md, third cut): a real
+    // `archctxd` is spawned `detached`+`unref()`'d with no idle shutdown, so an already-running
+    // daemon started from an older on-disk copy of `main.ts` keeps getting silently reused via the
+    // connection-file "reuse if healthy" fast path even after the source changes underneath it
+    // (e.g. a clock-composition fix). This asserts the CLI now refuses to reuse a daemon whose
+    // recorded `startedAt` predates the current entrypoint's mtime, mirroring the existing
+    // rpc-version-mismatch handling instead of silently talking to stale in-memory behavior.
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-entry-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    try {
+      const started = await runCliProcess(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      writeFileSync(connectionPath, JSON.stringify({
+        ...firstConnection,
+        startedAt: "2000-01-01T00:00:00.000Z"
+      }, null, 2), { mode: 0o600 });
+      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
+
+      const ordinaryStatus = await runCliProcess(root, "status");
+      expect(ordinaryStatus.ok).toBe(false);
+      expect(ordinaryStatus.error).toMatchObject({
+        code: "AC_RUNTIME_VERSION_UNSUPPORTED",
+        action: "upgrade-archctx-runtime"
+      });
+      expect(String(ordinaryStatus.error.message)).toContain("archctx daemon upgrade");
+
+      const startAgain = await runCliProcess(root, "daemon", "start");
+      expect(startAgain.ok).toBe(false);
+      expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
+
+      const upgraded = await runCliProcess(root, "daemon", "upgrade");
+      expect(upgraded.ok).toBe(true);
+      expect(upgraded.requestId).toBe("daemon.upgrade");
+      expect(upgraded.data.upgraded).toBe(true);
+      expect(upgraded.data.replacedRuntime).toMatchObject({
+        previousStartedAt: "2000-01-01T00:00:00.000Z",
+        previousPid: firstConnection.pid
+      });
+      expect(upgraded.data.replacedRuntime.entrypointMtime).toEqual(expect.any(String));
+      expect(upgraded.data.replacedRuntime).not.toHaveProperty("previousRpcSchemaVersion");
+      expect(upgraded.data.replacedRuntime).not.toHaveProperty("expectedRpcSchemaVersion");
+      await expectPidGone(firstConnection.pid);
+
+      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      expect(secondConnection.pid).not.toBe(firstConnection.pid);
+      expect(Date.parse(secondConnection.startedAt)).toBeGreaterThan(Date.parse("2000-01-01T00:00:00.000Z"));
+
+      const status = await runCliProcess(root, "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.running).toBe(true);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI exposes repo and landscape commands without changing single-repo defaults", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-"));
     const otherRoot = mkdtempSync(join(tmpdir(), "archctx-cli-other-"));

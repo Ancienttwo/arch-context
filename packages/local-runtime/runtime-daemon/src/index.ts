@@ -605,8 +605,8 @@ export interface RuntimeRpcConnectionFile {
 }
 
 export interface RuntimeRpcCompatibilityIssue {
-  reason: "rpc-version-mismatch";
-  expected: typeof RUNTIME_RPC_VERSION;
+  reason: "rpc-version-mismatch" | "stale-daemon-entry";
+  expected: string;
   received: string;
   connectionPath: string;
   lockPath: string;

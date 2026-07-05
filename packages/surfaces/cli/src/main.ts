@@ -20,6 +20,7 @@ import {
   createStartedProductionDaemon,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
+  readRuntimeRpcConnectionFile,
   recoverStaleDaemonControlFiles,
   runtimeRpcCompatibilityIssue,
   type RuntimeRpcCompatibilityIssue,
@@ -2605,7 +2606,7 @@ async function createCliRuntime(cwd: string, deps: CliRuntimeDeps): Promise<CliR
 }
 
 async function createOrStartRuntimeRpcClient(cwd: string): Promise<RuntimeDaemonClient> {
-  const fileIssue = runtimeRpcCompatibilityIssue(cwd);
+  const fileIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
   if (fileIssue?.pidAlive) throw new RuntimeVersionUnsupportedError(fileIssue);
   const client = createRuntimeRpcClientFromConnectionFile(cwd);
   if (client) {
@@ -2625,6 +2626,58 @@ async function createOrStartRuntimeRpcClient(cwd: string): Promise<RuntimeDaemon
     if ((health as any)?.ok === true) return startedClient;
   }
   throw new Error(mcpDaemonStartRecoveryMessage("archctxd started but no healthy runtime RPC connection was available"));
+}
+
+/**
+ * `createOrStartRuntimeRpcClient`'s reuse-if-healthy fast path only ever checked the RPC wire
+ * schema version (`runtimeRpcCompatibilityIssue`), which stays constant across source edits that
+ * change daemon-resident *behavior* without touching the wire schema (e.g. the clock-composition
+ * fix this check ships alongside). `archctxd` is spawned `detached`+`unref()`'d with no idle
+ * shutdown, so a daemon started from an older on-disk copy of `CLI_ENTRY` keeps running — and gets
+ * silently reused via this same fast path — until something notices and restarts it. That silent
+ * reuse of a stale process (not a branch-selection bug) is what produced epoch-clock audit runs
+ * and a non-exiting `--no-wait` CLI during manual verification: a leftover `archctxd` from before
+ * this fix landed was still bound to the target repo's connection file and got reused instead of a
+ * fresh, correctly-composed one. This closes that gap using data already on disk: every connection
+ * file already records a real wall-clock `startedAt` (`ArchctxRuntimeRpcServer.start`, independent
+ * of the daemon's own possibly-frozen `clock`), so comparing it against `CLI_ENTRY`'s current mtime
+ * is enough to detect "the code has moved on since this daemon was spawned" without adding any new
+ * persisted state, mirroring the existing rpc-version-mismatch check rather than inventing a new
+ * mechanism.
+ */
+function cliEntryStalenessIssue(cwd: string): RuntimeRpcCompatibilityIssue | undefined {
+  const connection = readRuntimeRpcConnectionFile(cwd);
+  if (!connection) return undefined;
+  let entryMtimeIso: string;
+  try {
+    entryMtimeIso = statSync(CLI_ENTRY).mtime.toISOString();
+  } catch {
+    return undefined;
+  }
+  return daemonEntryStalenessIssue(connection, entryMtimeIso, cwd);
+}
+
+function daemonEntryStalenessIssue(
+  connection: { startedAt?: string; pid?: number; connectionPath?: string; lockPath?: string },
+  entryMtimeIso: string,
+  cwd: string
+): RuntimeRpcCompatibilityIssue | undefined {
+  if (typeof connection.startedAt !== "string") return undefined;
+  const startedAtMs = Date.parse(connection.startedAt);
+  const entryMtimeMs = Date.parse(entryMtimeIso);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(entryMtimeMs)) return undefined;
+  if (entryMtimeMs <= startedAtMs) return undefined;
+  const pid = typeof connection.pid === "number" ? connection.pid : undefined;
+  return {
+    reason: "stale-daemon-entry",
+    expected: entryMtimeIso,
+    received: connection.startedAt,
+    connectionPath: connection.connectionPath ?? defaultDaemonConnectionPath(cwd),
+    lockPath: connection.lockPath ?? defaultDaemonLockPath(cwd),
+    pid,
+    pidAlive: pid !== undefined ? isPidAlive(pid) : false,
+    upgradeCommand: "archctx daemon upgrade"
+  };
 }
 
 function mcpDaemonStartRecoveryMessage(message: string): string {
@@ -2708,7 +2761,7 @@ async function runDaemonCommand(args: string[], cwd: string) {
 }
 
 async function startBackgroundDaemon(args: string[], cwd: string) {
-  const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd);
+  const compatibilityIssue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
   if (compatibilityIssue?.pidAlive) {
     return errorEnvelope("daemon.start", "AC_RUNTIME_VERSION_UNSUPPORTED", runtimeVersionUnsupportedMessage(compatibilityIssue));
   }
@@ -2770,7 +2823,7 @@ async function startBackgroundDaemon(args: string[], cwd: string) {
 }
 
 async function upgradeDaemon(args: string[], cwd: string) {
-  const issue = runtimeRpcCompatibilityIssue(cwd);
+  const issue = runtimeRpcCompatibilityIssue(cwd) ?? cliEntryStalenessIssue(cwd);
   if (!issue) {
     const started = await startBackgroundDaemon(args, cwd);
     return started.ok ? { ...started, requestId: "daemon.upgrade", data: { ...(started.data as any), upgraded: false, reason: "runtime-compatible" } } : started;
@@ -2787,6 +2840,17 @@ async function upgradeDaemon(args: string[], cwd: string) {
   }
   const recovery = recoverStaleDaemonControlFiles(cwd, { removeUnhealthyConnection: true });
   const started = await startBackgroundDaemon(args, cwd);
+  const replacedRuntime = issue.reason === "stale-daemon-entry"
+    ? {
+        previousStartedAt: issue.received,
+        entrypointMtime: issue.expected,
+        previousPid: issue.pid
+      }
+    : {
+        previousRpcSchemaVersion: issue.received,
+        expectedRpcSchemaVersion: issue.expected,
+        previousPid: issue.pid
+      };
   return started.ok
     ? {
         ...started,
@@ -2794,11 +2858,7 @@ async function upgradeDaemon(args: string[], cwd: string) {
         data: {
           ...(started.data as any),
           upgraded: true,
-          replacedRuntime: {
-            previousRpcSchemaVersion: issue.received,
-            expectedRpcSchemaVersion: issue.expected,
-            previousPid: issue.pid
-          },
+          replacedRuntime,
           ...recoveryData(recovery)
         }
       }
@@ -2868,6 +2928,9 @@ function incompatibleDaemonStatus(issue: RuntimeRpcCompatibilityIssue) {
 }
 
 function runtimeVersionUnsupportedMessage(issue: RuntimeRpcCompatibilityIssue): string {
+  if (issue.reason === "stale-daemon-entry") {
+    return `archctxd (pid ${issue.pid ?? "unknown"}, started ${issue.received}) was spawned from an older copy of the archctx entrypoint than the one running this command (modified ${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
+  }
   return `archctxd RPC version ${issue.received} is incompatible with this CLI (${issue.expected}); run ${issue.upgradeCommand} to replace the local daemon.`;
 }
 
