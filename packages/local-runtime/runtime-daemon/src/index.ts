@@ -77,6 +77,7 @@ import {
   loadArchitectureDocumentationInputs,
   renderArchitectureDocumentationProjection
 } from "@archcontext/core/projection-engine";
+import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
@@ -4048,7 +4049,7 @@ export class ArchctxDaemon {
     }
     if (url.pathname === "/" || url.pathname === "/index.html") {
       const projection = await this.buildExplorerProjection(session.root, url.searchParams.get("q") ?? undefined);
-      writeJson(response, 200, okEnvelope("explorer.projection", projection as unknown as Json));
+      writeHtml(response, 200, renderExplorerHtml(projection, { focusId: url.searchParams.get("focus") }));
       return;
     }
     if (url.pathname === "/projection" || url.pathname === "/search") {
@@ -5969,4 +5970,12 @@ async function readRequestJson(request: IncomingMessage): Promise<unknown> {
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {
   response.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body, null, 2));
+}
+
+function writeHtml(response: ServerResponse, statusCode: number, body: string): void {
+  response.writeHead(statusCode, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+  });
+  response.end(body);
 }

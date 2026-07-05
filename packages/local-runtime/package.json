@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./codegraph-adapter": "./codegraph-adapter/src/index.ts",
     "./context7-adapter": "./context7-adapter/src/index.ts",
+    "./explorer-html": "./explorer-html/src/index.ts",
     "./git-adapter": "./git-adapter/src/index.ts",
     "./local-store-sqlite": "./local-store-sqlite/src/index.ts",
     "./model-store-yaml": "./model-store-yaml/src/index.ts",
