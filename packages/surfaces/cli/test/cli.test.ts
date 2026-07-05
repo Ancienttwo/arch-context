@@ -2140,14 +2140,20 @@ describe("archctx CLI", () => {
         }
       });
 
-      const ordinaryStatus = await runCliProcess(root, "status");
+      // `status` now exits non-zero on an ok:false envelope (verify's `&&` chains rely on this),
+      // so this expected-failure path must use the non-throwing raw process helper.
+      const ordinaryStatusRaw = await runCliProcessRaw(root, "status");
+      expect(ordinaryStatusRaw.code).not.toBe(0);
+      const ordinaryStatus = JSON.parse(ordinaryStatusRaw.stdout);
       expect(ordinaryStatus.ok).toBe(false);
       expect(ordinaryStatus.error).toMatchObject({
         code: "AC_RUNTIME_VERSION_UNSUPPORTED",
         action: "upgrade-archctx-runtime"
       });
 
-      const startAgain = await runCliProcess(root, "daemon", "start");
+      const startAgainRaw = await runCliProcessRaw(root, "daemon", "start");
+      expect(startAgainRaw.code).not.toBe(0);
+      const startAgain = JSON.parse(startAgainRaw.stdout);
       expect(startAgain.ok).toBe(false);
       expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
 
@@ -2227,7 +2233,11 @@ describe("archctx CLI", () => {
       }, null, 2), { mode: 0o600 });
       if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
 
-      const ordinaryStatus = await runCliProcess(root, "status");
+      // `status` now exits non-zero on an ok:false envelope (verify's `&&` chains rely on this),
+      // so this expected-failure path must use the non-throwing raw process helper.
+      const ordinaryStatusRaw = await runCliProcessRaw(root, "status");
+      expect(ordinaryStatusRaw.code).not.toBe(0);
+      const ordinaryStatus = JSON.parse(ordinaryStatusRaw.stdout);
       expect(ordinaryStatus.ok).toBe(false);
       expect(ordinaryStatus.error).toMatchObject({
         code: "AC_RUNTIME_VERSION_UNSUPPORTED",
@@ -2269,7 +2279,9 @@ describe("archctx CLI", () => {
       });
       expect(staleDoctor.data.daemon.versionUnsupported.expected).toEqual(expect.any(String));
 
-      const startAgain = await runCliProcess(root, "daemon", "start");
+      const startAgainRaw = await runCliProcessRaw(root, "daemon", "start");
+      expect(startAgainRaw.code).not.toBe(0);
+      const startAgain = JSON.parse(startAgainRaw.stdout);
       expect(startAgain.ok).toBe(false);
       expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
 
@@ -2992,6 +3004,26 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
     }
   });
+
+  test("CLI process exit code reflects the final envelope ok value", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-exitcode-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+
+      const failing = await runCliProcessRaw(root, "context");
+      const failingBody = JSON.parse(failing.stdout);
+      expect(failingBody.ok).toBe(false);
+      expect(failingBody.error?.code).toBe("AC_SCHEMA_INVALID");
+      expect(failing.code).not.toBe(0);
+
+      const succeeding = await runCliProcessRaw(root, "help");
+      const succeedingBody = JSON.parse(succeeding.stdout);
+      expect(succeedingBody.ok).toBe(true);
+      expect(succeeding.code).toBe(0);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
 });
 
 async function runCliProcess(root: string, ...args: string[]): Promise<any> {
@@ -3002,6 +3034,14 @@ async function runCliProcess(root: string, ...args: string[]): Promise<any> {
   const { stdout, stderr, code } = await collectProcess(child);
   if (code !== 0) throw new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`);
   return JSON.parse(stdout);
+}
+
+async function runCliProcessRaw(root: string, ...args: string[]): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  const child = spawn(process.execPath, [CLI_ENTRY, ...args], {
+    cwd: root,
+    env: testStateEnv(root)
+  });
+  return collectProcess(child);
 }
 
 async function runCliMcpProcess(root: string, message: unknown): Promise<any> {

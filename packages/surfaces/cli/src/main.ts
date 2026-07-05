@@ -81,6 +81,7 @@ if (import.meta.main) {
       errorEnvelope("cli", "AC_RUNTIME_UNAVAILABLE", error instanceof Error ? error.message : String(error))
     );
     process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
+    if (result.ok === false) process.exitCode = 1;
   }
 }
 
