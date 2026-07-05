@@ -25,7 +25,17 @@ bun run publish:contracts
 Durable readback:
 `docs/verification/archcontext-contracts-npm-scope-readback.md`.
 
-Do not switch ModelContext to the public dependency or enable
+~~Do not switch ModelContext to the public dependency or enable
 `MODELCONTEXT_REQUIRE_ARCHCONTEXT_CONTRACTS=1` until
 `archctx-contracts` is published and clean-room install/import
-readback passes.
+readback passes.~~
+
+**2026-07-06 published.** `archctx-contracts@0.1.5` is live on
+registry.npmjs.org (Apache-2.0, 100 files). Publish path: interactive
+`npm publish` with web-auth (npm now enforces 2FA or a bypass-2FA
+granular token for new-package publishes; classic tokens were revoked
+registry-wide 2025-12-09). Post-publish readback via
+`bun run publish:contracts`: registry readback published, clean-room
+install/import smoke ok. The ModelContext switch precondition is met;
+enabling `MODELCONTEXT_REQUIRE_ARCHCONTEXT_CONTRACTS=1` now happens in
+the ModelContext repo, not here.
