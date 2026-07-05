@@ -1238,9 +1238,6 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
 
 const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 type AuditRunStatus = ArchitectureAuditRunV1["status"];
-// How often `archctx audit run` re-polls `audit list` while waiting for a "started" run to reach
-// a terminal status (see runAuditCommand below).
-const AUDIT_RUN_POLL_INTERVAL_MS = 5_000;
 
 function readAuditRunStatuses(args: string[], requestId: string):
   | { ok: true; statuses: AuditRunStatus[] }
@@ -1371,7 +1368,11 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
   const jobId = startedData.jobId;
   const pollTimeoutMs = timeoutMsResult.value ?? AUDIT_RUN_DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + pollTimeoutMs;
-  process.stderr.write(`archctx audit run: ${jobId} started, polling \`archctx audit list\` every ${Math.round(AUDIT_RUN_POLL_INTERVAL_MS / 1000)}s (pass --no-wait to return immediately instead)...\n`);
+  // How often this poll loop re-checks `audit list` while waiting for a "started" run to reach a
+  // terminal status. Scoped to this function (not module-level) so it can never be reached through
+  // a module-evaluation-order path that hasn't finished initializing it yet.
+  const pollIntervalMs = 5_000;
+  process.stderr.write(`archctx audit run: ${jobId} started, polling \`archctx audit list\` every ${Math.round(pollIntervalMs / 1000)}s (pass --no-wait to return immediately instead)...\n`);
   // Check before sleeping (so an already-finished run — or a tiny --timeout-ms in tests — is
   // reported without an unnecessary trailing wait), then sleep only if the deadline hasn't
   // already passed, so this always makes at least one `audit list` attempt.
@@ -1394,7 +1395,7 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     if (Date.now() >= deadline) break;
     const elapsedSeconds = Math.round((Date.now() - (deadline - pollTimeoutMs)) / 1000);
     process.stderr.write(`archctx audit run: ${jobId} is still running (${elapsedSeconds}s elapsed)...\n`);
-    await sleep(AUDIT_RUN_POLL_INTERVAL_MS);
+    await sleep(pollIntervalMs);
   }
   // A poll timeout is not a run failure: the daemon may well still be driving the investigation to
   // completion in the background past this CLI call's own patience budget.

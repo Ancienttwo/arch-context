@@ -375,10 +375,87 @@ export interface CommandInvestigationRunnerTransportInput {
   signal?: AbortSignal;
 }
 
+/**
+ * Reason codes for the three sequential gates a runner's raw output must pass before it becomes an
+ * accepted `InvestigationReportV1`: the transport gate (process exit / envelope shape / hard
+ * timeout / hard output cap), the parse gate (`parseRunnerReport`), and the schema gate
+ * (`validateInvestigationReport`). Every value here is derived purely from *shape* (exit codes,
+ * JSON-parseability, string lengths) — never from repository or completion content — so recording
+ * it never risks the raw-completion-body privacy boundary the fallback report already respects.
+ */
+export type InvestigationRunnerFailureReasonCode =
+  | "timeout"
+  | "transport-process-exit-nonzero"
+  | "transport-envelope-not-json"
+  | "transport-envelope-is-error"
+  | "transport-result-not-string"
+  | "transport-result-not-json"
+  | "transport-output-too-large"
+  | "runner-output-too-large"
+  | "runner-report-not-json"
+  | "runner-report-schema-invalid"
+  | "runner-command-failed";
+
+/**
+ * Privacy-safe shape metadata for a classified investigation failure: string lengths, single
+ * boundary characters, and a markdown-fence heuristic — never the content itself. Optional and
+ * additive (mirrors this file's `schemaVersion` convention elsewhere) so a transport or gate that
+ * cannot compute a given field simply omits it.
+ */
+export interface InvestigationFailureShapeV1 {
+  schemaVersion: "archcontext.investigation-failure-shape/v1";
+  stdoutLength?: number;
+  resultLength?: number;
+  resultHeadChar?: string;
+  resultTailChar?: string;
+  resultFenced?: boolean;
+  schemaIssues?: { reasonCode: InvestigationReportValidationReasonCode; path: string }[];
+}
+
+/**
+ * Derives `InvestigationFailureShapeV1` fields from the raw transport strings without ever handing
+ * the strings themselves back to the caller — only length/boundary-char/fence-heuristic metadata
+ * comes out, safe to persist in `AgentInvestigationRunMetadata.errorShape`.
+ */
+export function investigationFailureShape(input: { stdout?: string; result?: string }): InvestigationFailureShapeV1 {
+  const shape: InvestigationFailureShapeV1 = { schemaVersion: "archcontext.investigation-failure-shape/v1" };
+  if (input.stdout !== undefined) shape.stdoutLength = Buffer.byteLength(input.stdout, "utf8");
+  if (input.result !== undefined) {
+    shape.resultLength = Buffer.byteLength(input.result, "utf8");
+    if (input.result.length > 0) {
+      shape.resultHeadChar = input.result[0];
+      shape.resultTailChar = input.result[input.result.length - 1];
+    }
+    shape.resultFenced = input.result.trimStart().startsWith("```");
+  }
+  return shape;
+}
+
+/**
+ * Thrown by the transport/parse/schema gates described by `InvestigationRunnerFailureReasonCode`.
+ * Carries a typed, privacy-safe `reasonCode` (and optional `shape` metadata) so
+ * `runInvestigationWithRetry` can record which gate rejected the output instead of collapsing
+ * every non-timeout failure into the generic "failed" outcome. Message text is unchanged from the
+ * plain `Error`s this replaces, so existing substring-matching assertions keep working.
+ */
+export class InvestigationRunnerFailure extends Error {
+  readonly reasonCode: InvestigationRunnerFailureReasonCode;
+  readonly shape?: InvestigationFailureShapeV1;
+
+  constructor(message: string, reasonCode: InvestigationRunnerFailureReasonCode, shape?: InvestigationFailureShapeV1) {
+    super(message);
+    this.name = "InvestigationRunnerFailure";
+    this.reasonCode = reasonCode;
+    if (shape) this.shape = shape;
+  }
+}
+
 export interface CommandInvestigationRunnerTransportResult {
   exitCode: number;
   stdout: string;
   stderr?: string;
+  reasonCode?: InvestigationRunnerFailureReasonCode;
+  shape?: InvestigationFailureShapeV1;
 }
 
 export type CommandInvestigationRunnerTransport = (
@@ -430,6 +507,7 @@ export interface AgentInvestigationRunMetadata {
   fallbackUsed: boolean;
   errorDigest?: string;
   errorReasonCode?: string;
+  errorShape?: InvestigationFailureShapeV1;
 }
 
 export interface RunInvestigationWithRetryInput {
@@ -1047,7 +1125,14 @@ export async function runInvestigationThroughPort(input: {
   });
   const validation = validateInvestigationReport({ report, job: input.job, context: input.context });
   if (!validation.valid) {
-    throw new Error(`investigation-report-invalid: ${validation.issues.map((issue) => issue.reasonCode).join(",")}`);
+    throw new InvestigationRunnerFailure(
+      `investigation-report-invalid: ${validation.issues.map((issue) => issue.reasonCode).join(",")}`,
+      "runner-report-schema-invalid",
+      {
+        schemaVersion: "archcontext.investigation-failure-shape/v1",
+        schemaIssues: validation.issues.map((issue) => ({ reasonCode: issue.reasonCode, path: issue.path }))
+      }
+    );
   }
   return report;
 }
@@ -1124,6 +1209,11 @@ export async function runInvestigationWithRetry(input: RunInvestigationWithRetry
   let attempts = 0;
   let lastError: unknown;
   let lastOutcome: AgentInvestigationRunOutcome = "failed";
+  // Defaults to the coarse "failed"/"timeout" outcome so an unclassified error (anything not a
+  // timeout and not an `InvestigationRunnerFailure` — e.g. a genuine programmer bug) still records
+  // an honest, if generic, reason instead of silently fabricating a more specific one.
+  let lastReasonCode: string = "failed";
+  let lastShape: InvestigationFailureShapeV1 | undefined;
 
   while (attempts < maxAttempts) {
     attempts += 1;
@@ -1152,7 +1242,19 @@ export async function runInvestigationWithRetry(input: RunInvestigationWithRetry
       };
     } catch (error) {
       lastError = error;
-      lastOutcome = isTimeoutError(error) ? "timeout" : "failed";
+      if (isTimeoutError(error)) {
+        lastOutcome = "timeout";
+        lastReasonCode = "timeout";
+        lastShape = undefined;
+      } else if (error instanceof InvestigationRunnerFailure) {
+        lastOutcome = "failed";
+        lastReasonCode = error.reasonCode;
+        lastShape = error.shape;
+      } else {
+        lastOutcome = "failed";
+        lastReasonCode = "failed";
+        lastShape = undefined;
+      }
     }
   }
 
@@ -1179,7 +1281,8 @@ export async function runInvestigationWithRetry(input: RunInvestigationWithRetry
       timeoutMs,
       fallbackUsed: true,
       error: lastError,
-      errorReasonCode: lastOutcome
+      errorReasonCode: lastReasonCode,
+      errorShape: lastShape
     })
   };
 }
@@ -1215,10 +1318,18 @@ function createCommandInvestigationRunner(
       });
       if (result.exitCode !== 0) {
         const stderrDigest = digestJson({ stderr: result.stderr ?? "" } as unknown as Json);
-        throw new Error(`investigation-runner-command-failed: ${runnerPort}:exit-${result.exitCode}:${shortDigest(stderrDigest)}`);
+        throw new InvestigationRunnerFailure(
+          `investigation-runner-command-failed: ${runnerPort}:exit-${result.exitCode}:${shortDigest(stderrDigest)}`,
+          result.reasonCode ?? "runner-command-failed",
+          result.shape
+        );
       }
       if (input.maxOutputBytes !== undefined && Buffer.byteLength(result.stdout, "utf8") > input.maxOutputBytes) {
-        throw new Error(`investigation-runner-output-too-large: ${runnerPort}`);
+        throw new InvestigationRunnerFailure(
+          `investigation-runner-output-too-large: ${runnerPort}`,
+          "runner-output-too-large",
+          investigationFailureShape({ stdout: result.stdout })
+        );
       }
       return parseRunnerReport(result.stdout);
     }
@@ -1301,7 +1412,11 @@ function parseRunnerReport(stdout: string): InvestigationReportV1 {
   try {
     parsed = JSON.parse(stdout);
   } catch {
-    throw new Error(`investigation-runner-output-not-json:${shortDigest(digestJson({ stdout } as unknown as Json))}`);
+    throw new InvestigationRunnerFailure(
+      `investigation-runner-output-not-json:${shortDigest(digestJson({ stdout } as unknown as Json))}`,
+      "runner-report-not-json",
+      investigationFailureShape({ stdout })
+    );
   }
   if (isRecord(parsed) && isRecord(parsed.report)) return parsed.report as unknown as InvestigationReportV1;
   return parsed as InvestigationReportV1;
@@ -1354,6 +1469,7 @@ function agentInvestigationRunMetadata(input: {
   fallbackUsed: boolean;
   error?: unknown;
   errorReasonCode?: string;
+  errorShape?: InvestigationFailureShapeV1;
 }): AgentInvestigationRunMetadata {
   const errorDigest = input.error === undefined
     ? undefined
@@ -1378,7 +1494,8 @@ function agentInvestigationRunMetadata(input: {
     ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     fallbackUsed: input.fallbackUsed,
     ...(errorDigest ? { errorDigest } : {}),
-    ...(input.errorReasonCode ? { errorReasonCode: input.errorReasonCode } : {})
+    ...(input.errorReasonCode ? { errorReasonCode: input.errorReasonCode } : {}),
+    ...(input.errorShape ? { errorShape: input.errorShape } : {})
   };
 }
 

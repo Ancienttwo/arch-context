@@ -92,3 +92,9 @@ idle 自退出（默認 30 分鐘，flag/env 可配，0=禁用；每次 /rpc dis
 4. `withWriter` 撞鎖走 dispatch 通用 500 而非結構化 errorEnvelope——init/applyUpdate 共享的既有不一致，未新增也未修（獨立改動）。
 5. `production-mock-reachability-audit` 腳本的 blocked-keys 斷言列表未含 investigationTransport/githubIssueExecutor（daemon 自身 blockedProductionInjections 已攔，腳本斷言弱一層）——ADR-0041 期既有缺口的對稱延續。
 6. `github-api-contract-audit` 掃描根不含 runtime-daemon——gh write-intent 唯一調用點無靜態掃描器兜底，靠紅線測試（ADR-0042 consequences 已記錄此盲區）。
+
+## F4/F6 刀驗收（2026-07-06，commit 6210bdb）
+
+F4：投研失敗分類全鏈落地——11 個分類碼（transport 6 + runner/schema/超限/命令失敗）+ 隱私安全形狀元數據（長度/首尾單字符/fence 布林/schema 欄位路徑，零內容），13 個新測試紅→綠，verify 952 pass exit 0。靜態查證推翻超限假設：auditRun 從未傳 maxOutputBytes，audit 輸出實際無上限（機制存在但未接線，記為後續項）。順手修掉 pre-existing 的 bun entry-script TDZ 阻斷 bug（CLI 輪詢分支 module-level const 收斂進函式，stash 隔離證明非本刀引入）。
+
+F6：中型 repo（growth-hacker 141 檔）完整模板真審計**連續兩輪成功**（第一輪 13 分鐘 7 drafts、第二輪 8 drafts，皆 pending 落賬）——原 failed 確認已被系列修復（clock 接線/stale 檢測/生命週期）解決，非偶發。全部工作在隔離 worktree 完成（主目錄被並行會話切至 main，未觸碰）。
