@@ -874,6 +874,210 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI gates architecture audit run behind the manifest opt-in flag and exposes list/show", async () => {
+    const disabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-disabled-"));
+    writeFileSync(join(disabledRoot, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.should_not_run", status: "pending", jobId: "agent_job.should_not_run", reportId: "report.should_not_run", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const disabledDefault = await runCli("audit", [], disabledRoot, { runtimeClient: runtimeClient as any });
+      expect(disabledDefault.ok).toBe(false);
+      expect((disabledDefault as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+
+      const disabledExplicitRun = await runCli("audit", ["run"], disabledRoot, { runtimeClient: runtimeClient as any });
+      expect(disabledExplicitRun.ok).toBe(false);
+      expect((disabledExplicitRun as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(disabledRoot, { recursive: true, force: true });
+    }
+
+    const explicitlyFalseRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-false-"));
+    writeFileSync(join(explicitlyFalseRoot, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(explicitlyFalseRoot, ".archcontext"), { recursive: true });
+    writeFileSync(
+      join(explicitlyFalseRoot, ".archcontext/manifest.yaml"),
+      [
+        "audit:",
+        "  githubIssues:",
+        "    enabled: false",
+        "codeFacts:",
+        "  mode: \"embedded\"",
+        "  provider: \"codegraph\"",
+        "  required: true",
+        "schemaVersion: \"archcontext.manifest/v1\""
+      ].join("\n") + "\n",
+      "utf8"
+    );
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.should_not_run", status: "pending", jobId: "agent_job.should_not_run", reportId: "report.should_not_run", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const explicitlyFalse = await runCli("audit", ["run"], explicitlyFalseRoot, { runtimeClient: runtimeClient as any });
+      expect(explicitlyFalse.ok).toBe(false);
+      expect((explicitlyFalse as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(explicitlyFalseRoot, { recursive: true, force: true });
+    }
+
+    const enabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-enabled-"));
+    writeFileSync(join(enabledRoot, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(enabledRoot, ".archcontext"), { recursive: true });
+    writeFileSync(join(enabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const auditRunRecord = {
+        schemaVersion: "archcontext.architecture-audit-run/v1",
+        runId: "audit_run.cli_test",
+        jobId: "agent_job.audit_test",
+        reportId: "report.audit_test",
+        status: "pending"
+      };
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: {
+              schemaVersion: "archcontext.audit-run-result/v1",
+              runId: "audit_run.cli_test",
+              status: "pending",
+              jobId: "agent_job.audit_test",
+              reportId: "report.audit_test",
+              pendingDraftCount: 2
+            }
+          };
+        },
+        auditList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: { schemaVersion: "archcontext.audit-run-list/v1", count: 1, runs: [auditRunRecord] }
+          };
+        },
+        auditShow(_root: string, runId: string) {
+          calls.push({ method: "show", runId });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.show",
+            data: { schemaVersion: "archcontext.audit-run-detail/v1", run: auditRunRecord, githubIssueDrafts: [] }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run", "--reason", "quarterly architecture audit"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      expect(calls[0]).toMatchObject({ method: "run", input: { reason: "quarterly architecture audit" } });
+      expect((run.data as any)).toMatchObject({ runId: "audit_run.cli_test", status: "pending", pendingDraftCount: 2 });
+
+      const list = await runCli("audit", ["list", "--status", "pending"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(list.ok).toBe(true);
+      expect(calls.find((call) => call.method === "list").input).toEqual({ statuses: ["pending"] });
+      expect((list.data as any).count).toBe(1);
+
+      const show = await runCli("audit", ["show", "audit_run.cli_test"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(show.ok).toBe(true);
+      expect(calls.find((call) => call.method === "show").runId).toBe("audit_run.cli_test");
+      expect((show.data as any).run).toMatchObject({ runId: "audit_run.cli_test" });
+
+      const invalidStatus = await runCli("audit", ["list", "--status", "bogus"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(invalidStatus.ok).toBe(false);
+      expect((invalidStatus as any).error?.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      rmSync(enabledRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI resolves the architecture audit manifest gate from a subdirectory of the repository", async () => {
+    // The manifest lives at the Git repository root; running the gate check from a nested
+    // subdirectory must still resolve up to that root instead of looking for
+    // <subdir>/.archcontext/manifest.yaml, which never exists.
+    const enabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-subdir-enabled-"));
+    writeFileSync(join(enabledRoot, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: enabledRoot, stdio: ["ignore", "pipe", "pipe"] });
+    mkdirSync(join(enabledRoot, ".archcontext"), { recursive: true });
+    writeFileSync(join(enabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const enabledSubdir = join(enabledRoot, "src", "nested");
+    mkdirSync(enabledSubdir, { recursive: true });
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.subdir_test", status: "pending", jobId: "agent_job.subdir_test", reportId: "report.subdir_test", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const allowed = await runCli("audit", ["run"], enabledSubdir, { runtimeClient: runtimeClient as any });
+      expect(allowed.ok).toBe(true);
+      expect(calls.length).toBe(1);
+    } finally {
+      rmSync(enabledRoot, { recursive: true, force: true });
+    }
+
+    const disabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-subdir-disabled-"));
+    writeFileSync(join(disabledRoot, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: disabledRoot, stdio: ["ignore", "pipe", "pipe"] });
+    mkdirSync(join(disabledRoot, ".archcontext"), { recursive: true });
+    writeFileSync(join(disabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: false\n", "utf8");
+    const disabledSubdir = join(disabledRoot, "src", "nested");
+    mkdirSync(disabledSubdir, { recursive: true });
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.should_not_run", status: "pending", jobId: "agent_job.should_not_run", reportId: "report.should_not_run", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const rejected = await runCli("audit", ["run"], disabledSubdir, { runtimeClient: runtimeClient as any });
+      expect(rejected.ok).toBe(false);
+      expect((rejected as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(disabledRoot, { recursive: true, force: true });
+    }
+  });
+
   test("CLI exposes recommendation lifecycle and metrics commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-recommendations-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");

@@ -9,6 +9,7 @@ import {
   normalizeArchitectureLedgerEvent,
   queryArchitectureLedgerBookNeighbors,
   replayArchitectureLedgerEvents,
+  type ArchitectureAuditRunV1,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
   type ArchitectureBookFtsMatch,
@@ -220,6 +221,7 @@ export class TestLocalStore implements RuntimeLocalStore {
     const record = [...this.runtimeAgentJobs.values()]
       .filter((candidate) => candidate.job.repository.storageRepositoryId === input.repository.storageRepositoryId
         && candidate.job.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+        && (input.jobId === undefined || candidate.job.jobId === input.jobId)
         && ((candidate.job.status === "queued" && (!candidate.debounceUntil || candidate.debounceUntil <= input.now))
           || (candidate.job.status === "running" && !!candidate.leaseExpiresAt && candidate.leaseExpiresAt <= input.now)))
       .sort(testRuntimeAgentJobSort)[0];
@@ -483,6 +485,21 @@ export class TestLocalStore implements RuntimeLocalStore {
     return [...this.eventsForScope(input)].reverse()
       .flatMap((event) => architectureLedgerPayload(event).sourceCursors ?? [])
       .find((cursor) => cursor.cursorId === input.cursorId) as Record<string, Json> | undefined;
+  }
+
+  async listAuditRuns(input: ArchitectureLedgerScope & { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<ArchitectureAuditRunV1[]> {
+    const statuses = new Set(input.statuses);
+    const latestById = new Map<string, ArchitectureAuditRunV1>();
+    for (const run of this.eventsForScope(input).flatMap((event) => architectureLedgerPayload(event).auditRuns ?? [])) {
+      if (!input.statuses || statuses.has(run.status)) latestById.set(run.runId, run);
+    }
+    return [...latestById.values()].sort((left, right) =>
+      right.createdAt.localeCompare(left.createdAt) || left.runId.localeCompare(right.runId)
+    );
+  }
+
+  async getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined> {
+    return (await this.listAuditRuns(input)).find((run) => run.runId === input.runId);
   }
 
   async createArchitectureLedgerSnapshot(): Promise<never> {

@@ -7,6 +7,7 @@ import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelo
 import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
+import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
@@ -23,6 +24,7 @@ import {
   type RuntimeRpcCompatibilityIssue,
   type RuntimeDaemonClient,
   type RuntimeAgentJobEnqueueGitInput,
+  type RuntimeAuditRunInput,
   type RuntimeRecommendationInput,
   type RuntimeDeps
 } from "@archcontext/local-runtime/runtime-daemon";
@@ -304,6 +306,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return runAgentsCommand(args, cwd, await runtime());
     case "jobs":
       return runJobsCommand(args, cwd, await runtime());
+    case "audit":
+      return runAuditCommand(args, cwd, await runtime());
     case "review":
     case "complete": {
       const forbidden = readForbiddenAttestationFlags(args);
@@ -419,8 +423,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -1227,6 +1231,103 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
     });
   }
   return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
+}
+
+const AUDIT_RUN_STATUSES = ["pending", "issued", "failed"] as const;
+type AuditRunStatus = ArchitectureAuditRunV1["status"];
+
+function readAuditRunStatuses(args: string[], requestId: string):
+  | { ok: true; statuses: AuditRunStatus[] }
+  | { ok: false; envelope: ReturnType<typeof errorEnvelope> } {
+  const statuses = readRepeatedFlag(args, "--status")
+    .flatMap((value) => value.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const invalid = statuses.find((status) => !(AUDIT_RUN_STATUSES as readonly string[]).includes(status));
+  if (invalid) {
+    return { ok: false, envelope: errorEnvelope(requestId, "AC_SCHEMA_INVALID", `unknown audit run status: ${invalid}`) };
+  }
+  return { ok: true, statuses: statuses as AuditRunStatus[] };
+}
+
+function auditManifestGateRoot(cwd: string): string {
+  try {
+    return findRepositoryRoot(cwd);
+  } catch {
+    // No Git repository found from cwd; keep this gate's pre-existing fail-closed behavior by
+    // falling back to cwd itself (manifest lookup below then fails closed to disabled).
+    return cwd;
+  }
+}
+
+function auditGithubIssuesEnabled(cwd: string): boolean {
+  const manifestPath = resolve(auditManifestGateRoot(cwd), ".archcontext/manifest.yaml");
+  if (!existsSync(manifestPath)) return false;
+  let raw: string;
+  try {
+    raw = readFileSync(manifestPath, "utf8");
+  } catch {
+    return false;
+  }
+  let inAudit = false;
+  let inGithubIssues = false;
+  for (const rawLine of raw.split("\n")) {
+    const trimmed = rawLine.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (indent === 0) {
+      inAudit = trimmed === "audit:";
+      inGithubIssues = false;
+      continue;
+    }
+    if (indent === 2 && inAudit) {
+      inGithubIssues = trimmed === "githubIssues:";
+      continue;
+    }
+    if (indent === 4 && inAudit && inGithubIssues && trimmed === "enabled: true") {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "run";
+  if (subcommand === "list") {
+    const statusResult = readAuditRunStatuses(args, "audit.list");
+    if (!statusResult.ok) return statusResult.envelope;
+    return daemon.auditList(cwd, { ...(statusResult.statuses.length === 0 ? {} : { statuses: statusResult.statuses }) });
+  }
+  if (subcommand === "show") {
+    const runId = readFlag(args, "--run-id") ?? args[1];
+    if (!runId) return errorEnvelope("audit.show", "AC_SCHEMA_INVALID", "audit show requires <run-id> or --run-id");
+    return daemon.auditShow(cwd, runId);
+  }
+  if (subcommand !== "run") {
+    return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show");
+  }
+  if (!auditGithubIssuesEnabled(cwd)) {
+    return errorEnvelope(
+      "audit.run",
+      "AC_CAPABILITY_UNSUPPORTED",
+      "archctx audit run is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
+    );
+  }
+  const contextMaxItemsResult = readOptionalPositiveIntegerFlag(args, "--context-max-items", "audit.run");
+  if (!contextMaxItemsResult.ok) return contextMaxItemsResult.envelope;
+  const timeoutMsResult = readOptionalPositiveIntegerFlag(args, "--timeout-ms", "audit.run");
+  if (!timeoutMsResult.ok) return timeoutMsResult.envelope;
+  const input: RuntimeAuditRunInput = {
+    ...(readFlag(args, "--task-session-id") === undefined ? {} : { taskSessionId: readFlag(args, "--task-session-id")! }),
+    ...(readFlag(args, "--reason") === undefined ? {} : { reason: readFlag(args, "--reason")! }),
+    ...(readFlag(args, "--risk") === undefined ? {} : { risk: readFlag(args, "--risk")! as any }),
+    ...(readFlag(args, "--uncertainty") === undefined ? {} : { uncertainty: readFlag(args, "--uncertainty")! as any }),
+    ...(contextMaxItemsResult.value === undefined ? {} : { contextMaxItems: contextMaxItemsResult.value }),
+    ...(readFlag(args, "--model-id") === undefined ? {} : { modelId: readFlag(args, "--model-id")! }),
+    ...(timeoutMsResult.value === undefined ? {} : { timeoutMs: timeoutMsResult.value })
+  };
+  const result = await daemon.auditRun(cwd, input);
+  return { ...result, requestId: "audit.run" };
 }
 
 async function runInvestigateCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

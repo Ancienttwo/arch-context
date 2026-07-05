@@ -64,6 +64,23 @@ export type ArchitectureLedgerOperation =
   | { op: "upsert_constraint"; constraint: ArchitectureLedgerConstraintRecord }
   | { op: "delete_constraint"; constraintId: string };
 
+export interface ArchitectureAuditRunV1 {
+  schemaVersion: "archcontext.architecture-audit-run/v1";
+  runId: string;
+  jobId: string;
+  reportId: string;
+  status: "pending" | "issued" | "failed";
+  repoNameWithOwner: string;
+  repoVisibility: "public" | "private" | "internal";
+  baseSha: string;
+  issueDraftDigests: string[];
+  issuedIssues?: { draftId: string; number: number; url: string; issuedAt: string }[];
+  inputDigest: string;
+  outputDigest: string;
+  createdAt: string;
+  auditRunDigest: string;
+}
+
 export interface ArchitectureLedgerEventPayload {
   summary?: string;
   rationale?: string;
@@ -74,6 +91,7 @@ export interface ArchitectureLedgerEventPayload {
   recommendationRuns?: RecommendationRunV1[];
   recommendations?: RecommendationV2[];
   agentJobs?: AgentJobV1[];
+  auditRuns?: ArchitectureAuditRunV1[];
   projectionState?: Record<string, Json>;
   sourceCursors?: Record<string, Json>[];
   waivers?: Record<string, Json>[];
@@ -913,6 +931,80 @@ export function planChangeSetApplyToArchitectureLedgerEvent(input: ArchitectureL
     } as unknown as Json
   }, null);
   return { ...importPlan, event };
+}
+
+export function planAuditRunToArchitectureLedgerEvent(input: ArchitectureLedgerScope & {
+  jobId: string;
+  reportId: string;
+  status: ArchitectureAuditRunV1["status"];
+  repoNameWithOwner: string;
+  repoVisibility: ArchitectureAuditRunV1["repoVisibility"];
+  issueDraftDigests: string[];
+  issuedIssues?: ArchitectureAuditRunV1["issuedIssues"];
+  inputDigest: string;
+  outputDigest: string;
+  createdAt: string;
+  runId?: string;
+  command?: string;
+}): { event: ArchitectureEventV1 } {
+  const issueDraftDigests = [...input.issueDraftDigests].sort();
+  const runInputDigest = digestJson({
+    jobId: input.jobId,
+    reportId: input.reportId,
+    inputDigest: input.inputDigest,
+    outputDigest: input.outputDigest,
+    issueDraftDigests
+  } as unknown as Json);
+  const runId = input.runId ?? `audit_run.${digestSuffix(runInputDigest)}`;
+  const auditRunInput = {
+    schemaVersion: "archcontext.architecture-audit-run/v1" as const,
+    runId,
+    jobId: input.jobId,
+    reportId: input.reportId,
+    status: input.status,
+    repoNameWithOwner: input.repoNameWithOwner,
+    repoVisibility: input.repoVisibility,
+    baseSha: input.worktree.headSha,
+    issueDraftDigests,
+    ...(input.issuedIssues ? { issuedIssues: input.issuedIssues } : {}),
+    inputDigest: input.inputDigest,
+    outputDigest: input.outputDigest,
+    createdAt: input.createdAt
+  };
+  const auditRun: ArchitectureAuditRunV1 = {
+    ...auditRunInput,
+    auditRunDigest: digestJson(auditRunInput as unknown as Json)
+  };
+  const eventInputDigest = digestJson({
+    runId: auditRun.runId,
+    auditRunDigest: auditRun.auditRunDigest
+  } as unknown as Json);
+  const event = normalizeArchitectureLedgerEvent({
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.agent_audit.${digestSuffix(eventInputDigest)}`,
+    eventType: "architecture.agent_audit.run_pending",
+    payloadVersion: "archcontext.architecture-audit-run/v1",
+    repository: input.repository,
+    worktree: input.worktree,
+    baseDigest: input.inputDigest,
+    resultingDigest: auditRun.auditRunDigest,
+    headSha: input.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "agent_audit",
+    timestamp: input.createdAt,
+    idempotencyKey: `architecture-ledger-agent-audit:${auditRun.runId}`,
+    provenance: {
+      producer: "architecture-ledger-agent-audit",
+      command: input.command ?? "archctxd agent-audit",
+      inputDigest: eventInputDigest
+    },
+    payload: {
+      summary: `Pending architecture audit run ${auditRun.runId} for ${input.repoNameWithOwner}.`,
+      title: `Architecture audit run ${auditRun.runId}`,
+      auditRuns: [auditRun]
+    } as unknown as Json
+  }, null);
+  return { event };
 }
 
 export function compareArchitectureLedgerStateToYaml(input: ArchitectureLedgerGitDriftInput): ArchitectureLedgerDriftReport {

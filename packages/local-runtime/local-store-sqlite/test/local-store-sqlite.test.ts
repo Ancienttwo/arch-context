@@ -34,7 +34,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0006_architecture_ledger",
       "0007_runtime_job_queue",
       "0008_runtime_job_queue_hardening",
-      "0009_architecture_ledger_search_fts"
+      "0009_architecture_ledger_search_fts",
+      "0010_audit_runs"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -352,7 +353,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0006_architecture_ledger",
       "0007_runtime_job_queue",
       "0008_runtime_job_queue_hardening",
-      "0009_architecture_ledger_search_fts"
+      "0009_architecture_ledger_search_fts",
+      "0010_audit_runs"
     ]);
 
     const snapshot = {

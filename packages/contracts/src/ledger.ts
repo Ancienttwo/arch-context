@@ -27,7 +27,8 @@ export type ArchitectureEventSource =
   | "yaml_import"
   | "projection_reconcile"
   | "migration"
-  | "manual";
+  | "manual"
+  | "agent_audit";
 
 export type EvidenceStrengthV2 = "heuristic" | "declared" | "observed" | "verified";
 export type EvidencePolarityV2 = "positive" | "absence" | "declaration";

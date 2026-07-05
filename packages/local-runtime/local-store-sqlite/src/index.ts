@@ -36,6 +36,7 @@ import {
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope,
   type ArchitectureLedgerSnapshotInput,
+  type ArchitectureAuditRunV1,
   type ArchitectureBookFtsMatch,
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
@@ -74,7 +75,8 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "waivers",
   "architecture_ledger_operations",
   "architecture_ledger_fts",
-  "architecture_ledger_search_fts"
+  "architecture_ledger_search_fts",
+  "audit_runs"
 ] as const;
 
 export const SQLITE_PRAGMAS = [
@@ -576,6 +578,31 @@ export const LOCAL_SQLITE_MIGRATIONS = [
         evidence_summary
       )`
     ]
+  },
+  {
+    id: "0010_audit_runs",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS audit_runs (
+        run_id TEXT PRIMARY KEY,
+        repository_id TEXT NOT NULL,
+        storage_repository_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        report_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        repo_name_with_owner TEXT NOT NULL,
+        repo_visibility TEXT NOT NULL,
+        base_sha TEXT NOT NULL,
+        input_digest TEXT NOT NULL,
+        output_digest TEXT NOT NULL,
+        run_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_audit_runs_status ON audit_runs(storage_repository_id, storage_workspace_id, status)"
+    ]
   }
 ] as const;
 
@@ -900,6 +927,14 @@ export interface RuntimeAgentJobClaimInput extends ArchitectureLedgerScope {
   leaseMs: number;
   now: string;
   maxRunningJobs?: number;
+  /**
+   * When set, claim only this exact job (still subject to the usual queued/expired-lease
+   * eligibility and attempt-count checks) instead of the highest-priority/oldest eligible job in
+   * the repository/workspace scope. Callers that synchronously enqueue-then-claim a job they just
+   * created (e.g. `ArchctxDaemon.auditRun`) must pass this so a concurrently queued, unrelated job
+   * in the same scope can never be claimed and lease-stolen in their place.
+   */
+  jobId?: string;
 }
 
 export interface RuntimeAgentJobCompleteInput {
@@ -984,6 +1019,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
+  listAuditRuns(input: ArchitectureLedgerScope & { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<ArchitectureAuditRunV1[]>;
+  getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined>;
   readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined>;
   createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
@@ -1299,13 +1336,20 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         `SELECT * FROM runtime_job_queue
           WHERE storage_repository_id = ?
             AND storage_workspace_id = ?
+            ${input.jobId === undefined ? "" : "AND job_id = ?"}
             AND (
               (status = 'queued' AND (debounce_until IS NULL OR debounce_until <= ?))
               OR (status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
             )
           ORDER BY priority DESC, queued_at ASC, job_id ASC
           LIMIT 1`
-      ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.now, input.now);
+      ).get(
+        input.repository.storageRepositoryId,
+        input.worktree.storageWorkspaceId,
+        ...(input.jobId === undefined ? [] : [input.jobId]),
+        input.now,
+        input.now
+      );
       if (!row) {
         db.exec("COMMIT");
         return undefined;
@@ -1737,6 +1781,29 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     }
   }
 
+  async listAuditRuns(input: ArchitectureLedgerScope & { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<ArchitectureAuditRunV1[]> {
+    const db = await this.database();
+    const statuses = input.statuses ?? [];
+    const statusClause = statuses.length > 0 ? `AND status IN (${statuses.map(() => "?").join(", ")})` : "";
+    return db.prepare(
+      `SELECT run_json FROM audit_runs
+        WHERE storage_repository_id = ?
+          AND storage_workspace_id = ?
+          ${statusClause}
+        ORDER BY created_at DESC, run_id ASC`
+    ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, ...statuses)
+      .map((row) => JSON.parse(String(row.run_json)) as ArchitectureAuditRunV1);
+  }
+
+  async getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT run_json FROM audit_runs
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND run_id = ?`
+    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.runId);
+    return row ? (JSON.parse(String(row.run_json)) as ArchitectureAuditRunV1) : undefined;
+  }
+
   async readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined> {
     const db = await this.database();
     const row = db.prepare(
@@ -2083,6 +2150,7 @@ function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: Architect
   for (const run of payload.recommendationRuns ?? []) persistRecommendationRun(db, event, run);
   for (const recommendation of payload.recommendations ?? []) persistRecommendation(db, event, recommendation);
   for (const job of payload.agentJobs ?? []) persistAgentJob(db, event, job);
+  for (const run of payload.auditRuns ?? []) persistAuditRun(db, event, run);
   for (const feedback of payload.feedback ?? []) persistGenericLedgerJson(db, event, "recommendation_feedback", "feedback_id", "feedback_json", feedback, "feedback");
   for (const waiver of payload.waivers ?? []) persistGenericLedgerJson(db, event, "waivers", "waiver_id", "waiver_json", waiver, "waiver");
   for (const cursor of payload.sourceCursors ?? []) persistSourceCursor(db, event, cursor);
@@ -2176,6 +2244,32 @@ function persistAgentJob(db: SqliteDatabase, event: ArchitectureEventV1, job: No
     stableJson(job),
     job.queuedAt,
     job.updatedAt
+  );
+}
+
+function persistAuditRun(db: SqliteDatabase, event: ArchitectureEventV1, run: NonNullable<ArchitectureLedgerEventPayload["auditRuns"]>[number]): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO audit_runs
+      (run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, job_id, report_id, status,
+        repo_name_with_owner, repo_visibility, base_sha, input_digest, output_digest, run_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    run.runId,
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    event.worktree.storageWorkspaceId,
+    event.eventId,
+    run.jobId,
+    run.reportId,
+    run.status,
+    run.repoNameWithOwner,
+    run.repoVisibility,
+    run.baseSha,
+    run.inputDigest,
+    run.outputDigest,
+    stableJson(run),
+    run.createdAt
   );
 }
 

@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
-import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
+import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput } from "@archcontext/core/agent-orchestrator";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
@@ -14,6 +15,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import {
   architectureDocumentationSourceDigest,
   loadArchitectureDocumentationInputs,
@@ -835,7 +837,15 @@ describe("local runtime foundation", () => {
         }],
         evidenceBindingIds: ["binding.runtime.proposal"],
         evidenceIds: ["evidence.runtime.proposal"],
-        validationDigest: digestJson({ validation: "proposal" } as any),
+        validationDigest: investigationReportProposalValidationDigest({
+          jobId,
+          reportId: "investigation_report.runtime_proposal",
+          inputDigest: claimedJob.inputDigest,
+          outputDigest,
+          proposedDeltaDigests: [proposedDeltaDigest],
+          documentationDraftDigests: [digestJson(documentationDraftInput as any)],
+          githubIssueDraftDigests: []
+        }),
         directMutationAllowed: false,
         requiredNextStep: "deterministic-validation",
         forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
@@ -883,6 +893,476 @@ describe("local runtime foundation", () => {
         outputDigest
       });
       expect(existsSync(join(root, "docs/adr/ADR-0041-runtime-proposal.md"))).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs reject tampered github issue drafts inside advisory proposal metadata", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:45:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-issue-draft-proposal"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.issue-draft",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:45:01.000Z"
+      });
+      const claimedJob = (claim.data as any).job.job;
+      const outputDigest = digestJson({ workerOutput: "issue-draft-plan" } as any);
+      const bodyMarkdown = "## Problem\n\nThe legacy wrapper still duplicates the v2 fallback path.\n";
+      const bodyDigest = digestJson({ bodyMarkdown } as any);
+      const githubIssueDraftInput = {
+        schemaVersion: "archcontext.github-issue-draft/v1",
+        draftId: "github_issue_draft.runtime_proposal",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        kind: "task",
+        priority: "P2",
+        title: "Remove legacy wrapper v1 duplication",
+        bodyMarkdown,
+        bodyDigest,
+        labels: ["architecture"],
+        evidence: [{ path: "src/billing/legacy-wrapper-v1.ts", startLine: 1, note: "duplicate of v2 fallback" }],
+        acceptance: ["legacy wrapper removed"],
+        verificationCommands: ["bun test"],
+        baseSha: claimedJob.worktree.headSha,
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        promptTemplateDigest: claimedJob.promptTemplateDigest,
+        authority: "advisory-only",
+        requiredNextStep: "deterministic-validation",
+        createdAt: "2026-06-25T02:45:03.000Z"
+      };
+      const githubIssueDraft = {
+        ...githubIssueDraftInput,
+        draftDigest: digestJson(githubIssueDraftInput as any)
+      };
+      const proposalPlanInput = {
+        schemaVersion: "archcontext.investigation-report-proposal-plan/v1",
+        proposalId: "investigation_proposal.runtime_issue_draft",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        repository: claimedJob.repository,
+        worktree: claimedJob.worktree,
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        proposedDeltaDigests: [],
+        proposedDeltas: [],
+        documentationDraftDigests: [],
+        documentationDrafts: [],
+        githubIssueDraftDigests: [githubIssueDraft.draftDigest],
+        githubIssueDrafts: [githubIssueDraft],
+        evidenceBindingIds: [],
+        evidenceIds: [],
+        validationDigest: investigationReportProposalValidationDigest({
+          jobId,
+          reportId: "investigation_report.runtime_proposal",
+          inputDigest: claimedJob.inputDigest,
+          outputDigest,
+          proposedDeltaDigests: [],
+          documentationDraftDigests: [],
+          githubIssueDraftDigests: [githubIssueDraft.draftDigest]
+        }),
+        directMutationAllowed: false,
+        requiredNextStep: "deterministic-validation",
+        forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
+        authority: "advisory-only",
+        retention: "no-raw-source-or-diff-bodies",
+        createdAt: "2026-06-25T02:45:03.000Z"
+      };
+      const proposalPlan = {
+        ...proposalPlanInput,
+        proposalDigest: digestJson(proposalPlanInput as any)
+      } as any;
+
+      const tamperedBodyDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], bodyDigest: `sha256:${"0".repeat(64)}` }]
+        },
+        now: "2026-06-25T02:45:03.500Z"
+      } as any);
+      expect(tamperedBodyDigest.ok).toBe(false);
+      expect((tamperedBodyDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedBodyDigest as any).error.message).toContain("bodyDigest mismatch");
+
+      const tamperedAuthority = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], authority: "direct-mutation" }]
+        },
+        now: "2026-06-25T02:45:03.600Z"
+      } as any);
+      expect(tamperedAuthority.ok).toBe(false);
+      expect((tamperedAuthority as any).error.message).toContain("advisory-only");
+
+      // A draft's own draftDigest is recomputed from its full content (not just bodyDigest), so
+      // tampering the digest label itself is caught even though every other field is untouched.
+      const tamperedDraftDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], draftDigest: `sha256:${"1".repeat(64)}` }]
+        },
+        now: "2026-06-25T02:45:03.700Z"
+      } as any);
+      expect(tamperedDraftDigest.ok).toBe(false);
+      expect((tamperedDraftDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedDraftDigest as any).error.message).toContain("draftDigest mismatch");
+
+      // plan.githubIssueDraftDigests (what actually gets written to the architecture ledger) must
+      // match the digests of plan.githubIssueDrafts, even though the drafts themselves are untouched.
+      const tamperedDigestsArray = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDraftDigests: []
+        },
+        now: "2026-06-25T02:45:03.800Z"
+      } as any);
+      expect(tamperedDigestsArray.ok).toBe(false);
+      expect((tamperedDigestsArray as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedDigestsArray as any).error.message).toContain("githubIssueDraftDigests must match");
+
+      // plan.validationDigest is a claimed top-level integrity digest over the plan's own digests
+      // (proposedDeltaDigests/documentationDraftDigests/githubIssueDraftDigests); the daemon must
+      // recompute it rather than trust the claim, so forging it must be caught even though every
+      // array it covers is untouched.
+      const tamperedValidationDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          validationDigest: digestJson({ validation: "forged" } as any)
+        },
+        now: "2026-06-25T02:45:03.850Z"
+      } as any);
+      expect(tamperedValidationDigest.ok).toBe(false);
+      expect((tamperedValidationDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedValidationDigest as any).error.message).toContain("validationDigest mismatch");
+
+      // plan.proposalDigest is recomputed as digestJson(plan minus proposalDigest) and must cover
+      // the whole plan; forging just the digest label, with every other field untouched, must
+      // still be caught.
+      const tamperedProposalDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          proposalDigest: `sha256:${"2".repeat(64)}`
+        },
+        now: "2026-06-25T02:45:03.900Z"
+      } as any);
+      expect(tamperedProposalDigest.ok).toBe(false);
+      expect((tamperedProposalDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedProposalDigest as any).error.message).toContain("proposalDigest mismatch");
+
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan,
+        now: "2026-06-25T02:45:04.000Z"
+      });
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).job.job.extensions.agentRun.proposalPlan.githubIssueDrafts[0]).toMatchObject({
+        draftId: "github_issue_draft.runtime_proposal",
+        authority: "advisory-only",
+        priority: "P2"
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run records pending drafts without external side-effect", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    const draftRecords = [
+      {
+        kind: "spec",
+        priority: "P1",
+        title: "Split the daemon god-file",
+        bodyMarkdown: "## Problem\n\nThe daemon module mixes RPC dispatch with ledger writes in one file.\n",
+        labels: ["architecture"],
+        evidence: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts", startLine: 1, note: "single-file daemon module" }],
+        acceptance: ["daemon RPC handlers live in a dedicated module"],
+        verificationCommands: ["bun run typecheck"]
+      },
+      {
+        kind: "task",
+        priority: "P2",
+        title: "Add direct sqlite coverage for audit_runs reads",
+        bodyMarkdown: "## Task\n\nCover listAuditRuns/getAuditRun with a dedicated sqlite test.\n",
+        labels: [],
+        evidence: [{ path: "packages/local-runtime/local-store-sqlite/src/index.ts", startLine: 1, note: "audit run read path" }],
+        acceptance: ["listAuditRuns and getAuditRun have direct sqlite coverage"],
+        verificationCommands: []
+      }
+    ];
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:40:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.audit_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId, draftRecords } as unknown as Json),
+            createdAt: "2026-06-25T02:40:03.000Z",
+            directMutationAllowed: false,
+            extensions: { githubIssueDrafts: draftRecords }
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      expect((run.data as any).pendingDraftCount).toBe(2);
+      const runId = (run.data as any).runId;
+
+      const list = await daemon.auditList(root);
+      expect((list.data as any).count).toBe(1);
+      const [ledgerRun] = (list.data as any).runs;
+      expect(ledgerRun.runId).toBe(runId);
+      expect(ledgerRun.status).toBe("pending");
+      expect(ledgerRun.issueDraftDigests).toHaveLength(2);
+      expect(ledgerRun.repoNameWithOwner).toBe("local/unknown");
+      expect(ledgerRun.repoVisibility).toBe("private");
+
+      const show = await daemon.auditShow(root, runId);
+      expect(show.ok).toBe(true);
+      expect((show.data as any).run.runId).toBe(runId);
+      expect((show.data as any).githubIssueDrafts).toHaveLength(2);
+      expect((show.data as any).githubIssueDrafts.map((draft: any) => draft.priority).sort()).toEqual(["P1", "P2"]);
+
+      const pendingOnly = await daemon.auditList(root, { statuses: ["pending"] });
+      expect((pendingOnly.data as any).count).toBe(1);
+      const failedOnly = await daemon.auditList(root, { statuses: ["failed"] });
+      expect((failedOnly.data as any).count).toBe(0);
+
+      // Zero external side-effect: no gh calls (the fake transport never shells out), and no
+      // repository files were written by this advisory-only flow beyond the manifest fixture the
+      // test itself seeded (auditRun never scaffolds/writes generated docs or model files).
+      expect(existsSync(join(root, ".archcontext", "generated"))).toBe(false);
+      const appendedEvent = store.architectureEvents.find((event) => event.eventType === "architecture.agent_audit.run_pending");
+      expect(appendedEvent).toBeDefined();
+      const serializedEvent = JSON.stringify(appendedEvent);
+      expect(serializedEvent).not.toContain("https://github.com");
+      expect(serializedEvent).not.toContain("issuedIssues");
+      expect(serializedEvent).not.toContain("bodyMarkdown");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run records a failed run without pending drafts when the investigation fails", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:41:00.000Z",
+        investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("failed");
+      expect((run.data as any).pendingDraftCount).toBe(0);
+
+      const list = await daemon.auditList(root);
+      expect((list.data as any).count).toBe(1);
+      expect((list.data as any).runs[0].status).toBe("failed");
+      expect((list.data as any).runs[0].issueDraftDigests).toEqual([]);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run is gated by audit.githubIssues.enabled at the daemon layer, not only at the CLI", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    let transportCalls = 0;
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:52:00.000Z",
+        investigationTransport: async () => {
+          transportCalls += 1;
+          return { exitCode: 1, stdout: "", stderr: "should never run while the gate is closed" };
+        }
+      });
+
+      // No .archcontext/manifest.yaml at all: fails closed (disabled), matching the CLI default.
+      const disabledByDefault = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(disabledByDefault.ok).toBe(false);
+      expect((disabledByDefault as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(transportCalls).toBe(0);
+
+      // Explicit `enabled: false` is also rejected before anything is spawned or enqueued.
+      writeAuditManifest(root, false);
+      const disabledExplicitly = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(disabledExplicitly.ok).toBe(false);
+      expect((disabledExplicitly as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(transportCalls).toBe(0);
+      const listWhileDisabled = await daemon.auditList(root);
+      expect((listWhileDisabled.data as any).count).toBe(0);
+
+      // Enabling it allows the run to reach the (fake) transport.
+      writeAuditManifest(root, true);
+      const enabled = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(enabled.ok).toBe(true);
+      expect(transportCalls).toBe(1);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run claims only its own enqueued job and never steals an unrelated queued job's lease", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:55:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.claim_isolation_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-06-25T02:55:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      // Pre-seed a higher-priority queued job (e.g. a normal git-hook-triggered
+      // architecture-delta job) in the same repository/workspace scope that is still waiting in
+      // the queue when auditRun enqueues and claims its own job.
+      const preseedEnqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.claim-isolation-preseed",
+        priority: 100
+      });
+      expect((preseedEnqueue.data as any).enqueued).toBe(true);
+      const preseedJobId = (preseedEnqueue.data as any).record.job.jobId;
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      const auditJobId = (run.data as any).jobId;
+      expect(auditJobId).not.toBe(preseedJobId);
+
+      const jobs = await daemon.jobsList(root);
+      const preseedRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === preseedJobId);
+      expect(preseedRecord).toBeDefined();
+      // The pre-seeded job must be untouched: still queued, never leased by the audit claim.
+      expect(preseedRecord.job.status).toBe("queued");
+      expect(preseedRecord.leaseOwner).toBeUndefined();
+
+      const auditRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === auditJobId);
+      expect(auditRecord).toBeDefined();
+      expect(auditRecord.job.status).toBe("succeeded");
+      expect(auditRecord.leaseOwner).toBeUndefined();
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run binds the investigation transport's cwd to the audited repository root", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    let capturedCwd: string | undefined;
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:57:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          capturedCwd = input.cwd;
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.cwd_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-06-25T02:57:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(run.ok).toBe(true);
+      expect(capturedCwd).toBeDefined();
+      expectSameExistingPath(capturedCwd!, root);
     } finally {
       removeTempRepo(root);
     }
@@ -2885,6 +3365,63 @@ describe("local runtime foundation", () => {
   });
 });
 
+describe("createNodeInvestigationTransport", () => {
+  test("unwraps a successful claude --output-format json envelope into a report stdout", async () => {
+    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:JSON.stringify({ok:true,findings:[]})}))";
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", script],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ report: { ok: true, findings: [] } });
+  });
+
+  test("reports a non-zero exit without throwing when the envelope signals is_error", async () => {
+    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,result:'agent failed'}))";
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", script],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("agent failed");
+  });
+
+  test("reports a non-zero exit without throwing when stdout is not an envelope", async () => {
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('not json')"],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("not json");
+  });
+
+  test("reports a non-zero exit without throwing when the envelope result is not JSON", async () => {
+    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:'not json report'}))";
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", script],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("not json report");
+  });
+});
+
 function createGitRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-runtime-git-"));
   writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
@@ -2892,6 +3429,18 @@ function createGitRepo(): string {
   execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return root;
+}
+
+// Matches the exact indentation shape the daemon's auditGithubIssuesEnabledInManifestText (and the
+// CLI's auditGithubIssuesEnabled) scan for: `audit:` at indent 0, `githubIssues:` at indent 2,
+// `enabled: <bool>` at indent 4.
+function writeAuditManifest(root: string, enabled: boolean): void {
+  mkdirSync(join(root, ".archcontext"), { recursive: true });
+  writeFileSync(
+    join(root, ".archcontext", "manifest.yaml"),
+    `schemaVersion: archcontext.manifest/v1\naudit:\n  githubIssues:\n    enabled: ${enabled}\n`,
+    "utf8"
+  );
 }
 
 async function appendRecommendationRunFixture(store: TestLocalStore, root: string, now: string) {

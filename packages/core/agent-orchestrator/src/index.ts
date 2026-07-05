@@ -282,6 +282,8 @@ export interface InvestigationReportProposalPlan {
   proposedDeltas: ArchitectureCandidateChangeV1[];
   documentationDraftDigests: string[];
   documentationDrafts: AgentDocumentationDraftV1[];
+  githubIssueDraftDigests?: string[];
+  githubIssueDrafts?: GithubIssueDraftV1[];
   evidenceBindingIds: string[];
   evidenceIds: string[];
   validationDigest: string;
@@ -318,12 +320,48 @@ export interface AgentDocumentationDraftV1 {
   draftDigest: string;
 }
 
+export type GithubIssueDraftKind = "spec" | "task";
+export type GithubIssuePriority = "P1" | "P2" | "P3";
+
+export interface GithubIssueEvidenceRef {
+  path: string;
+  startLine: number;
+  endLine?: number;
+  note: string;
+}
+
+export interface GithubIssueDraftV1 {
+  schemaVersion: "archcontext.github-issue-draft/v1";
+  draftId: string;
+  jobId: string;
+  reportId: string;
+  kind: GithubIssueDraftKind;
+  priority: GithubIssuePriority;
+  title: string;
+  bodyMarkdown: string;
+  bodyDigest: string;
+  labels: string[];
+  specBacklinkDraftId?: string;
+  evidence: GithubIssueEvidenceRef[];
+  acceptance: string[];
+  verificationCommands: string[];
+  baseSha: string;
+  inputDigest: string;
+  outputDigest: string;
+  promptTemplateDigest: string;
+  authority: "advisory-only";
+  requiredNextStep: InvestigationReportProposalRequiredNextStep;
+  createdAt: string;
+  draftDigest: string;
+}
+
 export interface CommandInvestigationRunnerTransportInput {
   runnerPort: AgentRunnerPortId;
   runnerId: string;
   command: string;
   args: string[];
   stdin: string;
+  cwd?: string;
   maxOutputBytes?: number;
   signal?: AbortSignal;
 }
@@ -343,6 +381,8 @@ export interface CommandInvestigationRunnerOptions {
   modelId?: string;
   command?: string;
   args?: string[];
+  cwd?: string;
+  promptTemplate?: string;
   transport: CommandInvestigationRunnerTransport;
 }
 
@@ -711,6 +751,35 @@ export function validateInvestigationReport(input: ValidateInvestigationReportIn
   return invalidIfNeeded(issues);
 }
 
+export interface InvestigationReportProposalValidationDigestInput {
+  jobId: string;
+  reportId: string;
+  inputDigest: string;
+  outputDigest: string;
+  proposedDeltaDigests: string[];
+  documentationDraftDigests: string[];
+  githubIssueDraftDigests: string[];
+}
+
+/**
+ * Single source of truth for InvestigationReportProposalPlan.validationDigest. Used both when a
+ * plan is produced here and when a completed job's claimed proposalPlan is received back over RPC
+ * (runtime-daemon's validateRuntimeAgentProposalPlan recomputes and compares instead of trusting
+ * the claimed digest).
+ */
+export function investigationReportProposalValidationDigest(input: InvestigationReportProposalValidationDigestInput): string {
+  return digestJson({
+    status: "valid",
+    jobId: input.jobId,
+    reportId: input.reportId,
+    inputDigest: input.inputDigest,
+    outputDigest: input.outputDigest,
+    proposedDeltaDigests: input.proposedDeltaDigests,
+    documentationDraftDigests: input.documentationDraftDigests,
+    githubIssueDraftDigests: input.githubIssueDraftDigests
+  } as unknown as Json);
+}
+
 export function planInvestigationReportProposal(input: PlanInvestigationReportProposalInput): InvestigationReportProposalPlan {
   const validation = validateInvestigationReport(input);
   if (!validation.valid) {
@@ -729,17 +798,24 @@ export function planInvestigationReportProposal(input: PlanInvestigationReportPr
     createdAt: input.now ?? report.createdAt
   });
   const documentationDraftDigests = documentationDrafts.map((draft) => draft.draftDigest).sort();
+  const githubIssueDrafts = githubIssueDraftsFromReport({
+    report,
+    job: input.job,
+    inputDigest: input.context.inputDigest,
+    createdAt: input.now ?? report.createdAt
+  });
+  const githubIssueDraftDigests = githubIssueDrafts.map((draft) => draft.draftDigest).sort();
   const evidenceBindingIds = uniqueSorted(report.findings.flatMap((finding) => finding.evidenceBindingIds));
   const evidenceIds = uniqueSorted(proposedDeltas.flatMap((delta) => delta.evidenceIds));
-  const validationDigest = digestJson({
-    status: "valid",
+  const validationDigest = investigationReportProposalValidationDigest({
     jobId: input.job.jobId,
     reportId: report.reportId,
     inputDigest: input.context.inputDigest,
     outputDigest: report.outputDigest,
     proposedDeltaDigests,
-    documentationDraftDigests
-  } as unknown as Json);
+    documentationDraftDigests,
+    githubIssueDraftDigests
+  });
   const proposalInputDigest = digestJson({
     kind: "investigation-report-proposal",
     jobId: input.job.jobId,
@@ -761,6 +837,8 @@ export function planInvestigationReportProposal(input: PlanInvestigationReportPr
     proposedDeltas,
     documentationDraftDigests,
     documentationDrafts,
+    githubIssueDraftDigests,
+    githubIssueDrafts,
     evidenceBindingIds,
     evidenceIds,
     validationDigest,
@@ -844,6 +922,103 @@ function agentDocumentationDraftsFromReport(input: {
   }).sort((left, right) => left.draftId.localeCompare(right.draftId));
 }
 
+function githubIssueDraftsFromReport(input: {
+  report: InvestigationReportV1;
+  job: AgentJobV1;
+  inputDigest: string;
+  createdAt: string;
+}): GithubIssueDraftV1[] {
+  const records = recordsFromUnknown(input.report.extensions?.githubIssueDrafts);
+  if (records.length === 0) return [];
+  return records.map((record, index) => {
+    const kind = record.kind;
+    if (kind !== "spec" && kind !== "task") throw new Error(`github-issue-draft-invalid-kind:${index}`);
+    const draftKind: GithubIssueDraftKind = kind;
+    const priority = record.priority;
+    if (priority !== "P1" && priority !== "P2" && priority !== "P3") throw new Error(`github-issue-draft-invalid-priority:${index}`);
+    const draftPriority: GithubIssuePriority = priority;
+    const title = record.title;
+    if (typeof title !== "string" || title.trim().length === 0) throw new Error(`github-issue-draft-title-required:${index}`);
+    const bodyMarkdown = record.bodyMarkdown;
+    if (typeof bodyMarkdown !== "string" || bodyMarkdown.trim().length === 0) throw new Error(`github-issue-draft-body-required:${index}`);
+    const bodyDigest = digestJson({ bodyMarkdown } as unknown as Json);
+    if (record.bodyDigest !== undefined && record.bodyDigest !== bodyDigest) {
+      throw new Error(`github-issue-draft-body-digest-mismatch:${index}`);
+    }
+    const labels = Array.isArray(record.labels) ? uniqueSorted(record.labels.filter(isString)) : [];
+    const specBacklinkDraftId = record.specBacklinkDraftId;
+    if (specBacklinkDraftId !== undefined && typeof specBacklinkDraftId !== "string") {
+      throw new Error(`github-issue-draft-spec-backlink-invalid:${index}`);
+    }
+    const evidence = githubIssueEvidenceFromRecord(record.evidence, index);
+    if (evidence.length === 0) throw new Error(`github-issue-draft-evidence-required:${index}`);
+    const acceptance = Array.isArray(record.acceptance) ? record.acceptance.filter(isString) : [];
+    if (acceptance.length === 0) throw new Error(`github-issue-draft-acceptance-required:${index}`);
+    const verificationCommands = Array.isArray(record.verificationCommands) ? record.verificationCommands.filter(isString) : [];
+    const draftInput = {
+      schemaVersion: "archcontext.github-issue-draft/v1" as const,
+      draftId: typeof record.draftId === "string" && record.draftId.length > 0
+        ? record.draftId
+        : `github_issue_draft.${shortDigest(digestJson({
+          jobId: input.job.jobId,
+          reportId: input.report.reportId,
+          index,
+          kind: draftKind,
+          bodyDigest
+        } as unknown as Json))}`,
+      jobId: input.job.jobId,
+      reportId: input.report.reportId,
+      kind: draftKind,
+      priority: draftPriority,
+      title,
+      bodyMarkdown,
+      bodyDigest,
+      labels,
+      ...(specBacklinkDraftId === undefined ? {} : { specBacklinkDraftId }),
+      evidence,
+      acceptance,
+      verificationCommands,
+      baseSha: input.job.worktree.headSha,
+      inputDigest: input.inputDigest,
+      outputDigest: input.report.outputDigest,
+      promptTemplateDigest: input.job.promptTemplateDigest,
+      authority: "advisory-only" as const,
+      requiredNextStep: "deterministic-validation" as const,
+      createdAt: input.createdAt
+    };
+    assertNoRawRepositoryPayload(draftInput);
+    return {
+      ...draftInput,
+      draftDigest: digestJson(draftInput as unknown as Json)
+    };
+  }).sort((left, right) => left.draftId.localeCompare(right.draftId));
+}
+
+function githubIssueEvidenceFromRecord(value: unknown, index: number): GithubIssueEvidenceRef[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, evidenceIndex) => {
+    if (!isRecord(item)) throw new Error(`github-issue-draft-evidence-invalid:${index}:${evidenceIndex}`);
+    if (typeof item.path !== "string" || item.path.trim().length === 0) {
+      throw new Error(`github-issue-draft-evidence-path-invalid:${index}:${evidenceIndex}`);
+    }
+    if (typeof item.startLine !== "number" || !Number.isFinite(item.startLine)) {
+      throw new Error(`github-issue-draft-evidence-start-line-invalid:${index}:${evidenceIndex}`);
+    }
+    if (item.endLine !== undefined && (typeof item.endLine !== "number" || !Number.isFinite(item.endLine))) {
+      throw new Error(`github-issue-draft-evidence-end-line-invalid:${index}:${evidenceIndex}`);
+    }
+    if (typeof item.note !== "string" || item.note.trim().length === 0) {
+      throw new Error(`github-issue-draft-evidence-note-invalid:${index}:${evidenceIndex}`);
+    }
+    return {
+      path: item.path,
+      startLine: item.startLine,
+      ...(item.endLine === undefined ? {} : { endLine: item.endLine }),
+      note: item.note
+    };
+  });
+}
+
 export async function runInvestigationThroughPort(input: {
   runner: InvestigationRunnerPort;
   job: AgentJobV1;
@@ -872,7 +1047,25 @@ export function createClaudeCodeInvestigationRunner(options: CommandInvestigatio
   return createCommandInvestigationRunner("claude-code", {
     runnerId: "runner.claude-code",
     command: "claude",
-    args: ["--print", "--output-format", "json"],
+    // Process-level (not prompt-only) tool boundary for an advisory-only investigation subagent:
+    // - `--tools` is a positive allowlist of read-only built-ins; Bash/Write/Edit/etc. simply do not
+    //   exist as callable tools in this session, so prompt injection from the audited repository
+    //   cannot talk the model into re-granting a tool that was never wired in.
+    // - `--disallowedTools` explicitly denies the mutation/execute-capable tools too, so the
+    //   invariant still holds even if the allowlist above is ever loosened by a future edit.
+    // - `--strict-mcp-config` with no `--mcp-config` loads zero MCP servers, so the audited
+    //   repository's own `.mcp.json` (reachable once `cwd` points at it) cannot hand the subagent
+    //   extra write/execute-capable tools outside the built-in allowlist above.
+    // - `--setting-sources user` excludes the audited repository's own project/local settings, so a
+    //   hostile repo cannot ship `.claude/settings.json` hooks or permission overrides that run
+    //   commands outside this boundary.
+    args: [
+      "--print", "--output-format", "json",
+      "--tools", "Read,Grep,Glob",
+      "--disallowedTools", "Bash,Edit,Write,NotebookEdit",
+      "--strict-mcp-config",
+      "--setting-sources", "user"
+    ],
     ...options
   });
 }
@@ -998,13 +1191,16 @@ function createCommandInvestigationRunner(
     },
     runInvestigation: async (input) => {
       const runnerInput = stableRunnerInput({ runnerPort, runnerId, job: input.job, context: input.context });
-      const stdin = JSON.stringify(runnerInput);
+      const stdin = options.promptTemplate
+        ? `${options.promptTemplate}\n\n${JSON.stringify(runnerInput)}`
+        : JSON.stringify(runnerInput);
       const result = await options.transport({
         runnerPort,
         runnerId,
         command: options.command,
         args: [...options.args],
         stdin,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         maxOutputBytes: input.maxOutputBytes,
         signal: input.signal
       });
