@@ -1,7 +1,7 @@
 {
   "schemaVersion": "archcontext.practice-catalog-manifest/v1",
   "catalogVersion": "2026.06.0",
-  "productVersion": "0.1.5",
+  "productVersion": "0.2.0",
   "generatedAt": "1970-01-01T00:00:00.000Z",
   "entries": [
     {
