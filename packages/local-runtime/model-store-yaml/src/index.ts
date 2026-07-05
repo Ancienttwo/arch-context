@@ -109,6 +109,22 @@ export function createDefaultProjectionTargetManifest(): Json {
         pathTemplate: "docs/architecture/diagrams/architecture.likec4",
         ownership: "generated",
         format: "likec4"
+      },
+      {
+        id: "projection_rule.agent-context.claude",
+        targetType: "agent-context",
+        scope: { kind: "entity", entityKind: "capability" },
+        pathTemplate: "{primarySourceDir}/CLAUDE.md",
+        ownership: "mixed",
+        format: "markdown"
+      },
+      {
+        id: "projection_rule.agent-context.agents",
+        targetType: "agent-context",
+        scope: { kind: "entity", entityKind: "capability" },
+        pathTemplate: "{primarySourceDir}/AGENTS.md",
+        ownership: "mixed",
+        format: "markdown"
       }
     ]
   };

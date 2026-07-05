@@ -8,6 +8,13 @@ import {
   type ModelExportResult,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
+import { parseJsonOrStableYaml } from "../../architecture-domain/src/index";
+
+export interface NativeNodeSource {
+  include?: string[];
+  exclude?: string[];
+  entrypoints?: string[];
+}
 
 export interface NativeNode extends Record<string, Json | undefined> {
   id: string;
@@ -15,6 +22,18 @@ export interface NativeNode extends Record<string, Json | undefined> {
   name: string;
   status?: string;
   summary?: string;
+  // Typed as Json (not NativeNodeSource) so this interface still satisfies its own
+  // Record<string, Json | undefined> index signature; use nativeNodeSource(node) to read
+  // this field with the NativeNodeSource shape.
+  source?: Json;
+  extensions?: Record<string, Json>;
+}
+
+/** Reads `node.source` (ADR-0043 `source.include`/`source.exclude`/`entrypoints`) as NativeNodeSource. */
+export function nativeNodeSource(node: NativeNode): NativeNodeSource | undefined {
+  const value = node.source;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as unknown as NativeNodeSource;
 }
 
 export interface NativeRelation extends Record<string, Json> {
@@ -338,20 +357,10 @@ function readYamlObjects(dir: string): Record<string, Json>[] {
   return readdirSync(dir)
     .filter((file) => /\.ya?ml$/.test(file))
     .sort()
-    .map((file) => parseFlatYaml(readFileSync(resolve(dir, file), "utf8")));
-}
-
-function parseFlatYaml(body: string): Record<string, Json> {
-  const out: Record<string, Json> = {};
-  for (const line of body.split(/\r?\n/)) {
-    const match = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!match) continue;
-    const [, key, raw] = match;
-    if (raw.startsWith("\"") && raw.endsWith("\"")) out[key] = JSON.parse(raw);
-    else if (raw === "true" || raw === "false") out[key] = raw === "true";
-    else out[key] = raw;
-  }
-  return out;
+    .map((file) => {
+      const path = resolve(dir, file);
+      return parseJsonOrStableYaml(readFileSync(path, "utf8"), path) as Record<string, Json>;
+    });
 }
 
 function escapeMermaid(value: string): string {
@@ -722,4 +731,243 @@ function escapeDsl(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// --- Agent Context Provider (ADR-0043) ---
+//
+// Projects one capability node's identity/source/extensions into a marker-owned region
+// inside that capability's own primary source directory (CLAUDE.md and AGENTS.md).
+// `type: "agent-context"` is a new `ProjectionTarget` target type (see
+// schemas/runtime/projection-target.schema.json); the shape below intentionally does not
+// import the strict `ProjectionTargetV1`/`ProjectionTargetType` TS union from
+// @archcontext/contracts, whose `packages/contracts/src` is out of scope for this change.
+
+export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
+export const AGENT_CONTEXT_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT AGENT CONTEXT";
+export const AGENT_CONTEXT_END_PREFIX = "<!-- END ARCHCONTEXT AGENT CONTEXT";
+
+const AGENT_CONTEXT_FILE_NAMES = [
+  { fileName: "CLAUDE.md", slug: "claude" },
+  { fileName: "AGENTS.md", slug: "agents" }
+] as const;
+
+export interface AgentContextProjectionTargetScope {
+  kind: "entity";
+  id: string;
+  entityKind: string;
+}
+
+export interface AgentContextProjectionTarget {
+  schemaVersion: typeof PROJECTION_TARGET_SCHEMA_VERSION;
+  targetId: string;
+  type: "agent-context";
+  scope: AgentContextProjectionTargetScope;
+  path: string;
+  ownership: "mixed";
+  generatedRegion: { startMarker: string; endMarker: string };
+  rendererVersion: string;
+  format: "markdown";
+  sourceDigest: string;
+  outputDigest: string;
+}
+
+export interface AgentContextProjectionFile {
+  path: string;
+  body: string;
+  target: AgentContextProjectionTarget;
+}
+
+export interface AgentContextProjectionPlan {
+  schemaVersion: "archcontext.agent-context-projection-plan/v1";
+  rendererVersion: typeof AGENT_CONTEXT_RENDERER_VERSION;
+  sourceDigest: string;
+  targets: AgentContextProjectionTarget[];
+  files: AgentContextProjectionFile[];
+}
+
+/**
+ * Directory root of a `source.include` glob (ADR-0043): the literal prefix before the
+ * first wildcard, with any trailing partial path segment dropped. A literal entry with no
+ * wildcard is treated as an entrypoint file and resolves to its containing directory.
+ */
+export function primarySourceDirectoryFromInclude(pattern: string): string {
+  const wildcardIndex = pattern.search(/[*?]/);
+  const literalPrefix = wildcardIndex === -1 ? pattern : pattern.slice(0, wildcardIndex);
+  const lastSlash = literalPrefix.lastIndexOf("/");
+  return lastSlash === -1 ? "." : literalPrefix.slice(0, lastSlash);
+}
+
+export function renderAgentContextProjection(input: {
+  model: NativeModel;
+  sourceDigest: string;
+  existingFiles?: ArchitectureDocumentationExistingFile[];
+  rendererVersion?: typeof AGENT_CONTEXT_RENDERER_VERSION;
+}): AgentContextProjectionPlan {
+  const rendererVersion = input.rendererVersion ?? AGENT_CONTEXT_RENDERER_VERSION;
+  const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
+  const targets: AgentContextProjectionTarget[] = [];
+  const files: AgentContextProjectionFile[] = [];
+
+  for (const node of input.model.nodes) {
+    if (node.kind !== "capability") continue;
+    const firstInclude = nativeNodeSource(node)?.include?.[0];
+    if (!firstInclude) continue;
+    const primarySourceDir = primarySourceDirectoryFromInclude(firstInclude);
+    const generatedBody = renderAgentContextBody(node);
+    const outputDigest = digestJson({ id: node.id, body: generatedBody } as unknown as Json);
+
+    for (const { fileName, slug } of AGENT_CONTEXT_FILE_NAMES) {
+      const path = `${primarySourceDir}/${fileName}`;
+      const target: AgentContextProjectionTarget = {
+        schemaVersion: PROJECTION_TARGET_SCHEMA_VERSION,
+        targetId: `projection_target.agent-context.${slug}.${stableId(node.id)}`,
+        type: "agent-context",
+        scope: { kind: "entity", id: node.id, entityKind: node.kind },
+        path,
+        ownership: "mixed",
+        generatedRegion: {
+          startMarker: agentContextStartMarker(node.id, input.sourceDigest, rendererVersion, outputDigest),
+          endMarker: agentContextEndMarker(node.id)
+        },
+        rendererVersion,
+        format: "markdown",
+        sourceDigest: input.sourceDigest,
+        outputDigest
+      };
+      const wrapped = wrapAgentContextRegion(target, generatedBody);
+      const body = mergeAgentContextRegion(target, wrapped, existingByPath.get(path));
+      targets.push(target);
+      files.push({ path, body, target });
+    }
+  }
+
+  return {
+    schemaVersion: "archcontext.agent-context-projection-plan/v1",
+    rendererVersion,
+    sourceDigest: input.sourceDigest,
+    targets,
+    files
+  };
+}
+
+function renderAgentContextBody(node: NativeNode): string {
+  const source = nativeNodeSource(node);
+  const extensions = node.extensions;
+  const lspProfile = extensions?.lspProfile;
+  const verification = extensions?.verification;
+  const lines = [
+    `# Agent Context: ${node.name}`,
+    "",
+    `- id: \`${node.id}\``,
+    `- kind: \`${node.kind}\``,
+    ...(node.summary ? [`- summary: ${node.summary}`] : []),
+    ...(source?.include?.length ? [`- source.include: ${source.include.map((entry) => `\`${entry}\``).join(", ")}`] : []),
+    ...(source?.exclude?.length ? [`- source.exclude: ${source.exclude.map((entry) => `\`${entry}\``).join(", ")}`] : []),
+    ...(typeof lspProfile === "string" ? [`- extensions.lspProfile: \`${lspProfile}\``] : []),
+    ...(Array.isArray(verification) && verification.length > 0
+      ? [`- extensions.verification: ${verification.map((entry) => `\`${String(entry)}\``).join(", ")}`]
+      : []),
+    ...(extensions ? [`- extensions digest: ${digestJson(extensions as Json)}`] : [])
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function agentContextStartMarker(nodeId: string, sourceDigest: string, rendererVersion: string, outputDigest: string): string {
+  return `${AGENT_CONTEXT_BEGIN_PREFIX} id="${nodeId}" sourceDigest="${sourceDigest}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
+}
+
+function agentContextEndMarker(nodeId: string): string {
+  return `${AGENT_CONTEXT_END_PREFIX} id="${nodeId}" -->`;
+}
+
+function wrapAgentContextRegion(target: AgentContextProjectionTarget, generatedBody: string): string {
+  return [target.generatedRegion.startMarker, generatedBody.trimEnd(), target.generatedRegion.endMarker, ""].join("\n");
+}
+
+function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: string, existing?: string): string {
+  if (!existing) return wrapped;
+  const region = findAgentContextRegion(existing, target.scope.id);
+  if (!region) return `${existing.trimEnd()}\n\n${wrapped}`;
+  return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
+}
+
+function findAgentContextRegion(body: string, nodeId: string): { start: number; end: number } | undefined {
+  const startPattern = new RegExp(`<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${escapeRegExp(nodeId)}"[^>]*-->`);
+  const startMatch = startPattern.exec(body);
+  if (!startMatch || startMatch.index === undefined) return undefined;
+  const endMarker = agentContextEndMarker(nodeId);
+  const endIndex = body.indexOf(endMarker, startMatch.index + startMatch[0].length);
+  if (endIndex < 0) return undefined;
+  const regionEnd = endIndex + endMarker.length + (body[endIndex + endMarker.length] === "\n" ? 1 : 0);
+  return { start: startMatch.index, end: regionEnd };
+}
+
+// --- Path Ownership Resolution (ADR-0043 tie-break) ---
+//
+// Single implementation of the ADR-0043 tie-break: apply `source.exclude` first, then the
+// most-specific (longest literal prefix) matching `source.include` wins, and an equal-
+// specificity tie is rejected as ambiguous. `archctx resolve --path`
+// (packages/surfaces/cli/src/main.ts) is the only caller today; a future repo-harness
+// adapter is expected to call the CLI rather than re-deriving this glob semantics.
+
+export type ResolveArchitectureOwnerResult =
+  | { status: "matched"; node: NativeNode }
+  | { status: "no-match" }
+  | { status: "ambiguous"; candidates: NativeNode[] };
+
+export function resolveArchitectureOwnerForPath(nodes: NativeNode[], path: string): ResolveArchitectureOwnerResult {
+  const candidates: { node: NativeNode; specificity: number }[] = [];
+  for (const node of nodes) {
+    const source = nativeNodeSource(node);
+    const include = source?.include ?? [];
+    if (include.length === 0) continue;
+    const excluded = (source?.exclude ?? []).some((pattern) => matchesGlob(path, pattern));
+    if (excluded) continue;
+    const specificity = include
+      .filter((pattern) => matchesGlob(path, pattern))
+      .reduce((max, pattern) => Math.max(max, globLiteralPrefixLength(pattern)), -1);
+    if (specificity >= 0) candidates.push({ node, specificity });
+  }
+  if (candidates.length === 0) return { status: "no-match" };
+  const maxSpecificity = candidates.reduce((max, candidate) => Math.max(max, candidate.specificity), -1);
+  const winners = candidates.filter((candidate) => candidate.specificity === maxSpecificity).map((candidate) => candidate.node);
+  if (winners.length > 1) return { status: "ambiguous", candidates: winners };
+  return { status: "matched", node: winners[0] };
+}
+
+export function matchesGlob(path: string, pattern: string): boolean {
+  return globToRegExp(pattern).test(path);
+}
+
+/** Length of the glob's literal prefix (before its first `*`/`?`); used as the ADR-0043 specificity score. */
+export function globLiteralPrefixLength(pattern: string): number {
+  const index = pattern.search(/[*?]/);
+  return index === -1 ? pattern.length : index;
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let out = "";
+  let index = 0;
+  while (index < pattern.length) {
+    if (pattern.startsWith("**/", index)) {
+      out += "(?:.*/)?";
+      index += 3;
+      continue;
+    }
+    if (pattern.startsWith("**", index)) {
+      out += ".*";
+      index += 2;
+      continue;
+    }
+    const char = pattern[index];
+    if (char === "*") {
+      out += "[^/]*";
+    } else if (char === "?") {
+      out += "[^/]";
+    } else {
+      out += escapeRegExp(char);
+    }
+    index += 1;
+  }
+  return new RegExp(`^${out}$`);
 }
