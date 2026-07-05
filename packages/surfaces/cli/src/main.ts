@@ -13,6 +13,7 @@ import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyL
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
+  AUDIT_RUN_DEFAULT_TIMEOUT_MS,
   RUNTIME_RPC_VERSION,
   createRuntimeRpcClientFromConnectionFile,
   createStartedDaemon,
@@ -424,7 +425,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -1235,6 +1236,9 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
 
 const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 type AuditRunStatus = ArchitectureAuditRunV1["status"];
+// How often `archctx audit run` re-polls `audit list` while waiting for a "started" run to reach
+// a terminal status (see runAuditCommand below).
+const AUDIT_RUN_POLL_INTERVAL_MS = 5_000;
 
 function readAuditRunStatuses(args: string[], requestId: string):
   | { ok: true; statuses: AuditRunStatus[] }
@@ -1352,8 +1356,51 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
     ...(readFlag(args, "--model-id") === undefined ? {} : { modelId: readFlag(args, "--model-id")! }),
     ...(timeoutMsResult.value === undefined ? {} : { timeoutMs: timeoutMsResult.value })
   };
-  const result = await daemon.auditRun(cwd, input);
-  return { ...result, requestId: "audit.run" };
+  const started = await daemon.auditRun(cwd, input);
+  if (!started.ok) return { ...started, requestId: "audit.run" };
+  const startedData = started.data as { status?: string; jobId?: string } | undefined;
+  // The daemon defaults to async ("started" + jobId, driven to completion in the background) so
+  // this RPC call itself never has to stay open for the run's full 10-25 minute duration. Anything
+  // other than "started" (a `--no-wait` request, or a daemon that already returned a terminal
+  // status directly) is already final — nothing to poll for.
+  if (args.includes("--no-wait") || startedData?.status !== "started" || !startedData.jobId) {
+    return { ...started, requestId: "audit.run" };
+  }
+  const jobId = startedData.jobId;
+  const pollTimeoutMs = timeoutMsResult.value ?? AUDIT_RUN_DEFAULT_TIMEOUT_MS;
+  const deadline = Date.now() + pollTimeoutMs;
+  process.stderr.write(`archctx audit run: ${jobId} started, polling \`archctx audit list\` every ${Math.round(AUDIT_RUN_POLL_INTERVAL_MS / 1000)}s (pass --no-wait to return immediately instead)...\n`);
+  // Check before sleeping (so an already-finished run — or a tiny --timeout-ms in tests — is
+  // reported without an unnecessary trailing wait), then sleep only if the deadline hasn't
+  // already passed, so this always makes at least one `audit list` attempt.
+  for (;;) {
+    const list = await daemon.auditList(cwd, {});
+    if (list.ok) {
+      const runs = (list.data as { runs?: { runId: string; jobId: string; status: AuditRunStatus; reportId: string; issueDraftDigests?: string[] }[] } | undefined)?.runs ?? [];
+      const match = runs.find((run) => run.jobId === jobId);
+      if (match && (match.status === "pending" || match.status === "failed")) {
+        return okEnvelope("audit.run", {
+          schemaVersion: "archcontext.audit-run-result/v1",
+          runId: match.runId,
+          status: match.status,
+          jobId: match.jobId,
+          reportId: match.reportId,
+          pendingDraftCount: match.status === "pending" ? (match.issueDraftDigests?.length ?? 0) : 0
+        } as unknown as Json);
+      }
+    }
+    if (Date.now() >= deadline) break;
+    const elapsedSeconds = Math.round((Date.now() - (deadline - pollTimeoutMs)) / 1000);
+    process.stderr.write(`archctx audit run: ${jobId} is still running (${elapsedSeconds}s elapsed)...\n`);
+    await sleep(AUDIT_RUN_POLL_INTERVAL_MS);
+  }
+  // A poll timeout is not a run failure: the daemon may well still be driving the investigation to
+  // completion in the background past this CLI call's own patience budget.
+  return errorEnvelope(
+    "audit.run",
+    "AC_PRECONDITION_FAILED",
+    `archctx audit run: job ${jobId} has not reached a terminal status after ${Math.round(pollTimeoutMs / 1000)}s; this is not a failure, the daemon may still be running it — check later with: archctx audit list`
+  );
 }
 
 /**

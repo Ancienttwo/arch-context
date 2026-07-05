@@ -49,10 +49,14 @@ Adopt a daemon-driven, opt-in local audit flow with four parts.
    in-process (trigger source `agent_audit`, distinct from the git-hook trigger
    semantics used by `jobsEnqueueGitHook`), claims it, and runs a real transport:
    `spawn("claude", ["--print", "--output-format", "json", ...])` with no shell,
-   unwrapping the CLI's JSON envelope into an `InvestigationReportV1`. This is a
-   synchronous RPC — the CLI caller blocks until the audit finishes or times out
-   — matching the "trigger and read" boundary CLI/MCP already hold everywhere
-   else in this codebase.
+   unwrapping the CLI's JSON envelope into an `InvestigationReportV1`. The RPC
+   enqueues and claims synchronously, then by default drives the investigation in
+   the background and returns `{status: "started", jobId}` immediately — real
+   audits run longer than any HTTP client timeout — while the CLI polls
+   `audit list` for the landed run (`wait: true` preserves the blocking behavior
+   for embedded/test callers). Either way the CLI remains a pure "trigger and
+   read" surface, matching the boundary CLI/MCP already hold everywhere else in
+   this codebase.
 2. **New typed proposal shape.** `GithubIssueDraftV1` (in
    `core/agent-orchestrator`, carried under `InvestigationReportV1.extensions.
    githubIssueDrafts`) is advisory-only: it uses `bodyMarkdown` rather than the

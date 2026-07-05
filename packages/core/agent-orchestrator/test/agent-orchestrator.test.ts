@@ -199,6 +199,30 @@ describe("@archcontext/core/agent-orchestrator", () => {
     expect(JSON.stringify(job)).not.toContain("sourceBody");
   });
 
+  test("defaults stalePolicy to cancel-on-head-change but honors an explicit advisory-only-on-stale override", () => {
+    const defaulted = createInvestigationAgentJob({
+      ...spawnInput(),
+      runnerPort: "fake-provider",
+      inputDigest: digestJson({ input: "stale-policy-default" } as unknown as Json),
+      promptTemplateDigest: digestJson({ prompt: "al6" } as unknown as Json),
+      policy: { adapterEnabled: true }
+    });
+    expect(defaulted.stalePolicy).toBe("cancel-on-head-change");
+
+    // A long-running job (e.g. archctx audit run's multi-minute investigation) needs to survive a
+    // concurrent cancelStaleRuntimeAgentJobs sweep triggered by something else (an unrelated
+    // git-hook job, or its own repository writes) bumping the worktree digest mid-flight.
+    const advisoryOnly = createInvestigationAgentJob({
+      ...spawnInput(),
+      runnerPort: "claude-code",
+      inputDigest: digestJson({ input: "stale-policy-override" } as unknown as Json),
+      promptTemplateDigest: digestJson({ prompt: "al6" } as unknown as Json),
+      policy: { adapterEnabled: true },
+      stalePolicy: "advisory-only-on-stale"
+    });
+    expect(advisoryOnly.stalePolicy).toBe("advisory-only-on-stale");
+  });
+
   test("applies the job state machine and rejects impossible terminal transitions", () => {
     const queued = agentJob();
     const running = transitionAgentJobStatus(queued, { status: "running", now: "2026-06-26T08:01:00.000Z" });

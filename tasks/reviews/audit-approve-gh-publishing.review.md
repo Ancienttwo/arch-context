@@ -57,6 +57,19 @@ e2e 抓到的產品級 findings（未修，第三刀範圍）：
 - **F6 [P2-scale] 中型 repo 深審失敗**：growth-hacker（141 檔）完整模板審計 outcome "failed"（非 timeout，claude 正常退出但 report 未被接受；縮小版審計同 repo 完全合規）——因 F4 無從分類，嫌疑 maxOutputBytes 或長跑後輸出違規。fixture 級完整鏈成功。
 - **F7 [P3] 審計進程對被審 repo 的寫入面**：claude CLI 自身 session 記賬與用戶全局 hooks 在 cwd（被審 repo）寫 `.claude/`/`.ai/` 狀態檔——工具白名單管不到 CLI 自身行為；本次因 digest 尊重全局 gitignore 未成事故，但「零寫入被審 repo」嚴格說不成立，值得 ADR 殘餘風險記錄或用 CLAUDE_CONFIG_DIR 類機制隔離。
 
+## 第三刀（F1/F2/F3 修復）驗收（2026-07-05）
+
+實作（fast-worker）修復 F1（auditRun 默認異步：enqueue+claim 同步、投研後台驅動全 catch、AbortController Map + stop() abort、CLI 按 jobId 輪詢 + `--no-wait`）、F2（stalePolicy 貫通 `advisory-only-on-stale`，並挖到 `jobsComplete` 成功分支裡第二道不看 policy 的 stale-check 一併修復，帶同 sweep 對照斷言）、F3（根因改道：daemon 構造子默認 clock 是常量 `new Date(0)` 且 production 被 blockedProductionInjections 擋住無法注入——修在 `runtimeDefaultClock(compositionMode)`，embedded/test 保留凍結 epoch 守 900+ 測試確定性）。
+
+Gatekeeper（Opus max ship gate）VERDICT: **PASS** 零 findings——(a) 後台無 unhandled-rejection 路徑、(b) started 前的失敗全部同步可見、(c) F2 無過度放行（對照：同 sweep 內 hook job expired vs audit job succeeded）、(d) 生產工廠鏈路無 epoch 泄漏、(e) 測試斷不變量，全部 file:line 閉合；完整 verify 親跑 exit 0（942 pass）。三個自報偏離全部裁決可接受。
+
+e2e 復現路徑驗證：fixture repo 真審計（claude ~9 分鐘）全程 CLI 無超時、輪詢拿到落賬 run（F1 對「audit run 不再假死」的用戶面目標坐實）。
+
+**e2e 同時抓到兩個新 finding（同根，未修）**：
+
+- **F3b [P1] 真實 CLI 路徑不走 production 工廠**：乾淨環境（殭屍 daemon 清除、connection 檔不存在）下真實 `archctx audit run` 的新 job `queuedAt` 仍 epoch——實測服務者是 **CLI 進程內 runtime**（`createStartedDaemon` embedded 構造、epoch clock；佐證：approve 時 PAT env 加在 CLI 命令前綴即生效）。`createCliRuntime`（cli/main.ts:2583）的分支邏輯聲稱無 embedded deps 就走 RPC discovery，與實測矛盾——分支取值或 discovery 失敗路徑待定位。F3 的修復在 production 工廠層正確但真實 CLI 落不到它。
+- **F1b [P2] 進程內模式下 `--no-wait` CLI 不退出**：F1 的後台驅動 promise + claude 子進程掛住 event loop，`--no-wait` 輸出 envelope 後進程繼續存活直到審計完成（ps 實測 CLI 進程即「daemon」本體）。RPC 模式無此問題；與 F3b 同根（不該進程內跑的路徑進程內跑了）。
+
 ## 殘餘風險
 
 1. ~~真 gh 端到端未驗~~ → 已由上節閉合（fixture 級全鏈 + 真 issue 發布 + 冪等；中型 repo 深審質量見 F6）。

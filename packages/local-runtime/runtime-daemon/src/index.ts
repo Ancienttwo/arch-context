@@ -81,7 +81,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -99,7 +99,11 @@ import {
 const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
 const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
 const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
-const AUDIT_RUN_DEFAULT_TIMEOUT_MS = 600_000;
+// Exported so the CLI can mirror the same default for its own audit-run polling deadline (the
+// same "how long is this audit allowed to take" budget governs both the daemon-side investigation
+// timeout and the CLI-side poll-until-terminal loop) without duplicating the literal and risking
+// drift between the two.
+export const AUDIT_RUN_DEFAULT_TIMEOUT_MS = 600_000;
 const AUDIT_APPROVE_GH_TOKEN_ENV = "ARCHCONTEXT_GH_ISSUES_TOKEN";
 
 const AUDIT_PROMPT_TEMPLATE = `You are performing a read-only architecture audit of this repository for ArchContext.
@@ -287,6 +291,16 @@ export interface RuntimeAuditRunInput {
   contextMaxItems?: number;
   modelId?: string;
   timeoutMs?: number;
+  /**
+   * Defaults to false: `auditRun` enqueues and claims its job synchronously, then drives the
+   * (multi-minute, real-claude-subprocess) investigation to completion in a detached background
+   * task and returns `{status: "started", jobId}` immediately, so the RPC call itself never has to
+   * stay open longer than a real HTTP client's default timeout. Pass `wait: true` to keep the
+   * original fully-synchronous contract (the call does not resolve until the run reaches a
+   * terminal "pending"/"failed" status) — used by callers that already run in a context with no
+   * such timeout (tests, scripts that intentionally want to block).
+   */
+  wait?: boolean;
 }
 
 export interface RuntimeAuditApproveInput {
@@ -864,6 +878,10 @@ export class ArchctxDaemon {
   private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
   private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
+  // Tracks the AbortController for every audit job's in-flight (foreground or detached
+  // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
+  // rather than leaving them running orphaned past the daemon's own lifetime.
+  private readonly auditRunAbortControllers = new Map<string, AbortController>();
   private landscape?: Landscape;
   private explorer?: ExplorerServerSession;
   private running = false;
@@ -885,7 +903,7 @@ export class ArchctxDaemon {
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
     this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
-    this.clock = deps.clock ?? (() => new Date(0).toISOString());
+    this.clock = deps.clock ?? runtimeDefaultClock(options.compositionMode ?? "embedded");
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
       mode: process.env.ARCHCONTEXT_CONTEXT7_MODE === "prepare-unknowns" ? "prepare-unknowns" : "manual",
@@ -906,6 +924,18 @@ export class ArchctxDaemon {
 
   async stop(): Promise<void> {
     await this.closeExplorer();
+    // Abort every in-flight audit investigation: this reliably kills its real `claude` subprocess
+    // via the transport's signal handling (child.kill("SIGKILL") on the 'abort' event), so nothing
+    // is ever left running orphaned past this daemon's lifetime — that guarantee holds
+    // unconditionally. What is best-effort, not guaranteed: runAndCompleteAuditJob's own
+    // subsequent failed-run bookkeeping (jobsComplete + appendAuditRunToArchitectureLedger) races
+    // against `this.running` flipping false and `this.localStore.close()` a few lines below, both
+    // of which happen synchronously right after this loop while the aborted investigation's
+    // rejection is still propagating through several microtask hops. If that bookkeeping loses the
+    // race, the job simply stays "running" in the queue with a lease that will expire on its own
+    // (recoverable via the existing claim/dead-letter path) rather than a clean "failed" run
+    // record — never a crash or a silently corrupted state, just a missed observability record.
+    for (const controller of this.auditRunAbortControllers.values()) controller.abort();
     this.sessions.clear();
     this.checkpointBaselines.clear();
     this.checkpointCoalesced.clear();
@@ -1273,7 +1303,13 @@ export class ArchctxDaemon {
       );
     }
     if (input.status === "succeeded") {
-      if (record && isRuntimeAgentJobCursorStale(record.job, scope)) {
+      // Mirrors cancelStaleRuntimeAgentJobs's own stalePolicy gate: a job that opted into
+      // "advisory-only-on-stale" (e.g. archctx audit run's multi-minute investigation, which can
+      // legitimately outlive a worktree digest shift from something as small as an untracked
+      // .archcontext/ directory changing) must not be silently self-cancelled here either — this
+      // check is a second, independent staleness enforcement point from that sweep, and both must
+      // agree on the same policy or a stalePolicy override is only half-honored.
+      if (record && record.job.stalePolicy === "cancel-on-head-change" && isRuntimeAgentJobCursorStale(record.job, scope)) {
         await this.localStore.cancelRuntimeAgentJob({
           jobId: input.jobId,
           status: "expired",
@@ -1405,7 +1441,15 @@ export class ArchctxDaemon {
       jobId,
       runnerPort: "claude-code",
       inputDigest: context.inputDigest,
-      promptTemplateDigest
+      promptTemplateDigest,
+      // Unlike git-hook investigation jobs (worthless once HEAD/worktree moves, so cancelling them
+      // on drift is correct), an audit job's own multi-minute lifetime — or an unrelated concurrent
+      // git-hook job's cancelStaleRuntimeAgentJobs sweep — can legitimately bump the worktree
+      // digest (e.g. an untracked .archcontext/ directory whose content shifts) while this job is
+      // still honestly in flight. Cancelling it out from under itself would silently discard
+      // 10-25 minutes of real investigation work with no run record at all, so audit jobs opt out
+      // of the cancel-on-move default.
+      stalePolicy: "advisory-only-on-stale"
     });
     const jobWithContext: AgentJobV1 = {
       ...job,
@@ -1438,90 +1482,177 @@ export class ArchctxDaemon {
     if (!claimed || claimed.job.jobId !== jobId) {
       return errorEnvelope("audit.run", "AC_PRECONDITION_FAILED", `agent audit job could not be claimed: ${jobId}`);
     }
-    const runningJob = claimed.job;
 
-    const runner = createClaudeCodeInvestigationRunner({
-      transport: this.investigationTransport,
-      promptTemplate: AUDIT_PROMPT_TEMPLATE,
-      modelId: input.modelId,
-      // Bind the subagent process's cwd to the repository being audited, not wherever the daemon
-      // process happened to start, so its CLAUDE.md/docs reads (see AUDIT_PROMPT_TEMPLATE) resolve
-      // against the right repository.
-      cwd: repositoryRoot
-    });
-    const result = await runInvestigationWithRetry({
-      runner,
-      job: runningJob,
+    // The claim above is the last step that has to happen synchronously. The investigation itself
+    // is a real `claude` subprocess run that can take 10-25 minutes against a real repository, so
+    // driving it to completion happens in a tracked background task: fire-and-forget by default
+    // (the caller gets a "started" envelope immediately, matching a normal HTTP client's request
+    // timeout instead of blocking the RPC call for the run's full duration), or awaited inline when
+    // `wait: true` keeps the original fully-synchronous contract for callers that can afford to
+    // block (existing tests, one-shot scripts).
+    const abortController = new AbortController();
+    this.auditRunAbortControllers.set(jobId, abortController);
+    const drivePromise = this.runAndCompleteAuditJob({
+      repositoryRoot,
+      session,
+      jobId,
+      runningJob: claimed.job,
       context,
-      maxAttempts: 1,
       timeoutMs,
-      clock: this.clock
+      modelId: input.modelId,
+      signal: abortController.signal
+    }).finally(() => {
+      this.auditRunAbortControllers.delete(jobId);
     });
 
-    if (result.report.status !== "succeeded") {
+    if (input.wait) return drivePromise;
+    // Never let the detached run become an unhandled rejection: runAndCompleteAuditJob already
+    // catches every error internally and always resolves to a JsonEnvelope, but this is a
+    // last-resort backstop in case a future edit breaks that invariant.
+    drivePromise.catch(() => undefined);
+    return okEnvelope("audit.run", {
+      schemaVersion: "archcontext.audit-run-result/v1",
+      status: "started",
+      jobId
+    } as unknown as Json);
+  }
+
+  /**
+   * Runs a claimed audit job's investigation to completion and records the terminal run, either
+   * awaited inline (`wait: true`) or detached in the background (the default — see `auditRun`).
+   * Never throws: any exception after the job was claimed must still leave the job queue in a real
+   * terminal state (at minimum `completeRuntimeAgentJob` marked "failed") rather than "running"
+   * forever with no trace, because a silently-lost detached promise would be strictly worse than
+   * the synchronous behavior it replaces. `runInvestigationWithRetry` itself already never throws
+   * (a failed/timed-out/aborted attempt becomes a fallback report with `status: "failed"`, handled
+   * by the normal branch below), so the try/catch here is a backstop for the bookkeeping calls
+   * around it (ledger append conflicts, the store closing mid-flight during `stop()`, etc.).
+   */
+  private async runAndCompleteAuditJob(input: {
+    repositoryRoot: string;
+    session: RepositorySession;
+    jobId: string;
+    runningJob: AgentJobV1;
+    context: InvestigationContextBundle;
+    timeoutMs: number;
+    modelId?: string;
+    signal: AbortSignal;
+  }): Promise<JsonEnvelope> {
+    const { repositoryRoot, session, jobId, runningJob, context, timeoutMs, modelId, signal } = input;
+    try {
+      const runner = createClaudeCodeInvestigationRunner({
+        transport: this.investigationTransport,
+        promptTemplate: AUDIT_PROMPT_TEMPLATE,
+        modelId,
+        // Bind the subagent process's cwd to the repository being audited, not wherever the daemon
+        // process happened to start, so its CLAUDE.md/docs reads (see AUDIT_PROMPT_TEMPLATE) resolve
+        // against the right repository.
+        cwd: repositoryRoot
+      });
+      const result = await runInvestigationWithRetry({
+        runner,
+        job: runningJob,
+        context,
+        maxAttempts: 1,
+        timeoutMs,
+        clock: this.clock,
+        signal
+      });
+
+      if (result.report.status !== "succeeded") {
+        const failedComplete = await this.jobsComplete(repositoryRoot, {
+          jobId,
+          workerId: "daemon-audit",
+          status: "failed",
+          outputDigest: result.report.outputDigest,
+          runMetadata: result.metadata,
+          error: `agent-audit-investigation-${result.report.status}`,
+          now: this.clock()
+        });
+        if (!failedComplete.ok) return failedComplete;
+        const appended = await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
+          jobId,
+          reportId: result.report.reportId,
+          inputDigest: context.inputDigest,
+          outputDigest: result.report.outputDigest,
+          issueDraftDigests: [],
+          status: "failed"
+        });
+        return okEnvelope("audit.run", {
+          schemaVersion: "archcontext.audit-run-result/v1",
+          runId: appended.runId,
+          status: "failed",
+          jobId,
+          reportId: result.report.reportId,
+          pendingDraftCount: 0
+        } as unknown as Json);
+      }
+
+      const plan = planInvestigationReportProposal({
+        report: result.report,
+        job: runningJob,
+        context,
+        now: this.clock()
+      });
+
+      const completed = await this.jobsComplete(repositoryRoot, {
+        jobId,
+        workerId: "daemon-audit",
+        status: "succeeded",
+        outputDigest: result.report.outputDigest,
+        runMetadata: result.metadata,
+        proposalPlan: plan,
+        now: this.clock()
+      });
+      if (!completed.ok) return completed;
+
+      const appended = await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
+        jobId,
+        reportId: plan.reportId,
+        inputDigest: plan.inputDigest,
+        outputDigest: plan.outputDigest,
+        issueDraftDigests: plan.githubIssueDraftDigests ?? [],
+        status: "pending"
+      });
+
+      return okEnvelope("audit.run", {
+        schemaVersion: "archcontext.audit-run-result/v1",
+        runId: appended.runId,
+        status: "pending",
+        jobId,
+        reportId: plan.reportId,
+        pendingDraftCount: plan.githubIssueDrafts?.length ?? 0
+      } as unknown as Json);
+    } catch (error) {
+      return this.failAuditRunFromException(repositoryRoot, jobId, error);
+    }
+  }
+
+  /**
+   * Last-resort terminal-state guarantee for an audit job once it has been claimed. An exception
+   * reaching here is always unexpected (a ledger append conflict, a validation bug, the local
+   * store closing mid-flight during `stop()`), so this makes no attempt to reconstruct a real
+   * investigation report or ledger run — it only guarantees the job queue does not leave the job
+   * "running" forever. If even that fails (e.g. the store is already closed), the secondary error
+   * is swallowed too: there is nothing further a detached background task can safely do, and it
+   * must never throw back out as an unhandled rejection.
+   */
+  private async failAuditRunFromException(repositoryRoot: string, jobId: string, error: unknown): Promise<JsonEnvelope> {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
       const failedComplete = await this.jobsComplete(repositoryRoot, {
         jobId,
         workerId: "daemon-audit",
         status: "failed",
-        outputDigest: result.report.outputDigest,
-        runMetadata: result.metadata,
-        error: `agent-audit-investigation-${result.report.status}`,
+        error: `agent-audit-investigation-exception: ${message}`,
         now: this.clock()
       });
       if (!failedComplete.ok) return failedComplete;
-      const appended = await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
-        jobId,
-        reportId: result.report.reportId,
-        inputDigest: context.inputDigest,
-        outputDigest: result.report.outputDigest,
-        issueDraftDigests: [],
-        status: "failed"
-      });
-      return okEnvelope("audit.run", {
-        schemaVersion: "archcontext.audit-run-result/v1",
-        runId: appended.runId,
-        status: "failed",
-        jobId,
-        reportId: result.report.reportId,
-        pendingDraftCount: 0
-      } as unknown as Json);
+    } catch {
+      // The job queue itself is unreachable (e.g. the local store already closed during
+      // ArchctxDaemon.stop()); no further recovery is possible from a detached background task.
     }
-
-    const plan = planInvestigationReportProposal({
-      report: result.report,
-      job: runningJob,
-      context,
-      now: this.clock()
-    });
-
-    const completed = await this.jobsComplete(repositoryRoot, {
-      jobId,
-      workerId: "daemon-audit",
-      status: "succeeded",
-      outputDigest: result.report.outputDigest,
-      runMetadata: result.metadata,
-      proposalPlan: plan,
-      now: this.clock()
-    });
-    if (!completed.ok) return completed;
-
-    const appended = await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
-      jobId,
-      reportId: plan.reportId,
-      inputDigest: plan.inputDigest,
-      outputDigest: plan.outputDigest,
-      issueDraftDigests: plan.githubIssueDraftDigests ?? [],
-      status: "pending"
-    });
-
-    return okEnvelope("audit.run", {
-      schemaVersion: "archcontext.audit-run-result/v1",
-      runId: appended.runId,
-      status: "pending",
-      jobId,
-      reportId: plan.reportId,
-      pendingDraftCount: plan.githubIssueDrafts?.length ?? 0
-    } as unknown as Json);
+    return errorEnvelope("audit.run", "AC_PRECONDITION_FAILED", `agent audit job ${jobId} failed unexpectedly: ${message}`);
   }
 
   /**
@@ -5172,6 +5303,22 @@ export function assertProductionRuntimeDeps(deps: RuntimeDeps): void {
   if (blocked.length > 0) {
     throw new Error(`Production archctxd cannot inject runtime test doubles: ${blocked.join(", ")}`);
   }
+}
+
+/**
+ * Default `clock` used when a caller does not inject one via `RuntimeDeps.clock` (an explicit
+ * `clock` injection is itself one of the `blockedProductionInjections` in production mode, so this
+ * default — not an injected override — is what production actually runs on). Embedded/test
+ * composition keeps the historical frozen-epoch default so the hundreds of existing tests that
+ * construct a daemon without overriding `clock` stay deterministic; production composition (the
+ * real `archctxd` process started by `createProductionDaemon`/`archctx daemon start`) gets a real
+ * wall clock instead. Before this branch existed, production always fell through to the frozen
+ * epoch default too, which is why real audit runs recorded `createdAt`/`startedAt`/`completedAt`/
+ * `issuedAt` as `1970-01-01T00:00:00.000Z` with `durationMs: 0` — every `this.clock()` call
+ * returned the exact same constant, not just a shared placeholder value.
+ */
+export function runtimeDefaultClock(compositionMode: RuntimeCompositionMode): () => string {
+  return compositionMode === "production" ? () => new Date().toISOString() : () => new Date(0).toISOString();
 }
 
 function runtimeCompositionReport(

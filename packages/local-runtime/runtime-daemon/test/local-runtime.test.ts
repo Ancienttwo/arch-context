@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type NormalizedCodeContext } from "@archcontext/contracts";
-import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput } from "@archcontext/core/agent-orchestrator";
+import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput, type CommandInvestigationRunnerTransportResult } from "@archcontext/core/agent-orchestrator";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
@@ -41,6 +41,7 @@ import {
   defaultDaemonLockPath,
   recoverStaleDaemonControlFiles,
   readRuntimeRpcConnection,
+  runtimeDefaultClock,
   type RuntimeAuditApproveInput
 } from "../src/index";
 
@@ -1168,7 +1169,7 @@ describe("local runtime foundation", () => {
         }
       });
 
-      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(run.ok).toBe(true);
       expect((run.data as any).status).toBe("pending");
       expect((run.data as any).pendingDraftCount).toBe(2);
@@ -1220,7 +1221,7 @@ describe("local runtime foundation", () => {
         investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
       });
 
-      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(run.ok).toBe(true);
       expect((run.data as any).status).toBe("failed");
       expect((run.data as any).pendingDraftCount).toBe(0);
@@ -1249,14 +1250,14 @@ describe("local runtime foundation", () => {
       });
 
       // No .archcontext/manifest.yaml at all: fails closed (disabled), matching the CLI default.
-      const disabledByDefault = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const disabledByDefault = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(disabledByDefault.ok).toBe(false);
       expect((disabledByDefault as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
       expect(transportCalls).toBe(0);
 
       // Explicit `enabled: false` is also rejected before anything is spawned or enqueued.
       writeAuditManifest(root, false);
-      const disabledExplicitly = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const disabledExplicitly = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(disabledExplicitly.ok).toBe(false);
       expect((disabledExplicitly as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
       expect(transportCalls).toBe(0);
@@ -1265,7 +1266,7 @@ describe("local runtime foundation", () => {
 
       // Enabling it allows the run to reach the (fake) transport.
       writeAuditManifest(root, true);
-      const enabled = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const enabled = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(enabled.ok).toBe(true);
       expect(transportCalls).toBe(1);
     } finally {
@@ -1317,7 +1318,7 @@ describe("local runtime foundation", () => {
       expect((preseedEnqueue.data as any).enqueued).toBe(true);
       const preseedJobId = (preseedEnqueue.data as any).record.job.jobId;
 
-      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(run.ok).toBe(true);
       expect((run.data as any).status).toBe("pending");
       const auditJobId = (run.data as any).jobId;
@@ -1368,10 +1369,218 @@ describe("local runtime foundation", () => {
         }
       });
 
-      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(run.ok).toBe(true);
       expect(capturedCwd).toBeDefined();
       expectSameExistingPath(capturedCwd!, root);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run defaults to async: returns started immediately and the run reaches pending in the background, observable via audit list", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T06:00:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.async_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-07-05T06:00:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      // No `wait: true`: the RPC call itself must resolve immediately with "started", never
+      // blocking for the full (here fake, but in production 10-25 minute) investigation.
+      const started = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(started.ok).toBe(true);
+      expect((started.data as any).status).toBe("started");
+      expect((started.data as any).jobId).toBeDefined();
+      // No runId yet: a runId is only assigned once the ledger append happens, which only
+      // happens after the (still in-flight, backgrounded) investigation completes.
+      expect((started.data as any).runId).toBeUndefined();
+      const jobId = (started.data as any).jobId as string;
+
+      // Poll audit list the same way the CLI does, until the detached background drive settles.
+      let match: any;
+      for (let attempt = 0; attempt < 200 && !match; attempt += 1) {
+        const list = await daemon.auditList(root);
+        match = ((list.data as any)?.runs ?? []).find((run: any) => run.jobId === jobId);
+        if (!match) await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(match).toBeDefined();
+      expect(match.status).toBe("pending");
+
+      const show = await daemon.auditShow(root, match.runId);
+      expect(show.ok).toBe(true);
+      expect((show.data as any).run.jobId).toBe(jobId);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run with wait: true keeps the original fully-synchronous contract", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T06:10:00.000Z",
+        investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      // Resolves directly to a terminal status, not "started" — wait: true never leaves anything
+      // to poll for.
+      expect((run.data as any).status).toBe("failed");
+      expect((run.data as any).runId).toBeDefined();
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("daemon stop aborts an in-flight audit run's investigation transport signal", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    let capturedSignal: AbortSignal | undefined;
+    let notifyTransportStarted: (() => void) | undefined;
+    const transportStarted = new Promise<void>((resolve) => {
+      notifyTransportStarted = resolve;
+    });
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T07:00:00.000Z",
+        investigationTransport: (input: CommandInvestigationRunnerTransportInput) => {
+          capturedSignal = input.signal;
+          notifyTransportStarted?.();
+          // Simulates a real long-running `claude` subprocess: never resolves on its own, only in
+          // response to the daemon aborting it (exactly what `stop()` below is expected to do).
+          return new Promise<CommandInvestigationRunnerTransportResult>((_resolve, reject) => {
+            input.signal?.addEventListener("abort", () => reject(new Error("investigation-runner-aborted")), { once: true });
+          });
+        }
+      });
+
+      const started = await daemon.auditRun(root, { timeoutMs: 60_000 });
+      expect(started.ok).toBe(true);
+      expect((started.data as any).status).toBe("started");
+
+      await transportStarted;
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal!.aborted).toBe(false);
+
+      await daemon.stop();
+
+      // The one property `stop()` guarantees unconditionally: every in-flight audit's transport
+      // signal is aborted (which, in the real node transport, kills the child process), so nothing
+      // is ever left running orphaned past the daemon's own lifetime. Whether the resulting failed
+      // run finishes being recorded before the store closes is a separate, best-effort race (see
+      // the comment on `stop()` in src/index.ts) and is intentionally not asserted here.
+      expect(capturedSignal!.aborted).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run job survives a concurrent stale-cancel sweep via advisory-only-on-stale, while a default-policy hook job in the same sweep still gets cancelled", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    let sweepExpiredJobIds: string[] = [];
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T05:00:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          // Simulate a concurrent git-hook enqueue racing in while the audit job is still
+          // "running" — e.g. the audited repository's own untracked .archcontext/ content
+          // shifting mid-flight (the exact e2e-observed trigger for F2). This bumps the worktree
+          // digest and drives jobsEnqueueGitHook's own cancelStaleRuntimeAgentJobs sweep against
+          // every queued/running job in scope, including the in-flight audit job itself.
+          mkdirSync(join(root, "src"), { recursive: true });
+          writeFileSync(join(root, "src", "concurrent-change.ts"), "export const concurrent = true;\n", "utf8");
+          const sweep = await daemon.jobsEnqueueGitHook(root, {
+            source: "worktree",
+            event: "concurrent-sweep",
+            analysisKind: "architecture-delta",
+            risk: "high",
+            uncertainty: "high",
+            coalesceKey: "coalesce.stale-cancel-sweep"
+          });
+          expect((sweep.data as any).enqueued).toBe(true);
+          sweepExpiredJobIds = (sweep.data as any).expiredJobIds as string[];
+
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.stale_cancel_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-07-05T05:00:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      // Pre-seed a normal git-hook job (default stalePolicy: cancel-on-head-change) so it is
+      // still "queued" — and already stale relative to the repository state at the time of the
+      // concurrent sweep above — when that sweep runs.
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(join(root, "docs", "pre-existing-change.md"), "# pre-existing\n", "utf8");
+      const preseedEnqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.stale-cancel-preseed"
+      });
+      expect((preseedEnqueue.data as any).enqueued).toBe(true);
+      const hookJobId = (preseedEnqueue.data as any).record.job.jobId as string;
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      const auditJobId = (run.data as any).jobId as string;
+
+      // The audit job must survive the concurrent sweep (advisory-only-on-stale)...
+      expect(sweepExpiredJobIds).not.toContain(auditJobId);
+      // ...while the pre-seeded hook job (default cancel-on-head-change) is cancelled by the same
+      // sweep, proving this is a policy-specific fix, not a blanket "never cancel" regression.
+      expect(sweepExpiredJobIds).toContain(hookJobId);
+
+      const jobs = await daemon.jobsList(root);
+      const hookRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === hookJobId);
+      expect(hookRecord).toBeDefined();
+      expect(hookRecord.job.status).toBe("expired");
+      const auditRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === auditJobId);
+      expect(auditRecord).toBeDefined();
+      expect(auditRecord.job.status).toBe("succeeded");
     } finally {
       removeTempRepo(root);
     }
@@ -1397,7 +1606,7 @@ describe("local runtime foundation", () => {
         }
       });
 
-      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect(run.ok).toBe(true);
       expect((run.data as any).status).toBe("pending");
       const runId = (run.data as any).runId as string;
@@ -1622,7 +1831,7 @@ describe("local runtime foundation", () => {
         clock: () => "2026-07-05T02:00:00.000Z",
         investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
       });
-      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
       expect((run.data as any).status).toBe("failed");
       const runId = (run.data as any).runId as string;
 
@@ -3670,6 +3879,26 @@ describe("local runtime foundation", () => {
     }
   }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
 
+  test("runtime default clock is a real wall clock for production composition, frozen epoch for embedded/test composition", () => {
+    // `clock` itself is one of the blockedProductionInjections above (a caller cannot hand
+    // production a fake clock), so the *default* used when nothing is injected is the only thing
+    // that determines what a real `archctxd` process actually timestamps events with. Before this
+    // fix, `createProductionDaemon` never overrode `clock`, so production silently fell through to
+    // the same frozen "1970-01-01T00:00:00.000Z" every embedded/test daemon uses for determinism —
+    // which is exactly the epoch `createdAt`/`startedAt`/`completedAt`/`issuedAt` (and `durationMs:
+    // 0`, since every call returned the identical constant) a real `archctx audit run` recorded.
+    const embeddedNow = runtimeDefaultClock("embedded")();
+    expect(embeddedNow).toBe("1970-01-01T00:00:00.000Z");
+    expect(runtimeDefaultClock("embedded")()).toBe(embeddedNow);
+
+    const before = Date.now();
+    const productionNow = Date.parse(runtimeDefaultClock("production")());
+    const after = Date.now();
+    expect(Number.isNaN(productionNow)).toBe(false);
+    expect(productionNow).toBeGreaterThanOrEqual(before);
+    expect(productionNow).toBeLessThanOrEqual(after);
+  });
+
   test("runtime RPC ignores insecure connection files and recovers stale locks", async () => {
     const root = tempRepo();
     const connectionPath = defaultDaemonConnectionPath(root);
@@ -4121,7 +4350,7 @@ async function createPendingApproveFixture(options: {
     githubIssueExecutor: options.githubIssueExecutor,
     investigationTransport: auditInvestigationTransportWithDrafts(draftRecords, now)
   });
-  const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+  const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
   if (!run.ok) throw new Error(`fixture audit run failed: ${JSON.stringify(run)}`);
   const runId = (run.data as any).runId as string;
   return { root, store, daemon, runId, draftRecords };

@@ -1016,6 +1016,136 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("archctx audit run polls audit list after the daemon returns started, and returns the completed run", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-async-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.async_test" }
+          };
+        },
+        auditList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: {
+              schemaVersion: "archcontext.audit-run-list/v1",
+              count: 1,
+              runs: [{
+                schemaVersion: "archcontext.architecture-audit-run/v1",
+                runId: "audit_run.async_test",
+                jobId: "agent_job.async_test",
+                reportId: "report.async_test",
+                status: "pending",
+                issueDraftDigests: ["sha256:aaaa", "sha256:bbbb"]
+              }]
+            }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      expect((run.data as any)).toMatchObject({
+        status: "pending",
+        runId: "audit_run.async_test",
+        jobId: "agent_job.async_test",
+        pendingDraftCount: 2
+      });
+      expect(calls.filter((call) => call.method === "run")).toHaveLength(1);
+      expect(calls.filter((call) => call.method === "list").length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("archctx audit run --no-wait returns the started envelope immediately without polling audit list", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-nowait-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      let listCalls = 0;
+      const runtimeClient = {
+        auditRun() {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.no_wait_test" }
+          };
+        },
+        auditList() {
+          listCalls += 1;
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: { schemaVersion: "archcontext.audit-run-list/v1", count: 0, runs: [] }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run", "--no-wait"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      expect((run.data as any)).toMatchObject({ status: "started", jobId: "agent_job.no_wait_test" });
+      expect(listCalls).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("archctx audit run poll timeout returns a non-failure error pointing at audit list, not AC_RUNTIME_UNAVAILABLE", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-polltimeout-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const runtimeClient = {
+        auditRun() {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.timeout_test" }
+          };
+        },
+        auditList() {
+          // Never shows the job as terminal: simulates the daemon still genuinely running it past
+          // this CLI call's own patience budget (--timeout-ms below is set tiny purely so this
+          // test doesn't wait out the real poll interval).
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: { schemaVersion: "archcontext.audit-run-list/v1", count: 0, runs: [] }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run", "--timeout-ms", "1"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(false);
+      expect((run as any).error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect((run as any).error?.message).toContain("agent_job.timeout_test");
+      expect((run as any).error?.message).toContain("archctx audit list");
+      // A poll timeout must read as "come back later", not as a run failure.
+      expect((run as any).error?.message).toContain("not a failure");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 10_000);
+
   test("CLI resolves the architecture audit manifest gate from a subdirectory of the repository", async () => {
     // The manifest lives at the Git repository root; running the gate check from a nested
     // subdirectory must still resolve up to that root instead of looking for

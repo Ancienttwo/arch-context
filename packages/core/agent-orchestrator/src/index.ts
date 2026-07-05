@@ -101,6 +101,15 @@ export interface CreateInvestigationAgentJobInput extends AgentSpawnEligibilityI
   runnerPort: AgentRunnerPortId;
   inputDigest: string;
   promptTemplateDigest: string;
+  /**
+   * Defaults to "cancel-on-head-change" (the original git-hook-investigation semantics: a job
+   * tied to a specific HEAD/worktree snapshot is worthless once that snapshot moves, so it should
+   * be cancelled rather than run against stale context). Callers whose job is long-running and
+   * whose own repository writes (or a concurrent git-hook job) can legitimately bump the
+   * HEAD/worktree digest out from under it — e.g. `archctx audit run`'s multi-minute investigation
+   * — should pass "advisory-only-on-stale" so `cancelStaleRuntimeAgentJobs` leaves it running.
+   */
+  stalePolicy?: AgentJobV1["stalePolicy"];
 }
 
 export interface AgentJobStatusTransition {
@@ -569,7 +578,7 @@ export function createInvestigationAgentJob(input: CreateInvestigationAgentJobIn
     budget: decision.budget,
     inputDigest: input.inputDigest,
     promptTemplateDigest: input.promptTemplateDigest,
-    stalePolicy: "cancel-on-head-change",
+    stalePolicy: input.stalePolicy ?? "cancel-on-head-change",
     directMutationAllowed: false,
     queuedAt: input.now,
     updatedAt: input.now,
