@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withNpmPublishCredentials } from "./npm-publish-credentials-lib.mjs";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const packageRoot = join(root, "packages/contracts");
@@ -26,12 +27,22 @@ if (command === "publish" && !confirmPublish) {
   process.exit(2);
 }
 
-const result = command === "publish" ? publishContracts() : preflightContracts();
+const result = await runWithNpmEnv(command === "publish" ? publishContracts : preflightContracts);
 process.stdout.write(`${json ? JSON.stringify(result, null, 2) : renderHuman(result)}\n`);
 if (!result.ok && !allowBlocked) process.exit(1);
 
-function preflightContracts() {
-  const context = buildContext();
+async function runWithNpmEnv(handler) {
+  const needsCacheDir = !process.env.NPM_CONFIG_CACHE;
+  const cacheDir = needsCacheDir ? mkdtempSync(join(tmpdir(), "archctx-contracts-npm-cache.")) : null;
+  try {
+    return await withNpmPublishCredentials(null, (env) => handler(cacheDir ? { ...env, NPM_CONFIG_CACHE: cacheDir } : env), { registry });
+  } finally {
+    if (cacheDir) rmSync(cacheDir, { recursive: true, force: true });
+  }
+}
+
+function preflightContracts(env) {
+  const context = buildContext(env);
   const blockers = collectPreflightBlockers(context, false);
   return {
     schemaVersion: "archcontext.contracts-publish-readiness/v1",
@@ -48,14 +59,13 @@ function preflightContracts() {
   };
 }
 
-function publishContracts() {
-  const before = buildContext();
+function publishContracts(env) {
+  const before = buildContext(env);
   let blockers = collectPreflightBlockers(before, true);
   const publishedBefore = before.checks.registryReadback.published === true;
   let publish = { skipped: publishedBefore, exitCode: 0, reason: publishedBefore ? "already-published" : "" };
   if (blockers.length === 0 && !publishedBefore) {
     const publishRoot = preparePublishPackage(before.sourceManifest);
-    const env = npmEnv();
     const publishResult = run("npm", [
       "publish",
       publishRoot,
@@ -74,12 +84,12 @@ function publishContracts() {
     if (publishResult.status !== 0) blockers.push(`npm publish failed: ${publish.reason}`);
   }
 
-  const after = buildContext();
+  const after = buildContext(env);
   if (after.checks.registryReadback.published !== true) {
     blockers.push(`registry does not expose ${before.package.name}@${before.package.version}`);
   }
   const smoke = after.checks.registryReadback.published === true
-    ? runCleanRoomSmoke(before.package.name, before.package.version)
+    ? runCleanRoomSmoke(before.package.name, before.package.version, env)
     : { ok: false, skipped: true, reason: "package-not-published" };
   if (!smoke.ok) blockers.push(`clean-room import smoke failed: ${smoke.reason}`);
 
@@ -97,7 +107,7 @@ function publishContracts() {
   };
 }
 
-function buildContext() {
+function buildContext(env) {
   const manifest = JSON.parse(readFileSync(packageManifestPath, "utf8"));
   const expected = {
     sourceName: sourcePackageName,
@@ -107,8 +117,7 @@ function buildContext() {
     files: ["src", "fixtures"],
     exportRoot: "./src/index.ts"
   };
-  const pack = npmPackDryRun(manifest);
-  const env = npmEnv();
+  const pack = npmPackDryRun(manifest, env);
   const whoami = run("npm", ["whoami", "--registry", registry], { env });
   const npmIdentity = {
     ok: whoami.status === 0,
@@ -165,9 +174,9 @@ function collectPreflightBlockers(context, publishing) {
   return blockers;
 }
 
-function npmPackDryRun(manifest) {
+function npmPackDryRun(manifest, env) {
   const publishRoot = preparePublishPackage(manifest);
-  const result = run("npm", ["pack", publishRoot, "--dry-run", "--json"], { env: npmEnv() });
+  const result = run("npm", ["pack", publishRoot, "--dry-run", "--json"], { env });
   cleanupPublishPackage(publishRoot);
   if (result.status !== 0) {
     return { ok: false, exitCode: result.status, fileCount: 0, reason: summarizeFailure(result) };
@@ -264,11 +273,10 @@ function packageScope(name) {
   return slash === -1 ? null : name.slice(1, slash);
 }
 
-function runCleanRoomSmoke(name, version) {
+function runCleanRoomSmoke(name, version, env) {
   const workspace = mkdtempSync(join(tmpdir(), "archctx-contracts-consume."));
   try {
     writeFileSync(join(workspace, "package.json"), "{\"type\":\"module\"}\n", "utf8");
-    const env = npmEnv();
     const add = run("bun", ["add", `${name}@${version}`], { cwd: workspace, env });
     if (add.status !== 0) return { ok: false, skipped: false, reason: summarizeFailure(add), workspace: keepTemp ? workspace : null };
     writeFileSync(join(workspace, "smoke.ts"), [
@@ -288,21 +296,6 @@ function runCleanRoomSmoke(name, version) {
   } finally {
     if (!keepTemp) rmSync(workspace, { recursive: true, force: true });
   }
-}
-
-function npmEnv() {
-  const env = { ...process.env };
-  if (!env.NPM_CONFIG_CACHE) env.NPM_CONFIG_CACHE = mkdtempSync(join(tmpdir(), "archctx-contracts-npm-cache."));
-  if (!env.NPM_CONFIG_USERCONFIG) {
-    const token = env.NODE_AUTH_TOKEN || env.NPM_TOKEN;
-    if (token) {
-      const npmrc = join(mkdtempSync(join(tmpdir(), "archctx-contracts-npmrc.")), "npmrc");
-      writeFileSync(npmrc, `//registry.npmjs.org/:_authToken=${token}\nregistry=${registry}\n`, "utf8");
-      chmodSync(npmrc, 0o600);
-      env.NPM_CONFIG_USERCONFIG = npmrc;
-    }
-  }
-  return env;
 }
 
 function run(commandName, args, { cwd = root, env = process.env } = {}) {
