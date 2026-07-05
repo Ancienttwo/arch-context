@@ -424,7 +424,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
         }
       };
     }
@@ -1233,7 +1233,7 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
   return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
 }
 
-const AUDIT_RUN_STATUSES = ["pending", "issued", "failed"] as const;
+const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 type AuditRunStatus = ArchitectureAuditRunV1["status"];
 
 function readAuditRunStatuses(args: string[], requestId: string):
@@ -1301,10 +1301,36 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
   if (subcommand === "show") {
     const runId = readFlag(args, "--run-id") ?? args[1];
     if (!runId) return errorEnvelope("audit.show", "AC_SCHEMA_INVALID", "audit show requires <run-id> or --run-id");
-    return daemon.auditShow(cwd, runId);
+    const result = await daemon.auditShow(cwd, runId);
+    if (!result.ok) return result;
+    return { ...result, data: auditShowDataWithFiledSummary(result.data) };
+  }
+  if (subcommand === "approve") {
+    const runId = readFlag(args, "--run-id") ?? args[1];
+    if (!runId) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", "audit approve requires <run-id> or --run-id");
+    if (!auditGithubIssuesEnabled(cwd)) {
+      return errorEnvelope(
+        "audit.approve",
+        "AC_CAPABILITY_UNSUPPORTED",
+        "archctx audit approve is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
+      );
+    }
+    const confirmPublicToken = readFlag(args, "--confirm-public-repo");
+    const result = await daemon.auditApprove(cwd, {
+      runId,
+      ...(confirmPublicToken === undefined ? {} : { confirmPublicToken }),
+      ...(args.includes("--resume") ? { resume: true } : {})
+    });
+    // CLI is a pure trigger here (no gh, no PAT, no body files): the daemon already composed the
+    // full copy-pasteable rerun command into error.message, this just surfaces it as a warning
+    // alongside the normal envelope rather than requiring the caller to dig it out of JSON.
+    if (!result.ok && result.error?.code === "AC_USER_CONFIRMATION_REQUIRED") {
+      process.stderr.write(`warning: ${result.error.message}\n`);
+    }
+    return { ...result, requestId: "audit.approve" };
   }
   if (subcommand !== "run") {
-    return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show");
+    return errorEnvelope("audit", "AC_SCHEMA_INVALID", "audit requires run|list|show|approve");
   }
   if (!auditGithubIssuesEnabled(cwd)) {
     return errorEnvelope(
@@ -1328,6 +1354,31 @@ async function runAuditCommand(args: string[], cwd: string, daemon: RuntimeDaemo
   };
   const result = await daemon.auditRun(cwd, input);
   return { ...result, requestId: "audit.run" };
+}
+
+/**
+ * Presentation-only reshaping of `audit.show`'s already-fetched data (the same kind of shaping
+ * `paginate` does for `prepare`), not a new read or decision: joins each returned draft against
+ * `run.issuedIssues` by `draftDigest` so a human can see which drafts are already filed without
+ * cross-referencing two arrays by hand, and adds a `filed: "N/M"` summary.
+ */
+function auditShowDataWithFiledSummary(data: unknown): Json {
+  const record = (data ?? {}) as {
+    run?: { issueDraftDigests?: string[]; issuedIssues?: { draftDigest?: string; number: number; url: string }[] };
+    githubIssueDrafts?: { draftDigest?: string }[];
+  };
+  const total = record.githubIssueDrafts?.length ?? record.run?.issueDraftDigests?.length ?? 0;
+  const issuedByDraftDigest = new Map(
+    (record.run?.issuedIssues ?? [])
+      .filter((issue): issue is { draftDigest: string; number: number; url: string } => typeof issue.draftDigest === "string")
+      .map((issue) => [issue.draftDigest, { number: issue.number, url: issue.url }])
+  );
+  const githubIssueDrafts = (record.githubIssueDrafts ?? []).map((draft) => {
+    const issued = typeof draft.draftDigest === "string" ? issuedByDraftDigest.get(draft.draftDigest) : undefined;
+    return issued ? { ...draft, issued } : draft;
+  });
+  const issuedCount = githubIssueDrafts.filter((draft) => "issued" in draft).length;
+  return { ...record, githubIssueDrafts, filed: `${issuedCount}/${total}` } as unknown as Json;
 }
 
 async function runInvestigateCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {

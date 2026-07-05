@@ -110,8 +110,7 @@ Adopt a daemon-driven, opt-in local audit flow with four parts.
   `archctx audit approve`, `execFile("gh", ["issue", "create", ...])`, a
   narrow-scope PAT, an additional confirmation gate for public repositories,
   and crash-recovery idempotency for partially-issued runs — is out of scope
-  here and is reserved for **ADR-0042**. That ADR needs its own trust-boundary
-  argument (it is the first place this codebase would call `gh` with write
-  intent) and is orthogonal to the SaaS control plane's existing
-  `ghCli: "not-used"` posture, which governs the hosted product, not this local
-  CLI path.
+  here and is addressed by **ADR-0042**. That ADR has its own trust-boundary
+  argument (it is the first place this codebase calls `gh` with write intent)
+  and is orthogonal to the SaaS control plane's existing `ghCli: "not-used"`
+  posture, which governs the hosted product, not this local CLI path.

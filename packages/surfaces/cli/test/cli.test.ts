@@ -1078,6 +1078,182 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("ADR-0042: CLI wires audit approve to the daemon with run-id, confirmation token, and resume flags", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditApprove(_root: string, input: any) {
+          calls.push(input);
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.approve",
+            data: { schemaVersion: "archcontext.audit-approve-result/v1", runId: input.runId, status: "issued", issuedCount: 2, totalCount: 2, issuedIssues: [] }
+          };
+        },
+        auditList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.list", data: { schemaVersion: "archcontext.audit-run-list/v1", count: 0, runs: [] } };
+        }
+      };
+
+      const approved = await runCli("audit", [
+        "approve", "audit_run.cli_test",
+        "--confirm-public-repo", "public:acme/widgets:abcdef:audit_run.cli_test",
+        "--resume"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(approved.ok).toBe(true);
+      expect(approved.requestId).toBe("audit.approve");
+      expect(calls[0]).toEqual({
+        runId: "audit_run.cli_test",
+        confirmPublicToken: "public:acme/widgets:abcdef:audit_run.cli_test",
+        resume: true
+      });
+
+      // The `--run-id` flag form works too, and confirmPublicToken/resume are both optional.
+      const bare = await runCli("audit", ["approve", "--run-id", "audit_run.other"], root, { runtimeClient: runtimeClient as any });
+      expect(bare.ok).toBe(true);
+      expect(calls[1]).toEqual({ runId: "audit_run.other" });
+
+      // AUDIT_RUN_STATUSES now includes "issuing"; audit list must accept it, not reject it as unknown.
+      const list = await runCli("audit", ["list", "--status", "issuing"], root, { runtimeClient: runtimeClient as any });
+      expect(list.ok).toBe(true);
+      expect(calls[2]).toEqual({ method: "list", input: { statuses: ["issuing"] } });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI requires a run-id for audit approve", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-missing-runid-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const runtimeClient = {
+        auditApprove() {
+          throw new Error("auditApprove must not be called without a run-id");
+        }
+      };
+      const result = await runCli("audit", ["approve"], root, { runtimeClient: runtimeClient as any });
+      expect(result.ok).toBe(false);
+      expect((result as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI gates audit approve behind the same manifest opt-in as audit run, zero daemon calls when disabled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-disabled-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditApprove(_root: string, input: any) {
+          calls.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.approve", data: {} };
+        }
+      };
+      const result = await runCli("audit", ["approve", "audit_run.x"], root, { runtimeClient: runtimeClient as any });
+      expect(result.ok).toBe(false);
+      expect((result as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ADR-0042: CLI prints a warning with the full rerun command when audit approve requires public-repo confirmation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-confirm-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const rerunCommand = "archctx audit approve audit_run.cli_test --confirm-public-repo public:acme/widgets:abc:audit_run.cli_test";
+      const runtimeClient = {
+        auditApprove() {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: false,
+            requestId: "audit.approve",
+            error: {
+              code: "AC_USER_CONFIRMATION_REQUIRED",
+              message: `audit run audit_run.cli_test targets a public repository (acme/widgets); rerun with explicit confirmation: ${rerunCommand}`,
+              severity: "warning",
+              retryable: true,
+              action: "show-human-decision"
+            }
+          };
+        }
+      };
+
+      const originalWrite = process.stderr.write.bind(process.stderr);
+      let stderrOutput = "";
+      (process.stderr as { write: unknown }).write = (chunk: unknown) => {
+        stderrOutput += String(chunk);
+        return true;
+      };
+      try {
+        const result = await runCli("audit", ["approve", "audit_run.cli_test"], root, { runtimeClient: runtimeClient as any });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+        expect(stderrOutput).toContain(rerunCommand);
+      } finally {
+        (process.stderr as { write: unknown }).write = originalWrite;
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ADR-0042: CLI audit show adds a filed N/M summary joined against issuedIssues by draftDigest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-show-filed-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const runtimeClient = {
+        auditShow(_root: string, runId: string) {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.show",
+            data: {
+              schemaVersion: "archcontext.audit-run-detail/v1",
+              run: {
+                runId,
+                issueDraftDigests: [`sha256:${"1".repeat(64)}`, `sha256:${"2".repeat(64)}`],
+                issuedIssues: [{
+                  draftId: "draft.one",
+                  draftDigest: `sha256:${"1".repeat(64)}`,
+                  number: 42,
+                  url: "https://github.com/acme/widgets/issues/42",
+                  issuedAt: "2026-07-05T00:00:00.000Z"
+                }]
+              },
+              githubIssueDrafts: [
+                { draftId: "draft.one", draftDigest: `sha256:${"1".repeat(64)}`, title: "Draft One" },
+                { draftId: "draft.two", draftDigest: `sha256:${"2".repeat(64)}`, title: "Draft Two" }
+              ]
+            }
+          };
+        }
+      };
+
+      const show = await runCli("audit", ["show", "audit_run.filed_test"], root, { runtimeClient: runtimeClient as any });
+      expect(show.ok).toBe(true);
+      expect((show.data as any).filed).toBe("1/2");
+      expect((show.data as any).githubIssueDrafts[0]).toMatchObject({ issued: { number: 42, url: "https://github.com/acme/widgets/issues/42" } });
+      expect((show.data as any).githubIssueDrafts[1].issued).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI exposes recommendation lifecycle and metrics commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-recommendations-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");

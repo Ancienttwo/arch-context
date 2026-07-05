@@ -66,6 +66,7 @@ import {
   runInvestigationWithRetry,
   type AgentInvestigationRunMetadata,
   type CommandInvestigationRunnerTransport,
+  type GithubIssueDraftV1,
   type InvestigationReportProposalPlan
 } from "@archcontext/core/agent-orchestrator";
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
@@ -85,11 +86,21 @@ import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewW
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
+import {
+  createNodeGithubIssueExecutor,
+  findExistingGithubIssueByMarker,
+  preflightGithubIssueDrafts,
+  withGithubIssueBodyFile,
+  type GithubIssueCreatedRecord,
+  type GithubIssueExecutorPort,
+  type GithubIssueListedRecord
+} from "./github-issue-executor";
 
 const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
 const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
 const RUNTIME_AGENT_JOB_DEFAULT_MAX_RUNNING_JOBS = 1;
 const AUDIT_RUN_DEFAULT_TIMEOUT_MS = 600_000;
+const AUDIT_APPROVE_GH_TOKEN_ENV = "ARCHCONTEXT_GH_ISSUES_TOKEN";
 
 const AUDIT_PROMPT_TEMPLATE = `You are performing a read-only architecture audit of this repository for ArchContext.
 
@@ -276,6 +287,18 @@ export interface RuntimeAuditRunInput {
   contextMaxItems?: number;
   modelId?: string;
   timeoutMs?: number;
+}
+
+export interface RuntimeAuditApproveInput {
+  runId: string;
+  /**
+   * Required once, verbatim, when the run's repository resolves to non-private visibility.
+   * Expected shape: `public:<owner/repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
+   * gate) — a re-run instruction, not a secret, so it is safe to print in error messages.
+   */
+  confirmPublicToken?: string;
+  /** Required to continue a run left in "issuing" status by a prior crashed/partial approve call. */
+  resume?: boolean;
 }
 
 export interface RuntimeDocsInput {
@@ -493,6 +516,7 @@ export interface RuntimeDeps {
   clock?: () => string;
   maxRepoSessions?: number;
   investigationTransport?: CommandInvestigationRunnerTransport;
+  githubIssueExecutor?: GithubIssueExecutorPort;
 }
 
 export interface ProductionRuntimeOptions {
@@ -617,6 +641,7 @@ export interface RuntimeDaemonClient {
   auditRun(root: string, input?: RuntimeAuditRunInput): Promise<JsonEnvelope> | JsonEnvelope;
   auditList(root: string, input?: { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<JsonEnvelope> | JsonEnvelope;
   auditShow(root: string, runId: string): Promise<JsonEnvelope> | JsonEnvelope;
+  auditApprove(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> | JsonEnvelope;
   docs(root: string, input: RuntimeDocsInput): Promise<JsonEnvelope> | JsonEnvelope;
   readResource(root: string, uri: string): Promise<JsonEnvelope> | JsonEnvelope;
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -831,6 +856,7 @@ export class ArchctxDaemon {
   private readonly devicePrivateKeySigner?: DevicePrivateKeySignerPort;
   private readonly architectureLedger: RuntimeArchitectureLedgerModes;
   private readonly investigationTransport: CommandInvestigationRunnerTransport;
+  private readonly githubIssueExecutor: GithubIssueExecutorPort;
   private readonly clock: () => string;
   private readonly maxRepoSessions: number;
   private readonly composition: RuntimeCompositionReport;
@@ -858,6 +884,7 @@ export class ArchctxDaemon {
     });
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
+    this.githubIssueExecutor = deps.githubIssueExecutor ?? createNodeGithubIssueExecutor();
     this.clock = deps.clock ?? (() => new Date(0).toISOString());
     this.externalDocumentation = deps.externalDocumentation ?? new Context7ExternalDocumentationAdapter({
       enabled: process.env.ARCHCONTEXT_CONTEXT7_ENABLED === "1",
@@ -1511,6 +1538,55 @@ export class ArchctxDaemon {
     return typeof manifestRaw === "string" && auditGithubIssuesEnabledInManifestText(manifestRaw);
   }
 
+  /**
+   * Capability gate for `auditApprove`'s actual gh calls, distinct from (and checked after)
+   * `auditGithubIssuesEnabled`'s manifest opt-in: this verifies the daemon is actually capable of
+   * filing an issue right now — a resolvable owner/repo, a configured PAT, and an authoritative
+   * visibility probe — fail-closed on every one of those, and never falls back to an ambient `gh
+   * auth login` session (the PAT is the only credential source `auditApprove` will use).
+   */
+  private async canFileGithubIssues(root: string): Promise<
+    | { ok: true; repoNameWithOwner: string; visibility: ArchitectureAuditRunV1["repoVisibility"]; token: string }
+    | { ok: false; code: "AC_PRECONDITION_FAILED"; message: string }
+  > {
+    const repoNameWithOwner = repositoryNameWithOwner(root);
+    if (repoNameWithOwner === "local/unknown") {
+      return {
+        ok: false,
+        code: "AC_PRECONDITION_FAILED",
+        message: "audit approve requires a resolvable GitHub owner/repo; git remote 'origin' is missing or is not a parseable GitHub URL"
+      };
+    }
+    const token = process.env[AUDIT_APPROVE_GH_TOKEN_ENV];
+    if (!token) {
+      return {
+        ok: false,
+        code: "AC_PRECONDITION_FAILED",
+        message: `audit approve requires ${AUDIT_APPROVE_GH_TOKEN_ENV} to be set to a GitHub fine-grained PAT scoped to Issues:write only; it never falls back to an ambient gh auth session`
+      };
+    }
+    let probedVisibility: string;
+    try {
+      const probe = await this.githubIssueExecutor.repoView(repoNameWithOwner, { GH_TOKEN: token });
+      probedVisibility = probe.visibility;
+    } catch (error) {
+      return {
+        ok: false,
+        code: "AC_PRECONDITION_FAILED",
+        message: `audit approve could not verify repository visibility for ${repoNameWithOwner}: ${error instanceof Error ? error.message : String(error)}`
+      };
+    }
+    const visibility = normalizeGithubRepoVisibility(probedVisibility);
+    if (!visibility) {
+      return {
+        ok: false,
+        code: "AC_PRECONDITION_FAILED",
+        message: `audit approve received an unrecognized visibility "${probedVisibility}" for ${repoNameWithOwner}; refusing to guess whether it is safe to publish`
+      };
+    }
+    return { ok: true, repoNameWithOwner, visibility, token };
+  }
+
   async auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
     this.assertRunning();
     const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
@@ -1537,13 +1613,197 @@ export class ArchctxDaemon {
     } as unknown as Json);
   }
 
+  /**
+   * ADR-0042: publishes a pending audit run's advisory GitHub issue drafts as real issues.
+   * `auditRun` (above) never does this itself — a run stays "pending" until a human explicitly
+   * approves it. State machine: pending -> (this method, pre-flight all-or-nothing) -> issuing ->
+   * (one ledger event per successfully filed/deduped draft) -> issuing -> (last draft) -> issued.
+   * This method never writes "failed": that status is reserved for `auditRun`'s
+   * investigation-failed case. A pre-flight failure here (manifest gate, stale drafts, missing
+   * PAT, unverified visibility, unconfirmed public repo, secret-shaped content, oversized body)
+   * returns an error envelope with the run's status untouched; a mid-flight failure (a `gh` call
+   * itself failing) leaves the run in "issuing" with whatever drafts already succeeded recorded,
+   * resumable only via an explicit `--resume`.
+   */
+  async auditApprove(root: string, input: RuntimeAuditApproveInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    return this.withWriter(async () => {
+      const repositoryRoot = findRepositoryRoot(root);
+      const session = await this.openSession(repositoryRoot);
+      if (!(await this.auditGithubIssuesEnabled(session.workspace))) {
+        return errorEnvelope(
+          "audit.approve",
+          "AC_CAPABILITY_UNSUPPORTED",
+          "archctx audit approve is disabled; set audit.githubIssues.enabled: true in .archcontext/manifest.yaml to enable it"
+        );
+      }
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const run = await this.localStore.getAuditRun({ ...scope, runId: input.runId });
+      if (!run) return errorEnvelope("audit.approve", "AC_REPO_NOT_FOUND", `audit run not found: ${input.runId}`);
+
+      if (run.status === "issued") {
+        return okEnvelope("audit.approve", auditApproveResultPayload(run.runId, "issued", run.issueDraftDigests.length, run.issuedIssues ?? []));
+      }
+      if (run.status === "failed") {
+        return errorEnvelope("audit.approve", "AC_PRECONDITION_FAILED", `audit run ${run.runId} failed during investigation and has no drafts to publish`);
+      }
+      if (run.status === "issuing" && !input.resume) {
+        return errorEnvelope(
+          "audit.approve",
+          "AC_PRECONDITION_FAILED",
+          `audit run ${run.runId} is already issuing from a prior approve call; rerun with --resume to continue: archctx audit approve ${run.runId} --resume`
+        );
+      }
+
+      // Re-validate the recorded proposal plan from scratch — the same digest-chain checks
+      // jobsComplete already ran — rather than trust the ledger run record, so a plan mutated
+      // between "audit run" and "audit approve" is rejected before any gh call is made.
+      const jobs = await this.localStore.listRuntimeAgentJobs(scope);
+      const jobRecord = jobs.find((record) => record.job.jobId === run.jobId);
+      const agentRun = jobRecord?.job.extensions?.agentRun as { proposalPlan?: InvestigationReportProposalPlan } | undefined;
+      const proposalPlan = agentRun?.proposalPlan;
+      if (!proposalPlan) {
+        return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit run ${run.runId} has no recorded proposal plan to re-validate`);
+      }
+      const validation = validateRuntimeAgentProposalPlan({
+        proposalPlan,
+        job: jobRecord?.job,
+        jobId: run.jobId,
+        outputDigest: run.outputDigest
+      });
+      if (!validation.ok) return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", validation.reason);
+
+      const drafts = proposalPlan.githubIssueDrafts ?? [];
+      const recordedDigests = [...run.issueDraftDigests].sort();
+      const currentDigests = drafts.map((draft) => draft.draftDigest).sort();
+      if (JSON.stringify(recordedDigests) !== JSON.stringify(currentDigests)) {
+        return errorEnvelope("audit.approve", "AC_SCHEMA_INVALID", `audit run ${run.runId} draft digests no longer match the recorded ledger run`);
+      }
+      if (drafts.length === 0) {
+        return errorEnvelope("audit.approve", "AC_PRECONDITION_FAILED", `audit run ${run.runId} has no github issue drafts to publish`);
+      }
+
+      const capability = await this.canFileGithubIssues(repositoryRoot);
+      if (!capability.ok) return errorEnvelope("audit.approve", capability.code, capability.message);
+
+      const expectedConfirmToken = `public:${capability.repoNameWithOwner}:${run.baseSha}:${run.runId}`;
+      if (capability.visibility !== "private" && input.confirmPublicToken !== expectedConfirmToken) {
+        return errorEnvelope(
+          "audit.approve",
+          "AC_USER_CONFIRMATION_REQUIRED",
+          `audit run ${run.runId} targets a ${capability.visibility} repository (${capability.repoNameWithOwner}); rerun with explicit confirmation: archctx audit approve ${run.runId} --confirm-public-repo ${expectedConfirmToken}`
+        );
+      }
+
+      const preflight = preflightGithubIssueDrafts(run.runId, drafts);
+      if (!preflight.ok) return errorEnvelope("audit.approve", "AC_PRECONDITION_FAILED", preflight.reason);
+
+      const env = { GH_TOKEN: capability.token };
+      const confirmPublicTokenDigest = capability.visibility === "private"
+        ? undefined
+        : digestJson({ confirmPublicToken: input.confirmPublicToken } as unknown as Json);
+
+      const issuedIssues = [...(run.issuedIssues ?? [])];
+      const alreadyIssuedDraftIds = new Set(issuedIssues.map((issue) => issue.draftId));
+
+      // Intent event: append-only proof that this pending->issuing transition (and, for a
+      // non-private repository, a specific confirmation) was authorized before any gh call is made.
+      await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
+        runId: run.runId,
+        jobId: run.jobId,
+        reportId: run.reportId,
+        inputDigest: run.inputDigest,
+        outputDigest: run.outputDigest,
+        issueDraftDigests: run.issueDraftDigests,
+        issuedIssues: run.issuedIssues,
+        status: "issuing",
+        eventType: "architecture.agent_audit.run_issuing",
+        repoVisibility: capability.visibility,
+        confirmPublicTokenDigest,
+        command: "archctxd audit-approve"
+      });
+
+      let existingIssues: GithubIssueListedRecord[];
+      try {
+        existingIssues = await this.githubIssueExecutor.listRecentIssues(capability.repoNameWithOwner, env);
+      } catch (error) {
+        return errorEnvelope(
+          "audit.approve",
+          "AC_PRECONDITION_FAILED",
+          `audit run ${run.runId} could not list existing GitHub issues for crash-recovery dedup (inconclusive, publishing nothing this call): ${error instanceof Error ? error.message : String(error)}; rerun with --resume: archctx audit approve ${run.runId} --resume`
+        );
+      }
+
+      for (const draft of drafts) {
+        if (alreadyIssuedDraftIds.has(draft.draftId)) continue;
+        const dedupMatch = findExistingGithubIssueByMarker(existingIssues, run.runId, draft.draftDigest);
+        let issued: GithubIssueCreatedRecord;
+        if (dedupMatch) {
+          issued = { number: dedupMatch.number, url: dedupMatch.url };
+        } else {
+          const body = preflight.bodies.get(draft.draftId);
+          if (body === undefined) throw new Error(`audit-approve-missing-preflight-body: ${draft.draftId}`);
+          try {
+            issued = await withGithubIssueBodyFile(body, (bodyFile) =>
+              this.githubIssueExecutor.createIssue({ repo: capability.repoNameWithOwner, title: draft.title, bodyFile, labels: draft.labels, env })
+            );
+          } catch (error) {
+            return errorEnvelope(
+              "audit.approve",
+              "AC_PRECONDITION_FAILED",
+              `audit run ${run.runId} failed to publish github issue draft ${draft.draftId}: ${error instanceof Error ? error.message : String(error)}; already-published drafts are recorded, rerun with --resume to continue: archctx audit approve ${run.runId} --resume`
+            );
+          }
+        }
+        issuedIssues.push({ draftId: draft.draftId, draftDigest: draft.draftDigest, number: issued.number, url: issued.url, issuedAt: this.clock() });
+        // Append immediately after each draft succeeds (dedup-reuse or fresh create) so the window
+        // in which a filed issue exists but is not yet recorded in the ledger is at most one draft.
+        await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
+          runId: run.runId,
+          jobId: run.jobId,
+          reportId: run.reportId,
+          inputDigest: run.inputDigest,
+          outputDigest: run.outputDigest,
+          issueDraftDigests: run.issueDraftDigests,
+          issuedIssues: [...issuedIssues],
+          status: "issuing",
+          eventType: "architecture.agent_audit.run_issuing",
+          repoVisibility: capability.visibility,
+          command: "archctxd audit-approve"
+        });
+      }
+
+      await this.appendAuditRunToArchitectureLedger(repositoryRoot, session, {
+        runId: run.runId,
+        jobId: run.jobId,
+        reportId: run.reportId,
+        inputDigest: run.inputDigest,
+        outputDigest: run.outputDigest,
+        issueDraftDigests: run.issueDraftDigests,
+        issuedIssues: [...issuedIssues],
+        status: "issued",
+        eventType: "architecture.agent_audit.run_issued",
+        repoVisibility: capability.visibility,
+        command: "archctxd audit-approve"
+      });
+
+      return okEnvelope("audit.approve", auditApproveResultPayload(run.runId, "issued", drafts.length, issuedIssues));
+    });
+  }
+
   private async appendAuditRunToArchitectureLedger(root: string, session: RepositorySession, input: {
+    runId?: string;
     jobId: string;
     reportId: string;
     inputDigest: string;
     outputDigest: string;
     issueDraftDigests: string[];
+    issuedIssues?: ArchitectureAuditRunV1["issuedIssues"];
     status: ArchitectureAuditRunV1["status"];
+    eventType?: string;
+    repoVisibility?: ArchitectureAuditRunV1["repoVisibility"];
+    confirmPublicTokenDigest?: string;
+    command?: string;
   }): Promise<{ runId: string; append: ArchitectureLedgerAppendResult }> {
     const paths = runtimeStatePaths(root);
     const plan = planAuditRunToArchitectureLedgerEvent({
@@ -1558,16 +1818,20 @@ export class ArchctxDaemon {
         headSha: session.workspace.headSha,
         worktreeDigest: computeWorktreeDigest(root)
       },
+      runId: input.runId,
       jobId: input.jobId,
       reportId: input.reportId,
       status: input.status,
       repoNameWithOwner: repositoryNameWithOwner(root),
-      repoVisibility: "private",
+      repoVisibility: input.repoVisibility ?? "private",
       issueDraftDigests: input.issueDraftDigests,
+      issuedIssues: input.issuedIssues,
       inputDigest: input.inputDigest,
       outputDigest: input.outputDigest,
       createdAt: this.clock(),
-      command: "archctxd agent-audit"
+      command: input.command ?? "archctxd agent-audit",
+      ...(input.eventType ? { eventType: input.eventType } : {}),
+      ...(input.confirmPublicTokenDigest ? { confirmPublicTokenDigest: input.confirmPublicTokenDigest } : {})
     });
     const result = await this.localStore.appendArchitectureEvents({
       writer: "runtime-daemon",
@@ -3736,6 +4000,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("auditShow", [root, runId]);
   }
 
+  auditApprove(root: string, input: RuntimeAuditApproveInput) {
+    return this.call("auditApprove", [root, input]);
+  }
+
   docs(root: string, input: RuntimeDocsInput) {
     return this.call("docs", [root, input]);
   }
@@ -4045,6 +4313,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.auditList(params[0] as string, params[1] as { statuses?: ArchitectureAuditRunV1["status"][] } | undefined);
       case "auditShow":
         return this.daemon.auditShow(params[0] as string, params[1] as string);
+      case "auditApprove":
+        return this.daemon.auditApprove(params[0] as string, params[1] as RuntimeAuditApproveInput);
       case "docs":
         return this.daemon.docs(params[0] as string, params[1] as RuntimeDocsInput);
       case "readResource":
@@ -5061,6 +5331,28 @@ function normalizeOwnerRepoPath(path: string): string | undefined {
   return segments.slice(-2).join("/");
 }
 
+/** `gh`/GitHub's REST and GraphQL visibility values are uppercase; normalize and validate rather than guess. */
+function normalizeGithubRepoVisibility(value: string): ArchitectureAuditRunV1["repoVisibility"] | undefined {
+  const lowered = value.trim().toLowerCase();
+  return lowered === "public" || lowered === "private" || lowered === "internal" ? lowered : undefined;
+}
+
+function auditApproveResultPayload(
+  runId: string,
+  status: "issued",
+  totalCount: number,
+  issuedIssues: NonNullable<ArchitectureAuditRunV1["issuedIssues"]>
+): Json {
+  return {
+    schemaVersion: "archcontext.audit-approve-result/v1",
+    runId,
+    status,
+    issuedCount: issuedIssues.length,
+    totalCount,
+    issuedIssues
+  } as unknown as Json;
+}
+
 interface ArchitectureProjectionRollbackWriteResult {
   backup: Json;
   writtenPaths: string[];
@@ -5177,7 +5469,8 @@ function blockedProductionInjections(deps: RuntimeDeps): string[] {
     "changeSetEngine",
     "externalDocumentation",
     "clock",
-    "investigationTransport"
+    "investigationTransport",
+    "githubIssueExecutor"
   ].filter((key) => key in deps);
 }
 

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
-import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type NormalizedCodeContext } from "@archcontext/contracts";
 import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput } from "@archcontext/core/agent-orchestrator";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
@@ -16,6 +16,14 @@ import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeState
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
+import {
+  createNodeGithubIssueExecutor,
+  githubIssueFooterMarker,
+  withGithubIssueBodyFile,
+  type GithubIssueCreatedRecord,
+  type GithubIssueExecutorPort,
+  type GithubIssueListedRecord
+} from "../src/github-issue-executor";
 import {
   architectureDocumentationSourceDigest,
   loadArchitectureDocumentationInputs,
@@ -32,7 +40,8 @@ import {
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
   recoverStaleDaemonControlFiles,
-  readRuntimeRpcConnection
+  readRuntimeRpcConnection,
+  type RuntimeAuditApproveInput
 } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -1365,6 +1374,448 @@ describe("local runtime foundation", () => {
       expectSameExistingPath(capturedCwd!, root);
     } finally {
       removeTempRepo(root);
+    }
+  });
+
+  test("ADR-0042 red line: the investigation runner never has a path to the github issue executor; only audit approve does", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const transportCalls: CommandInvestigationRunnerTransportInput[] = [];
+    const root = createGitRepo();
+    addGitRemote(root, "https://github.com/acme/widgets.git");
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    const draftRecords = [auditDraftRecord()];
+    const now = "2026-07-05T01:00:00.000Z";
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => now,
+        githubIssueExecutor: executor,
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          transportCalls.push(input);
+          return auditInvestigationTransportWithDrafts(draftRecords, now)(input);
+        }
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      const runId = (run.data as any).runId as string;
+
+      // The runner's own transport call used the exact ADR-0041 read-only claude invocation shape
+      // (proving this really went through the same locked-down subagent path this codebase always
+      // uses), and throughout the entire auditRun call the gh executor was never touched at all —
+      // it is a separate injected dependency the investigation runner has no reference to.
+      expect(transportCalls).toHaveLength(1);
+      expect(transportCalls[0]!.command).toBe("claude");
+      expect(transportCalls[0]!.args).toContain("--strict-mcp-config");
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.listRecentIssues).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+
+      // Reading the pending run back (list/show) is also gh-free: an unapproved run never
+      // touches the executor no matter how many times it is read.
+      await daemon.auditList(root);
+      await daemon.auditShow(root, runId);
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.listRecentIssues).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+
+      // Only auditApprove reaches the executor.
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const approve = await daemon.auditApprove(root, { runId });
+        expect(approve.ok).toBe(true);
+      });
+      expect(calls.repoView.length).toBeGreaterThan(0);
+      expect(calls.createIssue.length).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit approve is gated by audit.githubIssues.enabled, distinct from audit run's own gate, zero gh calls when disabled", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store, githubIssueExecutor: executor });
+      const result = await daemon.auditApprove(root, { runId: "audit_run.does_not_matter" });
+      expect(result.ok).toBe(false);
+      expect((result as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit approve rejects a repository with no resolvable git remote before any gh call", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("resolvable GitHub owner/repo");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve requires ARCHCONTEXT_GH_ISSUES_TOKEN and never falls back to ambient gh auth", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken(undefined, async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("ARCHCONTEXT_GH_ISSUES_TOKEN");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve fails closed when the repository visibility probe fails, zero issues created", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ repoViewError: new Error("gh repo view: network unreachable") });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("visibility");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("ADR-0042 red line: publishing to a public repository without a valid confirmation token never files an issue", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "public" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const withoutToken = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(withoutToken.ok).toBe(false);
+        expect((withoutToken as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+        expect((withoutToken as any).error.message).toContain("archctx audit approve");
+        expect((withoutToken as any).error.message).toContain("--confirm-public-repo");
+
+        const wrongToken = await fixture.daemon.auditApprove(fixture.root, {
+          runId: fixture.runId,
+          confirmPublicToken: "public:wrong/repo:0000000000000000000000000000000000000000:audit_run.wrong"
+        });
+        expect(wrongToken.ok).toBe(false);
+        expect((wrongToken as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+      expect(calls.listRecentIssues).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve publishes to a public repository once the exact confirmation token from the error message is supplied", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "public" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const rejected = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(rejected.ok).toBe(false);
+        const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
+        expect(tokenMatch).not.toBeNull();
+        const token = tokenMatch![1]!;
+        expect(token).toMatch(/^public:acme\/widgets:[0-9a-f]+:audit_run\./);
+
+        const approved = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, confirmPublicToken: token });
+        expect(approved.ok).toBe(true);
+        expect((approved.data as any).status).toBe("issued");
+        expect((approved.data as any).issuedCount).toBe(fixture.draftRecords.length);
+      });
+      expect(calls.createIssue).toHaveLength(fixture.draftRecords.length);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects a run whose drafts no longer match the recorded ledger digests, zero gh calls", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      const pendingEvent = fixture.store.architectureEvents.find((event) => event.eventType === "architecture.agent_audit.run_pending");
+      expect(pendingEvent).toBeDefined();
+      // Directly corrupt the ledger's recorded digest set (simulating drift between what the
+      // ledger recorded at "audit run" time and what the completed job's proposal plan currently
+      // says) rather than tamper the plan itself, so this exercises auditApprove's own
+      // cross-check rather than validateRuntimeAgentProposalPlan's pre-existing digest checks.
+      (pendingEvent!.payload as any).auditRuns[0].issueDraftDigests = [`sha256:${"9".repeat(64)}`];
+
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_SCHEMA_INVALID");
+        expect((result as any).error.message).toContain("no longer match");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve aborts the entire batch when any draft matches a secret-shaped pattern", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const draftRecords = [
+      auditDraftRecord({ title: "Draft One" }),
+      auditDraftRecord({ title: "Draft Two", bodyMarkdown: "Rotate the leaked token ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
+    ];
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("secret-shaped");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects a draft whose body exceeds the GitHub issue length limit before any gh call", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const draftRecords = [auditDraftRecord({ title: "Oversized draft", bodyMarkdown: "x".repeat(70_000) })];
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("exceeding");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects a run whose investigation failed, zero gh calls", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const root = createGitRepo();
+    addGitRemote(root, "https://github.com/acme/widgets.git");
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        githubIssueExecutor: executor,
+        clock: () => "2026-07-05T02:00:00.000Z",
+        investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
+      });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect((run.data as any).status).toBe("failed");
+      const runId = (run.data as any).runId as string;
+
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await daemon.auditApprove(root, { runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("failed during investigation");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit approve publishes every draft to a private repository in one call, records the footer marker, and is idempotent once issued", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "private" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const approve = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(approve.ok).toBe(true);
+        expect(approve.data).toMatchObject({ runId: fixture.runId, status: "issued", issuedCount: 2, totalCount: 2 });
+      });
+
+      expect(calls.createIssue).toHaveLength(2);
+      for (const call of calls.createIssue) {
+        expect(call.bodyText).toContain("Filed by archctx audit");
+        expect(call.bodyText).toContain(fixture.runId);
+      }
+
+      const show = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      expect((show.data as any).run.status).toBe("issued");
+      expect((show.data as any).run.issuedIssues).toHaveLength(2);
+
+      const list = await fixture.daemon.auditList(fixture.root, { statuses: ["issued"] });
+      expect((list.data as any).count).toBe(1);
+
+      // Idempotent no-op: calling approve again on an already-issued run touches gh zero times.
+      const repoViewCountBefore = calls.repoView.length;
+      const createCountBefore = calls.createIssue.length;
+      const again = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+      expect(again.ok).toBe(true);
+      expect((again.data as any).status).toBe("issued");
+      expect(calls.createIssue.length).toBe(createCountBefore);
+      expect(calls.repoView.length).toBe(repoViewCountBefore);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("two concurrent audit approve calls on the same run never both publish: the daemon's single-writer lock rejects the loser before it reads run state", async () => {
+    const draftRecords = [auditDraftRecord({ title: "Draft Alpha" }), auditDraftRecord({ title: "Draft Beta" })];
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "private" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        // Both calls are issued back-to-back with no `await` between them, so (per the ordinary
+        // synchronous-prefix-of-an-async-function evaluation order the JS spec guarantees) the
+        // first call always reaches the daemon's writer lock before the second call is even
+        // constructed. Without a lock serializing auditApprove, both would race past the "pending"
+        // read and each call createIssue once per draft (4 calls total for 2 drafts instead of 2).
+        const [first, second] = await Promise.allSettled([
+          fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId }),
+          fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId })
+        ]);
+
+        const settled = [first, second];
+        const fulfilled = settled.filter((entry): entry is PromiseFulfilledResult<JsonEnvelope> => entry.status === "fulfilled");
+        const rejected = settled.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
+
+        // Exactly one caller gets to run the approve flow; the other is rejected outright by the
+        // writer lock (a clear, retryable failure) rather than silently reading stale state.
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        expect(fulfilled[0]!.value.ok).toBe(true);
+        expect(fulfilled[0]!.value.data).toMatchObject({ status: "issued", issuedCount: 2, totalCount: 2 });
+        expect(String(rejected[0]!.reason)).toContain("runtime writer is locked");
+      });
+
+      // The concurrency bug this test guards against would have created every draft twice (once
+      // per racing call); with the lock, each draft is published exactly once.
+      expect(calls.createIssue).toHaveLength(draftRecords.length);
+      const titles = calls.createIssue.map((call) => call.title);
+      expect(new Set(titles).size).toBe(titles.length);
+
+      const show = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      expect((show.data as any).run.status).toBe("issued");
+      expect((show.data as any).run.issuedIssues).toHaveLength(2);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve stops in issuing after a mid-flight failure, recording already-published drafts, and --resume completes the run", async () => {
+    const draftRecords = [
+      auditDraftRecord({ title: "Draft Alpha" }),
+      auditDraftRecord({ title: "Draft Beta" }),
+      auditDraftRecord({ title: "Draft Gamma" })
+    ];
+    // githubIssueDraftsFromReport canonicalizes draft processing order by content-addressed
+    // draftId, not by this array's input order, so which title ends up "first"/"second" is not
+    // knowable ahead of time. Fail the second `createIssue` attempt overall (whichever draft that
+    // turns out to be) rather than matching by title, so this test is independent of that
+    // canonical ordering.
+    let attemptsSoFar = 0;
+    const { executor, calls } = fakeGithubIssueExecutor({
+      createIssueImpl: async () => {
+        attemptsSoFar += 1;
+        if (attemptsSoFar === 2) throw new Error("gh issue create: temporary failure");
+        const number = 6000 + calls.createIssue.length;
+        return { number, url: `https://github.com/acme/widgets/issues/${number}` };
+      }
+    });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      let firstSucceededTitle = "";
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const firstAttempt = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(firstAttempt.ok).toBe(false);
+        expect((firstAttempt as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((firstAttempt as any).error.message).toContain("--resume");
+        expect(calls.createIssue).toHaveLength(2);
+        firstSucceededTitle = calls.createIssue[0]!.title;
+
+        const stuck = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+        expect((stuck.data as any).run.status).toBe("issuing");
+        expect((stuck.data as any).run.issuedIssues).toHaveLength(1);
+
+        const withoutResume = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(withoutResume.ok).toBe(false);
+        expect((withoutResume as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((withoutResume as any).error.message).toContain("--resume");
+        expect(calls.createIssue).toHaveLength(2);
+
+        const resumed = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, resume: true });
+        expect(resumed.ok).toBe(true);
+        expect(resumed.data).toMatchObject({ status: "issued", issuedCount: 3, totalCount: 3 });
+      });
+
+      const finalShow = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      expect((finalShow.data as any).run.status).toBe("issued");
+      expect((finalShow.data as any).run.issuedIssues).toHaveLength(3);
+      // The draft that succeeded before the crash point was never re-created on resume.
+      const firstDraftCreateCalls = calls.createIssue.filter((call) => call.title === firstSucceededTitle).length;
+      expect(firstDraftCreateCalls).toBe(1);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve reuses an already-filed issue found via footer-marker dedup instead of re-publishing", async () => {
+    const draftRecords = [auditDraftRecord({ title: "Draft Solo" })];
+    const { executor, calls, existingIssues } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      const show = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      const draftDigest = (show.data as any).githubIssueDrafts[0].draftDigest as string;
+      // Simulate a prior daemon crash: gh issue create already succeeded (issue #7777) but the
+      // ledger progress event was never appended, so run.issuedIssues going into this call is
+      // still empty; only the footer marker on the already-filed issue proves it was published.
+      existingIssues.push({
+        number: 7777,
+        url: "https://github.com/acme/widgets/issues/7777",
+        body: `Some existing body.\n\n${githubIssueFooterMarker(fixture.runId, draftDigest)}\n`
+      });
+
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const approve = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(approve.ok).toBe(true);
+        expect((approve.data as any).issuedIssues[0]).toMatchObject({ number: 7777, url: "https://github.com/acme/widgets/issues/7777" });
+      });
+      expect(calls.createIssue).toHaveLength(0);
+      expect(calls.listRecentIssues.length).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects when the crash-recovery dedup listing itself fails (fail-closed, inconclusive)", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ listRecentIssuesError: new Error("gh issue list: rate limited") });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("inconclusive");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
     }
   });
 
@@ -3422,6 +3873,72 @@ describe("createNodeInvestigationTransport", () => {
   });
 });
 
+describe("github issue executor", () => {
+  test("withGithubIssueBodyFile removes its temp directory even when writing the body fails", async () => {
+    let capturedBodyFile: string | undefined;
+    const failingWrite = ((path: unknown) => {
+      capturedBodyFile = path as string;
+      throw new Error("simulated disk write failure");
+    }) as unknown as typeof writeFileSync;
+
+    let caught: unknown;
+    try {
+      await withGithubIssueBodyFile(
+        "draft body",
+        async () => {
+          throw new Error("fn must never run: the write should have failed first");
+        },
+        { writeFile: failingWrite }
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("simulated disk write failure");
+    expect(capturedBodyFile).toBeDefined();
+    // The temp directory `mkdtempSync` created still existed at the moment of the write failure
+    // (that is what makes this a meaningful assertion); the fix's `finally` must have removed it.
+    expect(existsSync(dirname(capturedBodyFile!))).toBe(false);
+  });
+
+  test("gh executor redacts the call's token and any gh-token-shaped substring from a failing call's error message", async () => {
+    const binDir = mkdtempSync(join(tmpdir(), "archctx-fake-gh-"));
+    // Deliberately NOT gh-token-shaped, so it can only be stripped by the literal-token match.
+    const callToken = "s3cr3t-pat-literal-000111222333";
+    // gh-token-shaped but NOT the literal token passed to this call, so it can only be stripped by
+    // the gh[opsu]_ pattern match (simulates gh's own output echoing a *different* credential).
+    const otherToken = "ghu_otherLeakedTokenShape999888";
+    try {
+      writeFileSync(
+        join(binDir, "gh"),
+        `#!/bin/sh\necho "authentication failed for token ${callToken}; also saw ${otherToken}" 1>&2\nexit 1\n`
+      );
+      chmodSync(join(binDir, "gh"), 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${binDir}${previousPath ? `:${previousPath}` : ""}`;
+      try {
+        const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
+        let caught: unknown;
+        try {
+          await executor.repoView("acme/widgets", { GH_TOKEN: callToken });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(Error);
+        const message = (caught as Error).message;
+        expect(message).toContain("[REDACTED]");
+        expect(message).not.toContain(callToken);
+        expect(message).not.toContain(otherToken);
+      } finally {
+        process.env.PATH = previousPath;
+      }
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+});
+
 function createGitRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-runtime-git-"));
   writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
@@ -3441,6 +3958,148 @@ function writeAuditManifest(root: string, enabled: boolean): void {
     `schemaVersion: archcontext.manifest/v1\naudit:\n  githubIssues:\n    enabled: ${enabled}\n`,
     "utf8"
   );
+}
+
+function addGitRemote(root: string, url: string): void {
+  execFileSync("git", ["remote", "add", "origin", url], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+/** ADR-0042 test double: never shells out, records every call for assertions. */
+interface FakeGithubIssueExecutorOptions {
+  visibility?: string;
+  repoViewError?: Error;
+  listRecentIssuesError?: Error;
+  existingIssues?: GithubIssueListedRecord[];
+  createIssueImpl?: (input: { repo: string; title: string; bodyFile: string; labels: string[] }) => Promise<GithubIssueCreatedRecord>;
+}
+
+interface FakeGithubIssueExecutorCreateCall {
+  repo: string;
+  title: string;
+  bodyFile: string;
+  labels: string[];
+  bodyText: string;
+}
+
+interface FakeGithubIssueExecutorCalls {
+  repoView: { repo: string; env: { GH_TOKEN: string } }[];
+  listRecentIssues: { repo: string; env: { GH_TOKEN: string } }[];
+  createIssue: FakeGithubIssueExecutorCreateCall[];
+}
+
+function fakeGithubIssueExecutor(options: FakeGithubIssueExecutorOptions = {}): {
+  executor: GithubIssueExecutorPort;
+  calls: FakeGithubIssueExecutorCalls;
+  existingIssues: GithubIssueListedRecord[];
+} {
+  const calls: FakeGithubIssueExecutorCalls = { repoView: [], listRecentIssues: [], createIssue: [] };
+  const existingIssues: GithubIssueListedRecord[] = options.existingIssues ? [...options.existingIssues] : [];
+  let nextNumber = 5000;
+  const executor: GithubIssueExecutorPort = {
+    async repoView(repo, env) {
+      calls.repoView.push({ repo, env });
+      if (options.repoViewError) throw options.repoViewError;
+      return { visibility: options.visibility ?? "private" };
+    },
+    async listRecentIssues(repo, env) {
+      calls.listRecentIssues.push({ repo, env });
+      if (options.listRecentIssuesError) throw options.listRecentIssuesError;
+      return existingIssues;
+    },
+    async createIssue(input) {
+      const bodyText = readFileSync(input.bodyFile, "utf8");
+      calls.createIssue.push({ repo: input.repo, title: input.title, bodyFile: input.bodyFile, labels: input.labels, bodyText });
+      if (options.createIssueImpl) return options.createIssueImpl(input);
+      nextNumber += 1;
+      return { number: nextNumber, url: `https://github.com/${input.repo}/issues/${nextNumber}` };
+    }
+  };
+  return { executor, calls, existingIssues };
+}
+
+function auditDraftRecord(overrides: Partial<{
+  kind: string;
+  priority: string;
+  title: string;
+  bodyMarkdown: string;
+  labels: string[];
+  evidence: unknown[];
+  acceptance: string[];
+  verificationCommands: string[];
+}> = {}) {
+  return {
+    kind: "task",
+    priority: "P2",
+    title: "Add direct sqlite coverage for audit_runs reads",
+    bodyMarkdown: "## Task\n\nCover listAuditRuns/getAuditRun with a dedicated sqlite test.\n",
+    labels: [],
+    evidence: [{ path: "packages/local-runtime/local-store-sqlite/src/index.ts", startLine: 1, note: "audit run read path" }],
+    acceptance: ["listAuditRuns and getAuditRun have direct sqlite coverage"],
+    verificationCommands: [],
+    ...overrides
+  };
+}
+
+function auditInvestigationTransportWithDrafts(draftRecords: unknown[], now: string) {
+  return async (input: CommandInvestigationRunnerTransportInput) => {
+    const separatorIndex = input.stdin.lastIndexOf("\n\n");
+    const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+    const jobId = runnerInput.job.jobId as string;
+    const report = {
+      schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+      reportId: `investigation_report.approve_test_${jobId.slice(-8)}`,
+      jobId,
+      status: "succeeded",
+      findings: [],
+      outputDigest: digestJson({ jobId, draftRecords } as unknown as Json),
+      createdAt: now,
+      directMutationAllowed: false,
+      extensions: { githubIssueDrafts: draftRecords }
+    };
+    return { exitCode: 0, stdout: JSON.stringify({ report }) };
+  };
+}
+
+/**
+ * Stands up a daemon and drives a real `auditRun` to completion (2 drafts by default) so
+ * `auditApprove` tests exercise the actual pending-run/proposal-plan shape the daemon produces,
+ * rather than a hand-built fixture. `githubIssueExecutor` is always an explicit fake (never the
+ * real `createNodeGithubIssueExecutor` default) so no test in this suite can accidentally shell
+ * out to a real `gh` binary.
+ */
+async function createPendingApproveFixture(options: {
+  draftRecords?: unknown[];
+  remoteUrl?: string;
+  githubIssueExecutor: GithubIssueExecutorPort;
+} ): Promise<{ root: string; store: TestLocalStore; daemon: Awaited<ReturnType<typeof createStartedTestDaemon>>; runId: string; draftRecords: unknown[] }> {
+  const root = createGitRepo();
+  if (options.remoteUrl) addGitRemote(root, options.remoteUrl);
+  writeAuditManifest(root, true);
+  const store = new TestLocalStore();
+  const draftRecords = options.draftRecords ?? [auditDraftRecord({ title: "Draft One" }), auditDraftRecord({ title: "Draft Two" })];
+  const now = "2026-07-05T00:00:00.000Z";
+  const daemon = await createStartedTestDaemon({
+    localStore: store,
+    clock: () => now,
+    githubIssueExecutor: options.githubIssueExecutor,
+    investigationTransport: auditInvestigationTransportWithDrafts(draftRecords, now)
+  });
+  const run = await daemon.auditRun(root, { timeoutMs: 5_000 });
+  if (!run.ok) throw new Error(`fixture audit run failed: ${JSON.stringify(run)}`);
+  const runId = (run.data as any).runId as string;
+  return { root, store, daemon, runId, draftRecords };
+}
+
+async function withAuditApproveToken<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.ARCHCONTEXT_GH_ISSUES_TOKEN;
+  if (value === undefined) delete process.env.ARCHCONTEXT_GH_ISSUES_TOKEN;
+  else process.env.ARCHCONTEXT_GH_ISSUES_TOKEN = value;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.ARCHCONTEXT_GH_ISSUES_TOKEN;
+    else process.env.ARCHCONTEXT_GH_ISSUES_TOKEN = previous;
+  }
 }
 
 async function appendRecommendationRunFixture(store: TestLocalStore, root: string, now: string) {
