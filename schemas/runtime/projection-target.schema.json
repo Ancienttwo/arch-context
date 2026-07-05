@@ -10,7 +10,7 @@
     "targetId": { "type": "string", "pattern": "^projection_target\\.[a-zA-Z0-9_.-]+$" },
     "type": {
       "type": "string",
-      "enum": ["architecture-index", "entity-summary", "relation-summary", "decision-index", "architecture-changelog", "diagram-mermaid", "diagram-structurizr", "diagram-likec4"]
+      "enum": ["architecture-index", "entity-summary", "relation-summary", "decision-index", "architecture-changelog", "diagram-mermaid", "diagram-structurizr", "diagram-likec4", "agent-context"]
     },
     "scope": {
       "type": "object",

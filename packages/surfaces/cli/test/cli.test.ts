@@ -12,9 +12,9 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, stableYaml } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
-import { runCli } from "../src/main";
+import { resolveCommandExitCode, runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
@@ -3020,6 +3020,91 @@ describe("archctx CLI", () => {
       const succeedingBody = JSON.parse(succeeding.stdout);
       expect(succeedingBody.ok).toBe(true);
       expect(succeeding.code).toBe(0);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("archctx resolve --path matches the most specific declared capability (ADR-0043)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      initializeArchContextModel(root, "CLI Resolve App");
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.projection-engine.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.node/v1",
+          id: "capability.projection-engine",
+          kind: "capability",
+          name: "Projection Engine",
+          status: "active",
+          summary: "Renders architecture and agent-context projections.",
+          source: { include: ["packages/core/projection-engine/**"] },
+          extensions: { lspProfile: "typescript-lsp", verification: ["bun test"] }
+        }),
+        "utf8"
+      );
+
+      const matched = await runTestCli("resolve", ["--path", "packages/core/projection-engine/src/index.ts"], root);
+      expect(matched.ok).toBe(true);
+      expect((matched.data as any).matched).toBe(true);
+      expect((matched.data as any).stableId).toBe("capability.projection-engine");
+      expect((matched.data as any).source.include).toEqual(["packages/core/projection-engine/**"]);
+      expect((matched.data as any).extensions.lspProfile).toBe("typescript-lsp");
+      expect(resolveCommandExitCode(matched)).toBe(0);
+
+      const noMatch = await runTestCli("resolve", ["--path", "docs/unrelated.md"], root);
+      expect((noMatch.data as any).matched).toBe(false);
+      expect((noMatch.data as any).ambiguous).toBe(false);
+      expect(resolveCommandExitCode(noMatch)).toBe(1);
+
+      const missingPath = await runTestCli("resolve", [], root);
+      expect(missingPath.ok).toBe(false);
+      expect((missingPath as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(resolveCommandExitCode(missingPath)).toBe(1);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("archctx resolve --path rejects equal-specificity ownership as ambiguous", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-ambiguous-"));
+    try {
+      writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+      initializeArchContextModel(root, "CLI Resolve Ambiguous App");
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.shared-a.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.node/v1",
+          id: "capability.shared-a",
+          kind: "capability",
+          name: "Shared A",
+          status: "active",
+          summary: "First capability declaring the shared package.",
+          source: { include: ["packages/shared/**"] }
+        }),
+        "utf8"
+      );
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.shared-b.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.node/v1",
+          id: "capability.shared-b",
+          kind: "capability",
+          name: "Shared B",
+          status: "active",
+          summary: "Second capability declaring the same shared package.",
+          source: { include: ["packages/shared/**"] }
+        }),
+        "utf8"
+      );
+
+      const ambiguous = await runTestCli("resolve", ["--path", "packages/shared/utils.ts"], root);
+      expect(ambiguous.ok).toBe(true);
+      expect((ambiguous.data as any).matched).toBe(false);
+      expect((ambiguous.data as any).ambiguous).toBe(true);
+      expect((ambiguous.data as any).candidates.sort()).toEqual(["capability.shared-a", "capability.shared-b"]);
+      expect(resolveCommandExitCode(ambiguous)).toBe(2);
     } finally {
       removeTempRoot(root);
     }

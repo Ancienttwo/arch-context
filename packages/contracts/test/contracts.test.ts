@@ -160,6 +160,19 @@ describe("JSON schema contracts", () => {
     }
   });
 
+  test("projection-target schema accepts the agent-context targetType (ADR-0043)", () => {
+    const schema = readJson("schemas/runtime/projection-target.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/projection-target.json") as Record<string, Json>;
+
+    const agentContextFixture = {
+      ...fixture,
+      type: "agent-context",
+      scope: { kind: "entity", id: "capability.example.agent-context", entityKind: "capability" }
+    };
+    expect(validateJsonSchema(schema as any, agentContextFixture as Json).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, { ...fixture, type: "agent-contexts" } as Json).valid).toBe(false);
+  });
+
   test("practice policy schema accepts explicit fail-open and fail-closed modes", () => {
     const schema = readJson("schemas/repo/practices/practice-policy.schema.json");
     const fixture = readJson("packages/contracts/fixtures/valid/practice-policy.json") as Record<string, Json>;

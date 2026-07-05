@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
@@ -38,6 +38,7 @@ import {
   loadArchitectureDocumentationInputs,
   loadNativeModelFromArchContext,
   renderArchitectureDocumentationProjection,
+  resolveArchitectureOwnerForPath,
   type ArchitectureDocumentationProjectionFile
 } from "@archcontext/surfaces/renderer";
 
@@ -82,6 +83,7 @@ if (import.meta.main) {
     );
     process.stdout.write(`${renderResult(result, readFlag(args, "--format") ?? "json")}\n`);
     if (result.ok === false) process.exitCode = 1;
+    if (command === "resolve") process.exitCode = resolveCommandExitCode(result);
   }
 }
 
@@ -419,6 +421,36 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
           revocation: "archctx tunnel --revoke"
         }
       };
+    case "resolve": {
+      const path = readFlag(args, "--path");
+      if (!path) return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve requires --path");
+      if (!isRepoRelativePosixPath(path)) {
+        return errorEnvelope("resolve", "AC_SCHEMA_INVALID", "resolve --path must be a repository-relative POSIX path");
+      }
+      const model = loadNativeModelFromArchContext(cwd);
+      const outcome = resolveArchitectureOwnerForPath(model.nodes, path);
+      if (outcome.status === "matched") {
+        const node = outcome.node;
+        return okEnvelope("resolve", {
+          matched: true,
+          ambiguous: false,
+          stableId: node.id,
+          kind: node.kind,
+          name: node.name,
+          ...(node.source ? { source: node.source } : {}),
+          ...(node.extensions ? { extensions: node.extensions } : {})
+        } as unknown as Json);
+      }
+      if (outcome.status === "ambiguous") {
+        return okEnvelope("resolve", {
+          matched: false,
+          ambiguous: true,
+          path,
+          candidates: outcome.candidates.map((node) => node.id)
+        } as unknown as Json);
+      }
+      return okEnvelope("resolve", { matched: false, ambiguous: false, path } as unknown as Json);
+    }
     case "help":
     default:
       return {
@@ -426,8 +458,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
@@ -3076,6 +3108,15 @@ function renderResult(result: any, format: string): string {
   if (format !== "human") return JSON.stringify(result, null, 2);
   if (!result.ok) return `ERROR ${result.error?.code}: ${result.error?.message}`;
   return `OK ${result.requestId}\n${JSON.stringify(result.data, null, 2)}`;
+}
+
+/** ADR-0043: `archctx resolve --path` exit codes are 0=matched, 1=no-match, 2=ambiguous. */
+export function resolveCommandExitCode(result: { ok?: boolean; data?: unknown }): number {
+  if (!result || result.ok !== true) return 1;
+  const data = result.data as { matched?: boolean; ambiguous?: boolean } | undefined;
+  if (data?.matched === true) return 0;
+  if (data?.ambiguous === true) return 2;
+  return 1;
 }
 
 function readCurrentBranch(root: string): string {
