@@ -1745,7 +1745,7 @@ export class ArchctxDaemon {
           if (body === undefined) throw new Error(`audit-approve-missing-preflight-body: ${draft.draftId}`);
           try {
             issued = await withGithubIssueBodyFile(body, (bodyFile) =>
-              this.githubIssueExecutor.createIssue({ repo: capability.repoNameWithOwner, title: draft.title, bodyFile, labels: draft.labels, env })
+              this.githubIssueExecutor.createIssue({ repo: capability.repoNameWithOwner, title: draft.title, bodyFile, env })
             );
           } catch (error) {
             return errorEnvelope(

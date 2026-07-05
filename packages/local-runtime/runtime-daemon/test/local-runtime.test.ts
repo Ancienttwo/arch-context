@@ -3937,6 +3937,44 @@ describe("github issue executor", () => {
       rmSync(binDir, { recursive: true, force: true });
     }
   });
+
+  // ADR-0042 non-goal, reproducing a real `archctx audit approve` e2e failure: `gh issue create
+  // --label archcontext-audit` rejected with `could not add label: 'archcontext-audit' not found`
+  // because label existence on the target repo is never verified first. createIssue() has no
+  // `labels` input at all (see GithubIssueExecutorPort's doc comment) — this pins the real
+  // executor's actual `gh` argv to prove no `--label` is ever emitted, whatever a draft's labels
+  // may be; those stay visible only via `archctx audit show`.
+  test("ADR-0042: real gh executor's createIssue never sends --label to gh (label existence on the target repo is never verified server-side, so an unknown label would fail gh issue create outright)", async () => {
+    const binDir = mkdtempSync(join(tmpdir(), "archctx-fake-gh-label-"));
+    const capturedArgsFile = join(binDir, "captured-args.txt");
+    const bodyFile = join(binDir, "body.md");
+    try {
+      writeFileSync(bodyFile, "draft body", "utf8");
+      writeFileSync(
+        join(binDir, "gh"),
+        `#!/bin/sh\nprintf '%s\\n' "$@" > "${capturedArgsFile}"\necho "https://github.com/acme/widgets/issues/4242"\n`
+      );
+      chmodSync(join(binDir, "gh"), 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${binDir}${previousPath ? `:${previousPath}` : ""}`;
+      try {
+        const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
+        const result = await executor.createIssue({
+          repo: "acme/widgets",
+          title: "Some draft title",
+          bodyFile,
+          env: { GH_TOKEN: "gh_pat_test_token" }
+        });
+        expect(result).toEqual({ number: 4242, url: "https://github.com/acme/widgets/issues/4242" });
+        const capturedArgs = readFileSync(capturedArgsFile, "utf8");
+        expect(capturedArgs).not.toContain("--label");
+      } finally {
+        process.env.PATH = previousPath;
+      }
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
 });
 
 function createGitRepo(): string {
@@ -3970,14 +4008,13 @@ interface FakeGithubIssueExecutorOptions {
   repoViewError?: Error;
   listRecentIssuesError?: Error;
   existingIssues?: GithubIssueListedRecord[];
-  createIssueImpl?: (input: { repo: string; title: string; bodyFile: string; labels: string[] }) => Promise<GithubIssueCreatedRecord>;
+  createIssueImpl?: (input: { repo: string; title: string; bodyFile: string }) => Promise<GithubIssueCreatedRecord>;
 }
 
 interface FakeGithubIssueExecutorCreateCall {
   repo: string;
   title: string;
   bodyFile: string;
-  labels: string[];
   bodyText: string;
 }
 
@@ -4008,7 +4045,7 @@ function fakeGithubIssueExecutor(options: FakeGithubIssueExecutorOptions = {}): 
     },
     async createIssue(input) {
       const bodyText = readFileSync(input.bodyFile, "utf8");
-      calls.createIssue.push({ repo: input.repo, title: input.title, bodyFile: input.bodyFile, labels: input.labels, bodyText });
+      calls.createIssue.push({ repo: input.repo, title: input.title, bodyFile: input.bodyFile, bodyText });
       if (options.createIssueImpl) return options.createIssueImpl(input);
       nextNumber += 1;
       return { number: nextNumber, url: `https://github.com/${input.repo}/issues/${nextNumber}` };

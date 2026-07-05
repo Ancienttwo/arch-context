@@ -131,10 +131,11 @@ two never intersect.
 - **Non-goals:** a schedule/auto-run audit trigger; an `--auto-approve` flag or any unattended
   approval path; publishing via a GitHub App/OAuth installation instead of a local PAT;
   multi-user RBAC around who may approve; GitHub Enterprise Server; editing or closing an
-  already-filed issue; applying labels beyond what the draft already specifies (label existence on
-  the target repository is not verified before `gh issue create` — an invalid label is a new
-  partial-failure shape this ADR does not attempt to classify, left for a human to notice and
-  fix); any host other than `github.com`; an MCP-surfaced `approve` tool; and extracting
-  `SECRET_PATTERNS` into a shared module across this file and
-  `scripts/fg5-retention-staging-readback.ts` (the two lists are kept independently inlined on
-  purpose — see the executor module's own comment).
+  already-filed issue; applying a draft's labels via `gh issue create` at all (label existence on
+  the target repository is never verified, and `gh issue create --label X` fails the entire call
+  outright when `X` doesn't exist there — an unbounded new partial-failure shape this ADR does not
+  attempt to classify — so `createIssue` never sends `--label`; a draft's labels stay visible only
+  via `archctx audit show`, for a human to apply by hand after filing); any host other than
+  `github.com`; an MCP-surfaced `approve` tool; and extracting `SECRET_PATTERNS` into a shared
+  module across this file and `scripts/fg5-retention-staging-readback.ts` (the two lists are kept
+  independently inlined on purpose — see the executor module's own comment).

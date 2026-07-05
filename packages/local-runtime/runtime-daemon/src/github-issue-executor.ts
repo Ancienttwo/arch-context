@@ -35,11 +35,17 @@ export interface GithubIssueRepoView {
  * fake that records calls and never shells out.
  */
 export interface GithubIssueExecutorPort {
+  /**
+   * Deliberately has no `labels` input (ADR-0042 non-goal): label existence on the target repo is
+   * never verified, so `gh issue create --label X` fails outright when `X` doesn't exist there,
+   * turning one bad label into a whole-draft partial-failure this codebase does not attempt to
+   * classify. A draft's `labels` stay visible only via `archctx audit show`, for a human to apply
+   * by hand after filing.
+   */
   createIssue(input: {
     repo: string;
     title: string;
     bodyFile: string;
-    labels: string[];
     env: GithubIssueExecutorEnv;
   }): Promise<GithubIssueCreatedRecord>;
   repoView(repo: string, env: GithubIssueExecutorEnv): Promise<GithubIssueRepoView>;
@@ -58,8 +64,8 @@ const GITHUB_ISSUE_LIST_LIMIT = 100;
  * write intent (`gh issue create`); the read-only probes (`repo view`, `issue list`) live here
  * too so every `gh` invocation this codebase makes shares one safety posture:
  *
- * - No shell (`execFile` with an argv array), so title/body/labels can never be interpreted as
- *   shell syntax.
+ * - No shell (`execFile` with an argv array), so title/body can never be interpreted as shell
+ *   syntax.
  * - The PAT never appears in argv: it flows only through the child process's `GH_TOKEN`
  *   environment variable, which `gh` reads directly and prefers over any stored `gh auth login`
  *   session. The child env is reduced to exactly PATH/HOME/GH_TOKEN plus
@@ -77,11 +83,11 @@ export function createNodeGithubIssueExecutor(options: NodeGithubIssueExecutorOp
 }
 
 async function createIssue(
-  input: { repo: string; title: string; bodyFile: string; labels: string[]; env: GithubIssueExecutorEnv },
+  input: { repo: string; title: string; bodyFile: string; env: GithubIssueExecutorEnv },
   timeoutMs: number
 ): Promise<GithubIssueCreatedRecord> {
+  // No `--label` args here — see the ADR-0042 non-goal on `GithubIssueExecutorPort.createIssue`.
   const args = ["issue", "create", "--repo", input.repo, "--title", input.title, "--body-file", input.bodyFile];
-  for (const label of input.labels) args.push("--label", label);
   const stdout = await runGh(args, input.env, timeoutMs);
   const url = stdout.trim();
   const number = issueNumberFromUrl(url);
@@ -215,11 +221,14 @@ export type GithubIssuePreflightResult =
   | { ok: false; reason: string };
 
 /**
- * Batch pre-flight for an entire approve run: scans every draft's full outbound payload
- * (title + body + footer marker + labels) for secret-shaped content and enforces GitHub's issue
- * body length limit, over the exact text that will be sent to `gh`. Any single draft failing
- * either check aborts the whole batch before any ledger event is appended or any `gh` call is
- * made — this codebase never publishes a partial batch because one draft looked unsafe.
+ * Batch pre-flight for an entire approve run: scans every draft's full outbound-or-displayed
+ * payload (title + body + footer marker, which are sent to `gh`, plus labels, which `createIssue`
+ * never sends to `gh` and which are exposed only via `archctx audit show` — see
+ * `GithubIssueExecutorPort.createIssue`'s doc comment) for secret-shaped content, and enforces
+ * GitHub's issue body length limit over the title/body/footer text that is actually sent to `gh`.
+ * Any single draft failing either check aborts the whole batch before any ledger event is
+ * appended or any `gh` call is made — this codebase never publishes a partial batch because one
+ * draft looked unsafe.
  */
 export function preflightGithubIssueDrafts(runId: string, drafts: GithubIssuePreflightDraft[]): GithubIssuePreflightResult {
   const bodies = new Map<string, string>();
