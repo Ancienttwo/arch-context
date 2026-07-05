@@ -3,10 +3,10 @@
 `@archcontext/contracts@0.1.4` is package-ready on `origin/main`, but public npm
 publish under the `@archcontext` org scope is blocked by scope authorization and
 the npm org cost boundary. The no-org distribution target is now
-`@ancienttwo/archcontext-contracts@0.1.4`; the internal workspace package remains
+`archctx-contracts@0.1.4`; the internal workspace package remains
 `@archcontext/contracts`.
 
-The current authenticated npm identity is `ancienttwo`. Personal-scope preflight
+The current authenticated npm identity is `ancienttwo`. Unscoped-name preflight
 passes; original `@archcontext` scope package, org, and team readbacks return
 `E403`, while `npm view @archcontext/contracts` returns `E404`.
 
@@ -27,5 +27,5 @@ Durable readback:
 
 Do not switch ModelContext to the public dependency or enable
 `MODELCONTEXT_REQUIRE_ARCHCONTEXT_CONTRACTS=1` until
-`@ancienttwo/archcontext-contracts` is published and clean-room install/import
+`archctx-contracts` is published and clean-room install/import
 readback passes.

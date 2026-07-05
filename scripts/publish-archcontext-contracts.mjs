@@ -10,7 +10,7 @@ const packageRoot = join(root, "packages/contracts");
 const packageManifestPath = join(packageRoot, "package.json");
 const registry = readFlag("--registry") ?? "https://registry.npmjs.org/";
 const sourcePackageName = "@archcontext/contracts";
-const publishPackageName = readFlag("--package-name") ?? process.env.ARCHCONTEXT_CONTRACTS_NPM_NAME ?? "@ancienttwo/archcontext-contracts";
+const publishPackageName = readFlag("--package-name") ?? process.env.ARCHCONTEXT_CONTRACTS_NPM_NAME ?? "archctx-contracts";
 const json = process.argv.includes("--json");
 const allowBlocked = process.argv.includes("--allow-blocked");
 const confirmPublish = process.argv.includes("--confirm-publish");
@@ -43,7 +43,7 @@ function preflightContracts() {
     checks: context.checks,
     blockers,
     nextCommand: blockers.length === 0
-      ? `node scripts/publish-archcontext-contracts.mjs publish --confirm-publish --registry ${registry}${publishPackageName === "@ancienttwo/archcontext-contracts" ? "" : ` --package-name ${publishPackageName}`}`
+      ? `node scripts/publish-archcontext-contracts.mjs publish --confirm-publish --registry ${registry}${publishPackageName === "archctx-contracts" ? "" : ` --package-name ${publishPackageName}`}`
       : "fix npm scope authorization, then rerun preflight"
   };
 }
