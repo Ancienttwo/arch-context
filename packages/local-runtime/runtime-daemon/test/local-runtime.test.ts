@@ -4163,8 +4163,13 @@ describe("local runtime foundation", () => {
       expect(body.data.capabilities).toMatchObject({ readOnly: true, mutationMode: "forbidden", egress: "none" });
       expect(JSON.stringify(body.data)).not.toContain("sourceBody");
 
-      const rootProjection = await fetch(`${data.url}?token=${data.token}`);
-      expect((await rootProjection.json() as any).data.schemaVersion).toBe("archcontext.explorer-projection/v1");
+      const html = await fetch(`${data.url}?token=${data.token}`);
+      expect(html.status).toBe(200);
+      expect(html.headers.get("content-type")).toContain("text/html");
+      const htmlBody = await html.text();
+      expect(htmlBody).toContain("ArchContext Explorer");
+      expect(htmlBody).toContain("read-only · local · no egress");
+      expect(htmlBody).not.toContain("https://");
 
       await daemon.revokeExplorerToken();
       const revoked = await fetch(`${data.url}projection`, {
