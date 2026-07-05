@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
+import { architectureLedgerPayload, planAuditRunToArchitectureLedgerEvent } from "@archcontext/core/architecture-ledger";
 import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
 import {
   LOCAL_SQLITE_MIGRATIONS,
@@ -34,7 +35,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0006_architecture_ledger",
       "0007_runtime_job_queue",
       "0008_runtime_job_queue_hardening",
-      "0009_architecture_ledger_search_fts"
+      "0009_architecture_ledger_search_fts",
+      "0010_audit_runs"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -352,7 +354,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0006_architecture_ledger",
       "0007_runtime_job_queue",
       "0008_runtime_job_queue_hardening",
-      "0009_architecture_ledger_search_fts"
+      "0009_architecture_ledger_search_fts",
+      "0010_audit_runs"
     ]);
 
     const snapshot = {
@@ -1168,6 +1171,104 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       removeTempRoot(root);
     }
   }, LEGACY_SQLITE_MIGRATION_TIMEOUT_MS);
+
+  test("ADR-0042: audit run pending -> issuing -> issued transitions append without idempotency conflict and project the latest status", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-audit-run-transitions-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const base = {
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+        jobId: "agent_job.audit_transition_test",
+        reportId: "investigation_report.audit_transition_test",
+        repoNameWithOwner: "acme/widgets",
+        issueDraftDigests: [`sha256:${"a".repeat(64)}`, `sha256:${"b".repeat(64)}`],
+        inputDigest: digestJson({ input: "audit-transition-test" } as unknown as Json),
+        outputDigest: digestJson({ output: "audit-transition-test" } as unknown as Json)
+      };
+
+      const pendingPlan = planAuditRunToArchitectureLedgerEvent({
+        ...base,
+        status: "pending",
+        repoVisibility: "private",
+        createdAt: "2026-07-05T00:00:00.000Z"
+      });
+      const pendingAppend = await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [pendingPlan.event] });
+      expect(pendingAppend.appendedEvents).toHaveLength(1);
+      const runId = architectureLedgerPayload(pendingAppend.appendedEvents[0]!).auditRuns![0]!.runId;
+
+      const issuedIssueOne = [{
+        draftId: "draft.one",
+        draftDigest: base.issueDraftDigests[0]!,
+        number: 101,
+        url: "https://github.com/acme/widgets/issues/101",
+        issuedAt: "2026-07-05T00:00:05.000Z"
+      }];
+      const issuingPlan = planAuditRunToArchitectureLedgerEvent({
+        ...base,
+        runId,
+        status: "issuing",
+        repoVisibility: "private",
+        issuedIssues: issuedIssueOne,
+        createdAt: "2026-07-05T00:00:06.000Z",
+        eventType: "architecture.agent_audit.run_issuing"
+      });
+      const issuingAppend = await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [issuingPlan.event] });
+      expect(issuingAppend.appendedEvents).toHaveLength(1);
+      expect(issuingAppend.duplicateEvents).toHaveLength(0);
+
+      const issuedIssuesFinal = [
+        ...issuedIssueOne,
+        {
+          draftId: "draft.two",
+          draftDigest: base.issueDraftDigests[1]!,
+          number: 102,
+          url: "https://github.com/acme/widgets/issues/102",
+          issuedAt: "2026-07-05T00:00:10.000Z"
+        }
+      ];
+      const issuedPlan = planAuditRunToArchitectureLedgerEvent({
+        ...base,
+        runId,
+        status: "issued",
+        repoVisibility: "private",
+        issuedIssues: issuedIssuesFinal,
+        createdAt: "2026-07-05T00:00:11.000Z",
+        eventType: "architecture.agent_audit.run_issued"
+      });
+      const issuedAppend = await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [issuedPlan.event] });
+      expect(issuedAppend.appendedEvents).toHaveLength(1);
+      expect(issuedAppend.duplicateEvents).toHaveLength(0);
+
+      // pending/issuing/issued each compute a distinct idempotencyKey (pending keeps ADR-0041's
+      // original per-runId key; issuing/issued are content-addressed per transition), so all three
+      // appends above succeeded without ever hitting architecture-ledger-idempotency-conflict.
+      const idempotencyKeys = [pendingPlan.event.idempotencyKey, issuingPlan.event.idempotencyKey, issuedPlan.event.idempotencyKey];
+      expect(new Set(idempotencyKeys).size).toBe(3);
+
+      // Replaying the identical "issued" transition (e.g. a retried approve call after the ledger
+      // append already succeeded but the RPC response was lost) is a safe duplicate no-op: same
+      // idempotencyKey, same content, no conflict, and no second row.
+      const replay = await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [issuedPlan.event] });
+      expect(replay.appendedEvents).toHaveLength(0);
+      expect(replay.duplicateEvents).toHaveLength(1);
+
+      // audit_runs.run_id is a primary key behind INSERT OR REPLACE, so the projected row reflects
+      // only the latest ("issued") transition, not a stale "pending" or "issuing" snapshot.
+      const run = await store.getAuditRun({ ...ARCHITECTURE_LEDGER_SCOPE, runId });
+      expect(run?.status).toBe("issued");
+      expect(run?.issuedIssues).toHaveLength(2);
+      expect(run?.issuedIssues?.map((issue) => issue.number).sort()).toEqual([101, 102]);
+      const runs = await store.listAuditRuns(ARCHITECTURE_LEDGER_SCOPE);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe("issued");
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
 });
 
 const ARCHITECTURE_LEDGER_SCOPE = {

@@ -199,6 +199,30 @@ describe("@archcontext/core/agent-orchestrator", () => {
     expect(JSON.stringify(job)).not.toContain("sourceBody");
   });
 
+  test("defaults stalePolicy to cancel-on-head-change but honors an explicit advisory-only-on-stale override", () => {
+    const defaulted = createInvestigationAgentJob({
+      ...spawnInput(),
+      runnerPort: "fake-provider",
+      inputDigest: digestJson({ input: "stale-policy-default" } as unknown as Json),
+      promptTemplateDigest: digestJson({ prompt: "al6" } as unknown as Json),
+      policy: { adapterEnabled: true }
+    });
+    expect(defaulted.stalePolicy).toBe("cancel-on-head-change");
+
+    // A long-running job (e.g. archctx audit run's multi-minute investigation) needs to survive a
+    // concurrent cancelStaleRuntimeAgentJobs sweep triggered by something else (an unrelated
+    // git-hook job, or its own repository writes) bumping the worktree digest mid-flight.
+    const advisoryOnly = createInvestigationAgentJob({
+      ...spawnInput(),
+      runnerPort: "claude-code",
+      inputDigest: digestJson({ input: "stale-policy-override" } as unknown as Json),
+      promptTemplateDigest: digestJson({ prompt: "al6" } as unknown as Json),
+      policy: { adapterEnabled: true },
+      stalePolicy: "advisory-only-on-stale"
+    });
+    expect(advisoryOnly.stalePolicy).toBe("advisory-only-on-stale");
+  });
+
   test("applies the job state machine and rejects impossible terminal transitions", () => {
     const queued = agentJob();
     const running = transitionAgentJobStatus(queued, { status: "running", now: "2026-06-26T08:01:00.000Z" });
@@ -311,7 +335,13 @@ describe("@archcontext/core/agent-orchestrator", () => {
       canMutateRepository: false
     });
     expect(calls.map((call) => [call.command, call.args])).toEqual([
-      ["claude", ["--print", "--output-format", "json"]],
+      ["claude", [
+        "--print", "--output-format", "json",
+        "--tools", "Read,Grep,Glob",
+        "--disallowedTools", "Bash,Edit,Write,NotebookEdit",
+        "--strict-mcp-config",
+        "--setting-sources", "user"
+      ]],
       ["codex", ["exec", "--json"]]
     ]);
     const claudeInput = JSON.parse(calls[0].stdin);
@@ -326,6 +356,48 @@ describe("@archcontext/core/agent-orchestrator", () => {
     await expect(runInvestigationThroughPort({ runner: malformed, job: codexJob, context })).rejects.toThrow(
       "investigation-runner-output-not-json"
     );
+  });
+
+  test("claude investigation runner enforces a process-level read-only tool boundary, not just a prompt instruction", async () => {
+    const running = transitionAgentJobStatus(agentJob("claude-code"), { status: "running", now: "2026-06-26T08:01:00.000Z" });
+    const context = validInvestigationContext();
+    const report = investigationReport(running);
+    const calls: CommandInvestigationRunnerTransportInput[] = [];
+    const transport = async (input: CommandInvestigationRunnerTransportInput) => {
+      calls.push(input);
+      return { exitCode: 0, stdout: JSON.stringify({ report }) };
+    };
+
+    const runner = createClaudeCodeInvestigationRunner({ transport });
+    await runInvestigationThroughPort({ runner, job: running, context });
+
+    expect(calls).toHaveLength(1);
+    const [call] = calls;
+    expect(call.command).toBe("claude");
+
+    // Positive allowlist: only read-only built-ins are wired into the session at all, so the
+    // model cannot invoke a mutation/execute tool no matter what the audited repository's content
+    // (prompt injection) asks it to do.
+    const toolsIndex = call.args.indexOf("--tools");
+    expect(toolsIndex).toBeGreaterThanOrEqual(0);
+    const allowedTools = call.args[toolsIndex + 1].split(",");
+    expect(allowedTools.sort()).toEqual(["Glob", "Grep", "Read"]);
+    for (const forbidden of ["Bash", "Write", "Edit", "NotebookEdit"]) {
+      expect(allowedTools).not.toContain(forbidden);
+    }
+
+    // Defense-in-depth: mutation/execute-capable tools are also explicitly denylisted, so the
+    // invariant still holds even if the allowlist above is ever loosened by a future edit.
+    const disallowedIndex = call.args.indexOf("--disallowedTools");
+    expect(disallowedIndex).toBeGreaterThanOrEqual(0);
+    const disallowedTools = call.args[disallowedIndex + 1].split(",");
+    for (const forbidden of ["Bash", "Edit", "Write", "NotebookEdit"]) {
+      expect(disallowedTools).toContain(forbidden);
+    }
+
+    // No MCP servers (and therefore no MCP-exposed write/execute tools) are loaded into the
+    // subagent process, regardless of what the audited repository's own .mcp.json declares.
+    expect(call.args).toContain("--strict-mcp-config");
   });
 
   test("records run metadata and returns deterministic advisory fallback after timeout", async () => {

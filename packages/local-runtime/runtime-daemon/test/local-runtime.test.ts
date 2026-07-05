@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
-import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, type CodeFactsPort, type ExternalDocumentationPort, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type NormalizedCodeContext } from "@archcontext/contracts";
+import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput, type CommandInvestigationRunnerTransportResult } from "@archcontext/core/agent-orchestrator";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
@@ -14,6 +15,15 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import { createNodeInvestigationTransport } from "../src/investigation-transport";
+import {
+  createNodeGithubIssueExecutor,
+  githubIssueFooterMarker,
+  withGithubIssueBodyFile,
+  type GithubIssueCreatedRecord,
+  type GithubIssueExecutorPort,
+  type GithubIssueListedRecord
+} from "../src/github-issue-executor";
 import {
   architectureDocumentationSourceDigest,
   loadArchitectureDocumentationInputs,
@@ -30,7 +40,9 @@ import {
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
   recoverStaleDaemonControlFiles,
-  readRuntimeRpcConnection
+  readRuntimeRpcConnection,
+  runtimeDefaultClock,
+  type RuntimeAuditApproveInput
 } from "../src/index";
 
 const PREVIOUS_ARCHCONTEXT_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -69,6 +81,19 @@ function removeTempPath(path: string): void {
 function isIgnorableWindowsCleanupError(error: unknown): boolean {
   const code = (error as { code?: string }).code;
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs: number, description: string): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await sleep(20);
+  }
+  throw new Error(`Timed out waiting for: ${description}`);
 }
 
 function expectSameExistingPath(actual: string, expected: string): void {
@@ -835,7 +860,15 @@ describe("local runtime foundation", () => {
         }],
         evidenceBindingIds: ["binding.runtime.proposal"],
         evidenceIds: ["evidence.runtime.proposal"],
-        validationDigest: digestJson({ validation: "proposal" } as any),
+        validationDigest: investigationReportProposalValidationDigest({
+          jobId,
+          reportId: "investigation_report.runtime_proposal",
+          inputDigest: claimedJob.inputDigest,
+          outputDigest,
+          proposedDeltaDigests: [proposedDeltaDigest],
+          documentationDraftDigests: [digestJson(documentationDraftInput as any)],
+          githubIssueDraftDigests: []
+        }),
         directMutationAllowed: false,
         requiredNextStep: "deterministic-validation",
         forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
@@ -885,6 +918,1126 @@ describe("local runtime foundation", () => {
       expect(existsSync(join(root, "docs/adr/ADR-0041-runtime-proposal.md"))).toBe(false);
     } finally {
       removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs reject tampered github issue drafts inside advisory proposal metadata", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:45:00.000Z"
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-issue-draft-proposal"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(root, {
+        workerId: "worker.issue-draft",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:45:01.000Z"
+      });
+      const claimedJob = (claim.data as any).job.job;
+      const outputDigest = digestJson({ workerOutput: "issue-draft-plan" } as any);
+      const bodyMarkdown = "## Problem\n\nThe legacy wrapper still duplicates the v2 fallback path.\n";
+      const bodyDigest = digestJson({ bodyMarkdown } as any);
+      const githubIssueDraftInput = {
+        schemaVersion: "archcontext.github-issue-draft/v1",
+        draftId: "github_issue_draft.runtime_proposal",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        kind: "task",
+        priority: "P2",
+        title: "Remove legacy wrapper v1 duplication",
+        bodyMarkdown,
+        bodyDigest,
+        labels: ["architecture"],
+        evidence: [{ path: "src/billing/legacy-wrapper-v1.ts", startLine: 1, note: "duplicate of v2 fallback" }],
+        acceptance: ["legacy wrapper removed"],
+        verificationCommands: ["bun test"],
+        baseSha: claimedJob.worktree.headSha,
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        promptTemplateDigest: claimedJob.promptTemplateDigest,
+        authority: "advisory-only",
+        requiredNextStep: "deterministic-validation",
+        createdAt: "2026-06-25T02:45:03.000Z"
+      };
+      const githubIssueDraft = {
+        ...githubIssueDraftInput,
+        draftDigest: digestJson(githubIssueDraftInput as any)
+      };
+      const proposalPlanInput = {
+        schemaVersion: "archcontext.investigation-report-proposal-plan/v1",
+        proposalId: "investigation_proposal.runtime_issue_draft",
+        jobId,
+        reportId: "investigation_report.runtime_proposal",
+        repository: claimedJob.repository,
+        worktree: claimedJob.worktree,
+        inputDigest: claimedJob.inputDigest,
+        outputDigest,
+        proposedDeltaDigests: [],
+        proposedDeltas: [],
+        documentationDraftDigests: [],
+        documentationDrafts: [],
+        githubIssueDraftDigests: [githubIssueDraft.draftDigest],
+        githubIssueDrafts: [githubIssueDraft],
+        evidenceBindingIds: [],
+        evidenceIds: [],
+        validationDigest: investigationReportProposalValidationDigest({
+          jobId,
+          reportId: "investigation_report.runtime_proposal",
+          inputDigest: claimedJob.inputDigest,
+          outputDigest,
+          proposedDeltaDigests: [],
+          documentationDraftDigests: [],
+          githubIssueDraftDigests: [githubIssueDraft.draftDigest]
+        }),
+        directMutationAllowed: false,
+        requiredNextStep: "deterministic-validation",
+        forbiddenActions: ["write-ledger", "write-yaml", "write-docs", "apply-changeset", "run-tool", "execute-command"],
+        authority: "advisory-only",
+        retention: "no-raw-source-or-diff-bodies",
+        createdAt: "2026-06-25T02:45:03.000Z"
+      };
+      const proposalPlan = {
+        ...proposalPlanInput,
+        proposalDigest: digestJson(proposalPlanInput as any)
+      } as any;
+
+      const tamperedBodyDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], bodyDigest: `sha256:${"0".repeat(64)}` }]
+        },
+        now: "2026-06-25T02:45:03.500Z"
+      } as any);
+      expect(tamperedBodyDigest.ok).toBe(false);
+      expect((tamperedBodyDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedBodyDigest as any).error.message).toContain("bodyDigest mismatch");
+
+      const tamperedAuthority = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], authority: "direct-mutation" }]
+        },
+        now: "2026-06-25T02:45:03.600Z"
+      } as any);
+      expect(tamperedAuthority.ok).toBe(false);
+      expect((tamperedAuthority as any).error.message).toContain("advisory-only");
+
+      // A draft's own draftDigest is recomputed from its full content (not just bodyDigest), so
+      // tampering the digest label itself is caught even though every other field is untouched.
+      const tamperedDraftDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDrafts: [{ ...proposalPlan.githubIssueDrafts[0], draftDigest: `sha256:${"1".repeat(64)}` }]
+        },
+        now: "2026-06-25T02:45:03.700Z"
+      } as any);
+      expect(tamperedDraftDigest.ok).toBe(false);
+      expect((tamperedDraftDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedDraftDigest as any).error.message).toContain("draftDigest mismatch");
+
+      // plan.githubIssueDraftDigests (what actually gets written to the architecture ledger) must
+      // match the digests of plan.githubIssueDrafts, even though the drafts themselves are untouched.
+      const tamperedDigestsArray = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          githubIssueDraftDigests: []
+        },
+        now: "2026-06-25T02:45:03.800Z"
+      } as any);
+      expect(tamperedDigestsArray.ok).toBe(false);
+      expect((tamperedDigestsArray as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedDigestsArray as any).error.message).toContain("githubIssueDraftDigests must match");
+
+      // plan.validationDigest is a claimed top-level integrity digest over the plan's own digests
+      // (proposedDeltaDigests/documentationDraftDigests/githubIssueDraftDigests); the daemon must
+      // recompute it rather than trust the claim, so forging it must be caught even though every
+      // array it covers is untouched.
+      const tamperedValidationDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          validationDigest: digestJson({ validation: "forged" } as any)
+        },
+        now: "2026-06-25T02:45:03.850Z"
+      } as any);
+      expect(tamperedValidationDigest.ok).toBe(false);
+      expect((tamperedValidationDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedValidationDigest as any).error.message).toContain("validationDigest mismatch");
+
+      // plan.proposalDigest is recomputed as digestJson(plan minus proposalDigest) and must cover
+      // the whole plan; forging just the digest label, with every other field untouched, must
+      // still be caught.
+      const tamperedProposalDigest = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan: {
+          ...proposalPlan,
+          proposalDigest: `sha256:${"2".repeat(64)}`
+        },
+        now: "2026-06-25T02:45:03.900Z"
+      } as any);
+      expect(tamperedProposalDigest.ok).toBe(false);
+      expect((tamperedProposalDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((tamperedProposalDigest as any).error.message).toContain("proposalDigest mismatch");
+
+      const complete = await daemon.jobsComplete(root, {
+        jobId,
+        workerId: "worker.issue-draft",
+        status: "succeeded",
+        outputDigest,
+        proposalPlan,
+        now: "2026-06-25T02:45:04.000Z"
+      });
+      expect(complete.ok).toBe(true);
+      expect((complete.data as any).job.job.extensions.agentRun.proposalPlan.githubIssueDrafts[0]).toMatchObject({
+        draftId: "github_issue_draft.runtime_proposal",
+        authority: "advisory-only",
+        priority: "P2"
+      });
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run records pending drafts without external side-effect", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    const draftRecords = [
+      {
+        kind: "spec",
+        priority: "P1",
+        title: "Split the daemon god-file",
+        bodyMarkdown: "## Problem\n\nThe daemon module mixes RPC dispatch with ledger writes in one file.\n",
+        labels: ["architecture"],
+        evidence: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts", startLine: 1, note: "single-file daemon module" }],
+        acceptance: ["daemon RPC handlers live in a dedicated module"],
+        verificationCommands: ["bun run typecheck"]
+      },
+      {
+        kind: "task",
+        priority: "P2",
+        title: "Add direct sqlite coverage for audit_runs reads",
+        bodyMarkdown: "## Task\n\nCover listAuditRuns/getAuditRun with a dedicated sqlite test.\n",
+        labels: [],
+        evidence: [{ path: "packages/local-runtime/local-store-sqlite/src/index.ts", startLine: 1, note: "audit run read path" }],
+        acceptance: ["listAuditRuns and getAuditRun have direct sqlite coverage"],
+        verificationCommands: []
+      }
+    ];
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:40:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.audit_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId, draftRecords } as unknown as Json),
+            createdAt: "2026-06-25T02:40:03.000Z",
+            directMutationAllowed: false,
+            extensions: { githubIssueDrafts: draftRecords }
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      expect((run.data as any).pendingDraftCount).toBe(2);
+      const runId = (run.data as any).runId;
+
+      const list = await daemon.auditList(root);
+      expect((list.data as any).count).toBe(1);
+      const [ledgerRun] = (list.data as any).runs;
+      expect(ledgerRun.runId).toBe(runId);
+      expect(ledgerRun.status).toBe("pending");
+      expect(ledgerRun.issueDraftDigests).toHaveLength(2);
+      expect(ledgerRun.repoNameWithOwner).toBe("local/unknown");
+      expect(ledgerRun.repoVisibility).toBe("private");
+
+      const show = await daemon.auditShow(root, runId);
+      expect(show.ok).toBe(true);
+      expect((show.data as any).run.runId).toBe(runId);
+      expect((show.data as any).githubIssueDrafts).toHaveLength(2);
+      expect((show.data as any).githubIssueDrafts.map((draft: any) => draft.priority).sort()).toEqual(["P1", "P2"]);
+
+      const pendingOnly = await daemon.auditList(root, { statuses: ["pending"] });
+      expect((pendingOnly.data as any).count).toBe(1);
+      const failedOnly = await daemon.auditList(root, { statuses: ["failed"] });
+      expect((failedOnly.data as any).count).toBe(0);
+
+      // Zero external side-effect: no gh calls (the fake transport never shells out), and no
+      // repository files were written by this advisory-only flow beyond the manifest fixture the
+      // test itself seeded (auditRun never scaffolds/writes generated docs or model files).
+      expect(existsSync(join(root, ".archcontext", "generated"))).toBe(false);
+      const appendedEvent = store.architectureEvents.find((event) => event.eventType === "architecture.agent_audit.run_pending");
+      expect(appendedEvent).toBeDefined();
+      const serializedEvent = JSON.stringify(appendedEvent);
+      expect(serializedEvent).not.toContain("https://github.com");
+      expect(serializedEvent).not.toContain("issuedIssues");
+      expect(serializedEvent).not.toContain("bodyMarkdown");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run records a failed run without pending drafts when the investigation fails", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:41:00.000Z",
+        investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("failed");
+      expect((run.data as any).pendingDraftCount).toBe(0);
+
+      const list = await daemon.auditList(root);
+      expect((list.data as any).count).toBe(1);
+      expect((list.data as any).runs[0].status).toBe("failed");
+      expect((list.data as any).runs[0].issueDraftDigests).toEqual([]);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run is gated by audit.githubIssues.enabled at the daemon layer, not only at the CLI", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    let transportCalls = 0;
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:52:00.000Z",
+        investigationTransport: async () => {
+          transportCalls += 1;
+          return { exitCode: 1, stdout: "", stderr: "should never run while the gate is closed" };
+        }
+      });
+
+      // No .archcontext/manifest.yaml at all: fails closed (disabled), matching the CLI default.
+      const disabledByDefault = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(disabledByDefault.ok).toBe(false);
+      expect((disabledByDefault as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(transportCalls).toBe(0);
+
+      // Explicit `enabled: false` is also rejected before anything is spawned or enqueued.
+      writeAuditManifest(root, false);
+      const disabledExplicitly = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(disabledExplicitly.ok).toBe(false);
+      expect((disabledExplicitly as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(transportCalls).toBe(0);
+      const listWhileDisabled = await daemon.auditList(root);
+      expect((listWhileDisabled.data as any).count).toBe(0);
+
+      // Enabling it allows the run to reach the (fake) transport.
+      writeAuditManifest(root, true);
+      const enabled = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(enabled.ok).toBe(true);
+      expect(transportCalls).toBe(1);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run claims only its own enqueued job and never steals an unrelated queued job's lease", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:55:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.claim_isolation_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-06-25T02:55:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      // Pre-seed a higher-priority queued job (e.g. a normal git-hook-triggered
+      // architecture-delta job) in the same repository/workspace scope that is still waiting in
+      // the queue when auditRun enqueues and claims its own job.
+      const preseedEnqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.claim-isolation-preseed",
+        priority: 100
+      });
+      expect((preseedEnqueue.data as any).enqueued).toBe(true);
+      const preseedJobId = (preseedEnqueue.data as any).record.job.jobId;
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      const auditJobId = (run.data as any).jobId;
+      expect(auditJobId).not.toBe(preseedJobId);
+
+      const jobs = await daemon.jobsList(root);
+      const preseedRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === preseedJobId);
+      expect(preseedRecord).toBeDefined();
+      // The pre-seeded job must be untouched: still queued, never leased by the audit claim.
+      expect(preseedRecord.job.status).toBe("queued");
+      expect(preseedRecord.leaseOwner).toBeUndefined();
+
+      const auditRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === auditJobId);
+      expect(auditRecord).toBeDefined();
+      expect(auditRecord.job.status).toBe("succeeded");
+      expect(auditRecord.leaseOwner).toBeUndefined();
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run binds the investigation transport's cwd to the audited repository root", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    let capturedCwd: string | undefined;
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:57:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          capturedCwd = input.cwd;
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.cwd_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-06-25T02:57:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect(capturedCwd).toBeDefined();
+      expectSameExistingPath(capturedCwd!, root);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run defaults to async: returns started immediately and the run reaches pending in the background, observable via audit list", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T06:00:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.async_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-07-05T06:00:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      // No `wait: true`: the RPC call itself must resolve immediately with "started", never
+      // blocking for the full (here fake, but in production 10-25 minute) investigation.
+      const started = await daemon.auditRun(root, { timeoutMs: 5_000 });
+      expect(started.ok).toBe(true);
+      expect((started.data as any).status).toBe("started");
+      expect((started.data as any).jobId).toBeDefined();
+      // No runId yet: a runId is only assigned once the ledger append happens, which only
+      // happens after the (still in-flight, backgrounded) investigation completes.
+      expect((started.data as any).runId).toBeUndefined();
+      const jobId = (started.data as any).jobId as string;
+
+      // Poll audit list the same way the CLI does, until the detached background drive settles.
+      let match: any;
+      for (let attempt = 0; attempt < 200 && !match; attempt += 1) {
+        const list = await daemon.auditList(root);
+        match = ((list.data as any)?.runs ?? []).find((run: any) => run.jobId === jobId);
+        if (!match) await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(match).toBeDefined();
+      expect(match.status).toBe("pending");
+
+      const show = await daemon.auditShow(root, match.runId);
+      expect(show.ok).toBe(true);
+      expect((show.data as any).run.jobId).toBe(jobId);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run with wait: true keeps the original fully-synchronous contract", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T06:10:00.000Z",
+        investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      // Resolves directly to a terminal status, not "started" — wait: true never leaves anything
+      // to poll for.
+      expect((run.data as any).status).toBe("failed");
+      expect((run.data as any).runId).toBeDefined();
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("daemon stop aborts an in-flight audit run's investigation transport signal", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    let capturedSignal: AbortSignal | undefined;
+    let notifyTransportStarted: (() => void) | undefined;
+    const transportStarted = new Promise<void>((resolve) => {
+      notifyTransportStarted = resolve;
+    });
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T07:00:00.000Z",
+        investigationTransport: (input: CommandInvestigationRunnerTransportInput) => {
+          capturedSignal = input.signal;
+          notifyTransportStarted?.();
+          // Simulates a real long-running `claude` subprocess: never resolves on its own, only in
+          // response to the daemon aborting it (exactly what `stop()` below is expected to do).
+          return new Promise<CommandInvestigationRunnerTransportResult>((_resolve, reject) => {
+            input.signal?.addEventListener("abort", () => reject(new Error("investigation-runner-aborted")), { once: true });
+          });
+        }
+      });
+
+      const started = await daemon.auditRun(root, { timeoutMs: 60_000 });
+      expect(started.ok).toBe(true);
+      expect((started.data as any).status).toBe("started");
+
+      await transportStarted;
+      expect(capturedSignal).toBeDefined();
+      expect(capturedSignal!.aborted).toBe(false);
+
+      await daemon.stop();
+
+      // The one property `stop()` guarantees unconditionally: every in-flight audit's transport
+      // signal is aborted (which, in the real node transport, kills the child process), so nothing
+      // is ever left running orphaned past the daemon's own lifetime. Whether the resulting failed
+      // run finishes being recorded before the store closes is a separate, best-effort race (see
+      // the comment on `stop()` in src/index.ts) and is intentionally not asserted here.
+      expect(capturedSignal!.aborted).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit run job survives a concurrent stale-cancel sweep via advisory-only-on-stale, while a default-policy hook job in the same sweep still gets cancelled", async () => {
+    const root = createGitRepo();
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    let sweepExpiredJobIds: string[] = [];
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-07-05T05:00:00.000Z",
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          // Simulate a concurrent git-hook enqueue racing in while the audit job is still
+          // "running" — e.g. the audited repository's own untracked .archcontext/ content
+          // shifting mid-flight (the exact e2e-observed trigger for F2). This bumps the worktree
+          // digest and drives jobsEnqueueGitHook's own cancelStaleRuntimeAgentJobs sweep against
+          // every queued/running job in scope, including the in-flight audit job itself.
+          mkdirSync(join(root, "src"), { recursive: true });
+          writeFileSync(join(root, "src", "concurrent-change.ts"), "export const concurrent = true;\n", "utf8");
+          const sweep = await daemon.jobsEnqueueGitHook(root, {
+            source: "worktree",
+            event: "concurrent-sweep",
+            analysisKind: "architecture-delta",
+            risk: "high",
+            uncertainty: "high",
+            coalesceKey: "coalesce.stale-cancel-sweep"
+          });
+          expect((sweep.data as any).enqueued).toBe(true);
+          sweepExpiredJobIds = (sweep.data as any).expiredJobIds as string[];
+
+          const separatorIndex = input.stdin.lastIndexOf("\n\n");
+          const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+          const jobId = runnerInput.job.jobId as string;
+          const report = {
+            schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+            reportId: `investigation_report.stale_cancel_test_${jobId.slice(-8)}`,
+            jobId,
+            status: "succeeded",
+            findings: [],
+            outputDigest: digestJson({ jobId } as unknown as Json),
+            createdAt: "2026-07-05T05:00:03.000Z",
+            directMutationAllowed: false,
+            extensions: {}
+          };
+          return { exitCode: 0, stdout: JSON.stringify({ report }) };
+        }
+      });
+
+      // Pre-seed a normal git-hook job (default stalePolicy: cancel-on-head-change) so it is
+      // still "queued" — and already stale relative to the repository state at the time of the
+      // concurrent sweep above — when that sweep runs.
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(join(root, "docs", "pre-existing-change.md"), "# pre-existing\n", "utf8");
+      const preseedEnqueue = await daemon.jobsEnqueueGitHook(root, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.stale-cancel-preseed"
+      });
+      expect((preseedEnqueue.data as any).enqueued).toBe(true);
+      const hookJobId = (preseedEnqueue.data as any).record.job.jobId as string;
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      const auditJobId = (run.data as any).jobId as string;
+
+      // The audit job must survive the concurrent sweep (advisory-only-on-stale)...
+      expect(sweepExpiredJobIds).not.toContain(auditJobId);
+      // ...while the pre-seeded hook job (default cancel-on-head-change) is cancelled by the same
+      // sweep, proving this is a policy-specific fix, not a blanket "never cancel" regression.
+      expect(sweepExpiredJobIds).toContain(hookJobId);
+
+      const jobs = await daemon.jobsList(root);
+      const hookRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === hookJobId);
+      expect(hookRecord).toBeDefined();
+      expect(hookRecord.job.status).toBe("expired");
+      const auditRecord = (jobs.data as any).jobs.find((record: any) => record.job.jobId === auditJobId);
+      expect(auditRecord).toBeDefined();
+      expect(auditRecord.job.status).toBe("succeeded");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ADR-0042 red line: the investigation runner never has a path to the github issue executor; only audit approve does", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const transportCalls: CommandInvestigationRunnerTransportInput[] = [];
+    const root = createGitRepo();
+    addGitRemote(root, "https://github.com/acme/widgets.git");
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    const draftRecords = [auditDraftRecord()];
+    const now = "2026-07-05T01:00:00.000Z";
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => now,
+        githubIssueExecutor: executor,
+        investigationTransport: async (input: CommandInvestigationRunnerTransportInput) => {
+          transportCalls.push(input);
+          return auditInvestigationTransportWithDrafts(draftRecords, now)(input);
+        }
+      });
+
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect(run.ok).toBe(true);
+      expect((run.data as any).status).toBe("pending");
+      const runId = (run.data as any).runId as string;
+
+      // The runner's own transport call used the exact ADR-0041 read-only claude invocation shape
+      // (proving this really went through the same locked-down subagent path this codebase always
+      // uses), and throughout the entire auditRun call the gh executor was never touched at all —
+      // it is a separate injected dependency the investigation runner has no reference to.
+      expect(transportCalls).toHaveLength(1);
+      expect(transportCalls[0]!.command).toBe("claude");
+      expect(transportCalls[0]!.args).toContain("--strict-mcp-config");
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.listRecentIssues).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+
+      // Reading the pending run back (list/show) is also gh-free: an unapproved run never
+      // touches the executor no matter how many times it is read.
+      await daemon.auditList(root);
+      await daemon.auditShow(root, runId);
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.listRecentIssues).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+
+      // Only auditApprove reaches the executor.
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const approve = await daemon.auditApprove(root, { runId });
+        expect(approve.ok).toBe(true);
+      });
+      expect(calls.repoView.length).toBeGreaterThan(0);
+      expect(calls.createIssue.length).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit approve is gated by audit.githubIssues.enabled, distinct from audit run's own gate, zero gh calls when disabled", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store, githubIssueExecutor: executor });
+      const result = await daemon.auditApprove(root, { runId: "audit_run.does_not_matter" });
+      expect(result.ok).toBe(false);
+      expect((result as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit approve rejects a repository with no resolvable git remote before any gh call", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("resolvable GitHub owner/repo");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve requires ARCHCONTEXT_GH_ISSUES_TOKEN and never falls back to ambient gh auth", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken(undefined, async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("ARCHCONTEXT_GH_ISSUES_TOKEN");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve fails closed when the repository visibility probe fails, zero issues created", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ repoViewError: new Error("gh repo view: network unreachable") });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("visibility");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("ADR-0042 red line: publishing to a public repository without a valid confirmation token never files an issue", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "public" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const withoutToken = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(withoutToken.ok).toBe(false);
+        expect((withoutToken as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+        expect((withoutToken as any).error.message).toContain("archctx audit approve");
+        expect((withoutToken as any).error.message).toContain("--confirm-public-repo");
+
+        const wrongToken = await fixture.daemon.auditApprove(fixture.root, {
+          runId: fixture.runId,
+          confirmPublicToken: "public:wrong/repo:0000000000000000000000000000000000000000:audit_run.wrong"
+        });
+        expect(wrongToken.ok).toBe(false);
+        expect((wrongToken as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+      expect(calls.listRecentIssues).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve publishes to a public repository once the exact confirmation token from the error message is supplied", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "public" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const rejected = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(rejected.ok).toBe(false);
+        const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
+        expect(tokenMatch).not.toBeNull();
+        const token = tokenMatch![1]!;
+        expect(token).toMatch(/^public:acme\/widgets:[0-9a-f]+:audit_run\./);
+
+        const approved = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, confirmPublicToken: token });
+        expect(approved.ok).toBe(true);
+        expect((approved.data as any).status).toBe("issued");
+        expect((approved.data as any).issuedCount).toBe(fixture.draftRecords.length);
+      });
+      expect(calls.createIssue).toHaveLength(fixture.draftRecords.length);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects a run whose drafts no longer match the recorded ledger digests, zero gh calls", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      const pendingEvent = fixture.store.architectureEvents.find((event) => event.eventType === "architecture.agent_audit.run_pending");
+      expect(pendingEvent).toBeDefined();
+      // Directly corrupt the ledger's recorded digest set (simulating drift between what the
+      // ledger recorded at "audit run" time and what the completed job's proposal plan currently
+      // says) rather than tamper the plan itself, so this exercises auditApprove's own
+      // cross-check rather than validateRuntimeAgentProposalPlan's pre-existing digest checks.
+      (pendingEvent!.payload as any).auditRuns[0].issueDraftDigests = [`sha256:${"9".repeat(64)}`];
+
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_SCHEMA_INVALID");
+        expect((result as any).error.message).toContain("no longer match");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve aborts the entire batch when any draft matches a secret-shaped pattern", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const draftRecords = [
+      auditDraftRecord({ title: "Draft One" }),
+      auditDraftRecord({ title: "Draft Two", bodyMarkdown: "Rotate the leaked token ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
+    ];
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("secret-shaped");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects a draft whose body exceeds the GitHub issue length limit before any gh call", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const draftRecords = [auditDraftRecord({ title: "Oversized draft", bodyMarkdown: "x".repeat(70_000) })];
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("exceeding");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects a run whose investigation failed, zero gh calls", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const root = createGitRepo();
+    addGitRemote(root, "https://github.com/acme/widgets.git");
+    writeAuditManifest(root, true);
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        githubIssueExecutor: executor,
+        clock: () => "2026-07-05T02:00:00.000Z",
+        investigationTransport: async () => ({ exitCode: 1, stdout: "", stderr: "claude not installed" })
+      });
+      const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+      expect((run.data as any).status).toBe("failed");
+      const runId = (run.data as any).runId as string;
+
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await daemon.auditApprove(root, { runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("failed during investigation");
+      });
+      expect(calls.repoView).toHaveLength(0);
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("audit approve publishes every draft to a private repository in one call, records the footer marker, and is idempotent once issued", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "private" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const approve = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(approve.ok).toBe(true);
+        expect(approve.data).toMatchObject({ runId: fixture.runId, status: "issued", issuedCount: 2, totalCount: 2 });
+      });
+
+      expect(calls.createIssue).toHaveLength(2);
+      for (const call of calls.createIssue) {
+        expect(call.bodyText).toContain("Filed by archctx audit");
+        expect(call.bodyText).toContain(fixture.runId);
+      }
+
+      const show = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      expect((show.data as any).run.status).toBe("issued");
+      expect((show.data as any).run.issuedIssues).toHaveLength(2);
+
+      const list = await fixture.daemon.auditList(fixture.root, { statuses: ["issued"] });
+      expect((list.data as any).count).toBe(1);
+
+      // Idempotent no-op: calling approve again on an already-issued run touches gh zero times.
+      const repoViewCountBefore = calls.repoView.length;
+      const createCountBefore = calls.createIssue.length;
+      const again = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+      expect(again.ok).toBe(true);
+      expect((again.data as any).status).toBe("issued");
+      expect(calls.createIssue.length).toBe(createCountBefore);
+      expect(calls.repoView.length).toBe(repoViewCountBefore);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("two concurrent audit approve calls on the same run never both publish: the daemon's single-writer lock rejects the loser before it reads run state", async () => {
+    const draftRecords = [auditDraftRecord({ title: "Draft Alpha" }), auditDraftRecord({ title: "Draft Beta" })];
+    const { executor, calls } = fakeGithubIssueExecutor({ visibility: "private" });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        // Both calls are issued back-to-back with no `await` between them, so (per the ordinary
+        // synchronous-prefix-of-an-async-function evaluation order the JS spec guarantees) the
+        // first call always reaches the daemon's writer lock before the second call is even
+        // constructed. Without a lock serializing auditApprove, both would race past the "pending"
+        // read and each call createIssue once per draft (4 calls total for 2 drafts instead of 2).
+        const [first, second] = await Promise.allSettled([
+          fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId }),
+          fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId })
+        ]);
+
+        const settled = [first, second];
+        const fulfilled = settled.filter((entry): entry is PromiseFulfilledResult<JsonEnvelope> => entry.status === "fulfilled");
+        const rejected = settled.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
+
+        // Exactly one caller gets to run the approve flow; the other is rejected outright by the
+        // writer lock (a clear, retryable failure) rather than silently reading stale state.
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        expect(fulfilled[0]!.value.ok).toBe(true);
+        expect(fulfilled[0]!.value.data).toMatchObject({ status: "issued", issuedCount: 2, totalCount: 2 });
+        expect(String(rejected[0]!.reason)).toContain("runtime writer is locked");
+      });
+
+      // The concurrency bug this test guards against would have created every draft twice (once
+      // per racing call); with the lock, each draft is published exactly once.
+      expect(calls.createIssue).toHaveLength(draftRecords.length);
+      const titles = calls.createIssue.map((call) => call.title);
+      expect(new Set(titles).size).toBe(titles.length);
+
+      const show = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      expect((show.data as any).run.status).toBe("issued");
+      expect((show.data as any).run.issuedIssues).toHaveLength(2);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve stops in issuing after a mid-flight failure, recording already-published drafts, and --resume completes the run", async () => {
+    const draftRecords = [
+      auditDraftRecord({ title: "Draft Alpha" }),
+      auditDraftRecord({ title: "Draft Beta" }),
+      auditDraftRecord({ title: "Draft Gamma" })
+    ];
+    // githubIssueDraftsFromReport canonicalizes draft processing order by content-addressed
+    // draftId, not by this array's input order, so which title ends up "first"/"second" is not
+    // knowable ahead of time. Fail the second `createIssue` attempt overall (whichever draft that
+    // turns out to be) rather than matching by title, so this test is independent of that
+    // canonical ordering.
+    let attemptsSoFar = 0;
+    const { executor, calls } = fakeGithubIssueExecutor({
+      createIssueImpl: async () => {
+        attemptsSoFar += 1;
+        if (attemptsSoFar === 2) throw new Error("gh issue create: temporary failure");
+        const number = 6000 + calls.createIssue.length;
+        return { number, url: `https://github.com/acme/widgets/issues/${number}` };
+      }
+    });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      let firstSucceededTitle = "";
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const firstAttempt = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(firstAttempt.ok).toBe(false);
+        expect((firstAttempt as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((firstAttempt as any).error.message).toContain("--resume");
+        expect(calls.createIssue).toHaveLength(2);
+        firstSucceededTitle = calls.createIssue[0]!.title;
+
+        const stuck = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+        expect((stuck.data as any).run.status).toBe("issuing");
+        expect((stuck.data as any).run.issuedIssues).toHaveLength(1);
+
+        const withoutResume = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(withoutResume.ok).toBe(false);
+        expect((withoutResume as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((withoutResume as any).error.message).toContain("--resume");
+        expect(calls.createIssue).toHaveLength(2);
+
+        const resumed = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, resume: true });
+        expect(resumed.ok).toBe(true);
+        expect(resumed.data).toMatchObject({ status: "issued", issuedCount: 3, totalCount: 3 });
+      });
+
+      const finalShow = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      expect((finalShow.data as any).run.status).toBe("issued");
+      expect((finalShow.data as any).run.issuedIssues).toHaveLength(3);
+      // The draft that succeeded before the crash point was never re-created on resume.
+      const firstDraftCreateCalls = calls.createIssue.filter((call) => call.title === firstSucceededTitle).length;
+      expect(firstDraftCreateCalls).toBe(1);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve reuses an already-filed issue found via footer-marker dedup instead of re-publishing", async () => {
+    const draftRecords = [auditDraftRecord({ title: "Draft Solo" })];
+    const { executor, calls, existingIssues } = fakeGithubIssueExecutor();
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      const show = await fixture.daemon.auditShow(fixture.root, fixture.runId);
+      const draftDigest = (show.data as any).githubIssueDrafts[0].draftDigest as string;
+      // Simulate a prior daemon crash: gh issue create already succeeded (issue #7777) but the
+      // ledger progress event was never appended, so run.issuedIssues going into this call is
+      // still empty; only the footer marker on the already-filed issue proves it was published.
+      existingIssues.push({
+        number: 7777,
+        url: "https://github.com/acme/widgets/issues/7777",
+        body: `Some existing body.\n\n${githubIssueFooterMarker(fixture.runId, draftDigest)}\n`
+      });
+
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const approve = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(approve.ok).toBe(true);
+        expect((approve.data as any).issuedIssues[0]).toMatchObject({ number: 7777, url: "https://github.com/acme/widgets/issues/7777" });
+      });
+      expect(calls.createIssue).toHaveLength(0);
+      expect(calls.listRecentIssues.length).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  test("audit approve rejects when the crash-recovery dedup listing itself fails (fail-closed, inconclusive)", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor({ listRecentIssuesError: new Error("gh issue list: rate limited") });
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git" });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+        expect((result as any).error.message).toContain("inconclusive");
+      });
+      expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
     }
   });
 
@@ -2709,6 +3862,127 @@ describe("local runtime foundation", () => {
     }
   });
 
+  // Regression tests for the daemon idle self-exit (`archctxd` is spawned `detached`+`unref()`'d
+  // with no other exit signal — see F5 in tasks/reviews/audit-approve-gh-publishing.review.md,
+  // which caused cross-day zombie processes). `exit` is injected so the idle path's real
+  // `process.exit(0)` call never terminates this test runner; real-process termination is covered
+  // separately by the CLI-level `--idle-timeout-ms` e2e test.
+  test("idle RPC server exits itself once genuinely idle, and a completed RPC request resets the deadline", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-exit-token",
+      idleTimeoutMs: 300,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      // Completing an RPC request well before the original 300ms deadline must push the deadline
+      // out again: checking after the *original* deadline has already elapsed (but before the
+      // reset one) proves the reset actually happened rather than the timer never having started.
+      await sleep(200);
+      const init = await new RuntimeRpcClient(connection).init(root, "Idle Reset App");
+      expect(init.ok).toBe(true);
+      await sleep(150);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+
+      await waitUntil(() => exitCodes.length > 0, 3_000, "idle-exit callback after reset");
+      expect(exitCodes).toEqual([0]);
+      expect(existsSync(connection.connectionPath)).toBe(false);
+      expect(existsSync(connection.lockPath)).toBe(false);
+      expect(daemon.status().running).toBe(false);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
+  test("idle RPC server does not exit while a runtime_job_queue entry is queued", async () => {
+    const root = createGitRepo();
+    const daemon = await createStartedTestDaemon();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+    const enqueue = await daemon.jobsEnqueueGitHook(root, {
+      source: "worktree",
+      event: "post-edit",
+      taskSessionId: "task.idle-busy-queue",
+      analysisKind: "architecture-delta",
+      risk: "high",
+      uncertainty: "high"
+    });
+    expect((enqueue.data as any).enqueued).toBe(true);
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-busy-queue-token",
+      idleTimeoutMs: 150,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      await sleep(450);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
+  test("idle RPC server does not exit while an audit investigation abort controller is active", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    // Simulates `auditRun`'s tracked background investigation without driving a real one: this
+    // exercises the RPC server's idle check against `ArchctxDaemon.hasActiveBackgroundWork`
+    // in isolation from the audit subsystem itself.
+    (daemon as unknown as { auditRunAbortControllers: Map<string, AbortController> })
+      .auditRunAbortControllers.set("agent_job.idle-test", new AbortController());
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-busy-audit-token",
+      idleTimeoutMs: 150,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      await sleep(450);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
+  test("idle timeout of 0 disables idle exit", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "idle-disabled-token",
+      idleTimeoutMs: 0,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      await sleep(450);
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 10_000);
+
   test("production composition root uses real adapters and rejects injected runtime doubles", async () => {
     const root = tempRepo();
     let daemon: Awaited<ReturnType<typeof createStartedProductionDaemon>> | undefined;
@@ -2738,6 +4012,26 @@ describe("local runtime foundation", () => {
       removeTempRepo(root);
     }
   }, WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS);
+
+  test("runtime default clock is a real wall clock for production composition, frozen epoch for embedded/test composition", () => {
+    // `clock` itself is one of the blockedProductionInjections above (a caller cannot hand
+    // production a fake clock), so the *default* used when nothing is injected is the only thing
+    // that determines what a real `archctxd` process actually timestamps events with. Before this
+    // fix, `createProductionDaemon` never overrode `clock`, so production silently fell through to
+    // the same frozen "1970-01-01T00:00:00.000Z" every embedded/test daemon uses for determinism —
+    // which is exactly the epoch `createdAt`/`startedAt`/`completedAt`/`issuedAt` (and `durationMs:
+    // 0`, since every call returned the identical constant) a real `archctx audit run` recorded.
+    const embeddedNow = runtimeDefaultClock("embedded")();
+    expect(embeddedNow).toBe("1970-01-01T00:00:00.000Z");
+    expect(runtimeDefaultClock("embedded")()).toBe(embeddedNow);
+
+    const before = Date.now();
+    const productionNow = Date.parse(runtimeDefaultClock("production")());
+    const after = Date.now();
+    expect(Number.isNaN(productionNow)).toBe(false);
+    expect(productionNow).toBeGreaterThanOrEqual(before);
+    expect(productionNow).toBeLessThanOrEqual(after);
+  });
 
   test("runtime RPC ignores insecure connection files and recovers stale locks", async () => {
     const root = tempRepo();
@@ -2885,6 +4179,167 @@ describe("local runtime foundation", () => {
   });
 });
 
+describe("createNodeInvestigationTransport", () => {
+  test("unwraps a successful claude --output-format json envelope into a report stdout", async () => {
+    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:JSON.stringify({ok:true,findings:[]})}))";
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", script],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ report: { ok: true, findings: [] } });
+  });
+
+  test("reports a non-zero exit without throwing when the envelope signals is_error", async () => {
+    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,result:'agent failed'}))";
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", script],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("agent failed");
+  });
+
+  test("reports a non-zero exit without throwing when stdout is not an envelope", async () => {
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('not json')"],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("not json");
+  });
+
+  test("reports a non-zero exit without throwing when the envelope result is not JSON", async () => {
+    const script = "process.stdout.write(JSON.stringify({type:'result',subtype:'success',is_error:false,result:'not json report'}))";
+    const transport = createNodeInvestigationTransport();
+    const result = await transport({
+      runnerPort: "claude-code",
+      runnerId: "runner.claude-code",
+      command: process.execPath,
+      args: ["-e", script],
+      stdin: "{}"
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("not json report");
+  });
+});
+
+describe("github issue executor", () => {
+  test("withGithubIssueBodyFile removes its temp directory even when writing the body fails", async () => {
+    let capturedBodyFile: string | undefined;
+    const failingWrite = ((path: unknown) => {
+      capturedBodyFile = path as string;
+      throw new Error("simulated disk write failure");
+    }) as unknown as typeof writeFileSync;
+
+    let caught: unknown;
+    try {
+      await withGithubIssueBodyFile(
+        "draft body",
+        async () => {
+          throw new Error("fn must never run: the write should have failed first");
+        },
+        { writeFile: failingWrite }
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe("simulated disk write failure");
+    expect(capturedBodyFile).toBeDefined();
+    // The temp directory `mkdtempSync` created still existed at the moment of the write failure
+    // (that is what makes this a meaningful assertion); the fix's `finally` must have removed it.
+    expect(existsSync(dirname(capturedBodyFile!))).toBe(false);
+  });
+
+  test("gh executor redacts the call's token and any gh-token-shaped substring from a failing call's error message", async () => {
+    const binDir = mkdtempSync(join(tmpdir(), "archctx-fake-gh-"));
+    // Deliberately NOT gh-token-shaped, so it can only be stripped by the literal-token match.
+    const callToken = "s3cr3t-pat-literal-000111222333";
+    // gh-token-shaped but NOT the literal token passed to this call, so it can only be stripped by
+    // the gh[opsu]_ pattern match (simulates gh's own output echoing a *different* credential).
+    const otherToken = "ghu_otherLeakedTokenShape999888";
+    try {
+      writeFileSync(
+        join(binDir, "gh"),
+        `#!/bin/sh\necho "authentication failed for token ${callToken}; also saw ${otherToken}" 1>&2\nexit 1\n`
+      );
+      chmodSync(join(binDir, "gh"), 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${binDir}${previousPath ? `:${previousPath}` : ""}`;
+      try {
+        const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
+        let caught: unknown;
+        try {
+          await executor.repoView("acme/widgets", { GH_TOKEN: callToken });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeInstanceOf(Error);
+        const message = (caught as Error).message;
+        expect(message).toContain("[REDACTED]");
+        expect(message).not.toContain(callToken);
+        expect(message).not.toContain(otherToken);
+      } finally {
+        process.env.PATH = previousPath;
+      }
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+
+  // ADR-0042 non-goal, reproducing a real `archctx audit approve` e2e failure: `gh issue create
+  // --label archcontext-audit` rejected with `could not add label: 'archcontext-audit' not found`
+  // because label existence on the target repo is never verified first. createIssue() has no
+  // `labels` input at all (see GithubIssueExecutorPort's doc comment) — this pins the real
+  // executor's actual `gh` argv to prove no `--label` is ever emitted, whatever a draft's labels
+  // may be; those stay visible only via `archctx audit show`.
+  test("ADR-0042: real gh executor's createIssue never sends --label to gh (label existence on the target repo is never verified server-side, so an unknown label would fail gh issue create outright)", async () => {
+    const binDir = mkdtempSync(join(tmpdir(), "archctx-fake-gh-label-"));
+    const capturedArgsFile = join(binDir, "captured-args.txt");
+    const bodyFile = join(binDir, "body.md");
+    try {
+      writeFileSync(bodyFile, "draft body", "utf8");
+      writeFileSync(
+        join(binDir, "gh"),
+        `#!/bin/sh\nprintf '%s\\n' "$@" > "${capturedArgsFile}"\necho "https://github.com/acme/widgets/issues/4242"\n`
+      );
+      chmodSync(join(binDir, "gh"), 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${binDir}${previousPath ? `:${previousPath}` : ""}`;
+      try {
+        const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
+        const result = await executor.createIssue({
+          repo: "acme/widgets",
+          title: "Some draft title",
+          bodyFile,
+          env: { GH_TOKEN: "gh_pat_test_token" }
+        });
+        expect(result).toEqual({ number: 4242, url: "https://github.com/acme/widgets/issues/4242" });
+        const capturedArgs = readFileSync(capturedArgsFile, "utf8");
+        expect(capturedArgs).not.toContain("--label");
+      } finally {
+        process.env.PATH = previousPath;
+      }
+    } finally {
+      rmSync(binDir, { recursive: true, force: true });
+    }
+  });
+});
+
 function createGitRepo(): string {
   const root = mkdtempSync(join(tmpdir(), "archctx-runtime-git-"));
   writeFileSync(join(root, "README.md"), "# fixture\n", "utf8");
@@ -2892,6 +4347,159 @@ function createGitRepo(): string {
   execFileSync("git", ["add", "."], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return root;
+}
+
+// Matches the exact indentation shape the daemon's auditGithubIssuesEnabledInManifestText (and the
+// CLI's auditGithubIssuesEnabled) scan for: `audit:` at indent 0, `githubIssues:` at indent 2,
+// `enabled: <bool>` at indent 4.
+function writeAuditManifest(root: string, enabled: boolean): void {
+  mkdirSync(join(root, ".archcontext"), { recursive: true });
+  writeFileSync(
+    join(root, ".archcontext", "manifest.yaml"),
+    `schemaVersion: archcontext.manifest/v1\naudit:\n  githubIssues:\n    enabled: ${enabled}\n`,
+    "utf8"
+  );
+}
+
+function addGitRemote(root: string, url: string): void {
+  execFileSync("git", ["remote", "add", "origin", url], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+/** ADR-0042 test double: never shells out, records every call for assertions. */
+interface FakeGithubIssueExecutorOptions {
+  visibility?: string;
+  repoViewError?: Error;
+  listRecentIssuesError?: Error;
+  existingIssues?: GithubIssueListedRecord[];
+  createIssueImpl?: (input: { repo: string; title: string; bodyFile: string }) => Promise<GithubIssueCreatedRecord>;
+}
+
+interface FakeGithubIssueExecutorCreateCall {
+  repo: string;
+  title: string;
+  bodyFile: string;
+  bodyText: string;
+}
+
+interface FakeGithubIssueExecutorCalls {
+  repoView: { repo: string; env: { GH_TOKEN: string } }[];
+  listRecentIssues: { repo: string; env: { GH_TOKEN: string } }[];
+  createIssue: FakeGithubIssueExecutorCreateCall[];
+}
+
+function fakeGithubIssueExecutor(options: FakeGithubIssueExecutorOptions = {}): {
+  executor: GithubIssueExecutorPort;
+  calls: FakeGithubIssueExecutorCalls;
+  existingIssues: GithubIssueListedRecord[];
+} {
+  const calls: FakeGithubIssueExecutorCalls = { repoView: [], listRecentIssues: [], createIssue: [] };
+  const existingIssues: GithubIssueListedRecord[] = options.existingIssues ? [...options.existingIssues] : [];
+  let nextNumber = 5000;
+  const executor: GithubIssueExecutorPort = {
+    async repoView(repo, env) {
+      calls.repoView.push({ repo, env });
+      if (options.repoViewError) throw options.repoViewError;
+      return { visibility: options.visibility ?? "private" };
+    },
+    async listRecentIssues(repo, env) {
+      calls.listRecentIssues.push({ repo, env });
+      if (options.listRecentIssuesError) throw options.listRecentIssuesError;
+      return existingIssues;
+    },
+    async createIssue(input) {
+      const bodyText = readFileSync(input.bodyFile, "utf8");
+      calls.createIssue.push({ repo: input.repo, title: input.title, bodyFile: input.bodyFile, bodyText });
+      if (options.createIssueImpl) return options.createIssueImpl(input);
+      nextNumber += 1;
+      return { number: nextNumber, url: `https://github.com/${input.repo}/issues/${nextNumber}` };
+    }
+  };
+  return { executor, calls, existingIssues };
+}
+
+function auditDraftRecord(overrides: Partial<{
+  kind: string;
+  priority: string;
+  title: string;
+  bodyMarkdown: string;
+  labels: string[];
+  evidence: unknown[];
+  acceptance: string[];
+  verificationCommands: string[];
+}> = {}) {
+  return {
+    kind: "task",
+    priority: "P2",
+    title: "Add direct sqlite coverage for audit_runs reads",
+    bodyMarkdown: "## Task\n\nCover listAuditRuns/getAuditRun with a dedicated sqlite test.\n",
+    labels: [],
+    evidence: [{ path: "packages/local-runtime/local-store-sqlite/src/index.ts", startLine: 1, note: "audit run read path" }],
+    acceptance: ["listAuditRuns and getAuditRun have direct sqlite coverage"],
+    verificationCommands: [],
+    ...overrides
+  };
+}
+
+function auditInvestigationTransportWithDrafts(draftRecords: unknown[], now: string) {
+  return async (input: CommandInvestigationRunnerTransportInput) => {
+    const separatorIndex = input.stdin.lastIndexOf("\n\n");
+    const runnerInput = JSON.parse(separatorIndex === -1 ? input.stdin : input.stdin.slice(separatorIndex + 2));
+    const jobId = runnerInput.job.jobId as string;
+    const report = {
+      schemaVersion: INVESTIGATION_REPORT_SCHEMA_VERSION,
+      reportId: `investigation_report.approve_test_${jobId.slice(-8)}`,
+      jobId,
+      status: "succeeded",
+      findings: [],
+      outputDigest: digestJson({ jobId, draftRecords } as unknown as Json),
+      createdAt: now,
+      directMutationAllowed: false,
+      extensions: { githubIssueDrafts: draftRecords }
+    };
+    return { exitCode: 0, stdout: JSON.stringify({ report }) };
+  };
+}
+
+/**
+ * Stands up a daemon and drives a real `auditRun` to completion (2 drafts by default) so
+ * `auditApprove` tests exercise the actual pending-run/proposal-plan shape the daemon produces,
+ * rather than a hand-built fixture. `githubIssueExecutor` is always an explicit fake (never the
+ * real `createNodeGithubIssueExecutor` default) so no test in this suite can accidentally shell
+ * out to a real `gh` binary.
+ */
+async function createPendingApproveFixture(options: {
+  draftRecords?: unknown[];
+  remoteUrl?: string;
+  githubIssueExecutor: GithubIssueExecutorPort;
+} ): Promise<{ root: string; store: TestLocalStore; daemon: Awaited<ReturnType<typeof createStartedTestDaemon>>; runId: string; draftRecords: unknown[] }> {
+  const root = createGitRepo();
+  if (options.remoteUrl) addGitRemote(root, options.remoteUrl);
+  writeAuditManifest(root, true);
+  const store = new TestLocalStore();
+  const draftRecords = options.draftRecords ?? [auditDraftRecord({ title: "Draft One" }), auditDraftRecord({ title: "Draft Two" })];
+  const now = "2026-07-05T00:00:00.000Z";
+  const daemon = await createStartedTestDaemon({
+    localStore: store,
+    clock: () => now,
+    githubIssueExecutor: options.githubIssueExecutor,
+    investigationTransport: auditInvestigationTransportWithDrafts(draftRecords, now)
+  });
+  const run = await daemon.auditRun(root, { timeoutMs: 5_000, wait: true });
+  if (!run.ok) throw new Error(`fixture audit run failed: ${JSON.stringify(run)}`);
+  const runId = (run.data as any).runId as string;
+  return { root, store, daemon, runId, draftRecords };
+}
+
+async function withAuditApproveToken<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.ARCHCONTEXT_GH_ISSUES_TOKEN;
+  if (value === undefined) delete process.env.ARCHCONTEXT_GH_ISSUES_TOKEN;
+  else process.env.ARCHCONTEXT_GH_ISSUES_TOKEN = value;
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.ARCHCONTEXT_GH_ISSUES_TOKEN;
+    else process.env.ARCHCONTEXT_GH_ISSUES_TOKEN = previous;
+  }
 }
 
 async function appendRecommendationRunFixture(store: TestLocalStore, root: string, now: string) {

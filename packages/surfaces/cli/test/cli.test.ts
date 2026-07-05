@@ -874,6 +874,516 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI gates architecture audit run behind the manifest opt-in flag and exposes list/show", async () => {
+    const disabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-disabled-"));
+    writeFileSync(join(disabledRoot, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.should_not_run", status: "pending", jobId: "agent_job.should_not_run", reportId: "report.should_not_run", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const disabledDefault = await runCli("audit", [], disabledRoot, { runtimeClient: runtimeClient as any });
+      expect(disabledDefault.ok).toBe(false);
+      expect((disabledDefault as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+
+      const disabledExplicitRun = await runCli("audit", ["run"], disabledRoot, { runtimeClient: runtimeClient as any });
+      expect(disabledExplicitRun.ok).toBe(false);
+      expect((disabledExplicitRun as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(disabledRoot, { recursive: true, force: true });
+    }
+
+    const explicitlyFalseRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-false-"));
+    writeFileSync(join(explicitlyFalseRoot, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(explicitlyFalseRoot, ".archcontext"), { recursive: true });
+    writeFileSync(
+      join(explicitlyFalseRoot, ".archcontext/manifest.yaml"),
+      [
+        "audit:",
+        "  githubIssues:",
+        "    enabled: false",
+        "codeFacts:",
+        "  mode: \"embedded\"",
+        "  provider: \"codegraph\"",
+        "  required: true",
+        "schemaVersion: \"archcontext.manifest/v1\""
+      ].join("\n") + "\n",
+      "utf8"
+    );
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.should_not_run", status: "pending", jobId: "agent_job.should_not_run", reportId: "report.should_not_run", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const explicitlyFalse = await runCli("audit", ["run"], explicitlyFalseRoot, { runtimeClient: runtimeClient as any });
+      expect(explicitlyFalse.ok).toBe(false);
+      expect((explicitlyFalse as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(explicitlyFalseRoot, { recursive: true, force: true });
+    }
+
+    const enabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-enabled-"));
+    writeFileSync(join(enabledRoot, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(enabledRoot, ".archcontext"), { recursive: true });
+    writeFileSync(join(enabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const auditRunRecord = {
+        schemaVersion: "archcontext.architecture-audit-run/v1",
+        runId: "audit_run.cli_test",
+        jobId: "agent_job.audit_test",
+        reportId: "report.audit_test",
+        status: "pending"
+      };
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: {
+              schemaVersion: "archcontext.audit-run-result/v1",
+              runId: "audit_run.cli_test",
+              status: "pending",
+              jobId: "agent_job.audit_test",
+              reportId: "report.audit_test",
+              pendingDraftCount: 2
+            }
+          };
+        },
+        auditList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: { schemaVersion: "archcontext.audit-run-list/v1", count: 1, runs: [auditRunRecord] }
+          };
+        },
+        auditShow(_root: string, runId: string) {
+          calls.push({ method: "show", runId });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.show",
+            data: { schemaVersion: "archcontext.audit-run-detail/v1", run: auditRunRecord, githubIssueDrafts: [] }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run", "--reason", "quarterly architecture audit"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      expect(calls[0]).toMatchObject({ method: "run", input: { reason: "quarterly architecture audit" } });
+      expect((run.data as any)).toMatchObject({ runId: "audit_run.cli_test", status: "pending", pendingDraftCount: 2 });
+
+      const list = await runCli("audit", ["list", "--status", "pending"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(list.ok).toBe(true);
+      expect(calls.find((call) => call.method === "list").input).toEqual({ statuses: ["pending"] });
+      expect((list.data as any).count).toBe(1);
+
+      const show = await runCli("audit", ["show", "audit_run.cli_test"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(show.ok).toBe(true);
+      expect(calls.find((call) => call.method === "show").runId).toBe("audit_run.cli_test");
+      expect((show.data as any).run).toMatchObject({ runId: "audit_run.cli_test" });
+
+      const invalidStatus = await runCli("audit", ["list", "--status", "bogus"], enabledRoot, { runtimeClient: runtimeClient as any });
+      expect(invalidStatus.ok).toBe(false);
+      expect((invalidStatus as any).error?.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      rmSync(enabledRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("archctx audit run polls audit list after the daemon returns started, and returns the completed run", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-async-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.async_test" }
+          };
+        },
+        auditList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: {
+              schemaVersion: "archcontext.audit-run-list/v1",
+              count: 1,
+              runs: [{
+                schemaVersion: "archcontext.architecture-audit-run/v1",
+                runId: "audit_run.async_test",
+                jobId: "agent_job.async_test",
+                reportId: "report.async_test",
+                status: "pending",
+                issueDraftDigests: ["sha256:aaaa", "sha256:bbbb"]
+              }]
+            }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      expect((run.data as any)).toMatchObject({
+        status: "pending",
+        runId: "audit_run.async_test",
+        jobId: "agent_job.async_test",
+        pendingDraftCount: 2
+      });
+      expect(calls.filter((call) => call.method === "run")).toHaveLength(1);
+      expect(calls.filter((call) => call.method === "list").length).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("archctx audit run --no-wait returns the started envelope immediately without polling audit list", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-nowait-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      let listCalls = 0;
+      const runtimeClient = {
+        auditRun() {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.no_wait_test" }
+          };
+        },
+        auditList() {
+          listCalls += 1;
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: { schemaVersion: "archcontext.audit-run-list/v1", count: 0, runs: [] }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run", "--no-wait"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(true);
+      expect((run.data as any)).toMatchObject({ status: "started", jobId: "agent_job.no_wait_test" });
+      expect(listCalls).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("archctx audit run poll timeout returns a non-failure error pointing at audit list, not AC_RUNTIME_UNAVAILABLE", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-polltimeout-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const runtimeClient = {
+        auditRun() {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", status: "started", jobId: "agent_job.timeout_test" }
+          };
+        },
+        auditList() {
+          // Never shows the job as terminal: simulates the daemon still genuinely running it past
+          // this CLI call's own patience budget (--timeout-ms below is set tiny purely so this
+          // test doesn't wait out the real poll interval).
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.list",
+            data: { schemaVersion: "archcontext.audit-run-list/v1", count: 0, runs: [] }
+          };
+        }
+      };
+
+      const run = await runCli("audit", ["run", "--timeout-ms", "1"], root, { runtimeClient: runtimeClient as any });
+      expect(run.ok).toBe(false);
+      expect((run as any).error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect((run as any).error?.message).toContain("agent_job.timeout_test");
+      expect((run as any).error?.message).toContain("archctx audit list");
+      // A poll timeout must read as "come back later", not as a run failure.
+      expect((run as any).error?.message).toContain("not a failure");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  test("CLI resolves the architecture audit manifest gate from a subdirectory of the repository", async () => {
+    // The manifest lives at the Git repository root; running the gate check from a nested
+    // subdirectory must still resolve up to that root instead of looking for
+    // <subdir>/.archcontext/manifest.yaml, which never exists.
+    const enabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-subdir-enabled-"));
+    writeFileSync(join(enabledRoot, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: enabledRoot, stdio: ["ignore", "pipe", "pipe"] });
+    mkdirSync(join(enabledRoot, ".archcontext"), { recursive: true });
+    writeFileSync(join(enabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    const enabledSubdir = join(enabledRoot, "src", "nested");
+    mkdirSync(enabledSubdir, { recursive: true });
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.subdir_test", status: "pending", jobId: "agent_job.subdir_test", reportId: "report.subdir_test", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const allowed = await runCli("audit", ["run"], enabledSubdir, { runtimeClient: runtimeClient as any });
+      expect(allowed.ok).toBe(true);
+      expect(calls.length).toBe(1);
+    } finally {
+      rmSync(enabledRoot, { recursive: true, force: true });
+    }
+
+    const disabledRoot = mkdtempSync(join(tmpdir(), "archctx-cli-audit-subdir-disabled-"));
+    writeFileSync(join(disabledRoot, "README.md"), "# tmp\n", "utf8");
+    execFileSync("git", ["init"], { cwd: disabledRoot, stdio: ["ignore", "pipe", "pipe"] });
+    mkdirSync(join(disabledRoot, ".archcontext"), { recursive: true });
+    writeFileSync(join(disabledRoot, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: false\n", "utf8");
+    const disabledSubdir = join(disabledRoot, "src", "nested");
+    mkdirSync(disabledSubdir, { recursive: true });
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditRun(_root: string, input: any) {
+          calls.push({ method: "run", input });
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.run",
+            data: { schemaVersion: "archcontext.audit-run-result/v1", runId: "audit_run.should_not_run", status: "pending", jobId: "agent_job.should_not_run", reportId: "report.should_not_run", pendingDraftCount: 0 }
+          };
+        }
+      };
+
+      const rejected = await runCli("audit", ["run"], disabledSubdir, { runtimeClient: runtimeClient as any });
+      expect(rejected.ok).toBe(false);
+      expect((rejected as any).error?.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(disabledRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("ADR-0042: CLI wires audit approve to the daemon with run-id, confirmation token, and resume flags", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditApprove(_root: string, input: any) {
+          calls.push(input);
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.approve",
+            data: { schemaVersion: "archcontext.audit-approve-result/v1", runId: input.runId, status: "issued", issuedCount: 2, totalCount: 2, issuedIssues: [] }
+          };
+        },
+        auditList(_root: string, input: any) {
+          calls.push({ method: "list", input });
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.list", data: { schemaVersion: "archcontext.audit-run-list/v1", count: 0, runs: [] } };
+        }
+      };
+
+      const approved = await runCli("audit", [
+        "approve", "audit_run.cli_test",
+        "--confirm-public-repo", "public:acme/widgets:abcdef:audit_run.cli_test",
+        "--resume"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(approved.ok).toBe(true);
+      expect(approved.requestId).toBe("audit.approve");
+      expect(calls[0]).toEqual({
+        runId: "audit_run.cli_test",
+        confirmPublicToken: "public:acme/widgets:abcdef:audit_run.cli_test",
+        resume: true
+      });
+
+      // The `--run-id` flag form works too, and confirmPublicToken/resume are both optional.
+      const bare = await runCli("audit", ["approve", "--run-id", "audit_run.other"], root, { runtimeClient: runtimeClient as any });
+      expect(bare.ok).toBe(true);
+      expect(calls[1]).toEqual({ runId: "audit_run.other" });
+
+      // AUDIT_RUN_STATUSES now includes "issuing"; audit list must accept it, not reject it as unknown.
+      const list = await runCli("audit", ["list", "--status", "issuing"], root, { runtimeClient: runtimeClient as any });
+      expect(list.ok).toBe(true);
+      expect(calls[2]).toEqual({ method: "list", input: { statuses: ["issuing"] } });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI requires a run-id for audit approve", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-missing-runid-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const runtimeClient = {
+        auditApprove() {
+          throw new Error("auditApprove must not be called without a run-id");
+        }
+      };
+      const result = await runCli("audit", ["approve"], root, { runtimeClient: runtimeClient as any });
+      expect(result.ok).toBe(false);
+      expect((result as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI gates audit approve behind the same manifest opt-in as audit run, zero daemon calls when disabled", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-disabled-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        auditApprove(_root: string, input: any) {
+          calls.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "audit.approve", data: {} };
+        }
+      };
+      const result = await runCli("audit", ["approve", "audit_run.x"], root, { runtimeClient: runtimeClient as any });
+      expect(result.ok).toBe(false);
+      expect((result as any).error.code).toBe("AC_CAPABILITY_UNSUPPORTED");
+      expect(calls.length).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ADR-0042: CLI prints a warning with the full rerun command when audit approve requires public-repo confirmation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-confirm-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const rerunCommand = "archctx audit approve audit_run.cli_test --confirm-public-repo public:acme/widgets:abc:audit_run.cli_test";
+      const runtimeClient = {
+        auditApprove() {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: false,
+            requestId: "audit.approve",
+            error: {
+              code: "AC_USER_CONFIRMATION_REQUIRED",
+              message: `audit run audit_run.cli_test targets a public repository (acme/widgets); rerun with explicit confirmation: ${rerunCommand}`,
+              severity: "warning",
+              retryable: true,
+              action: "show-human-decision"
+            }
+          };
+        }
+      };
+
+      const originalWrite = process.stderr.write.bind(process.stderr);
+      let stderrOutput = "";
+      (process.stderr as { write: unknown }).write = (chunk: unknown) => {
+        stderrOutput += String(chunk);
+        return true;
+      };
+      try {
+        const result = await runCli("audit", ["approve", "audit_run.cli_test"], root, { runtimeClient: runtimeClient as any });
+        expect(result.ok).toBe(false);
+        expect((result as any).error.code).toBe("AC_USER_CONFIRMATION_REQUIRED");
+        expect(stderrOutput).toContain(rerunCommand);
+      } finally {
+        (process.stderr as { write: unknown }).write = originalWrite;
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ADR-0042: CLI audit show adds a filed N/M summary joined against issuedIssues by draftDigest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-show-filed-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    mkdirSync(join(root, ".archcontext"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/manifest.yaml"), "audit:\n  githubIssues:\n    enabled: true\n", "utf8");
+    try {
+      const runtimeClient = {
+        auditShow(_root: string, runId: string) {
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "audit.show",
+            data: {
+              schemaVersion: "archcontext.audit-run-detail/v1",
+              run: {
+                runId,
+                issueDraftDigests: [`sha256:${"1".repeat(64)}`, `sha256:${"2".repeat(64)}`],
+                issuedIssues: [{
+                  draftId: "draft.one",
+                  draftDigest: `sha256:${"1".repeat(64)}`,
+                  number: 42,
+                  url: "https://github.com/acme/widgets/issues/42",
+                  issuedAt: "2026-07-05T00:00:00.000Z"
+                }]
+              },
+              githubIssueDrafts: [
+                { draftId: "draft.one", draftDigest: `sha256:${"1".repeat(64)}`, title: "Draft One" },
+                { draftId: "draft.two", draftDigest: `sha256:${"2".repeat(64)}`, title: "Draft Two" }
+              ]
+            }
+          };
+        }
+      };
+
+      const show = await runCli("audit", ["show", "audit_run.filed_test"], root, { runtimeClient: runtimeClient as any });
+      expect(show.ok).toBe(true);
+      expect((show.data as any).filed).toBe("1/2");
+      expect((show.data as any).githubIssueDrafts[0]).toMatchObject({ issued: { number: 42, url: "https://github.com/acme/widgets/issues/42" } });
+      expect((show.data as any).githubIssueDrafts[1].issued).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI exposes recommendation lifecycle and metrics commands", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-recommendations-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
@@ -1654,6 +2164,131 @@ describe("archctx CLI", () => {
       const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
       expect(secondConnection.pid).not.toBe(firstConnection.pid);
       expect(secondConnection.schemaVersion).toBe(RUNTIME_RPC_VERSION);
+
+      const status = await runCliProcess(root, "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.running).toBe(true);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("archctx daemon start --idle-timeout-ms exits the real background process on its own once idle", async () => {
+    // Real end-to-end proof for the daemon idle self-exit: `archctxd` is spawned
+    // `detached`+`unref()`'d with no other exit signal (F5,
+    // tasks/reviews/audit-approve-gh-publishing.review.md), so without this the process would
+    // accumulate as a cross-day zombie. This drives the actual spawned background process (not an
+    // in-process server instance) through a real short idle window and confirms both the OS
+    // process and its connection file are gone afterward.
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-idle-exit-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    const lockPath = testRuntimePaths(root).daemonLockPath;
+    try {
+      const started = await runCliProcess(root, "daemon", "start", "--idle-timeout-ms", "1000");
+      expect(started.ok).toBe(true);
+      expect(started.data.background).toBe(true);
+      const childPid: number = started.data.childPid;
+      expect(typeof childPid).toBe("number");
+      expect(existsSync(connectionPath)).toBe(true);
+
+      await expectFileRemoved(connectionPath);
+      await expectFileRemoved(lockPath);
+      await expectPidGone(childPid);
+
+      const status = await runCliProcess(root, "daemon", "status");
+      expect(status.ok).toBe(true);
+      expect(status.data.running).toBe(false);
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("CLI detects a daemon started from a stale entrypoint and replaces it through daemon upgrade", async () => {
+    // Regression test for F3b/F1b (audit-approve-gh-publishing.review.md, third cut): a real
+    // `archctxd` is spawned `detached`+`unref()`'d with no idle shutdown, so an already-running
+    // daemon started from an older on-disk copy of `main.ts` keeps getting silently reused via the
+    // connection-file "reuse if healthy" fast path even after the source changes underneath it
+    // (e.g. a clock-composition fix). This asserts the CLI now refuses to reuse a daemon whose
+    // recorded `startedAt` predates the current entrypoint's mtime, mirroring the existing
+    // rpc-version-mismatch handling instead of silently talking to stale in-memory behavior.
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-stale-entry-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const connectionPath = testRuntimePaths(root).daemonConnectionPath;
+    try {
+      const started = await runCliProcess(root, "daemon", "start");
+      expect(started.ok).toBe(true);
+      const firstConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      writeFileSync(connectionPath, JSON.stringify({
+        ...firstConnection,
+        startedAt: "2000-01-01T00:00:00.000Z"
+      }, null, 2), { mode: 0o600 });
+      if (process.platform !== "win32") chmodSync(connectionPath, 0o600);
+
+      const ordinaryStatus = await runCliProcess(root, "status");
+      expect(ordinaryStatus.ok).toBe(false);
+      expect(ordinaryStatus.error).toMatchObject({
+        code: "AC_RUNTIME_VERSION_UNSUPPORTED",
+        action: "upgrade-archctx-runtime"
+      });
+      expect(String(ordinaryStatus.error.message)).toContain("archctx daemon upgrade");
+
+      // `daemon status` and `doctor` talk to the daemon's connection-file fast path directly
+      // (unlike `status`, which goes through `createOrStartRuntimeRpcClient`'s fail-closed check),
+      // so they previously kept reporting `running: true` for this same stale-but-healthy daemon.
+      // Both must now surface the same stale-daemon-entry signal instead.
+      const staleDaemonStatus = await runCliProcess(root, "daemon", "status");
+      expect(staleDaemonStatus.ok).toBe(true);
+      expect(staleDaemonStatus.data).toMatchObject({
+        running: true,
+        rpcVersionCompatible: false,
+        pid: firstConnection.pid,
+        versionUnsupported: {
+          reason: "stale-daemon-entry",
+          received: "2000-01-01T00:00:00.000Z",
+          action: "upgrade-archctx-runtime",
+          command: "archctx daemon upgrade"
+        }
+      });
+      expect(staleDaemonStatus.data.versionUnsupported.expected).toEqual(expect.any(String));
+
+      const staleDoctor = await runCliProcess(root, "doctor");
+      expect(staleDoctor.ok).toBe(true);
+      expect(staleDoctor.data.daemon).toMatchObject({
+        running: true,
+        rpcVersionCompatible: false,
+        pid: firstConnection.pid,
+        versionUnsupported: {
+          reason: "stale-daemon-entry",
+          received: "2000-01-01T00:00:00.000Z",
+          action: "upgrade-archctx-runtime",
+          command: "archctx daemon upgrade"
+        }
+      });
+      expect(staleDoctor.data.daemon.versionUnsupported.expected).toEqual(expect.any(String));
+
+      const startAgain = await runCliProcess(root, "daemon", "start");
+      expect(startAgain.ok).toBe(false);
+      expect(startAgain.error.code).toBe("AC_RUNTIME_VERSION_UNSUPPORTED");
+
+      const upgraded = await runCliProcess(root, "daemon", "upgrade");
+      expect(upgraded.ok).toBe(true);
+      expect(upgraded.requestId).toBe("daemon.upgrade");
+      expect(upgraded.data.upgraded).toBe(true);
+      expect(upgraded.data.replacedRuntime).toMatchObject({
+        previousStartedAt: "2000-01-01T00:00:00.000Z",
+        previousPid: firstConnection.pid
+      });
+      expect(upgraded.data.replacedRuntime.entrypointMtime).toEqual(expect.any(String));
+      expect(upgraded.data.replacedRuntime).not.toHaveProperty("previousRpcSchemaVersion");
+      expect(upgraded.data.replacedRuntime).not.toHaveProperty("expectedRpcSchemaVersion");
+      await expectPidGone(firstConnection.pid);
+
+      const secondConnection = JSON.parse(readFileSync(connectionPath, "utf8"));
+      expect(secondConnection.pid).not.toBe(firstConnection.pid);
+      expect(Date.parse(secondConnection.startedAt)).toBeGreaterThan(Date.parse("2000-01-01T00:00:00.000Z"));
 
       const status = await runCliProcess(root, "status");
       expect(status.ok).toBe(true);

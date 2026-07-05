@@ -56,3 +56,5 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0038 | Versioned Architecture Practice Assets |
 | ADR-0039 | External Documentation Is Advisory and Untrusted |
 | ADR-0040 | Hybrid Architecture Ledger |
+| ADR-0041 | Daemon-Driven Local Architecture Audit with Advisory GitHub Issue Drafts |
+| ADR-0042 | Local Approve-and-Publish for Advisory GitHub Issue Drafts |

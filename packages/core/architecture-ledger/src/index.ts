@@ -64,6 +64,23 @@ export type ArchitectureLedgerOperation =
   | { op: "upsert_constraint"; constraint: ArchitectureLedgerConstraintRecord }
   | { op: "delete_constraint"; constraintId: string };
 
+export interface ArchitectureAuditRunV1 {
+  schemaVersion: "archcontext.architecture-audit-run/v1";
+  runId: string;
+  jobId: string;
+  reportId: string;
+  status: "pending" | "issuing" | "issued" | "failed";
+  repoNameWithOwner: string;
+  repoVisibility: "public" | "private" | "internal";
+  baseSha: string;
+  issueDraftDigests: string[];
+  issuedIssues?: { draftId: string; draftDigest?: string; number: number; url: string; issuedAt: string }[];
+  inputDigest: string;
+  outputDigest: string;
+  createdAt: string;
+  auditRunDigest: string;
+}
+
 export interface ArchitectureLedgerEventPayload {
   summary?: string;
   rationale?: string;
@@ -74,6 +91,7 @@ export interface ArchitectureLedgerEventPayload {
   recommendationRuns?: RecommendationRunV1[];
   recommendations?: RecommendationV2[];
   agentJobs?: AgentJobV1[];
+  auditRuns?: ArchitectureAuditRunV1[];
   projectionState?: Record<string, Json>;
   sourceCursors?: Record<string, Json>[];
   waivers?: Record<string, Json>[];
@@ -913,6 +931,105 @@ export function planChangeSetApplyToArchitectureLedgerEvent(input: ArchitectureL
     } as unknown as Json
   }, null);
   return { ...importPlan, event };
+}
+
+export function planAuditRunToArchitectureLedgerEvent(input: ArchitectureLedgerScope & {
+  jobId: string;
+  reportId: string;
+  status: ArchitectureAuditRunV1["status"];
+  repoNameWithOwner: string;
+  repoVisibility: ArchitectureAuditRunV1["repoVisibility"];
+  issueDraftDigests: string[];
+  issuedIssues?: ArchitectureAuditRunV1["issuedIssues"];
+  inputDigest: string;
+  outputDigest: string;
+  createdAt: string;
+  runId?: string;
+  command?: string;
+  /**
+   * Defaults to "architecture.agent_audit.run_pending" (the original AL0/ADR-0041 event type,
+   * used for both "pending" and "failed" transitions so those two statuses stay byte-identical
+   * to the pre-approve-flow event shape). ADR-0042's approve flow passes
+   * "architecture.agent_audit.run_issuing" / "...run_issued" explicitly for the "issuing"/"issued"
+   * transitions so the event stream stays self-describing without disturbing the pending/failed
+   * default.
+   */
+  eventType?: string;
+  /**
+   * Digest-only record (never the raw token) that a public/internal-repository confirmation
+   * token was supplied for this transition; folded into the event's provenance.inputDigest so the
+   * confirmation is cryptographically bound to the append without ever persisting the token
+   * itself. Omitted entirely for private repositories and for the pending/failed statuses, so
+   * their provenance.inputDigest stays byte-identical to the pre-approve-flow shape.
+   */
+  confirmPublicTokenDigest?: string;
+}): { event: ArchitectureEventV1 } {
+  const issueDraftDigests = [...input.issueDraftDigests].sort();
+  const runInputDigest = digestJson({
+    jobId: input.jobId,
+    reportId: input.reportId,
+    inputDigest: input.inputDigest,
+    outputDigest: input.outputDigest,
+    issueDraftDigests
+  } as unknown as Json);
+  const runId = input.runId ?? `audit_run.${digestSuffix(runInputDigest)}`;
+  const auditRunInput = {
+    schemaVersion: "archcontext.architecture-audit-run/v1" as const,
+    runId,
+    jobId: input.jobId,
+    reportId: input.reportId,
+    status: input.status,
+    repoNameWithOwner: input.repoNameWithOwner,
+    repoVisibility: input.repoVisibility,
+    baseSha: input.worktree.headSha,
+    issueDraftDigests,
+    ...(input.issuedIssues ? { issuedIssues: input.issuedIssues } : {}),
+    inputDigest: input.inputDigest,
+    outputDigest: input.outputDigest,
+    createdAt: input.createdAt
+  };
+  const auditRun: ArchitectureAuditRunV1 = {
+    ...auditRunInput,
+    auditRunDigest: digestJson(auditRunInput as unknown as Json)
+  };
+  const eventInputDigest = digestJson({
+    runId: auditRun.runId,
+    auditRunDigest: auditRun.auditRunDigest,
+    ...(input.confirmPublicTokenDigest ? { confirmPublicTokenDigest: input.confirmPublicTokenDigest } : {})
+  } as unknown as Json);
+  // pending/failed keep the exact original idempotencyKey shape (one key per runId, matching
+  // ADR-0041's terminal-or-still-investigating semantics); issuing/issued are content-addressed
+  // per transition so a status/issuedIssues change never collides with the prior transition's key,
+  // while replaying the identical transition content is still a safe idempotent duplicate.
+  const idempotencyKey = input.status === "pending" || input.status === "failed"
+    ? `architecture-ledger-agent-audit:${auditRun.runId}`
+    : `architecture-ledger-agent-audit:${auditRun.runId}:${input.status}:${digestSuffix(auditRun.auditRunDigest)}`;
+  const event = normalizeArchitectureLedgerEvent({
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.agent_audit.${digestSuffix(eventInputDigest)}`,
+    eventType: input.eventType ?? "architecture.agent_audit.run_pending",
+    payloadVersion: "archcontext.architecture-audit-run/v1",
+    repository: input.repository,
+    worktree: input.worktree,
+    baseDigest: input.inputDigest,
+    resultingDigest: auditRun.auditRunDigest,
+    headSha: input.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "agent_audit",
+    timestamp: input.createdAt,
+    idempotencyKey,
+    provenance: {
+      producer: "architecture-ledger-agent-audit",
+      command: input.command ?? "archctxd agent-audit",
+      inputDigest: eventInputDigest
+    },
+    payload: {
+      summary: `Pending architecture audit run ${auditRun.runId} for ${input.repoNameWithOwner}.`,
+      title: `Architecture audit run ${auditRun.runId}`,
+      auditRuns: [auditRun]
+    } as unknown as Json
+  }, null);
+  return { event };
 }
 
 export function compareArchitectureLedgerStateToYaml(input: ArchitectureLedgerGitDriftInput): ArchitectureLedgerDriftReport {
