@@ -1,5 +1,5 @@
 import type { ChangeOperation } from "@archcontext/core/changeset-engine";
-import { assertNoCallerProvidedAttestationFields, errorEnvelope, type Json } from "@archcontext/contracts";
+import { assertNoCallerProvidedAttestationFields, errorEnvelope, productVersionManifest, type Json } from "@archcontext/contracts";
 import { createRuntimeRpcClientFromConnectionFile, type RuntimeBookInput, type RuntimeDaemonClient } from "@archcontext/local-runtime/runtime-daemon";
 
 export type ToolSafety = "read-only" | "idempotent" | "destructive";
@@ -35,6 +35,8 @@ export interface McpLocalServerOptions {
   runtime?: RuntimeDaemonClient;
   runtimeResolver?: McpRuntimeResolver;
 }
+
+const MCP_PROTOCOL_VERSION = "2025-03-26";
 
 export const LOCAL_MCP_TOOLS: McpToolDefinition[] = [
   {
@@ -452,9 +454,16 @@ export async function runStdioMcpLoop(
   log("[archctx-mcp] started");
   for await (const line of input) {
     const message = JSON.parse(line);
+    if (message.id === undefined) continue;
     let result;
-    if (message.method === "tools/list") {
+    if (message.method === "initialize") {
+      result = mcpInitializeResult(message.params?.protocolVersion);
+    } else if (message.method === "ping") {
+      result = {};
+    } else if (message.method === "tools/list") {
       result = { tools: server.listTools() };
+    } else if (message.method === "tools/call") {
+      result = await server.callTool(message.params?.name, message.params?.arguments ?? {});
     } else if (message.method === "resources/list") {
       result = { resources: await server.listResources(message.params?.root) };
     } else if (message.method === "resources/read") {
@@ -466,10 +475,28 @@ export async function runStdioMcpLoop(
           : [{ uri, mimeType: "application/json", text: JSON.stringify(content) }]
       };
     } else {
-      result = await server.callTool(message.params?.name, message.params?.arguments ?? {});
+      result = {
+        content: errorEnvelope("mcp", "AC_SCHEMA_INVALID", `Unknown MCP method: ${message.method}`) as unknown as Json,
+        dataClassification: "local-metadata"
+      };
     }
     output(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
   }
+}
+
+function mcpInitializeResult(clientProtocolVersion: unknown) {
+  const product = productVersionManifest().product;
+  return {
+    protocolVersion: typeof clientProtocolVersion === "string" ? clientProtocolVersion : MCP_PROTOCOL_VERSION,
+    capabilities: {
+      tools: { listChanged: false },
+      resources: { subscribe: false, listChanged: false }
+    },
+    serverInfo: {
+      name: product.name,
+      version: product.version
+    }
+  };
 }
 
 function isExternalDocumentationResourceUri(uri: string): boolean {

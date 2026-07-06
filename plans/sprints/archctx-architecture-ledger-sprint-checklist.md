@@ -324,7 +324,7 @@ Do not create `architecture.sqlite` beside `runtime.sqlite` unless a measured is
 
 - 2026-06-25: Completed SQLite architecture ledger foundation on branch `codex/architecture-ledger-al2`.
 - 2026-06-25: Focused SQLite tests passed: `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 30000` (21 pass, 0 fail).
-- 2026-06-25: Node/Bun adapter readback passed: `node scripts/architecture-ledger-sqlite-adapter-readback.mjs` with matching graph digest `sha256:0b526aeac5b37b8153a608d0bda661ac52c9027cd50f7670cae6a76b62da16f1`.
+- 2026-06-25: Node/Bun adapter readback passed with matching graph digest `sha256:0b526aeac5b37b8153a608d0bda661ac52c9027cd50f7670cae6a76b62da16f1`; the one-off adapter script was later retired from the live `scripts/` surface.
 - 2026-06-25: Typecheck passed: `bun run typecheck`.
 - 2026-06-25: Package boundary and sprint status checks passed: `node scripts/package-boundary-audit.mjs`; `node scripts/sprint-status-check.mjs`.
 - 2026-06-25: PR #41 is the AL2 review surface; remote Verify covers Governance plus Ubuntu/macOS/Windows on Node 24.x and 25.x. Windows cleanup failures were fixed in the AL2 readback tests and adapter script without changing ledger runtime semantics.

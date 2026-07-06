@@ -13,7 +13,6 @@ Authoritative implementation surfaces:
 - `packages/local-runtime/local-store-sqlite/src/index.ts`: forward-only migration `0006_architecture_ledger`, append transaction, current-state materialization, replay/readback, snapshot, compaction, integrity, backup, FTS and views.
 - `packages/contracts/src/ledger.ts`: schema-versioned event, snapshot, evidence, recommendation and agent-job contract types.
 - `packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts`: 1,000-event replay, duplicate retry, failure rollback, views, FTS, operation metadata, backup and integrity gates.
-- `scripts/architecture-ledger-sqlite-adapter-readback.mjs`: same replay fixture through Bun SQLite and Node `node:sqlite`.
 
 Out of scope for AL2: YAML import/export, dual-mode promotion, Git-hook capture, CodeGraph delta ingestion, CLI/MCP query commands and subagent orchestration. Those start in later AL3+ slices.
 
@@ -41,8 +40,9 @@ Tradeoff: current-state tables duplicate event-derived facts for query speed. Th
 - `bun test packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts --timeout 30000`
   - Result: 21 pass, 0 fail.
   - Covers: migration/schema guard, 1,000-event replay, duplicate retry, injected rollback, snapshot, compaction, views, FTS, operation metadata, backup and integrity.
-- `node scripts/architecture-ledger-sqlite-adapter-readback.mjs`
+- Historical Node/Bun adapter readback captured on 2026-06-25 before script-surface cleanup.
   - Result: Bun and Node adapters both verified replay/integrity with matching graph digest `sha256:0b526aeac5b37b8153a608d0bda661ac52c9027cd50f7670cae6a76b62da16f1`.
+  - Ongoing live coverage is the local-store-sqlite test suite plus package-boundary and sprint-status gates; the one-off adapter script is no longer retained in `scripts/`.
 - `bun run typecheck`
   - Result: pass.
 - `node scripts/package-boundary-audit.mjs`

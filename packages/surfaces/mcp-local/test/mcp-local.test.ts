@@ -349,6 +349,38 @@ describe("local MCP server", () => {
     expect(logs).toEqual(["[archctx-mcp] started"]);
   });
 
+  test("stdio loop supports MCP initialize and ignores initialized notifications", async () => {
+    const output: string[] = [];
+    const logs: string[] = [];
+    async function* input() {
+      yield JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "codex-test", version: "0" }
+        }
+      });
+      yield JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
+      yield JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    }
+
+    await runStdioMcpLoop(input(), (line) => output.push(line), (line) => logs.push(line));
+
+    expect(output.length).toBe(2);
+    const initialize = JSON.parse(output[0]);
+    expect(initialize.id).toBe(1);
+    expect(initialize.result.protocolVersion).toBe("2025-03-26");
+    expect(initialize.result.serverInfo.name).toBe("archctx");
+    expect(initialize.result.capabilities.tools).toEqual({ listChanged: false });
+    const tools = JSON.parse(output[1]);
+    expect(tools.id).toBe(2);
+    expect(tools.result.tools.length).toBe(6);
+    expect(logs).toEqual(["[archctx-mcp] started"]);
+  });
+
   test("stdio tools/list does not resolve runtime and runtime tool calls reuse injected resolver", async () => {
     const output: string[] = [];
     const logs: string[] = [];

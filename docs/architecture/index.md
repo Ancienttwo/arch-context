@@ -5,6 +5,9 @@
 AL0 ledger authority is frozen in
 [`architecture-ledger-authority-matrix.md`](architecture-ledger-authority-matrix.md).
 
+Script ownership and cleanup rules are frozen in
+[`script-surface-policy.md`](script-surface-policy.md).
+
 ## Current Snapshot
 
 - Latest snapshot: (none yet)

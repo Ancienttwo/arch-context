@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,9 +9,12 @@ import { withNpmPublishCredentials } from "./npm-publish-credentials-lib.mjs";
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const packageRoot = join(root, "packages/contracts");
 const packageManifestPath = join(packageRoot, "package.json");
+const DEFAULT_ENV_FILE = "_ops/env/archctx.npm.env";
 const registry = readFlag("--registry") ?? "https://registry.npmjs.org/";
 const sourcePackageName = "@archcontext/contracts";
 const publishPackageName = readFlag("--package-name") ?? process.env.ARCHCONTEXT_CONTRACTS_NPM_NAME ?? "archctx-contracts";
+const envFileFlag = readFlag("--npm-env-file") ?? readFlag("--env-file") ?? process.env.ARCHCTX_CONTRACTS_NPM_ENV_FILE ?? process.env.ARCHCTX_NPM_ENV_FILE ?? DEFAULT_ENV_FILE;
+const otp = readFlag("--otp") ?? process.env.NPM_CONFIG_OTP;
 const json = process.argv.includes("--json");
 const allowBlocked = process.argv.includes("--allow-blocked");
 const confirmPublish = process.argv.includes("--confirm-publish");
@@ -19,7 +22,7 @@ const keepTemp = process.argv.includes("--keep-temp");
 const command = readCommand();
 
 if (!["preflight", "publish"].includes(command)) {
-  console.error("usage: node scripts/publish-archcontext-contracts.mjs [preflight|publish] [--confirm-publish] [--json] [--allow-blocked] [--registry <url>] [--package-name <name>]");
+  console.error("usage: node scripts/publish-archcontext-contracts.mjs [preflight|publish] [--confirm-publish] [--json] [--allow-blocked] [--registry <url>] [--package-name <name>] [--npm-env-file <path>] [--otp <code>]");
   process.exit(2);
 }
 if (command === "publish" && !confirmPublish) {
@@ -34,8 +37,10 @@ if (!result.ok && !allowBlocked) process.exit(1);
 async function runWithNpmEnv(handler) {
   const needsCacheDir = !process.env.NPM_CONFIG_CACHE;
   const cacheDir = needsCacheDir ? mkdtempSync(join(tmpdir(), "archctx-contracts-npm-cache.")) : null;
+  const resolvedEnvFile = resolve(root, envFileFlag);
+  const envFilePath = existsSync(resolvedEnvFile) ? resolvedEnvFile : null;
   try {
-    return await withNpmPublishCredentials(null, (env) => handler(cacheDir ? { ...env, NPM_CONFIG_CACHE: cacheDir } : env), { registry });
+    return await withNpmPublishCredentials(envFilePath, (env) => handler(cacheDir ? { ...env, NPM_CONFIG_CACHE: cacheDir } : env), { registry });
   } finally {
     if (cacheDir) rmSync(cacheDir, { recursive: true, force: true });
   }
@@ -66,7 +71,7 @@ function publishContracts(env) {
   let publish = { skipped: publishedBefore, exitCode: 0, reason: publishedBefore ? "already-published" : "" };
   if (blockers.length === 0 && !publishedBefore) {
     const publishRoot = preparePublishPackage(before.sourceManifest);
-    const publishResult = run("npm", [
+    const publishArgs = [
       "publish",
       publishRoot,
       "--access",
@@ -74,7 +79,9 @@ function publishContracts(env) {
       "--ignore-scripts",
       "--registry",
       registry
-    ], { env });
+    ];
+    if (otp) publishArgs.push("--otp", otp);
+    const publishResult = run("npm", publishArgs, { env });
     cleanupPublishPackage(publishRoot);
     publish = {
       skipped: false,
@@ -114,8 +121,10 @@ function buildContext(env) {
     publishName: publishPackageName,
     version: manifest.version,
     license: "Apache-2.0",
-    files: ["src", "fixtures"],
-    exportRoot: "./src/index.ts"
+    sourceFiles: ["src", "fixtures"],
+    publishFiles: ["src", "fixtures", "schemas"],
+    exportRoot: "./src/index.ts",
+    schemaExportRoot: "./schemas/*"
   };
   const pack = npmPackDryRun(manifest, env);
   const whoami = run("npm", ["whoami", "--registry", registry], { env });
@@ -136,8 +145,10 @@ function buildContext(env) {
       private: manifest.private,
       publishConfigAccess: manifest.publishConfig?.access ?? null,
       license: manifest.license ?? null,
-      files: manifest.files ?? [],
-      exportRoot: manifest.exports?.["."] ?? null
+      sourceFiles: manifest.files ?? [],
+      publishFiles: expected.publishFiles,
+      exportRoot: manifest.exports?.["."] ?? null,
+      schemaExportRoot: expected.schemaExportRoot
     },
     expected,
     checks: {
@@ -146,7 +157,7 @@ function buildContext(env) {
           && manifest.private === false
           && manifest.license === expected.license
           && manifest.publishConfig?.access === "public"
-          && JSON.stringify(manifest.files ?? []) === JSON.stringify(expected.files)
+          && JSON.stringify(manifest.files ?? []) === JSON.stringify(expected.sourceFiles)
           && manifest.exports?.["."] === expected.exportRoot
       },
       pack,
@@ -186,8 +197,11 @@ function npmPackDryRun(manifest, env) {
     const files = entry.files.map((file) => file.path);
     const hasSource = files.some((file) => file.startsWith("src/"));
     const hasFixtures = files.some((file) => file.startsWith("fixtures/valid/"));
+    const hasSchemas = files.some((file) => file.startsWith("schemas/"));
+    const hasArchitectureNodeSchema = files.includes("schemas/repo/architecture-node.schema.json");
+    const hasProjectionTargetSchema = files.includes("schemas/runtime/projection-target.schema.json");
     const hasTests = files.some((file) => file.startsWith("test/"));
-    const ok = hasSource && hasFixtures && !hasTests;
+    const ok = hasSource && hasFixtures && hasSchemas && hasArchitectureNodeSchema && hasProjectionTargetSchema && !hasTests;
     return {
       ok,
       exitCode: 0,
@@ -195,7 +209,7 @@ function npmPackDryRun(manifest, env) {
       fileCount: files.length,
       shasum: entry.shasum,
       integrity: entry.integrity,
-      reason: ok ? null : "pack must include src and fixtures and exclude tests"
+      reason: ok ? null : "pack must include src, fixtures, schemas and exclude tests"
     };
   } catch (error) {
     return { ok: false, exitCode: 0, fileCount: 0, reason: error instanceof Error ? error.message : String(error) };
@@ -237,15 +251,19 @@ function preparePublishPackage(manifest) {
   const workspace = mkdtempSync(join(tmpdir(), "archctx-contracts-publish."));
   cpSync(join(packageRoot, "src"), join(workspace, "src"), { recursive: true });
   cpSync(join(packageRoot, "fixtures"), join(workspace, "fixtures"), { recursive: true });
+  cpSync(join(root, "schemas"), join(workspace, "schemas"), { recursive: true });
   writeFileSync(join(workspace, "package.json"), `${JSON.stringify({
     name: publishPackageName,
     version: manifest.version,
     private: false,
     type: manifest.type,
     license: manifest.license,
-    files: manifest.files,
+    files: ["src", "fixtures", "schemas"],
     publishConfig: manifest.publishConfig,
-    exports: manifest.exports
+    exports: {
+      ".": "./src/index.ts",
+      "./schemas/*": "./schemas/*"
+    }
   }, null, 2)}\n`, "utf8");
   return workspace;
 }
@@ -280,9 +298,18 @@ function runCleanRoomSmoke(name, version, env) {
     const add = run("bun", ["add", `${name}@${version}`], { cwd: workspace, env });
     if (add.status !== 0) return { ok: false, skipped: false, reason: summarizeFailure(add), workspace: keepTemp ? workspace : null };
     writeFileSync(join(workspace, "smoke.ts"), [
+      "import { readFileSync } from \"node:fs\";",
+      "import { createRequire } from \"node:module\";",
       `import { digestJson, productVersionManifest } from "${name}";`,
+      "const require = createRequire(import.meta.url);",
+      `const architectureNodeSchemaPath = require.resolve("${name}/schemas/repo/architecture-node.schema.json");`,
+      `const projectionTargetSchemaPath = require.resolve("${name}/schemas/runtime/projection-target.schema.json");`,
+      "const architectureNodeSchema = JSON.parse(readFileSync(architectureNodeSchemaPath, \"utf8\"));",
+      "const projectionTargetSchema = JSON.parse(readFileSync(projectionTargetSchemaPath, \"utf8\"));",
       "if (!digestJson({ ok: true }).startsWith(\"sha256:\")) throw new Error(\"bad digest\");",
       `if (productVersionManifest().product.version !== "${version}") throw new Error("bad version");`,
+      "if (architectureNodeSchema.properties?.schemaVersion?.const !== \"archcontext.node/v1\") throw new Error(\"bad architecture node schema\");",
+      "if (!projectionTargetSchema.properties?.type?.enum?.includes(\"agent-context\")) throw new Error(\"missing agent-context schema target\");",
       "console.log(\"ok\");",
       ""
     ].join("\n"), "utf8");
@@ -355,7 +382,7 @@ function readCommand() {
   const args = process.argv.slice(2);
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--registry" || arg === "--package-name") {
+    if (arg === "--registry" || arg === "--package-name" || arg === "--env-file" || arg === "--npm-env-file" || arg === "--otp") {
       index += 1;
       continue;
     }

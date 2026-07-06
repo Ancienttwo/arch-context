@@ -49,9 +49,27 @@ try {
   const repositoryId = status.data?.repositoryId;
   const initialWorktreeDigest = status.data?.worktreeDigest;
 
-  const mcp = await runArchctxMcp({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+  const mcpStartup = await runArchctxMcpSession([
+    {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "packaged-cli-smoke", version: "0" }
+      }
+    },
+    { jsonrpc: "2.0", method: "notifications/initialized", params: {} },
+    { jsonrpc: "2.0", id: 2, method: "tools/list" }
+  ]);
+  assert(mcpStartup.length === 2, "mcp startup must answer initialize and tools/list only");
+  assert(mcpStartup[0].id === 1, "mcp initialize must preserve request id");
+  assert(mcpStartup[0].result?.protocolVersion === "2025-03-26", "mcp initialize must negotiate protocol version");
+  assert(mcpStartup[0].result?.serverInfo?.name === "archctx", "mcp initialize must report server info");
+  const mcp = mcpStartup[1];
   assert(mcp.jsonrpc === "2.0", "mcp must return JSON-RPC");
-  assert(mcp.id === 1, "mcp must preserve request id");
+  assert(mcp.id === 2, "mcp must preserve request id");
   assert(Array.isArray(mcp.result?.tools), "mcp must list tools");
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_prepare_task"), "mcp must expose prepare_task");
   assert(mcp.result.tools.some((tool) => tool.name === "archcontext_practices"), "mcp must expose practices");
@@ -265,6 +283,10 @@ function resolveArchctxBin() {
 }
 
 function runArchctxMcp(message) {
+  return runArchctxMcpSession([message]).then((responses) => responses.at(-1));
+}
+
+function runArchctxMcpSession(messages) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(archctxBin, ["mcp"], {
       cwd: repo,
@@ -293,12 +315,12 @@ function runArchctxMcp(message) {
         return;
       }
       try {
-        resolvePromise(JSON.parse(stdout.trim().split("\n").at(-1) ?? ""));
+        resolvePromise(stdout.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)));
       } catch (error) {
         rejectPromise(new Error(`archctx mcp returned invalid JSON: ${stdout}\n${stderr}\n${error}`));
       }
     });
-    child.stdin.end(`${JSON.stringify(message)}\n`);
+    child.stdin.end(`${messages.map((message) => JSON.stringify(message)).join("\n")}\n`);
   });
 }
 

@@ -14,7 +14,7 @@ const DEFAULT_ARTIFACT_DIR = "_ops/npm/fg6-release-dry-run";
 const registry = readFlag("--registry") ?? "https://registry.npmjs.org/";
 const json = process.argv.includes("--json");
 const confirmPublish = process.argv.includes("--confirm-publish");
-const envFileFlag = readFlag("--env-file") ?? process.env.ARCHCTX_NPM_ENV_FILE ?? DEFAULT_ENV_FILE;
+const envFileFlag = readFlag("--npm-env-file") ?? readFlag("--env-file") ?? process.env.ARCHCTX_NPM_ENV_FILE ?? DEFAULT_ENV_FILE;
 
 const result = await main();
 process.stdout.write(`${json ? JSON.stringify(result, null, 2) : renderHuman(result)}\n`);

@@ -122,7 +122,8 @@ export type ProjectionTargetType =
   | "architecture-changelog"
   | "diagram-mermaid"
   | "diagram-structurizr"
-  | "diagram-likec4";
+  | "diagram-likec4"
+  | "agent-context";
 export type ProjectionTargetScopeKind = "repository" | "entity" | "relation" | "decision" | "diagram" | "changelog";
 export type ProjectionTargetOwnership = "generated" | "mixed";
 export type ProjectionTargetFormat = "markdown" | "mermaid" | "structurizr-json" | "likec4";

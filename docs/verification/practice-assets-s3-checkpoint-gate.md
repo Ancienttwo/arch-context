@@ -48,7 +48,6 @@ bun test packages/contracts/test/contracts.test.ts packages/core/application/tes
 bun test packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
 bun test packages/surfaces/cli/test/cli.test.ts packages/surfaces/mcp-local/test/mcp-local.test.ts
 bun test packages/surfaces/cli/test/local-product-e2e.test.ts
-bun scripts/practice-checkpoint-benchmark.ts run --json
 node scripts/practice-hook-egress-readback.mjs readback --evidence docs/verification/practice-hook-egress-readback.json --json
 bun run verify
 ```
@@ -118,7 +117,7 @@ Hook egress audit follow-up readbacks:
 ## Gate Evidence
 
 - S3-EG1: Hook checkpoint path is implemented through local CLI -> loopback daemon RPC only; result declares `hook.egress = "none"` and `hook.network = "forbidden"`. Hook fail-open payload also declares `egress = "none"` and `network = "forbidden"`. Hook adapter output declares `entrypoint.egress = "none"` and `entrypoint.network = "forbidden"`. `docs/verification/practice-hook-egress-readback.json` plus `scripts/practice-hook-egress-readback.mjs` independently prove packet capture `totalRequests = 0`, zero network entries, no raw changed path body, and no source/diff/token payload through the shared capture DLP audit.
-- S3-EG2: `scripts/practice-checkpoint-benchmark.ts` records cold/warm/coalesced p95 under the S3 limits for a local temporary repository.
+- S3-EG2: Captured benchmark evidence records cold/warm/coalesced p95 under the S3 limits for a local temporary repository.
 - S3-EG3: Daemon checkpoint coalescing returns cached checkpoint data for duplicate same-worktree events and marks `hook.coalesced = true`, `hook.skippedAnalysis = true`.
 - S3-EG4: `archctx hook checkpoint` catches runtime errors and returns a fail-open `archcontext.hook-checkpoint-fail-open/v1` payload.
 - S3-EG5: Core tests cover prepare -> edit introduces observed cycle -> checkpoint added `modularity.no-new-cycle` -> revert -> checkpoint removed `modularity.no-new-cycle`. Runtime/MCP tests cover prepare -> checkpoint no-op delta in a shared daemon session. Local product E2E covers installed `archctx hook checkpoint` prepare -> edit compatibility path -> upgraded delta -> revert -> downgraded delta, plus prepare -> edit real cross-layer import -> added `modularity.respect-dependency-direction` with `import-edge` evidence.

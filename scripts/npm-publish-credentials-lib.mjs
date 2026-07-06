@@ -16,7 +16,7 @@ const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 };
  * happens to contain the raw token, the rethrown error has the token
  * replaced with "[REDACTED]" so it never reaches a log or console.
  *
- * envFilePath: path to a dotenv file with NPM_TOKEN/NODE_AUTH_TOKEN, or
+ * envFilePath: path to a dotenv file with NPM_TOKEN/NODE_AUTH_TOKEN/CI_TOKEN, or
  * null/undefined to resolve the token from `baseEnv` only.
  * callback: receives the env object to pass as `spawnSync(..., { env })`.
  */
@@ -57,11 +57,11 @@ export async function withNpmPublishCredentials(envFilePath, callback, options =
 }
 
 function resolveNpmToken(envFilePath, baseEnv) {
-  const fromEnv = baseEnv.NODE_AUTH_TOKEN || baseEnv.NPM_TOKEN;
+  const fromEnv = baseEnv.NODE_AUTH_TOKEN || baseEnv.CI_TOKEN || baseEnv.NPM_TOKEN;
   if (fromEnv) return fromEnv;
   if (!envFilePath) return "";
   const dotenv = parseDotenv(readFileSync(envFilePath, "utf8"));
-  return dotenv.NODE_AUTH_TOKEN || dotenv.NPM_TOKEN || "";
+  return dotenv.NODE_AUTH_TOKEN || dotenv.CI_TOKEN || dotenv.NPM_TOKEN || "";
 }
 
 function installSignalCleanup(cleanup) {

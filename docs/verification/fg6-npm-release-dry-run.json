@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-05T20:37:10.023Z",
+  "generatedAt": "2026-07-06T07:34:35.718Z",
   "package": {
     "name": "archctx",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -29,12 +29,12 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.2.0.tgz",
-    "publishDryRunId": "archctx@0.2.0",
-    "integrity": "sha512-VQ/CdgnyqkfB8VcCGXGHJBs67HmLy5z8luG/ynNMGzXUopoowNATlLdbVHFypqGVxCU9wTkuReOJrX1WQx9QEQ==",
-    "shasum": "8cebc9e3cccf5fe941435fc52578d3b8079e275d",
-    "size": 311160,
-    "unpackedSize": 1606378,
+    "tarball": "archctx-0.2.1.tgz",
+    "publishDryRunId": "archctx@0.2.1",
+    "integrity": "sha512-RgoF8uyBKYhFNNsvX6CxEF1u1/K9iG5H+JstvtSPvlw8Li2j7fcb0y7BmovPeVioU/jWcMbXmxCwNT5qxX5Dpw==",
+    "shasum": "3611dda2b34d835748a645ff91daa080b512a585",
+    "size": 311533,
+    "unpackedSize": 1611149,
     "entryCount": 79,
     "files": [
       "NOTICE.md",
@@ -197,7 +197,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.2.0",
+    "postPublishInstallCommand": "npm install -g archctx@0.2.1",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
