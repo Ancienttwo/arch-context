@@ -4,7 +4,7 @@
   "environment": "release-distribution",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-10T16:36:37.005Z",
+  "generatedAt": "2026-07-10T18:25:40.713Z",
   "sources": {
     "homeUrl": "https://archcontext.repoharness.com",
     "outputPath": "docs/verification/fg6-release-distribution-readback.json",
@@ -32,7 +32,7 @@
     "rootPackage": {
       "path": "package.json",
       "name": "archcontext",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "private": true,
       "binNames": [],
       "publishConfigRegistry": null
@@ -41,7 +41,7 @@
       {
         "path": "packages/contracts/package.json",
         "name": "@archcontext/contracts",
-        "version": "0.2.2",
+        "version": "0.2.3",
         "private": false,
         "binNames": [],
         "publishConfigRegistry": null
@@ -49,7 +49,7 @@
       {
         "path": "packages/core/package.json",
         "name": "@archcontext/core",
-        "version": "0.2.2",
+        "version": "0.2.3",
         "private": true,
         "binNames": [],
         "publishConfigRegistry": null
@@ -57,7 +57,7 @@
       {
         "path": "packages/local-runtime/package.json",
         "name": "@archcontext/local-runtime",
-        "version": "0.2.2",
+        "version": "0.2.3",
         "private": true,
         "binNames": [],
         "publishConfigRegistry": null
@@ -65,7 +65,7 @@
       {
         "path": "packages/surfaces/package.json",
         "name": "@archcontext/surfaces",
-        "version": "0.2.2",
+        "version": "0.2.3",
         "private": true,
         "binNames": [
           "archctx"
@@ -75,7 +75,7 @@
       {
         "path": "packages/cloud/package.json",
         "name": "@archcontext/cloud",
-        "version": "0.2.2",
+        "version": "0.2.3",
         "private": true,
         "binNames": [],
         "publishConfigRegistry": null
@@ -86,12 +86,12 @@
       "path": "docs/verification/fg6-npm-release-dry-run.json",
       "ok": true,
       "packageName": "archctx",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "homepage": "https://archcontext.repoharness.com",
       "license": "Apache-2.0",
-      "tarball": "archctx-0.2.2.tgz",
-      "publishDryRunId": "archctx@0.2.2",
-      "postPublishInstallCommand": "npm install -g archctx@0.2.2"
+      "tarball": "archctx-0.2.3.tgz",
+      "publishDryRunId": "archctx@0.2.3",
+      "postPublishInstallCommand": "npm install -g archctx@0.2.3"
     }
   },
   "registry": [
@@ -110,7 +110,7 @@
     {
       "name": "archctx",
       "status": "published",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "homepage": "https://archcontext.repoharness.com",
       "license": "Apache-2.0",
       "engines": {
@@ -118,8 +118,7 @@
       },
       "packageManager": null,
       "bin": {
-        "archctx": "bin/archctx.mjs",
-        "codegraph": "bin/codegraph.mjs"
+        "archctx": "bin/archctx.mjs"
       }
     }
   ],
@@ -127,8 +126,8 @@
     "ready": true,
     "packageName": "archctx",
     "installCommand": "npm install -g archctx",
-    "postPublishInstallCommand": "npm install -g archctx@0.2.2",
-    "version": "0.2.2",
+    "postPublishInstallCommand": "npm install -g archctx@0.2.3",
+    "version": "0.2.3",
     "blockers": []
   },
   "assertions": {

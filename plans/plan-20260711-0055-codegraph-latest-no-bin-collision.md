@@ -1,6 +1,6 @@
 # Plan: CodeGraph latest compatibility without global bin collision
 
-> **Status**: Executing
+> **Status**: Complete
 > **Created**: 20260711-0055
 > **Slug**: codegraph-latest-no-bin-collision
 > **Artifact Level**: work-package
@@ -56,7 +56,7 @@ node scripts/local-product-tarball-smoke.mjs
 - **Merge/PR unit**: one bounded compatibility and packaging fix.
 - **Rollback surface**: revert the bounded diff; no data migration.
 - **Verification boundary**: focused tests, typecheck, npm release dry-run, and installed-tarball smoke.
-- **Review/acceptance boundary**: linked review recommends pass; npm publication remains a separate explicit action.
+- **Review/acceptance boundary**: linked review recommends pass; npm, Git tag, GitHub Release, and live readbacks are complete.
 - **High-risk surface**: packaged CodeGraph lookup under a global-style install and CLI compatibility with `1.4.0`.
 - **Why not checklist row**: it changes both runtime dependency authority and the public npm bin contract.
 
@@ -68,6 +68,6 @@ node scripts/local-product-tarball-smoke.mjs
 - [x] Record review and implementation evidence.
 - [x] Align all current product-version and release-prep surfaces to `0.2.3`.
 - [x] Re-run full release preflight and pack/install smoke.
-- [ ] Publish `archctx@0.2.3` after browser authorization, then verify registry metadata and bins.
-- [ ] Create/push `v0.2.3`, create GitHub Release, and regenerate release readbacks.
-- [ ] Record final review and release evidence.
+- [x] Publish `archctx@0.2.3` after browser authorization, then verify registry metadata and bins.
+- [x] Create/push `v0.2.3`, create GitHub Release, and regenerate release readbacks.
+- [x] Record final review and release evidence.

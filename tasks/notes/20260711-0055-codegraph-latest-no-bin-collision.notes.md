@@ -1,6 +1,6 @@
 # Implementation Notes: codegraph-latest-no-bin-collision
 
-> **Status**: Active release closeout
+> **Status**: Complete
 > **Plan**: plans/plan-20260711-0055-codegraph-latest-no-bin-collision.md
 > **Contract**: tasks/contracts/20260711-0055-codegraph-latest-no-bin-collision.contract.md
 > **Review**: tasks/reviews/20260711-0055-codegraph-latest-no-bin-collision.review.md
@@ -26,6 +26,11 @@
 - Release-candidate tarball digests are SHA-1 `0ad264beca1c0d2ee0f993b2604295bcaf3ba37c` and SHA-256 `a85f54bb9027070823ee4d7b65d7dc17184bb480a3330b8b9d9b05c738bd0b81`.
 - PR #93 Governance Verify exposed the version-bound deterministic model digest: `fg6-no-provider-deterministic` consumes `fg4-deterministic-conclusion`, so both generated evidence files must be regenerated in source order for `0.2.3`; the user authorized this bounded evidence expansion.
 - The regenerated no-provider model digest is `sha256:d973b7c7f01ad8864d56d1fac0e2ed533b7b9e22ef24c9de420765f86f693701`; both evidence inspections and all 24 `verify:governance` commands pass.
+- PR #93 merged to `main` at `b299fc801f099c40d7b26b8b9005b6429f3152b9`.
+- `archctx@0.2.3` published to npm at `2026-07-10T18:22:16.977Z`; `latest` now resolves to `0.2.3`.
+- Registry metadata exposes only `archctx`, depends on CodeGraph `1.4.0`, and matches the release-candidate SHA-1/integrity exactly.
+- Annotated `v0.2.3` and GitHub Release `archctx 0.2.3` point to the merged source commit.
+- Current release distribution and provenance readbacks are verified; the personal install runbook now pins `0.2.3`.
 
 ## Design Decisions
 
@@ -35,7 +40,6 @@
 
 ## Residual Risks
 
-- Registry latest remains `0.2.2` until the authorized publish command succeeds.
 - `parseExploreSymbols` still recognizes the older human-readable explore format; current JSON query authority and real 1.4.0 paths pass.
 - Windows PATH resolution does not emulate `PATHEXT`, so the package-local fallback may be chosen even when a `.cmd` or `.exe` is available by shell convention.
 

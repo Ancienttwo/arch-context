@@ -2,20 +2,23 @@
   "schemaVersion": "archcontext.al10-npm-release-readback/v1",
   "status": "verified",
   "scope": "official-public-npm-latest-release",
-  "publishedAt": "2026-07-10T16:34:25.982Z",
+  "publishedAt": "2026-07-10T18:22:16.977Z",
   "package": {
     "name": "archctx",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "distTag": "latest",
     "installCommand": "npm install -g archctx@latest",
-    "explicitInstallCommand": "npm install -g archctx@0.2.2",
-    "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.2.2.tgz",
-    "shasum": "37d3c4ab05658d3cb7739f4bd38927c51d50979f",
-    "sha256": "38cb1ad0b50bdd6026c48b8fbaa1e4eda8afc6bd82687e197206e1a4db06e8e3",
-    "integrity": "sha512-BsY6yMl0eaLm5nTaNLJnlRAXsfNqp30Nm4R5ZYgiO+9lRR2qOwqbPvw2oLU5mjjHo47fiw4/evWv4NbKEzjABg==",
+    "explicitInstallCommand": "npm install -g archctx@0.2.3",
+    "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.2.3.tgz",
+    "shasum": "0ad264beca1c0d2ee0f993b2604295bcaf3ba37c",
+    "sha256": "a85f54bb9027070823ee4d7b65d7dc17184bb480a3330b8b9d9b05c738bd0b81",
+    "integrity": "sha512-KLT4KrqhTSrYLi1zU6l2JZHOZMdMajOVkhtEnldkR25qGKjFVE1pubeMSC26piPXa8DGPnVaof/VIsmRhj38yw==",
     "bin": {
-      "archctx": "bin/archctx.mjs",
-      "codegraph": "bin/codegraph.mjs"
+      "archctx": "bin/archctx.mjs"
+    },
+    "dependencies": {
+      "@colbymchenry/codegraph": "1.4.0",
+      "@node-rs/jieba": "^2.0.1"
     },
     "engines": {
       "node": ">=24 <26"
@@ -24,7 +27,7 @@
     "license": "Apache-2.0"
   },
   "registry": {
-    "latest": "0.2.2",
+    "latest": "0.2.3",
     "beta": "0.1.4-beta.0",
     "latestMoved": true,
     "versionVisible": true,
@@ -39,49 +42,51 @@
       "0.1.5",
       "0.2.0",
       "0.2.1",
-      "0.2.2"
+      "0.2.2",
+      "0.2.3"
     ]
   },
   "smoke": {
     "nodeVersion": "v24.18.0",
-    "installPackage": "archctx@0.2.2",
+    "installPackage": "archctx@0.2.3",
     "helpOk": true,
     "helpRequestId": "help",
     "helpCommandCount": 38,
     "doctorOk": true,
-    "doctorProductVersion": "0.2.2",
-    "doctorCliVersion": "0.2.2",
-    "doctorDaemonVersion": "0.2.2",
-    "doctorMcpVersion": "0.2.2",
+    "doctorProductVersion": "0.2.3",
+    "doctorCliVersion": "0.2.3",
+    "doctorDaemonVersion": "0.2.3",
+    "doctorMcpVersion": "0.2.3",
     "updateCheckOk": true,
-    "updateCheckCurrentVersion": "0.2.2",
-    "updateCheckLatestVersion": "0.2.2",
+    "updateCheckCurrentVersion": "0.2.3",
+    "updateCheckLatestVersion": "0.2.3",
     "updateCheckStatus": "current"
   },
   "source": {
     "dryRun": "docs/verification/fg6-npm-release-dry-run.json",
     "releaseDistribution": "docs/verification/fg6-release-distribution-readback.json",
-    "publishedTarball": "_ops/npm/fg6-release-dry-run/archctx-0.2.2.tgz",
+    "publishedTarball": "_ops/npm/fg6-release-dry-run/archctx-0.2.3.tgz",
     "sprintChecklist": "plans/sprints/archctx-architecture-ledger-sprint-checklist.md"
   },
   "verification": {
     "prePublish": [
       "bun run verify",
+      "bun run verify:governance",
       "bun run readback:fg6:npm-release-dry-run",
       "bun scripts/fg6-npm-release-dry-run.ts inspect --evidence docs/verification/fg6-npm-release-dry-run.json --json",
-      "npm view archctx@0.2.2 version --registry=https://registry.npmjs.org/ returned E404 before publish",
-      "npm whoami using _ops/env/archctx.npm.env temporary npmrc"
+      "npm view archctx@0.2.3 version --registry=https://registry.npmjs.org/ returned E404 before publish",
+      "npm whoami returned ancienttwo after interactive web authorization"
     ],
-    "publish": "npm publish _ops/npm/fg6-release-dry-run/archctx-0.2.2.tgz --access public --registry=https://registry.npmjs.org/ (interactive web authorization)",
+    "publish": "npm publish _ops/npm/fg6-release-dry-run/archctx-0.2.3.tgz --access public --registry=https://registry.npmjs.org/ (interactive web authorization)",
     "postPublish": [
       "npm view archctx dist-tags versions --json --registry=https://registry.npmjs.org/",
-      "npm view archctx@0.2.2 name version dist.tarball dist.shasum dist.integrity bin engines homepage license --json --registry=https://registry.npmjs.org/",
-      "npm view archctx@0.2.2 time --json --registry=https://registry.npmjs.org/",
+      "npm view archctx@0.2.3 name version dist.tarball dist.shasum dist.integrity bin dependencies engines homepage license --json --registry=https://registry.npmjs.org/",
+      "npm view archctx@0.2.3 time --json --registry=https://registry.npmjs.org/",
       "bun run readback:fg6:release-distribution",
       "bun scripts/fg6-release-distribution-readback.ts inspect --evidence docs/verification/fg6-release-distribution-readback.json --json",
-      "npm exec --yes --package node@24 --package archctx@0.2.2 -- archctx help",
-      "npm exec --yes --package node@24 --package archctx@0.2.2 -- archctx doctor",
-      "npm exec --yes --package node@24 --package archctx@0.2.2 -- archctx update --check"
+      "npm exec --yes --package node@24 --package archctx@0.2.3 -- archctx help",
+      "npm exec --yes --package node@24 --package archctx@0.2.3 -- archctx doctor",
+      "npm exec --yes --package node@24 --package archctx@0.2.3 -- archctx update --check"
     ]
   },
   "assertions": {
@@ -89,6 +94,7 @@
     "betaTagPreserved": true,
     "nodeOnlyCliPackage": true,
     "registryMetadataMatchesDryRun": true,
+    "codeGraphDependencyIs1_4_0": true,
     "fg6ReleaseDistributionVerified": true,
     "cleanNode24InstallSmokePassed": true,
     "doesNotBypassChangeSetOrDaemonMutationRules": true,
