@@ -2,7 +2,7 @@
   "schemaVersion": "archcontext.product-version-manifest/v1",
   "product": {
     "name": "archctx",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "distribution": "one-package"
   },
   "packageManager": "bun@1.3.10",
@@ -12,25 +12,25 @@
   "surfaces": {
     "cli": {
       "packageName": "@archcontext/surfaces",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "entrypoint": "archctx"
     },
     "daemon": {
       "packageName": "@archcontext/local-runtime",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "entrypoint": "archctx daemon start",
       "rpcSchemaVersion": "archcontext.runtime-rpc/v1"
     },
     "mcp": {
       "packageName": "@archcontext/surfaces",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "entrypoint": "archctx mcp",
       "transport": "stdio"
     }
   },
   "schemas": {
     "schemaSetVersion": "2026-06-25.al0-ledger",
-    "contractsPackageVersion": "0.2.2",
+    "contractsPackageVersion": "0.2.3",
     "reviewChallenge": "archcontext.review-challenge/v2",
     "attestation": "archcontext.attestation/v2",
     "deviceIdentity": "archcontext.device-identity/v1",
@@ -44,7 +44,7 @@
     "sqliteMigrations": "0001_runtime_state..0004_changeset_journal",
     "codeGraph": {
       "packageName": "@colbymchenry/codegraph",
-      "requiredVersion": "1.0.1",
+      "requiredVersion": "1.4.0",
       "adapter": "codegraph-cli"
     }
   }

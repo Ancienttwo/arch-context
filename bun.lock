@@ -6,7 +6,7 @@
       "name": "archcontext",
       "dependencies": {
         "@archcontext/surfaces": "workspace:*",
-        "@colbymchenry/codegraph": "1.0.1",
+        "@colbymchenry/codegraph": "1.4.0",
       },
       "devDependencies": {
         "@types/node": "^26.0.0",
@@ -16,7 +16,7 @@
     },
     "packages/cloud": {
       "name": "@archcontext/cloud",
-      "version": "0.1.1",
+      "version": "0.2.3",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@archcontext/core": "workspace:*",
@@ -25,11 +25,11 @@
     },
     "packages/contracts": {
       "name": "@archcontext/contracts",
-      "version": "0.1.1",
+      "version": "0.2.3",
     },
     "packages/core": {
       "name": "@archcontext/core",
-      "version": "0.1.1",
+      "version": "0.2.3",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@node-rs/jieba": "^2.0.1",
@@ -37,16 +37,16 @@
     },
     "packages/local-runtime": {
       "name": "@archcontext/local-runtime",
-      "version": "0.1.1",
+      "version": "0.2.3",
       "dependencies": {
         "@archcontext/contracts": "workspace:*",
         "@archcontext/core": "workspace:*",
-        "@colbymchenry/codegraph": "1.0.1",
+        "@colbymchenry/codegraph": "1.4.0",
       },
     },
     "packages/surfaces": {
       "name": "@archcontext/surfaces",
-      "version": "0.1.1",
+      "version": "0.2.3",
       "bin": {
         "archctx": "./cli/src/main.ts",
       },
@@ -69,19 +69,19 @@
 
     "@archcontext/surfaces": ["@archcontext/surfaces@workspace:packages/surfaces"],
 
-    "@colbymchenry/codegraph": ["@colbymchenry/codegraph@1.0.1", "", { "optionalDependencies": { "@colbymchenry/codegraph-darwin-arm64": "1.0.1", "@colbymchenry/codegraph-darwin-x64": "1.0.1", "@colbymchenry/codegraph-linux-arm64": "1.0.1", "@colbymchenry/codegraph-linux-x64": "1.0.1", "@colbymchenry/codegraph-win32-arm64": "1.0.1", "@colbymchenry/codegraph-win32-x64": "1.0.1" }, "bin": { "codegraph": "npm-shim.js" } }, "sha512-Y4ZMk7wxSRI9g2wQTcW21TfLr+fw7td1Dadkll6Udl9Ll8wX3H6qtov7K/VGtHG2AFX2j1e5Lm48PTHi74mImg=="],
+    "@colbymchenry/codegraph": ["@colbymchenry/codegraph@1.4.0", "", { "optionalDependencies": { "@colbymchenry/codegraph-darwin-arm64": "1.4.0", "@colbymchenry/codegraph-darwin-x64": "1.4.0", "@colbymchenry/codegraph-linux-arm64": "1.4.0", "@colbymchenry/codegraph-linux-x64": "1.4.0", "@colbymchenry/codegraph-win32-arm64": "1.4.0", "@colbymchenry/codegraph-win32-x64": "1.4.0" }, "bin": { "codegraph": "npm-shim.js" } }, "sha512-TuiF8wHsweogJe1ANGHq/yKbwttkShBDFxcpUtTCvKuFlwPWcGghC2vru4QCqNA/T8AVqiBiV+ZxBV9dkZj8GA=="],
 
-    "@colbymchenry/codegraph-darwin-arm64": ["@colbymchenry/codegraph-darwin-arm64@1.0.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-4z3aNzR3Ml31MBVzAvFQm+bk83erdHkjnaJ0PoeM6I9T7xuTIcdAGV36i3qYwgBE4tdrghRdR0mP5MNM+OrGFA=="],
+    "@colbymchenry/codegraph-darwin-arm64": ["@colbymchenry/codegraph-darwin-arm64@1.4.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-/QSI3vvQRyt/H+9NllFlFbL+NwVo7G0V/Z3vay9yMfuMTjjb2p16rlvdkQkFOsO9rpYj1UpAJYsD3lPBuDmVTw=="],
 
-    "@colbymchenry/codegraph-darwin-x64": ["@colbymchenry/codegraph-darwin-x64@1.0.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-KBSKl+tLCSIgV4iyi21SqYlpXL0P8DPqAnVHvvStdyYsCmkc2Heqf4oQIko+TYyFmuo65m4VpX989JkYZVGIVQ=="],
+    "@colbymchenry/codegraph-darwin-x64": ["@colbymchenry/codegraph-darwin-x64@1.4.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-OiFLBfelA7sOgNqdfVKWa5DZbpy1hApNf420+eOseVFqDxl7mcdPmZQsB8sNFjHnomc8W21YDFZyFu70eT7C2g=="],
 
-    "@colbymchenry/codegraph-linux-arm64": ["@colbymchenry/codegraph-linux-arm64@1.0.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-2TOeL/Lx3kME+dmv2Q9hbIQFBvT6uKLdZONDRaYto+1Bcl3GrJuIu6bsu3jiJuifPhnYIL2xwUV6y+TZQ8MbTw=="],
+    "@colbymchenry/codegraph-linux-arm64": ["@colbymchenry/codegraph-linux-arm64@1.4.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-0g816KZeNP0cA0ueGoVmWeUWY2l9V4wjD/PfLda3E7++iA8MZFBqRIzTQsjv1FlTWFN52GcQaDG3pmG3aZtYqQ=="],
 
-    "@colbymchenry/codegraph-linux-x64": ["@colbymchenry/codegraph-linux-x64@1.0.1", "", { "os": "linux", "cpu": "x64" }, "sha512-UENXSURJJUhcvdKoYsB5Wj6Z6O9C2afhYfG0LnL13KFWJhGXugqYKjF4KwkaeE8Po8TFul9k3f+8eXjmJwwwaQ=="],
+    "@colbymchenry/codegraph-linux-x64": ["@colbymchenry/codegraph-linux-x64@1.4.0", "", { "os": "linux", "cpu": "x64" }, "sha512-0E268exwhFx5gZRqxOiWB3tyiT9P853h6nLbMdSooayp2Elo4zBumtnVaeNWN1ma3USww9mkLHxHpkRzelPelw=="],
 
-    "@colbymchenry/codegraph-win32-arm64": ["@colbymchenry/codegraph-win32-arm64@1.0.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-ZEG+HOakHiAe1AWMa2LgD52HyIEbWsY2FyNvDmon4Ss2889OghqUyA8BOLu5hNW+EI42JwwSXijVevn2Zn0hlg=="],
+    "@colbymchenry/codegraph-win32-arm64": ["@colbymchenry/codegraph-win32-arm64@1.4.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-Y6G70FVvhGi5Zl1PMzywqZ+NEZ4+WpJQoN/KXU44IeId7PV+UjgN9sei1iK1DTsKXMVXu0bSYcyCIufbjo32+w=="],
 
-    "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.0.1", "", { "os": "win32", "cpu": "x64" }, "sha512-qU6jjyma635qKJ0aaL8XU8QtYUGkWly0Mu4Wm2cSWRcNDL1v6sVoHMElgfUY7E9tK0gnU+/LbZW3MfmtqLG1GA=="],
+    "@colbymchenry/codegraph-win32-x64": ["@colbymchenry/codegraph-win32-x64@1.4.0", "", { "os": "win32", "cpu": "x64" }, "sha512-i+oGd0zCuXgsbvgfx89F3Fk+1pCoH2cZe+xQAzH0Icz7fyzhyggj9OZ08Og2FPRqf9xgyPe7jUzPBoZtuPGtPg=="],
 
     "@emnapi/core": ["@emnapi/core@1.11.1", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.2", "tslib": "^2.4.0" } }, "sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ=="],
 

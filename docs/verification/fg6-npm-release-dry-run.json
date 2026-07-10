@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-10T16:31:49.602Z",
+  "generatedAt": "2026-07-10T17:49:37.831Z",
   "package": {
     "name": "archctx",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -16,11 +16,10 @@
       "node": ">=24 <26"
     },
     "bin": {
-      "archctx": "./bin/archctx.mjs",
-      "codegraph": "./bin/codegraph.mjs"
+      "archctx": "./bin/archctx.mjs"
     },
     "dependencies": {
-      "@colbymchenry/codegraph": "1.0.1",
+      "@colbymchenry/codegraph": "1.4.0",
       "@node-rs/jieba": "^2.0.1"
     },
     "publishConfig": {
@@ -29,13 +28,13 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.2.2.tgz",
-    "publishDryRunId": "archctx@0.2.2",
-    "integrity": "sha512-BsY6yMl0eaLm5nTaNLJnlRAXsfNqp30Nm4R5ZYgiO+9lRR2qOwqbPvw2oLU5mjjHo47fiw4/evWv4NbKEzjABg==",
-    "shasum": "37d3c4ab05658d3cb7739f4bd38927c51d50979f",
-    "size": 315507,
-    "unpackedSize": 1633858,
-    "entryCount": 79,
+    "tarball": "archctx-0.2.3.tgz",
+    "publishDryRunId": "archctx@0.2.3",
+    "integrity": "sha512-KLT4KrqhTSrYLi1zU6l2JZHOZMdMajOVkhtEnldkR25qGKjFVE1pubeMSC26piPXa8DGPnVaof/VIsmRhj38yw==",
+    "shasum": "0ad264beca1c0d2ee0f993b2604295bcaf3ba37c",
+    "size": 315660,
+    "unpackedSize": 1634879,
+    "entryCount": 78,
     "files": [
       "NOTICE.md",
       "README.md",
@@ -58,7 +57,6 @@
       "assets/sources/core.yaml",
       "assets/sources/s6.yaml",
       "bin/archctx.mjs",
-      "bin/codegraph.mjs",
       "package.json",
       "schemas/cloud/attestation-v2.schema.json",
       "schemas/cloud/attestation.schema.json",
@@ -197,7 +195,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.2.2",
+    "postPublishInstallCommand": "npm install -g archctx@0.2.3",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
@@ -210,8 +208,8 @@
     "nativeTokenizerDependencyDeclared": true,
     "homeUrlCorrect": true,
     "noSourceRepositoryUrl": true,
-    "binExposesArchctx": true,
-    "binExposesCodeGraph": true,
+    "binExposesOnlyArchctx": true,
+    "codeGraphDependencyMatchesRoot": true,
     "publishRegistryCorrect": true,
     "npmPackProducedTarball": true,
     "publishDryRunSucceeded": true,

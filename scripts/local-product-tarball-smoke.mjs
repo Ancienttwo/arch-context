@@ -49,16 +49,20 @@ try {
   const binDir = join(installDir, "node_modules", ".bin");
   const archctxBin = resolveArchctxBin(binDir);
   assert(existsSync(archctxBin), `installed archctx bin missing: ${archctxBin}`);
+  const codeGraphBin = resolveCodeGraphBin(binDir);
+  assert(existsSync(codeGraphBin), `installed CodeGraph dependency bin missing: ${codeGraphBin}`);
   const installedPackageDir = join(installDir, "node_modules", releasePackageName);
   assertReleaseSupportFiles(installedPackageDir);
 
   const repo = createGitFixture();
   const stateRoot = mkdtempTracked("archctx-local-product-state-");
-  const env = nodeOnlyRuntimeEnv(binDir, stateRoot);
+  const env = nodeOnlyRuntimeEnv(stateRoot);
   const bunProbe = await runOptional("bun", ["--version"], { cwd: repo, env });
   assert(bunProbe.code !== 0, "tarball smoke runtime PATH must not expose bun");
+  const codeGraphProbe = await runOptional("codegraph", ["--version"], { cwd: repo, env });
+  assert(codeGraphProbe.code !== 0, "tarball smoke runtime PATH must not expose codegraph");
 
-  await run("codegraph", ["init", repo], { cwd: repo, env });
+  await run(codeGraphBin, ["init", repo], { cwd: repo, env });
 
   const doctor = await runArchctx(archctxBin, ["doctor"], { cwd: repo, env });
   assert(doctor.ok === true, "doctor must succeed from installed tarball");
@@ -142,6 +146,8 @@ try {
       },
       codeGraph: {
         dependency: rootManifest.dependencies?.["@colbymchenry/codegraph"],
+        bin: displayPath(codeGraphBin),
+        source: "dependency-provided-local-bin",
         digest: sync.data?.codeFactsDigest
       },
       practices: {
@@ -189,7 +195,6 @@ async function buildLocalProductTarball(artifactDir) {
   const binDir = join(stageDir, "bin");
   mkdirSync(binDir, { recursive: true });
   const binPath = join(binDir, "archctx.mjs");
-  const codeGraphBinPath = join(binDir, "codegraph.mjs");
   await run("bun", [
     "build",
     "packages/surfaces/cli/src/main.ts",
@@ -204,8 +209,6 @@ async function buildLocalProductTarball(artifactDir) {
   ], { cwd: root, env: process.env });
   rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
-  writeCodeGraphShim(codeGraphBinPath);
-  chmodSync(codeGraphBinPath, 0o755);
   copyReleaseSupportFiles(stageDir);
 
   writeFileSync(join(stageDir, "README.md"), [
@@ -225,8 +228,7 @@ async function buildLocalProductTarball(artifactDir) {
     private: false,
     type: "module",
     bin: {
-      archctx: "./bin/archctx.mjs",
-      codegraph: "./bin/codegraph.mjs"
+      archctx: "./bin/archctx.mjs"
     },
     homepage: releaseHomeUrl,
     license: "Apache-2.0",
@@ -398,22 +400,17 @@ function resolveArchctxBin(binDir) {
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
 }
 
+function resolveCodeGraphBin(binDir) {
+  const candidates = process.platform === "win32"
+    ? [join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
+    : [join(binDir, "codegraph")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
 function rewriteShebang(path, shebang) {
   const source = readFileSync(path, "utf8");
   const withoutShebang = source.replace(/^#!.*\n/, "");
   writeFileSync(path, `${shebang}\n${withoutShebang}`, "utf8");
-}
-
-function writeCodeGraphShim(path) {
-  writeFileSync(path, [
-    "#!/usr/bin/env node",
-    "import { createRequire } from \"node:module\";",
-    "import { dirname, join } from \"node:path\";",
-    "const require = createRequire(import.meta.url);",
-    "const packageJson = require.resolve(\"@colbymchenry/codegraph/package.json\");",
-    "require(join(dirname(packageJson), \"npm-shim.js\"));",
-    ""
-  ].join("\n"), "utf8");
 }
 
 function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
@@ -425,17 +422,24 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
   assert(manifest.license === "Apache-2.0", "release package must declare Apache-2.0 license");
   assert(manifest.engines?.node === rootManifest.engines?.node, "release package must declare the root node engine");
   assert(!("bun" in (manifest.engines ?? {})), "release package must not declare a bun engine");
-  assert(manifest.bin?.codegraph === "./bin/codegraph.mjs", "release package must expose the bundled codegraph shim");
+  assert(
+    Object.keys(manifest.bin ?? {}).length === 1 && manifest.bin?.archctx === "./bin/archctx.mjs",
+    "release package bin must expose only archctx"
+  );
+  assert(!existsSync(join(stageDir, "bin", "codegraph.mjs")), "release package must not ship an ArchContext-owned CodeGraph shim");
+  assert(
+    manifest.dependencies?.["@colbymchenry/codegraph"] === rootManifest.dependencies?.["@colbymchenry/codegraph"],
+    "release package must preserve the exact CodeGraph dependency"
+  );
   assert(manifest.dependencies?.["@node-rs/jieba"] === coreManifest.dependencies?.["@node-rs/jieba"], "release package must declare native tokenizer dependency");
 }
 
-function nodeOnlyRuntimeEnv(binDir, stateRoot) {
+function nodeOnlyRuntimeEnv(stateRoot) {
   return {
     ...process.env,
     DO_NOT_TRACK: "1",
     ARCHCONTEXT_STATE_DIR: stateRoot,
     PATH: [
-      binDir,
       dirname(process.execPath),
       "/usr/bin",
       "/bin",

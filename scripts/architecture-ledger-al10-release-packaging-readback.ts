@@ -312,8 +312,8 @@ async function inspectPackagedRelease() {
     const bundleSignatures = BUNDLE_SIGNATURES.map((group) => inspectBundleSignatureGroup(bin, group));
     const assertions = {
       packagedCliIncludesRequiredFiles: packageFiles.includes("bin/archctx.mjs")
-        && packageFiles.includes("bin/codegraph.mjs")
-        && packageFiles.includes("package.json"),
+        && packageFiles.includes("package.json")
+        && !packageFiles.includes("bin/codegraph.mjs"),
       bundleIncludesMigrations: bundleGroupPassed(bundleSignatures, "migrations"),
       bundleIncludesHooks: bundleGroupPassed(bundleSignatures, "hooks"),
       bundleIncludesRenderers: bundleGroupPassed(bundleSignatures, "renderers"),
@@ -405,9 +405,14 @@ function inspectReleasePackage(releasePackage: any, failures: string[]): void {
   if (releasePackage.package?.private !== false) failures.push("release package must be publishable");
   if (releasePackage.bin?.shebang !== "#!/usr/bin/env node") failures.push("packaged CLI must use node shebang");
   const packageFiles = Array.isArray(releasePackage.packageFiles) ? releasePackage.packageFiles : [];
-  for (const file of ["bin/archctx.mjs", "bin/codegraph.mjs", "package.json"]) {
+  for (const file of ["bin/archctx.mjs", "package.json"]) {
     if (!packageFiles.includes(file)) failures.push(`package missing ${file}`);
   }
+  const packageBin = readRecord(releasePackage.package?.bin);
+  if (Object.keys(packageBin).length !== 1 || packageBin.archctx !== "./bin/archctx.mjs") {
+    failures.push("release package bin must expose only archctx");
+  }
+  if (packageFiles.includes("bin/codegraph.mjs")) failures.push("package must not include bin/codegraph.mjs");
   if (packageFiles.some((path: string) => path.includes("packages/") || path.includes("/src/") || path.endsWith(".ts"))) {
     failures.push("package must not include workspace source files");
   }

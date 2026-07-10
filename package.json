@@ -1,6 +1,6 @@
 {
   "name": "archcontext",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.10",
@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@archcontext/surfaces": "workspace:*",
-    "@colbymchenry/codegraph": "1.0.1"
+    "@colbymchenry/codegraph": "1.4.0"
   },
   "scripts": {
     "test": "bun test",

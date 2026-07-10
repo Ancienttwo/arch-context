@@ -324,7 +324,7 @@ describe("archctx CLI", () => {
       expect((doctor.data as any).git).toMatchObject({ ok: true, headSha: "unborn" });
       expectSameExistingPath((doctor.data as any).git.root, root);
       expect((doctor.data as any).permissions.workspace.writable).toBe(true);
-      expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.0.1");
+      expect((doctor.data as any).codeGraph.requiredVersion).toBe("1.4.0");
       expect((doctor.data as any).update).toMatchObject({
         schemaVersion: "archcontext.update-check/v1",
         packageName: "archctx",
