@@ -124,8 +124,10 @@ export function buildNpmReleaseDryRunReadback(input: {
     nativeTokenizerDependencyDeclared: readRecord(input.packageJson.dependencies)["@node-rs/jieba"] === "^2.0.1",
     homeUrlCorrect: input.packageJson.homepage === HOME_URL,
     noSourceRepositoryUrl: !("repository" in input.packageJson),
-    binExposesArchctx: readRecord(input.packageJson.bin).archctx === "./bin/archctx.mjs",
-    binExposesCodeGraph: readRecord(input.packageJson.bin).codegraph === "./bin/codegraph.mjs",
+    binExposesOnlyArchctx: Object.keys(readRecord(input.packageJson.bin)).length === 1
+      && readRecord(input.packageJson.bin).archctx === "./bin/archctx.mjs",
+    codeGraphDependencyMatchesRoot: readRecord(input.packageJson.dependencies)["@colbymchenry/codegraph"]
+      === readRecord(input.rootManifest.dependencies)["@colbymchenry/codegraph"],
     publishRegistryCorrect: readRecord(input.packageJson.publishConfig).registry === REGISTRY,
     npmPackProducedTarball: tarballName === `${RELEASE_PACKAGE_NAME}-${input.rootManifest.version}.tgz`,
     publishDryRunSucceeded: (publish.name ?? input.packageJson.name) === RELEASE_PACKAGE_NAME
@@ -141,7 +143,7 @@ export function buildNpmReleaseDryRunReadback(input: {
     context7OptionalNotRequired: !Object.keys(readRecord(input.packageJson.dependencies)).some((name) => name.toLowerCase().includes("context7"))
       && !Object.keys(readRecord(input.packageJson.optionalDependencies)).some((name) => name.toLowerCase().includes("context7")),
     packageContentsBounded: packageFiles.includes("bin/archctx.mjs")
-      && packageFiles.includes("bin/codegraph.mjs")
+      && !packageFiles.includes("bin/codegraph.mjs")
       && packageFiles.includes("README.md")
       && packageFiles.includes("package.json")
       && !packageFiles.some((path) => path.includes("src/") || path.includes("packages/") || path.includes(".git") || path.includes("_ops"))
@@ -208,7 +210,13 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (readRecord(pkg.engines).node !== ">=24 <26") failures.push("engines.node must be declared");
   if ("bun" in readRecord(pkg.engines)) failures.push("engines.bun must not be declared");
   if (readRecord(pkg.dependencies)["@node-rs/jieba"] !== "^2.0.1") failures.push("release package must declare native tokenizer dependency");
-  if (readRecord(pkg.bin).codegraph !== "./bin/codegraph.mjs") failures.push("release package must expose bundled codegraph bin");
+  const packageBin = readRecord(pkg.bin);
+  if (Object.keys(packageBin).length !== 1 || packageBin.archctx !== "./bin/archctx.mjs") {
+    failures.push("release package bin must expose only archctx");
+  }
+  if (readRecord(pkg.dependencies)["@colbymchenry/codegraph"] !== "1.4.0") {
+    failures.push("release package must declare exact CodeGraph dependency 1.4.0");
+  }
   if (!String(artifact.tarball ?? "").startsWith(`${RELEASE_PACKAGE_NAME}-`)) failures.push("tarball must use archctx package name");
   const releaseAssets = readRecord(record.releaseAssets);
   if (Number(releaseAssets.sourceRecordCount ?? 0) <= 0) failures.push("release assets must include source registry records");
@@ -233,8 +241,7 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifes
     private: false,
     type: "module",
     bin: {
-      archctx: "./bin/archctx.mjs",
-      codegraph: "./bin/codegraph.mjs"
+      archctx: "./bin/archctx.mjs"
     },
     files: [
       "bin",
@@ -260,7 +267,6 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
   const binDir = join(stageDir, "bin");
   mkdirSync(binDir, { recursive: true });
   const binPath = join(binDir, "archctx.mjs");
-  const codeGraphBinPath = join(binDir, "codegraph.mjs");
   runCommand("bun", [
     "build",
     "packages/surfaces/cli/src/main.ts",
@@ -276,8 +282,6 @@ function buildReleaseStage(root: string, stageDir: string, packageJson: Record<s
   rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
   if (!existsSync(binPath)) throw new Error(`missing built bin: ${binPath}`);
-  writeCodeGraphShim(codeGraphBinPath);
-  chmodSync(codeGraphBinPath, 0o755);
   copyReleaseSupportFiles(root, stageDir);
   writeFileSync(join(stageDir, "README.md"), [
     "# archctx",
@@ -311,18 +315,6 @@ function renderNotice(stageDir: string): string {
   }
   lines.push("");
   return lines.join("\n");
-}
-
-function writeCodeGraphShim(path: string) {
-  writeFileSync(path, [
-    "#!/usr/bin/env node",
-    "import { createRequire } from \"node:module\";",
-    "import { dirname, join } from \"node:path\";",
-    "const require = createRequire(import.meta.url);",
-    "const packageJson = require.resolve(\"@colbymchenry/codegraph/package.json\");",
-    "require(join(dirname(packageJson), \"npm-shim.js\"));",
-    ""
-  ].join("\n"), "utf8");
 }
 
 function runJsonCommand(command: string, args: string[], cwd: string): unknown {

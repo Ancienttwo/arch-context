@@ -234,7 +234,7 @@ async function runFirstExperience(
     expect(doctor.ok).toBe(true);
     expect(doctor.data.git).toMatchObject({ ok: true, headSha });
     expectSameExistingPath(doctor.data.git.root, repo);
-    expect(doctor.data.codeGraph.requiredVersion).toBe("1.0.1");
+    expect(doctor.data.codeGraph.requiredVersion).toBe("1.4.0");
     expect(doctor.data.egress).toMatchObject({
       ok: true,
       defaultOutbound: "local-only",

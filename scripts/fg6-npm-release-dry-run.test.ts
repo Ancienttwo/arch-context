@@ -14,7 +14,8 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.5",
-        engines: { node: ">=24 <26" }
+        engines: { node: ">=24 <26" },
+        dependencies: { "@colbymchenry/codegraph": "1.4.0" }
       },
       packageJson: {
         name: "archctx",
@@ -23,9 +24,9 @@ describe("fg6 npm release dry-run", () => {
         homepage: "https://archcontext.repoharness.com",
         license: "Apache-2.0",
         engines: { node: ">=24 <26" },
-        bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
+        bin: { archctx: "./bin/archctx.mjs" },
         dependencies: {
-          "@colbymchenry/codegraph": "1.0.1",
+          "@colbymchenry/codegraph": "1.4.0",
           "@node-rs/jieba": "^2.0.1"
         },
         publishConfig: { registry: "https://registry.npmjs.org/" }
@@ -49,7 +50,6 @@ describe("fg6 npm release dry-run", () => {
         entryCount: 16,
         files: [
           { path: "bin/archctx.mjs" },
-          { path: "bin/codegraph.mjs" },
           { path: "assets/catalog.yaml" },
           { path: "assets/practices/s6-expanded.yaml" },
           { path: "assets/profiles/s6.yaml" },
@@ -84,7 +84,8 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.5",
-        engines: { node: ">=24 <26" }
+        engines: { node: ">=24 <26" },
+        dependencies: { "@colbymchenry/codegraph": "1.4.0" }
       },
       packageJson: {
         name: "archcontext",
@@ -94,9 +95,9 @@ describe("fg6 npm release dry-run", () => {
         packageManager: "bun@1.3.10",
         engines: { node: ">=24 <26", bun: ">=1.3.10" },
         repository: { type: "git", url: "git+https://github.com/Ancienttwo/arch-context.git" },
-        bin: { archctx: "./bin/archctx.mjs" },
+        bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
         dependencies: {
-          "@colbymchenry/codegraph": "1.0.1"
+          "@colbymchenry/codegraph": "1.4.0"
         },
         publishConfig: { registry: "https://registry.npmjs.org/" }
       },
@@ -126,6 +127,7 @@ describe("fg6 npm release dry-run", () => {
     expect(recording.assertions.noBunRuntimeDeclared).toBe(false);
     expect(recording.assertions.homeUrlCorrect).toBe(false);
     expect(recording.assertions.noSourceRepositoryUrl).toBe(false);
+    expect(recording.assertions.binExposesOnlyArchctx).toBe(false);
     const result = inspectNpmReleaseDryRun(recording);
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("dry-run must be verified ok");

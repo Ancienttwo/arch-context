@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, disableCodeGraphTelemetryByDefault } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
@@ -43,6 +43,49 @@ writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("uses PATH before the packaged CodeGraph dependency", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-path-precedence-"));
+    const pathShim = join(root, "codegraph");
+    try {
+      writeFileSync(pathShim, "#!/usr/bin/env node\n");
+      chmodSync(pathShim, 0o755);
+
+      expect(codeGraphCliInvocation("codegraph", root, root)).toEqual({
+        command: process.execPath,
+        argsPrefix: [realpathSync.native(pathShim)]
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ignores a non-executable PATH collision when resolving the default command", () => {
+    if (process.platform === "win32") return;
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-path-collision-"));
+    const collision = join(root, "codegraph");
+    try {
+      writeFileSync(collision, "not an executable\n", { mode: 0o644 });
+
+      const invocation = codeGraphCliInvocation("codegraph", root, root);
+      expect(invocation.command).toBe(process.execPath);
+      expect(invocation.argsPrefix[0]).toEndWith(join("node_modules", "@colbymchenry", "codegraph", "npm-shim.js"));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("uses the packaged CodeGraph dependency only for the unresolved default command", () => {
+    const packaged = codeGraphCliInvocation("codegraph", process.cwd(), "");
+    expect(packaged.command).toBe(process.execPath);
+    expect(packaged.argsPrefix).toHaveLength(1);
+    expect(packaged.argsPrefix[0]).toEndWith(join("node_modules", "@colbymchenry", "codegraph", "npm-shim.js"));
+
+    expect(codeGraphCliInvocation("team-codegraph", process.cwd(), "")).toEqual({
+      command: "team-codegraph",
+      argsPrefix: []
+    });
   });
 
   test("extracts import edges from CodeGraph import nodes scoped by changed paths", async () => {

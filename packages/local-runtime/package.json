@@ -1,6 +1,6 @@
 {
   "name": "@archcontext/local-runtime",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "exports": {
@@ -16,6 +16,6 @@
   "dependencies": {
     "@archcontext/contracts": "workspace:*",
     "@archcontext/core": "workspace:*",
-    "@colbymchenry/codegraph": "1.0.1"
+    "@colbymchenry/codegraph": "1.4.0"
   }
 }

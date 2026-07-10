@@ -1,5 +1,5 @@
 export const ARCHCONTEXT_PRODUCT_NAME = "archctx";
-export const ARCHCONTEXT_PRODUCT_VERSION = "0.2.2";
+export const ARCHCONTEXT_PRODUCT_VERSION = "0.2.3";
 export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.3.10";
 export const ARCHCONTEXT_NODE_RANGE = ">=24 <26";
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v1";
@@ -41,7 +41,7 @@ export interface ProductVersionManifest {
     sqliteMigrations: string;
     codeGraph: {
       packageName: "@colbymchenry/codegraph";
-      requiredVersion: "1.0.1";
+      requiredVersion: "1.4.0";
       adapter: "codegraph-cli";
     };
   };
@@ -100,7 +100,7 @@ export function productVersionManifest(): ProductVersionManifest {
       sqliteMigrations: "0001_runtime_state..0004_changeset_journal",
       codeGraph: {
         packageName: "@colbymchenry/codegraph",
-        requiredVersion: "1.0.1",
+        requiredVersion: "1.4.0",
         adapter: "codegraph-cli"
       }
     }

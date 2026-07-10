@@ -1,14 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, openSync, readSync, realpathSync, statSync } from "node:fs";
-import { basename, delimiter, isAbsolute, join, posix } from "node:path";
+import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
+import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
-export const REQUIRED_CODEGRAPH_VERSION = "1.0.1";
+export const REQUIRED_CODEGRAPH_VERSION = "1.4.0";
 export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
 export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
+const DEFAULT_CODEGRAPH_BINARY = "codegraph";
+const requireFromAdapter = createRequire(import.meta.url);
 
 type MutableEnv = Record<string, string | undefined>;
 
@@ -31,7 +34,7 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   capabilities = ["index", "context", "impact"];
   private workspaceRoot: string;
 
-  constructor(workspaceRoot = process.cwd(), private readonly binary = "codegraph") {
+  constructor(workspaceRoot = process.cwd(), private readonly binary = DEFAULT_CODEGRAPH_BINARY) {
     this.workspaceRoot = workspaceRoot;
   }
 
@@ -120,30 +123,60 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
   }
 }
 
-interface CodeGraphCliInvocation {
+export interface CodeGraphCliInvocation {
   command: string;
   argsPrefix: string[];
 }
 
-function codeGraphCliInvocation(binary: string, cwd: string): CodeGraphCliInvocation {
-  const resolved = resolveExecutable(binary, cwd);
+export function codeGraphCliInvocation(binary: string, cwd: string, pathValue = process.env.PATH ?? ""): CodeGraphCliInvocation {
+  const resolved = resolveExecutable(binary, cwd, pathValue);
   if (resolved && isNodeRuntimeScript(resolved)) {
     return { command: process.execPath, argsPrefix: [resolved] };
+  }
+  if (!resolved && binary === DEFAULT_CODEGRAPH_BINARY) {
+    const packagedShim = resolvePackagedCodeGraphShim();
+    if (packagedShim) return { command: process.execPath, argsPrefix: [packagedShim] };
   }
   return { command: binary, argsPrefix: [] };
 }
 
-function resolveExecutable(binary: string, cwd: string): string | undefined {
+function resolveExecutable(binary: string, cwd: string, pathValue: string): string | undefined {
   if (binary.includes("/") || binary.includes("\\")) {
     const path = isAbsolute(binary) ? binary : join(cwd, binary);
     return existsSync(path) ? realpathSync.native(path) : undefined;
   }
-  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+  for (const dir of pathValue.split(delimiter)) {
     if (!dir) continue;
     const path = join(dir, binary);
-    if (existsSync(path)) return realpathSync.native(path);
+    if (isExecutablePath(path)) return realpathSync.native(path);
   }
   return undefined;
+}
+
+function isExecutablePath(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) return false;
+    if (process.platform !== "win32") accessSync(path, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolvePackagedCodeGraphShim(): string | undefined {
+  try {
+    const manifestPath = requireFromAdapter.resolve(`${REQUIRED_CODEGRAPH_PACKAGE}/package.json`);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      version?: string;
+      bin?: Record<string, string>;
+    };
+    const relativeBin = manifest.bin?.codegraph;
+    if (manifest.version !== REQUIRED_CODEGRAPH_VERSION || !relativeBin) return undefined;
+    const shimPath = resolve(dirname(manifestPath), relativeBin);
+    return existsSync(shimPath) ? realpathSync.native(shimPath) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isNodeRuntimeScript(path: string): boolean {

@@ -74,8 +74,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
         version: RELEASE_VERSION,
         private: false,
         bin: {
-          archctx: "./bin/archctx.mjs",
-          codegraph: "./bin/codegraph.mjs"
+          archctx: "./bin/archctx.mjs"
         }
       }
     },
@@ -98,8 +97,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
         shasum: "abc",
         integrity: "sha512-test",
         bin: {
-          archctx: "bin/archctx.mjs",
-          codegraph: "bin/codegraph.mjs"
+          archctx: "bin/archctx.mjs"
         },
         engines: {
           node: ">=24 <26"
@@ -122,8 +120,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
         integrity: "sha512-test"
       },
       bin: {
-        archctx: "bin/archctx.mjs",
-        codegraph: "bin/codegraph.mjs"
+        archctx: "bin/archctx.mjs"
       },
       engines: {
         node: ">=24 <26"

@@ -33,13 +33,14 @@ describe("AL10 release packaging readback evidence", () => {
     expect(result.failures).toContain("assertions.AL10-10 must be true");
   });
 
-  test("rejects a packaged CLI missing release contract signatures", () => {
+  test("rejects a packaged CLI with a conflicting bin and missing release contract signatures", () => {
     const packet = completePacket();
     const hookGroup = packet.releasePackage.bundleSignatures.find((group: any) => group.id === "hooks");
     hookGroup.passed = false;
     hookGroup.presentCount = 3;
     hookGroup.missing = ["archcontext.hook-enqueue-fail-open/v1", "jobsEnqueueGitHook"];
-    packet.releasePackage.packageFiles = packet.releasePackage.packageFiles.filter((file: string) => file !== "bin/codegraph.mjs");
+    packet.releasePackage.package.bin.codegraph = "./bin/codegraph.mjs";
+    packet.releasePackage.packageFiles.push("bin/codegraph.mjs");
     packet.releasePackage.assertions.bundleIncludesHooks = false;
     packet.releasePackage.assertions.packagedCliIncludesRequiredFiles = false;
     packet.assertions["AL10-11"] = false;
@@ -47,7 +48,8 @@ describe("AL10 release packaging readback evidence", () => {
     const result = inspectArchitectureLedgerAl10ReleasePackagingReadback(packet);
 
     expect(result.ok).toBe(false);
-    expect(result.failures).toContain("package missing bin/codegraph.mjs");
+    expect(result.failures).toContain("release package bin must expose only archctx");
+    expect(result.failures).toContain("package must not include bin/codegraph.mjs");
     expect(result.failures).toContain("bundle signature group failed: hooks: archcontext.hook-enqueue-fail-open/v1,jobsEnqueueGitHook");
     expect(result.failures).toContain("assertions.AL10-11 must be true");
   });
@@ -97,11 +99,11 @@ function completePacket(): any {
         version: "0.1.3",
         private: false,
         bin: {
-          archctx: "./bin/archctx.mjs",
-          codegraph: "./bin/codegraph.mjs"
+          archctx: "./bin/archctx.mjs"
         },
         engines: { node: ">=24 <26" },
         dependencies: {
+          "@colbymchenry/codegraph": "1.4.0",
           "@node-rs/jieba": "^2.0.1"
         }
       },
@@ -118,7 +120,7 @@ function completePacket(): any {
         sha256: `sha256:${"c".repeat(64)}`,
         shebang: "#!/usr/bin/env node"
       },
-      packageFiles: ["bin/archctx.mjs", "bin/codegraph.mjs", "package.json", "README.md"],
+      packageFiles: ["bin/archctx.mjs", "package.json", "README.md"],
       bundleSignatures: [
         signatureGroup("migrations", 5),
         signatureGroup("hooks", 5),
