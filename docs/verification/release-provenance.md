@@ -1,13 +1,13 @@
 # Release Provenance Readback
 
 - Status: verified
-- Generated At: 2026-07-05T20:45:59.831Z
-- Root source package: `archcontext` 0.2.0, private=true
-- Generated npm package: `archctx` 0.2.0
-- npm latest: 0.2.0
-- Source help commands: 37
-- Published help commands: 37
-- Official release smoke help commands: 37
+- Generated At: 2026-07-10T16:40:12.965Z
+- Root source package: `archcontext` 0.2.2, private=true
+- Generated npm package: `archctx` 0.2.2
+- npm latest: 0.2.2
+- Source help commands: 38
+- Published help commands: 38
+- Official release smoke help commands: 38
 
 ## Package Relationship
 
