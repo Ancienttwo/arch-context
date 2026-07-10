@@ -7,7 +7,7 @@ import { MockCodeGraphProvider } from "../../../local-runtime/codegraph-adapter/
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { digestJson, type CodeFactsPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
-import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
+import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract } from "@archcontext/core/policy-engine";
 import { assertNoHumanEditableGeneratedSection } from "@archcontext/core/reconcile-engine";
@@ -150,7 +150,7 @@ function mutableCycleFacts(hasCycle: () => boolean): CodeFactsPort {
 function yamlChangeSetEngine(): ChangeSetEngine {
   return new ChangeSetEngine({
     modelStore: new YamlModelStore(),
-    projection: { rebuildGeneratedProjection }
+    projection: { planGeneratedProjection }
   });
 }
 

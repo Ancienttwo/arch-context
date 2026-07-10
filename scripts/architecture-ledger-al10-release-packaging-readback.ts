@@ -47,7 +47,7 @@ const MIGRATION_CASES = [
   { id: "pre-ledger-0005", from: "0005_external_docs_cache", applyCount: 5 },
   { id: "ledger-v1-0006", from: "0006_architecture_ledger", applyCount: 6 },
   { id: "pre-search-fts-0008", from: "0008_runtime_job_queue_hardening", applyCount: 8 },
-  { id: "current-0009", from: "0009_architecture_ledger_search_fts", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
+  { id: "current-0011", from: "0011_changeset_cleanup_cursor", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
 ] as const;
 
 const BUNDLE_SIGNATURES = [

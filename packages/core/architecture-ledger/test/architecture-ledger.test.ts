@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { architectureEventHash, digestJson, type Json } from "@archcontext/contracts";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
+import { architectureEventHash, digestJson, validateJsonSchema, type Json } from "@archcontext/contracts";
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   architectureLedgerGitCursorFromPlan,
@@ -17,6 +20,7 @@ import {
   queryArchitectureLedgerBookTimeline,
   projectArchitectureLedgerStateToYamlFiles,
   showArchitectureLedgerBookSubject,
+  validateArchitectureLedgerEvent,
   type ArchitectureLedgerModelFile,
   type ArchitectureLedgerScope
 } from "../src/index";
@@ -34,8 +38,25 @@ const scope: ArchitectureLedgerScope = {
     worktreeDigest: digestJson({ worktree: "yaml-ledger" } as unknown as Json)
   }
 };
+const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 describe("@archcontext/core/architecture-ledger YAML bridge", () => {
+  test("rejects raw diff fields and secret-shaped values at the event persistence boundary", () => {
+    const plan = planYamlToArchitectureLedgerImport({
+      ...scope,
+      createdAt: "2026-06-25T00:00:00.000Z",
+      files: []
+    });
+    expect(() => validateArchitectureLedgerEvent({
+      ...plan.event,
+      payload: { rawDiff: "diff --git a/private.ts b/private.ts" }
+    })).toThrow("architecture-ledger-privacy-denied");
+    expect(() => validateArchitectureLedgerEvent({
+      ...plan.event,
+      payload: { summary: "token=super-secret-value" }
+    })).toThrow("architecture-ledger-privacy-denied");
+  });
+
   test("plans deterministic YAML import and projects back with zero semantic drift", () => {
     const files = [
       modelFile(".archcontext/model/nodes/module.api.yaml", [
@@ -45,6 +66,11 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
         "name: \"API\"",
         "status: \"active\"",
         "summary: \"Serves checkout requests.\"",
+        "responsibilities: [\"HTTP request handling\"]",
+        "source:",
+        "  include: [\"packages/api/**\"]",
+        "ownership:",
+        "  lifecycle: [\"team-api\"]",
         ""
       ]),
       modelFile(".archcontext/model/nodes/module.checkout.yaml", [
@@ -62,16 +88,20 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
         "kind: \"calls\"",
         "source: \"module.checkout\"",
         "target: \"module.api\"",
+        "protocol: \"HTTP\"",
         "intent: \"Checkout calls API.\"",
         ""
       ]),
       modelFile(".archcontext/model/constraints/constraint.api-owner.yaml", [
         "schemaVersion: \"archcontext.constraint/v1\"",
         "id: \"constraint.api-owner\"",
-        "kind: \"owner-required\"",
-        "subject: \"module.api\"",
+        "name: \"API owner required\"",
         "severity: \"warning\"",
-        "summary: \"API must have an owner.\"",
+        "scope:",
+        "  nodes: [\"module.api\"]",
+        "rule:",
+        "  type: \"require-owner\"",
+        "rationale: \"API must have an owner.\"",
         ""
       ]),
       modelFile(".archcontext/manifest.yaml", [
@@ -123,6 +153,19 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     ]);
     expect(architectureLedgerStateDigest(plan.state)).toBe(plan.drift.projectedGraphDigest);
     expect(projectArchitectureLedgerStateToYamlFiles(plan.state)[0]!.body).toContain("schemaVersion: \"archcontext.constraint/v1\"");
+    const projectedNode = plan.projectedFiles.find((file) => file.targetId === "module.api")!;
+    expect(projectedNode.body).toContain("source:");
+    expect(projectedNode.body).toContain("packages/api/**");
+    expect(projectedNode.body).toContain("responsibilities:");
+    const schemas = {
+      entity: JSON.parse(readFileSync(`${repositoryRoot}/schemas/repo/architecture-node.schema.json`, "utf8")),
+      relation: JSON.parse(readFileSync(`${repositoryRoot}/schemas/repo/architecture-relation.schema.json`, "utf8")),
+      constraint: JSON.parse(readFileSync(`${repositoryRoot}/schemas/repo/constraint.schema.json`, "utf8"))
+    };
+    for (const file of plan.projectedFiles) {
+      const parsed = parseJsonOrStableYaml(file.body, file.path);
+      expect(validateJsonSchema(schemas[file.targetKind] as any, parsed).valid).toBe(true);
+    }
   });
 
   test("queries Book state, neighbors, timeline, diff, evidence and recommendations with deterministic budgets", () => {
@@ -157,10 +200,13 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       modelFile(".archcontext/model/constraints/constraint.api-owner.yaml", [
         "schemaVersion: \"archcontext.constraint/v1\"",
         "id: \"constraint.api-owner\"",
-        "kind: \"owner-required\"",
-        "subject: \"module.api\"",
+        "name: \"API owner required\"",
         "severity: \"warning\"",
-        "summary: \"API must have an owner.\"",
+        "scope:",
+        "  nodes: [\"module.api\"]",
+        "rule:",
+        "  type: \"require-owner\"",
+        "rationale: \"API must have an owner.\"",
         ""
       ]),
       modelFile(".archcontext/manifest.yaml", [
@@ -316,6 +362,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
         "id: \"module.api\"",
         "kind: \"module\"",
         "name: \"API\"",
+        "status: \"active\"",
+        "summary: \"Serves API requests.\"",
         ""
       ]),
       modelFile("docs/adr/ADR-0040-hybrid-architecture-ledger.md", [
@@ -408,6 +456,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "kind: \"module\"",
           "name: \"API\"",
           "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ]),
         modelFile(".archcontext/model/relations/legacy_checkout_api.yaml", [
@@ -416,6 +465,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "kind: \"calls\"",
           "source: \"module.checkout\"",
           "target: \"module.api\"",
+          "intent: \"Checkout calls API.\"",
           ""
         ])
       ]
@@ -446,6 +496,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
+          "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ]),
         modelFile(".archcontext/model/custom/unknown.yaml", [
@@ -477,6 +529,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
+          "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ]),
         modelFile(".archcontext/model/relations/relation.invalid.yaml", [
@@ -511,6 +565,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
+          "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ]),
         modelFile(".archcontext/model/nodes/module.checkout.yaml", [
@@ -518,6 +574,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.checkout\"",
           "kind: \"module\"",
           "name: \"Checkout\"",
+          "status: \"active\"",
+          "summary: \"Owns checkout orchestration.\"",
           ""
         ])
       ]
@@ -532,6 +590,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"Renamed API\"",
+          "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ])
       ]
@@ -559,6 +619,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
+          "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ])
       ]
@@ -599,6 +661,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
+          "status: \"active\"",
+          "summary: \"Serves API requests.\"",
           ""
         ])
       ]
@@ -613,6 +677,8 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"Renamed API\"",
+          "status: \"active\"",
+          "summary: \"Serves renamed API requests.\"",
           ""
         ])
       ]

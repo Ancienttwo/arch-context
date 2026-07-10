@@ -117,7 +117,7 @@ describe("@archcontext/surfaces/renderer", () => {
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
-      existingFiles: initial.files.map(({ path, body }) => ({ path, body }))
+      existingFiles: [...initial.files.map(({ path, body }) => ({ path, body })), initial.manifest]
     });
     expect(clean.drift.ok).toBe(true);
 
@@ -125,7 +125,7 @@ describe("@archcontext/surfaces/renderer", () => {
       model,
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       generatedAt: "2026-06-26T00:00:00.000Z",
-      existingFiles: initial.files.map(({ path, body }) => ({ path, body }))
+      existingFiles: [...initial.files.map(({ path, body }) => ({ path, body })), initial.manifest]
     });
     expect(stale.drift.reasonCodes).toContain("projection-generated-region-stale");
 
@@ -133,10 +133,13 @@ describe("@archcontext/surfaces/renderer", () => {
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
-      existingFiles: initial.files.map(({ path, body }) => ({
-        path,
-        body: path === "docs/architecture/index.md" ? body.replace("Payment", "Manual Payment Edit") : body
-      }))
+      existingFiles: [
+        ...initial.files.map(({ path, body }) => ({
+          path,
+          body: path === "docs/architecture/index.md" ? body.replace("Payment", "Manual Payment Edit") : body
+        })),
+        initial.manifest
+      ]
     });
     expect(edited.drift.reasonCodes).toContain("projection-generated-region-manually-edited");
 
@@ -146,6 +149,7 @@ describe("@archcontext/surfaces/renderer", () => {
       generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [
         ...initial.files.map(({ path, body }) => ({ path, body })),
+        initial.manifest,
         {
           path: "docs/architecture/modules/obsolete.md",
           body: [

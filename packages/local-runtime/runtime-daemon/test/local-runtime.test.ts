@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
-import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type NormalizedCodeContext } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput, type CommandInvestigationRunnerTransportResult } from "@archcontext/core/agent-orchestrator";
 import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
@@ -14,7 +14,7 @@ import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-ada
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { initializeArchContextModel, listModelFiles } from "@archcontext/local-runtime/model-store-yaml";
+import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
 import {
   createNodeGithubIssueExecutor,
@@ -121,28 +121,9 @@ function writeArchitectureDocsProjection(root: string): void {
     existingFiles: loaded.existingFiles,
     sourceDigest
   });
-  const manifestBody = `${JSON.stringify({
-    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
-    rendererVersion: plan.rendererVersion,
-    sourceDigest: plan.sourceDigest,
-    projectionDigest: plan.projectionDigest,
-    targetCount: plan.targets.length,
-    fileCount: plan.files.length,
-    targets: plan.targets.map((target) => ({
-      targetId: target.targetId,
-      type: target.type,
-      scope: target.scope,
-      path: target.path,
-      ownership: target.ownership,
-      rendererVersion: target.rendererVersion,
-      format: target.format,
-      sourceDigest: target.sourceDigest,
-      outputDigest: target.outputDigest
-    }))
-  }, null, 2)}\n`;
   for (const file of [
     ...plan.files.map((file) => ({ path: file.path, body: file.body })),
-    { path: "docs/architecture/.projection-manifest.json", body: manifestBody }
+    plan.manifest
   ]) {
     const absolute = resolve(root, file.path);
     mkdirSync(dirname(absolute), { recursive: true });
@@ -2272,6 +2253,19 @@ describe("local runtime foundation", () => {
       expect((clean.data as any).result).toBe("pass");
       expect((clean.data as any).snapshot.projectionDigest).toMatch(/^sha256:/);
       expect((clean.data as any).findings.some((finding: any) => finding.id === "projection-drift")).toBe(false);
+
+      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+      writeFileSync(manifestPath, readText(manifestPath).replace(
+        "archcontext.docs-renderer/v1",
+        "archcontext.docs-renderer/tampered"
+      ), "utf8");
+      const tamperedManifest = await daemon.completeTask(root, {
+        taskSessionId: "task_projection_gate",
+        task: "finish with a tampered projection manifest"
+      });
+      expect((tamperedManifest.data as any).result).toBe("fail_action_required");
+      expect((tamperedManifest.data as any).extensions.projectionDriftGate.reasonCodes)
+        .toContain("projection-manifest-stale");
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
@@ -2691,6 +2685,99 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("apply_update rejects a draft whose captured worktree digest is stale even when the caller supplies the new digest", async () => {
+    const root = tempRepo();
+    try {
+      const daemon = await createStartedTestDaemon();
+      await daemon.init(root, "Stale Worktree App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.stale-worktree",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.stale-worktree.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.stale-worktree\nkind: module\nname: Stale Worktree\nstatus: active\nsummary: Stale worktree\n"
+        }]
+      });
+      writeFileSync(join(root, "unrelated.txt"), "changed after planning\n", "utf8");
+
+      await expect(daemon.applyUpdate(root, {
+        id: (plan.data as any).draft.id,
+        approved: true,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).rejects.toThrow("ChangeSet worktree digest changed before apply");
+      expect(existsSync(join(root, ".archcontext/model/nodes/module.stale-worktree.yaml"))).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("apply_update rejects a draft whose captured HEAD is stale", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const daemon = await createStartedTestDaemon();
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.stale-head",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.stale-head.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.stale-head\nkind: module\nname: Stale Head\nstatus: active\nsummary: Stale head\n"
+        }]
+      });
+      writeFileSync(join(root, "HEAD-ADVANCE.md"), "advance\n", "utf8");
+      execFileSync("git", ["add", "HEAD-ADVANCE.md"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      execFileSync("git", ["-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "advance head"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+
+      await expect(daemon.applyUpdate(root, {
+        id: (plan.data as any).draft.id,
+        approved: true,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).rejects.toThrow("ChangeSet HEAD changed before apply");
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("apply_update rejects a draft whose authoritative model digest is stale", async () => {
+    const root = tempRepo();
+    let validationCount = 0;
+    const delegate = new YamlModelStore();
+    const modelStore: ModelStorePort = {
+      loadManifest: (workspace) => delegate.loadManifest(workspace),
+      loadModel: (workspace) => delegate.loadModel(workspace),
+      async validateModel(workspace) {
+        const result = await delegate.validateModel(workspace);
+        validationCount += 1;
+        if (validationCount <= 2) return result;
+        return { ...result, modelDigest: digestJson({ stale: validationCount } as unknown as Json) };
+      },
+      writeChangeSetPreview: (changeSet) => delegate.writeChangeSetPreview(changeSet)
+    };
+    try {
+      const daemon = await createStartedTestDaemon({ modelStore });
+      await daemon.init(root, "Stale Model App");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.stale-model",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.stale-model.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.stale-model\nkind: module\nname: Stale Model\nstatus: active\nsummary: Stale model\n"
+        }]
+      });
+
+      await expect(daemon.applyUpdate(root, {
+        id: (plan.data as any).draft.id,
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      })).rejects.toThrow("ChangeSet model digest changed before apply");
+      expect(existsSync(join(root, ".archcontext/model/nodes/module.stale-model.yaml"))).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger-authoritative write mode appends an event while keeping Git projection updates reviewable", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();
@@ -2836,6 +2923,16 @@ describe("local runtime foundation", () => {
       });
       const plan = await appendRecommendationRunFixture(store, root, "2026-06-26T12:00:00.000Z");
       const recommendationId = plan.recommendations[0].recommendationId;
+
+      await expect(daemon.recommendations(root, {
+        command: "accept",
+        recommendationId,
+        reason: "token=super-secret-value",
+        actor: "developer",
+        source: "cli",
+        now: "2026-06-26T12:09:00.000Z"
+      })).rejects.toThrow("architecture-ledger-privacy-denied");
+      expect(store.architectureEvents).toHaveLength(1);
 
       const accepted = await daemon.recommendations(root, {
         command: "accept",
@@ -3009,6 +3106,9 @@ describe("local runtime foundation", () => {
       expect((project.data as any).writtenPaths).toContain(path);
       expect((project.data as any).reconcile.ok).toBe(true);
       expect(readText(join(root, path))).toContain("module.ledger-project");
+      expect([...store.changeSetJournals.values()].some((journal) =>
+        journal.status === "committed" && journal.files.some((file) => file.path === path)
+      )).toBe(true);
       const cleanDrift = await daemon.ledgerDrift(root);
       expect((cleanDrift.data as any).drift.ok).toBe(true);
       expect((cleanDrift.data as any).reconcile.ok).toBe(true);
@@ -3073,6 +3173,11 @@ describe("local runtime foundation", () => {
       expect(readText(join(root, backup.path, "model/nodes/module.rollback-stale.yaml"))).toContain("Stale rollback projection");
       expect(readText(join(root, path))).toContain("Ledger rollback node");
       expect(existsSync(join(root, stalePath))).toBe(false);
+      expect([...store.changeSetJournals.values()].some((journal) =>
+        journal.status === "committed"
+        && journal.files.some((file) => file.path === stalePath && file.operation === "delete_entity")
+        && journal.files.some((file) => file.path.includes(".archcontext/backups/ledger-rollback/"))
+      )).toBe(true);
 
       const yamlDaemon = await createStartedTestDaemon({
         architectureLedger: { rolloutMode: "yaml" },

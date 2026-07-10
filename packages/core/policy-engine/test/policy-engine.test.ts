@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -49,6 +49,20 @@ describe("@archcontext/core/policy-engine", () => {
         expect(() => assertAllowedArchContextPath(root, "../escape.yaml")).toThrow("Repository path");
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an allowlisted path whose existing parent symlink escapes the repository", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-policy-symlink-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "archctx-policy-symlink-outside-"));
+    try {
+      mkdirSync(join(root, ".archcontext"), { recursive: true });
+      symlinkSync(outside, join(root, ".archcontext/policies"), "dir");
+      expect(() => assertAllowedArchContextPath(root, ".archcontext/policies/escaped.yaml"))
+        .toThrow("Path escapes repository through symlink");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 

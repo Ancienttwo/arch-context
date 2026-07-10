@@ -8,7 +8,7 @@ import {
   type ModelExportResult,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
-import { parseJsonOrStableYaml } from "../../architecture-domain/src/index";
+import { assertRepoRelativePath, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
 
 export interface NativeNodeSource {
   include?: string[];
@@ -77,6 +77,9 @@ export interface ArchitectureDocumentationProjectionFile extends ArchitectureDoc
 
 export type ArchitectureDocumentationDriftReason =
   | "projection-file-missing"
+  | "projection-manifest-missing"
+  | "projection-manifest-invalid"
+  | "projection-manifest-stale"
   | "projection-generated-region-missing"
   | "projection-generated-region-stale"
   | "projection-generated-region-manually-edited"
@@ -98,6 +101,7 @@ export interface ArchitectureDocumentationProjectionPlan {
   projectionDigest: string;
   targets: ProjectionTargetV1[];
   files: ArchitectureDocumentationProjectionFile[];
+  manifest: ArchitectureDocumentationExistingFile & { digest: string };
   drift: {
     ok: boolean;
     reasonCodes: ArchitectureDocumentationDriftReason[];
@@ -150,12 +154,6 @@ export function renderArchitectureDocumentationProjection(input: {
   });
   const targets = rendered.map((file) => file.target);
   const expectedByPath = new Map(rendered.map((file) => [file.path, file]));
-  const drift = architectureDocumentationProjectionDrift({
-    targets,
-    expectedFiles: rendered,
-    existingFiles: input.existingFiles ?? []
-  });
-  const rejected = drift.diffs.filter((diff) => diff.reasonCode === "projection-ambiguous-ownership");
   const projectionDigest = digestJson({
     rendererVersion,
     sourceDigest: input.sourceDigest,
@@ -166,6 +164,37 @@ export function renderArchitectureDocumentationProjection(input: {
       generatedBodyDigest: file.generatedBodyDigest
     })).sort((left, right) => left.path.localeCompare(right.path))
   } as unknown as Json);
+  const manifestValue = {
+    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
+    rendererVersion,
+    sourceDigest: input.sourceDigest,
+    projectionDigest,
+    targetCount: targets.length,
+    fileCount: rendered.length,
+    targets: targets.map((target) => ({
+      targetId: target.targetId,
+      type: target.type,
+      scope: target.scope,
+      path: target.path,
+      ownership: target.ownership,
+      rendererVersion: target.rendererVersion,
+      format: target.format,
+      sourceDigest: target.sourceDigest,
+      outputDigest: target.outputDigest
+    }))
+  } as unknown as Json;
+  const manifest = {
+    path: "docs/architecture/.projection-manifest.json",
+    body: `${JSON.stringify(manifestValue, null, 2)}\n`,
+    digest: digestJson(manifestValue)
+  };
+  const drift = architectureDocumentationProjectionDrift({
+    targets,
+    expectedFiles: rendered,
+    expectedManifest: manifest,
+    existingFiles: input.existingFiles ?? []
+  });
+  const rejected = drift.diffs.filter((diff) => diff.reasonCode === "projection-ambiguous-ownership");
 
   return {
     schemaVersion: "archcontext.architecture-docs-projection-plan/v1",
@@ -174,6 +203,7 @@ export function renderArchitectureDocumentationProjection(input: {
     projectionDigest,
     targets,
     files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
+    manifest,
     drift: {
       ...drift,
       diffs: drift.diffs.map((diff) => ({
@@ -603,12 +633,42 @@ function mergeGeneratedRegion(target: ProjectionTargetV1, wrapped: string, exist
 function architectureDocumentationProjectionDrift(input: {
   targets: ProjectionTargetV1[];
   expectedFiles: ArchitectureDocumentationProjectionFile[];
+  expectedManifest: ArchitectureDocumentationExistingFile & { digest: string };
   existingFiles: ArchitectureDocumentationExistingFile[];
 }): { ok: boolean; reasonCodes: ArchitectureDocumentationDriftReason[]; diffs: ArchitectureDocumentationProjectionDrift[] } {
   const existingByPath = new Map(input.existingFiles.map((file) => [file.path, file]));
   const expectedByPath = new Map(input.expectedFiles.map((file) => [file.path, file]));
   const targetIds = new Set(input.targets.map((target) => target.targetId));
   const diffs: ArchitectureDocumentationProjectionDrift[] = [];
+
+  const existingManifest = existingByPath.get(input.expectedManifest.path);
+  if (!existingManifest) {
+    diffs.push({
+      path: input.expectedManifest.path,
+      reasonCode: "projection-manifest-missing",
+      expectedDigest: input.expectedManifest.digest
+    });
+  } else {
+    try {
+      const parsed = JSON.parse(existingManifest.body) as Json;
+      const actualDigest = digestJson(parsed);
+      if (actualDigest !== input.expectedManifest.digest) {
+        diffs.push({
+          path: input.expectedManifest.path,
+          reasonCode: "projection-manifest-stale",
+          expectedDigest: input.expectedManifest.digest,
+          actualDigest
+        });
+      }
+    } catch {
+      diffs.push({
+        path: input.expectedManifest.path,
+        reasonCode: "projection-manifest-invalid",
+        expectedDigest: input.expectedManifest.digest,
+        actualDigest: digestJson({ path: existingManifest.path, body: existingManifest.body } as unknown as Json)
+      });
+    }
+  }
 
   for (const expected of input.expectedFiles) {
     const existing = existingByPath.get(expected.path);
@@ -648,6 +708,7 @@ function architectureDocumentationProjectionDrift(input: {
   }
 
   for (const existing of input.existingFiles) {
+    if (existing.path === input.expectedManifest.path) continue;
     if (!isManagedArchitectureDocumentationPath(existing.path) || expectedByPath.has(existing.path)) continue;
     const region = findAnyGeneratedRegion(existing.body);
     if (region && !targetIds.has(region.targetId)) {
@@ -703,7 +764,8 @@ function isManagedArchitectureDocumentationPath(path: string): boolean {
     || /^docs\/architecture\/diagrams\/architecture\.(mmd|likec4|structurizr\.json)$/.test(path)
     || path === "docs/architecture/index.md"
     || path === "docs/architecture/changelog.md"
-    || path === "docs/architecture/decisions/index.md";
+    || path === "docs/architecture/decisions/index.md"
+    || path === "docs/architecture/.projection-manifest.json";
 }
 
 function pathSegment(id: string): string {
@@ -774,7 +836,7 @@ export interface AgentContextProjectionTarget {
 export interface AgentContextProjectionFile {
   path: string;
   body: string;
-  target: AgentContextProjectionTarget;
+  targets: AgentContextProjectionTarget[];
 }
 
 export interface AgentContextProjectionPlan {
@@ -791,6 +853,7 @@ export interface AgentContextProjectionPlan {
  * wildcard is treated as an entrypoint file and resolves to its containing directory.
  */
 export function primarySourceDirectoryFromInclude(pattern: string): string {
+  assertRepoRelativePath(pattern);
   const wildcardIndex = pattern.search(/[*?]/);
   const literalPrefix = wildcardIndex === -1 ? pattern : pattern.slice(0, wildcardIndex);
   const lastSlash = literalPrefix.lastIndexOf("/");
@@ -806,9 +869,10 @@ export function renderAgentContextProjection(input: {
   const rendererVersion = input.rendererVersion ?? AGENT_CONTEXT_RENDERER_VERSION;
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
   const targets: AgentContextProjectionTarget[] = [];
-  const files: AgentContextProjectionFile[] = [];
+  const targetsByPath = new Map<string, AgentContextProjectionTarget[]>();
+  const bodyByPath = new Map<string, string>();
 
-  for (const node of input.model.nodes) {
+  for (const node of [...input.model.nodes].sort((left, right) => left.id.localeCompare(right.id))) {
     if (node.kind !== "capability") continue;
     const firstInclude = nativeNodeSource(node)?.include?.[0];
     if (!firstInclude) continue;
@@ -835,11 +899,16 @@ export function renderAgentContextProjection(input: {
         outputDigest
       };
       const wrapped = wrapAgentContextRegion(target, generatedBody);
-      const body = mergeAgentContextRegion(target, wrapped, existingByPath.get(path));
+      const body = mergeAgentContextRegion(target, wrapped, bodyByPath.get(path) ?? existingByPath.get(path));
       targets.push(target);
-      files.push({ path, body, target });
+      targetsByPath.set(path, [...(targetsByPath.get(path) ?? []), target]);
+      bodyByPath.set(path, body);
     }
   }
+
+  const files = [...bodyByPath.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, body]) => ({ path, body, targets: targetsByPath.get(path) ?? [] }));
 
   return {
     schemaVersion: "archcontext.agent-context-projection-plan/v1",
@@ -888,10 +957,21 @@ function mergeAgentContextRegion(target: AgentContextProjectionTarget, wrapped: 
   if (!existing) return wrapped;
   const region = findAgentContextRegion(existing, target.scope.id);
   if (!region) return `${existing.trimEnd()}\n\n${wrapped}`;
+  const markerDigest = /\boutputDigest="([^"]+)"/.exec(region.startMarker)?.[1];
+  if (!markerDigest) throw new Error(`agent-context-marker-output-digest-missing: ${target.scope.id}`);
+  const generatedBody = `${existing.slice(region.contentStart, region.contentEnd).trimEnd()}\n`;
+  const actualDigest = digestJson({ id: target.scope.id, body: generatedBody } as unknown as Json);
+  if (markerDigest !== actualDigest) throw new Error(`agent-context-marker-output-digest-mismatch: ${target.scope.id}`);
   return `${existing.slice(0, region.start)}${wrapped}${existing.slice(region.end)}`;
 }
 
-function findAgentContextRegion(body: string, nodeId: string): { start: number; end: number } | undefined {
+function findAgentContextRegion(body: string, nodeId: string): {
+  start: number;
+  end: number;
+  contentStart: number;
+  contentEnd: number;
+  startMarker: string;
+} | undefined {
   const startPattern = new RegExp(`<!-- BEGIN ARCHCONTEXT AGENT CONTEXT id="${escapeRegExp(nodeId)}"[^>]*-->`);
   const startMatch = startPattern.exec(body);
   if (!startMatch || startMatch.index === undefined) return undefined;
@@ -899,7 +979,15 @@ function findAgentContextRegion(body: string, nodeId: string): { start: number; 
   const endIndex = body.indexOf(endMarker, startMatch.index + startMatch[0].length);
   if (endIndex < 0) return undefined;
   const regionEnd = endIndex + endMarker.length + (body[endIndex + endMarker.length] === "\n" ? 1 : 0);
-  return { start: startMatch.index, end: regionEnd };
+  const afterMarker = startMatch.index + startMatch[0].length;
+  const contentStart = afterMarker + (body[afterMarker] === "\n" ? 1 : 0);
+  return {
+    start: startMatch.index,
+    end: regionEnd,
+    contentStart,
+    contentEnd: endIndex,
+    startMarker: startMatch[0]
+  };
 }
 
 // --- Path Ownership Resolution (ADR-0043 tie-break) ---

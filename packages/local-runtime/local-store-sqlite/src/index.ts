@@ -81,6 +81,7 @@ const REQUIRED_LOCAL_STORE_TABLES = [
 
 export const SQLITE_PRAGMAS = [
   "PRAGMA journal_mode = WAL",
+  "PRAGMA synchronous = FULL",
   "PRAGMA foreign_keys = ON",
   "PRAGMA busy_timeout = 5000"
 ] as const;
@@ -603,8 +604,17 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_audit_runs_status ON audit_runs(storage_repository_id, storage_workspace_id, status)"
     ]
+  },
+  {
+    id: "0011_changeset_cleanup_cursor",
+    statements: [
+      "ALTER TABLE changeset_journal ADD COLUMN cleanup_completed_at TEXT",
+      "CREATE INDEX IF NOT EXISTS idx_changeset_journal_cleanup_pending ON changeset_journal(status, cleanup_completed_at, updated_at)"
+    ]
   }
 ] as const;
+
+const CHANGESET_STARTUP_CLEANUP_LIMIT = 100;
 
 export function migrationSql(): string[] {
   return [...SQLITE_PRAGMAS, ...LOCAL_SQLITE_MIGRATIONS.flatMap((migration) => migration.statements)];
@@ -1019,6 +1029,12 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
+  appendArchitectureEventsAndCommitChangeSet(
+    journalId: string,
+    input: ArchitectureLedgerAppendInput
+  ): Promise<ArchitectureLedgerAppendResult>;
+  resolveArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope>;
+  resolveLatestArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope>;
   listAuditRuns(input: ArchitectureLedgerScope & { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<ArchitectureAuditRunV1[]>;
   getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined>;
   readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined>;
@@ -1528,6 +1544,13 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       .run("committed", nowIso(), nowIso(), journalId);
   }
 
+  async completeChangeSetCleanup(journalId: string): Promise<void> {
+    const db = await this.database();
+    const completedAt = nowIso();
+    db.prepare("UPDATE changeset_journal SET cleanup_completed_at = ?, updated_at = ? WHERE journal_id = ? AND status = ?")
+      .run(completedAt, completedAt, journalId, "committed");
+  }
+
   async abortChangeSet(journalId: string, reason: string): Promise<void> {
     const db = await this.database();
     const row = db.prepare("SELECT metadata_json FROM changeset_journal WHERE journal_id = ?").get(journalId);
@@ -1539,39 +1562,69 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   recoverPendingChangeSets(): number {
     const db = this.requireOpenDatabase();
-    const committed = db.prepare("SELECT files_json FROM changeset_journal WHERE status = ?").all("committed");
+    const committed = db.prepare(
+      `SELECT journal_id, files_json FROM changeset_journal
+        WHERE status = ? AND cleanup_completed_at IS NULL
+        ORDER BY updated_at, journal_id
+        LIMIT ?`
+    ).all("committed", CHANGESET_STARTUP_CLEANUP_LIMIT);
     for (const row of committed) {
-      cleanupCommittedJournalFiles(JSON.parse(String(row.files_json)) as ChangeSetJournalFile[]);
+      try {
+        cleanupCommittedJournalFiles(JSON.parse(String(row.files_json)) as ChangeSetJournalFile[]);
+        const completedAt = nowIso();
+        db.prepare("UPDATE changeset_journal SET cleanup_completed_at = ?, updated_at = ? WHERE journal_id = ?")
+          .run(completedAt, completedAt, String(row.journal_id));
+      } catch {
+        // Leave cleanup_completed_at NULL so a later startup can retry this journal.
+      }
     }
     const rows = db.prepare("SELECT journal_id, root, files_json, metadata_json FROM changeset_journal WHERE status = ?").all("pending");
+    let recovered = 0;
     for (const row of rows) {
-      const files = JSON.parse(String(row.files_json)) as ChangeSetJournalFile[];
-      const metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
-      const plannedLedgerEvent = changeSetJournalPlannedLedgerEvent(metadata);
-      const existingLedgerEvent = plannedLedgerEvent ? architectureEventByIdempotency(db, plannedLedgerEvent) : undefined;
-      if (plannedLedgerEvent && existingLedgerEvent) {
-        const expectedEventHash = normalizeArchitectureLedgerEvent(plannedLedgerEvent, existingLedgerEvent.previousEventHash).eventHash;
-        if (expectedEventHash !== existingLedgerEvent.event.eventHash) {
-          throw new Error(`changeset-ledger-recovery-idempotency-conflict: ${plannedLedgerEvent.idempotencyKey}`);
+      let metadata: Record<string, unknown> = {};
+      try {
+        const files = JSON.parse(String(row.files_json)) as ChangeSetJournalFile[];
+        metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
+        const plannedLedgerEvent = changeSetJournalPlannedLedgerEvent(metadata);
+        const existingLedgerEvent = plannedLedgerEvent ? architectureEventByIdempotency(db, plannedLedgerEvent) : undefined;
+        if (plannedLedgerEvent && existingLedgerEvent) {
+          const expectedEventHash = normalizeArchitectureLedgerEvent(plannedLedgerEvent, existingLedgerEvent.previousEventHash).eventHash;
+          if (expectedEventHash !== existingLedgerEvent.event.eventHash) {
+            throw new Error(`changeset-ledger-recovery-idempotency-conflict: ${plannedLedgerEvent.idempotencyKey}`);
+          }
+          cleanupCommittedJournalFiles(files);
+          const completedAt = nowIso();
+          db.prepare("UPDATE changeset_journal SET status = ?, metadata_json = ?, updated_at = ?, completed_at = ?, cleanup_completed_at = ? WHERE journal_id = ?")
+            .run("committed", stableJson(withChangeSetJournalArchitectureLedger(metadata, {
+              recovery: {
+                schemaVersion: "archcontext.changeset-ledger-recovery/v1",
+                status: "ledger-append-detected",
+                eventId: existingLedgerEvent.event.eventId,
+                eventHash: existingLedgerEvent.event.eventHash ?? "",
+                recoveredAt: completedAt
+              } as unknown as Json
+            })), completedAt, completedAt, completedAt, String(row.journal_id));
+          recovered += 1;
+          continue;
         }
-        cleanupCommittedJournalFiles(files);
-        db.prepare("UPDATE changeset_journal SET status = ?, metadata_json = ?, updated_at = ?, completed_at = ? WHERE journal_id = ?")
-          .run("committed", stableJson(withChangeSetJournalArchitectureLedger(metadata, {
-            recovery: {
-              schemaVersion: "archcontext.changeset-ledger-recovery/v1",
-              status: "ledger-append-detected",
-              eventId: existingLedgerEvent.event.eventId,
-              eventHash: existingLedgerEvent.event.eventHash ?? "",
-              recoveredAt: nowIso()
-            } as unknown as Json
-          })), nowIso(), nowIso(), String(row.journal_id));
-        continue;
+        recoverJournalFiles(String(row.root), files);
+        const completedAt = nowIso();
+        db.prepare("UPDATE changeset_journal SET status = ?, updated_at = ?, completed_at = ?, cleanup_completed_at = ? WHERE journal_id = ?")
+          .run("recovered", completedAt, completedAt, completedAt, String(row.journal_id));
+        recovered += 1;
+      } catch (error) {
+        db.prepare("UPDATE changeset_journal SET metadata_json = ?, updated_at = ? WHERE journal_id = ?")
+          .run(stableJson({
+            ...metadata,
+            recoveryError: {
+              schemaVersion: "archcontext.changeset-recovery-error/v1",
+              message: error instanceof Error ? error.message : String(error),
+              failedAt: nowIso()
+            }
+          }), nowIso(), String(row.journal_id));
       }
-      recoverJournalFiles(String(row.root), files);
-      db.prepare("UPDATE changeset_journal SET status = ?, updated_at = ?, completed_at = ? WHERE journal_id = ?")
-        .run("recovered", nowIso(), nowIso(), String(row.journal_id));
     }
-    return rows.length;
+    return recovered;
   }
 
   async saveTaskState(taskSessionId: string, state: unknown): Promise<void> {
@@ -1730,51 +1783,46 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (input.writer !== "runtime-daemon") throw new Error("architecture-ledger-writer-must-be-runtime-daemon");
     for (const event of input.events) validateArchitectureLedgerEvent(event);
     const db = await this.database();
-    const startedAt = Date.now();
-    const appendedEvents: ArchitectureEventV1[] = [];
-    const duplicateEvents: ArchitectureEventV1[] = [];
     db.exec("BEGIN IMMEDIATE");
     try {
-      let processed = 0;
-      for (const event of input.events) {
-        const duplicate = architectureEventByIdempotency(db, event);
-        if (duplicate) {
-          const expectedDuplicateHash = normalizeArchitectureLedgerEvent(event, duplicate.previousEventHash).eventHash;
-          if (expectedDuplicateHash !== duplicate.event.eventHash) {
-            throw new Error(`architecture-ledger-idempotency-conflict: ${event.idempotencyKey}`);
-          }
-          duplicateEvents.push(duplicate.event);
-          continue;
-        }
-        const previousEventHash = latestArchitectureEventHash(db, event.repository.storageRepositoryId, event.worktree.storageWorkspaceId);
-        const normalized = normalizeArchitectureLedgerEvent(event, previousEventHash);
-        insertArchitectureEvent(db, normalized);
-        persistArchitectureLedgerArtifacts(db, normalized);
-        materializeArchitectureLedgerEvent(db, normalized);
-        appendedEvents.push(normalized);
-        processed += 1;
-        if (input.faultAfterEvents !== undefined && processed >= input.faultAfterEvents) throw new Error("architecture-ledger-fault-injection");
-      }
-      const scope = architectureScopeFromEvent(input.events[0] ?? duplicateEvents[0]);
-      const state = scope ? readArchitectureLedgerStateFromDb(db, scope) : emptyArchitectureLedgerState();
-      if (scope) {
-        recordArchitectureLedgerOperation(db, {
-          scope,
-          operationKind: "append_events",
-          durationMs: Date.now() - startedAt,
-          rowCount: appendedEvents.length,
-          rebuildReason: null
-        });
-      }
+      const result = appendArchitectureEventsInOpenTransaction(db, input);
       db.exec("COMMIT");
-      return {
-        appendedEvents,
-        duplicateEvents,
-        graphDigest: architectureLedgerStateDigest(state),
-        entityCount: state.entities.length,
-        relationCount: state.relations.length,
-        constraintCount: state.constraints.length
-      };
+      return result;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async appendArchitectureEventsAndCommitChangeSet(
+    journalId: string,
+    input: ArchitectureLedgerAppendInput
+  ): Promise<ArchitectureLedgerAppendResult> {
+    if (input.writer !== "runtime-daemon") throw new Error("architecture-ledger-writer-must-be-runtime-daemon");
+    for (const event of input.events) validateArchitectureLedgerEvent(event);
+    const db = await this.database();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare("SELECT status, metadata_json FROM changeset_journal WHERE journal_id = ?").get(journalId);
+      if (!row) throw new Error(`ChangeSet journal not found: ${journalId}`);
+      if (String(row.status) !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+      const metadata = JSON.parse(String(row.metadata_json)) as Record<string, unknown>;
+      const result = appendArchitectureEventsInOpenTransaction(db, input);
+      const completedAt = nowIso();
+      db.prepare(
+        "UPDATE changeset_journal SET status = ?, metadata_json = ?, updated_at = ?, completed_at = ? WHERE journal_id = ?"
+      ).run(
+        "committed",
+        stableJson(withChangeSetJournalArchitectureLedger(metadata, {
+          append: changeSetLedgerAppendSummary(result) as unknown as Json,
+          appendedAt: completedAt
+        })),
+        completedAt,
+        completedAt,
+        journalId
+      );
+      db.exec("COMMIT");
+      return result;
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
@@ -1791,8 +1839,40 @@ export class SqliteLocalStore implements RuntimeLocalStore {
           AND storage_workspace_id = ?
           ${statusClause}
         ORDER BY created_at DESC, run_id ASC`
-    ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, ...statuses)
+    ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), ...statuses)
       .map((row) => JSON.parse(String(row.run_json)) as ArchitectureAuditRunV1);
+  }
+
+  async resolveArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope> {
+    const db = await this.database();
+    const rows = db.prepare(
+      `SELECT event_json FROM architecture_events
+        WHERE storage_repository_id = ? AND workspace_id = ? AND branch = ?
+        ORDER BY event_sequence DESC`
+    ).all(input.repository.storageRepositoryId, input.worktree.workspaceId, input.worktree.branch);
+    for (const row of rows) {
+      const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
+      if (event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId) {
+        return architectureScopeFromEvent(event)!;
+      }
+    }
+    return input;
+  }
+
+  async resolveLatestArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope> {
+    const db = await this.database();
+    const rows = db.prepare(
+      `SELECT event_json FROM architecture_events
+        WHERE storage_repository_id = ? AND workspace_id = ?
+        ORDER BY event_sequence DESC`
+    ).all(input.repository.storageRepositoryId, input.worktree.workspaceId);
+    for (const row of rows) {
+      const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
+      if (event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId) {
+        return architectureScopeFromEvent(event)!;
+      }
+    }
+    return input;
   }
 
   async getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined> {
@@ -1800,7 +1880,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const row = db.prepare(
       `SELECT run_json FROM audit_runs
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND run_id = ?`
-    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.runId);
+    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), architectureLedgerStorageId(input.worktree, input.runId));
     return row ? (JSON.parse(String(row.run_json)) as ArchitectureAuditRunV1) : undefined;
   }
 
@@ -1809,14 +1889,18 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const row = db.prepare(
       `SELECT cursor_json FROM source_cursors
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND cursor_id = ?`
-    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.cursorId);
+    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), architectureLedgerStorageId(input.worktree, input.cursorId));
     return row ? JSON.parse(String(row.cursor_json)) as Record<string, Json> : undefined;
   }
 
   async createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1> {
     const db = await this.database();
     const startedAt = Date.now();
-    const latest = latestArchitectureEvent(db, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+    const latest = latestArchitectureEvent(
+      db,
+      input.repository.storageRepositoryId,
+      architectureLedgerWorkspaceKey(input.worktree)
+    );
     if (!latest) throw new Error("architecture-ledger-snapshot-requires-event");
     const state = readArchitectureLedgerStateFromDb(db, input);
     const snapshot = architectureLedgerSnapshotFromState({
@@ -1836,12 +1920,12 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       snapshot.repository.repositoryId,
       snapshot.repository.storageRepositoryId,
       snapshot.worktree.workspaceId,
-      snapshot.worktree.storageWorkspaceId,
+      architectureLedgerWorkspaceKey(snapshot.worktree),
       snapshot.worktree.branch,
       snapshot.worktree.headSha,
       snapshot.worktree.worktreeDigest,
       snapshot.sourceMode,
-      snapshot.eventCursor.lastEventId,
+      architectureLedgerStorageId(snapshot.worktree, snapshot.eventCursor.lastEventId),
       snapshot.eventCursor.lastEventHash,
       snapshot.graphDigest,
       snapshot.projectionDigest,
@@ -1930,18 +2014,18 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const snapshot = db.prepare(
       `SELECT last_event_id FROM architecture_snapshots
         WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
-    ).get(input.beforeSnapshotId, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+    ).get(input.beforeSnapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
     if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.beforeSnapshotId}`);
     const cursor = db.prepare("SELECT event_sequence FROM architecture_events WHERE event_id = ?").get(String(snapshot.last_event_id));
     if (!cursor) throw new Error(`architecture-ledger-snapshot-cursor-not-found: ${String(snapshot.last_event_id)}`);
     const before = Number(db.prepare(
       `SELECT COUNT(*) AS count FROM architecture_events
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
-    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, Number(cursor.event_sequence))?.count ?? 0);
+    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), Number(cursor.event_sequence))?.count ?? 0);
     db.prepare(
       `UPDATE architecture_events SET compacted_by_snapshot_id = ?
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
-    ).run(input.beforeSnapshotId, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, Number(cursor.event_sequence));
+    ).run(input.beforeSnapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), Number(cursor.event_sequence));
     recordArchitectureLedgerOperation(db, {
       scope: input,
       operationKind: "compact_events",
@@ -1962,7 +2046,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (!replay.ok) failures.push(...replay.mismatches);
     const snapshotCount = Number(db.prepare(
       "SELECT COUNT(*) AS count FROM architecture_snapshots WHERE storage_repository_id = ? AND storage_workspace_id = ?"
-    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId)?.count ?? 0);
+    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree))?.count ?? 0);
     const result = {
       ok: failures.length === 0,
       graphDigest: replay.materializedDigest,
@@ -2018,11 +2102,92 @@ function architectureScopeFromEvent(event: ArchitectureEventV1 | undefined): Arc
   return event ? { repository: event.repository, worktree: event.worktree } : undefined;
 }
 
+function architectureLedgerWorkspaceKey(worktree: ArchitectureEventV1["worktree"]): string {
+  return `ledger-scope:${digestJson({
+    storageWorkspaceId: worktree.storageWorkspaceId,
+    branch: worktree.branch,
+    headSha: worktree.headSha,
+    worktreeDigest: worktree.worktreeDigest
+  } as unknown as Json).slice("sha256:".length)}`;
+}
+
+function architectureLedgerStorageId(worktree: ArchitectureEventV1["worktree"], logicalId: string): string {
+  return `${architectureLedgerWorkspaceKey(worktree)}:${logicalId}`;
+}
+
+function appendArchitectureEventsInOpenTransaction(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerAppendInput
+): ArchitectureLedgerAppendResult {
+  const startedAt = Date.now();
+  const appendedEvents: ArchitectureEventV1[] = [];
+  const duplicateEvents: ArchitectureEventV1[] = [];
+  let processed = 0;
+  for (const event of input.events) {
+    const duplicate = architectureEventByIdempotency(db, event);
+    if (duplicate) {
+      const expectedDuplicateHash = normalizeArchitectureLedgerEvent(event, duplicate.previousEventHash).eventHash;
+      if (expectedDuplicateHash !== duplicate.event.eventHash) {
+        throw new Error(`architecture-ledger-idempotency-conflict: ${event.idempotencyKey}`);
+      }
+      duplicateEvents.push(duplicate.event);
+      continue;
+    }
+    const previousEventHash = latestArchitectureEventHash(
+      db,
+      event.repository.storageRepositoryId,
+      architectureLedgerWorkspaceKey(event.worktree)
+    );
+    const normalized = normalizeArchitectureLedgerEvent(event, previousEventHash);
+    const operations = architectureLedgerPayload(normalized).operations ?? [];
+    const scope = architectureScopeFromEvent(normalized)!;
+    if (operations.length > 0) {
+      const currentDigest = architectureLedgerStateDigest(readArchitectureLedgerStateFromDb(db, scope));
+      if (normalized.baseDigest !== currentDigest) {
+        throw new Error(`architecture-ledger-base-digest-conflict: expected ${currentDigest}, received ${normalized.baseDigest}`);
+      }
+    }
+    insertArchitectureEvent(db, normalized);
+    persistArchitectureLedgerArtifacts(db, normalized);
+    materializeArchitectureLedgerEvent(db, normalized);
+    if (operations.length > 0) {
+      const resultingDigest = architectureLedgerStateDigest(readArchitectureLedgerStateFromDb(db, scope));
+      if (normalized.resultingDigest !== resultingDigest) {
+        throw new Error(`architecture-ledger-resulting-digest-conflict: expected ${resultingDigest}, received ${normalized.resultingDigest}`);
+      }
+    }
+    appendedEvents.push(normalized);
+    processed += 1;
+    if (input.faultAfterEvents !== undefined && processed >= input.faultAfterEvents) {
+      throw new Error("architecture-ledger-fault-injection");
+    }
+  }
+  const scope = architectureScopeFromEvent(input.events[0] ?? duplicateEvents[0]);
+  const state = scope ? readArchitectureLedgerStateFromDb(db, scope) : emptyArchitectureLedgerState();
+  if (scope) {
+    recordArchitectureLedgerOperation(db, {
+      scope,
+      operationKind: "append_events",
+      durationMs: Date.now() - startedAt,
+      rowCount: appendedEvents.length,
+      rebuildReason: null
+    });
+  }
+  return {
+    appendedEvents,
+    duplicateEvents,
+    graphDigest: architectureLedgerStateDigest(state),
+    entityCount: state.entities.length,
+    relationCount: state.relations.length,
+    constraintCount: state.constraints.length
+  };
+}
+
 function architectureEventByIdempotency(db: SqliteDatabase, event: ArchitectureEventV1): { event: ArchitectureEventV1; previousEventHash: string | null } | undefined {
   const row = db.prepare(
     `SELECT event_json, previous_event_hash FROM architecture_events
       WHERE storage_repository_id = ? AND storage_workspace_id = ? AND idempotency_key = ?`
-  ).get(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, event.idempotencyKey);
+  ).get(event.repository.storageRepositoryId, architectureLedgerWorkspaceKey(event.worktree), event.idempotencyKey);
   return row ? {
     event: JSON.parse(String(row.event_json)) as ArchitectureEventV1,
     previousEventHash: row.previous_event_hash === null || row.previous_event_hash === undefined ? null : String(row.previous_event_hash)
@@ -2043,6 +2208,7 @@ function latestArchitectureEvent(db: SqliteDatabase, storageRepositoryId: string
 }
 
 function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT INTO architecture_events
       (event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha, worktree_digest,
@@ -2050,11 +2216,11 @@ function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1)
         event_hash, idempotency_key, payload_json, provenance_json, event_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    event.eventId,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
+    workspaceKey,
     event.worktree.branch,
     event.worktree.headSha,
     event.worktree.worktreeDigest,
@@ -2087,6 +2253,8 @@ function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1)
 
 function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: ArchitectureEventV1): void {
   const payload = architectureLedgerPayload(event);
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
+  const storageEventId = architectureLedgerStorageId(event.worktree, event.eventId);
   for (const evidence of payload.evidenceItems ?? []) {
     db.prepare(
       `INSERT OR REPLACE INTO evidence_items
@@ -2094,12 +2262,12 @@ function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: Architect
           polarity, origin, subject, selector_json, summary, coverage_json, supports_json, provenance_json, evidence_json, digest, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      evidence.evidenceId,
+      architectureLedgerStorageId(event.worktree, evidence.evidenceId),
       event.repository.repositoryId,
       event.repository.storageRepositoryId,
       event.worktree.workspaceId,
-      event.worktree.storageWorkspaceId,
-      event.eventId,
+      workspaceKey,
+      storageEventId,
       evidence.kind,
       evidence.strength,
       evidence.polarity,
@@ -2131,13 +2299,13 @@ function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: Architect
           target_kind, target_id, binding_reason, authority_effect, provenance_json, binding_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      binding.bindingId,
-      binding.evidenceId,
+      architectureLedgerStorageId(event.worktree, binding.bindingId),
+      architectureLedgerStorageId(event.worktree, binding.evidenceId),
       event.repository.repositoryId,
       event.repository.storageRepositoryId,
       event.worktree.workspaceId,
-      event.worktree.storageWorkspaceId,
-      event.eventId,
+      workspaceKey,
+      storageEventId,
       binding.target.kind,
       binding.target.id,
       binding.bindingReason,
@@ -2158,18 +2326,19 @@ function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: Architect
 }
 
 function persistRecommendationRun(db: SqliteDatabase, event: ArchitectureEventV1, run: NonNullable<ArchitectureLedgerEventPayload["recommendationRuns"]>[number]): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO recommendation_runs
       (run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, status, catalog_digest,
         input_digest, output_digest, metrics_json, run_json, started_at, completed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    run.runId,
+    architectureLedgerStorageId(event.worktree, run.runId),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
-    event.eventId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     run.status,
     run.catalogDigest,
     run.inputDigest,
@@ -2182,6 +2351,7 @@ function persistRecommendationRun(db: SqliteDatabase, event: ArchitectureEventV1
 }
 
 function persistRecommendation(db: SqliteDatabase, event: ArchitectureEventV1, recommendation: NonNullable<ArchitectureLedgerEventPayload["recommendations"]>[number]): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO recommendations
       (recommendation_id, run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, fingerprint,
@@ -2189,13 +2359,13 @@ function persistRecommendation(db: SqliteDatabase, event: ArchitectureEventV1, r
         recommendation_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    recommendation.recommendationId,
-    recommendation.runId,
+    architectureLedgerStorageId(event.worktree, recommendation.recommendationId),
+    architectureLedgerStorageId(event.worktree, recommendation.runId),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
-    event.eventId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     recommendation.fingerprint,
     recommendation.subject,
     recommendation.practiceId ?? null,
@@ -2223,18 +2393,19 @@ function persistRecommendation(db: SqliteDatabase, event: ArchitectureEventV1, r
 }
 
 function persistAgentJob(db: SqliteDatabase, event: ArchitectureEventV1, job: NonNullable<ArchitectureLedgerEventPayload["agentJobs"]>[number]): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO agent_jobs
       (job_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, status, runner_port,
         fingerprint, input_digest, output_digest, stale_policy, job_json, queued_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    job.jobId,
+    architectureLedgerStorageId(event.worktree, job.jobId),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
-    event.eventId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     job.status,
     job.runnerPort,
     job.fingerprint,
@@ -2248,18 +2419,19 @@ function persistAgentJob(db: SqliteDatabase, event: ArchitectureEventV1, job: No
 }
 
 function persistAuditRun(db: SqliteDatabase, event: ArchitectureEventV1, run: NonNullable<ArchitectureLedgerEventPayload["auditRuns"]>[number]): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO audit_runs
       (run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, job_id, report_id, status,
         repo_name_with_owner, repo_visibility, base_sha, input_digest, output_digest, run_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    run.runId,
+    architectureLedgerStorageId(event.worktree, run.runId),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
-    event.eventId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     run.jobId,
     run.reportId,
     run.status,
@@ -2276,17 +2448,18 @@ function persistAuditRun(db: SqliteDatabase, event: ArchitectureEventV1, run: No
 function persistProjectionState(db: SqliteDatabase, event: ArchitectureEventV1, state: Record<string, Json>): void {
   const path = String(state.path ?? "projection");
   const projectionDigest = typeof state.projectionDigest === "string" ? state.projectionDigest : digestJson(state);
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO projection_state
       (projection_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, path, projection_digest, state_json, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    String(state.projectionId ?? stableLedgerId("projection", event.eventId, path)),
+    architectureLedgerStorageId(event.worktree, String(state.projectionId ?? stableLedgerId("projection", event.eventId, path))),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
-    event.eventId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     path,
     projectionDigest,
     stableJson(state),
@@ -2296,16 +2469,17 @@ function persistProjectionState(db: SqliteDatabase, event: ArchitectureEventV1, 
 
 function persistSourceCursor(db: SqliteDatabase, event: ArchitectureEventV1, cursor: Record<string, Json>): void {
   const source = String(cursor.source ?? event.source);
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO source_cursors
       (cursor_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, source, cursor_json, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    String(cursor.cursorId ?? stableLedgerId("cursor", event.eventId, source)),
+    architectureLedgerStorageId(event.worktree, String(cursor.cursorId ?? stableLedgerId("cursor", event.eventId, source))),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
+    workspaceKey,
     source,
     stableJson(cursor),
     event.timestamp
@@ -2322,19 +2496,21 @@ function persistGenericLedgerJson(
   prefix: string
 ): void {
   const id = String(value[idColumn] ?? value.id ?? stableLedgerId(prefix, event.eventId, stableJson(value)));
+  const storageId = architectureLedgerStorageId(event.worktree, id);
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   if (table === "recommendation_feedback") {
     db.prepare(
       `INSERT OR REPLACE INTO recommendation_feedback
         (feedback_id, recommendation_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, feedback_json, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id,
-      String(value.recommendationId ?? value.recommendation_id ?? "unknown"),
+      storageId,
+      architectureLedgerStorageId(event.worktree, String(value.recommendationId ?? value.recommendation_id ?? "unknown")),
       event.repository.repositoryId,
       event.repository.storageRepositoryId,
       event.worktree.workspaceId,
-      event.worktree.storageWorkspaceId,
-      event.eventId,
+      workspaceKey,
+      architectureLedgerStorageId(event.worktree, event.eventId),
       stableJson(value),
       String(value.createdAt ?? event.timestamp)
     );
@@ -2345,12 +2521,12 @@ function persistGenericLedgerJson(
       (waiver_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, target_kind, target_id, waiver_json, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    id,
+    storageId,
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
-    event.worktree.storageWorkspaceId,
-    event.eventId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     String(value.targetKind ?? value.target_kind ?? "unknown"),
     String(value.targetId ?? value.target_id ?? "unknown"),
     stableJson(value),
@@ -2361,6 +2537,7 @@ function persistGenericLedgerJson(
 
 function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: ArchitectureEventV1): void {
   const payload = architectureLedgerPayload(event);
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   for (const operation of payload.operations ?? []) {
     switch (operation.op) {
       case "upsert_entity":
@@ -2369,9 +2546,9 @@ function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: Architect
       case "delete_entity":
         deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [operation.entityId]);
         db.prepare("DELETE FROM architecture_entities_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND entity_id = ?")
-          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.entityId);
+          .run(event.repository.storageRepositoryId, workspaceKey, operation.entityId);
         db.prepare("DELETE FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND (source_entity_id = ? OR target_entity_id = ?)")
-          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.entityId, operation.entityId);
+          .run(event.repository.storageRepositoryId, workspaceKey, operation.entityId, operation.entityId);
         break;
       case "upsert_relation":
         upsertArchitectureRelation(db, event, operation.relation);
@@ -2379,7 +2556,7 @@ function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: Architect
       case "delete_relation":
         deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [operation.relationId]);
         db.prepare("DELETE FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND relation_id = ?")
-          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.relationId);
+          .run(event.repository.storageRepositoryId, workspaceKey, operation.relationId);
         break;
       case "upsert_constraint":
         upsertArchitectureConstraint(db, event, operation.constraint);
@@ -2387,13 +2564,14 @@ function materializeArchitectureLedgerEvent(db: SqliteDatabase, event: Architect
       case "delete_constraint":
         deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [operation.constraintId]);
         db.prepare("DELETE FROM architecture_constraints_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND constraint_id = ?")
-          .run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, operation.constraintId);
+          .run(event.repository.storageRepositoryId, workspaceKey, operation.constraintId);
         break;
     }
   }
 }
 
 function upsertArchitectureEntity(db: SqliteDatabase, event: ArchitectureEventV1, entity: ArchitectureLedgerEntityRecord): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO architecture_entities_current
       (storage_repository_id, storage_workspace_id, entity_id, repository_id, workspace_id, branch, head_sha, worktree_digest,
@@ -2401,7 +2579,7 @@ function upsertArchitectureEntity(db: SqliteDatabase, event: ArchitectureEventV1
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     event.repository.storageRepositoryId,
-    event.worktree.storageWorkspaceId,
+    workspaceKey,
     entity.entityId,
     event.repository.repositoryId,
     event.worktree.workspaceId,
@@ -2414,7 +2592,7 @@ function upsertArchitectureEntity(db: SqliteDatabase, event: ArchitectureEventV1
     entity.path ?? null,
     entity.summary ?? null,
     stableJson(entity.metadata ?? {}),
-    event.eventId,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "entity", entity.summary ?? "", "", entity.canonicalName, "");
@@ -2430,6 +2608,7 @@ function upsertArchitectureEntity(db: SqliteDatabase, event: ArchitectureEventV1
 }
 
 function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEventV1, relation: ArchitectureLedgerRelationRecord): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO architecture_relations_current
       (storage_repository_id, storage_workspace_id, relation_id, repository_id, workspace_id, branch, head_sha, worktree_digest,
@@ -2437,7 +2616,7 @@ function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEvent
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     event.repository.storageRepositoryId,
-    event.worktree.storageWorkspaceId,
+    workspaceKey,
     relation.relationId,
     event.repository.repositoryId,
     event.worktree.workspaceId,
@@ -2450,7 +2629,7 @@ function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEvent
     relation.status,
     relation.summary ?? null,
     stableJson(relation.metadata ?? {}),
-    event.eventId,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "relation", relation.summary ?? "", "", relation.relationId, "");
@@ -2466,6 +2645,7 @@ function upsertArchitectureRelation(db: SqliteDatabase, event: ArchitectureEvent
 }
 
 function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEventV1, constraint: ArchitectureLedgerConstraintRecord): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT OR REPLACE INTO architecture_constraints_current
       (storage_repository_id, storage_workspace_id, constraint_id, repository_id, workspace_id, branch, head_sha, worktree_digest,
@@ -2473,7 +2653,7 @@ function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEve
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     event.repository.storageRepositoryId,
-    event.worktree.storageWorkspaceId,
+    workspaceKey,
     constraint.constraintId,
     event.repository.repositoryId,
     event.worktree.workspaceId,
@@ -2486,7 +2666,7 @@ function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEve
     constraint.severity ?? null,
     constraint.summary ?? null,
     stableJson(constraint.metadata ?? {}),
-    event.eventId,
+    architectureLedgerStorageId(event.worktree, event.eventId),
     event.timestamp
   );
   insertArchitectureLedgerFts(db, "constraint", constraint.summary ?? "", "", constraint.constraintId, "");
@@ -2502,7 +2682,7 @@ function upsertArchitectureConstraint(db: SqliteDatabase, event: ArchitectureEve
 }
 
 function readArchitectureLedgerStateFromDb(db: SqliteDatabase, scope: ArchitectureLedgerScope): ArchitectureLedgerGraphState {
-  const scopeParams = [scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId];
+  const scopeParams = [scope.repository.storageRepositoryId, architectureLedgerWorkspaceKey(scope.worktree)];
   const entities = db.prepare(
     `SELECT entity_id, kind, canonical_name, status, path, summary, metadata_json
       FROM architecture_entities_current
@@ -2550,7 +2730,7 @@ function readArchitectureLedgerStateFromDb(db: SqliteDatabase, scope: Architectu
 
 function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: ArchitectureLedgerScope & { id: string; depth: number }): ArchitectureLedgerGraphState {
   const depth = Math.max(0, Math.floor(input.depth));
-  const scopeParams = [input.repository.storageRepositoryId, input.worktree.storageWorkspaceId];
+  const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
   const entityIds = [...new Set(db.prepare(
     `WITH RECURSIVE seed(entity_id) AS (
         SELECT entity_id FROM architecture_entities_current
@@ -2648,7 +2828,7 @@ function architectureEventsForReplay(db: SqliteDatabase, input: ArchitectureLedg
     const snapshot = db.prepare(
       `SELECT last_event_id FROM architecture_snapshots
         WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
-    ).get(input.snapshotId, input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+    ).get(input.snapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
     if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.snapshotId}`);
     untilEventId = String(snapshot.last_event_id);
   }
@@ -2656,12 +2836,12 @@ function architectureEventsForReplay(db: SqliteDatabase, input: ArchitectureLedg
     `SELECT event_id, event_json FROM architecture_events
       WHERE storage_repository_id = ? AND storage_workspace_id = ?
       ORDER BY event_sequence`
-  ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId);
+  ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
   const events: ArchitectureEventV1[] = [];
   for (const row of rows) {
     const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
     events.push(event);
-    if (untilEventId && String(row.event_id) === untilEventId) break;
+    if (untilEventId && (String(row.event_id) === untilEventId || event.eventId === untilEventId)) break;
   }
   return events;
 }
@@ -2669,7 +2849,7 @@ function architectureEventsForReplay(db: SqliteDatabase, input: ArchitectureLedg
 function deleteArchitectureCurrentState(db: SqliteDatabase, scope: ArchitectureLedgerScope): void {
   for (const table of ["architecture_entities_current", "architecture_relations_current", "architecture_constraints_current"]) {
     db.prepare(`DELETE FROM ${table} WHERE storage_repository_id = ? AND storage_workspace_id = ?`)
-      .run(scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId);
+      .run(scope.repository.storageRepositoryId, architectureLedgerWorkspaceKey(scope.worktree));
   }
 }
 
@@ -2689,10 +2869,11 @@ function insertArchitectureLedgerSearchDoc(db: SqliteDatabase, event: Architectu
   rationale?: string;
   evidenceSummary?: string;
 }): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `DELETE FROM architecture_ledger_search_fts
       WHERE storage_repository_id = ? AND storage_workspace_id = ? AND doc_id = ?`
-  ).run(event.repository.storageRepositoryId, event.worktree.storageWorkspaceId, doc.docId);
+  ).run(event.repository.storageRepositoryId, workspaceKey, doc.docId);
   db.prepare(
     `INSERT INTO architecture_ledger_search_fts
       (doc_id, storage_repository_id, storage_workspace_id, target_kind, target_id, subject_id, title, summary, rationale, evidence_summary)
@@ -2700,7 +2881,7 @@ function insertArchitectureLedgerSearchDoc(db: SqliteDatabase, event: Architectu
   ).run(
     doc.docId,
     event.repository.storageRepositoryId,
-    event.worktree.storageWorkspaceId,
+    workspaceKey,
     doc.targetKind,
     doc.targetId,
     doc.subjectId ?? null,
@@ -2716,7 +2897,7 @@ function deleteArchitectureLedgerSearchDocs(db: SqliteDatabase, scope: Architect
     db.prepare(
       `DELETE FROM architecture_ledger_search_fts
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND (target_id = ? OR subject_id = ?)`
-    ).run(scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId, id, id);
+    ).run(scope.repository.storageRepositoryId, architectureLedgerWorkspaceKey(scope.worktree), id, id);
   }
 }
 
@@ -2732,7 +2913,7 @@ function queryArchitectureLedgerSearchFts(db: SqliteDatabase, input: Architectur
         AND architecture_ledger_search_fts MATCH ?
       ORDER BY rank, target_kind, target_id
       LIMIT ?`
-  ).all(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, matchQuery, limit);
+  ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), matchQuery, limit);
   return rows.map((row): ArchitectureBookFtsMatch => {
     const title = String(row.title ?? "");
     const summary = String(row.summary ?? "");
@@ -2793,7 +2974,7 @@ function recordArchitectureLedgerOperation(db: SqliteDatabase, input: {
   ).run(
     `ledger_operation_${randomUUID()}`,
     input.scope.repository.storageRepositoryId,
-    input.scope.worktree.storageWorkspaceId,
+    architectureLedgerWorkspaceKey(input.scope.worktree),
     input.operationKind,
     Math.max(0, Math.trunc(input.durationMs)),
     input.rowCount,
@@ -3508,16 +3689,18 @@ function changeSetLedgerAppendSummary(result: ArchitectureLedgerAppendResult): R
 
 function changeSetJournalPlannedLedgerEvent(metadata: Record<string, unknown>): ArchitectureEventV1 | undefined {
   const architectureLedger = metadata.architectureLedger;
-  if (!isJsonRecord(architectureLedger)) return undefined;
+  if (architectureLedger === undefined) return undefined;
+  if (!isJsonRecord(architectureLedger)) throw new Error("changeset-ledger-recovery-metadata-malformed");
   const plannedEvent = architectureLedger.plannedEvent;
-  if (!isJsonRecord(plannedEvent)) return undefined;
+  if (plannedEvent === undefined) return undefined;
+  if (!isJsonRecord(plannedEvent)) throw new Error("changeset-ledger-recovery-planned-event-malformed");
+  const event = plannedEvent as unknown as ArchitectureEventV1;
   try {
-    const event = plannedEvent as unknown as ArchitectureEventV1;
     validateArchitectureLedgerEvent(event);
-    return event;
-  } catch {
-    return undefined;
+  } catch (error) {
+    throw new Error(`changeset-ledger-recovery-planned-event-invalid: ${error instanceof Error ? error.message : String(error)}`);
   }
+  return event;
 }
 
 function isJsonRecord(value: unknown): value is Record<string, Json> {
@@ -3528,9 +3711,13 @@ function recoverJournalFiles(root: string, files: ChangeSetJournalFile[]): void 
   for (const file of [...files].reverse()) {
     const absolute = resolve(root, file.path);
     if (file.tempPath) rmSync(file.tempPath, { recursive: true, force: true });
-    rmSync(absolute, { recursive: true, force: true });
-    if (file.existed && file.backupPath && existsSync(file.backupPath)) {
-      renameSync(file.backupPath, absolute);
+    if (file.existed) {
+      if (file.backupPath && existsSync(file.backupPath)) {
+        rmSync(absolute, { recursive: true, force: true });
+        renameSync(file.backupPath, absolute);
+      }
+    } else {
+      rmSync(absolute, { recursive: true, force: true });
     }
     fsyncDirectory(dirname(absolute));
   }

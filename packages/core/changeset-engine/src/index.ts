@@ -81,11 +81,20 @@ export interface ChangeSetDraft {
 export interface ApplyOptions {
   approved?: boolean;
   faultAfterOperations?: number;
-  afterModelValidatedBeforeCommit?: (input: { root: string; draft: ChangeSetDraft; journalId?: string }) => Promise<void> | void;
+  afterModelValidatedBeforeCommit?: (input: {
+    root: string;
+    draft: ChangeSetDraft;
+    journalId?: string;
+  }) => Promise<{ journalCommitted?: boolean } | void> | { journalCommitted?: boolean } | void;
 }
 
 export interface ProjectionRebuilderPort {
-  rebuildGeneratedProjection(root: string): void;
+  planGeneratedProjection(root: string): {
+    path: string;
+    expectedHash: string;
+    body: string;
+    operation: "render_projection" | "delete_entity";
+  }[];
 }
 
 export interface ChangeSetJournalFile {
@@ -100,6 +109,7 @@ export interface ChangeSetJournalPort {
   beginChangeSet(root: string, draft: ChangeSetDraft): Promise<string>;
   recordChangeSetFile(journalId: string, file: ChangeSetJournalFile): Promise<void>;
   commitChangeSet(journalId: string): Promise<void>;
+  completeChangeSetCleanup(journalId: string): Promise<void>;
   abortChangeSet(journalId: string, reason: string): Promise<void>;
   recoverPendingChangeSets(): number;
 }
@@ -189,6 +199,7 @@ export class ChangeSetEngine {
     const approved = options.approved || draft.status === "approved";
     if (!approved) throw new Error("ChangeSet must be approved before apply");
     const deps = this.requireDeps();
+    await this.validateModel(root, draft, deps, "before");
     const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[] = [];
     const journalId = await deps.journal?.beginChangeSet(root, draft);
     let journalCommitted = false;
@@ -203,8 +214,7 @@ export class ChangeSetEngine {
               if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
             }
           } else {
-            this.rebuildGeneratedProjection(root, deps);
-            applied += 1;
+            // The daemon-owned generated projection is planned and journaled once below.
           }
           if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
           continue;
@@ -214,15 +224,30 @@ export class ChangeSetEngine {
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
-      this.rebuildGeneratedProjection(root, deps);
-      await this.validateModel(root, draft, deps);
-      await options.afterModelValidatedBeforeCommit?.({ root, draft, journalId });
-      if (journalId) {
+      for (const projection of deps.projection.planGeneratedProjection(root)) {
+        await this.applyFileOperation(
+          root,
+          projection.path,
+          projection.expectedHash,
+          projection.body,
+          projection.operation,
+          backups,
+          journalId,
+          applied + 1
+        );
+        applied += 1;
+        if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
+      }
+      await this.validateModel(root, draft, deps, "after");
+      const commit = await options.afterModelValidatedBeforeCommit?.({ root, draft, journalId });
+      if (commit?.journalCommitted) journalCommitted = true;
+      if (journalId && !journalCommitted) {
         await deps.journal?.commitChangeSet(journalId);
         journalCommitted = true;
       }
       try {
         cleanupBackups(backups);
+        if (journalId) await deps.journal?.completeChangeSetCleanup(journalId);
       } catch {
         // A committed journal lets startup recovery remove stale temp/backup files without rolling back applied content.
       }
@@ -240,12 +265,11 @@ export class ChangeSetEngine {
     }
   }
 
-  private rebuildGeneratedProjection(root: string, deps: ChangeSetEngineDeps): void {
-    deps.projection.rebuildGeneratedProjection(root);
-  }
-
-  private async validateModel(root: string, draft: ChangeSetDraft, deps: ChangeSetEngineDeps): Promise<void> {
-    await deps.modelStore.validateModel({ root, repositoryId: draft.reason.taskSessionId, headSha: draft.base.headSha });
+  private async validateModel(root: string, draft: ChangeSetDraft, deps: ChangeSetEngineDeps, phase: "before" | "after"): Promise<void> {
+    const result = await deps.modelStore.validateModel({ root, repositoryId: draft.reason.taskSessionId, headSha: draft.base.headSha });
+    if (!result.valid) {
+      throw new Error(`ChangeSet model validation failed ${phase} apply: ${result.errors.join("; ") || "unknown validation error"}`);
+    }
   }
 
   private requireDeps(): ChangeSetEngineDeps {
@@ -270,14 +294,9 @@ export class ChangeSetEngine {
     const backupPath = `${absolute}.archctx-backup`;
     const tempPath = operation === "delete_entity" ? undefined : `${absolute}.archctx-tmp-${process.pid}-${sequence}`;
     if (existsSync(backupPath)) throw new Error(`Backup path already exists: ${path}`);
-    if (existed) {
-      assertExpectedHash(absolute, expectedHash);
-      renameSync(absolute, backupPath);
-      fsyncDirectory(dirname(absolute));
-    } else if (expectedHash !== "missing") {
-      throw new Error(`Expected missing file hash for new path: ${path}`);
-    }
-    backups.push({ path: absolute, backupPath, tempPath, existed });
+    if (existed) assertExpectedHash(absolute, expectedHash);
+    else if (expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${path}`);
+    const backup = { path: absolute, backupPath, tempPath, existed };
     if (journalId) {
       await deps.journal?.recordChangeSetFile(journalId, {
         path,
@@ -286,6 +305,11 @@ export class ChangeSetEngine {
         existed,
         operation
       });
+    }
+    backups.push(backup);
+    if (existed) {
+      renameSync(absolute, backupPath);
+      fsyncDirectory(dirname(absolute));
     }
     if (operation === "delete_entity") {
       rmSync(absolute, { force: true });
@@ -640,8 +664,14 @@ function isIgnorableDirectoryFsyncError(error: unknown): boolean {
 function rollback(backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[]): void {
   for (const backup of backups.reverse()) {
     if (backup.tempPath) rmSync(backup.tempPath, { recursive: true, force: true });
-    rmSync(backup.path, { recursive: true, force: true });
-    if (backup.existed && existsSync(backup.backupPath)) renameSync(backup.backupPath, backup.path);
+    if (backup.existed) {
+      if (existsSync(backup.backupPath)) {
+        rmSync(backup.path, { recursive: true, force: true });
+        renameSync(backup.backupPath, backup.path);
+      }
+    } else {
+      rmSync(backup.path, { recursive: true, force: true });
+    }
     fsyncDirectory(dirname(backup.path));
   }
 }

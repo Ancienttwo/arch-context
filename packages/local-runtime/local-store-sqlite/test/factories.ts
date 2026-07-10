@@ -9,6 +9,7 @@ import {
   normalizeArchitectureLedgerEvent,
   queryArchitectureLedgerBookNeighbors,
   replayArchitectureLedgerEvents,
+  validateArchitectureLedgerEvent,
   type ArchitectureAuditRunV1,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
@@ -354,6 +355,8 @@ export class TestLocalStore implements RuntimeLocalStore {
     record.status = "committed";
   }
 
+  async completeChangeSetCleanup(): Promise<void> {}
+
   async abortChangeSet(journalId: string, reason: string): Promise<void> {
     const record = this.changeSetJournals.get(journalId);
     if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
@@ -456,19 +459,40 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult> {
-    this.architectureEventAppends.push(input);
+    for (const event of input.events) validateArchitectureLedgerEvent(event);
     const appendedEvents: ArchitectureEventV1[] = [];
     const duplicateEvents: ArchitectureEventV1[] = [];
-    for (const event of input.events) {
-      const duplicate = this.architectureEvents.find((candidate) => candidate.idempotencyKey === event.idempotencyKey);
-      if (duplicate) {
-        duplicateEvents.push(duplicate);
-        continue;
+    const initialEventCount = this.architectureEvents.length;
+    try {
+      for (const event of input.events) {
+        const scope = scopeFromEvent(event);
+        const duplicate = this.eventsForScope(scope).find((candidate) => candidate.idempotencyKey === event.idempotencyKey);
+        if (duplicate) {
+          duplicateEvents.push(duplicate);
+          continue;
+        }
+        const operations = architectureLedgerPayload(event).operations ?? [];
+        if (operations.length > 0) {
+          const currentDigest = architectureLedgerStateDigest(this.stateForScope(scope));
+          if (event.baseDigest !== currentDigest) {
+            throw new Error(`architecture-ledger-base-digest-conflict: expected ${currentDigest}, received ${event.baseDigest}`);
+          }
+        }
+        const normalized = normalizeArchitectureLedgerEvent(event, this.latestEventHashForScope(event));
+        this.architectureEvents.push(normalized);
+        if (operations.length > 0) {
+          const resultingDigest = architectureLedgerStateDigest(this.stateForScope(scope));
+          if (event.resultingDigest !== resultingDigest) {
+            throw new Error(`architecture-ledger-resulting-digest-conflict: expected ${resultingDigest}, received ${event.resultingDigest}`);
+          }
+        }
+        appendedEvents.push(normalized);
       }
-      const normalized = normalizeArchitectureLedgerEvent(event, this.latestEventHashForScope(event));
-      this.architectureEvents.push(normalized);
-      appendedEvents.push(normalized);
+    } catch (error) {
+      this.architectureEvents.splice(initialEventCount);
+      throw error;
     }
+    this.architectureEventAppends.push(input);
     const scope = input.events[0] ? scopeFromEvent(input.events[0]) : undefined;
     const state = scope ? this.stateForScope(scope) : emptyArchitectureLedgerState();
     return {
@@ -479,6 +503,36 @@ export class TestLocalStore implements RuntimeLocalStore {
       relationCount: state.relations.length,
       constraintCount: state.constraints.length
     };
+  }
+
+  async appendArchitectureEventsAndCommitChangeSet(
+    journalId: string,
+    input: ArchitectureLedgerAppendInput
+  ): Promise<ArchitectureLedgerAppendResult> {
+    const record = this.changeSetJournals.get(journalId);
+    if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    if (record.status !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+    const result = await this.appendArchitectureEvents(input);
+    record.ledger = { ...record.ledger, append: result };
+    record.status = "committed";
+    return result;
+  }
+
+  async resolveArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope> {
+    const event = [...this.architectureEvents].reverse().find((candidate) =>
+      candidate.repository.storageRepositoryId === input.repository.storageRepositoryId
+      && candidate.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+      && candidate.worktree.branch === input.worktree.branch
+    );
+    return event ? scopeFromEvent(event) : input;
+  }
+
+  async resolveLatestArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope> {
+    const event = [...this.architectureEvents].reverse().find((candidate) =>
+      candidate.repository.storageRepositoryId === input.repository.storageRepositoryId
+      && candidate.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+    );
+    return event ? scopeFromEvent(event) : input;
   }
 
   async readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined> {
@@ -600,7 +654,10 @@ export class TestLocalStore implements RuntimeLocalStore {
   private eventsForScope(input: ArchitectureLedgerReplayInput): ArchitectureEventV1[] {
     const events = this.architectureEvents
       .filter((event) => event.repository.storageRepositoryId === input.repository.storageRepositoryId
-        && event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId);
+        && event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+        && event.worktree.branch === input.worktree.branch
+        && event.worktree.headSha === input.worktree.headSha
+        && event.worktree.worktreeDigest === input.worktree.worktreeDigest);
     if (!input.untilEventId) return events;
     const out: ArchitectureEventV1[] = [];
     for (const event of events) {
@@ -613,7 +670,10 @@ export class TestLocalStore implements RuntimeLocalStore {
   private latestEventHashForScope(scope: ArchitectureLedgerScope): string | null {
     return [...this.architectureEvents].reverse()
       .find((event) => event.repository.storageRepositoryId === scope.repository.storageRepositoryId
-        && event.worktree.storageWorkspaceId === scope.worktree.storageWorkspaceId)
+        && event.worktree.storageWorkspaceId === scope.worktree.storageWorkspaceId
+        && event.worktree.branch === scope.worktree.branch
+        && event.worktree.headSha === scope.worktree.headSha
+        && event.worktree.worktreeDigest === scope.worktree.worktreeDigest)
       ?.eventHash ?? null;
   }
 }

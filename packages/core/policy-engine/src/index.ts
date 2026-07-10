@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { assertRepoRelativePath } from "@archcontext/core/architecture-domain";
 import {
@@ -38,6 +39,7 @@ const ALLOWLIST = [
   ".archcontext/practices/",
   ".archcontext/waivers/",
   ".archcontext/decisions/",
+  ".archcontext/backups/",
   ".archcontext/generated/",
   "docs/architecture/"
 ];
@@ -194,6 +196,19 @@ export function assertAllowedArchContextPath(root: string, relativePath: string)
   const targetFromRoot = relative(absoluteRoot, absoluteTarget);
   if (targetFromRoot === "" || targetFromRoot === ".." || targetFromRoot.startsWith(`..${sep}`) || isAbsolute(targetFromRoot)) {
     throw new Error(`Path escapes repository: ${relativePath}`);
+  }
+  if (!existsSync(absoluteRoot)) return;
+  const canonicalRoot = realpathSync.native(absoluteRoot);
+  let existingAncestor = absoluteTarget;
+  while (!existsSync(existingAncestor)) {
+    const parent = resolve(existingAncestor, "..");
+    if (parent === existingAncestor) throw new Error(`Path has no existing repository ancestor: ${relativePath}`);
+    existingAncestor = parent;
+  }
+  const canonicalAncestor = realpathSync.native(existingAncestor);
+  const ancestorFromRoot = relative(canonicalRoot, canonicalAncestor);
+  if (ancestorFromRoot === ".." || ancestorFromRoot.startsWith(`..${sep}`) || isAbsolute(ancestorFromRoot)) {
+    throw new Error(`Path escapes repository through symlink: ${relativePath}`);
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,7 @@ import {
   type ArchitectureCandidateDeltaPolicyEvaluationV1,
   type ArchitectureCandidateDeltaV1
 } from "@archcontext/contracts";
-import { initializeArchContextModel, rebuildGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
+import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
 import {
   ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION,
   ChangeSetEngine,
@@ -38,7 +38,7 @@ function tempModelRoot(): string {
 function yamlChangeSetEngine(journal?: ChangeSetJournalPort): ChangeSetEngine {
   return new ChangeSetEngine({
     modelStore: new YamlModelStore(),
-    projection: { rebuildGeneratedProjection },
+    projection: { planGeneratedProjection },
     journal
   });
 }
@@ -396,6 +396,53 @@ describe("@archcontext/core/changeset-engine", () => {
     }
   });
 
+  test("generated projection replacement is journaled and rolls back on interruption", async () => {
+    const modelRoot = tempModelRoot();
+    const generatedPath = join(modelRoot, ".archcontext/generated/ARCHITECTURE.md");
+    const staleGeneratedPath = join(modelRoot, ".archcontext/generated/obsolete.json");
+    try {
+      const original = `${readFileSync(generatedPath, "utf8")}Manual drift\n`;
+      writeFileSync(generatedPath, original, "utf8");
+      writeFileSync(staleGeneratedPath, "{}\n", "utf8");
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const draft = engine.approve(engine.plan({
+        id: "changeset.generated-projection-rollback",
+        base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+        reason: { taskSessionId: "task.generated-projection" },
+        operations: [{
+          op: "write_policy",
+          path: ".archcontext/policies/generated-projection.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.policy/v1\nid: policy.generated-projection\n"
+        }]
+      }));
+
+      await expect(engine.apply(modelRoot, draft, { faultAfterOperations: 2 })).rejects.toThrow("fault-injection");
+      expect(readFileSync(generatedPath, "utf8")).toBe(original);
+      expect(journal.records[0].files).toContainEqual(expect.objectContaining({
+        path: ".archcontext/generated/ARCHITECTURE.md",
+        operation: "render_projection"
+      }));
+      expect(journal.records[0].status).toBe("aborted");
+      expect(existsSync(staleGeneratedPath)).toBe(true);
+
+      const retryJournal = new RecordingChangeSetJournal();
+      const retryEngine = yamlChangeSetEngine(retryJournal);
+      await retryEngine.apply(modelRoot, retryEngine.approve(retryEngine.plan({
+        ...draft,
+        id: "changeset.generated-projection-retry"
+      })));
+      expect(existsSync(staleGeneratedPath)).toBe(false);
+      expect(retryJournal.records[0].files).toContainEqual(expect.objectContaining({
+        path: ".archcontext/generated/obsolete.json",
+        operation: "delete_entity"
+      }));
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
   test("rolls back file writes when apply is interrupted", async () => {
     const modelRoot = tempModelRoot();
     try {
@@ -421,6 +468,35 @@ describe("@archcontext/core/changeset-engine", () => {
       await expect(engine.apply(modelRoot, draft, { faultAfterOperations: 1 })).rejects.toThrow("fault-injection");
       expect(readFileSync(join(modelRoot, ".archcontext/policies/review.yaml"), "utf8")).toBe(original);
       expect(journal.records[0]).toMatchObject({ status: "aborted", reason: "fault-injection" });
+    } finally {
+      rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an invalid post-apply model and restores the original files", async () => {
+    const modelRoot = tempModelRoot();
+    try {
+      const path = ".archcontext/policies/review.yaml";
+      const original = readFileSync(join(modelRoot, path), "utf8");
+      const journal = new RecordingChangeSetJournal();
+      const engine = yamlChangeSetEngine(journal);
+      const draft = engine.approve(
+        engine.plan({
+          id: "changeset.invalid-postcondition",
+          base: { headSha: "abc", worktreeDigest: digest, modelDigest: digest },
+          reason: { taskSessionId: "task.test" },
+          operations: [{
+            op: "write_policy",
+            path,
+            expectedHash: digestJson({ body: original }),
+            body: "id: policy.invalid\n"
+          }]
+        })
+      );
+
+      await expect(engine.apply(modelRoot, draft)).rejects.toThrow("ChangeSet model validation failed after apply");
+      expect(readFileSync(join(modelRoot, path), "utf8")).toBe(original);
+      expect(journal.records[0]).toMatchObject({ status: "aborted" });
     } finally {
       rmSync(modelRoot, { recursive: true, force: true });
     }
@@ -586,6 +662,8 @@ class RecordingChangeSetJournal implements ChangeSetJournalPort {
   async commitChangeSet(journalId: string): Promise<void> {
     this.record(journalId).status = "committed";
   }
+
+  async completeChangeSetCleanup(): Promise<void> {}
 
   async abortChangeSet(journalId: string, reason: string): Promise<void> {
     const record = this.record(journalId);

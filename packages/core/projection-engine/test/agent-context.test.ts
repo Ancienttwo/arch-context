@@ -67,10 +67,10 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     expect(plan.targets.every((target) => target.format === "markdown")).toBe(true);
     expect(plan.targets.every((target) => target.scope.kind === "entity" && target.scope.entityKind === "capability")).toBe(true);
 
-    const inspectionTargets = plan.files.filter((file) => file.target.scope.id === "capability.workflow-engine.inspection-migration");
+    const inspectionTargets = plan.files.filter((file) => file.targets.some((target) => target.scope.id === "capability.workflow-engine.inspection-migration"));
     expect(inspectionTargets.map((file) => file.path).sort()).toEqual(["scripts/AGENTS.md", "scripts/CLAUDE.md"]);
 
-    const projectionTargets = plan.files.filter((file) => file.target.scope.id === "capability.projection.agent-context");
+    const projectionTargets = plan.files.filter((file) => file.targets.some((target) => target.scope.id === "capability.projection.agent-context"));
     expect(projectionTargets.map((file) => file.path).sort()).toEqual([
       "packages/core/projection-engine/AGENTS.md",
       "packages/core/projection-engine/CLAUDE.md"
@@ -140,7 +140,42 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     const claudeChanged = changed.files.find((file) => file.path === "scripts/CLAUDE.md")!;
     expect(claudeChanged.body).toContain("Human-written context for this directory.");
     expect(claudeChanged.body.match(new RegExp(AGENT_CONTEXT_BEGIN_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))?.length).toBe(1);
-    expect(claudeChanged.target.sourceDigest).toBe("sha256:2222222222222222222222222222222222222222222222222222222222222222");
+    expect(claudeChanged.targets[0]?.sourceDigest).toBe("sha256:2222222222222222222222222222222222222222222222222222222222222222");
+  });
+
+  test("rejects source.include paths that escape the repository", () => {
+    expect(() => primarySourceDirectoryFromInclude("../../outside/**")).toThrow("Repository path must be relative POSIX path");
+  });
+
+  test("coalesces multiple capability regions targeting the same file", () => {
+    const shared: NativeModel = {
+      nodes: [
+        { id: "capability.shared.a", kind: "capability", name: "Shared A", source: { include: ["packages/shared/**"] } },
+        { id: "capability.shared.b", kind: "capability", name: "Shared B", source: { include: ["packages/shared/**"] } }
+      ],
+      relations: []
+    };
+    const plan = renderAgentContextProjection({ model: shared, sourceDigest });
+    expect(plan.targets).toHaveLength(4);
+    expect(plan.files.map((file) => file.path)).toEqual([
+      "packages/shared/AGENTS.md",
+      "packages/shared/CLAUDE.md"
+    ]);
+    for (const file of plan.files) {
+      expect(file.targets).toHaveLength(2);
+      expect(file.body).toContain('id="capability.shared.a"');
+      expect(file.body).toContain('id="capability.shared.b"');
+    }
+  });
+
+  test("rejects a tampered generated region whose marker digest no longer matches its body", () => {
+    const initial = renderAgentContextProjection({ model, sourceDigest });
+    const files = initial.files.map(({ path, body }) => ({
+      path,
+      body: path === "scripts/CLAUDE.md" ? body.replace("Inspection Migration", "Tampered Content") : body
+    }));
+    expect(() => renderAgentContextProjection({ model, sourceDigest, existingFiles: files }))
+      .toThrow("agent-context-marker-output-digest-mismatch");
   });
 
   test("does not project non-capability nodes even when they declare a source", () => {

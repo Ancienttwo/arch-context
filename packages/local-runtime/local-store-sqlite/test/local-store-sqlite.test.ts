@@ -4,8 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
-import { architectureLedgerPayload, planAuditRunToArchitectureLedgerEvent } from "@archcontext/core/architecture-ledger";
+import {
+  architectureLedgerPayload,
+  architectureLedgerStateDigest,
+  planAuditRunToArchitectureLedgerEvent,
+  replayArchitectureLedgerEvents
+} from "@archcontext/core/architecture-ledger";
+import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
+import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   LOCAL_SQLITE_MIGRATIONS,
   SQLITE_PRAGMAS,
@@ -25,6 +32,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("migration SQL enables required SQLite safety pragmas", () => {
     const sql = migrationSql();
     expect(sql.slice(0, SQLITE_PRAGMAS.length)).toEqual([...SQLITE_PRAGMAS]);
+    expect(SQLITE_PRAGMAS).toContain("PRAGMA synchronous = FULL");
     expect(sql.some((statement) => statement.includes("repository_sessions"))).toBe(true);
     expect(LOCAL_SQLITE_MIGRATIONS.map((migration) => migration.id)).toEqual([
       "0001_runtime_state",
@@ -36,7 +44,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0007_runtime_job_queue",
       "0008_runtime_job_queue_hardening",
       "0009_architecture_ledger_search_fts",
-      "0010_audit_runs"
+      "0010_audit_runs",
+      "0011_changeset_cleanup_cursor"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -355,7 +364,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0007_runtime_job_queue",
       "0008_runtime_job_queue_hardening",
       "0009_architecture_ledger_search_fts",
-      "0010_audit_runs"
+      "0010_audit_runs",
+      "0011_changeset_cleanup_cursor"
     ]);
 
     const snapshot = {
@@ -721,12 +731,72 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const tempPath = `${absolutePath}.archctx-tmp-test`;
     const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
     try {
+      initializeArchContextModel(root, "Crash Recovery App");
       writeRepoFile(root, relativePath, original);
       const first = new SqliteLocalStore(dbPath);
       await first.migrate();
       const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.recover", relativePath));
+      await first.recordChangeSetFile(journalId, {
+        path: relativePath,
+        tempPath,
+        backupPath,
+        existed: true,
+        operation: "update_entity_fields"
+      });
       renameSync(absolutePath, backupPath);
       writeFileSync(tempPath, "partial write", "utf8");
+      first.close();
+
+      const second = new SqliteLocalStore(dbPath);
+      await second.migrate();
+      expect(second.recoverPendingChangeSets()).toBe(1);
+      expect(readFileSync(absolutePath, "utf8")).toBe(original);
+      expect(existsSync(tempPath)).toBe(false);
+      expect(existsSync(backupPath)).toBe(false);
+      expect(second.recoverPendingChangeSets()).toBe(0);
+      const engine = new ChangeSetEngine({
+        modelStore: new YamlModelStore(),
+        projection: { planGeneratedProjection },
+        journal: second
+      });
+      const replacement = "schemaVersion: archcontext.policy/v1\nid: policy.after-recovery\n";
+      const draft = engine.approve(engine.plan({
+        id: "changeset.after-recovery",
+        base: {
+          headSha: "abc",
+          worktreeDigest: digestJson({ worktree: "after-recovery" } as unknown as Json),
+          modelDigest: (await new YamlModelStore().validateModel({ root, repositoryId: "repo.test", headSha: "abc" })).modelDigest
+        },
+        reason: { taskSessionId: "task.after-recovery" },
+        operations: [{
+          op: "write_policy",
+          path: relativePath,
+          expectedHash: digestJson({ body: original }),
+          body: replacement
+        }]
+      }));
+      await expect(engine.apply(root, draft)).resolves.toMatchObject({ status: "applied" });
+      expect(readFileSync(absolutePath, "utf8")).toBe(replacement);
+      expect(existsSync(backupPath)).toBe(false);
+      second.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("sqlite changeset recovery preserves the original when intent is durable but mutation never starts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-intent-only-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    const absolutePath = join(root, relativePath);
+    const backupPath = `${absolutePath}.archctx-backup`;
+    const tempPath = `${absolutePath}.archctx-tmp-test`;
+    const original = "schemaVersion: archcontext.policy/v1\nid: policy.original\n";
+    try {
+      writeRepoFile(root, relativePath, original);
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft("changeset.intent-only", relativePath));
       await first.recordChangeSetFile(journalId, {
         path: relativePath,
         tempPath,
@@ -740,9 +810,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await second.migrate();
       expect(second.recoverPendingChangeSets()).toBe(1);
       expect(readFileSync(absolutePath, "utf8")).toBe(original);
-      expect(existsSync(tempPath)).toBe(false);
       expect(existsSync(backupPath)).toBe(false);
-      expect(second.recoverPendingChangeSets()).toBe(0);
+      expect(existsSync(tempPath)).toBe(false);
       second.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -785,6 +854,78 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("changeset recovery isolates an idempotency conflict and continues remaining pending journals", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-recovery-isolation-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const planned = architectureLedgerEvent(52);
+      const conflicting = {
+        ...planned,
+        payload: {
+          ...(planned.payload as Record<string, Json>),
+          title: "Conflicting durable event"
+        }
+      };
+      const conflictedJournal = await store.beginChangeSet(root, changeSetDraft("changeset.recovery-conflict", ".archcontext/policies/conflict.yaml"));
+      await store.recordChangeSetLedgerPlan(conflictedJournal, { event: planned });
+      const recoverableJournal = await store.beginChangeSet(root, changeSetDraft("changeset.recovery-continues", ".archcontext/policies/continues.yaml"));
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [conflicting] });
+
+      expect(store.recoverPendingChangeSets()).toBe(1);
+      expect(await sqliteScalar(dbPath, `SELECT status FROM changeset_journal WHERE journal_id = '${conflictedJournal}'`)).toBe("pending");
+      expect(await sqliteScalar(dbPath, `SELECT status FROM changeset_journal WHERE journal_id = '${recoverableJournal}'`)).toBe("recovered");
+      expect(String(await sqliteScalar(dbPath, `SELECT metadata_json FROM changeset_journal WHERE journal_id = '${conflictedJournal}'`)))
+        .toContain("changeset-ledger-recovery-idempotency-conflict");
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
+
+  test("changeset recovery leaves malformed planned ledger metadata pending and reports the error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-recovery-malformed-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, changeSetDraft("changeset.recovery-malformed", ".archcontext/policies/malformed.yaml"));
+      await sqliteRun(dbPath,
+        "UPDATE changeset_journal SET metadata_json = ? WHERE journal_id = ?",
+        [JSON.stringify({ architectureLedger: { plannedEvent: { schemaVersion: "invalid" } } }), journalId]
+      );
+
+      expect(store.recoverPendingChangeSets()).toBe(0);
+      expect(await sqliteScalar(dbPath, `SELECT status FROM changeset_journal WHERE journal_id = '${journalId}'`)).toBe("pending");
+      expect(String(await sqliteScalar(dbPath, `SELECT metadata_json FROM changeset_journal WHERE journal_id = '${journalId}'`)))
+        .toContain("changeset-ledger-recovery-planned-event-invalid");
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
+
+  test("startup cleanup processes only the bounded committed-journal backlog", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-cleanup-bound-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      for (let index = 0; index < 101; index += 1) {
+        const journalId = await store.beginChangeSet(root, changeSetDraft(`changeset.cleanup-bound-${index}`, `.archcontext/policies/cleanup-${index}.yaml`));
+        await store.commitChangeSet(journalId);
+      }
+      expect(store.recoverPendingChangeSets()).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM changeset_journal WHERE status = 'committed' AND cleanup_completed_at IS NULL")).toBe(1);
+      expect(store.recoverPendingChangeSets()).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM changeset_journal WHERE status = 'committed' AND cleanup_completed_at IS NULL")).toBe(0);
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
+
   test("sqlite changeset recovery keeps projection when ledger append completed before journal commit", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-ledger-recover-"));
     const dbPath = join(root, "runtime.sqlite");
@@ -823,6 +964,37 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       second.close();
       expect(await sqliteScalar(dbPath, "SELECT status FROM changeset_journal WHERE changeset_id = 'changeset.ledger-recover'")).toBe("committed");
       expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events WHERE idempotency_key = 'architecture-ledger-test-42'")).toBe(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("ledger append and changeset commit roll back atomically on failure", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-changeset-ledger-atomic-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const relativePath = ".archcontext/policies/review.yaml";
+    try {
+      const store = new SqliteLocalStore(dbPath);
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, changeSetDraft("changeset.ledger-atomic", relativePath));
+      const event = architectureLedgerEvent(43);
+      await store.recordChangeSetLedgerPlan(journalId, { event });
+
+      await expect(store.appendArchitectureEventsAndCommitChangeSet(journalId, {
+        writer: "runtime-daemon",
+        events: [event],
+        faultAfterEvents: 1
+      })).rejects.toThrow("architecture-ledger-fault-injection");
+      expect(await sqliteScalar(dbPath, "SELECT status FROM changeset_journal WHERE journal_id = '" + journalId + "'")).toBe("pending");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events WHERE idempotency_key = 'architecture-ledger-test-43'")).toBe(0);
+
+      await expect(store.appendArchitectureEventsAndCommitChangeSet(journalId, {
+        writer: "runtime-daemon",
+        events: [event]
+      })).resolves.toMatchObject({ appendedEvents: [{ idempotencyKey: "architecture-ledger-test-43" }] });
+      expect(await sqliteScalar(dbPath, "SELECT status FROM changeset_journal WHERE journal_id = '" + journalId + "'")).toBe("committed");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events WHERE idempotency_key = 'architecture-ledger-test-43'")).toBe(1);
+      store.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1062,7 +1234,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const store = new SqliteLocalStore(databasePath);
     try {
       await store.migrate();
-      const events = Array.from({ length: 1000 }, (_, index) => architectureLedgerEvent(index));
+      const events: ArchitectureEventV1[] = [];
+      for (let index = 0; index < 1000; index += 1) events.push(architectureLedgerEvent(index, events));
       const appended = await store.appendArchitectureEvents({ writer: "runtime-daemon", events });
       expect(appended.appendedEvents).toHaveLength(1000);
       expect(appended.duplicateEvents).toHaveLength(0);
@@ -1155,7 +1328,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await store.migrate();
       await expect(store.appendArchitectureEvents({
         writer: "runtime-daemon",
-        events: [architectureLedgerEvent(0), architectureLedgerEvent(1)],
+        events: [architectureLedgerEvent(0), architectureLedgerEvent(1, [architectureLedgerEvent(0)])],
         faultAfterEvents: 1
       })).rejects.toThrow("architecture-ledger-fault-injection");
       await expect(store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
@@ -1171,6 +1344,60 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       removeTempRoot(root);
     }
   }, LEGACY_SQLITE_MIGRATION_TIMEOUT_MS);
+
+  test("architecture ledger rejects stale base and incorrect resulting digests atomically", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-cas-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const valid = architectureLedgerEvent(0);
+      await expect(store.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [{ ...valid, baseDigest: digestJson({ stale: true } as unknown as Json) }]
+      })).rejects.toThrow("architecture-ledger-base-digest-conflict");
+      await expect(store.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [{ ...valid, resultingDigest: digestJson({ incorrect: true } as unknown as Json) }]
+      })).rejects.toThrow("architecture-ledger-resulting-digest-conflict");
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events")).toBe(0);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_entities_current")).toBe(0);
+      expect((await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).events).toEqual([]);
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
+
+  test("architecture ledger idempotency conflict rolls back earlier events in the same transaction", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-idempotency-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const first = architectureLedgerEvent(0);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first] });
+      const second = architectureLedgerEvent(1, [first]);
+      const conflict = {
+        ...first,
+        payload: {
+          ...(first.payload as Record<string, Json>),
+          title: "Conflicting replay of the first event"
+        }
+      };
+
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [second, conflict] }))
+        .rejects.toThrow("architecture-ledger-idempotency-conflict");
+      expect((await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).events.map((event) => event.eventId))
+        .toEqual([first.eventId]);
+      expect((await store.readArchitectureLedgerState(ARCHITECTURE_LEDGER_SCOPE)).entities.map((entity) => entity.entityId))
+        .toEqual(["entity.0"]);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events")).toBe(1);
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
 
   test("ADR-0042: audit run pending -> issuing -> issued transitions append without idempotency conflict and project the latest status", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-audit-run-transitions-"));
@@ -1269,6 +1496,93 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       removeTempRoot(root);
     }
   });
+
+  test("architecture ledger rejects forbidden payload content before durable persistence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-ledger-privacy-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const unsafe = {
+        ...architectureLedgerEvent(90),
+        payload: { rawDiff: "diff --git a/secrets.ts b/secrets.ts" }
+      } as ArchitectureEventV1;
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [unsafe] }))
+        .rejects.toThrow("architecture-ledger-privacy-denied");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events")).toBe(0);
+      expect((await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).events).toEqual([]);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("architecture ledger isolates current state, replay, FTS, and snapshots by the complete worktree cursor", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-ledger-scope-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const mainEvent = architectureLedgerEvent(0);
+      const featureScope = {
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: {
+          ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+          branch: "feature/isolated",
+          headSha: "def456ledger",
+          worktreeDigest: digestJson({ worktree: "feature-isolated" } as unknown as Json)
+        }
+      };
+      const featureEvent = {
+        ...architectureLedgerEvent(0),
+        repository: featureScope.repository,
+        worktree: featureScope.worktree,
+        headSha: featureScope.worktree.headSha,
+        eventId: mainEvent.eventId,
+        idempotencyKey: mainEvent.idempotencyKey
+      };
+      const featureOnlyEvent = {
+        ...architectureLedgerEvent(102, [featureEvent]),
+        repository: featureScope.repository,
+        worktree: featureScope.worktree,
+        headSha: featureScope.worktree.headSha
+      };
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [mainEvent] });
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [featureEvent, featureOnlyEvent] });
+
+      expect((await store.readArchitectureLedgerState(ARCHITECTURE_LEDGER_SCOPE)).entities.map((entity) => entity.entityId))
+        .toEqual(["entity.0"]);
+      expect((await store.readArchitectureLedgerState(featureScope)).entities.map((entity) => entity.entityId))
+        .toEqual(["entity.0", "entity.102"]);
+      expect((await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE)).events.map((event) => event.eventId))
+        .toEqual([mainEvent.eventId]);
+      expect((await store.replayArchitectureLedger(featureScope)).events.map((event) => event.eventId))
+        .toEqual([featureEvent.eventId, featureOnlyEvent.eventId]);
+      expect(await store.queryArchitectureLedgerFts({ ...ARCHITECTURE_LEDGER_SCOPE, query: "102" })).toEqual([]);
+
+      const mainSnapshot = await store.createArchitectureLedgerSnapshot({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        sourceMode: "dual",
+        projectionDigest: digestJson({ projection: "main" } as unknown as Json),
+        inputDigests: { modelDigest: digestJson({ model: "main" } as unknown as Json) },
+        createdAt: "2026-06-25T03:00:00.000Z"
+      });
+      const featureSnapshot = await store.createArchitectureLedgerSnapshot({
+        ...featureScope,
+        sourceMode: "dual",
+        projectionDigest: digestJson({ projection: "feature" } as unknown as Json),
+        inputDigests: { modelDigest: digestJson({ model: "feature" } as unknown as Json) },
+        createdAt: "2026-06-25T03:01:00.000Z"
+      });
+      expect((await store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, snapshotId: mainSnapshot.snapshotId })).events)
+        .toHaveLength(1);
+      expect((await store.replayArchitectureLedger({ ...featureScope, snapshotId: featureSnapshot.snapshotId })).events)
+        .toHaveLength(2);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 const ARCHITECTURE_LEDGER_SCOPE = {
@@ -1319,7 +1633,7 @@ function runtimeAgentJob(suffix: string, input: {
   };
 }
 
-function architectureLedgerEvent(index: number): ArchitectureEventV1 {
+function architectureLedgerEvent(index: number, priorEvents: ArchitectureEventV1[] = []): ArchitectureEventV1 {
   const operations: Record<string, Json>[] = [{
     op: "upsert_entity",
     entity: {
@@ -1469,15 +1783,16 @@ function architectureLedgerEvent(index: number): ArchitectureEventV1 {
     }];
   }
 
-  return {
+  const baseDigest = architectureLedgerStateDigest(replayArchitectureLedgerEvents(priorEvents));
+  const event: ArchitectureEventV1 = {
     schemaVersion: "archcontext.architecture-event/v1",
     eventId: `architecture_event.${String(index).padStart(4, "0")}`,
     eventType: "architecture.graph.update",
     payloadVersion: "archcontext.architecture-ledger-payload/v1",
     repository: ARCHITECTURE_LEDGER_SCOPE.repository,
     worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
-    baseDigest: digestJson({ base: index } as unknown as Json),
-    resultingDigest: digestJson({ result: index } as unknown as Json),
+    baseDigest,
+    resultingDigest: baseDigest,
     headSha: ARCHITECTURE_LEDGER_SCOPE.worktree.headSha,
     actor: { kind: "daemon", id: "archctxd" },
     source: "checkpoint",
@@ -1485,6 +1800,10 @@ function architectureLedgerEvent(index: number): ArchitectureEventV1 {
     idempotencyKey: `architecture-ledger-test-${index}`,
     provenance,
     payload: payload as unknown as Json
+  };
+  return {
+    ...event,
+    resultingDigest: architectureLedgerStateDigest(replayArchitectureLedgerEvents([...priorEvents, event]))
   };
 }
 
@@ -1494,6 +1813,16 @@ async function sqliteScalar(databasePath: string, sql: string): Promise<any> {
   try {
     const row = db.query(sql).get() as Record<string, unknown> | undefined;
     return row ? Object.values(row)[0] : undefined;
+  } finally {
+    db.close();
+  }
+}
+
+async function sqliteRun(databasePath: string, sql: string, params: unknown[] = []): Promise<void> {
+  const bunSqlite = await import("bun:sqlite");
+  const db = new (bunSqlite as any).Database(databasePath);
+  try {
+    db.query(sql).run(...params);
   } finally {
     db.close();
   }

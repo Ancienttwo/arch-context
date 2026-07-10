@@ -30,7 +30,7 @@ export interface ArchitectureLedgerEntityRecord {
   entityId: string;
   kind: string;
   canonicalName: string;
-  status: "active" | "deprecated" | "removed";
+  status: "active" | "planned" | "deprecated" | "removed";
   path?: string;
   summary?: string;
   metadata?: Record<string, Json>;
@@ -41,7 +41,7 @@ export interface ArchitectureLedgerRelationRecord {
   kind: string;
   sourceEntityId: string;
   targetEntityId: string;
-  status: "active" | "deprecated" | "removed";
+  status: "active" | "planned" | "deprecated" | "removed";
   summary?: string;
   metadata?: Record<string, Json>;
 }
@@ -50,7 +50,7 @@ export interface ArchitectureLedgerConstraintRecord {
   constraintId: string;
   kind: string;
   subjectId: string;
-  status: "active" | "deprecated" | "removed";
+  status: "active" | "planned" | "deprecated" | "removed";
   severity?: "notice" | "warning" | "error" | "critical";
   summary?: string;
   metadata?: Record<string, Json>;
@@ -842,7 +842,7 @@ export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYaml
     payloadVersion: "archcontext.architecture-ledger-yaml-import/v1",
     repository: input.repository,
     worktree: input.worktree,
-    baseDigest: sourceDigest,
+    baseDigest: architectureLedgerStateDigest(emptyArchitectureLedgerState()),
     resultingDigest: graphDigest,
     headSha: input.worktree.headSha,
     actor: { kind: "migration", id: "archctx-ledger-yaml-import" },
@@ -1066,7 +1066,6 @@ export function planYamlToArchitectureLedgerRebuild(input: ArchitectureLedgerYam
   const plan = planYamlToArchitectureLedgerImport(input);
   const previousGraphDigest = architectureLedgerStateDigest(input.previousState);
   const deleteOperations = architectureLedgerDeletionOperations(input.previousState, plan.state);
-  if (deleteOperations.length === 0) return plan;
   const payload = architectureLedgerPayload(plan.event);
   const event = normalizeArchitectureLedgerEvent({
     ...plan.event,
@@ -1653,41 +1652,46 @@ export function projectArchitectureLedgerStateToYamlFiles(state: ArchitectureLed
   const canonical = canonicalArchitectureLedgerState(state);
   const files: ArchitectureLedgerProjectionFile[] = [
     ...canonical.entities.map((entity) => {
+      const declared = declaredProjectionRecord(entity.metadata, ["archcontext.node/v1"], `entity ${entity.entityId}`);
+      const summary = entity.summary;
+      if (!summary) throw new Error(`architecture-ledger-projection-invalid: entity ${entity.entityId} requires summary`);
       const body = canonicalArchitectureYaml({
+        ...declared,
         schemaVersion: "archcontext.node/v1",
         id: entity.entityId,
         kind: entity.kind,
         name: entity.canonicalName,
         status: entity.status,
-        ...(entity.path ? { path: entity.path } : {}),
-        ...(entity.summary ? { summary: entity.summary } : {}),
-        ...(entity.metadata ? { metadata: entity.metadata as unknown as Json } : {})
+        summary
       } as unknown as Json);
       return projectionFile(`.archcontext/model/nodes/${pathSegment(entity.entityId)}.yaml`, body, "entity", entity.entityId);
     }),
     ...canonical.relations.map((relation) => {
-      const body = canonicalArchitectureYaml({
-        schemaVersion: "archcontext.relation/v1",
-        id: relation.relationId,
-        kind: relation.kind,
-        source: relation.sourceEntityId,
-        target: relation.targetEntityId,
-        status: relation.status,
-        ...(relation.summary ? { summary: relation.summary } : {}),
-        ...(relation.metadata ? { metadata: relation.metadata as unknown as Json } : {})
-      } as unknown as Json);
+      const declared = declaredProjectionRecord(
+        relation.metadata,
+        ["archcontext.relation/v1", "archcontext.cross-repo-relation/v1"],
+        `relation ${relation.relationId}`
+      );
+      const schemaVersion = requireStringField(declared, "schemaVersion", `relation ${relation.relationId}`);
+      const body = schemaVersion === "archcontext.cross-repo-relation/v1"
+        ? canonicalArchitectureYaml({ ...declared, id: relation.relationId, kind: relation.kind } as unknown as Json)
+        : canonicalArchitectureYaml({
+          ...declared,
+          schemaVersion: "archcontext.relation/v1",
+          id: relation.relationId,
+          kind: relation.kind,
+          source: relation.sourceEntityId,
+          target: relation.targetEntityId
+        } as unknown as Json);
       return projectionFile(`.archcontext/model/relations/${pathSegment(relation.relationId)}.yaml`, body, "relation", relation.relationId);
     }),
     ...canonical.constraints.map((constraint) => {
+      const declared = declaredProjectionRecord(constraint.metadata, ["archcontext.constraint/v1"], `constraint ${constraint.constraintId}`);
       const body = canonicalArchitectureYaml({
+        ...declared,
         schemaVersion: "archcontext.constraint/v1",
         id: constraint.constraintId,
-        kind: constraint.kind,
-        subject: constraint.subjectId,
-        status: constraint.status,
-        ...(constraint.severity ? { severity: constraint.severity } : {}),
-        ...(constraint.summary ? { summary: constraint.summary } : {}),
-        ...(constraint.metadata ? { metadata: constraint.metadata as unknown as Json } : {})
+        ...(constraint.severity ? { severity: constraint.severity } : {})
       } as unknown as Json);
       return projectionFile(`.archcontext/model/constraints/${pathSegment(constraint.constraintId)}.yaml`, body, "constraint", constraint.constraintId);
     })
@@ -1888,12 +1892,11 @@ function yamlRecordToLedgerOperation(value: Record<string, Json>, path: string, 
     const entityId = requireStringField(value, "id", path);
     const entity: ArchitectureLedgerEntityRecord = {
       entityId,
-      kind: stringField(value, "kind") ?? "component",
-      canonicalName: stringField(value, "name") ?? stringField(value, "canonicalName") ?? entityId,
-      status: activeStatus(value.status),
-      ...(stringField(value, "path") ? { path: stringField(value, "path") } : {}),
-      ...(stringField(value, "summary") ? { summary: stringField(value, "summary") } : {}),
-      ...metadataField(value, ["schemaVersion", "id", "kind", "name", "canonicalName", "status", "path", "summary"])
+      kind: requireStringField(value, "kind", path),
+      canonicalName: requireStringField(value, "name", path),
+      status: declaredStatus(value.status, path),
+      summary: requireStringField(value, "summary", path),
+      metadata: { declared: value }
     };
     return { operation: { op: "upsert_entity", entity }, targetKind: "entity", targetId: entityId };
   }
@@ -1901,12 +1904,12 @@ function yamlRecordToLedgerOperation(value: Record<string, Json>, path: string, 
     const relationId = requireStringField(value, "id", path);
     const relation: ArchitectureLedgerRelationRecord = {
       relationId,
-      kind: stringField(value, "kind") ?? "depends_on",
+      kind: requireStringField(value, "kind", path),
       sourceEntityId: requireStringField(value, "source", path),
       targetEntityId: requireStringField(value, "target", path),
-      status: activeStatus(value.status),
-      ...(stringField(value, "summary") ?? stringField(value, "intent") ? { summary: stringField(value, "summary") ?? stringField(value, "intent") } : {}),
-      ...metadataField(value, ["schemaVersion", "id", "kind", "source", "target", "status", "summary", "intent"])
+      status: "active",
+      summary: requireStringField(value, "intent", path),
+      metadata: { declared: value }
     };
     return { operation: { op: "upsert_relation", relation }, targetKind: "relation", targetId: relationId };
   }
@@ -1916,25 +1919,28 @@ function yamlRecordToLedgerOperation(value: Record<string, Json>, path: string, 
     const target = repoScopedTarget(value.target, path, "target");
     const relation: ArchitectureLedgerRelationRecord = {
       relationId,
-      kind: stringField(value, "kind") ?? "depends_on",
+      kind: requireStringField(value, "kind", path),
       sourceEntityId: source,
       targetEntityId: target,
-      status: activeStatus(value.status),
-      ...(stringField(value, "intent") ? { summary: stringField(value, "intent") } : {}),
-      ...metadataField(value, ["schemaVersion", "id", "kind", "source", "target", "status", "intent"])
+      status: "active",
+      summary: requireStringField(value, "intent", path),
+      metadata: { declared: value }
     };
     return { operation: { op: "upsert_relation", relation }, targetKind: "relation", targetId: relationId };
   }
   if (schemaVersion === "archcontext.constraint/v1") {
     const constraintId = requireStringField(value, "id", path);
+    const scope = requiredRecordField(value, "scope", path);
+    const rule = requiredRecordField(value, "rule", path);
+    const subjectId = firstStringArrayValue(scope.nodes) ?? firstStringArrayValue(scope.relations) ?? "repository";
     const constraint: ArchitectureLedgerConstraintRecord = {
       constraintId,
-      kind: stringField(value, "kind") ?? "constraint",
-      subjectId: stringField(value, "subject") ?? stringField(value, "subjectId") ?? "repository",
-      status: activeStatus(value.status),
-      ...(severityField(value.severity) ? { severity: severityField(value.severity) } : {}),
-      ...(stringField(value, "summary") ? { summary: stringField(value, "summary") } : {}),
-      ...metadataField(value, ["schemaVersion", "id", "kind", "subject", "subjectId", "status", "severity", "summary"])
+      kind: requireStringField(rule, "type", path),
+      subjectId,
+      status: "active",
+      severity: requiredSeverity(value.severity, path),
+      summary: requireStringField(value, "rationale", path),
+      metadata: { declared: value }
     };
     return { operation: { op: "upsert_constraint", constraint }, targetKind: "constraint", targetId: constraintId };
   }
@@ -2112,17 +2118,34 @@ function isGeneratedProjectionFile(file: ArchitectureLedgerModelFile): boolean {
     file.body.includes("Generated by ArchContext");
 }
 
-function metadataField(value: Record<string, Json>, omitted: string[]): { metadata?: Record<string, Json> } {
-  const metadata: Record<string, Json> = {};
-  const explicit = value.metadata;
-  if (isRecord(explicit)) {
-    for (const key of Object.keys(explicit).sort()) metadata[key] = explicit[key]!;
+function declaredProjectionRecord(
+  metadata: Record<string, Json> | undefined,
+  allowedSchemaVersions: string[],
+  label: string
+): Record<string, Json> {
+  const declared = metadata?.declared;
+  if (!isRecord(declared)) throw new Error(`architecture-ledger-projection-invalid: ${label} has no declared YAML record`);
+  const schemaVersion = requireStringField(declared, "schemaVersion", label);
+  if (!allowedSchemaVersions.includes(schemaVersion)) {
+    throw new Error(`architecture-ledger-projection-invalid: ${label} has unsupported declared schema ${schemaVersion}`);
   }
-  for (const key of Object.keys(value).sort()) {
-    if (omitted.includes(key) || key === "metadata") continue;
-    metadata[key] = value[key]!;
-  }
-  return Object.keys(metadata).length === 0 ? {} : { metadata };
+  return declared;
+}
+
+function requiredRecordField(value: Record<string, Json>, key: string, path: string): Record<string, Json> {
+  const field = value[key];
+  if (!isRecord(field)) throw new Error(`${path}: ${key} is required`);
+  return field;
+}
+
+function firstStringArrayValue(value: Json | undefined): string | undefined {
+  return Array.isArray(value) ? value.find((item): item is string => typeof item === "string" && item.length > 0) : undefined;
+}
+
+function requiredSeverity(value: Json | undefined, path: string): "notice" | "warning" | "error" | "critical" {
+  const severity = severityField(value);
+  if (!severity) throw new Error(`${path}: severity is required`);
+  return severity;
 }
 
 function declaredYamlSubject(value: Record<string, Json>, path: string): string {
@@ -2156,8 +2179,9 @@ function stringField(value: Record<string, Json>, key: string): string | undefin
   return typeof value[key] === "string" ? value[key] : undefined;
 }
 
-function activeStatus(value: Json | undefined): "active" | "deprecated" | "removed" {
-  return value === "deprecated" || value === "removed" ? value : "active";
+function declaredStatus(value: Json | undefined, path: string): "active" | "planned" | "deprecated" | "removed" {
+  if (value === "active" || value === "planned" || value === "deprecated" || value === "removed") return value;
+  throw new Error(`${path}: status is required`);
 }
 
 function severityField(value: Json | undefined): "notice" | "warning" | "error" | "critical" | undefined {
@@ -2256,8 +2280,87 @@ export function validateArchitectureLedgerEvent(event: ArchitectureEventV1): voi
   if (event.worktree.workspaceId.length === 0 || event.worktree.storageWorkspaceId.length === 0 || event.worktree.headSha.length === 0) {
     throw new Error(`architecture-ledger-invalid-event: worktree identity required for ${event.eventId}`);
   }
+  assertArchitectureLedgerPersistenceSafe(event.payload, `event.payload for ${event.eventId}`);
+  if (event.extensions) assertArchitectureLedgerPersistenceSafe(event.extensions as unknown as Json, `event.extensions for ${event.eventId}`);
+  assertArchitectureLedgerPersistenceSafe(event.provenance as unknown as Json, `event.provenance for ${event.eventId}`);
   const payload = architectureLedgerPayload(event);
   for (const operation of payload.operations ?? []) validateArchitectureLedgerOperation(operation, event.eventId);
+}
+
+const ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES = 262_144;
+const ARCHITECTURE_LEDGER_MAX_PERSISTED_STRING_BYTES = 8_192;
+const ARCHITECTURE_LEDGER_MAX_PERSISTED_DEPTH = 32;
+const ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS = new Set([
+  "rawsource",
+  "sourcebody",
+  "sourcecode",
+  "rawdiff",
+  "diffbody",
+  "rawpatch",
+  "patchbody",
+  "prompt",
+  "promptbody",
+  "completion",
+  "completionbody",
+  "codegraphoutput",
+  "fullcodegraphoutput",
+  "webhookbody",
+  "rawwebhook",
+  "secret",
+  "secrets",
+  "credential",
+  "credentials",
+  "privatekey",
+  "accesstoken",
+  "refreshtoken"
+]);
+const ARCHITECTURE_LEDGER_SAFE_SENSITIVE_KEY_SUFFIX = /(?:digest|id|ids|count|counts|ref|refs|path|paths|persisted)$/;
+const ARCHITECTURE_LEDGER_FORBIDDEN_STRING_PATTERNS = [
+  /diff --git /,
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
+  /\bsk-[A-Za-z0-9_-]{20,}\b/,
+  /\bAKIA[A-Z0-9]{16}\b/,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/i,
+  /\b(?:api[_-]?key|secret|token|password|private[_-]?key)\s*[:=]\s*["']?[^\s"',;]{8,}/i
+];
+
+export function assertArchitectureLedgerPersistenceSafe(value: Json, label = "architecture-ledger-value"): void {
+  const encoded = JSON.stringify(value);
+  if (Buffer.byteLength(encoded, "utf8") > ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES) {
+    throw new Error(`architecture-ledger-privacy-denied: persisted JSON exceeds size limit at ${label}`);
+  }
+  visit(value, label, 0);
+
+  function visit(current: Json, path: string, depth: number): void {
+    if (depth > ARCHITECTURE_LEDGER_MAX_PERSISTED_DEPTH) {
+      throw new Error(`architecture-ledger-privacy-denied: persisted JSON exceeds depth limit at ${path}`);
+    }
+    if (typeof current === "string") {
+      if (Buffer.byteLength(current, "utf8") > ARCHITECTURE_LEDGER_MAX_PERSISTED_STRING_BYTES) {
+        throw new Error(`architecture-ledger-privacy-denied: persisted string exceeds size limit at ${path}`);
+      }
+      if (ARCHITECTURE_LEDGER_FORBIDDEN_STRING_PATTERNS.some((pattern) => pattern.test(current))) {
+        throw new Error(`architecture-ledger-privacy-denied: forbidden raw or secret-shaped content at ${path}`);
+      }
+      return;
+    }
+    if (current === null || typeof current !== "object") return;
+    if (Array.isArray(current)) {
+      current.forEach((item, index) => visit(item, `${path}[${index}]`, depth + 1));
+      return;
+    }
+    for (const [key, child] of Object.entries(current)) {
+      const normalizedKey = key.replace(/[-_]/g, "").toLowerCase();
+      if (
+        ARCHITECTURE_LEDGER_FORBIDDEN_RAW_KEYS.has(normalizedKey)
+        && !ARCHITECTURE_LEDGER_SAFE_SENSITIVE_KEY_SUFFIX.test(normalizedKey)
+      ) {
+        throw new Error(`architecture-ledger-privacy-denied: forbidden persisted field at ${path}.${key}`);
+      }
+      visit(child, `${path}.${key}`, depth + 1);
+    }
+  }
 }
 
 function validateArchitectureLedgerOperation(operation: ArchitectureLedgerOperation, eventId: string): void {
@@ -2396,7 +2499,7 @@ function requireNonEmpty(value: string, label: string, eventId: string): void {
 }
 
 function requireActiveStatus(value: string, eventId: string): void {
-  if (!["active", "deprecated", "removed"].includes(value)) {
+  if (!["active", "planned", "deprecated", "removed"].includes(value)) {
     throw new Error(`architecture-ledger-invalid-operation: invalid status for ${eventId}`);
   }
 }

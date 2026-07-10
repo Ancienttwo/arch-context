@@ -38,8 +38,7 @@ import {
   loadArchitectureDocumentationInputs,
   loadNativeModelFromArchContext,
   renderArchitectureDocumentationProjection,
-  resolveArchitectureOwnerForPath,
-  type ArchitectureDocumentationProjectionFile
+  resolveArchitectureOwnerForPath
 } from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
@@ -896,40 +895,14 @@ function buildArchitectureDocsProjection(root: string, generatedAt: string) {
     sourceDigest,
     generatedAt
   });
-  const manifestBody = `${JSON.stringify({
-    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
-    rendererVersion: plan.rendererVersion,
-    sourceDigest: plan.sourceDigest,
-    projectionDigest: plan.projectionDigest,
-    targetCount: plan.targets.length,
-    fileCount: plan.files.length,
-    targets: plan.targets.map((target) => ({
-      targetId: target.targetId,
-      type: target.type,
-      scope: target.scope,
-      path: target.path,
-      ownership: target.ownership,
-      rendererVersion: target.rendererVersion,
-      format: target.format,
-      sourceDigest: target.sourceDigest,
-      outputDigest: target.outputDigest
-    }))
-  }, null, 2)}\n`;
-  const manifest = {
-    path: "docs/architecture/.projection-manifest.json",
-    body: manifestBody,
-    digest: digestJson({ path: "docs/architecture/.projection-manifest.json", body: manifestBody } as unknown as Json),
-    target: plan.targets[0]!,
-    generatedBodyDigest: digestJson({ body: manifestBody } as unknown as Json)
-  } satisfies ArchitectureDocumentationProjectionFile;
   return {
     plan,
-    manifest,
-    files: [...plan.files, manifest]
+    manifest: plan.manifest,
+    files: [...plan.files, plan.manifest]
   };
 }
 
-function architectureDocsRenderProjectionOperation(root: string, files: ArchitectureDocumentationProjectionFile[]) {
+function architectureDocsRenderProjectionOperation(root: string, files: { path: string; body: string }[]) {
   return {
     op: "render_projection" as const,
     expectedHash: "missing",
