@@ -1,16 +1,25 @@
 # ArchContext
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 > Code with an architect on standby.
 
-ArchContext 是嵌入 Agentic Coding Runtime 的软件架构控制循环。它在任务前编译架构上下文，在开发中检测结构压力，在必要时推动有证据的重构，并在任务完成前同步与验证系统状态。
+ArchContext is a software architecture control loop embedded in the Agentic Coding Runtime. It compiles architecture context before a task, detects structural pressure during development, pushes evidence-based refactors when necessary, and synchronizes and verifies system state before a task completes.
 
-当前仓库是 ArchContext MVP 的产品、架构与执行契约骨架，并包含 contracts、local runtime、surfaces 和 cloud governance scaffold。
+This repository is the product, architecture, and execution contract skeleton for the ArchContext MVP, and includes the contracts, local runtime, surfaces, and cloud governance scaffold.
 
 ## Product Shape
 
 - Local Core is the product center: one `archctx` install ships CLI, `archctxd`, MCP stdio adapter, local RPC schema, local SQLite migrations, CodeGraph adapter compatibility, and runtime provenance.
 - GitHub App is optional governance. It handles installation metadata, PR lifecycle events, Challenge, Attestation verification, and Check delivery. It does not clone repositories, read PR files, run review, or host an LLM provider.
 - Developer and organization results are separate: `ArchContext / Developer Review` is developer-attested; `ArchContext / Organization Runner` is customer-runner-attested and is the only context intended for organization required checks.
+
+## ChangeSet & Ledger Integrity
+
+- ChangeSet apply is fail-closed end to end: an invalid model is rejected and rolled back instead of committed, file intent is journaled before any destructive rename, draft preconditions compare the declared HEAD/worktree/model base digests, and ledger append plus journal commit share one SQLite transaction (`PRAGMA synchronous=FULL`).
+- Writes under `.archcontext/` are contained by realpath parent resolution, so a symlinked write target cannot escape the repository; ledger persistence enforces a single privacy gate that rejects secret-shaped, raw-diff, or free-text payloads before they reach storage.
+- `ledger project` and rollback run through the same ChangeSet journal as any other write, and the ledger-to-YAML round trip preserves declared schema fields instead of dropping them into an opaque `metadata` blob.
+- Ledger state, replay, FTS, and snapshots partition by the full worktree cursor (repository, worktree, branch, HEAD, digest) with base/resulting graph digest CAS enforced on append; crash recovery is isolated per journal entry and startup cleanup work is bounded per run.
 
 ## Practice Assets Trust Boundary
 
@@ -34,18 +43,18 @@ source-update, rollout, and rollback operations.
 
 ## Repository Map
 
-- `docs/spec.md`: 稳定产品真值。
-- `docs/runbooks/local-core-quickstart.md`: Local Core 首次运行路径。
+- `docs/spec.md`: stable product truth.
+- `docs/runbooks/local-core-quickstart.md`: Local Core first-run path.
 - `docs/runbooks/practice-assets-v1.md`: Practice Assets v1 authoring,
   privacy, rollout, and rollback operations.
-- `plans/prds/20260619-2039-archcontext.prd.md`: ArchContext PRD v2.0。
+- `plans/prds/20260619-2039-archcontext.prd.md`: ArchContext PRD v2.0.
 - `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`: Local product and GitHub governance follow-up PRD.
 - `plans/sprints/archctx-local-github-governance-sprint.md`: Follow-up governance execution checklist.
-- `plans/sprints/archctx-sprint.md`: MVP M0-M6 执行 backlog。
-- `docs/researches/`: 研究资料与历史 PRD 基线。
-- `docs/architecture/`: 架构索引、图表和后续快照入口。
-- `packages/contracts/`: M0 契约类型、Envelope、Digest、路径守卫和最小 JSON Schema validator。
-- `AGENTS.md` / `CLAUDE.md`: Codex 与 Claude 的根工作契约。
+- `plans/sprints/archctx-sprint.md`: MVP M0-M6 execution backlog.
+- `docs/researches/`: research material and historical PRD baselines.
+- `docs/architecture/`: architecture index, diagrams, and entrypoints for later snapshots.
+- `packages/contracts/`: M0 contract types, Envelope, Digest, path guards, and the minimal JSON Schema validator.
+- `AGENTS.md` / `CLAUDE.md`: root working contracts for Codex and Claude.
 
 ## Current State
 
