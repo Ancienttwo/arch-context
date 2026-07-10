@@ -31,6 +31,7 @@
 - Update focused tests/readbacks that define the current release shape.
 - Do not publish npm, mutate global PATH, or rewrite historical verification evidence.
 - Release follow-through authorized on 2026-07-11: align all current product-version surfaces to `0.2.3`, publish npm, create the Git tag and GitHub Release, and regenerate current release readbacks.
+- Governance evidence follow-through authorized on 2026-07-11: regenerate the deterministic no-provider evidence chain whose version-bound model digest changes with `0.2.3`.
 - Do not mutate the existing capability registry or ArchContext-generated architecture projections as a release-gate workaround; the pre-existing orphan-module incompatibility is recorded as workflow-tool debt.
 
 ## Verification

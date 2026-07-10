@@ -24,6 +24,8 @@
 - Current release dry-run evidence is verified for `_ops/npm/fg6-release-dry-run/archctx-0.2.3.tgz`; registry readback returned `E404` for `archctx@0.2.3` before publication.
 - npm Web authorization completed successfully for account `ancienttwo`; `publish-archctx.mjs` preflight reports `ready` with no blockers.
 - Release-candidate tarball digests are SHA-1 `0ad264beca1c0d2ee0f993b2604295bcaf3ba37c` and SHA-256 `a85f54bb9027070823ee4d7b65d7dc17184bb480a3330b8b9d9b05c738bd0b81`.
+- PR #93 Governance Verify exposed the version-bound deterministic model digest: `fg6-no-provider-deterministic` consumes `fg4-deterministic-conclusion`, so both generated evidence files must be regenerated in source order for `0.2.3`; the user authorized this bounded evidence expansion.
+- The regenerated no-provider model digest is `sha256:d973b7c7f01ad8864d56d1fac0e2ed533b7b9e22ef24c9de420765f86f693701`; both evidence inspections and all 24 `verify:governance` commands pass.
 
 ## Design Decisions
 

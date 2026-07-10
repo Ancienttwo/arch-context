@@ -24,11 +24,13 @@
 - Temporary npm dry-run: verified; generated `bin` contains only `archctx`, dependency is exact CodeGraph `1.4.0`, and `bin/codegraph.mjs` is absent.
 - `node scripts/local-product-tarball-smoke.mjs`: pass across install, daemon, sync, MCP, upgrade, and uninstall; runtime PATH excludes both Bun and CodeGraph, proving packaged dependency fallback.
 - `bun run verify`: pass across typecheck, boundary/security/governance checks, full tests, packaged CLI smoke, acceptance ledgers, sprint status, and eval checks.
+- `bun run verify:governance`: pass after regenerating the `0.2.3` version-bound deterministic evidence chain; 24/24 governance commands succeeded.
 - Current `docs/verification/fg6-npm-release-dry-run.json`: verified for `archctx@0.2.3`; public `bin` is only `archctx`, exact internal CodeGraph dependency is `1.4.0`, and the tarball is `_ops/npm/fg6-release-dry-run/archctx-0.2.3.tgz`.
 - `npm view archctx@0.2.3 ...`: returned `E404` before publish, confirming the patch version is available.
 - Independent review: no blocker/high/medium finding; scope and rollback surfaces match the contract.
 - Sprint gate: `repo-harness run verify-sprint --contract tasks/contracts/20260711-0055-codegraph-latest-no-bin-collision.contract.md` passed; run snapshot `.ai/harness/runs/run-20260711T012736-5955-20260711-0055-codegraph-latest-no-bin-collision.json`.
 - The post-expansion strict contract rerun passed every release command through installed-tarball smoke but hit the helper's 120-second wall-time while repeating the contracts/CLI tests; those exact tests passed directly and inside the full `bun run verify`, so this is retained as workflow-helper timing evidence rather than a product blocker.
+- PR #93's initial Governance Verify failure was traced to the old `0.2.2` no-provider model digest. Regenerating `fg4-deterministic-conclusion` and then `fg6-no-provider-deterministic` produced `sha256:d973b7c7f01ad8864d56d1fac0e2ed533b7b9e22ef24c9de420765f86f693701`; the local Governance gate then passed.
 
 ## External Acceptance Advice
 

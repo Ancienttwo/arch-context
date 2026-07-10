@@ -24,6 +24,7 @@ Make `archctx@latest` compatible with registry-current CodeGraph `1.4.0` without
   - `0.2.3` version alignment across current product/release surfaces
   - npm publish after user-completed browser authorization
   - Git tag, GitHub Release, registry/bin readback, and current release evidence regeneration
+  - deterministic no-provider release evidence digest regeneration required by the `0.2.3` product version
 - Out of scope:
   - repo-harness changes
   - floating `latest` in reproducibility-sensitive package manifests
@@ -75,6 +76,8 @@ allowed_paths:
   - packages/core/practice-catalog/assets/catalog.yaml
   - packages/surfaces/package.json
   - docs/verification/fg6-npm-release-dry-run.json
+  - docs/verification/fg4-deterministic-conclusion-readback.json
+  - docs/verification/fg6-no-provider-deterministic-readback.json
   - docs/verification/architecture-ledger-al10-npm-release-readback.json
   - docs/verification/fg6-release-distribution-readback.json
   - docs/verification/fg6-release-distribution.md
