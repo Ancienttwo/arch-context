@@ -527,6 +527,7 @@ export interface ExplorerInspectorV2 {
   responsibility?: string;
   constraints: Array<{ id: string; kind: string; severity?: string; summary?: string }>;
   decisions: Array<{ eventId: string; title?: string; rationale?: string }>;
+  historyEvents: Array<{ eventId: string; title?: string; rationale?: string }>;
   sourceSelectors: SourceSelector[];
   evidenceBindingIds: string[];
 }

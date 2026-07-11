@@ -3152,7 +3152,7 @@ function explorerProjectionFixture(graphLabel = "one", observedLabel = "one"): E
       pressure: { evaluated: true, level: "low" as const, score: 0, signals: [], inputDigest: digestJson({ pressure: "one" } as unknown as Json) },
       sourceSelectors: [{ path: "src/api.ts" }],
       provenance: { declaredEntityIds: ["module.api"], observedSymbolIds: [], evidenceBindingIds: [] },
-      inspector: { constraints: [], decisions: [], sourceSelectors: [{ path: "src/api.ts" }], evidenceBindingIds: [] },
+      inspector: { constraints: [], decisions: [], historyEvents: [], sourceSelectors: [{ path: "src/api.ts" }], evidenceBindingIds: [] },
       backlinks: { appearsInViews: ["system-map" as const], affectedByTaskSessionIds: [], constrainedByIds: [], evidencedByBindingIds: [], changedByEventIds: [], decidedByEventIds: [], incomingRelationIds: [], outgoingRelationIds: [] }
     }],
     relations: [],

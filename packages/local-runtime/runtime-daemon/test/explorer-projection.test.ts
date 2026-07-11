@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { digestJson, type ExplorerProjectionQueryV2, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
+import { EXPLORER_VIEW_INPUT_REQUIREMENTS, PROJECTION_READ_PLANNER_VERSION, digestJson, type ExplorerProjectionQueryV2, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
 import { architectureLedgerStateDigest, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 import {
   ExplorerProjectionCompileError,
+  EXPLORER_VIEW_COMPILER_VERSION,
   compileExplorerProjection,
   compileExplorerProjectionChanges,
   compileSystemMapProjection,
@@ -137,6 +138,7 @@ describe("compileSystemMapProjection", () => {
     const observedOccurrence = projection.occurrences.find((item) => item.provenance.observedSymbolIds.includes("symbol.api"));
     expect(observedOccurrence?.provenance.declaredEntityIds).toEqual([]);
     expect(observedOccurrence?.verificationStatus).toBe("UNKNOWN");
+    expect(observedOccurrence?.role === "subject" ? observedOccurrence.inspector.historyEvents : undefined).toEqual([]);
   });
 
   test("input manifest covers every current compiler input domain deterministically", () => {
@@ -225,6 +227,68 @@ describe("compileSystemMapProjection", () => {
     expect(knownEmpty.inputManifest.inputDomains["event-backlinks"]).toMatchObject({ status: "ready" });
     expect(knownEmpty.inputManifest.manifestDigest).not.toBe(unavailable.inputManifest.manifestDigest);
     expect(knownEmpty.inputManifest.compatibilityDigest).toBe(unavailable.inputManifest.compatibilityDigest);
+  });
+
+  test("compiles complete canonical history while keeping decisions as a strict subset", () => {
+    const eventBacklinks = [
+      { eventId: "event.b", subjectIds: ["module.api"], title: "Choose API boundary", rationale: "Keep transport local" },
+      { eventId: "event.a", subjectIds: ["module.api", "module.api"] },
+      { eventId: "event.b", subjectIds: ["module.db", "module.api"], title: "Choose API boundary", rationale: "Keep transport local" },
+      { eventId: "event.cross-scope", subjectIds: ["module.not-selected"], title: "Outside selected graph" }
+    ];
+    const projection = compile({ eventBacklinks });
+    const api = projection.occurrences.find((item) => item.role === "subject" && item.subjectRefs.some((ref) => ref.id === "module.api"));
+    const database = projection.occurrences.find((item) => item.role === "subject" && item.subjectRefs.some((ref) => ref.id === "module.db"));
+    if (!api || api.role !== "subject" || !database || database.role !== "subject") throw new Error("expected subject occurrences");
+    expect(api.inspector.historyEvents).toEqual([
+      { eventId: "event.a" },
+      { eventId: "event.b", title: "Choose API boundary", rationale: "Keep transport local" }
+    ]);
+    expect(api.inspector.decisions).toEqual([
+      { eventId: "event.b", title: "Choose API boundary", rationale: "Keep transport local" }
+    ]);
+    expect(api.backlinks.changedByEventIds).toEqual(["event.a", "event.b"]);
+    expect(api.backlinks.decidedByEventIds).toEqual(["event.b"]);
+    expect(database.inspector.historyEvents).toEqual([
+      { eventId: "event.b", title: "Choose API boundary", rationale: "Keep transport local" }
+    ]);
+    expect(projection.occurrences.every((item) => item.role !== "subject" || item.inspector.historyEvents.every((event) => event.eventId !== "event.cross-scope"))).toBe(true);
+
+    const reversed = compile({ eventBacklinks: [...eventBacklinks].reverse() });
+    expect(reversed.projectionDigest).toBe(projection.projectionDigest);
+    expect(reversed.inputManifest.eventBacklinksDigest).toBe(projection.inputManifest.eventBacklinksDigest);
+
+    const withoutHistory = compile({ eventBacklinks: [] });
+    expect(compileExplorerProjectionChanges(withoutHistory, projection)).toContainEqual({
+      deltaClass: "projection",
+      subjectId: "architecture-entity:module.api",
+      change: "changed",
+      fields: ["evidence"]
+    });
+  });
+
+  test("fails closed on conflicting duplicate event backlink metadata", () => {
+    expect(() => compile({
+      eventBacklinks: [
+        { eventId: "event.conflict", subjectIds: ["module.api"], title: "First" },
+        { eventId: "event.conflict", subjectIds: ["module.api"], title: "Second" }
+      ]
+    })).toThrow("conflicting-event-backlink:event.conflict");
+  });
+
+  test("changes every view-definition digest for the required history contract", () => {
+    const preHistoryDigest = digestJson({
+      id: "system-map",
+      title: "System Map",
+      question: "What accepted architecture entities exist and how do they relate?",
+      requirements: EXPLORER_VIEW_INPUT_REQUIREMENTS["system-map"],
+      compilerVersion: EXPLORER_VIEW_COMPILER_VERSION,
+      plannerVersion: PROJECTION_READ_PLANNER_VERSION,
+      grouping: "kind-at-overview",
+      authority: "daemon-selected-read-model",
+      reconciliation: "accepted-evidence-binding-only"
+    } as unknown as Json);
+    expect(explorerViewDefinitionDigest("system-map")).not.toBe(preHistoryDigest);
   });
 
   test("rejects a stale expected cursor", () => {

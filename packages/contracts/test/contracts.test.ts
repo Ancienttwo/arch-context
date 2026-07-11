@@ -380,6 +380,12 @@ describe("JSON schema contracts", () => {
     const nestedUnknown = structuredClone(fixture);
     nestedUnknown.occurrences[0].inspector.sourceSelectors = [{ path: "src/runtime.ts", memo: "private body" }];
     expect(validateJsonSchema(v2, nestedUnknown).valid).toBe(false);
+    const missingHistory = structuredClone(fixture);
+    delete missingHistory.occurrences[0].inspector.historyEvents;
+    expect(validateJsonSchema(v2, missingHistory).valid).toBe(false);
+    const privateHistoryBody = structuredClone(fixture);
+    privateHistoryBody.occurrences[0].inspector.historyEvents = [{ eventId: "event.private", eventBody: "private body" }];
+    expect(validateJsonSchema(v2, privateHistoryBody).valid).toBe(false);
   });
 
   test("retrieval decision gate exposes machine-checkable thresholds", () => {

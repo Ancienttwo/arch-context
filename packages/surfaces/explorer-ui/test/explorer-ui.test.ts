@@ -100,8 +100,25 @@ const projection: ExplorerProjectionV2 = {
     pressure: { evaluated: true, level: "low", score: 0, signals: [], inputDigest: `sha256:${"5".repeat(64)}` },
     sourceSelectors: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts" }],
     provenance: { declaredEntityIds: ["module.runtime"], observedSymbolIds: ["symbol.runtime"], evidenceBindingIds: ["binding.runtime"] },
-    inspector: { summary: "Owns local runtime orchestration.", constraints: [], decisions: [], sourceSelectors: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts" }], evidenceBindingIds: ["binding.runtime"] },
-    backlinks: { appearsInViews: ["system-map", "drift-pressure"], affectedByTaskSessionIds: [], constrainedByIds: [], evidencedByBindingIds: ["binding.runtime"], changedByEventIds: [], decidedByEventIds: [], incomingRelationIds: [], outgoingRelationIds: [] }
+    inspector: {
+      summary: "Owns local runtime orchestration.",
+      responsibility: "Keeps daemon boundaries local.",
+      constraints: [{ id: "constraint.local-only", kind: "security", severity: "high", summary: "No remote code egress" }],
+      decisions: [{ eventId: "event.runtime-decision", title: "Keep local", rationale: "Protect repository contents" }],
+      historyEvents: [{ eventId: "event.runtime-created" }, { eventId: "event.runtime-decision", title: "Keep local", rationale: "Protect repository contents" }],
+      sourceSelectors: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts" }],
+      evidenceBindingIds: ["binding.runtime"]
+    },
+    backlinks: {
+      appearsInViews: ["system-map", "drift-pressure"],
+      affectedByTaskSessionIds: ["task.runtime"],
+      constrainedByIds: ["constraint.local-only"],
+      evidencedByBindingIds: ["binding.runtime"],
+      changedByEventIds: ["event.runtime-created", "event.runtime-decision"],
+      decidedByEventIds: ["event.runtime-decision"],
+      incomingRelationIds: ["relation.incoming"],
+      outgoingRelationIds: ["relation.outgoing"]
+    }
   }],
   relations: [],
   page: { budget: { maxNodes: 80, maxRelations: 160 }, totalNodes: 1, totalRelations: 0, returnedNodes: 1, returnedRelations: 0, truncated: false, omittedNodeCount: 0, omittedRelationCount: 0 },
@@ -133,9 +150,33 @@ describe("@archcontext/surfaces/explorer-ui V2", () => {
     expect(html).toContain('data-view="task-impact"');
     expect(html).toContain('data-level="overview"');
     expect(html).toContain("Owns local runtime orchestration.");
+    expect(html).toContain("Keeps daemon boundaries local.");
+    expect(html).toContain("event.runtime-created");
+    expect(html).toContain("event.runtime-decision");
+    expect(html).toContain("constraint.local-only");
+    expect(html).toContain("task.runtime");
+    expect(html).toContain("relation.incoming");
+    expect(html).toContain(projection.inputManifest.manifestDigest);
+    expect(html).toContain(projection.projectionDigest);
+    expect(html).toContain("Technical details");
     expect(html).toContain("projection-invalidated");
     expect(html).toContain("authority-changed");
     expect(html).toContain(projection.projectionDigest);
     expect(html).not.toContain("sourceBody");
+  });
+
+  test("escapes history metadata and never renders prohibited bodies", () => {
+    const hostile = structuredClone(projection);
+    const occurrence = hostile.occurrences[0];
+    if (occurrence.role !== "subject") throw new Error("expected subject occurrence");
+    occurrence.inspector.historyEvents = [{ eventId: "event.hostile", title: "<script>alert(1)</script>", rationale: "<img src=x onerror=alert(2)>" }];
+    const html = renderExplorerHtml(hostile, { focusSubjectId: "module.runtime" });
+    expect(html).toContain("event.hostile");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("&lt;img src=x onerror=alert(2)&gt;");
+    expect(html).not.toContain("<script>alert(1)</script>");
+    for (const forbidden of ["sourceBody", "rawDiff", "prompt", "completion", "eventBody"]) {
+      expect(html).not.toContain(forbidden);
+    }
   });
 });

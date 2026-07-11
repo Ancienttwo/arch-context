@@ -14,7 +14,6 @@ export function renderExplorerHtml(projection: ExplorerProjectionV2, options: Re
   const subjects = projection.occurrences.filter((item): item is ExplorerSubjectOccurrenceV2 => item.role === "subject");
   const groups = projection.occurrences.filter((item) => item.role === "derived-group");
   const focus = focusOccurrence(subjects, options.focusSubjectId) ?? subjects[0];
-  const relationByOccurrence = new Map(projection.relations.map((relation) => [relation.occurrenceId, relation]));
   const byOccurrence = new Map(projection.occurrences.map((item) => [item.occurrenceId, item]));
   const verificationCounts = countBy(subjects, (item) => item.verificationStatus);
   const authorityCounts = countBy(subjects, (item) => item.authorityState);
@@ -33,7 +32,7 @@ export function renderExplorerHtml(projection: ExplorerProjectionV2, options: Re
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <title>ArchContext Explorer</title>
-  <style>${STYLE}${INTERACTION_STYLE}</style>
+  <style>${STYLE}${INTERACTION_STYLE}${INSPECTOR_STYLE}</style>
 </head>
 <body>
   <main role="application" aria-label="ArchContext Explorer V2">
@@ -72,7 +71,7 @@ export function renderExplorerHtml(projection: ExplorerProjectionV2, options: Re
         </section>
         <section class="card inspector" aria-labelledby="inspector-heading">
           <div class="card-head"><div><span class="eyebrow">Canonical subject</span><h2 id="inspector-heading">Inspector</h2></div></div>
-          ${focus ? renderInspector(focus, relationByOccurrence) : empty("Select a subject to inspect authority, constraints and backlinks.")}
+          ${focus ? renderInspector(focus, projection) : empty("Select a subject to inspect authority, constraints and backlinks.")}
         </section>
       </section>
     </div>
@@ -113,20 +112,33 @@ function renderRelations(relations: ExplorerRelationOccurrenceV2[], byOccurrence
   }).join("")}</tbody></table></div>`;
 }
 
-function renderInspector(focus: ExplorerSubjectOccurrenceV2, relations: Map<string, ExplorerRelationOccurrenceV2>): string {
+function renderInspector(focus: ExplorerSubjectOccurrenceV2, projection: ExplorerProjectionV2): string {
   const refs = focus.subjectRefs.map((ref) => `<code>${escapeHtml(`${ref.kind}:${ref.id}`)}</code>`).join(" ");
   const constraints = focus.inspector.constraints.map((item) => `<li><code>${escapeHtml(item.id)}</code> ${escapeHtml(item.summary ?? item.kind)}${item.severity ? ` · ${escapeHtml(item.severity)}` : ""}</li>`).join("");
-  const decisions = focus.inspector.decisions.map((item) => `<li><code>${escapeHtml(item.eventId)}</code> ${escapeHtml(item.title ?? item.rationale ?? "decision")}</li>`).join("");
+  const decisions = focus.inspector.decisions.map(renderInspectorEvent).join("");
+  const historyEvents = focus.inspector.historyEvents.map(renderInspectorEvent).join("");
   const selectors = focus.inspector.sourceSelectors.map((item) => `<li><code>${escapeHtml(item.path)}${item.symbolId ? `#${escapeHtml(item.symbolId)}` : ""}</code></li>`).join("");
   const backlinks = focus.backlinks;
   return `<div class="inspector-grid">
-    <div><h3>${escapeHtml(focus.name)}</h3><p>${escapeHtml(focus.inspector.summary ?? focus.inspector.responsibility ?? "No declared summary.")}</p><div class="refs">${refs}</div></div>
+    <div><h3>${escapeHtml(focus.name)}</h3><p>${escapeHtml(focus.inspector.summary ?? "No declared summary.")}</p><p><strong>Responsibility:</strong> ${escapeHtml(focus.inspector.responsibility ?? "Not declared.")}</p><div class="refs">${refs}</div></div>
     <dl><dt>Verification</dt><dd>${focus.verificationStatus}</dd><dt>Authority</dt><dd>${focus.authorityState}</dd><dt>Pressure</dt><dd>${focus.pressure.evaluated ? `${focus.pressure.level} ${focus.pressure.score}` : "not evaluated"}</dd><dt>Bindings</dt><dd>${focus.inspector.evidenceBindingIds.length}</dd></dl>
     <div><h3>Constraints</h3>${constraints ? `<ul>${constraints}</ul>` : emptyInline("None")}</div>
     <div><h3>Decisions</h3>${decisions ? `<ul>${decisions}</ul>` : emptyInline("None")}</div>
+    <div><h3>History</h3>${historyEvents ? `<ul>${historyEvents}</ul>` : emptyInline("None")}</div>
     <div><h3>Source selectors</h3>${selectors ? `<ul>${selectors}</ul>` : emptyInline("None")}</div>
-    <div><h3>Backlinks</h3><ul><li>views: ${escapeHtml(backlinks.appearsInViews.join(", ") || "none")}</li><li>tasks: ${escapeHtml(backlinks.affectedByTaskSessionIds.join(", ") || "none")}</li><li>changed by: ${escapeHtml(backlinks.changedByEventIds.join(", ") || "none")}</li><li>incoming/outgoing: ${backlinks.incomingRelationIds.length}/${backlinks.outgoingRelationIds.length}</li></ul></div>
+    <div><h3>Evidence bindings</h3>${renderCodeList(focus.inspector.evidenceBindingIds)}</div>
+    <div><h3>Backlinks</h3><dl><dt>Views</dt><dd>${renderCodeList(backlinks.appearsInViews)}</dd><dt>Tasks</dt><dd>${renderCodeList(backlinks.affectedByTaskSessionIds)}</dd><dt>Constraints</dt><dd>${renderCodeList(backlinks.constrainedByIds)}</dd><dt>Evidence</dt><dd>${renderCodeList(backlinks.evidencedByBindingIds)}</dd><dt>Changed by</dt><dd>${renderCodeList(backlinks.changedByEventIds)}</dd><dt>Decided by</dt><dd>${renderCodeList(backlinks.decidedByEventIds)}</dd><dt>Incoming relations</dt><dd>${renderCodeList(backlinks.incomingRelationIds)}</dd><dt>Outgoing relations</dt><dd>${renderCodeList(backlinks.outgoingRelationIds)}</dd></dl></div>
+    <details class="technical-details"><summary>Technical details</summary><dl><dt>Authority cursor</dt><dd><code>${escapeHtml(projection.cursor.authorityCursor?.eventId ?? "git-authority")}</code></dd><dt>Evidence cursor</dt><dd><code>${escapeHtml(projection.cursor.evidenceAuthorityCursor?.eventId ?? "none")}</code></dd><dt>Manifest</dt><dd><code>${escapeHtml(projection.inputManifest.manifestDigest)}</code></dd><dt>Projection</dt><dd><code>${escapeHtml(projection.projectionDigest)}</code></dd><dt>Graph</dt><dd><code>${escapeHtml(projection.cursor.graphDigest)}</code></dd><dt>View definition</dt><dd><code>${escapeHtml(projection.cursor.viewDefinitionDigest)}</code></dd></dl></details>
   </div>`;
+}
+
+function renderInspectorEvent(item: { eventId: string; title?: string; rationale?: string }): string {
+  const metadata = [item.title, item.rationale].filter((value): value is string => Boolean(value));
+  return `<li><code>${escapeHtml(item.eventId)}</code>${metadata.length > 0 ? ` ${escapeHtml(metadata.join(" · "))}` : ""}</li>`;
+}
+
+function renderCodeList(items: string[]): string {
+  return items.length > 0 ? items.map((item) => `<code>${escapeHtml(item)}</code>`).join(" ") : `<span class="muted">none</span>`;
 }
 
 function focusOccurrence(subjects: ExplorerSubjectOccurrenceV2[], subjectId?: string | null): ExplorerSubjectOccurrenceV2 | undefined {
@@ -173,3 +185,4 @@ function escapeHtml(value: string): string { return value.replaceAll("&", "&amp;
 
 const STYLE = `:root{color-scheme:light;--paper:#f4f6f2;--panel:#fff;--ink:#18211b;--muted:#627067;--line:#d3dbd5;--green:#176b57;--green-soft:#e3f0ea;--red:#ad402f;--red-soft:#f6e6e1;--blue:#315e9f;--blue-soft:#e8eef7;--amber:#a66d16;--amber-soft:#fbf1dc;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-size:14px}button,input{font:inherit}:focus-visible{outline:3px solid var(--blue);outline-offset:2px}.topbar{display:flex;align-items:center;gap:14px;padding:14px 20px;background:#112019;color:#eef6f1}.topbar code{margin-left:auto}.topbar span{color:#aebbb3}.trust{font-size:12px;color:#94d2bd!important}.controls{display:flex;gap:16px;align-items:center;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}.views,.levels{display:flex;gap:6px}.view-button,.seg{border:1px solid var(--line);background:var(--panel);padding:7px 10px;border-radius:7px;cursor:pointer}.view-button[aria-pressed=true],.seg[aria-pressed=true]{background:var(--green);border-color:var(--green);color:#fff}.view-button:disabled{cursor:not-allowed;opacity:.45}.budget{margin-left:auto;color:var(--muted);font-size:12px}.breadcrumb{padding:10px 20px;display:flex;gap:8px;color:var(--muted);font-size:12px}.notice{margin:0 20px 10px;padding:9px 12px;background:var(--amber-soft);color:var(--amber);border:1px solid #ead3a5;border-radius:7px}.layout{display:grid;grid-template-columns:minmax(280px,350px) minmax(0,1fr);gap:16px;padding:0 20px 20px}.sidebar,.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}.sidebar{padding:14px;align-self:start;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow:auto}.search-label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}#search{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px}.stats{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.stats span{font-size:11px;background:var(--paper);border:1px solid var(--line);padding:4px 7px;border-radius:99px}.occurrence-list{display:grid;gap:6px}.occurrence{text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:9px 10px;cursor:pointer}.occurrence:hover{border-color:var(--green)}.occurrence span,.occurrence small{display:block}.occurrence small{margin-top:4px;color:var(--muted)}.group{background:var(--green-soft)}.content{display:grid;gap:16px}.card{padding:16px}.card-head{display:flex;justify-content:space-between;align-items:start;gap:16px;margin-bottom:14px}.card-head h1,.card-head h2{margin:3px 0 0}.eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}.topology{overflow:auto;border:1px solid var(--line);border-radius:9px;background:linear-gradient(90deg,transparent 19px,var(--line) 20px,transparent 21px),linear-gradient(transparent 19px,var(--line) 20px,transparent 21px);background-size:20px 20px}.topology-svg{display:block;min-width:640px}.topology-band rect{fill:var(--paper);stroke:var(--line);stroke-dasharray:4 4;opacity:.9}.topology-band.status-drift rect{fill:var(--red-soft);stroke:var(--red)}.topology-band text{font-size:10px;font-weight:700;letter-spacing:.05em;fill:var(--muted)}.topology-edge polyline{stroke:var(--line);stroke-width:1.5;vector-effect:non-scaling-stroke}.topology-edge text{font-size:10px;fill:var(--muted);font-family:ui-monospace,monospace}.topology-edge marker path,#topology-arrow path{fill:var(--muted)}.topology-node{cursor:pointer}.topology-node rect{fill:var(--panel);stroke:var(--muted);stroke-width:1.5;vector-effect:non-scaling-stroke}.topology-node.group rect{fill:var(--green-soft);stroke:var(--green)}.topology-node.status-verified rect{stroke:var(--green)}.topology-node.status-matched rect{stroke:var(--blue)}.topology-node.status-drift rect{stroke:var(--red);stroke-width:2.5;stroke-dasharray:6 4}.topology-name{font-size:13px;font-weight:700;fill:var(--ink)}.topology-meta{font-size:10px;fill:var(--muted);font-family:ui-monospace,monospace}.topology-empty{font-size:13px;fill:var(--muted)}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}th{font-size:11px;text-transform:uppercase;color:var(--muted)}.inspector-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.inspector h3{margin:0 0 7px}.inspector p,.inspector ul,.inspector dl{margin:0}.inspector ul{padding-left:18px}.inspector li{margin:5px 0}.inspector dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px}.inspector dt{color:var(--muted)}.refs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}.refs code{padding:3px 6px;background:var(--paper);border-radius:4px}.empty{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:8px}.muted{color:var(--muted)}@media(max-width:850px){.layout{grid-template-columns:1fr}.sidebar{position:static;max-height:none}.inspector-grid{grid-template-columns:1fr}.budget{margin-left:0}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}`;
 const INTERACTION_STYLE = `.live-status{font-size:11px;color:#aebbb3}.live-status[data-live-state=connected]{color:#94d2bd}.live-status[data-live-state=disconnected]{color:#f0bd72}.breadcrumb button{appearance:none;border:0;background:transparent;color:inherit;padding:0;text-decoration:underline;cursor:pointer}.topology-actions{display:flex;align-items:center;gap:6px}.topology-actions button{border:1px solid var(--line);background:var(--panel);border-radius:6px;min-width:32px;height:30px;cursor:pointer}.topology-actions code{margin-left:4px}.topology-svg{cursor:grab;touch-action:none}.topology-svg:active{cursor:grabbing}[data-topology-viewport]{transform-origin:0 0}@media(prefers-reduced-motion:reduce){[data-topology-viewport]{transition:none!important}}`;
+const INSPECTOR_STYLE = `.technical-details{grid-column:1/-1;border-top:1px solid var(--line);padding-top:12px}.technical-details summary{cursor:pointer;color:var(--muted);font-weight:600}.technical-details dl{margin-top:10px}.inspector-grid dd code{overflow-wrap:anywhere}.inspector-grid p+ p{margin-top:8px}`;

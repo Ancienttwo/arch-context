@@ -27,6 +27,7 @@ import {
 import { architectureLedgerStateDigest, queryArchitectureLedgerBookNeighbors, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 
 export const EXPLORER_VIEW_COMPILER_VERSION = "archcontext.explorer-view-compiler/v1" as const;
+const EXPLORER_INSPECTOR_CONTRACT_VERSION = "archcontext.explorer-inspector/history-events-required-v1" as const;
 
 const VIEW_DEFINITIONS: Record<ExplorerViewIdV2, { id: ExplorerViewIdV2; title: string; question: string }> = {
   "system-map": { id: "system-map", title: "System Map", question: "What accepted architecture entities exist and how do they relate?" },
@@ -215,7 +216,7 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
     (constraint) => constraint.subjectId
   );
   const eventsBySubject = new Map<string, ExplorerEventBacklinkInputV2[]>();
-  for (const event of [...(input.eventBacklinks ?? [])].sort((a, b) => a.eventId.localeCompare(b.eventId))) {
+  for (const event of canonicalEventBacklinks(input.eventBacklinks ?? [])) {
     for (const subjectId of event.subjectIds) eventsBySubject.set(subjectId, [...(eventsBySubject.get(subjectId) ?? []), event]);
   }
   const driftSubjects = new Set(input.drift?.subjectIds ?? []);
@@ -255,7 +256,8 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
         ...(entity.summary ? { summary: entity.summary } : {}),
         ...(typeof entity.metadata?.responsibility === "string" ? { responsibility: entity.metadata.responsibility } : {}),
         constraints: constraints.map((constraint) => ({ id: constraint.constraintId, kind: constraint.kind, ...(constraint.severity ? { severity: constraint.severity } : {}), ...(constraint.summary ? { summary: constraint.summary } : {}) })),
-        decisions: events.filter((event) => event.rationale || event.title).map((event) => ({ eventId: event.eventId, ...(event.title ? { title: event.title } : {}), ...(event.rationale ? { rationale: event.rationale } : {}) })),
+        decisions: events.filter((event) => event.rationale || event.title).map(eventSummary),
+        historyEvents: events.map(eventSummary),
         sourceSelectors: selectors,
         evidenceBindingIds: entityBindings.map((binding) => binding.bindingId)
       },
@@ -289,7 +291,7 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
       pressure,
       sourceSelectors: selectors,
       provenance: { declaredEntityIds: [], observedSymbolIds: [symbol.id], evidenceBindingIds: [] },
-      inspector: { constraints: [], decisions: [], sourceSelectors: selectors, evidenceBindingIds: [] },
+      inspector: { constraints: [], decisions: [], historyEvents: [], sourceSelectors: selectors, evidenceBindingIds: [] },
       backlinks: emptyBacklinks({
         views: viewsForSubject("UNBOUND_OBSERVED", "UNKNOWN", pressure, Boolean(input.taskSession)),
         taskSessionIds: input.taskSession ? [input.taskSession.taskSessionId] : []
@@ -442,9 +444,9 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
   const queryDigest = explorerProjectionQueryDigest(input.query);
   const viewDigest = explorerViewDefinitionDigest(input.query.viewId);
   const bindingsDigest = input.bindings === undefined ? null : digestJson([...input.bindings].sort((a, b) => a.bindingId.localeCompare(b.bindingId)) as unknown as Json);
-  const eventBacklinksDigest = input.eventBacklinks === undefined ? null : digestJson([...input.eventBacklinks]
-    .map((event) => ({ ...event, subjectIds: uniqueSorted(event.subjectIds) }))
-    .sort((a, b) => a.eventId.localeCompare(b.eventId)) as unknown as Json);
+  const eventBacklinksDigest = input.eventBacklinks === undefined
+    ? null
+    : digestJson(canonicalEventBacklinks(input.eventBacklinks) as unknown as Json);
   const driftDigest = input.drift ? digestJson(input.drift as unknown as Json) : null;
   const pressureDigest = input.pressure ? digestJson(input.pressure as unknown as Json) : null;
   const taskSessionDigest = input.taskSession ? digestJson(input.taskSession as unknown as Json) : null;
@@ -706,7 +708,17 @@ function subjectStateByCanonicalId(projection: ExplorerProjectionV2) {
     if (!canonical) continue;
     result.set(`${canonical.kind}:${canonical.id}`, {
       fact: { subjectRefs: occurrence.subjectRefs.filter((ref) => ref.kind.startsWith("architecture-")), name: occurrence.name, kind: occurrence.kind, summary: occurrence.inspector.summary ?? null, responsibility: occurrence.inspector.responsibility ?? null, constraints: occurrence.inspector.constraints } as unknown as Json,
-      evidence: { observedSymbolIds: occurrence.provenance.observedSymbolIds, evidenceBindingIds: occurrence.provenance.evidenceBindingIds, authorityState: occurrence.authorityState, verificationStatus: occurrence.verificationStatus, pressure: occurrence.pressure } as unknown as Json,
+      evidence: {
+        observedSymbolIds: occurrence.provenance.observedSymbolIds,
+        evidenceBindingIds: occurrence.provenance.evidenceBindingIds,
+        authorityState: occurrence.authorityState,
+        verificationStatus: occurrence.verificationStatus,
+        pressure: occurrence.pressure,
+        decisions: occurrence.inspector.decisions,
+        historyEvents: occurrence.inspector.historyEvents,
+        changedByEventIds: occurrence.backlinks.changedByEventIds,
+        decidedByEventIds: occurrence.backlinks.decidedByEventIds
+      } as unknown as Json,
       projection: { occurrenceId: occurrence.occurrenceId, parentOccurrenceId: occurrence.parentOccurrenceId ?? null } as unknown as Json,
       verificationStatus: occurrence.verificationStatus
     });
@@ -743,7 +755,37 @@ export function explorerViewDefinitionDigest(
   viewId: ExplorerViewIdV2,
   requirements: Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1["requirement"]> = EXPLORER_VIEW_INPUT_REQUIREMENTS[viewId]
 ): string {
-  return digestJson({ ...VIEW_DEFINITIONS[viewId], requirements, compilerVersion: EXPLORER_VIEW_COMPILER_VERSION, plannerVersion: PROJECTION_READ_PLANNER_VERSION, grouping: "kind-at-overview", authority: "daemon-selected-read-model", reconciliation: "accepted-evidence-binding-only" } as unknown as Json);
+  return digestJson({ ...VIEW_DEFINITIONS[viewId], requirements, compilerVersion: EXPLORER_VIEW_COMPILER_VERSION, inspectorContract: EXPLORER_INSPECTOR_CONTRACT_VERSION, plannerVersion: PROJECTION_READ_PLANNER_VERSION, grouping: "kind-at-overview", authority: "daemon-selected-read-model", reconciliation: "accepted-evidence-binding-only" } as unknown as Json);
+}
+
+function canonicalEventBacklinks(events: ExplorerEventBacklinkInputV2[]): ExplorerEventBacklinkInputV2[] {
+  const byEventId = new Map<string, ExplorerEventBacklinkInputV2>();
+  for (const event of events) {
+    const canonical = {
+      eventId: event.eventId,
+      subjectIds: uniqueSorted(event.subjectIds),
+      ...(event.title ? { title: event.title } : {}),
+      ...(event.rationale ? { rationale: event.rationale } : {})
+    };
+    const existing = byEventId.get(event.eventId);
+    if (!existing) {
+      byEventId.set(event.eventId, canonical);
+      continue;
+    }
+    if (existing.title !== canonical.title || existing.rationale !== canonical.rationale) {
+      throw new ExplorerProjectionCompileError("precondition-failed", `conflicting-event-backlink:${event.eventId}`);
+    }
+    byEventId.set(event.eventId, { ...existing, subjectIds: uniqueSorted([...existing.subjectIds, ...canonical.subjectIds]) });
+  }
+  return [...byEventId.values()].sort((left, right) => left.eventId.localeCompare(right.eventId));
+}
+
+function eventSummary(event: ExplorerEventBacklinkInputV2): { eventId: string; title?: string; rationale?: string } {
+  return {
+    eventId: event.eventId,
+    ...(event.title ? { title: event.title } : {}),
+    ...(event.rationale ? { rationale: event.rationale } : {})
+  };
 }
 
 function declaredEntitySelectors(entity: ArchitectureLedgerGraphState["entities"][number]): SourceSelector[] {

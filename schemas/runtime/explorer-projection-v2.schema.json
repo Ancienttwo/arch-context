@@ -242,7 +242,7 @@
               "inspector": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["constraints", "decisions", "sourceSelectors", "evidenceBindingIds"],
+                "required": ["constraints", "decisions", "historyEvents", "sourceSelectors", "evidenceBindingIds"],
                 "properties": {
                   "summary": { "type": "string" },
                   "responsibility": { "type": "string" },
@@ -256,6 +256,15 @@
                     }
                   },
                   "decisions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["eventId"],
+                      "properties": { "eventId": { "type": "string" }, "title": { "type": "string" }, "rationale": { "type": "string" } }
+                    }
+                  },
+                  "historyEvents": {
                     "type": "array",
                     "items": {
                       "type": "object",

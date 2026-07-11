@@ -135,7 +135,7 @@ function subject(
     pressure: { evaluated: false, signals: [] },
     sourceSelectors: [],
     provenance: { declaredEntityIds: [id], observedSymbolIds: [], evidenceBindingIds: [] },
-    inspector: { constraints: [], decisions: [], sourceSelectors: [], evidenceBindingIds: [] },
+    inspector: { constraints: [], decisions: [], historyEvents: [], sourceSelectors: [], evidenceBindingIds: [] },
     backlinks: {
       appearsInViews: ["system-map"],
       affectedByTaskSessionIds: [],

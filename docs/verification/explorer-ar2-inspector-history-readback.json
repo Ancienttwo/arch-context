@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "archcontext.explorer-ar2-inspector-history-readback/v1",
+  "capturedAt": "2026-07-12T03:45:00+08:00",
+  "contract": {
+    "projectionSchema": "archcontext.explorer-projection/v2",
+    "historyEventsRequiredInType": true,
+    "historyEventsRequiredInJsonSchema": true,
+    "missingHistoryRejected": true,
+    "unknownHistoryBodyRejected": true,
+    "optionalHistoryReaderMatches": 0
+  },
+  "compiler": {
+    "source": "verified eventBacklinks in ProjectionInputManifestV1",
+    "canonicalOrder": "eventId ascending",
+    "deduplication": "eventId with unique sorted subjectIds",
+    "conflictingMetadata": "precondition-failed",
+    "eventIdOnlyIncludedInHistory": true,
+    "decisionsStrictSubset": true,
+    "crossScopeExcluded": true,
+    "reversedInputDeterministic": true
+  },
+  "cacheCutover": {
+    "preHistoryViewDefinitionDigest": "sha256:8f85887437adf0fd1099216d6d28dd6cab7ef361b35072876ee6cefb4dfdb53f",
+    "requiredHistoryViewDefinitionDigest": "sha256:5fe7c1dfa525b83e80589a6654be6914f14b2bc4197f3598de5d8497ad76dbcf",
+    "changed": true,
+    "oldRowsRewritten": false,
+    "oldRowsBecomeManifestMisses": true
+  },
+  "inspector": {
+    "summary": true,
+    "responsibility": true,
+    "constraints": true,
+    "decisions": true,
+    "historyEvents": true,
+    "sourceSelectors": true,
+    "evidenceBindingIds": true,
+    "allBacklinkArrays": true,
+    "authorityAndEvidenceCursors": true,
+    "manifestProjectionGraphAndViewDigests": true
+  },
+  "privacy": {
+    "privacyRouteAudit": "PASS",
+    "verifyExplorer": "PASS",
+    "rawEventOrSourceBodyPath": false,
+    "compatibilityOrFallbackPath": false
+  },
+  "verification": {
+    "contracts": "PASS",
+    "compiler": "PASS",
+    "runtimeDaemon": "PASS",
+    "localStore": "PASS",
+    "explorerHtml": "PASS",
+    "explorerSurface": "PASS",
+    "cliPassThrough": "PASS",
+    "typecheck": "PASS"
+  },
+  "verdict": "PASS"
+}

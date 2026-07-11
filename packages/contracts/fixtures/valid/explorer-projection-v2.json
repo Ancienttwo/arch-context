@@ -111,7 +111,7 @@
         "observedSymbolIds": [],
         "evidenceBindingIds": []
       },
-      "inspector": { "constraints": [], "decisions": [], "sourceSelectors": [], "evidenceBindingIds": [] },
+      "inspector": { "constraints": [], "decisions": [], "historyEvents": [], "sourceSelectors": [], "evidenceBindingIds": [] },
       "backlinks": { "appearsInViews": ["system-map"], "affectedByTaskSessionIds": [], "constrainedByIds": [], "evidencedByBindingIds": [], "changedByEventIds": [], "decidedByEventIds": [], "incomingRelationIds": [], "outgoingRelationIds": [] }
     }
   ],
