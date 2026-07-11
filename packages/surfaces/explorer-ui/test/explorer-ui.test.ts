@@ -13,7 +13,10 @@ const projection: ExplorerProjectionV2 = {
     { id: "external-integrations", enabled: true }
   ],
   semanticLevel: "context",
-  breadcrumbs: [{ occurrenceId: "occurrence.system-map.entity.module.runtime", label: "Runtime" }],
+  breadcrumbs: [
+    { occurrenceId: "occurrence.system-map.root", label: "System Map" },
+    { occurrenceId: "occurrence.system-map.entity.module.runtime", label: "Runtime" }
+  ],
   cursor: {
     repository: { repositoryId: "repo.local", storageRepositoryId: "repo.storage" },
     worktree: { workspaceId: "ws.local", storageWorkspaceId: "ws.storage", branch: "main", headSha: "a".repeat(40), worktreeDigest: `sha256:${"1".repeat(64)}` },
@@ -143,6 +146,10 @@ describe("@archcontext/surfaces/explorer-ui V2", () => {
     expect(html).toContain('data-topology-viewport');
     expect(html).toContain('data-topology-action="fit"');
     expect(html).toContain('id="live-status"');
+    expect(html).toContain('data-breadcrumb-level="context"');
+    expect(html).toContain('<span aria-current="page">Runtime</span>');
+    expect(html).toContain('.views,.levels{display:flex;gap:6px;flex-wrap:wrap;min-width:0}');
+    expect(html).toContain('.content{display:grid;gap:16px;min-width:0}');
     expect(html).toContain("prefers-reduced-motion:reduce");
     expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|https?:\/\//);
   });

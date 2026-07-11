@@ -12,7 +12,7 @@ describe("Explorer inline runtime", () => {
   test("toggles exact expand state and preserves unrelated URL state", () => {
     const expand = element({ "data-expand": "occurrence.group.one" });
     const focus = element({ "data-focus": "module.runtime" });
-    const breadcrumb = element({ "data-breadcrumb-level": "overview" });
+    const breadcrumb = element({ "data-breadcrumb-level": "context" });
     const view = element({ "data-view": "drift-pressure" });
     const harness = execute({
       url: "http://127.0.0.1:7420/?token=secret&maxNodes=80&depth=2&expand=occurrence.group.one&expand=occurrence.group.two&expand=occurrence.group.two",
@@ -45,13 +45,13 @@ describe("Explorer inline runtime", () => {
     breadcrumb.dispatch("click");
     url = new URL(harness.window.location.href);
     expect(url.searchParams.get("focus")).toBeNull();
-    expect(url.searchParams.get("level")).toBe("overview");
+    expect(url.searchParams.get("level")).toBe("context");
     expect(url.searchParams.get("token")).toBe("secret");
 
     view.dispatch("click");
     url = new URL(harness.window.location.href);
     expect(url.searchParams.get("view")).toBe("drift-pressure");
-    expect(url.searchParams.get("level")).toBe("overview");
+    expect(url.searchParams.get("level")).toBe("context");
   });
 
   test("coalesces authority events and qualifies projection invalidation by both digests", () => {

@@ -1,6 +1,6 @@
 # Plan: AR4 Integrated Product Readback and Closeout
 
-> **Status**: Executing
+> **Status**: Completed
 > **Created**: 20260712-0411
 > **Slug**: ar4-integrated-product-readback
 > **Planning Source**: repo-harness-sprint
@@ -177,6 +177,13 @@ being hidden by client-side sampling.
 - `plans/plan-20260712-0225-authority-aware-architecture-reading-completion.md`
 - `docs/adr/ADR-0044-authority-aware-explorer-view-compiler.md`
 - `.ai/context/capabilities.json`
+- `packages/local-runtime/explorer-html/src/index.ts`
+- `packages/local-runtime/explorer-html/test/runtime-script.test.ts`
+- `packages/local-runtime/runtime-daemon/src/explorer-projection.ts`
+- `packages/local-runtime/runtime-daemon/src/index.ts`
+- `packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts`
+- `packages/local-runtime/runtime-daemon/test/local-runtime.test.ts`
+- `packages/surfaces/explorer-ui/test/explorer-ui.test.ts`
 - `docs/verification/ar4-product-readback.json`
 - `docs/verification/ar4-product-readback.md`
 - phase plan/contract/review/notes and Sprint lifecycle artifacts
@@ -187,17 +194,32 @@ If a real acceptance defect requires product code, first update this plan and co
 with exact paths and the smallest coherent fix. Database migrations, compatibility
 paths, cache rewrites, and authority changes are hard stops.
 
+## Browser-Discovered Ship Blockers
+
+- At 375px, the real page reports `scrollWidth=696` while `clientWidth=375`; the
+  five-view control group and topbar are clipped. Fix existing layout CSS so view/level
+  controls wrap and content/card grid items can shrink, while the topology canvas alone
+  retains its intentional internal horizontal scrolling.
+- A focused detail projection currently contains only the current subject breadcrumb;
+  clicking it re-applies the same focus. Compile a two-level `view / current subject`
+  path, render the root as a context-return action, and render the terminal subject as
+  non-interactive `aria-current=page`. No browser-side subject inference is allowed.
+- An already-open EventSource remains connected after its bearer token expires; current
+  tests only reject new post-expiry requests. Add a session-owned expiry timer that
+  revokes the session and ends existing SSE responses, and clear it on explicit
+  revoke/close. Browser freshness must visibly become disconnected at expiry.
+
 # Task Breakdown
 
-- [ ] Create bounded AR4 contract/worktree and record base/user-untracked checksum.
-- [ ] Start the real local product and capture visible-browser acceptance/screenshots.
-- [ ] Execute the required seven-pass plan-design-review and terminal review report.
-- [ ] Run renderer/compiler maximum-budget, privacy, package, CSP, and no-egress audits.
-- [ ] Update ADR-0044 with the accepted AR0-AR3 boundary; leave ADR-0045 untouched.
-- [ ] Repair and validate the capability registry through `capability-config`.
-- [ ] Run focused matrix, typecheck, packaged smoke, privacy audit, full verify,
+- [x] Create bounded AR4 contract/worktree and record base/user-untracked checksum.
+- [x] Start the real local product and capture visible-browser acceptance/screenshots.
+- [x] Execute the required seven-pass plan-design-review and terminal review report.
+- [x] Run renderer/compiler maximum-budget, privacy, package, CSP, and no-egress audits.
+- [x] Update ADR-0044 with the accepted AR0-AR3 boundary; leave ADR-0045 untouched.
+- [x] Repair and validate the capability registry through `capability-config`.
+- [x] Run focused matrix, typecheck, packaged smoke, privacy audit, full verify,
       architecture/security reviews, strict contract/Sprint verification.
-- [ ] Write durable AR4 JSON/Markdown evidence, complete review/notes, archive, merge,
+- [x] Write durable AR4 JSON/Markdown evidence, complete review/notes, archive, merge,
       and prove clean workflow/worktree markers plus preserved user untracked state.
 
 # Verification

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "archcontext.ar4-product-readback/v1",
+  "recordedAt": "2026-07-12T05:00:00+08:00",
+  "baseCommit": "a874a89",
+  "verdict": "PASS",
+  "authority": {
+    "gitVisibleArchitectureTruth": ".archcontext/",
+    "sqliteRole": "rebuildable-operational-runtime",
+    "adr0045Changed": false,
+    "compatibilityPathsAdded": false
+  },
+  "browserAcceptance": {
+    "surface": "real-token-gated-loopback-visible-browser",
+    "views": [
+      "system-map",
+      "task-impact",
+      "drift-pressure",
+      "data-flow",
+      "external-integrations"
+    ],
+    "states": [
+      "overview",
+      "context",
+      "detail-focus",
+      "group-expanded",
+      "group-collapsed",
+      "empty",
+      "narrow",
+      "connected",
+      "disconnected-after-expiry"
+    ],
+    "urlState": {
+      "expandCollapseExact": true,
+      "focusExact": true,
+      "breadcrumbReturnsToContext": true,
+      "fitZoomDoNotChangeUrl": true
+    },
+    "narrowViewport": {
+      "widthPx": 375,
+      "pageClientWidthPx": 375,
+      "pageScrollWidthPx": 375,
+      "topologyClientWidthPx": 299,
+      "topologyScrollWidthPx": 640,
+      "pageOverflow": false,
+      "topologyInternalOverflow": true
+    },
+    "screenshotsDirectory": "/Users/ancienttwo/.gstack/projects/arch-context/designs/explorer-ar4-20260712",
+    "screenshots": [
+      "system-map-context.png",
+      "system-map-overview.png",
+      "data-flow-empty.png",
+      "system-map-detail-fixed.png",
+      "system-map-detail-narrow-fixed.png",
+      "token-expired-disconnected.png"
+    ],
+    "eventEvidence": "Visible browser proved connected and expiry-disconnected states; exact authority-changed debounce and projection-invalidated digest qualification are covered by the inline-runtime and daemon test matrix."
+  },
+  "designReview": {
+    "route": "plan-design-review",
+    "initialScore": 9.0,
+    "finalScore": 9.8,
+    "passes": 7,
+    "findingsFixed": 3,
+    "unresolvedDecisions": 0
+  },
+  "fixes": [
+    {
+      "id": "AR4-F1",
+      "severity": "P1",
+      "summary": "Contain narrow viewport overflow while preserving topology-local scrolling"
+    },
+    {
+      "id": "AR4-F2",
+      "severity": "P1",
+      "summary": "Compile view-root/current-subject breadcrumb and make terminal subject non-interactive"
+    },
+    {
+      "id": "AR4-F3",
+      "severity": "P1",
+      "summary": "Revoke session and close established SSE clients at token expiry"
+    }
+  ],
+  "verification": {
+    "focusedMatrix": {
+      "tests": 404,
+      "passed": 404,
+      "failed": 0,
+      "typecheck": "PASS"
+    },
+    "fullVerify": {
+      "tests": 1083,
+      "passed": 1083,
+      "failed": 0,
+      "verdict": "PASS"
+    },
+    "explorerReadback": {
+      "compiler10kP95Ms": 1.9,
+      "compiler100kP95Ms": 0.58,
+      "defaultRendererP95Ms": 0.92,
+      "defaultBodyBytes": 155677,
+      "publicMaximumRendererP95Ms": 15.44,
+      "publicMaximumBodyBytes": 3295057,
+      "deterministic": true,
+      "externalAssets": 0,
+      "forbiddenFields": 0,
+      "migrationV1References": 0,
+      "verdict": "PASS"
+    },
+    "packagedCliSmoke": "PASS",
+    "privacyRouteAudit": "PASS",
+    "capabilityRegistryValidation": "PASS",
+    "architectureReview": "PASS",
+    "securityReview": "PASS"
+  },
+  "userState": {
+    "path": ".ai/harness/delegation/subagent-stop-quality.json",
+    "sha256Before": "10fc961f78b6a26a16b9fa9d1fea368d4b4493e7d825add46495df0b760e14ea",
+    "sha256After": "10fc961f78b6a26a16b9fa9d1fea368d4b4493e7d825add46495df0b760e14ea",
+    "preserved": true
+  }
+}

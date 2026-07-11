@@ -834,17 +834,152 @@ Stop the active phase and revise its plan/contract if any implementation require
 - Autoplan artifact:
   `/Users/ancienttwo/.gstack/projects/Ancienttwo-arch-context/tasks-eng-review-20260712-023100.jsonl`.
 
+## AR4 Design Review
+
+### What already exists
+
+- One self-contained app surface with scoped color tokens, calm green/neutral status
+  hierarchy, a persistent trust bar, five-view navigation, semantic-level controls,
+  bounded topology, relations table, and typed Inspector.
+- URL-addressed semantic navigation and transient fit/zoom/pan controls.
+- Explicit keyboard focus, reduced-motion, no-JS structure, semantic regions,
+  screen-reader SVG labels, and an accessible textual relation equivalent.
+- No repo-level `DESIGN.md`. This local reader therefore reuses its existing scoped
+  CSS vocabulary; a cross-product design system is not required for this program.
+
+### Pass 1 · Information Architecture — 9/10 → 10/10
+
+The first screen now answers, in order: trust/freshness, question/view, bounded
+topology, relations, then Inspector. Focused detail now has a real two-level return
+path instead of a no-op current-subject breadcrumb.
+
+```text
+trust + freshness
+  -> five question-oriented views + semantic level + budget
+  -> breadcrumb return path
+  -> bounded/truncated state
+  -> occurrences | primary topology workspace
+                   -> relations
+                   -> Inspector + technical details
+```
+
+If only three things fit: current question, topology, and freshness/budget remain.
+
+### Pass 2 · Interaction State Coverage — 9/10 → 10/10
+
+| Feature | Loading | Empty | Error | Success | Partial |
+|---|---|---|---|---|---|
+| Projection | live updates pending | honest zero occurrences/relations | daemon error envelope; no fabricated view | bounded topology + typed facts | amber omitted-count notice |
+| Live freshness | pending | n/a | disconnected status | connected status | debounced bounded refetch |
+| Typed views | selected control | explicit bounded empty topology | required domain unavailable/disabled | exact typed subgraph | read-set truncation remains visible |
+| Inspector | selection prompt | typed `None`/`none` facets | no secondary query/fallback | complete typed facets | only manifest-selected metadata |
+
+The real expiry defect found in AR4 is fixed: an already-connected SSE stream now
+closes at token expiry and the page reports disconnected.
+
+### Pass 3 · User Journey and Emotional Arc — 10/10 → 10/10
+
+| Step | User does | User should feel | Supporting design |
+|---|---|---|---|
+| 1 | Opens local Explorer | Safe | explicit local/read-only/no-egress/token state |
+| 2 | Scans a question view | Oriented | pressed view + level, budget, breadcrumb |
+| 3 | Expands or focuses | In control | exact URL state, bounded refetch, return path |
+| 4 | Reads rationale/history | Confident | typed Inspector, evidence/backlinks, cursors |
+| 5 | Leaves it open | Trustworthy | live/disconnected freshness is never silent |
+
+Five seconds: trust and question are unmistakable. Five minutes: topology and
+Inspector answer where/why/history. Long-term: cursor/digest/freshness signals prevent
+stale local pictures from presenting as authority.
+
+### Pass 4 · AI Slop Risk — 10/10 → 10/10
+
+Classifier: APP UI. The screen is a real workspace, not a dashboard mosaic. It avoids
+hero copy, decorative gradients, icon circles, centered marketing sections, purple
+palette, ornamental motion, and generic feature cards. Litmus: product identity YES;
+one primary topology anchor YES; scan-readable YES; one job per section YES; cards are
+structural regions rather than decoration YES; motion is functional YES; hierarchy
+survives without shadows YES.
+
+### Pass 5 · Design System Alignment — 8/10 → 9/10
+
+No shared `DESIGN.md` exists. For this isolated self-contained local product, the
+accepted system is the existing scoped CSS token set and component vocabulary in
+`explorer-html`. AR4 changes reuse that vocabulary and add no new visual component.
+The remaining one point is intentionally not converted into speculative repo-wide
+design-system work.
+
+### Pass 6 · Responsive and Accessibility — 8/10 → 10/10
+
+The first real 375px readback measured `scrollWidth=696` and clipped navigation.
+After the bounded CSS fix, `scrollWidth=clientWidth=375`; view/level controls wrap,
+cards/grid items shrink, and only the topology canvas keeps internal horizontal scroll
+(`640px` content inside a `299px` viewport). Breadcrumb terminal state uses
+`aria-current=page`; the return item is an explicit context action. Existing keyboard,
+focus-visible, reduced-motion, landmarks, disabled-state, label, and text-equivalent
+contracts remain intact.
+
+### Pass 7 · Unresolved Design Decisions
+
+Three concrete issues were resolved in AR4: page-level narrow overflow, no-op focused
+breadcrumb, and existing SSE connections surviving token expiry. Zero decisions are
+deferred.
+
+### NOT in scope
+
+- A repo-wide design system or `DESIGN.md`: one local self-contained reader does not
+  justify cross-product abstraction during acceptance closeout.
+- Decorative branding, onboarding, editor, Guided Tour, or mutation CTA: they dilute
+  the read-only authority task and were excluded by the approved product boundary.
+- Fabricated empty-state recommendations: absence of typed authority remains an honest
+  empty view with navigation controls, not inferred next steps.
+
+### Design Review Implementation Tasks
+
+- [x] **DR-T1 (P1, human: ~2h / Codex: ~20min)** — responsive shell — contain
+  horizontal overflow at 375px while preserving topology-local scrolling.
+  - Surfaced by: Pass 6 real viewport readback (`696px` document width).
+  - Files: `packages/local-runtime/explorer-html/src/index.ts`, surface tests.
+  - Verify: visible-browser `scrollWidth === clientWidth === 375` plus focused tests.
+- [x] **DR-T2 (P1, human: ~2h / Codex: ~20min)** — breadcrumb — compile and render a
+  real `view / subject` return path with terminal `aria-current`.
+  - Surfaced by: Pass 1 real focus navigation; the old breadcrumb re-applied itself.
+  - Files: Explorer compiler/HTML plus compiler/runtime/surface tests.
+  - Verify: root click removes focus, returns to context, and preserves view/budgets.
+- [x] **DR-T3 (P1, human: ~2h / Codex: ~20min)** — freshness — expire established
+  SSE clients when the bearer token expires.
+  - Surfaced by: Pass 2 real 30-second browser session remained connected.
+  - Files: runtime daemon plus real SSE expiry test.
+  - Verify: existing stream ends, session revokes, post-expiry HTML/SSE stay 401.
+
+### Design Review Completion Summary
+
+| Pass | Before | After |
+|---|---:|---:|
+| Information architecture | 9 | 10 |
+| Interaction states | 9 | 10 |
+| Journey | 10 | 10 |
+| AI slop | 10 | 10 |
+| Design system | 8 | 9 |
+| Responsive/accessibility | 8 | 10 |
+| Decisions | 3 open | 0 open |
+
+System audit: UI scope confirmed; no `DESIGN.md`; existing Explorer patterns reused.
+Mockup generator was unavailable, so real local screenshots replaced synthetic
+mockups. Five key screenshots were captured under
+`~/.gstack/projects/arch-context/designs/explorer-ar4-20260712/`. TODOS.md updates:
+zero; all verified design defects were P1 ship gates and were fixed in AR4.
+Overall design score: 9/10 → 9.8/10.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | NOT RUN | Program scope is explicit in this plan |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | NOT RUN | Plan-specific outside reviewer timed out |
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | NOT RUN | Program scope remains explicit |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | NOT RUN | No claim of cross-model consensus |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR (PLAN) | 6 issues folded, 0 critical gaps |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | REQUIRED IN AR4 | Must use real local screenshots |
-| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | NOT REQUIRED | No developer-facing workflow change |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR (FULL) | score 9/10 → 9.8/10, 3 ship blockers fixed |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | NOT REQUIRED | No developer workflow change |
 
-- **VERDICT:** ENG CLEARED — program approval is recorded; implementation may begin
-  only after AR0 contract projection.
+- **VERDICT:** ENG + DESIGN CLEARED — AR4 integrated verification remains before merge.
 
 NO UNRESOLVED DECISIONS

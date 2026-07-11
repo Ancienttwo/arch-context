@@ -347,6 +347,10 @@ describe("compileSystemMapProjection", () => {
     const projection = compile({ query: focusQuery });
     expect(projection.occurrences.map((item) => item.provenance.declaredEntityIds[0])).toEqual(["module.api", "module.db"]);
     expect(projection.relations).toHaveLength(1);
+    expect(projection.breadcrumbs).toEqual([
+      { occurrenceId: "occurrence.system-map.root", label: "System Map" },
+      { occurrenceId: "occurrence.system-map.entity.module.api", label: "API" }
+    ]);
     const selectedGraph: ArchitectureLedgerGraphState = {
       entities: [
         { entityId: "module.api", kind: "module", canonicalName: "API", status: "active" },
@@ -555,7 +559,10 @@ describe("compileSystemMapProjection", () => {
       observed: observed(), bindings: [], tokenRequired: true
     }));
     expect(focused.occurrences.flatMap((occurrence) => occurrence.provenance.declaredEntityIds)).toEqual(["module.a", "module.b", "module.c"]);
-    expect(focused.breadcrumbs.at(-1)?.label).toBe("B");
+    expect(focused.breadcrumbs).toEqual([
+      { occurrenceId: "occurrence.data-flow.root", label: "Data Flow" },
+      { occurrenceId: "occurrence.data-flow.entity.module.b", label: "B" }
+    ]);
 
     expect(() => compileExplorerProjection(withReadPlan({
       query: { ...query, viewId: "data-flow", expectedCursor: { headSha: "b".repeat(40), worktreeDigest: worktree.worktreeDigest, graphDigest: architectureLedgerStateDigest(flowGraph) } },

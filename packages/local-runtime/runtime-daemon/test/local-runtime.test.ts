@@ -4670,10 +4670,14 @@ describe("local runtime foundation", () => {
     try {
       const daemon = await createStartedTestDaemon({ clock: () => now });
       await daemon.init(root, "Explorer Token Expiry App");
-      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 1 });
+      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 0.25 });
       const data = started.data as any;
       const beforeExpiry = await fetch(`${data.url}?token=${data.token}`);
       expect(beforeExpiry.status).toBe(200);
+      const connectedSse = await fetch(`${data.url}events?token=${data.token}`);
+      expect(connectedSse.status).toBe(200);
+      const connectedReader = connectedSse.body!.getReader();
+      expect((await connectedReader.read()).done).toBe(false);
       now = "2026-06-20T00:00:02.000Z";
       const expiredHtml = await fetch(`${data.url}?token=${data.token}`);
       expect(expiredHtml.status).toBe(401);
@@ -4681,6 +4685,9 @@ describe("local runtime foundation", () => {
       expect(expiredSse.status).toBe(401);
       const ambient = await fetch(data.url, { headers: { Cookie: `token=${data.token}` } });
       expect(ambient.status).toBe(401);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect((await connectedReader.read()).done).toBe(true);
+      expect((daemon.explorerStatus().data as any).revoked).toBe(true);
       await daemon.stopExplorer();
     } finally {
       removeTempRepo(root);

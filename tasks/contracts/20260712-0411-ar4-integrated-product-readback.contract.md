@@ -1,6 +1,6 @@
 # Task Contract: ar4-integrated-product-readback
 
-> **Status**: Active
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260712-0411-ar4-integrated-product-readback.md
 > **Task Profile**: code-change
 > **Owner**: ancienttwo
@@ -63,6 +63,13 @@ allowed_paths:
   - tasks/reviews/20260712-0411-ar4-integrated-product-readback.review.md
   - tasks/notes/20260712-0411-ar4-integrated-product-readback.notes.md
   - .ai/context/capabilities.json
+  - packages/local-runtime/explorer-html/src/index.ts
+  - packages/local-runtime/explorer-html/test/runtime-script.test.ts
+  - packages/local-runtime/runtime-daemon/src/explorer-projection.ts
+  - packages/local-runtime/runtime-daemon/src/index.ts
+  - packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts
+  - packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
+  - packages/surfaces/explorer-ui/test/explorer-ui.test.ts
   - docs/adr/ADR-0044-authority-aware-explorer-view-compiler.md
   - docs/verification/ar4-product-readback.json
   - docs/verification/ar4-product-readback.md

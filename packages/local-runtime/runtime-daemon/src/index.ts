@@ -765,6 +765,7 @@ interface ExplorerServerSession {
   expiresAt: number;
   revoked: boolean;
   sseClients: Set<ServerResponse>;
+  expiryTimer?: ReturnType<typeof setTimeout>;
   lastProjectionDigest?: string;
 }
 
@@ -4273,6 +4274,10 @@ export class ArchctxDaemon {
     });
     await new Promise<void>((resolveListen) => server.listen(options.port ?? 0, "127.0.0.1", resolveListen));
     holder.port = (server.address() as AddressInfo).port;
+    holder.expiryTimer = setTimeout(
+      () => this.expireExplorerSession(holder),
+      Math.max(0, expiresAt - Date.parse(this.clock()))
+    );
     this.explorer = holder;
     return okEnvelope("explorer.start", {
       ...this.explorerStatusData(),
@@ -4290,6 +4295,8 @@ export class ArchctxDaemon {
   async revokeExplorerToken(): Promise<JsonEnvelope> {
     this.assertRunning();
     if (this.explorer) {
+      if (this.explorer.expiryTimer) clearTimeout(this.explorer.expiryTimer);
+      this.explorer.expiryTimer = undefined;
       this.explorer.revoked = true;
       for (const client of this.explorer.sseClients) client.end();
       this.explorer.sseClients.clear();
@@ -4670,11 +4677,21 @@ export class ArchctxDaemon {
     const current = this.explorer;
     if (!current) return;
     this.explorer = undefined;
+    if (current.expiryTimer) clearTimeout(current.expiryTimer);
+    current.expiryTimer = undefined;
     for (const client of current.sseClients) client.end();
     current.sseClients.clear();
     await new Promise<void>((resolveClose, rejectClose) => {
       current.server.close((error) => error ? rejectClose(error) : resolveClose());
     });
+  }
+
+  private expireExplorerSession(session: ExplorerServerSession): void {
+    if (this.explorer !== session || session.revoked) return;
+    session.expiryTimer = undefined;
+    session.revoked = true;
+    for (const client of session.sseClients) client.end();
+    session.sseClients.clear();
   }
 }
 

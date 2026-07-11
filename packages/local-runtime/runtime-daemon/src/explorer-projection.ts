@@ -346,7 +346,10 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
     view,
     availableViews: availableViews(input),
     semanticLevel,
-    breadcrumbs: focus ? [...(focus.parentOccurrenceId ? [{ occurrenceId: focus.parentOccurrenceId, label: "Overview" }] : []), { occurrenceId: focus.occurrenceId, label: focus.name }] : [],
+    breadcrumbs: focus ? [
+      { occurrenceId: `occurrence.${view.id}.root`, label: view.title },
+      { occurrenceId: focus.occurrenceId, label: focus.name }
+    ] : [],
     cursor,
     inputManifest,
     occurrences: returnedOccurrences,
