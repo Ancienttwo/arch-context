@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "archcontext.explorer-ar0-topology-readback/v1",
+  "capturedAt": "2026-07-12T03:12:00+08:00",
+  "command": "bun scripts/explorer-view-compiler-readback.mjs --check",
+  "renderer": {
+    "algorithm": "canonical O(N + E) occurrence and adjacency indexing",
+    "deterministicAcrossReversedInput": true,
+    "externalAssetMatches": [],
+    "forbiddenFieldsFound": [],
+    "cases": [
+      {
+        "name": "default",
+        "returnedNodes": 80,
+        "returnedRelations": 160,
+        "iterations": 20,
+        "p95Ms": 0.7,
+        "p95LimitMs": 50,
+        "bodyBytes": 149013,
+        "bodyLimitBytes": 1048576,
+        "indexedOccurrences": 80,
+        "indexedRelations": 160,
+        "passed": true
+      },
+      {
+        "name": "public-maximum",
+        "returnedNodes": 1000,
+        "returnedRelations": 5000,
+        "iterations": 10,
+        "p95Ms": 38.85,
+        "p95LimitMs": 500,
+        "bodyBytes": 3288171,
+        "bodyLimitBytes": 8388608,
+        "indexedOccurrences": 1000,
+        "indexedRelations": 5000,
+        "passed": true
+      }
+    ]
+  },
+  "compilerRegression": {
+    "tenThousandEntityP95Ms": 1.94,
+    "oneHundredThousandEntityP95Ms": 0.49,
+    "budgetBounded": true,
+    "v1RuntimeReferences": []
+  },
+  "verdict": "PASS"
+}

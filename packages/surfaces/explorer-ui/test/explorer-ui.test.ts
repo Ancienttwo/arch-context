@@ -117,6 +117,10 @@ describe("@archcontext/surfaces/explorer-ui V2", () => {
     expect(html).not.toContain("DECLARED_UNOBSERVED");
     expect(html).toContain("BOUND");
     expect(html).toContain("read-only · local · no egress");
+    expect(html).toContain('data-topology-mode="context-bands"');
+    expect(html).toContain('aria-label="Bounded architecture topology"');
+    expect(html).toContain("<svg");
+    expect(html).not.toContain("map-node");
     expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|https?:\/\//);
   });
 

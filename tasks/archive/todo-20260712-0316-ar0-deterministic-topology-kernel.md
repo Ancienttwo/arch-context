@@ -1,7 +1,13 @@
+> **Archived**: 2026-07-12 03:16
+> **Related Plan**: plans/archive/plan-20260712-0301-ar0-deterministic-topology-kernel.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260712-0316
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: (archive-workflow)
+> **Updated**: 2026-07-11 13:28
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.
