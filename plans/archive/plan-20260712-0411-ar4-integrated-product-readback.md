@@ -1,6 +1,6 @@
 # Plan: AR4 Integrated Product Readback and Closeout
 
-> **Status**: Completed
+> **Status**: Archived
 > **Created**: 20260712-0411
 > **Slug**: ar4-integrated-product-readback
 > **Planning Source**: repo-harness-sprint

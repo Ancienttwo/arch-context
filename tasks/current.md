@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-07-12T04:08:26+0800 -->
+<!-- updated_at: 2026-07-12T04:57:17+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: Idle
-> **Updated At**: 2026-07-12T04:08:26+0800
-> **Source Branch**: codex/ar3-typed-domain-perspectives
-> **Source Commit**: f11dae9
+> **Updated At**: 2026-07-12T04:57:17+0800
+> **Source Branch**: codex/ar4-integrated-product-readback
+> **Source Commit**: b2621c8
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -51,15 +51,15 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 9 changed/untracked path(s)
 
 ```
- D plans/plan-20260712-0349-ar3-typed-domain-perspectives.md
- D tasks/contracts/20260712-0349-ar3-typed-domain-perspectives.contract.md
- D tasks/notes/20260712-0349-ar3-typed-domain-perspectives.notes.md
- D tasks/reviews/20260712-0349-ar3-typed-domain-perspectives.review.md
-?? plans/archive/plan-20260712-0349-ar3-typed-domain-perspectives.md
-?? tasks/archive/contract-20260712-0408-ar3-typed-domain-perspectives.md
-?? tasks/archive/notes-20260712-0408-ar3-typed-domain-perspectives.md
-?? tasks/archive/review-20260712-0408-ar3-typed-domain-perspectives.md
-?? tasks/archive/todo-20260712-0408-ar3-typed-domain-perspectives.md
+ D plans/plan-20260712-0411-ar4-integrated-product-readback.md
+ D tasks/contracts/20260712-0411-ar4-integrated-product-readback.contract.md
+ D tasks/notes/20260712-0411-ar4-integrated-product-readback.notes.md
+ D tasks/reviews/20260712-0411-ar4-integrated-product-readback.review.md
+?? plans/archive/plan-20260712-0411-ar4-integrated-product-readback.md
+?? tasks/archive/contract-20260712-0457-ar4-integrated-product-readback.md
+?? tasks/archive/notes-20260712-0457-ar4-integrated-product-readback.md
+?? tasks/archive/review-20260712-0457-ar4-integrated-product-readback.md
+?? tasks/archive/todo-20260712-0457-ar4-integrated-product-readback.md
 ```
 
 ## Source Artifacts
