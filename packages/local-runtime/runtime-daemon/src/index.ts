@@ -39,6 +39,7 @@ import {
   queryArchitectureLedgerBookNeighbors,
   queryArchitectureLedgerBookRecommendations,
   queryArchitectureLedgerBookTimeline,
+  replayArchitectureLedgerEvidenceState,
   replayArchitectureLedgerEvents,
   showArchitectureLedgerBookSubject,
   type ArchitectureAuditRunV1,
@@ -47,6 +48,7 @@ import {
   type ArchitectureLedgerScope,
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
+import { compileArchitectureFactChanges, compileEvidenceStateChanges } from "@archcontext/core/architecture-delta";
 import {
   aggregateRecommendationLifecycleMetrics,
   createRecommendationFeedback,
@@ -83,7 +85,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceBindingV1, type EvidenceItemV2, type ExplorerDeltaQueryV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -100,7 +102,7 @@ import {
 import {
   ExplorerProjectionCompileError,
   compileExplorerProjection,
-  compileExplorerProjectionDelta,
+  compileExplorerProjectionChanges,
   type ExplorerEventBacklinkInputV2,
   type ExplorerResolvedBindingV2
 } from "./explorer-projection";
@@ -715,7 +717,7 @@ export interface RuntimeDaemonClient {
   landscapeStatus(): Promise<JsonEnvelope> | JsonEnvelope;
   explorerServiceContract(tokenTtlSeconds?: number): Promise<JsonEnvelope> | JsonEnvelope;
   explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> | JsonEnvelope;
-  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV1): Promise<JsonEnvelope> | JsonEnvelope;
+  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> | JsonEnvelope;
   startExplorer(root: string, options?: ExplorerServerOptions): Promise<JsonEnvelope> | JsonEnvelope;
   stopExplorer(): Promise<JsonEnvelope> | JsonEnvelope;
   revokeExplorerToken(): Promise<JsonEnvelope> | JsonEnvelope;
@@ -2480,7 +2482,7 @@ export class ArchctxDaemon {
 
   private async appendAppliedChangeSetToArchitectureLedger(root: string, session: RepositorySession, draft: ChangeSetDraft, journalId?: string) {
     const paths = runtimeStatePaths(root);
-    const plan = planChangeSetApplyToArchitectureLedgerEvent({
+    const scope = {
       repository: {
         repositoryId: session.workspace.repositoryId,
         storageRepositoryId: paths.storageRepositoryId
@@ -2491,9 +2493,13 @@ export class ArchctxDaemon {
         branch: readCurrentBranch(root),
         headSha: session.workspace.headSha,
         worktreeDigest: computeWorktreeDigest(root)
-      },
+      }
+    };
+    const plan = planChangeSetApplyToArchitectureLedgerEvent({
+      ...scope,
       draft,
       files: listModelFiles(root),
+      previousEvidenceState: await this.localStore.replayArchitectureLedgerEvidence(scope),
       createdAt: this.clock(),
       writeMode: this.architectureLedger.writeMode === "ledger-with-projection" ? "ledger-with-projection" : "dual",
       command: "archctx apply"
@@ -2976,9 +2982,11 @@ export class ArchctxDaemon {
       const command = writes
         ? "archctx ledger migrate --from-yaml --write"
         : "archctx ledger migrate --from-yaml --dry-run";
+      const previousEvidenceState = await this.localStore.replayArchitectureLedgerEvidence(scope);
       const plan = planYamlToArchitectureLedgerImport({
         ...scope,
         files,
+        previousEvidenceState,
         createdAt: this.clock(),
         command
       });
@@ -3137,6 +3145,7 @@ export class ArchctxDaemon {
       const scope = await this.architectureLedgerGitScope(root);
       const files = listModelFiles(root);
       const exactReplay = await this.localStore.replayArchitectureLedger(scope);
+      const exactEvidenceState = await this.localStore.replayArchitectureLedgerEvidence(scope);
       const exactScopeHasEvents = exactReplay.events.length > 0;
       const authorityScope = exactScopeHasEvents
         ? scope
@@ -3145,6 +3154,9 @@ export class ArchctxDaemon {
         ? exactReplay.state
         : await this.localStore.readArchitectureLedgerState(authorityScope);
       const previousGraphDigest = architectureLedgerStateDigest(previousState);
+      const authorityEvidenceState = exactScopeHasEvents
+        ? exactEvidenceState
+        : await this.localStore.replayArchitectureLedgerEvidence(authorityScope);
       const rebuildCommand = input.acceptExternalProjection
         ? "archctx ledger rebuild --from-git --accept-external-projection"
         : "archctx ledger rebuild --from-git";
@@ -3153,11 +3165,13 @@ export class ArchctxDaemon {
         files,
         createdAt: this.clock(),
         command: rebuildCommand,
-        previousState
+        previousState,
+        previousEvidenceState: exactEvidenceState
       });
       const importPlan = planYamlToArchitectureLedgerImport({
         ...scope,
         files,
+        previousEvidenceState: exactEvidenceState,
         createdAt: this.clock(),
         command: rebuildCommand
       });
@@ -3208,7 +3222,8 @@ export class ArchctxDaemon {
           files,
           createdAt: this.clock(),
           command: rebuildCommand,
-          previousState
+          previousState,
+          previousEvidenceState: authorityEvidenceState
         });
         append = await this.localStore.appendArchitectureEvents({
           writer: "runtime-daemon",
@@ -3277,9 +3292,11 @@ export class ArchctxDaemon {
   private async architectureLedgerReadback(root: string) {
     const scope = await this.architectureLedgerScope(root);
     const files = listModelFiles(root);
+    const previousEvidenceState = await this.localStore.replayArchitectureLedgerEvidence(scope);
     const yamlPlan = planYamlToArchitectureLedgerImport({
       ...scope,
       files,
+      previousEvidenceState,
       createdAt: this.clock(),
       command: "archctx ledger state"
     });
@@ -3858,22 +3875,68 @@ export class ArchctxDaemon {
     }
   }
 
-  async explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV1): Promise<JsonEnvelope> {
+  async explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (query.schemaVersion !== "archcontext.explorer-delta-query/v1") {
-      return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", `unsupported Explorer delta schema: ${query.schemaVersion}`);
+    const queryFailure = validateExplorerDeltaQueryV2(query);
+    if (queryFailure) {
+      return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", queryFailure, "invalid-delta-query");
     }
     const readback = await this.architectureLedgerReadback(root);
     const scope = { repository: readback.repository, worktree: readback.worktree };
     const [base, head] = await Promise.all([
-      this.localStore.readExplorerProjection({ ...scope, projectionDigest: query.baseProjectionDigest }),
-      this.localStore.readExplorerProjection({ ...scope, projectionDigest: query.headProjectionDigest })
+      this.localStore.readExplorerProjection({ ...scope, projectionDigest: query.base.projectionDigest }),
+      this.localStore.readExplorerProjection({ ...scope, projectionDigest: query.head.projectionDigest })
     ]);
-    if (!base || !head) return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", "both digest-addressed Explorer projections must exist in the daemon cache");
+    if (!base || !head) {
+      return errorEnvelope(
+        "explorer.delta",
+        "AC_PRECONDITION_FAILED",
+        "both digest-addressed Explorer projections must exist in the daemon cache",
+        "projection-cache-miss"
+      );
+    }
     try {
-      return okEnvelope("explorer.delta", compileExplorerProjectionDelta(base, head) as unknown as Json);
+      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const baseIndex = replay.events.findIndex((event) => event.eventId === query.base.eventId);
+      const headIndex = replay.events.findIndex((event) => event.eventId === query.head.eventId);
+      if (baseIndex < 0 || headIndex < 0) throw new ExplorerDeltaPreconditionError("authority-event-missing", "both authority cursor events must exist in the selected repository/worktree scope");
+      if (baseIndex > headIndex) throw new ExplorerDeltaPreconditionError("authority-cursor-reversed", "Explorer delta requires base event at or before head event");
+      const baseEvents = replay.events.slice(0, baseIndex + 1);
+      const headEvents = replay.events.slice(0, headIndex + 1);
+      const baseGraph = replayArchitectureLedgerEvents(baseEvents);
+      const headGraph = replayArchitectureLedgerEvents(headEvents);
+      const baseEvidence = replayArchitectureLedgerEvidenceState(baseEvents);
+      const headEvidence = replayArchitectureLedgerEvidenceState(headEvents);
+      const baseCursor = explorerAuthorityCursor(baseEvents[baseIndex]!, baseIndex + 1, baseGraph, baseEvidence.stateDigest);
+      const headCursor = explorerAuthorityCursor(headEvents[headIndex]!, headIndex + 1, headGraph, headEvidence.stateDigest);
+      if (!sameExplorerAuthorityCursor(base.cursor.authorityCursor, baseCursor) || !sameExplorerAuthorityCursor(head.cursor.authorityCursor, headCursor)) {
+        throw new ExplorerDeltaPreconditionError("projection-authority-mismatch", "Explorer projection authority cursor does not match the requested event state");
+      }
+      const projectionChanges = compileExplorerProjectionChanges(base, head);
+      const factChanges = compileArchitectureFactChanges(baseGraph, headGraph);
+      const evidenceChanges = compileEvidenceStateChanges(baseEvidence, headEvidence);
+      const withoutDigest = {
+        schemaVersion: "archcontext.explorer-projection-delta/v2" as const,
+        base: { ...baseCursor, projectionDigest: base.projectionDigest, inputManifestDigest: base.inputManifest.manifestDigest },
+        head: { ...headCursor, projectionDigest: head.projectionDigest, inputManifestDigest: head.inputManifest.manifestDigest },
+        factChanges,
+        evidenceChanges,
+        projectionChanges,
+        counts: {
+          "architecture-fact": factChanges.length,
+          evidence: evidenceChanges.length,
+          projection: projectionChanges.length
+        }
+      };
+      const delta: ExplorerProjectionDeltaV2 = { ...withoutDigest, deltaDigest: digestJson(withoutDigest as unknown as Json) };
+      return okEnvelope("explorer.delta", delta as unknown as Json);
     } catch (error) {
-      if (error instanceof ExplorerProjectionCompileError) return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", error.message);
+      if (error instanceof ExplorerDeltaPreconditionError) {
+        return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", error.message, error.reasonCode);
+      }
+      if (error instanceof ExplorerProjectionCompileError) {
+        return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", error.message, "projection-manifest-incompatible");
+      }
       throw error;
     }
   }
@@ -3932,14 +3995,21 @@ export class ArchctxDaemon {
       subjectIds: uniqueStrings((readback.drift.projectionDiffs ?? []).flatMap((diff) => diff.targetId ? [diff.targetId] : [])),
       reasonCodes: readback.drift.reasonCodes
     };
+    const evidenceState = replayArchitectureLedgerEvidenceState(replay.events);
+    const replayGraphDigest = architectureLedgerStateDigest(replay.state);
+    const lastEvent = replay.events.at(-1);
+    const authorityCursor = lastEvent && replayGraphDigest === readback.graphDigest
+      ? explorerAuthorityCursor(lastEvent, replay.events.length, replay.state, evidenceState.stateDigest)
+      : null;
     const projection = compileExplorerProjection({
       query,
       repository: readback.repository,
       worktree: readback.worktree,
+      authorityCursor,
       graph: readback.state,
       graphDigest: readback.graphDigest,
       observed,
-      bindings: explorerResolvedBindings(replay.events),
+      bindings: explorerResolvedBindings(evidenceState),
       pressure,
       drift,
       taskSession,
@@ -4284,13 +4354,19 @@ export class ArchctxDaemon {
       return;
     }
     if (url.pathname === "/delta") {
+      const baseEventId = url.searchParams.get("baseEventId");
+      const headEventId = url.searchParams.get("headEventId");
       const baseProjectionDigest = url.searchParams.get("baseProjectionDigest");
       const headProjectionDigest = url.searchParams.get("headProjectionDigest");
-      if (!baseProjectionDigest || !headProjectionDigest) {
-        writeJson(response, 400, errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "baseProjectionDigest and headProjectionDigest are required"));
+      if (!baseEventId || !headEventId || !baseProjectionDigest || !headProjectionDigest) {
+        writeJson(response, 400, errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "baseEventId, headEventId, baseProjectionDigest and headProjectionDigest are required"));
         return;
       }
-      const result = await this.explorerProjectionDelta(session.root, { schemaVersion: "archcontext.explorer-delta-query/v1", baseProjectionDigest, headProjectionDigest });
+      const result = await this.explorerProjectionDelta(session.root, {
+        schemaVersion: "archcontext.explorer-delta-query/v2",
+        base: { eventId: baseEventId, projectionDigest: baseProjectionDigest },
+        head: { eventId: headEventId, projectionDigest: headProjectionDigest }
+      });
       writeJson(response, result.ok ? 200 : 409, result);
       return;
     }
@@ -4514,7 +4590,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("explorerProjectionV2", [root, query]);
   }
 
-  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV1) {
+  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV2) {
     return this.call("explorerProjectionDelta", [root, query]);
   }
 
@@ -4852,7 +4928,7 @@ export class ArchctxRuntimeRpcServer {
       case "explorerProjectionV2":
         return this.daemon.explorerProjectionV2(params[0] as string, params[1] as ExplorerProjectionQueryV2);
       case "explorerProjectionDelta":
-        return this.daemon.explorerProjectionDelta(params[0] as string, params[1] as ExplorerDeltaQueryV1);
+        return this.daemon.explorerProjectionDelta(params[0] as string, params[1] as ExplorerDeltaQueryV2);
       case "startExplorer":
         return this.daemon.startExplorer(params[0] as string, params[1] as ExplorerServerOptions | undefined);
       case "stopExplorer":
@@ -5117,6 +5193,52 @@ interface ArchitectureBookResolvedRef {
   lastEventId?: string;
 }
 
+class ExplorerDeltaPreconditionError extends Error {
+  constructor(readonly reasonCode: ExplorerDeltaFailureReasonV2, message: string) {
+    super(message);
+    this.name = "ExplorerDeltaPreconditionError";
+  }
+}
+
+function validateExplorerDeltaQueryV2(query: unknown): string | undefined {
+  if (!query || typeof query !== "object" || Array.isArray(query)) return "Explorer delta query must be an object";
+  const value = query as Record<string, unknown>;
+  if (value.schemaVersion !== "archcontext.explorer-delta-query/v2") return `unsupported Explorer delta schema: ${String(value.schemaVersion)}`;
+  for (const side of ["base", "head"] as const) {
+    const ref = value[side];
+    if (!ref || typeof ref !== "object" || Array.isArray(ref)) return `Explorer delta ${side} cursor reference is required`;
+    const record = ref as Record<string, unknown>;
+    if (typeof record.eventId !== "string" || record.eventId.length === 0) return `Explorer delta ${side}.eventId is required`;
+    if (typeof record.projectionDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(record.projectionDigest)) {
+      return `Explorer delta ${side}.projectionDigest must be a sha256 digest`;
+    }
+  }
+  return undefined;
+}
+
+function sameExplorerAuthorityCursor(actual: AuthorityCursorV1 | null, expected: AuthorityCursorV1): boolean {
+  return actual !== null && digestJson(actual as unknown as Json) === digestJson(expected as unknown as Json);
+}
+
+function explorerAuthorityCursor(
+  event: ArchitectureEventV1,
+  eventSequence: number,
+  graph: ArchitectureLedgerGraphState,
+  evidenceStateDigest: string
+): AuthorityCursorV1 {
+  if (!event.eventHash) throw new ExplorerProjectionCompileError("precondition-failed", `authority cursor event hash missing: ${event.eventId}`);
+  return {
+    schemaVersion: "archcontext.authority-cursor/v1",
+    repository: event.repository,
+    worktree: event.worktree,
+    eventSequence,
+    eventId: event.eventId,
+    eventHash: event.eventHash,
+    graphDigest: architectureLedgerStateDigest(graph),
+    evidenceStateDigest
+  };
+}
+
 async function architectureBookResolveRef(
   store: RuntimeLocalStore,
   scope: ArchitectureLedgerScope,
@@ -5245,15 +5367,9 @@ function isArchitectureLedgerManagedModelPath(path: string): boolean {
     || path.startsWith(".archcontext/model/constraints/");
 }
 
-function explorerResolvedBindings(events: ArchitectureEventV1[]): ExplorerResolvedBindingV2[] {
-  const evidenceById = new Map<string, EvidenceItemV2>();
-  const bindingsById = new Map<string, EvidenceBindingV1>();
-  for (const event of events) {
-    const payload = architectureLedgerPayload(event);
-    for (const item of payload.evidenceItems ?? []) evidenceById.set(item.evidenceId, item);
-    for (const binding of payload.evidenceBindings ?? []) bindingsById.set(binding.bindingId, binding);
-  }
-  return [...bindingsById.values()]
+function explorerResolvedBindings(state: EvidenceStateAtCursorV1): ExplorerResolvedBindingV2[] {
+  const evidenceById = new Map(state.evidenceItems.map((item) => [item.evidenceId, item]));
+  return state.evidenceBindings
     .filter((binding) => binding.target.kind === "entity")
     .flatMap((binding) => {
       const evidence = evidenceById.get(binding.evidenceId);

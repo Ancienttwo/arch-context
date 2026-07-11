@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "archcontext.data-engine-de0-readback/v1",
+  "generatedAt": "2026-07-11T07:59:53.056Z",
+  "gitCommit": "f305d72f6ec5a0a1b0d06b1c904bbd8f2604e612",
+  "branch": "codex/data-engine-authority-incremental",
+  "contracts": {
+    "deltaQuery": "archcontext.explorer-delta-query/v2",
+    "deltaResponse": "archcontext.explorer-projection-delta/v2",
+    "authorityCursor": "archcontext.authority-cursor/v1",
+    "projectionManifest": "archcontext.projection-input-manifest/v1",
+    "evidenceState": "archcontext.evidence-state-at-cursor/v1",
+    "evidenceLifecyclePayload": "archcontext.architecture-evidence-lifecycle/v2"
+  },
+  "invariants": {
+    "projectionCannotEmitFactOrEvidence": true,
+    "budgetDisplacementRegression": true,
+    "manifestCompatibility": true,
+    "explicitEvidenceLifecycle": true,
+    "evidenceTombstones": true,
+    "noLegacyDeltaRuntime": true
+  },
+  "commands": [
+    {
+      "command": "bun run typecheck",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 3890,
+      "stdoutDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrDigest": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    },
+    {
+      "command": "bun run check:package-boundaries",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 246,
+      "stdoutDigest": "sha256:65d50ef205239c6dd837801774c2615a8670519bec348c2b91e9c802cd83428f",
+      "stderrDigest": "sha256:1511003fedd943ed840a5f51ce273d076828261e5e1c1edc31e00bd9e9c575d9"
+    },
+    {
+      "command": "bun test packages/contracts/test/contracts.test.ts packages/core/architecture-delta packages/core/architecture-ledger packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon packages/surfaces/cli packages/surfaces/explorer-ui",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 63863,
+      "stdoutDigest": "sha256:eb3f53d479eb0146a62c9397f52102913e4e91d45e9bcbb1abc2bca6459b60d5",
+      "stderrDigest": "sha256:1d6ce32ac6e9ddb7bd84c22ff8d83948b4598e7b72869111e0507bd84a84440c"
+    },
+    {
+      "command": "bun run verify:explorer",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 2321,
+      "stdoutDigest": "sha256:e2c99e4129ca59baf365edbe6ff9946b44448960cd395cba37b6ab93ca208d4c",
+      "stderrDigest": "sha256:d6e499a17952154f753dfedb922e765f78fa48c9ccb9e2c6d2ef95d518aef742"
+    },
+    {
+      "command": "repo-harness run contract-run preflight --contract tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md --json",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 282,
+      "stdoutDigest": "sha256:1a889f3be19ea56c5f3fddfef702e2a9a4947900b9b1f85bc2bcb18bdd92a977",
+      "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "verdict": "PASS"
+}

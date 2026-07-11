@@ -2,14 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseJsonOrStableYaml } from "@archcontext/core/architecture-domain";
-import { architectureEventHash, digestJson, validateJsonSchema, type Json } from "@archcontext/contracts";
+import { architectureEventHash, digestJson, validateJsonSchema, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type Json } from "@archcontext/contracts";
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   architectureLedgerGitCursorFromPlan,
   architectureLedgerPayload,
+  evidenceLifecycleValueDigest,
   architectureLedgerStateDigest,
   compareArchitectureLedgerStateToYaml,
   diffArchitectureLedgerBookStates,
+  emptyArchitectureLedgerEvidenceState,
   planExternalProjectionChangeToArchitectureLedgerEvent,
   planGitCursorRefreshToArchitectureLedgerEvent,
   planYamlToArchitectureLedgerImport,
@@ -19,13 +21,15 @@ import {
   queryArchitectureLedgerBookRecommendations,
   queryArchitectureLedgerBookTimeline,
   projectArchitectureLedgerStateToYamlFiles,
+  replayArchitectureLedgerEvidenceState,
   showArchitectureLedgerBookSubject,
   validateArchitectureLedgerEvent,
+  ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
   type ArchitectureLedgerModelFile,
   type ArchitectureLedgerScope
 } from "../src/index";
 
-const scope: ArchitectureLedgerScope = {
+const scope: ArchitectureLedgerScope & { previousEvidenceState: ReturnType<typeof emptyArchitectureLedgerEvidenceState> } = {
   repository: {
     repositoryId: "repo.yaml-ledger",
     storageRepositoryId: "repo.storage.yaml-ledger"
@@ -36,7 +40,8 @@ const scope: ArchitectureLedgerScope = {
     branch: "main",
     headSha: "abc123yaml",
     worktreeDigest: digestJson({ worktree: "yaml-ledger" } as unknown as Json)
-  }
+  },
+  previousEvidenceState: emptyArchitectureLedgerEvidenceState()
 };
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -433,7 +438,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       targetKind: "evidence",
       targetId: "product.checkout"
     });
-    expect(payload.evidenceItems).toContainEqual(expect.objectContaining({
+    expect(replayArchitectureLedgerEvidenceState([plan.event]).evidenceItems).toContainEqual(expect.objectContaining({
       subject: "adr.0040.hybrid-architecture-ledger",
       selector: expect.objectContaining({ path: "docs/adr/ADR-0040-hybrid-architecture-ledger.md" }),
       extensions: expect.objectContaining({
@@ -701,6 +706,157 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
     });
   });
 });
+
+describe("@archcontext/core/architecture-ledger evidence lifecycle", () => {
+  test("replays explicit create update remove operations with durable tombstones", () => {
+    const itemV1 = evidenceItem("Owns API");
+    const itemV2 = evidenceItem("Owns API and routing");
+    const binding = evidenceBinding(itemV1.evidenceId);
+    const create = evidenceEvent("create", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [
+        { target: "item", action: "create", evidenceId: itemV1.evidenceId, value: itemV1 },
+        { target: "binding", action: "create", bindingId: binding.bindingId, value: binding }
+      ]
+    });
+    const update = evidenceEvent("update", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [{
+        target: "item",
+        action: "update",
+        evidenceId: itemV1.evidenceId,
+        previousDigest: evidenceLifecycleValueDigest(itemV1),
+        value: itemV2
+      }]
+    });
+    const remove = evidenceEvent("remove", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [
+        { target: "binding", action: "remove", bindingId: binding.bindingId, previousDigest: evidenceLifecycleValueDigest(binding), reasonCode: "superseded" },
+        { target: "item", action: "remove", evidenceId: itemV2.evidenceId, previousDigest: evidenceLifecycleValueDigest(itemV2), reasonCode: "superseded" }
+      ]
+    });
+
+    const afterUpdate = replayArchitectureLedgerEvidenceState([create, update]);
+    expect(afterUpdate.evidenceItems).toEqual([itemV2]);
+    expect(afterUpdate.evidenceBindings).toEqual([binding]);
+    expect(afterUpdate.tombstones).toEqual([]);
+
+    const afterRemove = replayArchitectureLedgerEvidenceState([create, update, remove]);
+    expect(afterRemove.evidenceItems).toEqual([]);
+    expect(afterRemove.evidenceBindings).toEqual([]);
+    expect(afterRemove.tombstones.map((item) => `${item.target}:${item.id}`)).toEqual([
+      `binding:${binding.bindingId}`,
+      `item:${itemV2.evidenceId}`
+    ]);
+    expect(afterRemove.stateDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("fails closed on illegal lifecycle transitions", () => {
+    const item = evidenceItem("Owns API");
+    const create = evidenceEvent("create", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [{ target: "item", action: "create", evidenceId: item.evidenceId, value: item }]
+    });
+    const badUpdate = evidenceEvent("bad-update", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [{
+        target: "item",
+        action: "update",
+        evidenceId: item.evidenceId,
+        previousDigest: digestJson({ wrong: true } as unknown as Json),
+        value: evidenceItem("Changed")
+      }]
+    });
+    expect(() => replayArchitectureLedgerEvidenceState([create, badUpdate])).toThrow("previous-digest-mismatch");
+
+    const binding = evidenceBinding(item.evidenceId);
+    const missingItemBinding = evidenceEvent("missing-item", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [{ target: "binding", action: "create", bindingId: binding.bindingId, value: binding }]
+    });
+    expect(() => replayArchitectureLedgerEvidenceState([missingItemBinding])).toThrow("binding-requires-live-evidence");
+  });
+
+  test("replays legacy evidence as immutable creates and rejects conflicts", () => {
+    const item = evidenceItem("Owns API");
+    const first = evidenceEvent("legacy-one", "archcontext.architecture-candidate-delta/v1", { evidenceItems: [item] });
+    const identical = evidenceEvent("legacy-two", "archcontext.architecture-candidate-delta/v1", { evidenceItems: [item] });
+    expect(replayArchitectureLedgerEvidenceState([first, identical]).evidenceItems).toEqual([item]);
+
+    const conflicting = evidenceEvent("legacy-conflict", "archcontext.architecture-candidate-delta/v1", {
+      evidenceItems: [{ ...item, summary: "Conflicting summary" }]
+    });
+    expect(() => replayArchitectureLedgerEvidenceState([first, conflicting])).toThrow("conflicting-legacy-create");
+  });
+
+  test("rejects mixed legacy and lifecycle evidence payloads", () => {
+    const item = evidenceItem("Owns API");
+    const mixed = evidenceEvent("mixed", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceItems: [item],
+      evidenceOperations: [{ target: "item", action: "create", evidenceId: item.evidenceId, value: item }]
+    });
+    expect(() => validateArchitectureLedgerEvent(mixed)).toThrow("evidence lifecycle and legacy evidence cannot be mixed");
+    const wrongVersion = evidenceEvent("wrong-version", "v1", {
+      evidenceOperations: [{ target: "item", action: "create", evidenceId: item.evidenceId, value: item }]
+    });
+    expect(() => validateArchitectureLedgerEvent(wrongVersion)).toThrow("evidence lifecycle requires archcontext.architecture-evidence-lifecycle/v2");
+    const lifecycleWithLegacyOnly = evidenceEvent("lifecycle-legacy", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceItems: [item]
+    });
+    expect(() => validateArchitectureLedgerEvent(lifecycleWithLegacyOnly)).toThrow("lifecycle V2 forbids legacy evidence arrays");
+    const unknownAction = evidenceEvent("unknown-action", ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION, {
+      evidenceOperations: [{ target: "item", action: "destroy", evidenceId: item.evidenceId, previousDigest: evidenceLifecycleValueDigest(item), reasonCode: "invalid" }]
+    });
+    expect(() => validateArchitectureLedgerEvent(unknownAction)).toThrow("unsupported action");
+  });
+});
+
+function evidenceEvent(suffix: string, payloadVersion: string, payload: unknown): ArchitectureEventV1 {
+  return {
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `arch_event.evidence_${suffix}`,
+    eventType: "architecture.evidence.lifecycle",
+    payloadVersion,
+    repository: scope.repository,
+    worktree: scope.worktree,
+    baseDigest: digestJson({ base: suffix } as unknown as Json),
+    resultingDigest: digestJson({ head: suffix } as unknown as Json),
+    headSha: scope.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd.test" },
+    source: "apply_update",
+    timestamp: "2026-07-11T00:00:00.000Z",
+    idempotencyKey: `evidence-${suffix}`,
+    provenance: { producer: "test", command: "test evidence lifecycle", inputDigest: digestJson(payload as Json) },
+    payload: payload as Json
+  };
+}
+
+function evidenceItem(summary: string): EvidenceItemV2 {
+  return {
+    schemaVersion: "archcontext.evidence-item/v2",
+    evidenceId: "evidence.api",
+    kind: "architecture-declaration",
+    strength: "declared",
+    polarity: "positive",
+    origin: "runtime-daemon",
+    subject: "module.api",
+    selector: { kind: "path", id: "module.api", path: "packages/api" },
+    summary,
+    coverage: { level: "complete", scope: "module.api" },
+    supports: ["checkpoint"],
+    provenance: { producer: "test", command: "test evidence lifecycle", inputDigest: digestJson({ summary } as unknown as Json) },
+    createdAt: "2026-07-11T00:00:00.000Z",
+    digest: digestJson({ evidenceId: "evidence.api", summary } as unknown as Json)
+  };
+}
+
+function evidenceBinding(evidenceId: string): EvidenceBindingV1 {
+  return {
+    schemaVersion: "archcontext.evidence-binding/v1",
+    bindingId: "binding.api",
+    evidenceId,
+    target: { kind: "entity", id: "module.api" },
+    bindingReason: "direct-selector",
+    authorityEffect: "checkpoint-eligible",
+    createdAt: "2026-07-11T00:00:00.000Z",
+    provenance: { producer: "test", command: "test evidence lifecycle", inputDigest: digestJson({ evidenceId } as unknown as Json) }
+  };
+}
 
 function modelFile(path: string, lines: string[] | string): ArchitectureLedgerModelFile {
   const body = Array.isArray(lines) ? lines.join("\n") : lines;

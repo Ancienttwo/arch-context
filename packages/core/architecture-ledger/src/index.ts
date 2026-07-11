@@ -9,7 +9,10 @@ import {
   type ArchitectureSnapshotV1,
   type ArchitectureWorktreeIdentityV1,
   type EvidenceBindingV1,
+  type EvidenceLifecycleOperationV1,
+  type EvidenceLifecycleTombstoneV1,
   type EvidenceItemV2,
+  type EvidenceStateAtCursorV1,
   type Json,
   type RecommendationRunV1,
   type RecommendationV2,
@@ -20,6 +23,7 @@ import { canonicalArchitectureYaml, parseJsonOrStableYaml } from "../../architec
 
 export type ArchitectureLedgerWriter = "runtime-daemon";
 export const ARCHITECTURE_LEDGER_GIT_CURSOR_ID = "source.git.current";
+export const ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION = "archcontext.architecture-evidence-lifecycle/v2" as const;
 
 export interface ArchitectureLedgerScope {
   repository: ArchitectureRepositoryIdentityV1;
@@ -88,6 +92,7 @@ export interface ArchitectureLedgerEventPayload {
   operations?: ArchitectureLedgerOperation[];
   evidenceItems?: EvidenceItemV2[];
   evidenceBindings?: EvidenceBindingV1[];
+  evidenceOperations?: EvidenceLifecycleOperationV1[];
   recommendationRuns?: RecommendationRunV1[];
   recommendations?: RecommendationV2[];
   agentJobs?: AgentJobV1[];
@@ -178,6 +183,7 @@ export interface ArchitectureLedgerYamlImportPlan {
 
 export interface ArchitectureLedgerYamlImportInput extends ArchitectureLedgerScope {
   files: ArchitectureLedgerModelFile[];
+  previousEvidenceState: EvidenceStateAtCursorV1;
   createdAt: string;
   command?: string;
 }
@@ -185,6 +191,7 @@ export interface ArchitectureLedgerYamlImportInput extends ArchitectureLedgerSco
 export interface ArchitectureLedgerChangeSetApplyInput extends ArchitectureLedgerScope {
   draft: ChangeSetDraft;
   files: ArchitectureLedgerModelFile[];
+  previousEvidenceState: EvidenceStateAtCursorV1;
   createdAt: string;
   writeMode: "dual" | "ledger-with-projection";
   command?: string;
@@ -751,17 +758,11 @@ export function queryArchitectureLedgerBookEvidence(input: ArchitectureBookBudge
   events: ArchitectureEventV1[];
   id: string;
 }): ArchitectureBookEvidenceResult {
-  const evidenceItems: EvidenceItemV2[] = [];
-  const evidenceBindings: EvidenceBindingV1[] = [];
-  for (const event of input.events) {
-    const payload = architectureLedgerPayload(event);
-    for (const item of payload.evidenceItems ?? []) {
-      if (item.evidenceId === input.id || item.subject === input.id || item.selector.id === input.id) evidenceItems.push(item);
-    }
-    for (const binding of payload.evidenceBindings ?? []) {
-      if (binding.bindingId === input.id || binding.evidenceId === input.id || binding.target.id === input.id) evidenceBindings.push(binding);
-    }
-  }
+  const evidenceState = replayArchitectureLedgerEvidenceState(input.events);
+  const evidenceItems = evidenceState.evidenceItems
+    .filter((item) => item.evidenceId === input.id || item.subject === input.id || item.selector.id === input.id);
+  const evidenceBindings = evidenceState.evidenceBindings
+    .filter((binding) => binding.bindingId === input.id || binding.evidenceId === input.id || binding.target.id === input.id);
   const tagged = [
     ...evidenceItems.map((item) => ({ itemType: "evidenceItem" as const, value: item })),
     ...evidenceBindings.map((binding) => ({ itemType: "evidenceBinding" as const, value: binding }))
@@ -835,11 +836,17 @@ export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYaml
     ignoredFileCount: collected.ignoredFiles.length,
     unsupportedFileCount: collected.unsupportedFiles.length
   });
+  const evidenceOperations = compileEvidenceLifecycleOperations(input.previousEvidenceState, {
+    evidenceItems: collected.evidenceItems,
+    evidenceBindings: collected.evidenceBindings
+  });
   const event = normalizeArchitectureLedgerEvent({
     schemaVersion: "archcontext.architecture-event/v1",
     eventId: `architecture_event.yaml_import.${digestSuffix(sourceDigest)}`,
     eventType: "architecture.yaml.import",
-    payloadVersion: "archcontext.architecture-ledger-yaml-import/v1",
+    payloadVersion: evidenceOperations.length > 0
+      ? ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION
+      : "archcontext.architecture-ledger-yaml-import/v1",
     repository: input.repository,
     worktree: input.worktree,
     baseDigest: architectureLedgerStateDigest(emptyArchitectureLedgerState()),
@@ -858,8 +865,7 @@ export function planYamlToArchitectureLedgerImport(input: ArchitectureLedgerYaml
       summary: "Dry-run import of Git-tracked ArchContext YAML into the architecture ledger.",
       title: "YAML architecture ledger import",
       operations: collected.operations,
-      evidenceItems: collected.evidenceItems,
-      evidenceBindings: collected.evidenceBindings,
+      ...(evidenceOperations.length > 0 ? { evidenceOperations } : {}),
       sourceCursors: [...collected.sourceCursors, gitCursor]
     } as unknown as Json
   }, null);
@@ -892,6 +898,7 @@ export function planChangeSetApplyToArchitectureLedgerEvent(input: ArchitectureL
     repository: input.repository,
     worktree: input.worktree,
     files: input.files,
+    previousEvidenceState: input.previousEvidenceState,
     createdAt: input.createdAt,
     command
   });
@@ -1629,15 +1636,13 @@ function bookEvidenceLinksBySubject(events: ArchitectureEventV1[]): Map<string, 
     if (link.evidenceBindingId) existing.evidenceBindingIds.add(link.evidenceBindingId);
     bySubject.set(subjectId, existing);
   };
-  for (const event of events) {
-    const payload = architectureLedgerPayload(event);
-    for (const item of payload.evidenceItems ?? []) {
-      record(item.subject, { evidenceId: item.evidenceId });
-      record(item.selector.id, { evidenceId: item.evidenceId });
-    }
-    for (const binding of payload.evidenceBindings ?? []) {
-      record(binding.target.id, { evidenceId: binding.evidenceId, evidenceBindingId: binding.bindingId });
-    }
+  const evidenceState = replayArchitectureLedgerEvidenceState(events);
+  for (const item of evidenceState.evidenceItems) {
+    record(item.subject, { evidenceId: item.evidenceId });
+    record(item.selector.id, { evidenceId: item.evidenceId });
+  }
+  for (const binding of evidenceState.evidenceBindings) {
+    record(binding.target.id, { evidenceId: binding.evidenceId, evidenceBindingId: binding.bindingId });
   }
   return new Map([...bySubject.entries()].map(([subjectId, links]) => [
     subjectId,
@@ -2228,6 +2233,190 @@ export function replayArchitectureLedgerEvents(events: ArchitectureEventV1[]): A
   return freezeState(state);
 }
 
+export function evidenceLifecycleValueDigest(value: EvidenceItemV2 | EvidenceBindingV1): string {
+  return digestJson(value as unknown as Json);
+}
+
+export function emptyArchitectureLedgerEvidenceState(): EvidenceStateAtCursorV1 {
+  const state = {
+    schemaVersion: "archcontext.evidence-state-at-cursor/v1" as const,
+    evidenceItems: [],
+    evidenceBindings: [],
+    tombstones: []
+  };
+  return { ...state, stateDigest: digestJson(state as unknown as Json) };
+}
+
+function compileEvidenceLifecycleOperations(
+  previous: EvidenceStateAtCursorV1,
+  next: { evidenceItems: EvidenceItemV2[]; evidenceBindings: EvidenceBindingV1[] }
+): EvidenceLifecycleOperationV1[] {
+  const previousItems = new Map(previous.evidenceItems.map((item) => [item.evidenceId, item]));
+  const nextItems = new Map(next.evidenceItems.map((item) => [item.evidenceId, item]));
+  const previousBindings = new Map(previous.evidenceBindings.map((binding) => [binding.bindingId, binding]));
+  const nextBindings = new Map(next.evidenceBindings.map((binding) => [binding.bindingId, binding]));
+  const operations: EvidenceLifecycleOperationV1[] = [];
+
+  for (const bindingId of [...previousBindings.keys()].filter((id) => !nextBindings.has(id)).sort()) {
+    const value = previousBindings.get(bindingId)!;
+    operations.push({ target: "binding", action: "remove", bindingId, previousDigest: evidenceLifecycleValueDigest(value), reasonCode: "source-removed" });
+  }
+  for (const evidenceId of [...nextItems.keys()].sort()) {
+    const value = nextItems.get(evidenceId)!;
+    const current = previousItems.get(evidenceId);
+    if (!current) operations.push({ target: "item", action: "create", evidenceId, value });
+    else if (evidenceLifecycleValueDigest(current) !== evidenceLifecycleValueDigest(value)) {
+      operations.push({ target: "item", action: "update", evidenceId, previousDigest: evidenceLifecycleValueDigest(current), value });
+    }
+  }
+  for (const bindingId of [...nextBindings.keys()].sort()) {
+    const value = nextBindings.get(bindingId)!;
+    const current = previousBindings.get(bindingId);
+    if (!current) operations.push({ target: "binding", action: "create", bindingId, value });
+    else if (evidenceLifecycleValueDigest(current) !== evidenceLifecycleValueDigest(value)) {
+      operations.push({ target: "binding", action: "update", bindingId, previousDigest: evidenceLifecycleValueDigest(current), value });
+    }
+  }
+  for (const evidenceId of [...previousItems.keys()].filter((id) => !nextItems.has(id)).sort()) {
+    const value = previousItems.get(evidenceId)!;
+    operations.push({ target: "item", action: "remove", evidenceId, previousDigest: evidenceLifecycleValueDigest(value), reasonCode: "source-removed" });
+  }
+  return operations;
+}
+
+export function replayArchitectureLedgerEvidenceState(events: ArchitectureEventV1[]): EvidenceStateAtCursorV1 {
+  const items = new Map<string, EvidenceItemV2>();
+  const bindings = new Map<string, EvidenceBindingV1>();
+  const tombstones = new Map<string, EvidenceLifecycleTombstoneV1>();
+
+  for (const event of events) {
+    const payload = architectureLedgerPayload(event);
+    for (const item of payload.evidenceItems ?? []) applyLegacyEvidenceCreate(items, tombstones, "item", item.evidenceId, item, event.eventId);
+    for (const binding of payload.evidenceBindings ?? []) {
+      requireLiveEvidenceItem(items, binding.evidenceId, event.eventId);
+      applyLegacyEvidenceCreate(bindings, tombstones, "binding", binding.bindingId, binding, event.eventId);
+    }
+    for (const operation of payload.evidenceOperations ?? []) {
+      applyEvidenceLifecycleOperation({ items, bindings, tombstones }, operation, event.eventId);
+    }
+  }
+
+  const stateWithoutDigest = {
+    schemaVersion: "archcontext.evidence-state-at-cursor/v1" as const,
+    evidenceItems: [...items.values()].sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)),
+    evidenceBindings: [...bindings.values()].sort((left, right) => left.bindingId.localeCompare(right.bindingId)),
+    tombstones: [...tombstones.values()].sort((left, right) => `${left.target}:${left.id}`.localeCompare(`${right.target}:${right.id}`))
+  };
+  return { ...stateWithoutDigest, stateDigest: digestJson(stateWithoutDigest as unknown as Json) };
+}
+
+function applyLegacyEvidenceCreate<T extends EvidenceItemV2 | EvidenceBindingV1>(
+  live: Map<string, T>,
+  tombstones: Map<string, EvidenceLifecycleTombstoneV1>,
+  target: "item" | "binding",
+  id: string,
+  value: T,
+  eventId: string
+): void {
+  if (tombstones.has(`${target}:${id}`)) throw evidenceLifecycleError("legacy-create-after-remove", target, id, eventId);
+  const current = live.get(id);
+  if (!current) {
+    live.set(id, value);
+    return;
+  }
+  if (evidenceLifecycleValueDigest(current) !== evidenceLifecycleValueDigest(value)) {
+    throw evidenceLifecycleError("conflicting-legacy-create", target, id, eventId);
+  }
+}
+
+function applyEvidenceLifecycleOperation(
+  state: {
+    items: Map<string, EvidenceItemV2>;
+    bindings: Map<string, EvidenceBindingV1>;
+    tombstones: Map<string, EvidenceLifecycleTombstoneV1>;
+  },
+  operation: EvidenceLifecycleOperationV1,
+  eventId: string
+): void {
+  validateEvidenceLifecycleOperation(operation, eventId);
+  if (operation.target === "item") {
+    applyEvidenceItemLifecycleOperation(state, operation, eventId);
+    return;
+  }
+  applyEvidenceBindingLifecycleOperation(state, operation, eventId);
+}
+
+function applyEvidenceItemLifecycleOperation(
+  state: { items: Map<string, EvidenceItemV2>; bindings: Map<string, EvidenceBindingV1>; tombstones: Map<string, EvidenceLifecycleTombstoneV1> },
+  operation: Extract<EvidenceLifecycleOperationV1, { target: "item" }>,
+  eventId: string
+): void {
+  const tombstoneKey = `item:${operation.evidenceId}`;
+  const current = state.items.get(operation.evidenceId);
+  if (operation.action === "create") {
+    if (current || state.tombstones.has(tombstoneKey)) throw evidenceLifecycleError("create-requires-unused-id", "item", operation.evidenceId, eventId);
+    state.items.set(operation.evidenceId, operation.value);
+    return;
+  }
+  if (!current) throw evidenceLifecycleError(`${operation.action}-requires-live-value`, "item", operation.evidenceId, eventId);
+  const currentDigest = evidenceLifecycleValueDigest(current);
+  if (currentDigest !== operation.previousDigest) throw evidenceLifecycleError("previous-digest-mismatch", "item", operation.evidenceId, eventId);
+  if (operation.action === "update") {
+    state.items.set(operation.evidenceId, operation.value);
+    return;
+  }
+  if ([...state.bindings.values()].some((binding) => binding.evidenceId === operation.evidenceId)) {
+    throw evidenceLifecycleError("remove-item-requires-no-live-bindings", "item", operation.evidenceId, eventId);
+  }
+  state.items.delete(operation.evidenceId);
+  state.tombstones.set(tombstoneKey, {
+    target: "item",
+    id: operation.evidenceId,
+    previousDigest: currentDigest,
+    reasonCode: operation.reasonCode,
+    removedByEventId: eventId
+  });
+}
+
+function applyEvidenceBindingLifecycleOperation(
+  state: { items: Map<string, EvidenceItemV2>; bindings: Map<string, EvidenceBindingV1>; tombstones: Map<string, EvidenceLifecycleTombstoneV1> },
+  operation: Extract<EvidenceLifecycleOperationV1, { target: "binding" }>,
+  eventId: string
+): void {
+  const tombstoneKey = `binding:${operation.bindingId}`;
+  const current = state.bindings.get(operation.bindingId);
+  if (operation.action === "create") {
+    if (current || state.tombstones.has(tombstoneKey)) throw evidenceLifecycleError("create-requires-unused-id", "binding", operation.bindingId, eventId);
+    requireLiveEvidenceItem(state.items, operation.value.evidenceId, eventId);
+    state.bindings.set(operation.bindingId, operation.value);
+    return;
+  }
+  if (!current) throw evidenceLifecycleError(`${operation.action}-requires-live-value`, "binding", operation.bindingId, eventId);
+  const currentDigest = evidenceLifecycleValueDigest(current);
+  if (currentDigest !== operation.previousDigest) throw evidenceLifecycleError("previous-digest-mismatch", "binding", operation.bindingId, eventId);
+  if (operation.action === "update") {
+    requireLiveEvidenceItem(state.items, operation.value.evidenceId, eventId);
+    state.bindings.set(operation.bindingId, operation.value);
+    return;
+  }
+  state.bindings.delete(operation.bindingId);
+  state.tombstones.set(tombstoneKey, {
+    target: "binding",
+    id: operation.bindingId,
+    previousDigest: currentDigest,
+    reasonCode: operation.reasonCode,
+    removedByEventId: eventId
+  });
+}
+
+function requireLiveEvidenceItem(items: Map<string, EvidenceItemV2>, evidenceId: string, eventId: string): void {
+  if (!items.has(evidenceId)) throw evidenceLifecycleError("binding-requires-live-evidence", "item", evidenceId, eventId);
+}
+
+function evidenceLifecycleError(reason: string, target: "item" | "binding", id: string, eventId: string): Error {
+  return new Error(`architecture-ledger-evidence-lifecycle-${reason}: ${target}:${id} at ${eventId}`);
+}
+
 export function architectureLedgerSnapshotFromState(input: ArchitectureLedgerSnapshotInput & {
   lastEventId: string;
   lastEventHash: string;
@@ -2270,6 +2459,18 @@ export function architectureLedgerPayload(event: ArchitectureEventV1): Architect
   if (payload.operations !== undefined && !Array.isArray(payload.operations)) {
     throw new Error(`architecture-ledger-invalid-payload: operations must be an array for ${event.eventId}`);
   }
+  if (payload.evidenceOperations !== undefined && !Array.isArray(payload.evidenceOperations)) {
+    throw new Error(`architecture-ledger-invalid-payload: evidenceOperations must be an array for ${event.eventId}`);
+  }
+  if (payload.evidenceOperations && (payload.evidenceItems || payload.evidenceBindings)) {
+    throw new Error(`architecture-ledger-invalid-payload: evidence lifecycle and legacy evidence cannot be mixed for ${event.eventId}`);
+  }
+  if (event.payloadVersion === ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION && (payload.evidenceItems || payload.evidenceBindings)) {
+    throw new Error(`architecture-ledger-invalid-payload: lifecycle V2 forbids legacy evidence arrays for ${event.eventId}`);
+  }
+  if (payload.evidenceOperations && event.payloadVersion !== ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION) {
+    throw new Error(`architecture-ledger-invalid-payload: evidence lifecycle requires ${ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION} for ${event.eventId}`);
+  }
   return payload;
 }
 
@@ -2285,6 +2486,7 @@ export function validateArchitectureLedgerEvent(event: ArchitectureEventV1): voi
   assertArchitectureLedgerPersistenceSafe(event.provenance as unknown as Json, `event.provenance for ${event.eventId}`);
   const payload = architectureLedgerPayload(event);
   for (const operation of payload.operations ?? []) validateArchitectureLedgerOperation(operation, event.eventId);
+  for (const operation of payload.evidenceOperations ?? []) validateEvidenceLifecycleOperation(operation, event.eventId);
 }
 
 const ARCHITECTURE_LEDGER_MAX_PERSISTED_JSON_BYTES = 262_144;
@@ -2395,6 +2597,42 @@ function validateArchitectureLedgerOperation(operation: ArchitectureLedgerOperat
       requireNonEmpty(operation.constraintId, "constraintId", eventId);
       return;
   }
+}
+
+function validateEvidenceLifecycleOperation(operation: EvidenceLifecycleOperationV1, eventId: string): void {
+  if (!operation || typeof operation !== "object" || !("target" in operation) || !("action" in operation)) {
+    throw new Error(`architecture-ledger-invalid-evidence-operation: ${eventId}`);
+  }
+  if (operation.action !== "create" && operation.action !== "update" && operation.action !== "remove") {
+    throw new Error(`architecture-ledger-invalid-evidence-operation: unsupported action for ${eventId}`);
+  }
+  if (operation.target === "item") {
+    requireNonEmpty(operation.evidenceId, "evidenceId", eventId);
+    if (operation.action === "create" || operation.action === "update") {
+      if (!operation.value || typeof operation.value !== "object") {
+        throw new Error(`architecture-ledger-invalid-evidence-operation: item value required for ${eventId}`);
+      }
+      if (operation.value.evidenceId !== operation.evidenceId) {
+        throw new Error(`architecture-ledger-invalid-evidence-operation: evidenceId mismatch for ${eventId}`);
+      }
+    }
+  } else if (operation.target === "binding") {
+    requireNonEmpty(operation.bindingId, "bindingId", eventId);
+    if (operation.action === "create" || operation.action === "update") {
+      if (!operation.value || typeof operation.value !== "object") {
+        throw new Error(`architecture-ledger-invalid-evidence-operation: binding value required for ${eventId}`);
+      }
+      if (operation.value.bindingId !== operation.bindingId) {
+        throw new Error(`architecture-ledger-invalid-evidence-operation: bindingId mismatch for ${eventId}`);
+      }
+    }
+  } else {
+    throw new Error(`architecture-ledger-invalid-evidence-operation: unsupported target for ${eventId}`);
+  }
+  if (operation.action === "update" || operation.action === "remove") {
+    requireNonEmpty(operation.previousDigest, "previousDigest", eventId);
+  }
+  if (operation.action === "remove") requireNonEmpty(operation.reasonCode, "reasonCode", eventId);
 }
 
 function applyArchitectureLedgerEvent(state: MutableArchitectureLedgerState, event: ArchitectureEventV1): void {

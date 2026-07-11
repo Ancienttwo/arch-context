@@ -8,6 +8,7 @@ import {
   emptyArchitectureLedgerState,
   normalizeArchitectureLedgerEvent,
   queryArchitectureLedgerBookNeighbors,
+  replayArchitectureLedgerEvidenceState,
   replayArchitectureLedgerEvents,
   validateArchitectureLedgerEvent,
   type ArchitectureAuditRunV1,
@@ -20,7 +21,7 @@ import {
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import type { AgentJobV1, ArchitectureEventV1, ExplorerProjectionV2, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
+import type { AgentJobV1, ArchitectureEventV1, EvidenceStateAtCursorV1, ExplorerProjectionV2, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -461,7 +462,13 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult> {
-    for (const event of input.events) validateArchitectureLedgerEvent(event);
+    for (const event of input.events) {
+      validateArchitectureLedgerEvent(event);
+      const payload = architectureLedgerPayload(event);
+      if (payload.evidenceItems !== undefined || payload.evidenceBindings !== undefined) {
+        throw new Error(`architecture-ledger-new-legacy-evidence-forbidden: ${event.eventId}`);
+      }
+    }
     const appendedEvents: ArchitectureEventV1[] = [];
     const duplicateEvents: ArchitectureEventV1[] = [];
     const initialEventCount = this.architectureEvents.length;
@@ -481,6 +488,10 @@ export class TestLocalStore implements RuntimeLocalStore {
           }
         }
         const normalized = normalizeArchitectureLedgerEvent(event, this.latestEventHashForScope(event));
+        const payload = architectureLedgerPayload(normalized);
+        if ((payload.evidenceOperations?.length ?? 0) > 0) {
+          replayArchitectureLedgerEvidenceState([...this.eventsForScope(scope), normalized]);
+        }
         this.architectureEvents.push(normalized);
         if (operations.length > 0) {
           const resultingDigest = architectureLedgerStateDigest(this.stateForScope(scope));
@@ -587,6 +598,10 @@ export class TestLocalStore implements RuntimeLocalStore {
     const events = this.eventsForScope(input);
     const state = replayArchitectureLedgerEvents(events);
     return { events, state, graphDigest: architectureLedgerStateDigest(state) };
+  }
+
+  async replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1> {
+    return replayArchitectureLedgerEvidenceState(this.eventsForScope(input));
   }
 
   async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {

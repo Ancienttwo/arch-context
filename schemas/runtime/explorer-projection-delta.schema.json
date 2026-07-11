@@ -1,29 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archctx.repoharness.com/schemas/runtime/explorer-projection-delta.schema.json",
-  "title": "ExplorerProjectionDeltaV1",
+  "title": "ExplorerProjectionDeltaV2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "base", "head", "changes", "counts", "deltaDigest"],
+  "required": ["schemaVersion", "base", "head", "factChanges", "evidenceChanges", "projectionChanges", "counts", "deltaDigest"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.explorer-projection-delta/v1" },
-    "base": { "type": "object" },
-    "head": { "type": "object" },
-    "changes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["deltaClass", "subjectId", "change", "fields"],
-        "properties": {
-          "deltaClass": { "enum": ["architecture-fact", "evidence", "projection"] },
-          "subjectId": { "type": "string" },
-          "change": { "enum": ["added", "removed", "changed"] },
-          "fields": { "type": "array", "items": { "type": "string" } },
-          "verificationTransition": { "type": "object" }
-        }
-      }
-    },
+    "schemaVersion": { "const": "archcontext.explorer-projection-delta/v2" },
+    "base": { "$ref": "#/$defs/cursor" },
+    "head": { "$ref": "#/$defs/cursor" },
+    "factChanges": { "type": "array", "items": { "allOf": [{ "$ref": "#/$defs/change" }, { "properties": { "deltaClass": { "const": "architecture-fact" } } }] } },
+    "evidenceChanges": { "type": "array", "items": { "allOf": [{ "$ref": "#/$defs/change" }, { "properties": { "deltaClass": { "const": "evidence" } } }] } },
+    "projectionChanges": { "type": "array", "items": { "allOf": [{ "$ref": "#/$defs/change" }, { "properties": { "deltaClass": { "const": "projection" } } }] } },
     "counts": {
       "type": "object",
       "additionalProperties": false,
@@ -35,5 +23,57 @@
       }
     },
     "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "storageRepositoryId"],
+      "properties": {
+        "repositoryId": { "type": "string" },
+        "storageRepositoryId": { "type": "string" }
+      }
+    },
+    "worktree": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "storageWorkspaceId": { "type": "string" },
+        "branch": { "type": "string" },
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string" }
+      }
+    },
+    "cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repository", "worktree", "eventSequence", "eventId", "eventHash", "graphDigest", "evidenceStateDigest", "projectionDigest", "inputManifestDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.authority-cursor/v1" },
+        "repository": { "$ref": "#/$defs/repository" },
+        "worktree": { "$ref": "#/$defs/worktree" },
+        "eventSequence": { "type": "integer", "minimum": 1 },
+        "eventId": { "type": "string", "minLength": 1 },
+        "eventHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "evidenceStateDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "projectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "inputManifestDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deltaClass", "subjectId", "change", "fields"],
+      "properties": {
+        "deltaClass": { "enum": ["architecture-fact", "evidence", "projection"] },
+        "subjectId": { "type": "string" },
+        "change": { "enum": ["added", "removed", "changed"] },
+        "fields": { "type": "array", "items": { "type": "string" } },
+        "verificationTransition": { "type": "object" }
+      }
+    }
   }
 }

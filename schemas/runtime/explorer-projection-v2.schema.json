@@ -4,7 +4,7 @@
   "title": "ExplorerProjectionV2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "view", "availableViews", "semanticLevel", "breadcrumbs", "cursor", "occurrences", "relations", "page", "projectionDigest", "capabilities"],
+  "required": ["schemaVersion", "view", "availableViews", "semanticLevel", "breadcrumbs", "cursor", "inputManifest", "occurrences", "relations", "page", "projectionDigest", "capabilities"],
   "properties": {
     "schemaVersion": { "const": "archcontext.explorer-projection/v2" },
     "view": {
@@ -46,7 +46,7 @@
     "cursor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "worktree", "graphDigest", "observedFactsDigest", "viewDefinitionDigest", "compilerVersion", "observedAvailability"],
+      "required": ["repository", "worktree", "authorityCursor", "inputManifestDigest", "compatibilityDigest", "graphDigest", "observedFactsDigest", "viewDefinitionDigest", "compilerVersion", "observedAvailability"],
       "properties": {
         "repository": {
           "type": "object",
@@ -69,6 +69,9 @@
             "worktreeDigest": { "type": "string" }
           }
         },
+        "authorityCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authorityCursor" }] },
+        "inputManifestDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "compatibilityDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "observedFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "viewDefinitionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
@@ -83,6 +86,58 @@
             "reasonCode": { "type": "string" }
           }
         }
+      }
+    },
+    "inputManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repository", "worktree", "authorityCursor", "queryDigest", "graphDigest", "observedFactsDigest", "observedAvailability", "bindingsDigest", "eventBacklinksDigest", "driftDigest", "pressureDigest", "taskSessionDigest", "viewDefinitionDigest", "compilerVersion", "tokenRequired", "compatibilityDigest", "manifestDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-input-manifest/v1" },
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositoryId", "storageRepositoryId"],
+          "properties": {
+            "repositoryId": { "type": "string" },
+            "storageRepositoryId": { "type": "string" }
+          }
+        },
+        "worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+          "properties": {
+            "workspaceId": { "type": "string" },
+            "storageWorkspaceId": { "type": "string" },
+            "branch": { "type": "string" },
+            "headSha": { "type": "string" },
+            "worktreeDigest": { "type": "string" }
+          }
+        },
+        "authorityCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authorityCursor" }] },
+        "queryDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "observedFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "observedAvailability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ready", "unavailable"] },
+            "reasonCode": { "type": "string" }
+          }
+        },
+        "bindingsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "eventBacklinksDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "driftDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pressureDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "taskSessionDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "viewDefinitionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "compilerVersion": { "const": "archcontext.explorer-view-compiler/v1" },
+        "tokenRequired": { "type": "boolean" },
+        "compatibilityDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "manifestDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
       }
     },
     "occurrences": {
@@ -306,6 +361,42 @@
         "mutationMode": { "const": "forbidden" },
         "egress": { "const": "none" },
         "tokenRequired": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "authorityCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repository", "worktree", "eventSequence", "eventId", "eventHash", "graphDigest", "evidenceStateDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.authority-cursor/v1" },
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositoryId", "storageRepositoryId"],
+          "properties": {
+            "repositoryId": { "type": "string" },
+            "storageRepositoryId": { "type": "string" }
+          }
+        },
+        "worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+          "properties": {
+            "workspaceId": { "type": "string" },
+            "storageWorkspaceId": { "type": "string" },
+            "branch": { "type": "string" },
+            "headSha": { "type": "string" },
+            "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }
+        },
+        "eventSequence": { "type": "integer", "minimum": 1 },
+        "eventId": { "type": "string", "minLength": 1 },
+        "eventHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "evidenceStateDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
       }
     }
   }

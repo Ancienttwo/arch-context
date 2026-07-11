@@ -27,8 +27,10 @@ import {
   type ArchitectureSubjectSelectorV1,
   type ArchitectureWorktreeIdentityV1,
   type EvidenceBindingV1,
+  type EvidenceStateAtCursorV1,
   type EvidenceStrengthV2,
   type EvidenceItemV2,
+  type ExplorerDeltaChangeV2,
   type Json,
   type LedgerProvenanceV1,
   type NormalizedCodeContext,
@@ -37,6 +39,61 @@ import {
 } from "@archcontext/contracts";
 
 export type ArchitectureDeltaGitChangeSource = "commit" | "staged" | "worktree";
+
+export function compileArchitectureFactChanges<
+  E extends object & { entityId: string },
+  R extends object & { relationId: string },
+  C extends object & { constraintId: string }
+>(
+  base: { entities: E[]; relations: R[]; constraints: C[] },
+  head: { entities: E[]; relations: R[]; constraints: C[] }
+): ExplorerDeltaChangeV2[] {
+  return [
+    ...compileAuthorityCollectionChanges("entity", "entityId", base.entities, head.entities),
+    ...compileAuthorityCollectionChanges("relation", "relationId", base.relations, head.relations),
+    ...compileAuthorityCollectionChanges("constraint", "constraintId", base.constraints, head.constraints)
+  ].sort(compareDeltaChange);
+}
+
+export function compileEvidenceStateChanges(base: EvidenceStateAtCursorV1, head: EvidenceStateAtCursorV1): ExplorerDeltaChangeV2[] {
+  return [
+    ...compileAuthorityCollectionChanges("evidence-item", "evidenceId", base.evidenceItems, head.evidenceItems, "evidence"),
+    ...compileAuthorityCollectionChanges("evidence-binding", "bindingId", base.evidenceBindings, head.evidenceBindings, "evidence"),
+    ...compileAuthorityCollectionChanges("evidence-tombstone", "id", base.tombstones, head.tombstones, "evidence", (value) => `${String(value.target)}:${String(value.id)}`)
+  ].sort(compareDeltaChange);
+}
+
+function compileAuthorityCollectionChanges<T extends object>(
+  subjectKind: string,
+  idKey: keyof T,
+  base: T[],
+  head: T[],
+  deltaClass: ExplorerDeltaChangeV2["deltaClass"] = "architecture-fact",
+  identity: (value: T) => string = (value) => String((value as Record<string, unknown>)[String(idKey)])
+): ExplorerDeltaChangeV2[] {
+  const beforeById = new Map(base.map((value) => [identity(value), value]));
+  const afterById = new Map(head.map((value) => [identity(value), value]));
+  const changes: ExplorerDeltaChangeV2[] = [];
+  for (const id of [...new Set([...beforeById.keys(), ...afterById.keys()])].sort()) {
+    const before = beforeById.get(id);
+    const after = afterById.get(id);
+    if (!before || !after) {
+      changes.push({ deltaClass, subjectId: `${subjectKind}:${id}`, change: before ? "removed" : "added", fields: [subjectKind] });
+      continue;
+    }
+    const beforeRecord = before as Record<string, unknown>;
+    const afterRecord = after as Record<string, unknown>;
+    const fields = [...new Set([...Object.keys(beforeRecord), ...Object.keys(afterRecord)])]
+      .filter((field) => JSON.stringify(beforeRecord[field]) !== JSON.stringify(afterRecord[field]))
+      .sort();
+    if (fields.length > 0) changes.push({ deltaClass, subjectId: `${subjectKind}:${id}`, change: "changed", fields });
+  }
+  return changes;
+}
+
+function compareDeltaChange(left: ExplorerDeltaChangeV2, right: ExplorerDeltaChangeV2): number {
+  return `${left.deltaClass}:${left.subjectId}`.localeCompare(`${right.deltaClass}:${right.subjectId}`);
+}
 export type ArchitectureDeltaGitPathStatus =
   | "added"
   | "modified"

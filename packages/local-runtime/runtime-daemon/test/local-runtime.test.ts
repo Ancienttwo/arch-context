@@ -4242,7 +4242,8 @@ describe("local runtime foundation", () => {
   test("Explorer loopback service is token-gated, read-only, and revocable", async () => {
     const root = tempRepo();
     try {
-      const daemon = await createStartedTestDaemon({ clock: () => "2026-06-20T00:00:00.000Z" });
+      const localStore = new TestLocalStore();
+      const daemon = await createStartedTestDaemon({ localStore, clock: () => "2026-06-20T00:00:00.000Z" });
       await daemon.init(root, "Explorer App");
       await daemon.prepare(root, "change the Explorer runtime boundary", 12_288, 12, "task.explorer-current");
       const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 60 });
@@ -4307,21 +4308,130 @@ describe("local runtime foundation", () => {
       });
       expect(deniedBudget.status).toBe(400);
 
-      const delta = await fetch(`${data.url}delta?baseProjectionDigest=${encodeURIComponent(bodyV2.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(bodyV2.data.projectionDigest)}`, {
+      const runtimeStatus = await daemon.runtimeStatus(root);
+      const migrated = await daemon.ledgerMigrate(root, {
+        fromYaml: true,
+        dryRun: false,
+        expectedWorktreeDigest: (runtimeStatus.data as any).worktreeDigest
+      });
+      expect(migrated.ok).toBe(true);
+      const authorityProjectionResponse = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(authorityProjectionResponse.status).toBe(200);
+      const authorityProjection = await authorityProjectionResponse.json() as any;
+      expect(authorityProjection.data.cursor.authorityCursor).toBeTruthy();
+      const bookStatus = await daemon.book(root, { command: "status" });
+      const eventId = (bookStatus.data as any).freshness.ledgerCursor.lastEventId;
+      expect(eventId).toBeTruthy();
+      const delta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(eventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}`, {
         headers: { Authorization: `Bearer ${data.token}` }
       });
       expect(delta.status).toBe(200);
       expect(((await delta.json()) as any).data.counts).toEqual({ "architecture-fact": 0, evidence: 0, projection: 0 });
+      const malformedDelta = await daemon.explorerProjectionDelta(root, {} as any);
+      expect(malformedDelta.ok).toBe(false);
+      expect((malformedDelta.error as any).reasonCode).toBe("invalid-delta-query");
+      const missingEventDelta = await fetch(`${data.url}delta?baseEventId=arch_event.missing&headEventId=${encodeURIComponent(eventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(missingEventDelta.status).toBe(409);
+      expect(((await missingEventDelta.json()) as any).error.reasonCode).toBe("authority-event-missing");
+
+      const authorityCursor = authorityProjection.data.cursor.authorityCursor;
+      const observedSymbolId = authorityProjection.data.occurrences
+        .flatMap((occurrence: any) => occurrence.provenance.observedSymbolIds)[0];
+      const targetEntityId = authorityProjection.data.occurrences
+        .flatMap((occurrence: any) => occurrence.provenance.declaredEntityIds)[0];
+      expect(observedSymbolId).toBeTruthy();
+      expect(targetEntityId).toBeTruthy();
+      const evidenceItem = {
+        schemaVersion: "archcontext.evidence-item/v2",
+        evidenceId: "evidence.explorer-lifecycle",
+        kind: "architecture-declaration",
+        strength: "verified",
+        polarity: "positive",
+        origin: "runtime-daemon",
+        subject: targetEntityId,
+        selector: { kind: "symbol", id: observedSymbolId, symbolId: observedSymbolId },
+        summary: "Explorer lifecycle binding",
+        coverage: { level: "complete", scope: targetEntityId },
+        supports: ["checkpoint"],
+        provenance: { producer: "runtime-daemon.test", command: "test Explorer lifecycle", inputDigest: digestJson({ observedSymbolId, targetEntityId } as any) },
+        createdAt: "2026-06-20T00:00:01.000Z",
+        digest: digestJson({ evidenceId: "evidence.explorer-lifecycle", observedSymbolId, targetEntityId } as any)
+      };
+      const evidenceBinding = {
+        schemaVersion: "archcontext.evidence-binding/v1",
+        bindingId: "binding.explorer-lifecycle",
+        evidenceId: evidenceItem.evidenceId,
+        target: { kind: "entity", id: targetEntityId },
+        bindingReason: "direct-selector",
+        authorityEffect: "checkpoint-eligible",
+        createdAt: "2026-06-20T00:00:01.000Z",
+        provenance: evidenceItem.provenance
+      };
+      await localStore.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [{
+          schemaVersion: "archcontext.architecture-event/v1",
+          eventId: "arch_event.explorer_lifecycle",
+          eventType: "architecture.evidence.lifecycle",
+          payloadVersion: "archcontext.architecture-evidence-lifecycle/v2",
+          repository: authorityCursor.repository,
+          worktree: authorityCursor.worktree,
+          baseDigest: authorityCursor.graphDigest,
+          resultingDigest: authorityCursor.graphDigest,
+          headSha: authorityCursor.worktree.headSha,
+          actor: { kind: "daemon", id: "archctxd.test" },
+          source: "apply_update",
+          timestamp: "2026-06-20T00:00:01.000Z",
+          idempotencyKey: "explorer-evidence-lifecycle",
+          provenance: evidenceItem.provenance,
+          payload: {
+            summary: "Create Explorer evidence binding",
+            evidenceOperations: [
+              { target: "item", action: "create", evidenceId: evidenceItem.evidenceId, value: evidenceItem },
+              { target: "binding", action: "create", bindingId: evidenceBinding.bindingId, value: evidenceBinding }
+            ]
+          }
+        } as any]
+      });
+      const lifecycleProjectionResponse = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(lifecycleProjectionResponse.status).toBe(200);
+      const lifecycleProjection = await lifecycleProjectionResponse.json() as any;
+      expect(lifecycleProjection.data.inputManifest.bindingsDigest).not.toBe(authorityProjection.data.inputManifest.bindingsDigest);
+      expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.provenance.evidenceBindingIds.includes(evidenceBinding.bindingId))).toBe(true);
+      const lifecycleEventId = lifecycleProjection.data.cursor.authorityCursor.eventId;
+      const lifecycleDelta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(lifecycleDelta.status).toBe(200);
+      expect(((await lifecycleDelta.json()) as any).data.counts.evidence).toBe(2);
+      const mismatchedCursor = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(mismatchedCursor.status).toBe(409);
+      expect(((await mismatchedCursor.json()) as any).error.reasonCode).toBe("projection-authority-mismatch");
+      const reversedCursor = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(lifecycleEventId)}&headEventId=${encodeURIComponent(eventId)}&baseProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(reversedCursor.status).toBe(409);
+      expect(((await reversedCursor.json()) as any).error.reasonCode).toBe("authority-cursor-reversed");
 
       const detailProjection = await fetch(`${data.url}projection/v2?level=detail&maxNodes=5&maxRelations=5`, {
         headers: { Authorization: `Bearer ${data.token}` }
       });
       const detailBody = await detailProjection.json() as any;
-      const projectionOnlyDelta = await fetch(`${data.url}delta?baseProjectionDigest=${encodeURIComponent(bodyV2.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(detailBody.data.projectionDigest)}`, {
+      const projectionOnlyDelta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(lifecycleEventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(detailBody.data.projectionDigest)}`, {
         headers: { Authorization: `Bearer ${data.token}` }
       });
-      expect(projectionOnlyDelta.status).toBe(200);
-      expect(((await projectionOnlyDelta.json()) as any).data.counts).toMatchObject({ "architecture-fact": 0, evidence: 0, projection: 1 });
+      expect(projectionOnlyDelta.status).toBe(409);
+      const projectionOnlyDeltaBody = await projectionOnlyDelta.json() as any;
+      expect(projectionOnlyDeltaBody.error.message).toContain("incompatible Explorer delta: manifest");
+      expect(projectionOnlyDeltaBody.error.reasonCode).toBe("projection-manifest-incompatible");
 
       const sseAbort = new AbortController();
       const sse = await fetch(`${data.url}events`, { headers: { Authorization: `Bearer ${data.token}` }, signal: sseAbort.signal });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { architectureCandidateDeltaDigest, architectureSubjectSelectorDigest, digestJson, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
-import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "../src/index";
+import { buildArchitectureCandidateDelta, compileArchitectureFactChanges, compileEvidenceStateChanges, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "../src/index";
 import {
   representativeArchitectureChangeScenarios,
   representativeArchitectureCodeContext,
@@ -22,6 +22,26 @@ const worktree = {
 };
 
 describe("@archcontext/core/architecture-delta", () => {
+  test("separates authoritative graph and evidence state changes", () => {
+    const factChanges = compileArchitectureFactChanges(
+      { entities: [{ entityId: "module.api", kind: "module", canonicalName: "API" }], relations: [], constraints: [] },
+      { entities: [{ entityId: "module.api", kind: "module", canonicalName: "API v2" }, { entityId: "module.db", kind: "module", canonicalName: "DB" }], relations: [], constraints: [] }
+    );
+    expect(factChanges).toEqual([
+      { deltaClass: "architecture-fact", subjectId: "entity:module.api", change: "changed", fields: ["canonicalName"] },
+      { deltaClass: "architecture-fact", subjectId: "entity:module.db", change: "added", fields: ["entity"] }
+    ]);
+
+    const emptyEvidence = { schemaVersion: "archcontext.evidence-state-at-cursor/v1" as const, evidenceItems: [], evidenceBindings: [], tombstones: [], stateDigest: digestJson([]) };
+    const evidence = {
+      ...emptyEvidence,
+      tombstones: [{ target: "item" as const, id: "evidence.api", previousDigest: digestJson({ old: true } as unknown as Json), reasonCode: "superseded", removedByEventId: "event.2" }]
+    };
+    expect(compileEvidenceStateChanges(emptyEvidence, evidence)).toEqual([
+      { deltaClass: "evidence", subjectId: "evidence-tombstone:item:evidence.api", change: "added", fields: ["evidence-tombstone"] }
+    ]);
+  });
+
   test("builds deterministic candidate deltas with changed path, symbol, relation and typed evidence", () => {
     const first = buildArchitectureCandidateDelta({
       repository,

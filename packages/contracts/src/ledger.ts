@@ -240,6 +240,67 @@ export interface EvidenceBindingV1 {
   extensions?: Record<string, Json>;
 }
 
+export type EvidenceLifecycleTargetV1 = "item" | "binding";
+export type EvidenceLifecycleActionV1 = "create" | "update" | "remove";
+
+export type EvidenceLifecycleOperationV1 =
+  | {
+      target: "item";
+      action: "create";
+      evidenceId: string;
+      value: EvidenceItemV2;
+    }
+  | {
+      target: "item";
+      action: "update";
+      evidenceId: string;
+      previousDigest: string;
+      value: EvidenceItemV2;
+    }
+  | {
+      target: "item";
+      action: "remove";
+      evidenceId: string;
+      previousDigest: string;
+      reasonCode: string;
+    }
+  | {
+      target: "binding";
+      action: "create";
+      bindingId: string;
+      value: EvidenceBindingV1;
+    }
+  | {
+      target: "binding";
+      action: "update";
+      bindingId: string;
+      previousDigest: string;
+      value: EvidenceBindingV1;
+    }
+  | {
+      target: "binding";
+      action: "remove";
+      bindingId: string;
+      previousDigest: string;
+      reasonCode: string;
+    };
+
+export interface EvidenceLifecycleTombstoneV1 {
+  target: EvidenceLifecycleTargetV1;
+  id: string;
+  previousDigest: string;
+  reasonCode: string;
+  removedByEventId: string;
+}
+
+export interface EvidenceStateAtCursorV1 {
+  schemaVersion: "archcontext.evidence-state-at-cursor/v1";
+  evidenceItems: EvidenceItemV2[];
+  evidenceBindings: EvidenceBindingV1[];
+  tombstones: EvidenceLifecycleTombstoneV1[];
+  stateDigest: string;
+}
+
 export interface ArchitectureSubjectSelectorV1 {
   schemaVersion: typeof ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION;
   selectorId: string;

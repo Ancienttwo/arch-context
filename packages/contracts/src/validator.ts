@@ -11,6 +11,8 @@ export interface ValidationResult {
 }
 
 type JsonSchema = {
+  $ref?: string;
+  $defs?: Record<string, JsonSchema>;
   type?: string | string[];
   const?: Json;
   enum?: Json[];
@@ -19,29 +21,57 @@ type JsonSchema = {
   properties?: Record<string, JsonSchema>;
   items?: JsonSchema;
   oneOf?: JsonSchema[];
+  anyOf?: JsonSchema[];
+  allOf?: JsonSchema[];
+  not?: JsonSchema;
   additionalProperties?: boolean | JsonSchema;
   minItems?: number;
+  minLength?: number;
+  maxLength?: number;
   minimum?: number;
   maximum?: number;
 };
 
 export function validateJsonSchema(schema: JsonSchema, value: Json): ValidationResult {
   const issues: ValidationIssue[] = [];
-  visit(schema, value, "$", issues);
+  visit(schema, value, "$", issues, schema);
   return { valid: issues.length === 0, issues };
 }
 
-function visit(schema: JsonSchema, value: Json, path: string, issues: ValidationIssue[]): void {
+function visit(schema: JsonSchema, value: Json, path: string, issues: ValidationIssue[], root: JsonSchema): void {
+  if (schema.$ref) {
+    if (!schema.$ref.startsWith("#/")) return;
+    const resolved = resolveLocalRef(root, schema.$ref);
+    if (!resolved) {
+      issues.push({ path, message: `unresolved schema reference ${schema.$ref}` });
+      return;
+    }
+    visit(resolved, value, path, issues, root);
+  }
   if (schema.oneOf) {
     const matched = schema.oneOf.filter((candidate) => {
       const candidateIssues: ValidationIssue[] = [];
-      visit(candidate, value, path, candidateIssues);
+      visit(candidate, value, path, candidateIssues, root);
       return candidateIssues.length === 0;
     }).length;
     if (matched !== 1) {
       issues.push({ path, message: `expected exactly one matching schema, got ${matched}` });
       return;
     }
+  }
+  if (schema.anyOf) {
+    const matched = schema.anyOf.some((candidate) => {
+      const candidateIssues: ValidationIssue[] = [];
+      visit(candidate, value, path, candidateIssues, root);
+      return candidateIssues.length === 0;
+    });
+    if (!matched) issues.push({ path, message: "expected at least one matching schema" });
+  }
+  for (const candidate of schema.allOf ?? []) visit(candidate, value, path, issues, root);
+  if (schema.not) {
+    const candidateIssues: ValidationIssue[] = [];
+    visit(schema.not, value, path, candidateIssues, root);
+    if (candidateIssues.length === 0) issues.push({ path, message: "matched forbidden schema" });
   }
   if (schema.const !== undefined && JSON.stringify(value) !== JSON.stringify(schema.const)) {
     issues.push({ path, message: `expected const ${JSON.stringify(schema.const)}` });
@@ -57,6 +87,12 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
   if (typeof value === "string" && schema.pattern && !new RegExp(schema.pattern).test(value)) {
     issues.push({ path, message: `does not match ${schema.pattern}` });
   }
+  if (typeof value === "string" && schema.minLength !== undefined && value.length < schema.minLength) {
+    issues.push({ path, message: `shorter than minimum length ${schema.minLength}` });
+  }
+  if (typeof value === "string" && schema.maxLength !== undefined && value.length > schema.maxLength) {
+    issues.push({ path, message: `longer than maximum length ${schema.maxLength}` });
+  }
   if (typeof value === "number") {
     if (schema.minimum !== undefined && value < schema.minimum) issues.push({ path, message: `below minimum ${schema.minimum}` });
     if (schema.maximum !== undefined && value > schema.maximum) issues.push({ path, message: `above maximum ${schema.maximum}` });
@@ -65,7 +101,7 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
     if (schema.minItems !== undefined && value.length < schema.minItems) {
       issues.push({ path, message: `expected at least ${schema.minItems} items` });
     }
-    if (schema.items) value.forEach((item, index) => visit(schema.items!, item, `${path}[${index}]`, issues));
+    if (schema.items) value.forEach((item, index) => visit(schema.items!, item, `${path}[${index}]`, issues, root));
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const objectValue = value as Record<string, Json>;
@@ -73,7 +109,7 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
       if (!(key in objectValue)) issues.push({ path: `${path}.${key}`, message: "required" });
     }
     for (const [key, child] of Object.entries(schema.properties ?? {})) {
-      if (key in objectValue) visit(child, objectValue[key], `${path}.${key}`, issues);
+      if (key in objectValue) visit(child, objectValue[key], `${path}.${key}`, issues, root);
     }
     if (schema.additionalProperties === false && schema.properties) {
       for (const key of Object.keys(objectValue)) {
@@ -81,6 +117,17 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
       }
     }
   }
+}
+
+function resolveLocalRef(root: JsonSchema, ref: string): JsonSchema | undefined {
+  if (!ref.startsWith("#/")) return undefined;
+  let current: unknown = root;
+  for (const rawSegment of ref.slice(2).split("/")) {
+    const segment = rawSegment.replace(/~1/g, "/").replace(/~0/g, "~");
+    if (!current || typeof current !== "object" || Array.isArray(current) || !(segment in current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current && typeof current === "object" && !Array.isArray(current) ? current as JsonSchema : undefined;
 }
 
 function matchesType(type: string | string[], value: Json): boolean {

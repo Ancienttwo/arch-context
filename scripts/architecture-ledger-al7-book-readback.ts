@@ -7,12 +7,14 @@ import { digestJson, type Json } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import {
   diffArchitectureLedgerBookStates,
+  emptyArchitectureLedgerEvidenceState,
   planYamlToArchitectureLedgerImport,
   queryArchitectureLedgerBook,
   queryArchitectureLedgerBookEvidence,
   queryArchitectureLedgerBookNeighbors,
   queryArchitectureLedgerBookRecommendations,
   queryArchitectureLedgerBookTimeline,
+  replayArchitectureLedgerEvidenceState,
   type ArchitectureLedgerModelFile,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
@@ -174,12 +176,14 @@ function buildBenchmarkFixture(name: FixtureSize, sampleCount: number) {
   const plan = planYamlToArchitectureLedgerImport({
     ...scope,
     files,
+    previousEvidenceState: emptyArchitectureLedgerEvidenceState(),
     createdAt: "2026-06-26T10:00:00.000Z",
     command: "archctx ledger rebuild --from-git"
   });
   const changed = planYamlToArchitectureLedgerImport({
     ...scope,
     files: changedFiles,
+    previousEvidenceState: replayArchitectureLedgerEvidenceState([plan.event]),
     createdAt: "2026-06-26T10:05:00.000Z",
     command: "archctx ledger rebuild --from-git"
   });

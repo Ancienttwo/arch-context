@@ -21,6 +21,7 @@ import {
   architectureLedgerStateDigest,
   emptyArchitectureLedgerState,
   normalizeArchitectureLedgerEvent,
+  replayArchitectureLedgerEvidenceState,
   replayArchitectureLedgerEvents,
   validateArchitectureLedgerEvent,
   type ArchitectureLedgerAppendInput,
@@ -41,7 +42,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -65,6 +66,7 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "architecture_constraints_current",
   "evidence_items",
   "evidence_bindings",
+  "evidence_tombstones",
   "recommendation_runs",
   "recommendations",
   "recommendation_feedback",
@@ -641,6 +643,26 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_explorer_dependency_key ON explorer_occurrence_dependencies(storage_repository_id, storage_workspace_id, dependency_key)"
     ]
+  },
+  {
+    id: "0013_evidence_lifecycle",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS evidence_tombstones (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        target_kind TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        previous_digest TEXT NOT NULL,
+        reason_code TEXT NOT NULL,
+        removed_by_event_id TEXT NOT NULL,
+        removed_at TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id, target_kind, target_id),
+        FOREIGN KEY(removed_by_event_id) REFERENCES architecture_events(event_id) ON DELETE RESTRICT
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_evidence_tombstones_scope ON evidence_tombstones(storage_repository_id, storage_workspace_id, target_kind, target_id)",
+      "DELETE FROM explorer_occurrence_dependencies",
+      "DELETE FROM explorer_projection_cache"
+    ]
   }
 ] as const;
 
@@ -1073,6 +1095,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState>;
   queryArchitectureLedgerFts(input: ArchitectureLedgerScope & { query: string; maxItems?: number }): Promise<ArchitectureBookFtsMatch[]>;
   replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult>;
+  replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1>;
   verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification>;
   rebuildArchitectureLedgerCurrentState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerReplayResult>;
   compactArchitectureLedger(input: ArchitectureLedgerScope & { beforeSnapshotId: string }): Promise<{ snapshotId: string; compactedEventCount: number }>;
@@ -1817,7 +1840,10 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult> {
     if (input.writer !== "runtime-daemon") throw new Error("architecture-ledger-writer-must-be-runtime-daemon");
-    for (const event of input.events) validateArchitectureLedgerEvent(event);
+    for (const event of input.events) {
+      validateArchitectureLedgerEvent(event);
+      assertNoNewLegacyEvidencePayload(event);
+    }
     const db = await this.database();
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -1835,7 +1861,10 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     input: ArchitectureLedgerAppendInput
   ): Promise<ArchitectureLedgerAppendResult> {
     if (input.writer !== "runtime-daemon") throw new Error("architecture-ledger-writer-must-be-runtime-daemon");
-    for (const event of input.events) validateArchitectureLedgerEvent(event);
+    for (const event of input.events) {
+      validateArchitectureLedgerEvent(event);
+      assertNoNewLegacyEvidencePayload(event);
+    }
     const db = await this.database();
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -2004,6 +2033,11 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     return { events, state, graphDigest: architectureLedgerStateDigest(state) };
   }
 
+  async replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1> {
+    const db = await this.database();
+    return replayArchitectureLedgerEvidenceState(architectureEventsForReplay(db, input));
+  }
+
   async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {
     const materialized = await this.readArchitectureLedgerState(input);
     const replayed = await this.replayArchitectureLedger(input);
@@ -2153,7 +2187,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       `SELECT projection_json FROM explorer_projection_cache
         WHERE projection_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
     ).get(input.projectionDigest, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
-    return row ? JSON.parse(String(row.projection_json)) as ExplorerProjectionV2 : undefined;
+    return row ? explorerProjectionFromStoredJson(String(row.projection_json)) : undefined;
   }
 
   async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
@@ -2163,7 +2197,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND view_id = ?
         ORDER BY created_at DESC, rowid DESC LIMIT 1`
     ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), input.viewId);
-    return row ? JSON.parse(String(row.projection_json)) as ExplorerProjectionV2 : undefined;
+    return row ? explorerProjectionFromStoredJson(String(row.projection_json)) : undefined;
   }
 
   async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
@@ -2232,6 +2266,29 @@ function architectureScopeFromEvent(event: ArchitectureEventV1 | undefined): Arc
   return event ? { repository: event.repository, worktree: event.worktree } : undefined;
 }
 
+function explorerProjectionFromStoredJson(raw: string): ExplorerProjectionV2 | undefined {
+  try {
+    const value = JSON.parse(raw) as Partial<ExplorerProjectionV2>;
+    if (value.schemaVersion !== "archcontext.explorer-projection/v2") return undefined;
+    if (!value.cursor || !Object.prototype.hasOwnProperty.call(value.cursor, "authorityCursor")) return undefined;
+    if (!value.inputManifest || !Object.prototype.hasOwnProperty.call(value.inputManifest, "authorityCursor")) return undefined;
+    if (typeof value.projectionDigest !== "string" || typeof value.inputManifest.manifestDigest !== "string") return undefined;
+    if (value.cursor.inputManifestDigest !== value.inputManifest.manifestDigest) return undefined;
+    if (value.cursor.compatibilityDigest !== value.inputManifest.compatibilityDigest) return undefined;
+    if (!Array.isArray(value.occurrences) || !Array.isArray(value.relations) || !value.view) return undefined;
+    return value as ExplorerProjectionV2;
+  } catch {
+    return undefined;
+  }
+}
+
+function assertNoNewLegacyEvidencePayload(event: ArchitectureEventV1): void {
+  const payload = architectureLedgerPayload(event);
+  if (payload.evidenceItems !== undefined || payload.evidenceBindings !== undefined) {
+    throw new Error(`architecture-ledger-new-legacy-evidence-forbidden: ${event.eventId}`);
+  }
+}
+
 function architectureLedgerWorkspaceKey(worktree: ArchitectureEventV1["worktree"]): string {
   return `ledger-scope:${digestJson({
     storageWorkspaceId: worktree.storageWorkspaceId,
@@ -2269,13 +2326,17 @@ function appendArchitectureEventsInOpenTransaction(
       architectureLedgerWorkspaceKey(event.worktree)
     );
     const normalized = normalizeArchitectureLedgerEvent(event, previousEventHash);
-    const operations = architectureLedgerPayload(normalized).operations ?? [];
+    const payload = architectureLedgerPayload(normalized);
+    const operations = payload.operations ?? [];
     const scope = architectureScopeFromEvent(normalized)!;
     if (operations.length > 0) {
       const currentDigest = architectureLedgerStateDigest(readArchitectureLedgerStateFromDb(db, scope));
       if (normalized.baseDigest !== currentDigest) {
         throw new Error(`architecture-ledger-base-digest-conflict: expected ${currentDigest}, received ${normalized.baseDigest}`);
       }
+    }
+    if ((payload.evidenceItems?.length ?? 0) > 0 || (payload.evidenceBindings?.length ?? 0) > 0 || (payload.evidenceOperations?.length ?? 0) > 0) {
+      replayArchitectureLedgerEvidenceState([...architectureEventsForReplay(db, scope), normalized]);
     }
     insertArchitectureEvent(db, normalized);
     persistArchitectureLedgerArtifacts(db, normalized);
@@ -2383,67 +2444,17 @@ function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1)
 
 function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: ArchitectureEventV1): void {
   const payload = architectureLedgerPayload(event);
-  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
-  const storageEventId = architectureLedgerStorageId(event.worktree, event.eventId);
-  for (const evidence of payload.evidenceItems ?? []) {
-    db.prepare(
-      `INSERT OR REPLACE INTO evidence_items
-        (evidence_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, kind, strength,
-          polarity, origin, subject, selector_json, summary, coverage_json, supports_json, provenance_json, evidence_json, digest, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      architectureLedgerStorageId(event.worktree, evidence.evidenceId),
-      event.repository.repositoryId,
-      event.repository.storageRepositoryId,
-      event.worktree.workspaceId,
-      workspaceKey,
-      storageEventId,
-      evidence.kind,
-      evidence.strength,
-      evidence.polarity,
-      evidence.origin,
-      evidence.subject,
-      stableJson(evidence.selector),
-      evidence.summary,
-      stableJson(evidence.coverage),
-      stableJson(evidence.supports),
-      stableJson(evidence.provenance),
-      stableJson(evidence),
-      evidence.digest,
-      evidence.createdAt
-    );
-    insertArchitectureLedgerFts(db, "evidence", evidence.summary, "", "", evidence.summary);
-    insertArchitectureLedgerSearchDoc(db, event, {
-      docId: `evidence:${evidence.evidenceId}`,
-      targetKind: "evidence",
-      targetId: evidence.evidenceId,
-      subjectId: evidence.subject,
-      summary: evidence.summary,
-      evidenceSummary: evidence.summary
-    });
-  }
-  for (const binding of payload.evidenceBindings ?? []) {
-    db.prepare(
-      `INSERT OR REPLACE INTO evidence_bindings
-        (binding_id, evidence_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id,
-          target_kind, target_id, binding_reason, authority_effect, provenance_json, binding_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      architectureLedgerStorageId(event.worktree, binding.bindingId),
-      architectureLedgerStorageId(event.worktree, binding.evidenceId),
-      event.repository.repositoryId,
-      event.repository.storageRepositoryId,
-      event.worktree.workspaceId,
-      workspaceKey,
-      storageEventId,
-      binding.target.kind,
-      binding.target.id,
-      binding.bindingReason,
-      binding.authorityEffect,
-      stableJson(binding.provenance),
-      stableJson(binding),
-      binding.createdAt
-    );
+  for (const evidence of payload.evidenceItems ?? []) persistEvidenceItem(db, event, evidence);
+  for (const binding of payload.evidenceBindings ?? []) persistEvidenceBinding(db, event, binding);
+  for (const operation of payload.evidenceOperations ?? []) {
+    if (operation.target === "item") {
+      if (operation.action === "create" || operation.action === "update") persistEvidenceItem(db, event, operation.value);
+      else removeEvidenceItem(db, event, operation.evidenceId, operation.previousDigest, operation.reasonCode);
+    } else if (operation.action === "create" || operation.action === "update") {
+      persistEvidenceBinding(db, event, operation.value);
+    } else {
+      removeEvidenceBinding(db, event, operation.bindingId, operation.previousDigest, operation.reasonCode);
+    }
   }
   for (const run of payload.recommendationRuns ?? []) persistRecommendationRun(db, event, run);
   for (const recommendation of payload.recommendations ?? []) persistRecommendation(db, event, recommendation);
@@ -2453,6 +2464,141 @@ function persistArchitectureLedgerArtifacts(db: SqliteDatabase, event: Architect
   for (const waiver of payload.waivers ?? []) persistGenericLedgerJson(db, event, "waivers", "waiver_id", "waiver_json", waiver, "waiver");
   for (const cursor of payload.sourceCursors ?? []) persistSourceCursor(db, event, cursor);
   if (payload.projectionState) persistProjectionState(db, event, payload.projectionState);
+}
+
+function persistEvidenceItem(db: SqliteDatabase, event: ArchitectureEventV1, evidence: EvidenceItemV2): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
+  db.prepare(
+    `INSERT INTO evidence_items
+      (evidence_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, kind, strength,
+        polarity, origin, subject, selector_json, summary, coverage_json, supports_json, provenance_json, evidence_json, digest, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(evidence_id) DO UPDATE SET
+        repository_id = excluded.repository_id,
+        storage_repository_id = excluded.storage_repository_id,
+        workspace_id = excluded.workspace_id,
+        storage_workspace_id = excluded.storage_workspace_id,
+        event_id = excluded.event_id,
+        kind = excluded.kind,
+        strength = excluded.strength,
+        polarity = excluded.polarity,
+        origin = excluded.origin,
+        subject = excluded.subject,
+        selector_json = excluded.selector_json,
+        summary = excluded.summary,
+        coverage_json = excluded.coverage_json,
+        supports_json = excluded.supports_json,
+        provenance_json = excluded.provenance_json,
+        evidence_json = excluded.evidence_json,
+        digest = excluded.digest,
+        created_at = excluded.created_at`
+  ).run(
+    architectureLedgerStorageId(event.worktree, evidence.evidenceId),
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    workspaceKey,
+    architectureLedgerStorageId(event.worktree, event.eventId),
+    evidence.kind,
+    evidence.strength,
+    evidence.polarity,
+    evidence.origin,
+    evidence.subject,
+    stableJson(evidence.selector),
+    evidence.summary,
+    stableJson(evidence.coverage),
+    stableJson(evidence.supports),
+    stableJson(evidence.provenance),
+    stableJson(evidence),
+    evidence.digest,
+    evidence.createdAt
+  );
+  insertArchitectureLedgerFts(db, "evidence", evidence.summary, "", "", evidence.summary);
+  insertArchitectureLedgerSearchDoc(db, event, {
+    docId: `evidence:${evidence.evidenceId}`,
+    targetKind: "evidence",
+    targetId: evidence.evidenceId,
+    subjectId: evidence.subject,
+    summary: evidence.summary,
+    evidenceSummary: evidence.summary
+  });
+}
+
+function persistEvidenceBinding(db: SqliteDatabase, event: ArchitectureEventV1, binding: EvidenceBindingV1): void {
+  db.prepare(
+    `INSERT INTO evidence_bindings
+      (binding_id, evidence_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id,
+        target_kind, target_id, binding_reason, authority_effect, provenance_json, binding_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(binding_id) DO UPDATE SET
+        evidence_id = excluded.evidence_id,
+        repository_id = excluded.repository_id,
+        storage_repository_id = excluded.storage_repository_id,
+        workspace_id = excluded.workspace_id,
+        storage_workspace_id = excluded.storage_workspace_id,
+        event_id = excluded.event_id,
+        target_kind = excluded.target_kind,
+        target_id = excluded.target_id,
+        binding_reason = excluded.binding_reason,
+        authority_effect = excluded.authority_effect,
+        provenance_json = excluded.provenance_json,
+        binding_json = excluded.binding_json,
+        created_at = excluded.created_at`
+  ).run(
+    architectureLedgerStorageId(event.worktree, binding.bindingId),
+    architectureLedgerStorageId(event.worktree, binding.evidenceId),
+    event.repository.repositoryId,
+    event.repository.storageRepositoryId,
+    event.worktree.workspaceId,
+    architectureLedgerWorkspaceKey(event.worktree),
+    architectureLedgerStorageId(event.worktree, event.eventId),
+    binding.target.kind,
+    binding.target.id,
+    binding.bindingReason,
+    binding.authorityEffect,
+    stableJson(binding.provenance),
+    stableJson(binding),
+    binding.createdAt
+  );
+}
+
+function removeEvidenceItem(db: SqliteDatabase, event: ArchitectureEventV1, evidenceId: string, previousDigest: string, reasonCode: string): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
+  deleteArchitectureLedgerSearchDocs(db, { repository: event.repository, worktree: event.worktree }, [evidenceId]);
+  db.prepare("DELETE FROM evidence_items WHERE evidence_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?")
+    .run(architectureLedgerStorageId(event.worktree, evidenceId), event.repository.storageRepositoryId, workspaceKey);
+  persistEvidenceTombstone(db, event, "item", evidenceId, previousDigest, reasonCode);
+}
+
+function removeEvidenceBinding(db: SqliteDatabase, event: ArchitectureEventV1, bindingId: string, previousDigest: string, reasonCode: string): void {
+  const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
+  db.prepare("DELETE FROM evidence_bindings WHERE binding_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?")
+    .run(architectureLedgerStorageId(event.worktree, bindingId), event.repository.storageRepositoryId, workspaceKey);
+  persistEvidenceTombstone(db, event, "binding", bindingId, previousDigest, reasonCode);
+}
+
+function persistEvidenceTombstone(
+  db: SqliteDatabase,
+  event: ArchitectureEventV1,
+  targetKind: "item" | "binding",
+  targetId: string,
+  previousDigest: string,
+  reasonCode: string
+): void {
+  db.prepare(
+    `INSERT INTO evidence_tombstones
+      (storage_repository_id, storage_workspace_id, target_kind, target_id, previous_digest, reason_code, removed_by_event_id, removed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    event.repository.storageRepositoryId,
+    architectureLedgerWorkspaceKey(event.worktree),
+    targetKind,
+    targetId,
+    previousDigest,
+    reasonCode,
+    architectureLedgerStorageId(event.worktree, event.eventId),
+    event.timestamp
+  );
 }
 
 function persistRecommendationRun(db: SqliteDatabase, event: ArchitectureEventV1, run: NonNullable<ArchitectureLedgerEventPayload["recommendationRuns"]>[number]): void {

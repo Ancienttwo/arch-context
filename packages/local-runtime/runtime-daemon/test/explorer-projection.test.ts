@@ -4,7 +4,7 @@ import type { ArchitectureLedgerGraphState } from "@archcontext/core/architectur
 import {
   ExplorerProjectionCompileError,
   compileExplorerProjection,
-  compileExplorerProjectionDelta,
+  compileExplorerProjectionChanges,
   compileSystemMapProjection,
   type CompileSystemMapProjectionInput
 } from "../src/explorer-projection";
@@ -51,6 +51,7 @@ function compile(overrides: Partial<CompileSystemMapProjectionInput> = {}) {
     query,
     repository,
     worktree,
+    authorityCursor: null,
     graph,
     graphDigest: `sha256:${"2".repeat(64)}`,
     observed: observed(),
@@ -99,6 +100,20 @@ describe("compileSystemMapProjection", () => {
     const observedOccurrence = projection.occurrences.find((item) => item.provenance.observedSymbolIds.includes("symbol.api"));
     expect(observedOccurrence?.provenance.declaredEntityIds).toEqual([]);
     expect(observedOccurrence?.verificationStatus).toBe("UNKNOWN");
+  });
+
+  test("input manifest covers every current compiler input domain deterministically", () => {
+    const base = compile();
+    const repeated = compile();
+    const withBinding = compile({
+      observed: observed({ symbols: [{ id: "symbol.api", name: "Api", kind: "function", path: "src/api.ts" }] }),
+      bindings: [{ bindingId: "binding.api", targetEntityId: "module.api", observedSymbolId: "symbol.api", verified: true }]
+    });
+    expect(repeated.inputManifest).toEqual(base.inputManifest);
+    expect(base.cursor.inputManifestDigest).toBe(base.inputManifest.manifestDigest);
+    expect(withBinding.inputManifest.bindingsDigest).not.toBe(base.inputManifest.bindingsDigest);
+    expect(withBinding.inputManifest.manifestDigest).not.toBe(base.inputManifest.manifestDigest);
+    expect(withBinding.inputManifest.compatibilityDigest).toBe(base.inputManifest.compatibilityDigest);
   });
 
   test("rejects a stale expected cursor", () => {
@@ -172,6 +187,7 @@ describe("compileSystemMapProjection", () => {
     const taskQuery: ExplorerProjectionQueryV2 = { ...query, viewId: "task-impact", taskSessionId: "task.current" };
     expect(() => compileExplorerProjection({
       query: taskQuery, repository, worktree,
+      authorityCursor: null,
       graph: { entities: [], relations: [], constraints: [] }, graphDigest: `sha256:${"2".repeat(64)}`,
       observed: observed(), tokenRequired: true
     })).toThrow(ExplorerProjectionCompileError);
@@ -179,6 +195,7 @@ describe("compileSystemMapProjection", () => {
       query: taskQuery,
       repository,
       worktree,
+      authorityCursor: null,
       graph: { entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active" }], relations: [], constraints: [] },
       graphDigest: `sha256:${"2".repeat(64)}`,
       observed: observed({ symbols: [{ id: "symbol.api", name: "Api", kind: "function", path: "src/api.ts" }] }),
@@ -195,6 +212,7 @@ describe("compileSystemMapProjection", () => {
       query: { ...query, viewId: "drift-pressure" },
       repository,
       worktree,
+      authorityCursor: null,
       graph: {
         entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active", summary: "Owns API" }],
         relations: [],
@@ -216,26 +234,66 @@ describe("compileSystemMapProjection", () => {
     expect(occurrence.backlinks.decidedByEventIds).toEqual(["event.api"]);
   });
 
-  test("delta separates fact, evidence, and projection-only changes", () => {
+  test("projection delta never derives fact or evidence changes from rendered occurrences", () => {
     const base = compile();
-    const factHead = structuredClone(base);
-    const first = factHead.occurrences.find((item) => item.role === "subject")!;
+    const renderedHead = structuredClone(base);
+    const first = renderedHead.occurrences.find((item) => item.role === "subject")!;
     if (first.role !== "subject") throw new Error("subject required");
     first.name = "API v2";
     first.verificationStatus = "DRIFT";
     first.parentOccurrenceId = "occurrence.system-map.group.kind.module";
-    const delta = compileExplorerProjectionDelta(base, factHead);
-    expect(delta.counts["architecture-fact"]).toBe(1);
-    expect(delta.counts.evidence).toBe(1);
-    expect(delta.counts.projection).toBe(1);
-    expect(delta.changes.find((item) => item.deltaClass === "evidence")?.verificationTransition).toEqual({ from: "UNKNOWN", to: "DRIFT" });
+    const changes = compileExplorerProjectionChanges(base, renderedHead);
+    expect(changes.filter((change) => change.deltaClass === "architecture-fact")).toHaveLength(0);
+    expect(changes.filter((change) => change.deltaClass === "evidence")).toHaveLength(0);
+    expect(changes.filter((change) => change.deltaClass === "projection")).toHaveLength(1);
 
     const projectionOnly = structuredClone(base);
     const projectionSubject = projectionOnly.occurrences.find((item) => item.role === "subject")!;
     projectionSubject.parentOccurrenceId = "occurrence.system-map.group.kind.module";
-    const projectionDelta = compileExplorerProjectionDelta(base, projectionOnly);
-    expect(projectionDelta.counts["architecture-fact"]).toBe(0);
-    expect(projectionDelta.counts.evidence).toBe(0);
-    expect(projectionDelta.counts.projection).toBe(1);
+    const projectionChanges = compileExplorerProjectionChanges(base, projectionOnly);
+    expect(projectionChanges.filter((change) => change.deltaClass === "architecture-fact")).toHaveLength(0);
+    expect(projectionChanges.filter((change) => change.deltaClass === "evidence")).toHaveLength(0);
+    expect(projectionChanges.filter((change) => change.deltaClass === "projection")).toHaveLength(1);
+  });
+
+  test("budget displacement is a projection change, not an architecture-fact removal", () => {
+    const base = compile({
+      query: { ...query, budget: { maxNodes: 1, maxRelations: 0 } },
+      graph: {
+        entities: [
+          { entityId: "module.b", kind: "module", canonicalName: "B", status: "active" },
+          { entityId: "module.c", kind: "module", canonicalName: "C", status: "active" }
+        ],
+        relations: [],
+        constraints: []
+      }
+    });
+    const head = compile({
+      query: { ...query, budget: { maxNodes: 1, maxRelations: 0 } },
+      graphDigest: `sha256:${"4".repeat(64)}`,
+      graph: {
+        entities: [
+          { entityId: "module.a", kind: "module", canonicalName: "A", status: "active" },
+          { entityId: "module.b", kind: "module", canonicalName: "B", status: "active" },
+          { entityId: "module.c", kind: "module", canonicalName: "C", status: "active" }
+        ],
+        relations: [],
+        constraints: []
+      }
+    });
+
+    const changes = compileExplorerProjectionChanges(base, head);
+    expect(changes.filter((change) => change.deltaClass === "architecture-fact")).toHaveLength(0);
+    expect(changes.filter((change) => change.deltaClass === "evidence")).toHaveLength(0);
+    expect(changes).toEqual([
+      { deltaClass: "projection", subjectId: "architecture-entity:module.a", change: "added", fields: ["subject"] },
+      { deltaClass: "projection", subjectId: "architecture-entity:module.b", change: "removed", fields: ["subject"] }
+    ]);
+  });
+
+  test("rejects projection deltas across different queries", () => {
+    const base = compile();
+    const head = compile({ query: { ...query, budget: { maxNodes: 1, maxRelations: 0 } } });
+    expect(() => compileExplorerProjectionChanges(base, head)).toThrow("incompatible Explorer delta: manifest");
   });
 });

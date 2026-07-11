@@ -6,13 +6,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
 import {
+  ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
   architectureLedgerPayload,
   architectureLedgerStateDigest,
+  evidenceLifecycleValueDigest,
   planAuditRunToArchitectureLedgerEvent,
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   LOCAL_SQLITE_MIGRATIONS,
@@ -47,7 +49,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0009_architecture_ledger_search_fts",
       "0010_audit_runs",
       "0011_changeset_cleanup_cursor",
-      "0012_explorer_projection_index"
+      "0012_explorer_projection_index",
+      "0013_evidence_lifecycle"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -58,6 +61,41 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     expect(sql.some((statement) => statement.includes("runtime_job_queue"))).toBe(true);
     expect(sql.some((statement) => statement.includes("architecture_current_graph_view"))).toBe(true);
     expect(() => assertNoSourceStorageSchema(sql)).not.toThrow();
+  });
+
+  test("evidence lifecycle migration clears pre-manifest Explorer cache rows", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-migration-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const db = new Database(dbPath);
+    try {
+      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 12)) {
+        for (const statement of migration.statements) db.exec(statement);
+        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
+      }
+      const digest = `sha256:${"a".repeat(64)}`;
+      db.query(
+        `INSERT INTO explorer_projection_cache
+          (projection_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest,
+            view_definition_digest, compiler_version, projection_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(digest, "repo.storage", "workspace.storage", "system-map", digest, digest, digest, "archcontext.explorer-view-compiler/v1", "{}", "2026-07-11T00:00:00.000Z");
+      db.query(
+        `INSERT INTO explorer_occurrence_dependencies
+          (storage_repository_id, storage_workspace_id, projection_digest, occurrence_id, dependency_key)
+          VALUES (?, ?, ?, ?, ?)`
+      ).run("repo.storage", "workspace.storage", digest, "occurrence.old", "graph:old");
+    } finally {
+      db.close();
+    }
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM explorer_projection_cache")).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM explorer_occurrence_dependencies")).toBe(0);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("schema guard rejects source or diff storage columns", () => {
@@ -418,7 +456,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0009_architecture_ledger_search_fts",
       "0010_audit_runs",
       "0011_changeset_cleanup_cursor",
-      "0012_explorer_projection_index"
+      "0012_explorer_projection_index",
+      "0013_evidence_lifecycle"
     ]);
 
     const snapshot = {
@@ -1636,6 +1675,63 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("architecture ledger persists evidence lifecycle transitions atomically", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-evidence-lifecycle-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const first = sqliteEvidenceItem("Owns API");
+      const second = sqliteEvidenceItem("Owns API and routing");
+      const binding = sqliteEvidenceBinding(first.evidenceId);
+      const create = architectureEvidenceLifecycleEvent("create", [
+        { target: "item", action: "create", evidenceId: first.evidenceId, value: first },
+        { target: "binding", action: "create", bindingId: binding.bindingId, value: binding }
+      ]);
+      const update = architectureEvidenceLifecycleEvent("update", [{
+        target: "item",
+        action: "update",
+        evidenceId: first.evidenceId,
+        previousDigest: evidenceLifecycleValueDigest(first),
+        value: second
+      }]);
+      const remove = architectureEvidenceLifecycleEvent("remove", [
+        { target: "binding", action: "remove", bindingId: binding.bindingId, previousDigest: evidenceLifecycleValueDigest(binding), reasonCode: "superseded" },
+        { target: "item", action: "remove", evidenceId: second.evidenceId, previousDigest: evidenceLifecycleValueDigest(second), reasonCode: "superseded" }
+      ]);
+
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [create, update, remove] });
+      const state = await store.replayArchitectureLedgerEvidence(ARCHITECTURE_LEDGER_SCOPE);
+      expect(state.evidenceItems).toEqual([]);
+      expect(state.evidenceBindings).toEqual([]);
+      expect(state.tombstones).toHaveLength(2);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM evidence_items")).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM evidence_bindings")).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM evidence_tombstones")).toBe(2);
+
+      const invalid = architectureEvidenceLifecycleEvent("invalid", [{
+        target: "item",
+        action: "create",
+        evidenceId: first.evidenceId,
+        value: first
+      }]);
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [invalid] }))
+        .rejects.toThrow("create-requires-unused-id");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events")).toBe(3);
+      const legacyWriter = {
+        ...architectureEvidenceLifecycleEvent("legacy-writer", []),
+        payloadVersion: "archcontext.architecture-ledger-payload/v1",
+        payload: { summary: "Legacy writer must be rejected", evidenceItems: [first] } as unknown as Json
+      };
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [legacyWriter] }))
+        .rejects.toThrow("architecture-ledger-new-legacy-evidence-forbidden");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events")).toBe(3);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 const ARCHITECTURE_LEDGER_SCOPE = {
@@ -1654,6 +1750,27 @@ const ARCHITECTURE_LEDGER_SCOPE = {
 
 function explorerProjectionFixture(): ExplorerProjectionV2 {
   const occurrenceId = "occurrence.system-map.entity.module.api";
+  const compatibilityDigest = digestJson({ compatibility: "system-map" } as unknown as Json);
+  const inputManifest = {
+    schemaVersion: "archcontext.projection-input-manifest/v1" as const,
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    authorityCursor: null,
+    queryDigest: digestJson({ query: "system-map" } as unknown as Json),
+    graphDigest: digestJson({ graph: "one" } as unknown as Json),
+    observedFactsDigest: digestJson({ observed: "one" } as unknown as Json),
+    observedAvailability: { status: "ready" as const },
+    bindingsDigest: digestJson([]),
+    eventBacklinksDigest: digestJson([]),
+    driftDigest: null,
+    pressureDigest: null,
+    taskSessionDigest: null,
+    viewDefinitionDigest: digestJson({ view: "system-map" } as unknown as Json),
+    compilerVersion: "archcontext.explorer-view-compiler/v1" as const,
+    tokenRequired: true,
+    compatibilityDigest,
+    manifestDigest: digestJson({ manifest: "system-map" } as unknown as Json)
+  };
   const withoutDigest = {
     schemaVersion: "archcontext.explorer-projection/v2" as const,
     view: { id: "system-map" as const, title: "System Map", question: "What exists?" },
@@ -1663,12 +1780,16 @@ function explorerProjectionFixture(): ExplorerProjectionV2 {
     cursor: {
       repository: ARCHITECTURE_LEDGER_SCOPE.repository,
       worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      authorityCursor: null,
+      inputManifestDigest: inputManifest.manifestDigest,
+      compatibilityDigest,
       graphDigest: digestJson({ graph: "one" } as unknown as Json),
       observedFactsDigest: digestJson({ observed: "one" } as unknown as Json),
       viewDefinitionDigest: digestJson({ view: "system-map" } as unknown as Json),
       compilerVersion: "archcontext.explorer-view-compiler/v1" as const,
       observedAvailability: { status: "ready" as const }
     },
+    inputManifest,
     occurrences: [{
       occurrenceId,
       role: "subject" as const,
@@ -1781,7 +1902,7 @@ function architectureLedgerEvent(index: number, priorEvents: ArchitectureEventV1
   };
   if (index === 0) {
     const evidenceDigest = digestJson({ evidence: "root" } as unknown as Json);
-    payload.evidenceItems = [{
+    const evidenceItem = {
       schemaVersion: "archcontext.evidence-item/v2",
       evidenceId: "evidence.root",
       kind: "codegraph-summary",
@@ -1796,8 +1917,8 @@ function architectureLedgerEvent(index: number, priorEvents: ArchitectureEventV1
       provenance,
       createdAt: "2026-06-25T00:00:00.000Z",
       digest: evidenceDigest
-    }];
-    payload.evidenceBindings = [{
+    } satisfies EvidenceItemV2;
+    const evidenceBinding = {
       schemaVersion: "archcontext.evidence-binding/v1",
       bindingId: "binding.root",
       evidenceId: "evidence.root",
@@ -1806,7 +1927,11 @@ function architectureLedgerEvent(index: number, priorEvents: ArchitectureEventV1
       authorityEffect: "checkpoint-eligible",
       createdAt: "2026-06-25T00:00:01.000Z",
       provenance
-    }];
+    } satisfies EvidenceBindingV1;
+    payload.evidenceOperations = [
+      { target: "item", action: "create", evidenceId: evidenceItem.evidenceId, value: evidenceItem },
+      { target: "binding", action: "create", bindingId: evidenceBinding.bindingId, value: evidenceBinding }
+    ] as unknown as Json;
     payload.recommendationRuns = [{
       schemaVersion: "archcontext.recommendation-run/v1",
       runId: "recommendation-run.root",
@@ -1881,7 +2006,7 @@ function architectureLedgerEvent(index: number, priorEvents: ArchitectureEventV1
     schemaVersion: "archcontext.architecture-event/v1",
     eventId: `architecture_event.${String(index).padStart(4, "0")}`,
     eventType: "architecture.graph.update",
-    payloadVersion: "archcontext.architecture-ledger-payload/v1",
+    payloadVersion: index === 0 ? ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION : "archcontext.architecture-ledger-payload/v1",
     repository: ARCHITECTURE_LEDGER_SCOPE.repository,
     worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
     baseDigest,
@@ -1897,6 +2022,63 @@ function architectureLedgerEvent(index: number, priorEvents: ArchitectureEventV1
   return {
     ...event,
     resultingDigest: architectureLedgerStateDigest(replayArchitectureLedgerEvents([...priorEvents, event]))
+  };
+}
+
+function architectureEvidenceLifecycleEvent(suffix: string, evidenceOperations: EvidenceLifecycleOperationV1[]): ArchitectureEventV1 {
+  const graphDigest = architectureLedgerStateDigest({ entities: [], relations: [], constraints: [] });
+  return {
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_evidence.${suffix}`,
+    eventType: "architecture.evidence.lifecycle",
+    payloadVersion: ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    baseDigest: graphDigest,
+    resultingDigest: graphDigest,
+    headSha: ARCHITECTURE_LEDGER_SCOPE.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "apply_update",
+    timestamp: "2026-07-11T00:00:00.000Z",
+    idempotencyKey: `architecture-evidence-${suffix}`,
+    provenance: {
+      producer: "local-store-sqlite.test",
+      command: "test evidence lifecycle",
+      inputDigest: digestJson(evidenceOperations as unknown as Json)
+    },
+    payload: { summary: `Evidence lifecycle ${suffix}`, evidenceOperations } as unknown as Json
+  };
+}
+
+function sqliteEvidenceItem(summary: string): EvidenceItemV2 {
+  return {
+    schemaVersion: "archcontext.evidence-item/v2",
+    evidenceId: "evidence.api",
+    kind: "architecture-declaration",
+    strength: "declared",
+    polarity: "positive",
+    origin: "runtime-daemon",
+    subject: "module.api",
+    selector: { kind: "path", id: "module.api", path: "packages/api" },
+    summary,
+    coverage: { level: "complete", scope: "module.api" },
+    supports: ["checkpoint"],
+    provenance: { producer: "local-store-sqlite.test", command: "test evidence lifecycle", inputDigest: digestJson({ summary } as unknown as Json) },
+    createdAt: "2026-07-11T00:00:00.000Z",
+    digest: digestJson({ evidenceId: "evidence.api", summary } as unknown as Json)
+  };
+}
+
+function sqliteEvidenceBinding(evidenceId: string): EvidenceBindingV1 {
+  return {
+    schemaVersion: "archcontext.evidence-binding/v1",
+    bindingId: "binding.api",
+    evidenceId,
+    target: { kind: "entity", id: "module.api" },
+    bindingReason: "direct-selector",
+    authorityEffect: "checkpoint-eligible",
+    createdAt: "2026-07-11T00:00:00.000Z",
+    provenance: { producer: "local-store-sqlite.test", command: "test evidence lifecycle", inputDigest: digestJson({ evidenceId } as unknown as Json) }
   };
 }
 

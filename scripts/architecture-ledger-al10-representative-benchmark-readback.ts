@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import {
+  emptyArchitectureLedgerEvidenceState,
   planYamlToArchitectureLedgerImport,
   projectArchitectureLedgerStateToYamlFiles,
   type ArchitectureLedgerScope
@@ -560,6 +561,7 @@ function canonicalizeRepresentativeArchitectureModel(root: string, config: Repre
   const plan = planYamlToArchitectureLedgerImport({
     ...fixtureScope(config),
     files: listModelFiles(root),
+    previousEvidenceState: emptyArchitectureLedgerEvidenceState(),
     createdAt: "2026-06-26T12:00:00.000Z",
     command: "archctx ledger canonicalize representative fixture"
   });

@@ -5,11 +5,25 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "eventId", "eventType", "payloadVersion", "repository", "worktree", "baseDigest", "resultingDigest", "headSha", "actor", "source", "timestamp", "idempotencyKey", "provenance", "payload"],
+  "oneOf": [
+    {
+      "properties": {
+        "payloadVersion": { "const": "archcontext.architecture-evidence-lifecycle/v2" },
+        "payload": { "required": ["evidenceOperations"] }
+      }
+    },
+    {
+      "properties": {
+        "payloadVersion": { "pattern": "^(?!archcontext\\.architecture-evidence-lifecycle/v2$).+" },
+        "payload": { "not": { "required": ["evidenceOperations"] } }
+      }
+    }
+  ],
   "properties": {
     "schemaVersion": { "const": "archcontext.architecture-event/v1" },
     "eventId": { "type": "string", "pattern": "^arch_event\\.[a-zA-Z0-9_-]+$" },
     "eventType": { "type": "string" },
-    "payloadVersion": { "type": "string", "pattern": "^v[0-9]+$" },
+    "payloadVersion": { "type": "string", "pattern": "^(v[0-9]+|archcontext\\.[a-z0-9.-]+/v[0-9]+)$" },
     "repository": {
       "type": "object",
       "additionalProperties": false,
@@ -66,11 +80,167 @@
         "subjectIds": { "type": "array", "items": { "type": "string" } },
         "summary": { "type": "string" },
         "changesDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "metadata": { "type": "object", "additionalProperties": true }
+        "metadata": { "type": "object", "additionalProperties": true },
+        "evidenceOperations": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "action", "evidenceId", "value"],
+                "properties": {
+                  "target": { "const": "item" },
+                  "action": { "const": "create" },
+                  "evidenceId": { "type": "string", "minLength": 1 },
+                  "value": { "$ref": "#/$defs/evidenceItem" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "action", "evidenceId", "previousDigest", "value"],
+                "properties": {
+                  "target": { "const": "item" },
+                  "action": { "const": "update" },
+                  "evidenceId": { "type": "string", "minLength": 1 },
+                  "previousDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  "value": { "$ref": "#/$defs/evidenceItem" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "action", "evidenceId", "previousDigest", "reasonCode"],
+                "properties": {
+                  "target": { "const": "item" },
+                  "action": { "const": "remove" },
+                  "evidenceId": { "type": "string", "minLength": 1 },
+                  "previousDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  "reasonCode": { "type": "string", "minLength": 1 }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "action", "bindingId", "value"],
+                "properties": {
+                  "target": { "const": "binding" },
+                  "action": { "const": "create" },
+                  "bindingId": { "type": "string", "minLength": 1 },
+                  "value": { "$ref": "#/$defs/evidenceBinding" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "action", "bindingId", "previousDigest", "value"],
+                "properties": {
+                  "target": { "const": "binding" },
+                  "action": { "const": "update" },
+                  "bindingId": { "type": "string", "minLength": 1 },
+                  "previousDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  "value": { "$ref": "#/$defs/evidenceBinding" }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["target", "action", "bindingId", "previousDigest", "reasonCode"],
+                "properties": {
+                  "target": { "const": "binding" },
+                  "action": { "const": "remove" },
+                  "bindingId": { "type": "string", "minLength": 1 },
+                  "previousDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+                  "reasonCode": { "type": "string", "minLength": 1 }
+                }
+              }
+            ]
+          }
+        }
       }
     },
     "previousEventHash": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
     "eventHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "extensions": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["producer", "command", "inputDigest"],
+      "properties": {
+        "producer": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "traceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceId", "kind", "strength", "polarity", "origin", "subject", "selector", "summary", "coverage", "supports", "provenance", "createdAt", "digest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.evidence-item/v2" },
+        "evidenceId": { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" },
+        "kind": { "type": "string", "minLength": 1 },
+        "strength": { "enum": ["heuristic", "declared", "observed", "verified"] },
+        "polarity": { "enum": ["positive", "absence", "declaration"] },
+        "origin": { "enum": ["codegraph", "model-store-yaml", "checkpoint", "runtime-daemon", "user", "subagent", "external-doc"] },
+        "subject": { "type": "string", "minLength": 1 },
+        "selector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "enum": ["repository", "path", "symbol", "relation", "constraint", "practice", "event", "snapshot"] },
+            "id": { "type": "string", "minLength": 1 },
+            "path": { "type": "string" },
+            "symbolId": { "type": "string" },
+            "startLine": { "type": "integer", "minimum": 1 },
+            "endLine": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "summary": { "type": "string" },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "scope"],
+          "properties": {
+            "level": { "enum": ["complete", "partial", "unknown"] },
+            "scope": { "type": "string" }
+          }
+        },
+        "supports": { "type": "array", "items": { "enum": ["recommendation", "checkpoint", "complete"] } },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "createdAt": { "type": "string" },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "bindingId", "evidenceId", "target", "bindingReason", "authorityEffect", "createdAt", "provenance"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.evidence-binding/v1" },
+        "bindingId": { "type": "string", "pattern": "^binding\\.[a-zA-Z0-9_.-]+$" },
+        "evidenceId": { "type": "string", "pattern": "^evidence\\.[a-zA-Z0-9_.-]+$" },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "id"],
+          "properties": {
+            "kind": { "enum": ["entity", "relation", "constraint", "recommendation", "practice", "event", "snapshot", "subject", "candidate-delta"] },
+            "id": { "type": "string", "minLength": 1 }
+          }
+        },
+        "bindingReason": { "enum": ["direct-selector", "predicate-subject", "change-cursor", "human-attestation", "deterministic-check", "subagent-proposal"] },
+        "authorityEffect": { "enum": ["context-only", "ranking", "checkpoint-eligible", "complete-eligible"] },
+        "createdAt": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "extensions": { "type": "object", "additionalProperties": true }
+      }
+    }
   }
 }

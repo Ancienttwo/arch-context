@@ -383,6 +383,48 @@ describe("JSON schema contracts", () => {
     expect(validateJsonSchema(schema as any, { ...fixture, schemaVersion: "archcontext.architecture-event/v2" }).valid).toBe(false);
   });
 
+  test("architecture event schema requires explicit V2 evidence lifecycle operations", () => {
+    const schema = readJson("schemas/runtime/architecture-event.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/architecture-event.json") as Record<string, Json>;
+    const evidenceItem = readJson("packages/contracts/fixtures/valid/evidence-item.json") as Record<string, Json>;
+    const lifecycle = {
+      ...fixture,
+      payloadVersion: "archcontext.architecture-evidence-lifecycle/v2",
+      payload: {
+        ...(fixture.payload as Record<string, Json>),
+        evidenceOperations: [{ target: "item", action: "create", evidenceId: evidenceItem.evidenceId, value: evidenceItem }]
+      }
+    };
+    expect(validateJsonSchema(schema as any, lifecycle).valid).toBe(true);
+    expect(validateJsonSchema(schema as any, {
+      ...lifecycle,
+      payloadVersion: "v1"
+    }).valid).toBe(false);
+    expect(validateJsonSchema(schema as any, {
+      ...lifecycle,
+      payload: {
+        ...(lifecycle.payload as Record<string, Json>),
+        evidenceOperations: [{ target: "item", action: "create", evidenceId: "evidence.api", value: {} }]
+      }
+    }).valid).toBe(false);
+    expect(validateJsonSchema(schema as any, {
+      ...lifecycle,
+      payload: {
+        ...(lifecycle.payload as Record<string, Json>),
+        evidenceOperations: [{ target: "item", action: "remove", evidenceId: "evidence.api", reasonCode: "superseded" }]
+      }
+    }).valid).toBe(false);
+  });
+
+  test("Explorer Delta V2 grouped arrays enforce their authority class", () => {
+    const schema = readJson("schemas/runtime/explorer-projection-delta.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/explorer-projection-delta.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+    const factChanges = structuredClone(fixture.factChanges) as Array<Record<string, Json>>;
+    factChanges[0] = { ...factChanges[0], deltaClass: "evidence" };
+    expect(validateJsonSchema(schema as any, { ...fixture, factChanges }).valid).toBe(false);
+  });
+
   test("recommendation feedback requires explicit local feedback and rejects raw private fields", () => {
     const schema = readJson("schemas/runtime/recommendation-feedback.schema.json");
     const fixture = readJson("packages/contracts/fixtures/valid/recommendation-feedback.json") as Record<string, Json>;
@@ -417,8 +459,8 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.review/v1": "review-result",
     "archcontext.explorer-projection-query/v2": "explorer-projection-query-v2",
     "archcontext.explorer-projection/v2": "explorer-projection-v2",
-    "archcontext.explorer-delta-query/v1": "explorer-delta-query",
-    "archcontext.explorer-projection-delta/v1": "explorer-projection-delta",
+    "archcontext.explorer-delta-query/v2": "explorer-delta-query",
+    "archcontext.explorer-projection-delta/v2": "explorer-projection-delta",
     "archcontext.explorer-service/v1": "explorer-service",
     "archcontext.product-version-manifest/v1": "product-version-manifest",
     "archcontext.practice-catalog-manifest/v1": "practice-catalog-manifest",

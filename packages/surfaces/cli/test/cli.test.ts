@@ -2335,6 +2335,13 @@ describe("archctx CLI", () => {
       expect((explore.data as any).view.id).toBe("system-map");
       expect((explore.data as any).page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
       expect((explore.data as any).occurrences.length).toBeLessThanOrEqual(5);
+      const legacyDelta = await runTestCli("explore", [
+        "delta",
+        "--base-projection-digest", (explore.data as any).projectionDigest,
+        "--head-projection-digest", (explore.data as any).projectionDigest
+      ], root);
+      expect(legacyDelta.ok).toBe(false);
+      expect((legacyDelta as any).error.message).toContain("--base-event-id");
       const start = await runTestCli("explore", ["start"], root);
       expect((start.data as any).command).toBe("archctx explore start --foreground");
       expect((start.data as any).readOnly).toBe(true);

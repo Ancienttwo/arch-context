@@ -1,18 +1,19 @@
 import {
+  type AuthorityCursorV1,
   digestJson,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
   type ExplorerBacklinksV2,
-  type ExplorerDeltaChangeV1,
+  type ExplorerDeltaChangeV2,
   type ExplorerOccurrenceV2,
   type ExplorerPressureEvaluationV2,
-  type ExplorerProjectionDeltaV1,
   type ExplorerProjectionQueryV2,
   type ExplorerProjectionV2,
   type ExplorerRelationOccurrenceV2,
   type ExplorerViewIdV2,
   type Json,
   type NormalizedCodeContext,
+  type ProjectionInputManifestV1,
   type SourceSelector
 } from "@archcontext/contracts";
 import type { ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
@@ -58,6 +59,7 @@ export interface CompileExplorerProjectionInput {
   query: ExplorerProjectionQueryV2;
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
+  authorityCursor: AuthorityCursorV1 | null;
   graph: ArchitectureLedgerGraphState;
   graphDigest: string;
   observed: NormalizedCodeContext;
@@ -88,9 +90,13 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
   const view = VIEW_DEFINITIONS[input.query.viewId];
   const semanticLevel = input.query.semanticLevel ?? "context";
   const observedFactsDigest = canonicalObservedFactsDigest(input.observed);
+  const inputManifest = projectionInputManifest(input, observedFactsDigest);
   const cursor = {
     repository: input.repository,
     worktree: input.worktree,
+    authorityCursor: input.authorityCursor,
+    inputManifestDigest: inputManifest.manifestDigest,
+    compatibilityDigest: inputManifest.compatibilityDigest,
     graphDigest: input.graphDigest,
     observedFactsDigest,
     viewDefinitionDigest: viewDefinitionDigest(view.id),
@@ -229,6 +235,7 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
     semanticLevel,
     breadcrumbs: focus ? [...(focus.parentOccurrenceId ? [{ occurrenceId: focus.parentOccurrenceId, label: "Overview" }] : []), { occurrenceId: focus.occurrenceId, label: focus.name }] : [],
     cursor,
+    inputManifest,
     occurrences: returnedOccurrences,
     relations: returnedRelations,
     page,
@@ -237,29 +244,22 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
   return { ...projectionWithoutDigest, projectionDigest: digestJson(projectionWithoutDigest as unknown as Json) };
 }
 
-export function compileExplorerProjectionDelta(base: ExplorerProjectionV2, head: ExplorerProjectionV2): ExplorerProjectionDeltaV1 {
+export function compileExplorerProjectionChanges(base: ExplorerProjectionV2, head: ExplorerProjectionV2): ExplorerDeltaChangeV2[] {
   assertDeltaCompatible(base, head);
-  const changes: ExplorerDeltaChangeV1[] = [];
+  const changes: ExplorerDeltaChangeV2[] = [];
   const baseSubjects = subjectStateByCanonicalId(base);
   const headSubjects = subjectStateByCanonicalId(head);
   for (const id of uniqueSorted([...baseSubjects.keys(), ...headSubjects.keys()])) {
     const before = baseSubjects.get(id);
     const after = headSubjects.get(id);
     if (!before || !after) {
-      changes.push({ deltaClass: "architecture-fact", subjectId: id, change: before ? "removed" : "added", fields: ["subject"] });
+      changes.push({ deltaClass: "projection", subjectId: id, change: before ? "removed" : "added", fields: ["subject"] });
       continue;
     }
-    const factFields = changedFields(before.fact, after.fact);
-    if (factFields.length > 0) changes.push({ deltaClass: "architecture-fact", subjectId: id, change: "changed", fields: factFields });
-    const evidenceFields = changedFields(before.evidence, after.evidence);
-    if (evidenceFields.length > 0) changes.push({
-      deltaClass: "evidence",
-      subjectId: id,
-      change: "changed",
-      fields: evidenceFields,
-      ...(before.verificationStatus !== after.verificationStatus ? { verificationTransition: { from: before.verificationStatus, to: after.verificationStatus } } : {})
-    });
-    const projectionFields = changedFields(before.projection, after.projection);
+    const projectionFields = changedFields(
+      { fact: before.fact, evidence: before.evidence, projection: before.projection } as unknown as Json,
+      { fact: after.fact, evidence: after.evidence, projection: after.projection } as unknown as Json
+    );
     if (projectionFields.length > 0) changes.push({ deltaClass: "projection", subjectId: id, change: "changed", fields: projectionFields });
   }
   const baseRelations = relationStateByCanonicalId(base);
@@ -267,31 +267,19 @@ export function compileExplorerProjectionDelta(base: ExplorerProjectionV2, head:
   for (const id of uniqueSorted([...baseRelations.keys(), ...headRelations.keys()])) {
     const before = baseRelations.get(id);
     const after = headRelations.get(id);
-    const deltaClass = id.startsWith("architecture-relation:") ? "architecture-fact" as const : "evidence" as const;
     if (!before || !after) {
-      changes.push({ deltaClass, subjectId: id, change: before ? "removed" : "added", fields: ["relation"] });
+      changes.push({ deltaClass: "projection", subjectId: id, change: before ? "removed" : "added", fields: ["relation"] });
       continue;
     }
-    const fields = changedFields(deltaClass === "architecture-fact" ? before.fact : before.evidence, deltaClass === "architecture-fact" ? after.fact : after.evidence);
-    if (fields.length > 0) changes.push({ deltaClass, subjectId: id, change: "changed", fields });
-    const projectionFields = changedFields(before.projection, after.projection);
+    const projectionFields = changedFields(
+      { fact: before.fact, evidence: before.evidence, projection: before.projection } as unknown as Json,
+      { fact: after.fact, evidence: after.evidence, projection: after.projection } as unknown as Json
+    );
     if (projectionFields.length > 0) changes.push({ deltaClass: "projection", subjectId: id, change: "changed", fields: projectionFields });
   }
   if (base.semanticLevel !== head.semanticLevel) changes.push({ deltaClass: "projection", subjectId: "projection", change: "changed", fields: ["semanticLevel"] });
   changes.sort((a, b) => `${a.deltaClass}:${a.subjectId}`.localeCompare(`${b.deltaClass}:${b.subjectId}`));
-  const counts = {
-    "architecture-fact": changes.filter((change) => change.deltaClass === "architecture-fact").length,
-    evidence: changes.filter((change) => change.deltaClass === "evidence").length,
-    projection: changes.filter((change) => change.deltaClass === "projection").length
-  };
-  const withoutDigest = {
-    schemaVersion: "archcontext.explorer-projection-delta/v1" as const,
-    base: { ...base.cursor, projectionDigest: base.projectionDigest },
-    head: { ...head.cursor, projectionDigest: head.projectionDigest },
-    changes,
-    counts
-  };
-  return { ...withoutDigest, deltaDigest: digestJson(withoutDigest as unknown as Json) };
+  return changes;
 }
 
 function assertQuery(input: CompileExplorerProjectionInput): void {
@@ -319,11 +307,63 @@ function assertExpectedCursor(query: ExplorerProjectionQueryV2, actual: Pick<Exp
 function assertDeltaCompatible(base: ExplorerProjectionV2, head: ExplorerProjectionV2): void {
   const incompatible = [
     base.cursor.repository.storageRepositoryId !== head.cursor.repository.storageRepositoryId ? "repository" : "",
+    base.cursor.worktree.storageWorkspaceId !== head.cursor.worktree.storageWorkspaceId ? "worktree" : "",
+    base.cursor.compatibilityDigest !== head.cursor.compatibilityDigest ? "manifest" : "",
     base.cursor.compilerVersion !== head.cursor.compilerVersion ? "compilerVersion" : "",
     base.cursor.viewDefinitionDigest !== head.cursor.viewDefinitionDigest ? "viewDefinition" : "",
     base.view.id !== head.view.id ? "view" : ""
   ].filter(Boolean);
   if (incompatible.length > 0) throw new ExplorerProjectionCompileError("incompatible-delta", `incompatible Explorer delta: ${incompatible.join(", ")}`);
+}
+
+function explorerProjectionQueryDigest(query: ExplorerProjectionQueryV2): string {
+  return digestJson({
+    schemaVersion: query.schemaVersion,
+    viewId: query.viewId,
+    semanticLevel: query.semanticLevel ?? "context",
+    taskSessionId: query.taskSessionId ?? null,
+    focus: query.focus ?? null,
+    expandedOccurrenceIds: uniqueSorted(query.expandedOccurrenceIds ?? []),
+    depth: query.depth,
+    budget: query.budget
+  } as unknown as Json);
+}
+
+function projectionInputManifest(input: CompileExplorerProjectionInput, observedFactsDigest: string): ProjectionInputManifestV1 {
+  const queryDigest = explorerProjectionQueryDigest(input.query);
+  const viewDigest = viewDefinitionDigest(input.query.viewId);
+  const compatibilityDigest = digestJson({
+    repository: input.repository.storageRepositoryId,
+    worktree: input.worktree.storageWorkspaceId,
+    queryDigest,
+    viewDefinitionDigest: viewDigest,
+    compilerVersion: EXPLORER_VIEW_COMPILER_VERSION
+  } as unknown as Json);
+  const manifestWithoutDigest = {
+    schemaVersion: "archcontext.projection-input-manifest/v1" as const,
+    repository: input.repository,
+    worktree: input.worktree,
+    authorityCursor: input.authorityCursor,
+    queryDigest,
+    graphDigest: input.graphDigest,
+    observedFactsDigest,
+    observedAvailability: input.observedAvailability ?? { status: "ready" as const },
+    bindingsDigest: digestJson([...(input.bindings ?? [])].sort((a, b) => a.bindingId.localeCompare(b.bindingId)) as unknown as Json),
+    eventBacklinksDigest: digestJson([...(input.eventBacklinks ?? [])]
+      .map((event) => ({ ...event, subjectIds: uniqueSorted(event.subjectIds) }))
+      .sort((a, b) => a.eventId.localeCompare(b.eventId)) as unknown as Json),
+    driftDigest: input.drift ? digestJson(input.drift as unknown as Json) : null,
+    pressureDigest: input.pressure ? digestJson(input.pressure as unknown as Json) : null,
+    taskSessionDigest: input.taskSession ? digestJson(input.taskSession as unknown as Json) : null,
+    viewDefinitionDigest: viewDigest,
+    compilerVersion: EXPLORER_VIEW_COMPILER_VERSION,
+    tokenRequired: input.tokenRequired,
+    compatibilityDigest
+  };
+  return {
+    ...manifestWithoutDigest,
+    manifestDigest: digestJson(manifestWithoutDigest as unknown as Json)
+  };
 }
 
 function buildRelations(input: CompileExplorerProjectionInput, byEntity: Map<string, string>, bySymbol: Map<string, string>): ExplorerRelationOccurrenceV2[] {

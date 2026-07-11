@@ -36,6 +36,7 @@ export interface ArchContextError {
   severity: Severity;
   retryable: boolean;
   action: string;
+  reasonCode?: string;
 }
 
 export interface JsonEnvelope<T extends Json = Json> {
@@ -71,12 +72,12 @@ export function okEnvelope<T extends Json>(requestId: string, data: T): JsonEnve
   return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId, data };
 }
 
-export function errorEnvelope(requestId: string, code: ArchContextErrorCode, message: string): JsonEnvelope {
+export function errorEnvelope(requestId: string, code: ArchContextErrorCode, message: string, reasonCode?: string): JsonEnvelope {
   return {
     schemaVersion: "archcontext.envelope/v1",
     ok: false,
     requestId,
-    error: { ...ERROR_CATALOG[code], message }
+    error: { ...ERROR_CATALOG[code], message, ...(reasonCode ? { reasonCode } : {}) }
   };
 }
 

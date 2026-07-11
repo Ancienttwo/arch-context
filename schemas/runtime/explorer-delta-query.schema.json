@@ -1,13 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archctx.repoharness.com/schemas/runtime/explorer-delta-query.schema.json",
-  "title": "ExplorerDeltaQueryV1",
+  "title": "ExplorerDeltaQueryV2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "baseProjectionDigest", "headProjectionDigest"],
+  "required": ["schemaVersion", "base", "head"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.explorer-delta-query/v1" },
-    "baseProjectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "headProjectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    "schemaVersion": { "const": "archcontext.explorer-delta-query/v2" },
+    "base": { "$ref": "#/$defs/ref" },
+    "head": { "$ref": "#/$defs/ref" }
+  },
+  "$defs": {
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventId", "projectionDigest"],
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1 },
+        "projectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    }
   }
 }

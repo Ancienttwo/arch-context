@@ -312,12 +312,36 @@ export interface ExplorerProjectionQueryV2 {
 export interface ExplorerProjectionCursorV2 {
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
+  authorityCursor: AuthorityCursorV1 | null;
+  inputManifestDigest: string;
+  compatibilityDigest: string;
   graphDigest: string;
   observedFactsDigest: string;
   viewDefinitionDigest: string;
   compilerVersion: "archcontext.explorer-view-compiler/v1";
   taskSessionDigest?: string;
   observedAvailability: { status: "ready" | "unavailable"; reasonCode?: string };
+}
+
+export interface ProjectionInputManifestV1 {
+  schemaVersion: "archcontext.projection-input-manifest/v1";
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  authorityCursor: AuthorityCursorV1 | null;
+  queryDigest: string;
+  graphDigest: string;
+  observedFactsDigest: string;
+  observedAvailability: { status: "ready" | "unavailable"; reasonCode?: string };
+  bindingsDigest: string;
+  eventBacklinksDigest: string;
+  driftDigest: string | null;
+  pressureDigest: string | null;
+  taskSessionDigest: string | null;
+  viewDefinitionDigest: string;
+  compilerVersion: "archcontext.explorer-view-compiler/v1";
+  tokenRequired: boolean;
+  compatibilityDigest: string;
+  manifestDigest: string;
 }
 
 export interface ExplorerSubjectRefV2 {
@@ -426,6 +450,7 @@ export interface ExplorerProjectionV2 {
   semanticLevel: ExplorerSemanticLevelV2;
   breadcrumbs: Array<{ occurrenceId: string; label: string }>;
   cursor: ExplorerProjectionCursorV2;
+  inputManifest: ProjectionInputManifestV1;
   occurrences: ExplorerOccurrenceV2[];
   relations: ExplorerRelationOccurrenceV2[];
   page: {
@@ -447,28 +472,49 @@ export interface ExplorerProjectionV2 {
   };
 }
 
-export type ExplorerDeltaClassV1 = "architecture-fact" | "evidence" | "projection";
-
-export interface ExplorerDeltaQueryV1 {
-  schemaVersion: "archcontext.explorer-delta-query/v1";
-  baseProjectionDigest: string;
-  headProjectionDigest: string;
+export interface AuthorityCursorV1 {
+  schemaVersion: "archcontext.authority-cursor/v1";
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  eventSequence: number;
+  eventId: string;
+  eventHash: string;
+  graphDigest: string;
+  evidenceStateDigest: string;
 }
 
-export interface ExplorerDeltaChangeV1 {
-  deltaClass: ExplorerDeltaClassV1;
+export type ExplorerDeltaClassV2 = "architecture-fact" | "evidence" | "projection";
+
+export type ExplorerDeltaFailureReasonV2 =
+  | "invalid-delta-query"
+  | "projection-cache-miss"
+  | "authority-event-missing"
+  | "authority-cursor-reversed"
+  | "projection-authority-mismatch"
+  | "projection-manifest-incompatible";
+
+export interface ExplorerDeltaQueryV2 {
+  schemaVersion: "archcontext.explorer-delta-query/v2";
+  base: { eventId: string; projectionDigest: string };
+  head: { eventId: string; projectionDigest: string };
+}
+
+export interface ExplorerDeltaChangeV2 {
+  deltaClass: ExplorerDeltaClassV2;
   subjectId: string;
   change: "added" | "removed" | "changed";
   fields: string[];
   verificationTransition?: { from: ExplorerVerificationStatus; to: ExplorerVerificationStatus };
 }
 
-export interface ExplorerProjectionDeltaV1 {
-  schemaVersion: "archcontext.explorer-projection-delta/v1";
-  base: ExplorerProjectionCursorV2 & { projectionDigest: string };
-  head: ExplorerProjectionCursorV2 & { projectionDigest: string };
-  changes: ExplorerDeltaChangeV1[];
-  counts: Record<ExplorerDeltaClassV1, number>;
+export interface ExplorerProjectionDeltaV2 {
+  schemaVersion: "archcontext.explorer-projection-delta/v2";
+  base: AuthorityCursorV1 & { projectionDigest: string; inputManifestDigest: string };
+  head: AuthorityCursorV1 & { projectionDigest: string; inputManifestDigest: string };
+  factChanges: ExplorerDeltaChangeV2[];
+  evidenceChanges: ExplorerDeltaChangeV2[];
+  projectionChanges: ExplorerDeltaChangeV2[];
+  counts: Record<ExplorerDeltaClassV2, number>;
   deltaDigest: string;
 }
 

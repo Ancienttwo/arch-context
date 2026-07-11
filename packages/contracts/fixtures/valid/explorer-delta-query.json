@@ -1,5 +1,11 @@
 {
-  "schemaVersion": "archcontext.explorer-delta-query/v1",
-  "baseProjectionDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-  "headProjectionDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  "schemaVersion": "archcontext.explorer-delta-query/v2",
+  "base": {
+    "eventId": "arch_event.base",
+    "projectionDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "head": {
+    "eventId": "arch_event.head",
+    "projectionDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
 }

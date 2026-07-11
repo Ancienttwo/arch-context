@@ -256,10 +256,16 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       const daemon = await runtime();
       if (subcommand === "projection") return daemon.explorerProjectionV2(cwd, explorerProjectionQueryV2FromCli(args));
       if (subcommand === "delta") {
+        const baseEventId = readFlag(args, "--base-event-id");
+        const headEventId = readFlag(args, "--head-event-id");
         const baseProjectionDigest = readFlag(args, "--base-projection-digest");
         const headProjectionDigest = readFlag(args, "--head-projection-digest");
-        if (!baseProjectionDigest || !headProjectionDigest) return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "explore delta requires --base-projection-digest and --head-projection-digest");
-        return daemon.explorerProjectionDelta(cwd, { schemaVersion: "archcontext.explorer-delta-query/v1", baseProjectionDigest, headProjectionDigest });
+        if (!baseEventId || !headEventId || !baseProjectionDigest || !headProjectionDigest) return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "explore delta requires --base-event-id, --head-event-id, --base-projection-digest and --head-projection-digest");
+        return daemon.explorerProjectionDelta(cwd, {
+          schemaVersion: "archcontext.explorer-delta-query/v2",
+          base: { eventId: baseEventId, projectionDigest: baseProjectionDigest },
+          head: { eventId: headEventId, projectionDigest: headProjectionDigest }
+        });
       }
       if (subcommand === "contract") return daemon.explorerServiceContract(Number(readFlag(args, "--token-ttl-seconds") ?? 900));
       if (subcommand === "status") return daemon.explorerStatus();
