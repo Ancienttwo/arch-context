@@ -1,6 +1,6 @@
 # Plan: Authority-Aware Architecture Reading Completion
 
-> **Status**: Approved
+> **Status**: Completed
 > **Created**: 20260712-0225
 > **Slug**: authority-aware-architecture-reading-completion
 > **Planning Source**: repo-harness-plan
@@ -479,15 +479,15 @@ CodeGraph prose, or LLM output.
 
 ## AR0 · Topology kernel and renderer cutover
 
-- [ ] Extract current HTML helpers and add one internal pure topology module.
-- [ ] Port the V1 self-contained status-band and focused-neighborhood SVG patterns
+- [x] Extract current HTML helpers and add one internal pure topology module.
+- [x] Port the V1 self-contained status-band and focused-neighborhood SVG patterns
       from commit `16f1f36`; do not restore the V1 projection contract.
-- [ ] Build O(N + E) occurrence, adjacency, incoming, and outgoing indexes.
-- [ ] Implement overview-group, context-band, and detail-focus render plans.
-- [ ] Render typed edges, parallel edges, self-loops, disconnected nodes, long labels,
+- [x] Build O(N + E) occurrence, adjacency, incoming, and outgoing indexes.
+- [x] Implement overview-group, context-band, and detail-focus render plans.
+- [x] Render typed edges, parallel edges, self-loops, disconnected nodes, long labels,
       empty results, truncation notice, and missing-endpoint failure.
-- [ ] Retain the textual relations table and typed Inspector as accessible equivalents.
-- [ ] Acceptance: reversed input produces identical plan/SVG; default and public-max
+- [x] Retain the textual relations table and typed Inspector as accessible equivalents.
+- [x] Acceptance: reversed input produces identical plan/SVG; default and public-max
       budgets stay inside render/size budgets; no external assets or new dependency.
 
 Allowed-path target for the AR0 child contract, at most 7 files:
@@ -501,19 +501,19 @@ Allowed-path target for the AR0 child contract, at most 7 files:
 
 ## AR1 · Navigation, progressive disclosure, and live freshness
 
-- [ ] Add fit/zoom/pan controls and scale-driven label disclosure over the already
+- [x] Add fit/zoom/pan controls and scale-driven label disclosure over the already
       bounded SVG only.
-- [ ] Add group expand/collapse toggling that preserves all unrelated query state.
-- [ ] Add subject focus/detail navigation and breadcrumb return paths.
-- [ ] Refetch unconditionally for debounced `authority-changed`; refetch for
+- [x] Add group expand/collapse toggling that preserves all unrelated query state.
+- [x] Add subject focus/detail navigation and breadcrumb return paths.
+- [x] Refetch unconditionally for debounced `authority-changed`; refetch for
       `projection-invalidated` only on matching view and changed digest.
-- [ ] Surface EventSource disconnect/expiry as an explicit non-fresh UI state.
-- [ ] Set and test the self-contained CSP; prohibit external assets and executable
+- [x] Surface EventSource disconnect/expiry as an explicit non-fresh UI state.
+- [x] Set and test the self-contained CSP; prohibit external assets and executable
       navigation targets.
-- [ ] Preserve token, budgets, task session, view, semantic level, depth, and expanded
+- [x] Preserve token, budgets, task session, view, semantic level, depth, and expanded
       groups across navigation and refresh.
-- [ ] Add keyboard, reduced-motion, narrow viewport, and JavaScript-disabled behavior.
-- [ ] Acceptance: no browser action mutates or synthesizes projection semantics;
+- [x] Add keyboard, reduced-motion, narrow viewport, and JavaScript-disabled behavior.
+- [x] Acceptance: no browser action mutates or synthesizes projection semantics;
       rapid invalidations cause one bounded refetch and never a reload loop.
 
 AR1 remains in explorer-html/surface/runtime tests. No contract or database change is
@@ -521,43 +521,43 @@ allowed. If implementation requires either, stop and revise the phase contract.
 
 ## AR2 · Inspector 2.0 and typed history parity
 
-- [ ] Render every currently available typed Inspector/backlink/cursor facet.
-- [ ] Prove no source body, event body, prompt, completion, or raw diff enters HTML.
-- [ ] Atomically add required `historyEvents: []` to the V2 contract, schema,
+- [x] Render every currently available typed Inspector/backlink/cursor facet.
+- [x] Prove no source body, event body, prompt, completion, or raw diff enters HTML.
+- [x] Atomically add required `historyEvents: []` to the V2 contract, schema,
       compiler, fixtures, callers, and HTML; do not add optional fallback parsing or
       a second history query path.
-- [ ] Add empty/unavailable/stale/cross-scope and long-content tests.
-- [ ] Acceptance: the user can answer responsibility, why, constraints, evidence,
+- [x] Add empty/unavailable/stale/cross-scope and long-content tests.
+- [x] Acceptance: the user can answer responsibility, why, constraints, evidence,
       dependencies, tasks, and change history from one focused view.
 
 ## AR3 · Typed data-flow and external-integration perspectives
 
-- [ ] Extend the public view union/schema/fixtures atomically.
-- [ ] Add view definitions and complete input-domain policies.
-- [ ] Compile data-flow only from typed flow relations.
-- [ ] Compile external integrations only from typed external-system entities and
+- [x] Extend the public view union/schema/fixtures atomically.
+- [x] Add view definitions and complete input-domain policies.
+- [x] Compile data-flow only from typed flow relations.
+- [x] Compile external integrations only from typed external-system entities and
       bounded adjacent relations.
-- [ ] Add deterministic overview groups, context/detail focus, backlinks, empty
+- [x] Add deterministic overview groups, context/detail focus, backlinks, empty
       states, and budget accounting for both views.
-- [ ] Change view-definition digests so existing cache rows cannot masquerade as the
+- [x] Change view-definition digests so existing cache rows cannot masquerade as the
       new semantics; rely on manifest-addressed cache miss, not cache mutation.
-- [ ] Add CLI/HTTP/HTML/schema/packaged-product tests in the same atomic cutover.
-- [ ] Acceptance: adversarial names and paths cannot enter either view without typed
+- [x] Add CLI/HTTP/HTML/schema/packaged-product tests in the same atomic cutover.
+- [x] Acceptance: adversarial names and paths cannot enter either view without typed
       authority; zero matching relations produces an honest empty result.
 
 ## AR4 · Product readback, design review, and closeout
 
-- [ ] Extend `verify:explorer` with renderer determinism, HTML size, render p95,
+- [x] Extend `verify:explorer` with renderer determinism, HTML size, render p95,
       privacy, and maximum-budget evidence.
-- [ ] Add local browser acceptance for group toggle, focus, zoom, both SSE event types,
+- [x] Add local browser acceptance for group toggle, focus, zoom, both SSE event types,
       token expiry, empty state, truncation, and narrow viewport.
-- [ ] Run `/plan-design-review` against real local screenshots before implementation
+- [x] Run `/plan-design-review` against real local screenshots before implementation
       is declared complete; visual approval cannot replace machine checks.
-- [ ] Run focused tests, typecheck, packaged CLI smoke, privacy audit, full
+- [x] Run focused tests, typecheck, packaged CLI smoke, privacy audit, full
       `bun run verify`, Architecture review, and Security review.
-- [ ] Update ADR-0044 only if the accepted view or renderer boundary changes; do not
+- [x] Update ADR-0044 only if the accepted view or renderer boundary changes; do not
       rewrite ADR-0045 data-engine authority.
-- [ ] Complete matching notes/review/readback and prove no active contract/worktree
+- [x] Complete matching notes/review/readback and prove no active contract/worktree
       marker remains after merge.
 
 # Performance Budgets
@@ -741,16 +741,16 @@ Stop the active phase and revise its plan/contract if any implementation require
 
 # Task Breakdown
 
-- [ ] AR0: Land deterministic bounded topology kernel and renderer cutover.
-- [ ] AR1: Land group/focus navigation, visual progressive disclosure, and complete
+- [x] AR0: Land deterministic bounded topology kernel and renderer cutover.
+- [x] AR1: Land group/focus navigation, visual progressive disclosure, and complete
       live-freshness handling plus the self-contained CSP boundary.
-- [ ] AR2: Land complete typed Inspector/history parity with one atomic required
+- [x] AR2: Land complete typed Inspector/history parity with one atomic required
       `historyEvents` contract change.
-- [ ] AR3: Land typed `data-flow` and `external-integrations` views.
-- [ ] AR4: Complete benchmark, browser/design, privacy, package, full verification,
+- [x] AR3: Land typed `data-flow` and `external-integrations` views.
+- [x] AR4: Complete benchmark, browser/design, privacy, package, full verification,
       review, rollback, and artifact closeout.
-- [ ] Prove every phase stayed inside its authority and allowed-path boundary.
-- [ ] Finish with no active plan/contract/worktree markers and no modification to the
+- [x] Prove every phase stayed inside its authority and allowed-path boundary.
+- [x] Finish with no active plan/contract/worktree markers and no modification to the
       preserved untracked delegation artifact.
 
 # Definition of Done
@@ -773,7 +773,7 @@ Stop the active phase and revise its plan/contract if any implementation require
 
 ## Implementation Tasks
 
-- [ ] **T1 (P1, human: ~3d / Codex: ~4h)** — Explorer topology — land the
+- [x] **T1 (P1, human: ~3d / Codex: ~4h)** — Explorer topology — land the
   deterministic bounded topology kernel.
   - Surfaced by: Architecture + performance — the current card renderer hides
     relation geometry; the replacement must remain a pure O(N + E) projection consumer.
@@ -782,7 +782,7 @@ Stop the active phase and revise its plan/contract if any implementation require
     bounded readback artifacts named by the AR0 child contract.
   - Verify: deterministic reversed-input fixtures, cycle/self-loop/parallel/
     disconnected cases, XSS/length cases, and default/max render/body budgets.
-- [ ] **T2 (P1, human: ~2d / Codex: ~3h)** — Explorer navigation — land URL-safe
+- [x] **T2 (P1, human: ~2d / Codex: ~3h)** — Explorer navigation — land URL-safe
   navigation, accessibility, CSP, and exact SSE behavior.
   - Surfaced by: Data-flow + security — the runtime currently consumes only one event
     name and needs explicit qualification, freshness, and external-asset boundaries.
@@ -790,7 +790,7 @@ Stop the active phase and revise its plan/contract if any implementation require
     AR1 readback artifacts.
   - Verify: fake browser-runtime harness, HTTP/SSE integration, expiry, debounce,
     query preservation, CSP/no-external-assets, and local browser acceptance.
-- [ ] **T3 (P1, human: ~2d / Codex: ~3h)** — Explorer Inspector — atomically add
+- [x] **T3 (P1, human: ~2d / Codex: ~3h)** — Explorer Inspector — atomically add
   typed history parity.
   - Surfaced by: Product contract — decisions alone do not expose the complete verified
     event backlink history required by the reading experience.
@@ -798,7 +798,7 @@ Stop the active phase and revise its plan/contract if any implementation require
     consumers, fixtures, tests, and AR2 readback artifacts.
   - Verify: contract/schema/compiler/RPC/CLI/HTML parity; privacy denylist; empty,
     stale, cross-scope, duplicate-event, and long-content cases.
-- [ ] **T4 (P1, human: ~3d / Codex: ~4h)** — Explorer views — add typed
+- [x] **T4 (P1, human: ~3d / Codex: ~4h)** — Explorer views — add typed
   `data-flow` and `external-integrations` perspectives.
   - Surfaced by: Scope review — the engine already carries the typed vocabulary but
     the public question-oriented view catalog does not expose it.
@@ -806,7 +806,7 @@ Stop the active phase and revise its plan/contract if any implementation require
     fixtures, packaged tests, and AR3 readback artifacts.
   - Verify: typed positive/empty/negative cases, adversarial names/paths, stale cursor,
     budget accounting, digest-addressed cache miss, and packaged CLI behavior.
-- [ ] **T5 (P1, human: ~2d / Codex: ~3h)** — Explorer verification — close the
+- [x] **T5 (P1, human: ~2d / Codex: ~3h)** — Explorer verification — close the
   integrated product readback.
   - Surfaced by: Test/ship review — the program needs max-budget, browser, privacy,
     packaged, architecture, and security evidence before completion.
@@ -980,6 +980,7 @@ Overall design score: 9/10 → 9.8/10.
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR (FULL) | score 9/10 → 9.8/10, 3 ship blockers fixed |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | NOT REQUIRED | No developer workflow change |
 
-- **VERDICT:** ENG + DESIGN CLEARED — AR4 integrated verification remains before merge.
+- **VERDICT:** PROGRAM CLEARED — AR0-AR4 implementation, integrated verification,
+  browser/design acceptance, Architecture/Security review, and workflow closeout PASS.
 
 NO UNRESOLVED DECISIONS
