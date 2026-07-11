@@ -49,8 +49,3 @@
 - Checks: `.ai/harness/checks/latest.json`
 - Run snapshots: `.ai/harness/runs/`
 - Screenshots: `/Users/ancienttwo/.gstack/projects/arch-context/designs/explorer-ar4-20260712/`
-
-## Promotion Candidates
-
-- None. The three findings were product-specific acceptance defects, not yet a repeated
-  cross-task pattern.
