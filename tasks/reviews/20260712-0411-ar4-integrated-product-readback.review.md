@@ -55,6 +55,9 @@
 - P2 advisories: none.
 - Acceptance checklist: real browser, automated event contracts, package/privacy,
   architecture/security, governance, and user-state checksum all pass.
+- Manual Override: direct visible acceptance is authoritative for this intentionally
+  loopback-only surface; screenshots, measurements, and automated event-contract
+  evidence are recorded in the AR4 readback.
 - Manual override rationale: the acceptance target is intentionally loopback-only and
   has no honest third-party reviewer surface; the override records direct visible
   product evidence instead of fabricating remote acceptance.
