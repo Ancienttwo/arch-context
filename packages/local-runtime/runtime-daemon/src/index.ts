@@ -27,6 +27,7 @@ import {
   architectureLedgerProjectionDigest,
   compareArchitectureLedgerStateToYaml,
   diffArchitectureLedgerBookStates,
+  emptyArchitectureLedgerState,
   planAuditRunToArchitectureLedgerEvent,
   planChangeSetApplyToArchitectureLedgerEvent,
   planExternalProjectionChangeToArchitectureLedgerEvent,
@@ -39,6 +40,7 @@ import {
   queryArchitectureLedgerBookNeighbors,
   queryArchitectureLedgerBookRecommendations,
   queryArchitectureLedgerBookTimeline,
+  replayArchitectureLedgerEvidenceState,
   replayArchitectureLedgerEvents,
   showArchitectureLedgerBookSubject,
   type ArchitectureAuditRunV1,
@@ -86,7 +88,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -105,6 +107,9 @@ import {
   compileExplorerProjection,
   compileExplorerProjectionChanges,
   compileProjectionInputManifest,
+  planProjectionRead,
+  projectionReadSetFromGraph,
+  selectProjectionGraphFromAuthority,
   type ExplorerResolvedBindingV2
 } from "./explorer-projection";
 
@@ -3402,6 +3407,25 @@ export class ArchctxDaemon {
     return this.localStore.resolveArchitectureLedgerScope(await this.architectureLedgerGitScope(root));
   }
 
+  private architectureLedgerProjectionGitScope(root: string): ArchitectureLedgerScope {
+    const headSha = readHeadSha(root);
+    const binding = bindRepository(root, headSha);
+    const paths = runtimeStatePaths(root);
+    return {
+      repository: {
+        repositoryId: binding.repositoryId,
+        storageRepositoryId: paths.storageRepositoryId
+      },
+      worktree: {
+        workspaceId: paths.workspaceId,
+        storageWorkspaceId: paths.storageWorkspaceId,
+        branch: readCurrentBranch(root),
+        headSha,
+        worktreeDigest: binding.worktreeDigest
+      }
+    };
+  }
+
   private async architectureLedgerGitScope(root: string): Promise<ArchitectureLedgerScope> {
     const session = await this.openSession(root);
     const paths = runtimeStatePaths(root);
@@ -3951,14 +3975,44 @@ export class ArchctxDaemon {
   }
 
   private async buildExplorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<ExplorerProjectionV2> {
-    const readback = await this.architectureLedgerReadback(root);
-    const workspace = { root, repositoryId: readback.repository.repositoryId, headSha: readback.worktree.headSha };
+    void planProjectionRead(query, "git-authority");
+    const gitScope = this.architectureLedgerProjectionGitScope(root);
+    const ledgerScope = await this.localStore.resolveArchitectureLedgerScope(gitScope);
+    const ledgerAuthority = await this.localStore.readExplorerProjectionAuthority(ledgerScope);
+    if (this.architectureLedger.readMode === "ledger" && !ledgerAuthority) {
+      throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:architecture-ledger:no-current-event");
+    }
+    const emptyEvidenceState = replayArchitectureLedgerEvidenceState([]);
+    const needsGitPlan = this.architectureLedger.readMode !== "ledger" || query.viewId === "drift-pressure";
+    const yamlPlan = needsGitPlan ? planYamlToArchitectureLedgerImport({
+      ...gitScope,
+      files: listModelFiles(root),
+      previousEvidenceState: emptyEvidenceState,
+      createdAt: this.clock(),
+      command: "archctx explorer projection"
+    }) : undefined;
+    if (yamlPlan && (readHeadSha(root) !== gitScope.worktree.headSha || computeWorktreeDigest(root) !== gitScope.worktree.worktreeDigest)) {
+      throw new ExplorerProjectionCompileError("precondition-failed", "Explorer authority input changed during projection planning");
+    }
+    const ledgerMatchesGit = yamlPlan !== undefined && ledgerAuthority?.authorityCursor.graphDigest === yamlPlan.graphDigest;
+    const ledgerMatchesGitScope = ledgerAuthority !== undefined
+      && digestJson(ledgerAuthority.authorityCursor.repository as unknown as Json) === digestJson(gitScope.repository as unknown as Json)
+      && digestJson(ledgerAuthority.authorityCursor.worktree as unknown as Json) === digestJson(gitScope.worktree as unknown as Json);
+    const authoritySource = ledgerAuthority && (this.architectureLedger.readMode === "ledger" || (ledgerMatchesGit && ledgerMatchesGitScope)) ? "ledger" as const : "git" as const;
+    const scope = authoritySource === "ledger" ? ledgerScope : gitScope;
+    const authorityCursor: AuthorityCursorV1 | null = authoritySource === "ledger" ? ledgerAuthority!.authorityCursor : null;
+    if (authoritySource === "git" && !yamlPlan) throw new ExplorerProjectionCompileError("precondition-failed", "Git authority plan is required");
+    const graphDigest = authoritySource === "ledger" ? ledgerAuthority!.authorityCursor.graphDigest : yamlPlan!.graphDigest;
+    const gitEvidenceState = yamlPlan ? replayArchitectureLedgerEvidenceState([yamlPlan.event]) : emptyEvidenceState;
+    const evidenceAuthorityCursor = ledgerAuthority?.authorityCursor ?? null;
+    const evidenceStateDigest = ledgerAuthority?.evidenceStateDigest ?? gitEvidenceState.stateDigest;
+    const workspace = { root, repositoryId: scope.repository.repositoryId, headSha: scope.worktree.headSha };
     let taskSession: { taskSessionId: string; task: string; taskSessionDigest: string } | undefined;
     if (query.taskSessionId) {
-      const snapshot = await this.readPracticeCheckpointBaseline(readback.repository.repositoryId, query.taskSessionId);
+      const snapshot = await this.readPracticeCheckpointBaseline(scope.repository.repositoryId, query.taskSessionId);
       if (!snapshot) {
         if (query.viewId === "task-impact") throw new ExplorerProjectionCompileError("precondition-failed", `task session not found: ${query.taskSessionId}`);
-      } else if (snapshot.headSha !== readback.worktree.headSha || snapshot.worktreeDigest !== readback.worktree.worktreeDigest) {
+      } else if (snapshot.headSha !== scope.worktree.headSha || snapshot.worktreeDigest !== scope.worktree.worktreeDigest) {
         if (query.viewId === "task-impact") throw new ExplorerProjectionCompileError("precondition-failed", `task session is stale: ${query.taskSessionId}`);
       } else {
         taskSession = {
@@ -3983,12 +4037,7 @@ export class ArchctxDaemon {
       const reasonCode = message.includes("CodeGraph index missing") ? "codegraph-index-missing" : "codegraph-unavailable";
       throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:observed:${reasonCode}`);
     }
-    const scope = { repository: readback.repository, worktree: readback.worktree };
     await this.processArchitectureChangeFeed(root, scope);
-    const [replay, eventBacklinks] = await Promise.all([
-      this.localStore.replayArchitectureLedger(scope),
-      this.localStore.listArchitectureEventBacklinks(scope)
-    ]);
     const pressureResult = observedAvailability.status === "ready" ? detectArchitecturePressure({
       task,
       symbols: observed.symbols.map((symbol) => symbol.id),
@@ -4002,27 +4051,136 @@ export class ArchctxDaemon {
       score: pressureResult.score,
       signals: pressureResult.signals.map((signal) => ({ type: signal.type, evidence: signal.evidence }))
     } : undefined;
-    const drift = {
-      inputDigest: digestJson(readback.drift as unknown as Json),
-      subjectIds: uniqueStrings((readback.drift.projectionDiffs ?? []).flatMap((diff) => diff.targetId ? [diff.targetId] : [])),
-      reasonCodes: readback.drift.reasonCodes
-    };
-    const evidenceState = replay.evidenceState;
-    const replayGraphDigest = architectureLedgerStateDigest(replay.state);
-    const authorityCursor = replay.cursor.lastEventId && replayGraphDigest === readback.graphDigest
-      ? explorerAuthorityCursorFromReplay(scope, replay)
-      : null;
+    const readPlan = planProjectionRead(query, authoritySource === "ledger" ? "verified-ledger-current" : "git-authority");
+    let plannedGraph: ArchitectureLedgerGraphState;
+    let plannedBindings: ExplorerResolvedBindingV2[];
+    let eventBacklinks: ArchitectureEventBacklinkV1[];
+    let readSet: ExplorerProjectionV2["inputManifest"]["readSet"];
+    if (authoritySource === "ledger") {
+      if (!authorityCursor) throw new ExplorerProjectionCompileError("precondition-failed", "verified ledger authority cursor is required");
+      const planned = await this.localStore.readExplorerProjectionInputs({ ...scope, query, plan: readPlan, authorityCursor });
+      plannedGraph = planned.graph;
+      plannedBindings = planned.bindings;
+      eventBacklinks = planned.eventBacklinks;
+      readSet = planned.readSet;
+    } else {
+      plannedGraph = selectProjectionGraphFromAuthority(readPlan, yamlPlan!.state);
+      const selectedEntityIds = new Set(plannedGraph.entities.map((item) => item.entityId));
+      const selectedSubjectIds = [
+        ...plannedGraph.entities.map((item) => item.entityId),
+        ...plannedGraph.relations.map((item) => item.relationId),
+        ...plannedGraph.constraints.map((item) => item.constraintId)
+      ];
+      let metadata: { rowsRead: { bindings: number; backlinks: number }; truncated: boolean };
+      if (ledgerAuthority) {
+        const ledgerMetadata = await this.localStore.readExplorerProjectionMetadata({
+          ...ledgerScope,
+          query,
+          plan: readPlan,
+          authorityCursor: ledgerAuthority.authorityCursor,
+          entityIds: [...selectedEntityIds],
+          subjectIds: selectedSubjectIds
+        });
+        plannedBindings = ledgerMetadata.bindings;
+        eventBacklinks = ledgerMetadata.eventBacklinks;
+        metadata = ledgerMetadata;
+      } else {
+        const evidenceById = new Map(gitEvidenceState.evidenceItems.map((item) => [item.evidenceId, item]));
+        const bindingRows = gitEvidenceState.evidenceBindings
+          .filter((binding) => binding.target.kind === "entity" && selectedEntityIds.has(binding.target.id));
+        plannedBindings = bindingRows.slice(0, readPlan.limits.maxBindings).flatMap((binding) => {
+          const evidence = evidenceById.get(binding.evidenceId);
+          return evidence?.selector.symbolId ? [{
+            bindingId: binding.bindingId,
+            targetEntityId: binding.target.id,
+            observedSymbolId: evidence.selector.symbolId,
+            verified: evidence.strength === "verified" && binding.authorityEffect !== "context-only"
+          }] : [];
+        });
+        eventBacklinks = [];
+        metadata = {
+          rowsRead: { bindings: Math.min(bindingRows.length, readPlan.limits.maxBindings), backlinks: 0 },
+          truncated: bindingRows.length > readPlan.limits.maxBindings
+        };
+      }
+      const activeState = {
+        entities: yamlPlan!.state.entities.filter((item) => item.status !== "removed"),
+        relations: yamlPlan!.state.relations.filter((item) => item.status !== "removed"),
+        constraints: yamlPlan!.state.constraints.filter((item) => item.status !== "removed")
+      };
+      const focusedTotals = readPlan.kind === "focused-neighborhood" && readPlan.focusSubjectId
+        ? (() => {
+            const neighbors = queryArchitectureLedgerBookNeighbors({
+              state: yamlPlan!.state,
+              id: readPlan.focusSubjectId!,
+              depth: readPlan.depth,
+              maxItems: activeState.entities.length + activeState.relations.length + activeState.constraints.length + 1,
+              maxBytes: 100_000_000
+            });
+            return { entities: neighbors.nodes.length, relations: neighbors.relations.length, constraints: neighbors.constraints.length };
+          })()
+        : undefined;
+      readSet = projectionReadSetFromGraph(readPlan, plannedGraph, {
+        entities: focusedTotals?.entities ?? activeState.entities.length,
+        relations: focusedTotals?.relations ?? activeState.relations.length,
+        constraints: focusedTotals?.constraints ?? activeState.constraints.length
+      }, {
+        bindings: metadata.rowsRead.bindings,
+        backlinks: metadata.rowsRead.backlinks
+      }, [...activeState.entities.reduce((counts, entity) => counts.set(entity.kind, (counts.get(entity.kind) ?? 0) + 1), new Map<string, number>()).entries()]
+        .map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind.localeCompare(b.kind)), metadata.truncated);
+    }
+    let drift: { inputDigest: string; subjectIds: string[]; reasonCodes: string[] } | undefined;
+    if (yamlPlan) {
+      let ledgerComparisonGraph = emptyArchitectureLedgerState();
+      if (authoritySource === "ledger") {
+        ledgerComparisonGraph = plannedGraph;
+      } else if (ledgerAuthority) {
+        const ledgerComparisonPlan = planProjectionRead(query, "verified-ledger-current");
+        ledgerComparisonGraph = (await this.localStore.readExplorerProjectionInputs({
+          ...ledgerScope,
+          query,
+          plan: ledgerComparisonPlan,
+          authorityCursor: ledgerAuthority.authorityCursor
+        })).graph;
+      }
+      const gitComparisonPlan = planProjectionRead(query, "git-authority");
+      const gitComparisonGraph = selectProjectionGraphFromAuthority(gitComparisonPlan, yamlPlan.state);
+      const boundedDrift = diffArchitectureLedgerBookStates({
+        previousState: ledgerComparisonGraph,
+        nextState: gitComparisonGraph,
+        fromRef: "ledger-current",
+        toRef: "git-authority",
+        maxItems: readPlan.limits.maxGraphRows,
+        maxBytes: 10_000_000
+      });
+      drift = {
+        inputDigest: digestJson(boundedDrift as unknown as Json),
+        subjectIds: uniqueStrings(boundedDrift.changes.map((change) => change.id)),
+        reasonCodes: uniqueStrings([
+          ...boundedDrift.reasonCodes,
+          ...(ledgerAuthority && ledgerAuthority.authorityCursor.graphDigest !== yamlPlan.graphDigest ? ["graph-digest-mismatch"] : []),
+          ...(!ledgerAuthority && yamlPlan.state.entities.length + yamlPlan.state.relations.length + yamlPlan.state.constraints.length > 0 ? ["ledger-authority-unavailable"] : [])
+        ])
+      };
+    }
+    if (yamlPlan && (readHeadSha(root) !== gitScope.worktree.headSha || computeWorktreeDigest(root) !== gitScope.worktree.worktreeDigest)) {
+      throw new ExplorerProjectionCompileError("precondition-failed", "Explorer authority input changed before projection compilation");
+    }
     const projectionInput = {
       query,
-      repository: readback.repository,
-      worktree: readback.worktree,
-      authoritySource: authorityCursor ? "ledger" as const : "git" as const,
+      repository: scope.repository,
+      worktree: scope.worktree,
+      authoritySource,
       authorityCursor,
-      graph: readback.state,
-      graphDigest: readback.graphDigest,
-      evidenceStateDigest: evidenceState.stateDigest,
+      evidenceAuthorityCursor,
+      graph: plannedGraph,
+      graphDigest,
+      evidenceStateDigest,
+      readPlan,
+      readSet,
       observed,
-      bindings: explorerResolvedBindings(evidenceState),
+      bindings: plannedBindings,
       pressure,
       drift,
       taskSession,
@@ -4050,8 +4208,8 @@ export class ArchctxDaemon {
     const affectedOccurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys: changedDependencyKeys });
     await this.localStore.invalidateExplorerOccurrences({ ...scope, occurrenceIds: affectedOccurrenceIds });
     await this.localStore.saveExplorerProjection({
-      repository: readback.repository,
-      worktree: readback.worktree,
+      repository: scope.repository,
+      worktree: scope.worktree,
       projection,
       dependencies: explorerProjectionDependencies(projection)
     });
@@ -5452,24 +5610,6 @@ function isArchitectureLedgerManagedModelPath(path: string): boolean {
   return path.startsWith(".archcontext/model/nodes/")
     || path.startsWith(".archcontext/model/relations/")
     || path.startsWith(".archcontext/model/constraints/");
-}
-
-function explorerResolvedBindings(state: EvidenceStateAtCursorV1): ExplorerResolvedBindingV2[] {
-  const evidenceById = new Map(state.evidenceItems.map((item) => [item.evidenceId, item]));
-  return state.evidenceBindings
-    .filter((binding) => binding.target.kind === "entity")
-    .flatMap((binding) => {
-      const evidence = evidenceById.get(binding.evidenceId);
-      const observedSymbolId = evidence?.selector.symbolId;
-      if (!evidence || !observedSymbolId) return [];
-      return [{
-        bindingId: binding.bindingId,
-        targetEntityId: binding.target.id,
-        observedSymbolId,
-        verified: evidence.strength === "verified" && binding.authorityEffect !== "context-only"
-      }];
-    })
-    .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
 }
 
 function explorerProjectionQueryV2FromUrl(url: URL): ExplorerProjectionQueryV2 {

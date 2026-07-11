@@ -50,7 +50,7 @@
         { "required": ["authoritySource", "authorityCursor"], "properties": { "authoritySource": { "const": "git" }, "authorityCursor": { "const": null } } },
         { "required": ["authoritySource", "authorityCursor"], "properties": { "authoritySource": { "const": "ledger" }, "authorityCursor": { "$ref": "#/$defs/authorityCursor" } } }
       ],
-      "required": ["repository", "worktree", "authoritySource", "authorityCursor", "inputManifestDigest", "compatibilityDigest", "graphDigest", "evidenceStateDigest", "observedFactsDigest", "viewDefinitionDigest", "compilerVersion", "observedAvailability"],
+      "required": ["repository", "worktree", "authoritySource", "authorityCursor", "evidenceAuthorityCursor", "inputManifestDigest", "compatibilityDigest", "graphDigest", "evidenceStateDigest", "observedFactsDigest", "viewDefinitionDigest", "compilerVersion", "observedAvailability"],
       "properties": {
         "repository": {
           "type": "object",
@@ -75,6 +75,7 @@
         },
         "authoritySource": { "enum": ["git", "ledger"] },
         "authorityCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authorityCursor" }] },
+        "evidenceAuthorityCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authorityCursor" }] },
         "inputManifestDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "compatibilityDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
@@ -101,7 +102,7 @@
         { "required": ["authoritySource", "authorityCursor"], "properties": { "authoritySource": { "const": "git" }, "authorityCursor": { "const": null } } },
         { "required": ["authoritySource", "authorityCursor"], "properties": { "authoritySource": { "const": "ledger" }, "authorityCursor": { "$ref": "#/$defs/authorityCursor" } } }
       ],
-      "required": ["schemaVersion", "repository", "worktree", "authoritySource", "authorityCursor", "queryDigest", "graphDigest", "evidenceStateDigest", "observedFactsDigest", "observedAvailability", "bindingsDigest", "eventBacklinksDigest", "driftDigest", "pressureDigest", "taskSessionDigest", "inputDomains", "viewDefinitionDigest", "compilerVersion", "tokenRequired", "compatibilityDigest", "manifestDigest"],
+      "required": ["schemaVersion", "repository", "worktree", "authoritySource", "authorityCursor", "evidenceAuthorityCursor", "queryDigest", "graphDigest", "evidenceStateDigest", "observedFactsDigest", "observedAvailability", "bindingsDigest", "eventBacklinksDigest", "driftDigest", "pressureDigest", "taskSessionDigest", "readPlan", "readSet", "inputDomains", "viewDefinitionDigest", "compilerVersion", "tokenRequired", "compatibilityDigest", "manifestDigest"],
       "properties": {
         "schemaVersion": { "const": "archcontext.projection-input-manifest/v1" },
         "repository": {
@@ -127,6 +128,7 @@
         },
         "authoritySource": { "enum": ["git", "ledger"] },
         "authorityCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authorityCursor" }] },
+        "evidenceAuthorityCursor": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/authorityCursor" }] },
         "queryDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "evidenceStateDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
@@ -145,6 +147,8 @@
         "driftDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
         "pressureDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
         "taskSessionDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "readPlan": { "$ref": "#/$defs/readPlan" },
+        "readSet": { "$ref": "#/$defs/readSet" },
         "inputDomains": {
           "type": "object",
           "additionalProperties": false,
@@ -393,6 +397,69 @@
     }
   },
   "$defs": {
+    "readPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "plannerVersion", "kind", "source", "queryDigest", "semanticLevel", "focusSubjectId", "expandedKinds", "depth", "limits", "requiredDomains", "ordering", "truncation", "planDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-read-plan/v1" },
+        "plannerVersion": { "const": "archcontext.projection-read-planner/v1" },
+        "kind": { "enum": ["overview-aggregate", "bounded-context", "focused-neighborhood"] },
+        "source": { "enum": ["git-authority", "verified-ledger-current"] },
+        "queryDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "semanticLevel": { "enum": ["overview", "context", "detail"] },
+        "focusSubjectId": { "type": ["string", "null"] },
+        "expandedKinds": { "type": "array", "items": { "type": "string" } },
+        "depth": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["maxEntities", "maxRelations", "maxConstraints", "maxBindings", "maxBacklinks", "maxGraphRows"],
+          "properties": {
+            "maxEntities": { "type": "integer", "minimum": 1 },
+            "maxRelations": { "type": "integer", "minimum": 0 },
+            "maxConstraints": { "type": "integer", "minimum": 1 },
+            "maxBindings": { "type": "integer", "minimum": 1 },
+            "maxBacklinks": { "type": "integer", "minimum": 1 },
+            "maxGraphRows": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "requiredDomains": { "type": "array", "items": { "enum": ["authority", "graph", "evidence", "observed", "bindings", "event-backlinks", "drift", "pressure", "task-session"] } },
+        "ordering": { "const": "canonical-id-asc" },
+        "truncation": { "const": "hard-limit-with-authoritative-totals" },
+        "planDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "readSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "planDigest", "selectedGraphDigest", "authoritativeTotals", "entityKindTotals", "rowsRead", "truncated", "readSetDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-read-set/v1" },
+        "planDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "selectedGraphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "authoritativeTotals": { "$ref": "#/$defs/graphCounts" },
+        "entityKindTotals": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": false, "required": ["kind", "count"], "properties": { "kind": { "type": "string" }, "count": { "type": "integer", "minimum": 0 } } }
+        },
+        "rowsRead": {
+          "type": "object", "additionalProperties": false,
+          "required": ["entities", "relations", "constraints", "bindings", "backlinks"],
+          "properties": {
+            "entities": { "type": "integer", "minimum": 0 }, "relations": { "type": "integer", "minimum": 0 },
+            "constraints": { "type": "integer", "minimum": 0 }, "bindings": { "type": "integer", "minimum": 0 },
+            "backlinks": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "truncated": { "type": "boolean" },
+        "readSetDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "graphCounts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["entities", "relations", "constraints"],
+      "properties": { "entities": { "type": "integer", "minimum": 0 }, "relations": { "type": "integer", "minimum": 0 }, "constraints": { "type": "integer", "minimum": 0 } }
+    },
     "inputDomain": {
       "oneOf": [
         {

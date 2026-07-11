@@ -2831,6 +2831,95 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("verified-ledger focused Explorer projection uses bounded reads without loading the full graph", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-07-11T18:45:00.000Z"
+      });
+      await daemon.init(root, "Bounded Ledger Explorer");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.bounded-ledger-explorer",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.bounded-ledger-explorer.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.bounded-ledger-explorer\nkind: module\nname: Bounded Ledger Explorer\nstatus: active\nsummary: Bounded projection fixture\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.bounded-ledger-explorer",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      store.architectureLedgerFullStateReads = 0;
+      store.explorerProjectionInputReads.length = 0;
+      writeFileSync(join(root, ".archcontext", "model", "nodes", "ignored-by-ledger-focus.yaml"), "schemaVersion: broken\n", "utf8");
+
+      const projection = await daemon.explorerProjectionV2(root, {
+        schemaVersion: "archcontext.explorer-projection-query/v2",
+        viewId: "system-map",
+        semanticLevel: "detail",
+        focus: { subjectId: "module.bounded-ledger-explorer" },
+        depth: 1,
+        budget: { maxNodes: 5, maxRelations: 5 }
+      });
+
+      expect(projection.ok).toBe(true);
+      expect((projection.data as any).cursor.authoritySource).toBe("ledger");
+      expect((projection.data as any).inputManifest.readPlan.kind).toBe("focused-neighborhood");
+      expect(store.explorerProjectionInputReads).toHaveLength(1);
+      expect(store.architectureLedgerFullStateReads).toBe(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("Git graph authority retains verified ledger evidence and backlinks through a separate cursor", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store, architectureLedger: { rolloutMode: "dual" }, clock: () => "2026-07-11T19:05:00.000Z" });
+      await daemon.init(root, "Split Authority Explorer");
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.split-authority-explorer",
+        operations: [{
+          op: "create_entity",
+          path: ".archcontext/model/nodes/module.split-authority.yaml",
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v1\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Original summary\n"
+        }]
+      });
+      await daemon.applyUpdate(root, { id: "changeset.split-authority-explorer", approved: true, expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest });
+      writeFileSync(
+        join(root, ".archcontext", "model", "nodes", "module.split-authority.yaml"),
+        "schemaVersion: archcontext.node/v1\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Git graph changed after ledger event\n",
+        "utf8"
+      );
+
+      const result = await daemon.explorerProjectionV2(root, {
+        schemaVersion: "archcontext.explorer-projection-query/v2",
+        viewId: "system-map",
+        semanticLevel: "detail",
+        focus: { subjectId: "module.split-authority" },
+        depth: 1,
+        budget: { maxNodes: 5, maxRelations: 5 }
+      });
+
+      expect(result.ok).toBe(true);
+      expect((result.data as any).cursor.authoritySource).toBe("git");
+      expect((result.data as any).cursor.authorityCursor).toBeNull();
+      expect((result.data as any).inputManifest.evidenceAuthorityCursor).toBeDefined();
+      expect((result.data as any).inputManifest.evidenceAuthorityCursor.evidenceStateDigest).toBe((result.data as any).inputManifest.evidenceStateDigest);
+      expect((result.data as any).occurrences[0].inspector.decisions.length).toBeGreaterThan(0);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("dual architecture ledger mode rolls back YAML writes when ledger append fails before commit", async () => {
     class FailingLedgerStore extends TestLocalStore {
       async appendArchitectureEvents(input: Parameters<TestLocalStore["appendArchitectureEvents"]>[0]): ReturnType<TestLocalStore["appendArchitectureEvents"]> {

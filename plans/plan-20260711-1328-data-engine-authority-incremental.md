@@ -22,6 +22,7 @@ Phase contracts:
 - DE1: `tasks/contracts/20260711-1605-data-engine-de1-change-feed.contract.md` (complete)
 - DE2: `tasks/contracts/20260711-1720-data-engine-de2-snapshot-replay.contract.md` (complete)
 - DE3: `tasks/contracts/20260711-1749-data-engine-de3-manifest-cache.contract.md` (complete)
+- DE4: `tasks/contracts/20260711-1836-data-engine-de4-bounded-read-planner.contract.md` (complete)
 
 ## Agentic Routing
 - Selected route: gstack:plan-eng-review
@@ -424,12 +425,12 @@ on daemon startup; it deletes dependency rows transactionally with cache rows.
 
 ### DE4 · Bounded projection read planner
 
-- [ ] Add `ProjectionReadPlanV1` with stable planner version and hard row limits.
-- [ ] Reuse the existing recursive-CTE neighborhood reader for focus/context.
-- [ ] Add aggregate reads for overview counts/groups and targeted binding/backlink
+- [x] Add `ProjectionReadPlanV1` with stable planner version and hard row limits.
+- [x] Reuse the existing recursive-CTE neighborhood reader for focus/context.
+- [x] Add aggregate reads for overview counts/groups and targeted binding/backlink
       selectors for detail.
-- [ ] Refactor compiler input to accept bounded read sets plus authoritative totals.
-- [ ] Prove no unplanned full-graph read on focus/detail paths and preserve output
+- [x] Refactor compiler input to accept bounded read sets plus authoritative totals.
+- [x] Prove no unplanned full-graph read on focus/detail paths and preserve output
       determinism/truncation semantics.
 
 ### DE5 · Cache lifecycle and operational evidence
@@ -581,7 +582,7 @@ readback, and full `bun run verify`. No LLM prompt/eval path is changed.
 - [x] DE1: Land transactional subject index/change feed and feed-driven invalidation.
 - [x] DE2: Land verified snapshot-anchor tail replay and direct scope resolution.
 - [x] DE3: Land manifest-addressed cache keys and required-domain hardening.
-- [ ] DE4: Land bounded projection read planner and partial SQLite reads.
+- [x] DE4: Land bounded projection read planner and partial SQLite reads.
 - [ ] DE5: Land cache retention/GC, metrics, 10k/100k readback, and runbooks.
 - [ ] Complete ADR/index, program notes, acceptance evidence, full verification, and
       contract/worktree closeout.

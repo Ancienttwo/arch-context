@@ -25,8 +25,8 @@ import {
   type ArchitectureLedgerSnapshotInput,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionMetadataResult, type ExplorerProjectionReadResult, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -56,6 +56,8 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly architectureChangeFeedConsumers = new Map<string, { checkpoint: number; delivered: number }>();
   readonly explorerProjections = new Map<string, { scope: ArchitectureLedgerScope; projection: ExplorerProjectionV2 }>();
   readonly explorerManifestCacheReads: string[] = [];
+  readonly explorerProjectionInputReads: ProjectionReadPlanV1[] = [];
+  architectureLedgerFullStateReads = 0;
   explorerManifestCacheHits = 0;
   readonly invalidatedExplorerProjections = new Set<string>();
   readonly explorerDependencies = new Map<string, Set<string>>();
@@ -626,6 +628,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState> {
+    this.architectureLedgerFullStateReads += 1;
     return this.stateForScope(input);
   }
 
@@ -639,6 +642,131 @@ export class TestLocalStore implements RuntimeLocalStore {
       entities: state.entities.filter((entity) => entityIds.has(entity.entityId)),
       relations: state.relations.filter((relation) => relationIds.has(relation.relationId)),
       constraints: state.constraints.filter((constraint) => constraintIds.has(constraint.constraintId))
+    };
+  }
+
+  async readExplorerProjectionAuthority(input: ArchitectureLedgerScope): Promise<ExplorerProjectionAuthorityResult | undefined> {
+    const events = this.eventsForScope(input);
+    const event = events.at(-1);
+    if (!event?.eventHash) return undefined;
+    const evidenceState = replayArchitectureLedgerEvidenceState(events);
+    return {
+      authorityCursor: {
+        schemaVersion: "archcontext.authority-cursor/v1",
+        repository: input.repository,
+        worktree: input.worktree,
+        eventSequence: events.length,
+        eventId: event.eventId,
+        eventHash: event.eventHash,
+        graphDigest: event.resultingDigest,
+        evidenceStateDigest: evidenceState.stateDigest
+      },
+      evidenceStateDigest: evidenceState.stateDigest
+    };
+  }
+
+  async readExplorerProjectionInputs(input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1 }): Promise<ExplorerProjectionReadResult> {
+    const { planDigest, ...planWithoutDigest } = input.plan;
+    if (input.plan.source !== "verified-ledger-current" || digestJson(planWithoutDigest as unknown as Json) !== planDigest) {
+      throw new Error("explorer-projection-read-plan-invalid");
+    }
+    if (digestJson(input.plan as unknown as Json) !== digestJson(canonicalProjectionReadPlanV1(input.query, "verified-ledger-current") as unknown as Json)) {
+      throw new Error("explorer-projection-read-plan-noncanonical");
+    }
+    const authority = await this.readExplorerProjectionAuthority(input);
+    if (!authority || digestJson(authority.authorityCursor as unknown as Json) !== digestJson(input.authorityCursor as unknown as Json)) {
+      throw new Error("explorer-projection-authority-cursor-mismatch");
+    }
+    this.explorerProjectionInputReads.push(structuredClone(input.plan));
+    const state = this.stateForScope(input);
+    let graph: ArchitectureLedgerGraphState;
+    let focusedTotals: { entities: number; relations: number; constraints: number } | undefined;
+    if (input.plan.kind === "focused-neighborhood") {
+      if (!input.plan.focusSubjectId) throw new Error("explorer-projection-read-plan-focus-required");
+      const neighbors = queryArchitectureLedgerBookNeighbors({ state, id: input.plan.focusSubjectId, depth: input.plan.depth, maxItems: state.entities.length + state.relations.length + state.constraints.length + 1, maxBytes: 100_000_000 });
+      focusedTotals = { entities: neighbors.nodes.length, relations: neighbors.relations.length, constraints: neighbors.constraints.length };
+      const entityIds = new Set(neighbors.nodes.slice(0, input.plan.limits.maxEntities).map((node) => node.id));
+      const relationIds = new Set(neighbors.relations.slice(0, input.plan.limits.maxRelations).map((relation) => relation.id));
+      const constraintIds = new Set(neighbors.constraints.slice(0, input.plan.limits.maxConstraints).map((constraint) => constraint.id));
+      graph = {
+        entities: state.entities.filter((entity) => entityIds.has(entity.entityId)),
+        relations: state.relations.filter((relation) => relationIds.has(relation.relationId)),
+        constraints: state.constraints.filter((constraint) => constraintIds.has(constraint.constraintId))
+      };
+    } else {
+      const kinds = new Set(input.plan.expandedKinds);
+      const entities = (input.plan.kind === "overview-aggregate" && kinds.size === 0
+        ? []
+        : state.entities.filter((entity) => entity.status !== "removed" && (kinds.size === 0 || kinds.has(entity.kind))))
+        .sort((a, b) => a.entityId.localeCompare(b.entityId)).slice(0, input.plan.limits.maxEntities);
+      const entityIds = new Set(entities.map((entity) => entity.entityId));
+      graph = {
+        entities,
+        relations: state.relations.filter((relation) => relation.status !== "removed" && entityIds.has(relation.sourceEntityId) && entityIds.has(relation.targetEntityId)).sort((a, b) => a.relationId.localeCompare(b.relationId)).slice(0, input.plan.limits.maxRelations),
+        constraints: state.constraints.filter((constraint) => constraint.status !== "removed" && entityIds.has(constraint.subjectId)).sort((a, b) => a.constraintId.localeCompare(b.constraintId)).slice(0, input.plan.limits.maxConstraints)
+      };
+    }
+    const evidence = replayArchitectureLedgerEvidenceState(this.eventsForScope(input));
+    const entityIds = new Set(graph.entities.map((entity) => entity.entityId));
+    const evidenceById = new Map(evidence.evidenceItems.map((item) => [item.evidenceId, item]));
+    const allBindingRows = evidence.evidenceBindings.filter((binding) => binding.target.kind === "entity" && entityIds.has(binding.target.id));
+    const bindingRows = allBindingRows.slice(0, input.plan.limits.maxBindings);
+    const bindings = bindingRows.flatMap((binding) => {
+      const item = evidenceById.get(binding.evidenceId);
+      return item?.selector.symbolId ? [{ bindingId: binding.bindingId, targetEntityId: binding.target.id, observedSymbolId: item.selector.symbolId, verified: item.strength === "verified" && binding.authorityEffect !== "context-only" }] : [];
+    });
+    const selectedIds = new Set([...entityIds, ...graph.relations.map((item) => item.relationId), ...graph.constraints.map((item) => item.constraintId)]);
+    const allBacklinkRows = (await this.listArchitectureEventBacklinks(input)).flatMap((event) => event.subjectIds.filter((id) => selectedIds.has(id)).map((id) => ({ event, id })));
+    const backlinkRows = allBacklinkRows.slice(0, input.plan.limits.maxBacklinks);
+    const eventBacklinksById = new Map<string, ArchitectureEventBacklinkV1>();
+    for (const { event, id } of backlinkRows) {
+      const current = eventBacklinksById.get(event.eventId) ?? { ...event, subjectIds: [] };
+      current.subjectIds.push(id);
+      eventBacklinksById.set(event.eventId, current);
+    }
+    const eventBacklinks = [...eventBacklinksById.values()];
+    const entityKindTotals = [...state.entities.filter((entity) => entity.status !== "removed").reduce((counts, entity) => counts.set(entity.kind, (counts.get(entity.kind) ?? 0) + 1), new Map<string, number>()).entries()].map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind.localeCompare(b.kind));
+    const rowsRead = { entities: graph.entities.length, relations: graph.relations.length, constraints: graph.constraints.length, bindings: bindingRows.length, backlinks: backlinkRows.length };
+    const authoritativeTotals = focusedTotals ?? { entities: state.entities.filter((item) => item.status !== "removed").length, relations: state.relations.filter((item) => item.status !== "removed").length, constraints: state.constraints.filter((item) => item.status !== "removed").length };
+    const withoutDigest = { schemaVersion: "archcontext.projection-read-set/v1" as const, planDigest: input.plan.planDigest, selectedGraphDigest: architectureLedgerStateDigest(graph), authoritativeTotals, entityKindTotals, rowsRead, truncated: bindingRows.length < allBindingRows.length || backlinkRows.length < allBacklinkRows.length || rowsRead.entities < authoritativeTotals.entities || rowsRead.relations < authoritativeTotals.relations || rowsRead.constraints < authoritativeTotals.constraints };
+    return { graph, bindings, eventBacklinks, readSet: { ...withoutDigest, readSetDigest: digestJson(withoutDigest as unknown as Json) } };
+  }
+
+  async readExplorerProjectionMetadata(input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1; entityIds: string[]; subjectIds: string[] }): Promise<ExplorerProjectionMetadataResult> {
+    const { planDigest, ...planWithoutDigest } = input.plan;
+    if (input.plan.source !== "git-authority" || digestJson(planWithoutDigest as unknown as Json) !== planDigest) {
+      throw new Error("explorer-projection-metadata-plan-invalid");
+    }
+    if (digestJson(input.plan as unknown as Json) !== digestJson(canonicalProjectionReadPlanV1(input.query, "git-authority") as unknown as Json)) {
+      throw new Error("explorer-projection-metadata-plan-noncanonical");
+    }
+    const authority = await this.readExplorerProjectionAuthority(input);
+    if (!authority || digestJson(authority.authorityCursor as unknown as Json) !== digestJson(input.authorityCursor as unknown as Json)) {
+      throw new Error("explorer-projection-authority-cursor-mismatch");
+    }
+    const entityIds = new Set(input.entityIds);
+    const subjectIds = new Set(input.subjectIds);
+    const evidence = replayArchitectureLedgerEvidenceState(this.eventsForScope(input));
+    const evidenceById = new Map(evidence.evidenceItems.map((item) => [item.evidenceId, item]));
+    const allBindingRows = evidence.evidenceBindings.filter((binding) => binding.target.kind === "entity" && entityIds.has(binding.target.id));
+    const bindingRows = allBindingRows.slice(0, input.plan.limits.maxBindings);
+    const bindings = bindingRows.flatMap((binding) => {
+      const item = evidenceById.get(binding.evidenceId);
+      return item?.selector.symbolId ? [{ bindingId: binding.bindingId, targetEntityId: binding.target.id, observedSymbolId: item.selector.symbolId, verified: item.strength === "verified" && binding.authorityEffect !== "context-only" }] : [];
+    });
+    const allBacklinkRows = (await this.listArchitectureEventBacklinks(input)).flatMap((event) => event.subjectIds.filter((id) => subjectIds.has(id)).map((id) => ({ event, id })));
+    const backlinkRows = allBacklinkRows.slice(0, input.plan.limits.maxBacklinks);
+    const byEvent = new Map<string, ArchitectureEventBacklinkV1>();
+    for (const { event, id } of backlinkRows) {
+      const current = byEvent.get(event.eventId) ?? { ...event, subjectIds: [] };
+      current.subjectIds.push(id);
+      byEvent.set(event.eventId, current);
+    }
+    return {
+      bindings,
+      eventBacklinks: [...byEvent.values()],
+      rowsRead: { bindings: bindingRows.length, backlinks: backlinkRows.length },
+      truncated: bindingRows.length < allBindingRows.length || backlinkRows.length < allBacklinkRows.length
     };
   }
 

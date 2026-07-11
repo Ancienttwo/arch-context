@@ -128,6 +128,28 @@
   10k p95 34.48ms and 100k p95 490.83ms; packaged CLI/privacy/eval gates PASS.
 - DE3 independent `$check`: eleven unique findings fixed, 0 deferred; final
   architecture and security re-reviews both report no remaining verified finding.
+- DE4 adds one canonical planner authority shared by compiler and SQLite executor.
+  Self-digested plans are not authorization: query caps and the complete plan must
+  equal `canonicalProjectionReadPlanV1` before any graph/metadata read.
+- Graph and evidence authority are now separable. Git graph drift retains verified
+  ledger bindings/backlinks through `evidenceAuthorityCursor`; the cursor is included
+  in projection cursor, manifest, authority digest, strict schema, and cache integrity.
+- Verified-ledger focus avoids `openSession`, full ledger state, replay, all-backlink
+  scans, and (outside drift-pressure) Git YAML materialization. Its recursive CTE uses
+  a plan-derived internal `limit + 1` probe; exact-fit succeeds and overflow fails
+  closed with `explorer-projection-neighborhood-budget-exceeded`.
+- Selected materialized graph rows are matched to their immutable materializing event
+  payload and latest subject record. Evidence/binding rows additionally verify stored
+  digest and denormalized columns. Backlink title/rationale comes from verified event
+  payload after change-feed event/hash/scope/subjects-digest validation.
+- DE4 poisoning regressions cover current graph, evidence JSON, and change-feed
+  decision metadata. All are rejected before a projection/cache write.
+- DE4 focused readback is PASS. Full `bun run verify` passes 1050 tests with 0
+  failures; Explorer compiler readback reports 10k p95 1.83ms and 100k p95 0.55ms,
+  with packaged CLI, privacy, governance, acceptance-ledger, and eval gates PASS.
+- DE4 independent `$check` closed every review-round finding. Final architecture and
+  security verdicts are PASS; the final coordinated derived-subject/feed-digest poison
+  is filtered by immutable event-payload direct-subject authority.
 
 ## Promotion Candidates
 

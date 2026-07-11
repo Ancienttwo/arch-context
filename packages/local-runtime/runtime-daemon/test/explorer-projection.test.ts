@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ExplorerProjectionQueryV2, NormalizedCodeContext } from "@archcontext/contracts";
+import { digestJson, type ExplorerProjectionQueryV2, type Json, type NormalizedCodeContext } from "@archcontext/contracts";
 import { architectureLedgerStateDigest, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 import {
   ExplorerProjectionCompileError,
@@ -7,6 +7,10 @@ import {
   compileExplorerProjectionChanges,
   compileSystemMapProjection,
   explorerViewDefinitionDigest,
+  planProjectionRead,
+  projectionReadSetFromGraph,
+  selectProjectionGraphFromAuthority,
+  type CompileExplorerProjectionInput,
   type CompileSystemMapProjectionInput
 } from "../src/explorer-projection";
 
@@ -49,7 +53,7 @@ function compile(overrides: Partial<CompileSystemMapProjectionInput> = {}) {
     constraints: []
   };
   const inputGraph = overrides.graph ?? graph;
-  return compileSystemMapProjection({
+  return compileSystemMapProjection(withReadPlan({
     query,
     repository,
     worktree,
@@ -62,10 +66,38 @@ function compile(overrides: Partial<CompileSystemMapProjectionInput> = {}) {
     bindings: [],
     tokenRequired: true,
     ...overrides
-  });
+  } as CompileExplorerProjectionInput));
+}
+
+function withReadPlan(input: Omit<CompileExplorerProjectionInput, "readPlan" | "readSet" | "evidenceAuthorityCursor"> & Partial<Pick<CompileExplorerProjectionInput, "readPlan" | "readSet" | "evidenceAuthorityCursor">>): CompileExplorerProjectionInput {
+  const readPlan = input.readPlan ?? planProjectionRead(input.query, input.authoritySource === "ledger" ? "verified-ledger-current" : "git-authority");
+  const authorityGraph = input.graph;
+  const selectedGraph = input.readSet ? input.graph : selectProjectionGraphFromAuthority(readPlan, authorityGraph);
+  const readSet = input.readSet ?? projectionReadSetFromGraph(readPlan, selectedGraph, {
+    entities: readPlan.kind === "focused-neighborhood" ? selectedGraph.entities.length : authorityGraph.entities.filter((item) => item.status !== "removed").length,
+    relations: readPlan.kind === "focused-neighborhood" ? selectedGraph.relations.length : authorityGraph.relations.filter((item) => item.status !== "removed").length,
+    constraints: readPlan.kind === "focused-neighborhood" ? selectedGraph.constraints.length : authorityGraph.constraints.filter((item) => item.status !== "removed").length
+  }, {}, [...authorityGraph.entities.filter((item) => item.status !== "removed").reduce((counts, entity) => counts.set(entity.kind, (counts.get(entity.kind) ?? 0) + 1), new Map<string, number>()).entries()].map(([kind, count]) => ({ kind, count })));
+  return { ...input, evidenceAuthorityCursor: input.evidenceAuthorityCursor ?? input.authorityCursor, graph: selectedGraph, readPlan, readSet };
 }
 
 describe("compileSystemMapProjection", () => {
+  test("read planner deterministically selects overview context and focused bounded policies", () => {
+    const overviewQuery: ExplorerProjectionQueryV2 = { ...query, semanticLevel: "overview" };
+    const contextQuery: ExplorerProjectionQueryV2 = { ...query, semanticLevel: "context" };
+    const focusedQuery: ExplorerProjectionQueryV2 = { ...query, semanticLevel: "detail", focus: { subjectId: "module.api" } };
+    const overview = planProjectionRead(overviewQuery, "git-authority");
+    const context = planProjectionRead(contextQuery, "git-authority");
+    const focused = planProjectionRead(focusedQuery, "verified-ledger-current");
+
+    expect(planProjectionRead(overviewQuery, "git-authority")).toEqual(overview);
+    expect(overview.kind).toBe("overview-aggregate");
+    expect(context.kind).toBe("bounded-context");
+    expect(focused).toMatchObject({ kind: "focused-neighborhood", focusSubjectId: "module.api", source: "verified-ledger-current" });
+    expect(focused.limits.maxGraphRows).toBe(focused.limits.maxEntities + focused.limits.maxRelations + focused.limits.maxConstraints);
+    expect(focused.planDigest).not.toBe(planProjectionRead(focusedQuery, "git-authority").planDigest);
+  });
+
   test("is deterministic across reversed graph and observed input", () => {
     const symbols = [
       { id: "symbol.api", name: "Api", kind: "function", path: "src/api.ts" },
@@ -132,7 +164,18 @@ describe("compileSystemMapProjection", () => {
     expect(() => compile({ bindings: undefined })).toThrow("required-input-unavailable:bindings:not-provided");
     expect(() => compile({ observedAvailability: { status: "unavailable", reasonCode: "codegraph-index-missing" } }))
       .toThrow("required-input-unavailable:observed:codegraph-index-missing");
-    expect(() => compile({ graphDigest: `sha256:${"0".repeat(64)}` })).toThrow("required-input-digest-mismatch:graph");
+    const invalidReadSet = structuredClone(compile().inputManifest.readSet);
+    invalidReadSet.selectedGraphDigest = `sha256:${"0".repeat(64)}`;
+    const { readSetDigest: _ignored, ...invalidReadSetWithoutDigest } = invalidReadSet;
+    invalidReadSet.readSetDigest = digestJson(invalidReadSetWithoutDigest as unknown as Json);
+    expect(() => compile({ readSet: invalidReadSet })).toThrow("projection-read-plan-mismatch");
+    const canonicalPlan = planProjectionRead(query, "git-authority");
+    const { planDigest: _canonicalDigest, ...noncanonicalBody } = {
+      ...canonicalPlan,
+      limits: { ...canonicalPlan.limits, maxEntities: 1_000_000, maxGraphRows: 1_000_000 + canonicalPlan.limits.maxRelations + canonicalPlan.limits.maxConstraints }
+    };
+    const noncanonicalPlan = { ...noncanonicalBody, planDigest: digestJson(noncanonicalBody as unknown as Json) };
+    expect(() => compile({ readPlan: noncanonicalPlan })).toThrow("projection-read-plan-mismatch");
     expect(() => compile({ authoritySource: "ledger", authorityCursor: null }))
       .toThrow("required-input-unavailable:authority:ledger-cursor-not-provided");
     expect(() => compile({
@@ -236,9 +279,22 @@ describe("compileSystemMapProjection", () => {
   });
 
   test("focus returns a bounded neighborhood instead of the full graph", () => {
-    const projection = compile({ query: { ...query, focus: { subjectId: "module.api" }, depth: 1 } });
+    const focusQuery = { ...query, focus: { subjectId: "module.api" }, depth: 1 as const };
+    const projection = compile({ query: focusQuery });
     expect(projection.occurrences.map((item) => item.provenance.declaredEntityIds[0])).toEqual(["module.api", "module.db"]);
     expect(projection.relations).toHaveLength(1);
+    const selectedGraph: ArchitectureLedgerGraphState = {
+      entities: [
+        { entityId: "module.api", kind: "module", canonicalName: "API", status: "active" },
+        { entityId: "module.db", kind: "module", canonicalName: "Database", status: "active" }
+      ],
+      relations: [{ relationId: "relation.api-writes-db", kind: "writes", sourceEntityId: "module.api", targetEntityId: "module.db", status: "active" }],
+      constraints: []
+    };
+    const readPlan = planProjectionRead(focusQuery, "git-authority");
+    const readSet = projectionReadSetFromGraph(readPlan, selectedGraph, { entities: 3, relations: 1, constraints: 0 });
+    const truncated = compile({ query: focusQuery, graph: selectedGraph, readPlan, readSet });
+    expect(truncated.page).toMatchObject({ totalNodes: 3, returnedNodes: 2, omittedNodeCount: 1, truncated: true });
   });
 
   test("overview emits derived groups and expands only the requested group", () => {
@@ -253,17 +309,17 @@ describe("compileSystemMapProjection", () => {
 
   test("task-impact requires a current task session and exposes task backlinks", () => {
     const taskQuery: ExplorerProjectionQueryV2 = { ...query, viewId: "task-impact", taskSessionId: "task.current" };
-    expect(() => compileExplorerProjection({
+    expect(() => compileExplorerProjection(withReadPlan({
       query: taskQuery, repository, worktree,
       authoritySource: "git",
       authorityCursor: null,
       graph: { entities: [], relations: [], constraints: [] }, graphDigest: `sha256:${"2".repeat(64)}`,
       observed: observed(), evidenceStateDigest: `sha256:${"4".repeat(64)}`, tokenRequired: true
-    })).toThrow(ExplorerProjectionCompileError);
+    }))).toThrow(ExplorerProjectionCompileError);
     const taskGraph: ArchitectureLedgerGraphState = {
       entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active" }], relations: [], constraints: []
     };
-    const projection = compileExplorerProjection({
+    const projection = compileExplorerProjection(withReadPlan({
       query: taskQuery,
       repository,
       worktree,
@@ -276,7 +332,7 @@ describe("compileSystemMapProjection", () => {
       bindings: [{ bindingId: "binding.api", targetEntityId: "module.api", observedSymbolId: "symbol.api", verified: true }],
       taskSession: { taskSessionId: "task.current", task: "change API", taskSessionDigest: `sha256:${"7".repeat(64)}` },
       tokenRequired: true
-    });
+    }));
     expect(projection.view.id).toBe("task-impact");
     expect(projection.occurrences[0]?.role === "subject" && projection.occurrences[0].backlinks.affectedByTaskSessionIds).toEqual(["task.current"]);
   });
@@ -287,7 +343,7 @@ describe("compileSystemMapProjection", () => {
       relations: [],
       constraints: [{ constraintId: "constraint.api", kind: "boundary", subjectId: "module.api", status: "active", severity: "error" }]
     };
-    const projection = compileExplorerProjection({
+    const projection = compileExplorerProjection(withReadPlan({
       query: { ...query, viewId: "drift-pressure" },
       repository,
       worktree,
@@ -302,7 +358,7 @@ describe("compileSystemMapProjection", () => {
       drift: { inputDigest: `sha256:${"9".repeat(64)}`, subjectIds: ["module.api"], reasonCodes: ["semantic-drift"] },
       eventBacklinks: [{ eventId: "event.api", subjectIds: ["module.api"], title: "API decision", rationale: "Keep one boundary" }],
       tokenRequired: true
-    });
+    }));
     const occurrence = projection.occurrences[0];
     expect(occurrence?.role).toBe("subject");
     if (occurrence?.role !== "subject") throw new Error("subject required");

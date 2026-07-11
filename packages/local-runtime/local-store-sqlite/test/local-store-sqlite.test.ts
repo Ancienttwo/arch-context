@@ -16,7 +16,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { digestJson, type AgentJobV1, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   LOCAL_SQLITE_MIGRATIONS,
@@ -499,6 +499,103 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     tokenMismatch.projectionDigest = digestJson(tokenMismatchWithoutDigest as unknown as Json);
     expect(() => assertExplorerProjectionCacheIntegrity(tokenMismatch, ARCHITECTURE_LEDGER_SCOPE))
       .toThrow("explorer-projection-cache-integrity-mismatch");
+  });
+
+  test("bounded Explorer read plan selects a focused SQLite neighborhood and targeted metadata", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-bounded-read-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const first = architectureLedgerEvent(0);
+      const second = architectureLedgerEvent(1, [first]);
+      const third = architectureLedgerEvent(2, [first, second]);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first, second, third] });
+      const query = {
+        schemaVersion: "archcontext.explorer-projection-query/v2" as const,
+        viewId: "system-map" as const,
+        semanticLevel: "detail" as const,
+        focus: { subjectId: "entity.0" },
+        depth: 1 as const,
+        budget: { maxNodes: 3, maxRelations: 2 }
+      };
+      const plan = canonicalProjectionReadPlanV1(query, "verified-ledger-current");
+      const authority = await store.readExplorerProjectionAuthority(ARCHITECTURE_LEDGER_SCOPE);
+      expect(authority).toBeDefined();
+      const result = await store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan, authorityCursor: authority!.authorityCursor });
+      expect(result.graph.entities.map((item) => item.entityId)).toEqual(["entity.0", "entity.1"]);
+      expect(result.graph.relations.map((item) => item.relationId)).toEqual(["relation.root-to-worker"]);
+      expect(result.graph.constraints.map((item) => item.constraintId)).toEqual(["constraint.root-owned"]);
+      expect(result.readSet.rowsRead).toMatchObject({ entities: 2, relations: 1, constraints: 1 });
+      expect(result.readSet.planDigest).toBe(plan.planDigest);
+      expect(result.readSet.selectedGraphDigest).toBe(architectureLedgerStateDigest(result.graph));
+      expect(result.eventBacklinks.every((event) => event.subjectIds.every((id) => ["entity.0", "entity.1", "relation.root-to-worker", "constraint.root-owned"].includes(id)))).toBe(true);
+
+      const noncanonicalWithoutDigest = { ...plan, limits: { ...plan.limits, maxEntities: 1, maxGraphRows: plan.limits.maxGraphRows - 2 } };
+      const { planDigest: _ignoredPlanDigest, ...noncanonicalBody } = noncanonicalWithoutDigest;
+      const noncanonicalPlan = { ...noncanonicalBody, planDigest: digestJson(noncanonicalBody as unknown as Json) };
+      await expect(store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan: noncanonicalPlan, authorityCursor: authority!.authorityCursor }))
+        .rejects.toThrow("explorer-projection-read-plan-noncanonical");
+      const exactFitQuery = { ...query, budget: { maxNodes: 2, maxRelations: 1 } };
+      const exactFitPlan = canonicalProjectionReadPlanV1(exactFitQuery, "verified-ledger-current");
+      const exactFit = await store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query: exactFitQuery, plan: exactFitPlan, authorityCursor: authority!.authorityCursor });
+      expect(exactFit.readSet.authoritativeTotals).toMatchObject({ entities: 2, relations: 1 });
+      const overflowQuery = { ...query, budget: { maxNodes: 1, maxRelations: 1 } };
+      const overflowPlan = canonicalProjectionReadPlanV1(overflowQuery, "verified-ledger-current");
+      await expect(store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query: overflowQuery, plan: overflowPlan, authorityCursor: authority!.authorityCursor }))
+        .rejects.toThrow("explorer-projection-neighborhood-budget-exceeded");
+
+      await expect(store.readExplorerProjectionInputs({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        query,
+        plan,
+        authorityCursor: { ...authority!.authorityCursor, graphDigest: `sha256:${"0".repeat(64)}` }
+      })).rejects.toThrow("explorer-projection-authority-cursor-mismatch");
+
+      const poison = new Database(databasePath);
+      poison.run("UPDATE architecture_entities_current SET canonical_name = 'POISONED NAME' WHERE entity_id = 'entity.0'");
+      await expect(store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan, authorityCursor: authority!.authorityCursor }))
+        .rejects.toThrow("explorer-projection-materialized-entity-proof-mismatch");
+      poison.run("UPDATE architecture_entities_current SET canonical_name = 'root module' WHERE entity_id = 'entity.0'");
+      const evidenceRow = poison.query("SELECT evidence_json FROM evidence_items LIMIT 1").get() as { evidence_json: string };
+      const poisonedEvidence = JSON.parse(evidenceRow.evidence_json);
+      poisonedEvidence.selector.symbolId = "symbol.poison";
+      poison.run("UPDATE evidence_items SET evidence_json = ?", [JSON.stringify(poisonedEvidence)]);
+      await expect(store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan, authorityCursor: authority!.authorityCursor }))
+        .rejects.toThrow("explorer-projection-binding-row-mismatch");
+      poison.run("UPDATE evidence_items SET evidence_json = ?", [evidenceRow.evidence_json]);
+      poison.run("UPDATE architecture_change_feed SET title = 'POISONED PRIVATE NOTE', rationale = 'internalBusinessRule = marginFormula'");
+      await expect(store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan, authorityCursor: authority!.authorityCursor }))
+        .rejects.toThrow("explorer-projection-backlink-authority-mismatch");
+      for (const row of poison.query("SELECT architecture_change_feed.event_id, architecture_change_feed.logical_event_id, architecture_events.event_json FROM architecture_change_feed JOIN architecture_events ON architecture_events.event_id = architecture_change_feed.event_id").all() as Array<{ event_id: string; logical_event_id: string; event_json: string }>) {
+        const event = JSON.parse(row.event_json) as ArchitectureEventV1;
+        const payload = architectureLedgerPayload(event);
+        poison.run("UPDATE architecture_change_feed SET title = ?, rationale = ? WHERE event_id = ?", [payload.title ?? null, payload.rationale ?? null, row.event_id]);
+      }
+      poison.run(
+        `INSERT INTO architecture_event_subjects
+          (storage_repository_id, storage_workspace_id, event_sequence, event_id, logical_event_id, authority_class, subject_kind, subject_id, operation, created_at)
+          SELECT storage_repository_id, storage_workspace_id, event_sequence, event_id, logical_event_id,
+            'evidence', 'entity', 'entity.0', 'reference', created_at
+          FROM architecture_event_subjects WHERE logical_event_id = ? LIMIT 1`,
+        [third.eventId]
+      );
+      const thirdSubjects = (poison.query(
+        "SELECT authority_class, subject_kind, subject_id, operation FROM architecture_event_subjects WHERE logical_event_id = ? ORDER BY authority_class, subject_kind, subject_id, operation"
+      ).all(third.eventId) as Array<Record<string, unknown>>).map((row) => ({
+        authorityClass: String(row.authority_class),
+        subjectKind: String(row.subject_kind),
+        subjectId: String(row.subject_id),
+        operation: String(row.operation)
+      }));
+      poison.run("UPDATE architecture_change_feed SET subjects_digest = ? WHERE logical_event_id = ?", [digestJson({ eventId: third.eventId, subjects: thirdSubjects } as unknown as Json), third.eventId]);
+      poison.close();
+      const forgedBacklinkRead = await store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan, authorityCursor: authority!.authorityCursor });
+      expect(forgedBacklinkRead.eventBacklinks.some((event) => event.eventId === third.eventId && event.subjectIds.includes("entity.0"))).toBe(false);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("runtime state paths use an OS/user-data root partitioned by repository and worktree", () => {
@@ -2520,15 +2617,43 @@ function explorerProjectionFixture(graphLabel = "one", observedLabel = "one"): E
     repository: ARCHITECTURE_LEDGER_SCOPE.repository,
     worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
     cursor: null,
+    evidenceCursor: null,
     graphDigest,
     evidenceStateDigest
   } as unknown as Json);
+  const readPlanWithoutDigest = {
+    schemaVersion: "archcontext.projection-read-plan/v1" as const,
+    plannerVersion: "archcontext.projection-read-planner/v1" as const,
+    kind: "bounded-context" as const,
+    source: "git-authority" as const,
+    queryDigest: digestJson({ query: "system-map" } as unknown as Json),
+    semanticLevel: "context" as const,
+    focusSubjectId: null,
+    expandedKinds: [],
+    depth: 1 as const,
+    limits: { maxEntities: 80, maxRelations: 160, maxConstraints: 160, maxBindings: 320, maxBacklinks: 640, maxGraphRows: 400 },
+    requiredDomains: ["authority", "bindings", "evidence", "graph", "observed"] as ("authority" | "bindings" | "evidence" | "graph" | "observed")[],
+    ordering: "canonical-id-asc" as const,
+    truncation: "hard-limit-with-authoritative-totals" as const
+  };
+  const readPlan = { ...readPlanWithoutDigest, planDigest: digestJson(readPlanWithoutDigest as unknown as Json) };
+  const readSetWithoutDigest = {
+    schemaVersion: "archcontext.projection-read-set/v1" as const,
+    planDigest: readPlan.planDigest,
+    selectedGraphDigest: graphDigest,
+    authoritativeTotals: { entities: 1, relations: 0, constraints: 0 },
+    entityKindTotals: [{ kind: "module", count: 1 }],
+    rowsRead: { entities: 1, relations: 0, constraints: 0, bindings: 0, backlinks: 0 },
+    truncated: false
+  };
+  const readSet = { ...readSetWithoutDigest, readSetDigest: digestJson(readSetWithoutDigest as unknown as Json) };
   const inputManifestWithoutDigest = {
     schemaVersion: "archcontext.projection-input-manifest/v1" as const,
     repository: ARCHITECTURE_LEDGER_SCOPE.repository,
     worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
     authoritySource: "git" as const,
     authorityCursor: null,
+    evidenceAuthorityCursor: null,
     queryDigest: digestJson({ query: "system-map" } as unknown as Json),
     graphDigest,
     evidenceStateDigest,
@@ -2539,6 +2664,8 @@ function explorerProjectionFixture(graphLabel = "one", observedLabel = "one"): E
     driftDigest: null,
     pressureDigest: null,
     taskSessionDigest: null,
+    readPlan,
+    readSet,
     inputDomains: {
       authority: { requirement: "required" as const, status: "ready" as const, digest: authorityDigest },
       graph: { requirement: "required" as const, status: "ready" as const, digest: graphDigest },
@@ -2570,6 +2697,7 @@ function explorerProjectionFixture(graphLabel = "one", observedLabel = "one"): E
       worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
       authoritySource: "git" as const,
       authorityCursor: null,
+      evidenceAuthorityCursor: null,
       inputManifestDigest: inputManifest.manifestDigest,
       compatibilityDigest,
       graphDigest,
@@ -2617,11 +2745,19 @@ function ledgerExplorerProjectionFixture(): ExplorerProjectionV2 {
   };
   projection.inputManifest.authoritySource = "ledger";
   projection.inputManifest.authorityCursor = authorityCursor;
+  projection.inputManifest.evidenceAuthorityCursor = authorityCursor;
+  projection.inputManifest.readPlan.source = "verified-ledger-current";
+  const { planDigest: _planDigest, ...planWithoutDigest } = projection.inputManifest.readPlan;
+  projection.inputManifest.readPlan.planDigest = digestJson(planWithoutDigest as unknown as Json);
+  projection.inputManifest.readSet.planDigest = projection.inputManifest.readPlan.planDigest;
+  const { readSetDigest: _readSetDigest, ...readSetWithoutDigest } = projection.inputManifest.readSet;
+  projection.inputManifest.readSet.readSetDigest = digestJson(readSetWithoutDigest as unknown as Json);
   projection.inputManifest.inputDomains.authority.digest = digestJson({
     source: "ledger",
     repository: projection.inputManifest.repository,
     worktree: projection.inputManifest.worktree,
     cursor: authorityCursor,
+    evidenceCursor: authorityCursor,
     graphDigest: projection.inputManifest.graphDigest,
     evidenceStateDigest: projection.inputManifest.evidenceStateDigest
   } as unknown as Json);
@@ -2629,6 +2765,7 @@ function ledgerExplorerProjectionFixture(): ExplorerProjectionV2 {
   projection.inputManifest.manifestDigest = digestJson(manifestWithoutDigest as unknown as Json);
   projection.cursor.authoritySource = "ledger";
   projection.cursor.authorityCursor = authorityCursor;
+  projection.cursor.evidenceAuthorityCursor = authorityCursor;
   projection.cursor.inputManifestDigest = projection.inputManifest.manifestDigest;
   const { projectionDigest: _projectionDigest, ...projectionWithoutDigest } = projection;
   projection.projectionDigest = digestJson(projectionWithoutDigest as unknown as Json);

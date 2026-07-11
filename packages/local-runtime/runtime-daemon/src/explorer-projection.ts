@@ -1,7 +1,10 @@
 import {
   type AuthorityCursorV1,
+  canonicalProjectionReadPlanV1,
   digestJson,
+  explorerProjectionQueryDigestV2,
   EXPLORER_VIEW_INPUT_REQUIREMENTS,
+  PROJECTION_READ_PLANNER_VERSION,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
   type ExplorerBacklinksV2,
@@ -17,9 +20,11 @@ import {
   type ProjectionInputDomainStateV1,
   type ProjectionInputDomainV1,
   type ProjectionInputManifestV1,
+  type ProjectionReadPlanV1,
+  type ProjectionReadSetV1,
   type SourceSelector
 } from "@archcontext/contracts";
-import { architectureLedgerStateDigest, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
+import { architectureLedgerStateDigest, queryArchitectureLedgerBookNeighbors, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 
 export const EXPLORER_VIEW_COMPILER_VERSION = "archcontext.explorer-view-compiler/v1" as const;
 
@@ -64,9 +69,12 @@ export interface CompileExplorerProjectionInput {
   worktree: ArchitectureWorktreeIdentityV1;
   authoritySource: "git" | "ledger";
   authorityCursor: AuthorityCursorV1 | null;
+  evidenceAuthorityCursor: AuthorityCursorV1 | null;
   graph: ArchitectureLedgerGraphState;
   graphDigest: string;
   evidenceStateDigest: string;
+  readPlan: ProjectionReadPlanV1;
+  readSet: ProjectionReadSetV1;
   observed: NormalizedCodeContext;
   bindings?: ExplorerResolvedBindingV2[];
   pressure?: ExplorerPressureInputV2;
@@ -78,6 +86,86 @@ export interface CompileExplorerProjectionInput {
 }
 
 export type CompileSystemMapProjectionInput = CompileExplorerProjectionInput;
+
+export function planProjectionRead(
+  query: ExplorerProjectionQueryV2,
+  source: ProjectionReadPlanV1["source"]
+): ProjectionReadPlanV1 {
+  try {
+    return canonicalProjectionReadPlanV1(query, source);
+  } catch (error) {
+    throw new ExplorerProjectionCompileError("invalid-query", error instanceof Error ? error.message : "explorer-projection-query-invalid");
+  }
+}
+
+export function projectionReadSetFromGraph(
+  plan: ProjectionReadPlanV1,
+  graph: ArchitectureLedgerGraphState,
+  authoritativeTotals: ProjectionReadSetV1["authoritativeTotals"],
+  rowsRead: Partial<ProjectionReadSetV1["rowsRead"]> = {},
+  entityKindTotals?: ProjectionReadSetV1["entityKindTotals"],
+  metadataTruncated = false
+): ProjectionReadSetV1 {
+  const normalizedRows = {
+    entities: rowsRead.entities ?? graph.entities.length,
+    relations: rowsRead.relations ?? graph.relations.length,
+    constraints: rowsRead.constraints ?? graph.constraints.length,
+    bindings: rowsRead.bindings ?? 0,
+    backlinks: rowsRead.backlinks ?? 0
+  };
+  const withoutDigest = {
+    schemaVersion: "archcontext.projection-read-set/v1" as const,
+    planDigest: plan.planDigest,
+    selectedGraphDigest: architectureLedgerStateDigest(graph),
+    authoritativeTotals,
+    entityKindTotals: entityKindTotals ?? [...graph.entities.reduce((counts, entity) => {
+      if (entity.status !== "removed") counts.set(entity.kind, (counts.get(entity.kind) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>()).entries()].map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind.localeCompare(b.kind)),
+    rowsRead: normalizedRows,
+    truncated: metadataTruncated
+      || normalizedRows.entities < authoritativeTotals.entities
+      || normalizedRows.relations < authoritativeTotals.relations
+      || normalizedRows.constraints < authoritativeTotals.constraints
+  };
+  return { ...withoutDigest, readSetDigest: digestJson(withoutDigest as unknown as Json) };
+}
+
+export function selectProjectionGraphFromAuthority(
+  plan: ProjectionReadPlanV1,
+  state: ArchitectureLedgerGraphState
+): ArchitectureLedgerGraphState {
+  if (plan.kind === "focused-neighborhood") {
+    if (!plan.focusSubjectId) throw new ExplorerProjectionCompileError("precondition-failed", "projection-read-plan-focus-required");
+    const neighbors = queryArchitectureLedgerBookNeighbors({
+      state,
+      id: plan.focusSubjectId,
+      depth: plan.depth,
+      maxItems: plan.limits.maxGraphRows,
+      maxBytes: 10_000_000
+    });
+    const entityIds = new Set(neighbors.nodes.slice(0, plan.limits.maxEntities).map((item) => item.id));
+    const relationIds = new Set(neighbors.relations.slice(0, plan.limits.maxRelations).map((item) => item.id));
+    const constraintIds = new Set(neighbors.constraints.slice(0, plan.limits.maxConstraints).map((item) => item.id));
+    return {
+      entities: state.entities.filter((item) => entityIds.has(item.entityId)),
+      relations: state.relations.filter((item) => relationIds.has(item.relationId)),
+      constraints: state.constraints.filter((item) => constraintIds.has(item.constraintId))
+    };
+  }
+  const kinds = new Set(plan.expandedKinds);
+  const entities = (plan.kind === "overview-aggregate" && kinds.size === 0
+    ? []
+    : state.entities.filter((item) => item.status !== "removed" && (kinds.size === 0 || kinds.has(item.kind))))
+    .sort((a, b) => a.entityId.localeCompare(b.entityId))
+    .slice(0, plan.limits.maxEntities);
+  const entityIds = new Set(entities.map((item) => item.entityId));
+  return {
+    entities,
+    relations: state.relations.filter((item) => item.status !== "removed" && entityIds.has(item.sourceEntityId) && entityIds.has(item.targetEntityId)).sort((a, b) => a.relationId.localeCompare(b.relationId)).slice(0, plan.limits.maxRelations),
+    constraints: state.constraints.filter((item) => item.status !== "removed" && entityIds.has(item.subjectId)).sort((a, b) => a.constraintId.localeCompare(b.constraintId)).slice(0, plan.limits.maxConstraints)
+  };
+}
 
 export class ExplorerProjectionCompileError extends Error {
   constructor(readonly reason: "invalid-query" | "precondition-failed" | "incompatible-delta", message: string) {
@@ -100,6 +188,7 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
     worktree: input.worktree,
     authoritySource: input.authoritySource,
     authorityCursor: input.authorityCursor,
+    evidenceAuthorityCursor: input.evidenceAuthorityCursor,
     inputManifestDigest: inputManifest.manifestDigest,
     compatibilityDigest: inputManifest.compatibilityDigest,
     graphDigest: input.graphDigest,
@@ -214,7 +303,9 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
   const viewSubjects = filterSubjectsForView(subjectOccurrences, input.query.viewId);
   const viewSubjectIds = new Set(viewSubjects.map((occurrence) => occurrence.occurrenceId));
   const viewRelations = relations.filter((relation) => viewSubjectIds.has(relation.sourceOccurrenceId) && viewSubjectIds.has(relation.targetOccurrenceId));
-  const withGroups = semanticLevel === "overview" ? overviewGroups(view.id, viewSubjects, input.query.expandedOccurrenceIds ?? []) : viewSubjects;
+  const withGroups = semanticLevel === "overview"
+    ? overviewGroups(view.id, viewSubjects, input.query.expandedOccurrenceIds ?? [], input.readSet.entityKindTotals)
+    : viewSubjects;
   const scopedOccurrenceIds = selectScopedOccurrenceIds(withGroups, viewRelations, input.query);
   const scopedOccurrences = withGroups.filter((occurrence) => scopedOccurrenceIds.has(occurrence.occurrenceId));
   const returnedOccurrences = scopedOccurrences.slice(0, input.query.budget.maxNodes);
@@ -224,15 +315,21 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
     .filter((relation) => returnedOccurrenceIds.has(relation.sourceOccurrenceId) && returnedOccurrenceIds.has(relation.targetOccurrenceId))
     .slice(0, input.query.budget.maxRelations);
   const focus = input.query.focus ? returnedOccurrences.find((occurrence) => occurrence.role === "subject" && occurrence.subjectRefs.some((ref) => ref.id === input.query.focus!.subjectId)) : undefined;
+  const plannedTotalNodes = input.readPlan.kind !== "overview-aggregate"
+    ? Math.max(scopedOccurrences.length, input.readSet.authoritativeTotals.entities)
+    : scopedOccurrences.length;
+  const plannedTotalRelations = input.readPlan.kind !== "overview-aggregate"
+    ? Math.max(scopedRelations.length, input.readSet.authoritativeTotals.relations)
+    : scopedRelations.length;
   const page = {
     budget: { ...input.query.budget },
-    totalNodes: scopedOccurrences.length,
-    totalRelations: scopedRelations.length,
+    totalNodes: plannedTotalNodes,
+    totalRelations: plannedTotalRelations,
     returnedNodes: returnedOccurrences.length,
     returnedRelations: returnedRelations.length,
-    truncated: returnedOccurrences.length < scopedOccurrences.length || returnedRelations.length < scopedRelations.length,
-    omittedNodeCount: scopedOccurrences.length - returnedOccurrences.length,
-    omittedRelationCount: scopedRelations.length - returnedRelations.length
+    truncated: input.readSet.truncated || returnedOccurrences.length < plannedTotalNodes || returnedRelations.length < plannedTotalRelations,
+    omittedNodeCount: Math.max(0, plannedTotalNodes - returnedOccurrences.length),
+    omittedRelationCount: Math.max(0, plannedTotalRelations - returnedRelations.length)
   };
   const projectionWithoutDigest = {
     schemaVersion: "archcontext.explorer-projection/v2" as const,
@@ -327,16 +424,7 @@ function assertDeltaCompatible(base: ExplorerProjectionV2, head: ExplorerProject
 }
 
 function explorerProjectionQueryDigest(query: ExplorerProjectionQueryV2): string {
-  return digestJson({
-    schemaVersion: query.schemaVersion,
-    viewId: query.viewId,
-    semanticLevel: query.semanticLevel ?? "context",
-    taskSessionId: query.taskSessionId ?? null,
-    focus: query.focus ?? null,
-    expandedOccurrenceIds: uniqueSorted(query.expandedOccurrenceIds ?? []),
-    depth: query.depth,
-    budget: query.budget
-  } as unknown as Json);
+  return explorerProjectionQueryDigestV2(query);
 }
 
 export function compileProjectionInputManifest(input: CompileExplorerProjectionInput): ProjectionInputManifestV1 {
@@ -349,9 +437,7 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
     );
   }
   const actualGraphDigest = architectureLedgerStateDigest(input.graph);
-  if (actualGraphDigest !== input.graphDigest) {
-    throw new ExplorerProjectionCompileError("precondition-failed", "required-input-digest-mismatch:graph");
-  }
+  assertProjectionReadContract(input, actualGraphDigest);
   const observedFactsDigest = canonicalObservedFactsDigest(input.observed);
   const queryDigest = explorerProjectionQueryDigest(input.query);
   const viewDigest = explorerViewDefinitionDigest(input.query.viewId);
@@ -368,12 +454,13 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
     repository: input.repository,
     worktree: input.worktree,
     cursor: input.authorityCursor,
+    evidenceCursor: input.evidenceAuthorityCursor,
     graphDigest: input.graphDigest,
     evidenceStateDigest: input.evidenceStateDigest
   } as unknown as Json);
   const inputDomains: ProjectionInputManifestV1["inputDomains"] = {
     authority: projectionInputDomain("authority", requirements.authority, authorityDigest),
-    graph: projectionInputDomain("graph", requirements.graph, actualGraphDigest),
+    graph: projectionInputDomain("graph", requirements.graph, input.graphDigest),
     evidence: projectionInputDomain("evidence", requirements.evidence, input.evidenceStateDigest),
     observed: projectionInputDomain("observed", requirements.observed, observedFactsDigest),
     bindings: projectionInputDomain("bindings", requirements.bindings, bindingsDigest),
@@ -387,7 +474,8 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
     worktree: input.worktree.storageWorkspaceId,
     queryDigest,
     viewDefinitionDigest: viewDigest,
-    compilerVersion: EXPLORER_VIEW_COMPILER_VERSION
+    compilerVersion: EXPLORER_VIEW_COMPILER_VERSION,
+    plannerVersion: PROJECTION_READ_PLANNER_VERSION
   } as unknown as Json);
   const manifestWithoutDigest = {
     schemaVersion: "archcontext.projection-input-manifest/v1" as const,
@@ -395,6 +483,7 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
     worktree: input.worktree,
     authoritySource: input.authoritySource,
     authorityCursor: input.authorityCursor,
+    evidenceAuthorityCursor: input.evidenceAuthorityCursor,
     queryDigest,
     graphDigest: input.graphDigest,
     evidenceStateDigest: input.evidenceStateDigest,
@@ -405,6 +494,8 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
     driftDigest,
     pressureDigest,
     taskSessionDigest,
+    readPlan: input.readPlan,
+    readSet: input.readSet,
     inputDomains,
     viewDefinitionDigest: viewDigest,
     compilerVersion: EXPLORER_VIEW_COMPILER_VERSION,
@@ -423,20 +514,60 @@ export function compileProjectionInputManifest(input: CompileExplorerProjectionI
   return manifest;
 }
 
+function assertProjectionReadContract(input: CompileExplorerProjectionInput, selectedGraphDigest: string): void {
+  const { planDigest, ...planWithoutDigest } = input.readPlan;
+  const { readSetDigest, ...readSetWithoutDigest } = input.readSet;
+  const expectedSource = input.authoritySource === "ledger" ? "verified-ledger-current" : "git-authority";
+  const canonicalPlan = planProjectionRead(input.query, expectedSource);
+  const limits = input.readPlan.limits;
+  const rows = input.readSet.rowsRead;
+  if (
+    digestJson(planWithoutDigest as unknown as Json) !== planDigest
+    || digestJson(input.readPlan as unknown as Json) !== digestJson(canonicalPlan as unknown as Json)
+    || digestJson(readSetWithoutDigest as unknown as Json) !== readSetDigest
+    || input.readPlan.plannerVersion !== PROJECTION_READ_PLANNER_VERSION
+    || input.readPlan.source !== expectedSource
+    || input.readPlan.queryDigest !== explorerProjectionQueryDigest(input.query)
+    || input.readSet.planDigest !== planDigest
+    || input.readSet.selectedGraphDigest !== selectedGraphDigest
+    || rows.entities > limits.maxEntities
+    || rows.relations > limits.maxRelations
+    || rows.constraints > limits.maxConstraints
+    || rows.bindings > limits.maxBindings
+    || rows.backlinks > limits.maxBacklinks
+    || rows.entities + rows.relations + rows.constraints > limits.maxGraphRows
+    || input.graph.entities.length !== rows.entities
+    || input.graph.relations.length !== rows.relations
+    || input.graph.constraints.length !== rows.constraints
+  ) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "projection-read-plan-mismatch");
+  }
+}
+
 function assertAuthorityBinding(input: CompileExplorerProjectionInput): void {
   if (input.authoritySource === "git") {
     if (input.authorityCursor !== null) {
       throw new ExplorerProjectionCompileError("precondition-failed", "authority-source-cursor-mismatch:git");
     }
+    const evidenceCursor = input.evidenceAuthorityCursor;
+    if (evidenceCursor && (
+      evidenceCursor.repository.storageRepositoryId !== input.repository.storageRepositoryId
+      || evidenceCursor.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId
+      || evidenceCursor.worktree.branch !== input.worktree.branch
+      || evidenceCursor.evidenceStateDigest !== input.evidenceStateDigest
+    )) {
+      throw new ExplorerProjectionCompileError("precondition-failed", "required-input-digest-mismatch:evidence-authority");
+    }
     return;
   }
   const cursor = input.authorityCursor;
-  if (cursor === null) {
+  if (cursor === null || input.evidenceAuthorityCursor === null) {
     throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:authority:ledger-cursor-not-provided");
   }
   if (
     digestJson(cursor.repository as unknown as Json) !== digestJson(input.repository as unknown as Json)
     || digestJson(cursor.worktree as unknown as Json) !== digestJson(input.worktree as unknown as Json)
+    || digestJson(cursor as unknown as Json) !== digestJson(input.evidenceAuthorityCursor as unknown as Json)
     || cursor.graphDigest !== input.graphDigest
     || cursor.evidenceStateDigest !== input.evidenceStateDigest
   ) {
@@ -497,12 +628,20 @@ function filterSubjectsForView(occurrences: ExplorerOccurrenceV2[], view: Explor
   return occurrences.filter((item) => item.role === "subject" && (item.verificationStatus === "DRIFT" || item.pressure.score! > 0 || item.authorityState !== "BOUND"));
 }
 
-function overviewGroups(view: ExplorerViewIdV2, subjects: ExplorerOccurrenceV2[], expanded: string[]): ExplorerOccurrenceV2[] {
+function overviewGroups(
+  view: ExplorerViewIdV2,
+  subjects: ExplorerOccurrenceV2[],
+  expanded: string[],
+  entityKindTotals: ProjectionReadSetV1["entityKindTotals"]
+): ExplorerOccurrenceV2[] {
   const groups = groupBy(subjects.filter((item) => item.role === "subject"), (item) => item.kind);
   const output: ExplorerOccurrenceV2[] = [];
-  for (const [kind, children] of [...groups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  const kinds = new Map(entityKindTotals.map((entry) => [entry.kind, entry.count]));
+  for (const [kind, children] of groups) if (!kinds.has(kind)) kinds.set(kind, children.length);
+  for (const [kind, total] of [...kinds.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const children = groups.get(kind) ?? [];
     const occurrenceId = `occurrence.${view}.group.kind.${kind}`;
-    output.push({ occurrenceId, role: "derived-group", subjectRefs: [], name: kind, kind: "derived-group", childrenCount: children.length, expandable: children.length > 0, verificationStatus: "UNKNOWN", authorityState: "DERIVED", pressure: { evaluated: false, signals: [] }, sourceSelectors: [], provenance: { declaredEntityIds: [], observedSymbolIds: [], evidenceBindingIds: [] }, derivation: { ruleId: "group-by-kind", inputDigest: digestJson(children.map((child) => child.occurrenceId) as unknown as Json), compilerVersion: EXPLORER_VIEW_COMPILER_VERSION } });
+    output.push({ occurrenceId, role: "derived-group", subjectRefs: [], name: kind, kind: "derived-group", childrenCount: total, expandable: total > 0, verificationStatus: "UNKNOWN", authorityState: "DERIVED", pressure: { evaluated: false, signals: [] }, sourceSelectors: [], provenance: { declaredEntityIds: [], observedSymbolIds: [], evidenceBindingIds: [] }, derivation: { ruleId: "group-by-kind", inputDigest: digestJson({ kind, total, selected: children.map((child) => child.occurrenceId) } as unknown as Json), compilerVersion: EXPLORER_VIEW_COMPILER_VERSION } });
     if (expanded.includes(occurrenceId)) output.push(...children.map((child) => ({ ...child, parentOccurrenceId: occurrenceId })));
   }
   return output;
@@ -604,7 +743,7 @@ export function explorerViewDefinitionDigest(
   viewId: ExplorerViewIdV2,
   requirements: Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1["requirement"]> = EXPLORER_VIEW_INPUT_REQUIREMENTS[viewId]
 ): string {
-  return digestJson({ ...VIEW_DEFINITIONS[viewId], requirements, compilerVersion: EXPLORER_VIEW_COMPILER_VERSION, grouping: "kind-at-overview", authority: "daemon-selected-read-model", reconciliation: "accepted-evidence-binding-only" } as unknown as Json);
+  return digestJson({ ...VIEW_DEFINITIONS[viewId], requirements, compilerVersion: EXPLORER_VIEW_COMPILER_VERSION, plannerVersion: PROJECTION_READ_PLANNER_VERSION, grouping: "kind-at-overview", authority: "daemon-selected-read-model", reconciliation: "accepted-evidence-binding-only" } as unknown as Json);
 }
 
 function declaredEntitySelectors(entity: ArchitectureLedgerGraphState["entities"][number]): SourceSelector[] {

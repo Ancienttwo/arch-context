@@ -159,3 +159,23 @@ merge/cleanup back to main.
   re-reviews both pass with no remaining verified finding.
 - Residual scope: bounded projection read planning/partial SQLite reads remain DE4;
   no DE3 finding or failing focused check remains.
+
+## DE4 Acceptance Addendum
+
+- Verdict: pass for `tasks/contracts/20260711-1836-data-engine-de4-bounded-read-planner.contract.md`.
+- Readback: `docs/verification/data-engine-de4-readback.json` records the focused
+  contract/SQLite/daemon/Explorer/package matrix and planner invariants; verdict PASS.
+- Full verification: 1050 tests passed, 0 failed; Explorer 10k p95 1.83ms and 100k
+  p95 0.55ms; packaged CLI, privacy, governance, acceptance, and eval gates PASS.
+- Authority: canonical plan equality is enforced independently by compiler and store.
+  Git graph and ledger evidence use separate explicit cursors; partial SQLite graph
+  reads require the exact verified ledger cursor.
+- Boundedness: verified-ledger focus performs no full graph read or Git YAML parse;
+  recursive work is internally capped, exact-fit succeeds, and overflow fails closed.
+- Integrity/privacy: selected graph/evidence/binding rows and backlink metadata are
+  re-proven against hashed event authority. Graph, evidence, and change-feed poisoning
+  regressions all fail before output/cache persistence.
+- `$check`: architecture review reported seven findings across its review rounds and
+  security review reported four (including overlapping boundedness concerns); all
+  were fixed. Final architecture and security re-reviews both pass with no remaining
+  verified finding.

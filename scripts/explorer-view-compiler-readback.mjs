@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { readFileSync } from "node:fs";
 import { digestJson } from "../packages/contracts/src/schema.ts";
 import { architectureLedgerStateDigest } from "../packages/core/architecture-ledger/src/index.ts";
-import { compileSystemMapProjection } from "../packages/local-runtime/runtime-daemon/src/explorer-projection.ts";
+import { compileSystemMapProjection, planProjectionRead, projectionReadSetFromGraph, selectProjectionGraphFromAuthority } from "../packages/local-runtime/runtime-daemon/src/explorer-projection.ts";
 
 const CHECK = process.argv.includes("--check");
 const ITERATIONS = 5;
@@ -65,12 +65,15 @@ function benchmark(entityCount) {
   };
   const query = { schemaVersion: "archcontext.explorer-projection-query/v2", viewId: "system-map", semanticLevel: "context", depth: 1, budget: { maxNodes: 50, maxRelations: 100 } };
   const graphDigest = architectureLedgerStateDigest(graph);
-  compileSystemMapProjection({ query, repository, worktree, authoritySource: "git", authorityCursor: null, graph, graphDigest, evidenceStateDigest: digestJson([]), observed, bindings: [], tokenRequired: true });
+  const readPlan = planProjectionRead(query, "git-authority");
+  const selectedGraph = selectProjectionGraphFromAuthority(readPlan, graph);
+  const readSet = projectionReadSetFromGraph(readPlan, selectedGraph, { entities: graph.entities.length, relations: graph.relations.length, constraints: 0 }, {}, [{ kind: "module", count: graph.entities.length }]);
+  compileSystemMapProjection({ query, repository, worktree, authoritySource: "git", authorityCursor: null, evidenceAuthorityCursor: null, graph: selectedGraph, graphDigest, evidenceStateDigest: digestJson([]), readPlan, readSet, observed, bindings: [], tokenRequired: true });
   const durations = [];
   let projection;
   for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
     const started = performance.now();
-    projection = compileSystemMapProjection({ query, repository, worktree, authoritySource: "git", authorityCursor: null, graph, graphDigest, evidenceStateDigest: digestJson([]), observed, bindings: [], tokenRequired: true });
+    projection = compileSystemMapProjection({ query, repository, worktree, authoritySource: "git", authorityCursor: null, evidenceAuthorityCursor: null, graph: selectedGraph, graphDigest, evidenceStateDigest: digestJson([]), readPlan, readSet, observed, bindings: [], tokenRequired: true });
     durations.push(performance.now() - started);
   }
   durations.sort((a, b) => a - b);

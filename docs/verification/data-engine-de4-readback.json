@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "archcontext.data-engine-de4-readback/v1",
+  "generatedAt": "2026-07-11T11:51:22.929Z",
+  "gitCommit": "1990df630c9e08d6a41c01ad68afa2272cd087aa",
+  "branch": "codex/data-engine-authority-incremental",
+  "contracts": {
+    "planner": "archcontext.projection-read-planner/v1",
+    "plan": "archcontext.projection-read-plan/v1",
+    "readSet": "archcontext.projection-read-set/v1",
+    "authority": "git-product-authority-or-verified-ledger-current"
+  },
+  "invariants": {
+    "canonicalTypedPlan": true,
+    "manifestBindsPlanAndReadSet": true,
+    "verifiedCursorBindsPartialSqlite": true,
+    "boundedFocusNoFullGraphRead": true,
+    "boundedGraphAndMetadataSql": true,
+    "actualRowsAndAuthoritativeTotals": true,
+    "gitAuthoritySelectsFromGitState": true,
+    "compilerHasNoStoreDependency": true
+  },
+  "commands": [
+    {
+      "command": "bun run typecheck",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 4290,
+      "stdoutDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrDigest": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    },
+    {
+      "command": "bun test packages/contracts/test/contracts.test.ts packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 28730,
+      "stdoutDigest": "sha256:eb3f53d479eb0146a62c9397f52102913e4e91d45e9bcbb1abc2bca6459b60d5",
+      "stderrDigest": "sha256:981d29064723408157953174bf1eacc76c66198462206e4f0df05bd18bb2f848"
+    },
+    {
+      "command": "bun run verify:explorer",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 245,
+      "stdoutDigest": "sha256:a4e655b9a4a1956cb0bd7963b65c8a9eb4b01e181c19774484e3a4b0ece6e867",
+      "stderrDigest": "sha256:d6e499a17952154f753dfedb922e765f78fa48c9ccb9e2c6d2ef95d518aef742"
+    },
+    {
+      "command": "node scripts/packaged-cli-smoke.mjs",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 6223,
+      "stdoutDigest": "sha256:2b37ac074001d586795acd67cdbb1cd962851b763d34badc0887adbec51afd74",
+      "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "repo-harness run contract-run preflight --contract tasks/contracts/20260711-1836-data-engine-de4-bounded-read-planner.contract.md --json",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 303,
+      "stdoutDigest": "sha256:f2d7e885ea3d75611b505cf37940c5d1686ab341b37a5509b1199a749e9fd733",
+      "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "verdict": "PASS"
+}

@@ -46,7 +46,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, architectureSnapshotDigest, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
 import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -1209,6 +1209,9 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV2>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
   readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState>;
+  readExplorerProjectionAuthority(input: ArchitectureLedgerScope): Promise<ExplorerProjectionAuthorityResult | undefined>;
+  readExplorerProjectionInputs(input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1 }): Promise<ExplorerProjectionReadResult>;
+  readExplorerProjectionMetadata(input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1; entityIds: string[]; subjectIds: string[] }): Promise<ExplorerProjectionMetadataResult>;
   queryArchitectureLedgerFts(input: ArchitectureLedgerScope & { query: string; maxItems?: number }): Promise<ArchitectureBookFtsMatch[]>;
   replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult>;
   replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1>;
@@ -1230,6 +1233,25 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
+}
+
+export interface ExplorerProjectionReadResult {
+  graph: ArchitectureLedgerGraphState;
+  bindings: Array<{ bindingId: string; targetEntityId: string; observedSymbolId: string; verified: boolean }>;
+  eventBacklinks: ArchitectureEventBacklinkV1[];
+  readSet: ProjectionReadSetV1;
+}
+
+export interface ExplorerProjectionAuthorityResult {
+  authorityCursor: AuthorityCursorV1;
+  evidenceStateDigest: string;
+}
+
+export interface ExplorerProjectionMetadataResult {
+  bindings: ExplorerProjectionReadResult["bindings"];
+  eventBacklinks: ArchitectureEventBacklinkV1[];
+  rowsRead: { bindings: number; backlinks: number };
+  truncated: boolean;
 }
 
 export interface PersistedRepositorySession {
@@ -2174,6 +2196,40 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     return readArchitectureLedgerNeighborhoodFromDb(db, input);
   }
 
+  async readExplorerProjectionAuthority(input: ArchitectureLedgerScope): Promise<ExplorerProjectionAuthorityResult | undefined> {
+    const db = await this.database();
+    return readExplorerProjectionAuthorityFromDb(db, input);
+  }
+
+  async readExplorerProjectionInputs(input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1 }): Promise<ExplorerProjectionReadResult> {
+    if (input.plan.source !== "verified-ledger-current") {
+      throw new Error("explorer-projection-read-plan-source-invalid");
+    }
+    const db = await this.database();
+    db.exec("BEGIN");
+    try {
+      const result = readExplorerProjectionInputsFromDb(db, input);
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async readExplorerProjectionMetadata(input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1; entityIds: string[]; subjectIds: string[] }): Promise<ExplorerProjectionMetadataResult> {
+    const db = await this.database();
+    db.exec("BEGIN");
+    try {
+      const result = readExplorerProjectionMetadataFromDb(db, input);
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async queryArchitectureLedgerFts(input: ArchitectureLedgerScope & { query: string; maxItems?: number }): Promise<ArchitectureBookFtsMatch[]> {
     const db = await this.database();
     return queryArchitectureLedgerSearchFts(db, input);
@@ -2648,6 +2704,10 @@ export function assertExplorerProjectionCacheIntegrity(projection: ExplorerProje
   }
   const { manifestDigest, ...manifestWithoutDigest } = projection.inputManifest;
   const { projectionDigest, ...projectionWithoutDigest } = projection;
+  const { planDigest, ...planWithoutDigest } = projection.inputManifest.readPlan;
+  const { readSetDigest, ...readSetWithoutDigest } = projection.inputManifest.readSet;
+  const planLimits = projection.inputManifest.readPlan.limits;
+  const rowsRead = projection.inputManifest.readSet.rowsRead;
   if (
     digestJson(manifestWithoutDigest as unknown as Json) !== manifestDigest
     || digestJson(projectionWithoutDigest as unknown as Json) !== projectionDigest
@@ -2655,6 +2715,7 @@ export function assertExplorerProjectionCacheIntegrity(projection: ExplorerProje
     || projection.cursor.compatibilityDigest !== projection.inputManifest.compatibilityDigest
     || projection.cursor.authoritySource !== projection.inputManifest.authoritySource
     || stableJson(projection.cursor.authorityCursor) !== stableJson(projection.inputManifest.authorityCursor)
+    || stableJson(projection.cursor.evidenceAuthorityCursor) !== stableJson(projection.inputManifest.evidenceAuthorityCursor)
     || projection.cursor.evidenceStateDigest !== projection.inputManifest.evidenceStateDigest
     || projection.cursor.graphDigest !== projection.inputManifest.graphDigest
     || projection.cursor.observedFactsDigest !== projection.inputManifest.observedFactsDigest
@@ -2663,6 +2724,17 @@ export function assertExplorerProjectionCacheIntegrity(projection: ExplorerProje
     || stableJson(projection.cursor.observedAvailability) !== stableJson(projection.inputManifest.observedAvailability)
     || projection.inputManifest.observedAvailability.status !== "ready"
     || projection.capabilities.tokenRequired !== projection.inputManifest.tokenRequired
+    || digestJson(planWithoutDigest as unknown as Json) !== planDigest
+    || digestJson(readSetWithoutDigest as unknown as Json) !== readSetDigest
+    || projection.inputManifest.readPlan.queryDigest !== projection.inputManifest.queryDigest
+    || projection.inputManifest.readSet.planDigest !== planDigest
+    || projection.inputManifest.readPlan.source !== (projection.inputManifest.authoritySource === "ledger" ? "verified-ledger-current" : "git-authority")
+    || rowsRead.entities > planLimits.maxEntities
+    || rowsRead.relations > planLimits.maxRelations
+    || rowsRead.constraints > planLimits.maxConstraints
+    || rowsRead.bindings > planLimits.maxBindings
+    || rowsRead.backlinks > planLimits.maxBacklinks
+    || rowsRead.entities + rowsRead.relations + rowsRead.constraints > planLimits.maxGraphRows
     || stableJson(projection.cursor.repository) !== stableJson(scope.repository)
     || stableJson(projection.cursor.worktree) !== stableJson(scope.worktree)
     || stableJson(projection.inputManifest.repository) !== stableJson(scope.repository)
@@ -2690,6 +2762,7 @@ export function assertExplorerProjectionCacheIntegrity(projection: ExplorerProje
     repository: projection.inputManifest.repository,
     worktree: projection.inputManifest.worktree,
     cursor: projection.inputManifest.authorityCursor,
+    evidenceCursor: projection.inputManifest.evidenceAuthorityCursor,
     graphDigest: projection.inputManifest.graphDigest,
     evidenceStateDigest: projection.inputManifest.evidenceStateDigest
   } as unknown as Json);
@@ -2703,11 +2776,21 @@ export function assertExplorerProjectionCacheIntegrity(projection: ExplorerProje
     const cursor = projection.inputManifest.authorityCursor;
     if (
       cursor === null
+      || stableJson(cursor) !== stableJson(projection.inputManifest.evidenceAuthorityCursor)
       || stableJson(cursor.repository) !== stableJson(scope.repository)
       || stableJson(cursor.worktree) !== stableJson(scope.worktree)
       || cursor.graphDigest !== projection.inputManifest.graphDigest
       || cursor.evidenceStateDigest !== projection.inputManifest.evidenceStateDigest
     ) throw new Error("explorer-projection-cache-authority-binding-invalid");
+  }
+  if (projection.inputManifest.authoritySource === "git" && projection.inputManifest.evidenceAuthorityCursor) {
+    const evidenceCursor = projection.inputManifest.evidenceAuthorityCursor;
+    if (
+      evidenceCursor.repository.storageRepositoryId !== scope.repository.storageRepositoryId
+      || evidenceCursor.worktree.storageWorkspaceId !== scope.worktree.storageWorkspaceId
+      || evidenceCursor.worktree.branch !== scope.worktree.branch
+      || evidenceCursor.evidenceStateDigest !== projection.inputManifest.evidenceStateDigest
+    ) throw new Error("explorer-projection-cache-evidence-authority-binding-invalid");
   }
   const expectedRequirements = EXPLORER_VIEW_INPUT_REQUIREMENTS[projection.view.id];
   for (const [domain, state] of Object.entries(projection.inputManifest.inputDomains)) {
@@ -3788,7 +3871,10 @@ function readArchitectureLedgerEvidenceStateFromDb(db: SqliteDatabase, scope: Ar
   return { ...withoutDigest, stateDigest: digestJson(withoutDigest as unknown as Json) };
 }
 
-function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: ArchitectureLedgerScope & { id: string; depth: number }): ArchitectureLedgerGraphState {
+function readArchitectureLedgerNeighborhoodFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { id: string; depth: number; limits?: { entities: number; relations: number; constraints: number } }
+): ArchitectureLedgerGraphState {
   const depth = Math.max(0, Math.floor(input.depth));
   const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
   const entityIds = [...new Set(db.prepare(
@@ -3820,13 +3906,13 @@ function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: Arc
           AND (relation.source_entity_id = frontier.entity_id OR relation.target_entity_id = frontier.entity_id)
         WHERE frontier.distance < ?
       )
-      SELECT DISTINCT entity_id FROM frontier`
+      SELECT DISTINCT entity_id FROM frontier ORDER BY entity_id LIMIT ?`
   ).all(
     ...scopeParams, input.id,
     ...scopeParams, input.id,
     ...scopeParams, input.id,
     ...scopeParams, input.id,
-    ...scopeParams, depth
+    ...scopeParams, depth, input.limits?.entities ?? -1
   ).map((row) => String(row.entity_id)))].sort();
   if (entityIds.length === 0) return emptyArchitectureLedgerState();
   const placeholders = entityIds.map(() => "?").join(", ");
@@ -3849,8 +3935,8 @@ function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: Arc
       FROM architecture_relations_current
       WHERE storage_repository_id = ? AND storage_workspace_id = ?
         AND (relation_id = ? OR source_entity_id IN (${placeholders}) OR target_entity_id IN (${placeholders}))
-      ORDER BY relation_id`
-  ).all(...scopeParams, input.id, ...entityIds, ...entityIds).map((row) => ({
+      ORDER BY relation_id LIMIT ?`
+  ).all(...scopeParams, input.id, ...entityIds, ...entityIds, input.limits?.relations ?? -1).map((row) => ({
     relationId: String(row.relation_id),
     kind: String(row.kind),
     sourceEntityId: String(row.source_entity_id),
@@ -3864,8 +3950,8 @@ function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: Arc
       FROM architecture_constraints_current
       WHERE storage_repository_id = ? AND storage_workspace_id = ?
         AND (constraint_id = ? OR subject_id IN (${placeholders}))
-      ORDER BY constraint_id`
-  ).all(...scopeParams, input.id, ...entityIds).map((row) => ({
+      ORDER BY constraint_id LIMIT ?`
+  ).all(...scopeParams, input.id, ...entityIds, input.limits?.constraints ?? -1).map((row) => ({
     constraintId: String(row.constraint_id),
     kind: String(row.kind),
     subjectId: String(row.subject_id),
@@ -3875,6 +3961,633 @@ function readArchitectureLedgerNeighborhoodFromDb(db: SqliteDatabase, input: Arc
     ...optionalJsonMetadata(row.metadata_json)
   }));
   return { entities, relations, constraints };
+}
+
+function readExplorerProjectionAuthorityFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope
+): ExplorerProjectionAuthorityResult | undefined {
+  const target = architectureLedgerReplayTarget(db, input);
+  if (!target) return undefined;
+  const authorityRow = db.prepare(
+    `SELECT architecture_events.scope_event_count, architecture_change_feed.evidence_after_digest,
+        architecture_change_feed.event_hash AS feed_event_hash, architecture_change_feed.event_sequence AS feed_event_sequence
+      FROM architecture_events JOIN architecture_change_feed
+        ON architecture_change_feed.event_id = architecture_events.event_id
+      WHERE architecture_events.storage_repository_id = ? AND architecture_events.storage_workspace_id = ?
+        AND architecture_events.event_sequence = ?
+      LIMIT 1`
+  ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), target.eventSequence);
+  const scopeEventCount = Number(authorityRow?.scope_event_count);
+  if (!Number.isSafeInteger(scopeEventCount) || scopeEventCount < 1) {
+    throw new Error(`explorer-projection-authority-event-count-invalid:${target.event.eventId}`);
+  }
+  if (Number(authorityRow?.feed_event_sequence) !== target.eventSequence || String(authorityRow?.feed_event_hash) !== target.eventHash) {
+    throw new Error(`explorer-projection-authority-feed-mismatch:${target.event.eventId}`);
+  }
+  const evidenceStateDigest = String(authorityRow?.evidence_after_digest);
+  if (!/^sha256:[a-f0-9]{64}$/.test(evidenceStateDigest)) {
+    throw new Error(`explorer-projection-authority-evidence-digest-invalid:${target.event.eventId}`);
+  }
+  return {
+    authorityCursor: {
+      schemaVersion: "archcontext.authority-cursor/v1",
+      repository: input.repository,
+      worktree: input.worktree,
+      eventSequence: scopeEventCount,
+      eventId: target.event.eventId,
+      eventHash: target.eventHash,
+      graphDigest: target.event.resultingDigest,
+      evidenceStateDigest
+    },
+    evidenceStateDigest
+  };
+}
+
+function readExplorerProjectionInputsFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1 }
+): ExplorerProjectionReadResult {
+  const { planDigest, ...planWithoutDigest } = input.plan;
+  if (digestJson(planWithoutDigest as unknown as Json) !== planDigest) {
+    throw new Error("explorer-projection-read-plan-digest-mismatch");
+  }
+  if (digestJson(input.plan as unknown as Json) !== digestJson(canonicalProjectionReadPlanV1(input.query, "verified-ledger-current") as unknown as Json)) {
+    throw new Error("explorer-projection-read-plan-noncanonical");
+  }
+  assertExplorerProjectionAuthorityCursor(db, input);
+  const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
+  const fullTotals = {
+    entities: Number(db.prepare("SELECT COUNT(*) AS count FROM architecture_entities_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'").get(...scopeParams)?.count ?? 0),
+    relations: Number(db.prepare("SELECT COUNT(*) AS count FROM architecture_relations_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'").get(...scopeParams)?.count ?? 0),
+    constraints: Number(db.prepare("SELECT COUNT(*) AS count FROM architecture_constraints_current WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'").get(...scopeParams)?.count ?? 0)
+  };
+  const entityKindTotals = db.prepare(
+    `SELECT kind, COUNT(*) AS count FROM architecture_entities_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'
+      GROUP BY kind ORDER BY kind LIMIT ?`
+  ).all(...scopeParams, input.plan.limits.maxEntities).map((row) => ({ kind: String(row.kind), count: Number(row.count) }));
+  let graph: ArchitectureLedgerGraphState;
+  let authoritativeTotals = fullTotals;
+  if (input.plan.kind === "focused-neighborhood") {
+    if (!input.plan.focusSubjectId) throw new Error("explorer-projection-read-plan-focus-required");
+    authoritativeTotals = readExplorerFocusedNeighborhoodTotalsFromDb(db, input, input.plan.focusSubjectId);
+    graph = readExplorerFocusedNeighborhoodGraphFromDb(db, input, input.plan.focusSubjectId);
+  } else {
+    graph = readExplorerProjectionCanonicalGraphFromDb(db, input);
+  }
+  const selectedSubjectIds = [...new Set([
+    ...graph.entities.map((entity) => entity.entityId),
+    ...graph.relations.map((relation) => relation.relationId),
+    ...graph.constraints.map((constraint) => constraint.constraintId)
+  ])].sort();
+  const bindingRead = readExplorerProjectionBindingsFromDb(db, input, graph.entities.map((entity) => entity.entityId));
+  const backlinkRead = readExplorerProjectionBacklinksFromDb(db, input, selectedSubjectIds);
+  const rowsRead = {
+    entities: graph.entities.length,
+    relations: graph.relations.length,
+    constraints: graph.constraints.length,
+    bindings: bindingRead.rowsRead,
+    backlinks: backlinkRead.rowsRead
+  };
+  const readSetWithoutDigest = {
+    schemaVersion: "archcontext.projection-read-set/v1" as const,
+    planDigest,
+    selectedGraphDigest: architectureLedgerStateDigest(graph),
+    authoritativeTotals,
+    entityKindTotals,
+    rowsRead,
+    truncated: bindingRead.truncated
+      || backlinkRead.truncated
+      || graph.entities.length < authoritativeTotals.entities
+      || graph.relations.length < authoritativeTotals.relations
+      || graph.constraints.length < authoritativeTotals.constraints
+  };
+  return {
+    graph,
+    bindings: bindingRead.items,
+    eventBacklinks: backlinkRead.items,
+    readSet: { ...readSetWithoutDigest, readSetDigest: digestJson(readSetWithoutDigest as unknown as Json) }
+  };
+}
+
+function explorerFocusedNeighborhoodCte(): string {
+  return `WITH RECURSIVE seed(entity_id, distance) AS (
+      SELECT entity_id, 0 FROM architecture_entities_current
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed' AND entity_id = ?
+      UNION
+      SELECT source_entity_id, MIN(?, 1) FROM architecture_relations_current
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed' AND relation_id = ?
+      UNION
+      SELECT target_entity_id, MIN(?, 1) FROM architecture_relations_current
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed' AND relation_id = ?
+      UNION
+      SELECT subject_id, MIN(?, 1) FROM architecture_constraints_current
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed' AND constraint_id = ?
+    ), frontier(entity_id, distance) AS (
+      SELECT entity_id, distance FROM seed
+      UNION
+      SELECT CASE WHEN relation.source_entity_id = frontier.entity_id THEN relation.target_entity_id ELSE relation.source_entity_id END,
+        frontier.distance + 1
+      FROM frontier JOIN architecture_relations_current relation
+        ON relation.storage_repository_id = ? AND relation.storage_workspace_id = ? AND relation.status != 'removed'
+        AND (relation.source_entity_id = frontier.entity_id OR relation.target_entity_id = frontier.entity_id)
+      WHERE frontier.distance < ?
+      LIMIT ?
+    ), nodes(entity_id, distance) AS (
+      SELECT entity_id, MIN(distance) FROM frontier GROUP BY entity_id
+    )`;
+}
+
+function explorerFocusedNeighborhoodCteParams(
+  input: ArchitectureLedgerScope & { plan: ProjectionReadPlanV1 },
+  focusSubjectId: string
+): unknown[] {
+  const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
+  return [
+    ...scopeParams, focusSubjectId,
+    input.plan.depth, ...scopeParams, focusSubjectId,
+    input.plan.depth, ...scopeParams, focusSubjectId,
+    input.plan.depth, ...scopeParams, focusSubjectId,
+    ...scopeParams, input.plan.depth, input.plan.limits.maxEntities + 1
+  ];
+}
+
+function readExplorerFocusedNeighborhoodGraphFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { plan: ProjectionReadPlanV1 },
+  focusSubjectId: string
+): ArchitectureLedgerGraphState {
+  const cte = explorerFocusedNeighborhoodCte();
+  const params = explorerFocusedNeighborhoodCteParams(input, focusSubjectId);
+  const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
+  const proofEvents = new Map<string, ArchitectureEventV1>();
+  const entities = db.prepare(`${cte}
+    SELECT entity_row.*
+    FROM nodes JOIN architecture_entities_current entity_row ON entity_row.entity_id = nodes.entity_id
+    WHERE entity_row.storage_repository_id = ? AND entity_row.storage_workspace_id = ? AND entity_row.status != 'removed'
+    ORDER BY entity_row.entity_id LIMIT ?`
+  ).all(...params, ...scopeParams, input.plan.limits.maxEntities)
+    .map((row) => verifiedArchitectureEntityFromCurrentRow(db, input, row, proofEvents));
+  const relations = db.prepare(`${cte}
+    SELECT relation.*
+    FROM architecture_relations_current relation
+    WHERE relation.storage_repository_id = ? AND relation.storage_workspace_id = ? AND relation.status != 'removed'
+      AND (relation.relation_id = ? OR EXISTS (
+        SELECT 1 FROM nodes WHERE nodes.distance < ?
+          AND (relation.source_entity_id = nodes.entity_id OR relation.target_entity_id = nodes.entity_id)
+      ))
+    ORDER BY relation.relation_id LIMIT ?`
+  ).all(...params, ...scopeParams, focusSubjectId, input.plan.depth, input.plan.limits.maxRelations)
+    .map((row) => verifiedArchitectureRelationFromCurrentRow(db, input, row, proofEvents));
+  const constraints = db.prepare(`${cte}
+    SELECT constraint_row.*
+    FROM architecture_constraints_current constraint_row
+    WHERE constraint_row.storage_repository_id = ? AND constraint_row.storage_workspace_id = ? AND constraint_row.status != 'removed'
+      AND (constraint_row.constraint_id = ? OR EXISTS (
+        SELECT 1 FROM nodes WHERE nodes.distance < ? AND constraint_row.subject_id = nodes.entity_id
+      ))
+    ORDER BY constraint_row.constraint_id LIMIT ?`
+  ).all(...params, ...scopeParams, focusSubjectId, input.plan.depth, input.plan.limits.maxConstraints)
+    .map((row) => verifiedArchitectureConstraintFromCurrentRow(db, input, row, proofEvents));
+  return { entities, relations, constraints };
+}
+
+function readExplorerFocusedNeighborhoodTotalsFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { plan: ProjectionReadPlanV1 },
+  focusSubjectId: string
+): ProjectionReadSetV1["authoritativeTotals"] {
+  const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
+  const cte = explorerFocusedNeighborhoodCte();
+  const params = explorerFocusedNeighborhoodCteParams(input, focusSubjectId);
+  const count = (suffix: string, suffixParams: unknown[] = []) => Number(db.prepare(`${cte} ${suffix}`).get(...params, ...suffixParams)?.count ?? 0);
+  const totals = {
+    entities: count("SELECT COUNT(*) AS count FROM nodes"),
+    relations: count(`SELECT COUNT(*) AS count FROM (SELECT 1 FROM architecture_relations_current relation
+      WHERE relation.storage_repository_id = ?
+        AND relation.storage_workspace_id = ?
+        AND relation.status != 'removed'
+        AND (relation.relation_id = ? OR EXISTS (
+          SELECT 1 FROM nodes WHERE nodes.distance < ?
+            AND (relation.source_entity_id = nodes.entity_id OR relation.target_entity_id = nodes.entity_id)
+        )) LIMIT ?)`, [...scopeParams, focusSubjectId, input.plan.depth, input.plan.limits.maxRelations + 1]),
+    constraints: count(`SELECT COUNT(*) AS count FROM (SELECT 1 FROM architecture_constraints_current constraint_row
+      WHERE constraint_row.storage_repository_id = ?
+        AND constraint_row.storage_workspace_id = ?
+        AND constraint_row.status != 'removed'
+        AND (constraint_row.constraint_id = ? OR EXISTS (
+          SELECT 1 FROM nodes WHERE nodes.distance < ? AND constraint_row.subject_id = nodes.entity_id
+        )) LIMIT ?)`, [...scopeParams, focusSubjectId, input.plan.depth, input.plan.limits.maxConstraints + 1])
+  };
+  if (
+    totals.entities > input.plan.limits.maxEntities
+    || totals.relations > input.plan.limits.maxRelations
+    || totals.constraints > input.plan.limits.maxConstraints
+  ) {
+    throw new Error("explorer-projection-neighborhood-budget-exceeded");
+  }
+  return totals;
+}
+
+function readExplorerProjectionMetadataFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { query: ExplorerProjectionQueryV2; plan: ProjectionReadPlanV1; authorityCursor: AuthorityCursorV1; entityIds: string[]; subjectIds: string[] }
+): ExplorerProjectionMetadataResult {
+  const { planDigest, ...planWithoutDigest } = input.plan;
+  if (input.plan.source !== "git-authority" || digestJson(planWithoutDigest as unknown as Json) !== planDigest) {
+    throw new Error("explorer-projection-metadata-plan-invalid");
+  }
+  if (digestJson(input.plan as unknown as Json) !== digestJson(canonicalProjectionReadPlanV1(input.query, "git-authority") as unknown as Json)) {
+    throw new Error("explorer-projection-metadata-plan-noncanonical");
+  }
+  const entityIds = [...new Set(input.entityIds)].sort();
+  const subjectIds = [...new Set(input.subjectIds)].sort();
+  if (entityIds.length > input.plan.limits.maxEntities || subjectIds.length > input.plan.limits.maxGraphRows) {
+    throw new Error("explorer-projection-metadata-subject-budget-exceeded");
+  }
+  assertExplorerProjectionAuthorityCursor(db, input);
+  const bindingRead = readExplorerProjectionBindingsFromDb(db, input, entityIds);
+  const backlinkRead = readExplorerProjectionBacklinksFromDb(db, input, subjectIds);
+  return {
+    bindings: bindingRead.items,
+    eventBacklinks: backlinkRead.items,
+    rowsRead: { bindings: bindingRead.rowsRead, backlinks: backlinkRead.rowsRead },
+    truncated: bindingRead.truncated || backlinkRead.truncated
+  };
+}
+
+function assertExplorerProjectionAuthorityCursor(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { authorityCursor: AuthorityCursorV1 }
+): void {
+  const currentAuthority = readExplorerProjectionAuthorityFromDb(db, input);
+  if (!currentAuthority || digestJson(currentAuthority.authorityCursor as unknown as Json) !== digestJson(input.authorityCursor as unknown as Json)) {
+    throw new Error("explorer-projection-authority-cursor-mismatch");
+  }
+}
+
+function readExplorerProjectionCanonicalGraphFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { plan: ProjectionReadPlanV1 }
+): ArchitectureLedgerGraphState {
+  const scopeParams = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree)];
+  const kindFilter = input.plan.kind === "overview-aggregate" && input.plan.expandedKinds.length > 0;
+  if (input.plan.kind === "overview-aggregate" && !kindFilter) return emptyArchitectureLedgerState();
+  const kindPlaceholders = input.plan.expandedKinds.map(() => "?").join(", ");
+  const proofEvents = new Map<string, ArchitectureEventV1>();
+  const entities = db.prepare(
+    `SELECT *
+      FROM architecture_entities_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'
+        ${kindFilter ? `AND kind IN (${kindPlaceholders})` : ""}
+      ORDER BY entity_id LIMIT ?`
+  ).all(...scopeParams, ...(kindFilter ? input.plan.expandedKinds : []), input.plan.limits.maxEntities)
+    .map((row) => verifiedArchitectureEntityFromCurrentRow(db, input, row, proofEvents));
+  const entityIds = entities.map((entity) => entity.entityId);
+  if (entityIds.length === 0) return { entities, relations: [], constraints: [] };
+  const placeholders = entityIds.map(() => "?").join(", ");
+  const relations = db.prepare(
+    `SELECT *
+      FROM architecture_relations_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'
+        AND source_entity_id IN (${placeholders}) AND target_entity_id IN (${placeholders})
+      ORDER BY relation_id LIMIT ?`
+  ).all(...scopeParams, ...entityIds, ...entityIds, input.plan.limits.maxRelations)
+    .map((row) => verifiedArchitectureRelationFromCurrentRow(db, input, row, proofEvents));
+  const constraints = db.prepare(
+    `SELECT *
+      FROM architecture_constraints_current
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND status != 'removed'
+        AND subject_id IN (${placeholders})
+      ORDER BY constraint_id LIMIT ?`
+  ).all(...scopeParams, ...entityIds, input.plan.limits.maxConstraints)
+    .map((row) => verifiedArchitectureConstraintFromCurrentRow(db, input, row, proofEvents));
+  return { entities, relations, constraints };
+}
+
+function readExplorerProjectionBindingsFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { plan: ProjectionReadPlanV1 },
+  entityIds: string[]
+): { items: ExplorerProjectionReadResult["bindings"]; rowsRead: number; truncated: boolean } {
+  if (entityIds.length === 0) return { items: [], rowsRead: 0, truncated: false };
+  const placeholders = entityIds.map(() => "?").join(", ");
+  const params = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), ...entityIds];
+  const total = Number(db.prepare(
+    `SELECT COUNT(*) AS count
+      FROM evidence_bindings JOIN evidence_items ON evidence_items.evidence_id = evidence_bindings.evidence_id
+      WHERE evidence_bindings.storage_repository_id = ? AND evidence_bindings.storage_workspace_id = ?
+        AND evidence_bindings.target_kind = 'entity' AND evidence_bindings.target_id IN (${placeholders})`
+  ).get(...params)?.count ?? 0);
+  const rows = db.prepare(
+    `SELECT evidence_bindings.*,
+        evidence_items.evidence_json,
+        evidence_items.digest AS evidence_digest,
+        evidence_items.event_id AS evidence_event_id,
+        evidence_items.repository_id AS evidence_repository_id,
+        evidence_items.storage_repository_id AS evidence_storage_repository_id,
+        evidence_items.workspace_id AS evidence_workspace_id,
+        evidence_items.storage_workspace_id AS evidence_storage_workspace_id
+      FROM evidence_bindings JOIN evidence_items ON evidence_items.evidence_id = evidence_bindings.evidence_id
+      WHERE evidence_bindings.storage_repository_id = ? AND evidence_bindings.storage_workspace_id = ?
+        AND evidence_bindings.target_kind = 'entity' AND evidence_bindings.target_id IN (${placeholders})
+      ORDER BY evidence_bindings.binding_id LIMIT ?`
+  ).all(...params, input.plan.limits.maxBindings);
+  const proofEvents = new Map<string, ArchitectureEventV1>();
+  const items = rows.flatMap((row) => {
+    const binding = JSON.parse(String(row.binding_json)) as EvidenceBindingV1;
+    const evidence = JSON.parse(String(row.evidence_json)) as EvidenceItemV2;
+    const bindingEvent = verifiedMaterializingEventForCurrentRow(db, input, row, proofEvents);
+    const evidenceEvent = verifiedMaterializingEventForCurrentRow(db, input, {
+      event_id: row.evidence_event_id,
+      repository_id: row.evidence_repository_id,
+      storage_repository_id: row.evidence_storage_repository_id,
+      workspace_id: row.evidence_workspace_id,
+      storage_workspace_id: row.evidence_storage_workspace_id
+    }, proofEvents);
+    const bindingPayload = architectureLedgerPayload(bindingEvent);
+    const evidencePayload = architectureLedgerPayload(evidenceEvent);
+    const expectedBinding = [
+      ...(bindingPayload.evidenceBindings ?? []),
+      ...(bindingPayload.evidenceOperations ?? []).flatMap((operation) => operation.target === "binding" && operation.action !== "remove" ? [operation.value] : [])
+    ].find((candidate) => candidate.bindingId === binding.bindingId);
+    const expectedEvidence = [
+      ...(evidencePayload.evidenceItems ?? []),
+      ...(evidencePayload.evidenceOperations ?? []).flatMap((operation) => operation.target === "item" && operation.action !== "remove" ? [operation.value] : [])
+    ].find((candidate) => candidate.evidenceId === evidence.evidenceId);
+    if (
+      binding.evidenceId !== evidence.evidenceId
+      || binding.target.kind !== "entity"
+      || !expectedBinding
+      || !expectedEvidence
+      || stableJson(expectedBinding) !== stableJson(binding)
+      || stableJson(expectedEvidence) !== stableJson(evidence)
+      || String(row.evidence_digest) !== evidence.digest
+      || String(row.binding_id) !== architectureLedgerStorageId(bindingEvent.worktree, binding.bindingId)
+      || String(row.evidence_id) !== architectureLedgerStorageId(bindingEvent.worktree, binding.evidenceId)
+      || String(row.target_kind) !== binding.target.kind
+      || String(row.target_id) !== binding.target.id
+      || String(row.authority_effect) !== binding.authorityEffect
+    ) {
+      throw new Error("explorer-projection-binding-row-mismatch");
+    }
+    assertLatestMaterializedSubject(db, input, "evidence-binding", binding.bindingId, String(row.event_id));
+    assertLatestMaterializedSubject(db, input, "evidence-item", evidence.evidenceId, String(row.evidence_event_id));
+    const observedSymbolId = evidence.selector.symbolId;
+    return observedSymbolId ? [{
+      bindingId: binding.bindingId,
+      targetEntityId: binding.target.id,
+      observedSymbolId,
+      verified: evidence.strength === "verified" && binding.authorityEffect !== "context-only"
+    }] : [];
+  });
+  return { items, rowsRead: rows.length, truncated: rows.length < total };
+}
+
+function readExplorerProjectionBacklinksFromDb(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope & { plan: ProjectionReadPlanV1 },
+  subjectIds: string[]
+): { items: ArchitectureEventBacklinkV1[]; rowsRead: number; truncated: boolean } {
+  if (subjectIds.length === 0) return { items: [], rowsRead: 0, truncated: false };
+  const placeholders = subjectIds.map(() => "?").join(", ");
+  const params = [input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), ...subjectIds];
+  const total = Number(db.prepare(
+    `SELECT COUNT(*) AS count FROM architecture_event_subjects
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND subject_id IN (${placeholders})`
+  ).get(...params)?.count ?? 0);
+  const rows = db.prepare(
+    `SELECT architecture_event_subjects.logical_event_id, architecture_event_subjects.subject_id,
+        architecture_event_subjects.event_id AS storage_event_id,
+        architecture_change_feed.*,
+        architecture_events.event_sequence AS authority_event_sequence,
+        architecture_events.event_hash AS authority_event_hash,
+        architecture_events.storage_repository_id AS authority_storage_repository_id,
+        architecture_events.storage_workspace_id AS authority_storage_workspace_id
+      FROM architecture_event_subjects JOIN architecture_change_feed
+        ON architecture_change_feed.event_id = architecture_event_subjects.event_id
+      JOIN architecture_events ON architecture_events.event_id = architecture_event_subjects.event_id
+      WHERE architecture_event_subjects.storage_repository_id = ?
+        AND architecture_event_subjects.storage_workspace_id = ?
+        AND architecture_event_subjects.subject_id IN (${placeholders})
+      ORDER BY architecture_event_subjects.event_sequence, architecture_event_subjects.subject_id
+      LIMIT ?`
+  ).all(...params, input.plan.limits.maxBacklinks);
+  const byEvent = new Map<string, ArchitectureEventBacklinkV1>();
+  const verifiedRecords = new Map<string, { record: ArchitectureChangeFeedRecordV1; event: ArchitectureEventV1; directSubjectIds: Set<string> }>();
+  for (const row of rows) {
+    const eventId = String(row.logical_event_id);
+    let verified = verifiedRecords.get(eventId);
+    if (!verified) {
+      const record = architectureChangeFeedRecordFromRow(db, input, row);
+      const eventRow = db.prepare(
+        `SELECT * FROM architecture_events
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_id = ?
+          LIMIT 1`
+      ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), String(row.storage_event_id));
+      if (!eventRow) throw new Error(`explorer-projection-backlink-event-missing:${eventId}`);
+      const event = architectureLedgerEventFromAuthorityRow(input, eventRow);
+      const payload = architectureLedgerPayload(event);
+      if (
+        record.eventId !== event.eventId
+        || record.eventHash !== event.eventHash
+        || (record.title ?? null) !== (payload.title ?? null)
+        || (record.rationale ?? null) !== (payload.rationale ?? null)
+      ) {
+        throw new Error(`explorer-projection-backlink-authority-mismatch:${eventId}`);
+      }
+      verified = { record, event, directSubjectIds: architectureEventDirectBacklinkSubjectIds(event) };
+      verifiedRecords.set(eventId, verified);
+    }
+    if (!verified.record.affectedSubjects.some((subject) => subject.subjectId === String(row.subject_id))) {
+      throw new Error(`explorer-projection-backlink-subject-mismatch:${eventId}`);
+    }
+    if (!verified.directSubjectIds.has(String(row.subject_id))) continue;
+    const payload = architectureLedgerPayload(verified.event);
+    const current = byEvent.get(eventId) ?? {
+      eventId,
+      subjectIds: [],
+      ...(payload.title ? { title: payload.title } : {}),
+      ...(payload.rationale ? { rationale: payload.rationale } : {})
+    };
+    current.subjectIds.push(String(row.subject_id));
+    byEvent.set(eventId, current);
+  }
+  return {
+    items: [...byEvent.values()].map((entry) => ({ ...entry, subjectIds: [...new Set(entry.subjectIds)].sort() })),
+    rowsRead: rows.length,
+    truncated: rows.length < total
+  };
+}
+
+function architectureEventDirectBacklinkSubjectIds(event: ArchitectureEventV1): Set<string> {
+  const ids = new Set<string>();
+  const add = (value: string | undefined) => { if (value) ids.add(value); };
+  const payload = architectureLedgerPayload(event);
+  for (const operation of payload.operations ?? []) {
+    if (operation.op === "upsert_entity") add(operation.entity.entityId);
+    else if (operation.op === "delete_entity") add(operation.entityId);
+    else if (operation.op === "upsert_relation") {
+      add(operation.relation.relationId);
+      add(operation.relation.sourceEntityId);
+      add(operation.relation.targetEntityId);
+    } else if (operation.op === "delete_relation") add(operation.relationId);
+    else if (operation.op === "upsert_constraint") {
+      add(operation.constraint.constraintId);
+      add(operation.constraint.subjectId);
+    } else add(operation.constraintId);
+  }
+  for (const item of payload.evidenceItems ?? []) {
+    add(item.evidenceId);
+    add(item.subject);
+    add(item.selector.id);
+  }
+  for (const binding of payload.evidenceBindings ?? []) {
+    add(binding.bindingId);
+    add(binding.evidenceId);
+    add(binding.target.id);
+  }
+  for (const operation of payload.evidenceOperations ?? []) {
+    if (operation.target === "item") {
+      add(operation.evidenceId);
+      if (operation.action !== "remove") {
+        add(operation.value.subject);
+        add(operation.value.selector.id);
+      }
+    } else {
+      add(operation.bindingId);
+      if (operation.action !== "remove") {
+        add(operation.value.evidenceId);
+        add(operation.value.target.id);
+      }
+    }
+  }
+  return ids;
+}
+
+function architectureLedgerEntityFromCurrentRow(row: Record<string, unknown>): ArchitectureLedgerEntityRecord {
+  return { entityId: String(row.entity_id), kind: String(row.kind), canonicalName: String(row.canonical_name), status: row.status as ArchitectureLedgerEntityRecord["status"], ...(row.path ? { path: String(row.path) } : {}), ...(row.summary ? { summary: String(row.summary) } : {}), ...optionalJsonMetadata(row.metadata_json) };
+}
+
+function architectureLedgerRelationFromCurrentRow(row: Record<string, unknown>): ArchitectureLedgerRelationRecord {
+  return { relationId: String(row.relation_id), kind: String(row.kind), sourceEntityId: String(row.source_entity_id), targetEntityId: String(row.target_entity_id), status: row.status as ArchitectureLedgerRelationRecord["status"], ...(row.summary ? { summary: String(row.summary) } : {}), ...optionalJsonMetadata(row.metadata_json) };
+}
+
+function architectureLedgerConstraintFromCurrentRow(row: Record<string, unknown>): ArchitectureLedgerConstraintRecord {
+  return { constraintId: String(row.constraint_id), kind: String(row.kind), subjectId: String(row.subject_id), status: row.status as ArchitectureLedgerConstraintRecord["status"], ...(row.severity ? { severity: row.severity as ArchitectureLedgerConstraintRecord["severity"] } : {}), ...(row.summary ? { summary: String(row.summary) } : {}), ...optionalJsonMetadata(row.metadata_json) };
+}
+
+function verifiedArchitectureEntityFromCurrentRow(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  row: Record<string, unknown>,
+  cache: Map<string, ArchitectureEventV1>
+): ArchitectureLedgerEntityRecord {
+  const record = architectureLedgerEntityFromCurrentRow(row);
+  const event = verifiedMaterializingEventForCurrentRow(db, scope, row, cache);
+  const expected = (architectureLedgerPayload(event).operations ?? [])
+    .find((operation) => operation.op === "upsert_entity" && operation.entity.entityId === record.entityId);
+  if (!expected || expected.op !== "upsert_entity" || stableJson(expected.entity) !== stableJson(record)) {
+    throw new Error(`explorer-projection-materialized-entity-proof-mismatch:${record.entityId}`);
+  }
+  assertLatestMaterializedSubject(db, scope, "entity", record.entityId, String(row.last_event_id));
+  return record;
+}
+
+function verifiedArchitectureRelationFromCurrentRow(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  row: Record<string, unknown>,
+  cache: Map<string, ArchitectureEventV1>
+): ArchitectureLedgerRelationRecord {
+  const record = architectureLedgerRelationFromCurrentRow(row);
+  const event = verifiedMaterializingEventForCurrentRow(db, scope, row, cache);
+  const expected = (architectureLedgerPayload(event).operations ?? [])
+    .find((operation) => operation.op === "upsert_relation" && operation.relation.relationId === record.relationId);
+  if (!expected || expected.op !== "upsert_relation" || stableJson(expected.relation) !== stableJson(record)) {
+    throw new Error(`explorer-projection-materialized-relation-proof-mismatch:${record.relationId}`);
+  }
+  assertLatestMaterializedSubject(db, scope, "relation", record.relationId, String(row.last_event_id));
+  return record;
+}
+
+function verifiedArchitectureConstraintFromCurrentRow(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  row: Record<string, unknown>,
+  cache: Map<string, ArchitectureEventV1>
+): ArchitectureLedgerConstraintRecord {
+  const record = architectureLedgerConstraintFromCurrentRow(row);
+  const event = verifiedMaterializingEventForCurrentRow(db, scope, row, cache);
+  const expected = (architectureLedgerPayload(event).operations ?? [])
+    .find((operation) => operation.op === "upsert_constraint" && operation.constraint.constraintId === record.constraintId);
+  if (!expected || expected.op !== "upsert_constraint" || stableJson(expected.constraint) !== stableJson(record)) {
+    throw new Error(`explorer-projection-materialized-constraint-proof-mismatch:${record.constraintId}`);
+  }
+  assertLatestMaterializedSubject(db, scope, "constraint", record.constraintId, String(row.last_event_id));
+  return record;
+}
+
+function verifiedMaterializingEventForCurrentRow(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  row: Record<string, unknown>,
+  cache: Map<string, ArchitectureEventV1>
+): ArchitectureEventV1 {
+  const storageEventId = String(row.last_event_id ?? row.event_id);
+  let event = cache.get(storageEventId);
+  if (!event) {
+    const eventRow = db.prepare(
+      `SELECT * FROM architecture_events
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_id = ?
+        LIMIT 1`
+    ).get(scope.repository.storageRepositoryId, architectureLedgerWorkspaceKey(scope.worktree), storageEventId);
+    if (!eventRow) throw new Error(`explorer-projection-materializing-event-missing:${storageEventId}`);
+    event = architectureLedgerEventFromStoredRow(eventRow);
+    if (
+      event.repository.storageRepositoryId !== scope.repository.storageRepositoryId
+      || architectureLedgerWorkspaceKey(event.worktree) !== architectureLedgerWorkspaceKey(scope.worktree)
+      || event.worktree.branch !== scope.worktree.branch
+    ) {
+      throw new Error(`explorer-projection-materializing-event-scope-mismatch:${event.eventId}`);
+    }
+    cache.set(storageEventId, event);
+  }
+  if (
+    String(row.repository_id) !== event.repository.repositoryId
+    || String(row.storage_repository_id) !== event.repository.storageRepositoryId
+    || String(row.workspace_id) !== event.worktree.workspaceId
+    || String(row.storage_workspace_id) !== architectureLedgerWorkspaceKey(event.worktree)
+  ) {
+    throw new Error(`explorer-projection-materialized-row-scope-mismatch:${event.eventId}`);
+  }
+  if (row.branch !== undefined && (
+    String(row.branch) !== event.worktree.branch
+    || String(row.head_sha) !== event.worktree.headSha
+    || String(row.worktree_digest) !== event.worktree.worktreeDigest
+  )) {
+    throw new Error(`explorer-projection-materialized-row-cursor-mismatch:${event.eventId}`);
+  }
+  return event;
+}
+
+function assertLatestMaterializedSubject(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  subjectKind: "entity" | "relation" | "constraint" | "evidence-item" | "evidence-binding",
+  subjectId: string,
+  storageEventId: string
+): void {
+  const latest = db.prepare(
+    `SELECT event_id FROM architecture_event_subjects
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+        AND subject_kind = ? AND subject_id = ? AND operation != 'reference'
+      ORDER BY event_sequence DESC LIMIT 1`
+  ).get(scope.repository.storageRepositoryId, architectureLedgerWorkspaceKey(scope.worktree), subjectKind, subjectId);
+  if (!latest || String(latest.event_id) !== storageEventId) {
+    throw new Error(`explorer-projection-materialized-subject-currentness-mismatch:${subjectKind}:${subjectId}`);
+  }
 }
 
 function optionalJsonMetadata(value: unknown): { metadata?: Record<string, Json> } {

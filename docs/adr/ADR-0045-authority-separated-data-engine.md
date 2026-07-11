@@ -111,12 +111,42 @@ hot anchored path compute total count as anchor count plus tail length without a
 prefix `COUNT(*)`. Integrity audit retains full genesis replay and proves identical
 graph/evidence/tombstone state and digests.
 
-### 6. Plan bounded reads and bound disposable cache
+### 6. Plan and prove bounded projection reads
 
-Explorer overview/context/detail requests will compile an explicit read plan and use
-aggregate or indexed-neighborhood SQLite reads. Derived projection cache entries are
-content-addressed, dependency-indexed, size/count/age bounded, pin-aware, and safe to
-delete/rebuild.
+Every Explorer V2 request compiles a canonical `ProjectionReadPlanV1`. The plan binds
+the query, authority read source, overview/context/focus kind, semantic level, focus,
+depth, required domains, ordering, and hard graph/binding/backlink row limits. Its
+`ProjectionReadSetV1` records the selected graph digest, authoritative totals, entity
+kind aggregates, actual rows read, truncation, and a canonical read-set digest. Both
+objects are part of the complete projection manifest and cache identity.
+
+Verified-ledger focus reads first bind a lightweight current authority cursor to the
+exact scope, event/hash, full graph digest, and transactionally recorded evidence-state
+digest. The same cursor is rechecked inside the read transaction before recursive-CTE
+graph selection and targeted binding/backlink queries. The Explorer path derives its
+scope without opening the ledger-backed full model, so focus/detail never calls the
+full graph reader. Git-authority selection stays on the parsed Git model; SQLite rows
+may describe bounded drift or metadata but never replace Git architecture facts.
+
+Graph and evidence cursors are separate. When Git graph state has advanced beyond the
+ledger, selected bindings/backlinks remain ledger-backed only through an explicit
+`evidenceAuthorityCursor`; Git/YAML evidence is used only when no ledger evidence
+authority exists. Backlink title/rationale and accepted subject IDs come from the
+verified immutable event payload. Derived subject/feed rows remain indexes and cannot
+establish new subject authority, even if their unkeyed digest is recomputed.
+
+Overview uses bounded kind aggregates, context uses a canonical bounded prefix, and
+focus uses indexed depth-limited traversal whose recursive frontier is itself capped.
+Aggregate count queries return one row; all materialized graph and metadata queries
+carry plan-derived limits. Context/metadata overflow contributes to explicit
+truncation; a focus neighborhood that reaches a frontier/entity/relation/constraint
+cap fails with a stable budget-exceeded precondition rather than claiming an inexact
+total. The compiler has no store dependency, accepts only the selected graph/read set,
+retains the full authoritative graph digest, and rejects any non-canonical
+plan/source/digest/row-count mismatch.
+
+Derived projection cache lifecycle limits, pins, GC, orphan cleanup, and operational
+metrics remain the separate DE5 decision slice.
 
 ## Invariants
 
@@ -138,6 +168,8 @@ delete/rebuild.
   keeping snapshot creation and explicit integrity replay O(history).
 - Focused projection latency and cache storage become bounded and observable in
   later phases without weakening authority semantics.
+- DE4 moves full-graph selection out of the compiler. Verified-ledger focus/detail
+  graph and metadata rows are hard bounded; full graph identity remains cursor-bound.
 
 ## Verification
 
