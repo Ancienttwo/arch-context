@@ -1,10 +1,10 @@
 # Implementation Notes: data-engine-authority-incremental
 
-> **Status**: DE0-DE2 Complete
+> **Status**: DE0-DE3 Complete
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Review**: tasks/reviews/20260711-1328-data-engine-authority-incremental.review.md
-> **Last Updated**: 2026-07-11 17:40
+> **Last Updated**: 2026-07-11 18:20
 > **Lifecycle**: notes
 
 ## Design Decisions
@@ -64,6 +64,18 @@
   logical target IDs, previous-hash continuity, and scoped event-count continuity.
   Total count is `anchor.eventCount + tail.length`; no prefix count remains on the hot
   path. Explorer Delta now replays exact base/head authority cursors through this path.
+- DE3 makes authority and evidence first-class required manifest domains. Git authority
+  explicitly carries a null ledger cursor; ledger authority must bind the exact complete
+  repository/worktree identity plus graph and evidence-state digests. This preserves
+  Git-visible product authority without accepting unbound ledger projections.
+- Every Explorer view now owns a typed required/optional/not-used domain policy, and
+  that policy contributes to `viewDefinitionDigest`. Missing optional inputs differ
+  canonically from known-empty inputs; missing/unavailable required inputs fail before
+  cache access or compilation.
+- Migration `0016_manifest_addressed_projection_cache` removes old rows and keys exact
+  hits by complete scope plus manifest digest. Production SQLite and TestLocalStore use
+  the same strict schema/privacy/body/scope/authority integrity validator; invalidated,
+  corrupt, cross-worktree, or nondeterministic rows cannot become cache hits.
 
 ## Deviations From Plan Or Spec
 
@@ -86,7 +98,7 @@
 
 ## Open Questions
 
-- None for DE0-DE2. DE3 is the next bounded phase in the accepted program plan.
+- None for DE0-DE3. DE4 is the next bounded phase in the accepted program plan.
 
 ## Evidence Links
 
@@ -110,6 +122,12 @@
   Explorer 10k p95 23.55ms and 100k p95 537.81ms; privacy PASS.
 - DE2 independent `$check`: eight unique findings (nine reviewer reports including one
   overlap) found and fixed. Architecture and security re-review report no open finding.
+- DE3 focused readback: `docs/verification/data-engine-de3-readback.json` PASS; the
+  contract/SQLite/daemon/CLI/package matrix passes with 0 failures.
+- DE3 full verification: `bun run verify` — 1046 tests passed, 0 failed; Explorer
+  10k p95 34.48ms and 100k p95 490.83ms; packaged CLI/privacy/eval gates PASS.
+- DE3 independent `$check`: eleven unique findings fixed, 0 deferred; final
+  architecture and security re-reviews both report no remaining verified finding.
 
 ## Promotion Candidates
 

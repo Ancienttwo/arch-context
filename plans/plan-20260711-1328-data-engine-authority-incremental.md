@@ -21,6 +21,7 @@ Phase contracts:
 - DE0: `tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md` (complete)
 - DE1: `tasks/contracts/20260711-1605-data-engine-de1-change-feed.contract.md` (complete)
 - DE2: `tasks/contracts/20260711-1720-data-engine-de2-snapshot-replay.contract.md` (complete)
+- DE3: `tasks/contracts/20260711-1749-data-engine-de3-manifest-cache.contract.md` (complete)
 
 ## Agentic Routing
 - Selected route: gstack:plan-eng-review
@@ -415,10 +416,10 @@ on daemon startup; it deletes dependency rows transactionally with cache rows.
 
 ### DE3 · Manifest-addressed cache and input-domain hardening
 
-- [ ] Require every view to declare required/optional input domains.
-- [ ] Fail closed when a required digest/input is unavailable or mismatched.
-- [ ] Key cache and delta compatibility by the manifest digest.
-- [ ] Add determinism, digest sensitivity, cross-worktree, stale-task, and missing
+- [x] Require every view to declare required/optional input domains.
+- [x] Fail closed when a required digest/input is unavailable or mismatched.
+- [x] Key cache and delta compatibility by the manifest digest.
+- [x] Add determinism, digest sensitivity, cross-worktree, stale-task, and missing
       domain tests.
 
 ### DE4 · Bounded projection read planner
@@ -579,7 +580,7 @@ readback, and full `bun run verify`. No LLM prompt/eval path is changed.
       lifecycle, and the budget-displacement regression.
 - [x] DE1: Land transactional subject index/change feed and feed-driven invalidation.
 - [x] DE2: Land verified snapshot-anchor tail replay and direct scope resolution.
-- [ ] DE3: Land manifest-addressed cache keys and required-domain hardening.
+- [x] DE3: Land manifest-addressed cache keys and required-domain hardening.
 - [ ] DE4: Land bounded projection read planner and partial SQLite reads.
 - [ ] DE5: Land cache retention/GC, metrics, 10k/100k readback, and runbooks.
 - [ ] Complete ADR/index, program notes, acceptance evidence, full verification, and

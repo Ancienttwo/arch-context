@@ -46,7 +46,8 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, architectureSnapshotDigest, digestJson, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -769,6 +770,15 @@ export const LOCAL_SQLITE_MIGRATIONS = [
           SELECT RAISE(ABORT, 'architecture-events-immutable');
         END`
     ]
+  },
+  {
+    id: "0016_manifest_addressed_projection_cache",
+    statements: [
+      "ALTER TABLE explorer_projection_cache ADD COLUMN manifest_digest TEXT",
+      "DELETE FROM explorer_occurrence_dependencies",
+      "DELETE FROM explorer_projection_cache",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_explorer_projection_scope_manifest ON explorer_projection_cache(storage_repository_id, storage_workspace_id, manifest_digest)"
+    ]
   }
 ] as const;
 
@@ -1212,6 +1222,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   backupArchitectureLedger(input: { backupPath: string }): Promise<{ backupPath: string; integrity: string }>;
   saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void>;
   readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined>;
+  readExplorerProjectionByManifest(input: ArchitectureLedgerScope & { manifestDigest: string }): Promise<ExplorerProjectionV2 | undefined>;
   readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined>;
   listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]>;
   invalidateExplorerOccurrences(input: ArchitectureLedgerScope & { occurrenceIds: string[] }): Promise<number>;
@@ -2432,14 +2443,24 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   async saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void> {
     const db = await this.database();
     const storageWorkspaceId = architectureLedgerWorkspaceKey(input.worktree);
+    assertExplorerProjectionCacheIntegrity(input.projection, input);
+    assertArchitectureLedgerPersistenceSafe(input.projection as unknown as Json, "explorer-projection-cache");
     db.exec("BEGIN IMMEDIATE");
     try {
+      const existingManifest = db.prepare(
+        `SELECT projection_digest FROM explorer_projection_cache
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND manifest_digest = ?`
+      ).get(input.repository.storageRepositoryId, storageWorkspaceId, input.projection.inputManifest.manifestDigest);
+      if (existingManifest && String(existingManifest.projection_digest) !== input.projection.projectionDigest) {
+        throw new Error("explorer-projection-cache-manifest-conflict");
+      }
       db.prepare(
         `INSERT OR REPLACE INTO explorer_projection_cache
-          (projection_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest, view_definition_digest, compiler_version, projection_json, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (projection_digest, manifest_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest, view_definition_digest, compiler_version, projection_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         input.projection.projectionDigest,
+        input.projection.inputManifest.manifestDigest,
         input.repository.storageRepositoryId,
         storageWorkspaceId,
         input.projection.view.id,
@@ -2471,21 +2492,31 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   async readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
     const db = await this.database();
     const row = db.prepare(
-      `SELECT projection_json FROM explorer_projection_cache
+      `SELECT * FROM explorer_projection_cache
         WHERE projection_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
     ).get(input.projectionDigest, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
-    return row ? explorerProjectionFromStoredJson(String(row.projection_json)) : undefined;
+    return row ? explorerProjectionFromCacheRow(row, input) : undefined;
+  }
+
+  async readExplorerProjectionByManifest(input: ArchitectureLedgerScope & { manifestDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT * FROM explorer_projection_cache
+        WHERE manifest_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?
+          AND invalidated_at IS NULL`
+    ).get(input.manifestDigest, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
+    return row ? explorerProjectionFromCacheRow(row, input) : undefined;
   }
 
   async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
     const db = await this.database();
     const row = db.prepare(
-      `SELECT projection_json FROM explorer_projection_cache
+      `SELECT * FROM explorer_projection_cache
         WHERE storage_repository_id = ? AND storage_workspace_id = ? AND view_id = ?
           AND invalidated_at IS NULL
         ORDER BY created_at DESC, rowid DESC LIMIT 1`
     ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), input.viewId);
-    return row ? explorerProjectionFromStoredJson(String(row.projection_json)) : undefined;
+    return row ? explorerProjectionFromCacheRow(row, input) : undefined;
   }
 
   async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
@@ -2565,19 +2596,131 @@ function architectureScopeFromEvent(event: ArchitectureEventV1 | undefined): Arc
   return event ? { repository: event.repository, worktree: event.worktree } : undefined;
 }
 
-function explorerProjectionFromStoredJson(raw: string): ExplorerProjectionV2 | undefined {
+function explorerProjectionFromCacheRow(
+  row: Record<string, unknown>,
+  input: ArchitectureLedgerScope & { projectionDigest?: string; manifestDigest?: string }
+): ExplorerProjectionV2 {
   try {
-    const value = JSON.parse(raw) as Partial<ExplorerProjectionV2>;
-    if (value.schemaVersion !== "archcontext.explorer-projection/v2") return undefined;
-    if (!value.cursor || !Object.prototype.hasOwnProperty.call(value.cursor, "authorityCursor")) return undefined;
-    if (!value.inputManifest || !Object.prototype.hasOwnProperty.call(value.inputManifest, "authorityCursor")) return undefined;
-    if (typeof value.projectionDigest !== "string" || typeof value.inputManifest.manifestDigest !== "string") return undefined;
-    if (value.cursor.inputManifestDigest !== value.inputManifest.manifestDigest) return undefined;
-    if (value.cursor.compatibilityDigest !== value.inputManifest.compatibilityDigest) return undefined;
-    if (!Array.isArray(value.occurrences) || !Array.isArray(value.relations) || !value.view) return undefined;
-    return value as ExplorerProjectionV2;
+    const projection = JSON.parse(String(row.projection_json)) as ExplorerProjectionV2;
+    assertExplorerProjectionCacheIntegrity(projection, input);
+    if (
+      String(row.projection_digest) !== projection.projectionDigest
+      || String(row.manifest_digest) !== projection.inputManifest.manifestDigest
+      || String(row.storage_repository_id) !== input.repository.storageRepositoryId
+      || String(row.storage_workspace_id) !== architectureLedgerWorkspaceKey(input.worktree)
+      || String(row.view_id) !== projection.view.id
+      || String(row.graph_digest) !== projection.cursor.graphDigest
+      || String(row.observed_facts_digest) !== projection.cursor.observedFactsDigest
+      || String(row.view_definition_digest) !== projection.cursor.viewDefinitionDigest
+      || String(row.compiler_version) !== projection.cursor.compilerVersion
+      || (input.projectionDigest !== undefined && projection.projectionDigest !== input.projectionDigest)
+      || (input.manifestDigest !== undefined && projection.inputManifest.manifestDigest !== input.manifestDigest)
+    ) {
+      throw new Error("explorer-projection-cache-row-mismatch");
+    }
+    return projection;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("explorer-projection-cache-")) throw error;
+    throw new Error("explorer-projection-cache-json-invalid");
+  }
+}
+
+export function assertExplorerProjectionCacheIntegrity(projection: ExplorerProjectionV2, scope: ArchitectureLedgerScope): void {
+  const schemaResult = validateJsonSchema(
+    explorerProjectionV2Schema as unknown as Parameters<typeof validateJsonSchema>[0],
+    projection as unknown as Json
+  );
+  if (!schemaResult.valid) throw new Error("explorer-projection-cache-schema-invalid");
+  try {
+    assertArchitectureLedgerPersistenceSafe(projection as unknown as Json, "explorer-projection-cache-read");
   } catch {
-    return undefined;
+    throw new Error("explorer-projection-cache-privacy-invalid");
+  }
+  if (
+    projection.schemaVersion !== "archcontext.explorer-projection/v2"
+    || !projection.cursor
+    || !projection.inputManifest
+    || !projection.view
+    || !Array.isArray(projection.occurrences)
+    || !Array.isArray(projection.relations)
+  ) {
+    throw new Error("explorer-projection-cache-shape-invalid");
+  }
+  const { manifestDigest, ...manifestWithoutDigest } = projection.inputManifest;
+  const { projectionDigest, ...projectionWithoutDigest } = projection;
+  if (
+    digestJson(manifestWithoutDigest as unknown as Json) !== manifestDigest
+    || digestJson(projectionWithoutDigest as unknown as Json) !== projectionDigest
+    || projection.cursor.inputManifestDigest !== manifestDigest
+    || projection.cursor.compatibilityDigest !== projection.inputManifest.compatibilityDigest
+    || projection.cursor.authoritySource !== projection.inputManifest.authoritySource
+    || stableJson(projection.cursor.authorityCursor) !== stableJson(projection.inputManifest.authorityCursor)
+    || projection.cursor.evidenceStateDigest !== projection.inputManifest.evidenceStateDigest
+    || projection.cursor.graphDigest !== projection.inputManifest.graphDigest
+    || projection.cursor.observedFactsDigest !== projection.inputManifest.observedFactsDigest
+    || projection.cursor.viewDefinitionDigest !== projection.inputManifest.viewDefinitionDigest
+    || projection.cursor.compilerVersion !== projection.inputManifest.compilerVersion
+    || stableJson(projection.cursor.observedAvailability) !== stableJson(projection.inputManifest.observedAvailability)
+    || projection.inputManifest.observedAvailability.status !== "ready"
+    || projection.capabilities.tokenRequired !== projection.inputManifest.tokenRequired
+    || stableJson(projection.cursor.repository) !== stableJson(scope.repository)
+    || stableJson(projection.cursor.worktree) !== stableJson(scope.worktree)
+    || stableJson(projection.inputManifest.repository) !== stableJson(scope.repository)
+    || stableJson(projection.inputManifest.worktree) !== stableJson(scope.worktree)
+    || projection.inputManifest.inputDomains.authority.status !== "ready"
+    || projection.inputManifest.inputDomains.evidence.status !== "ready"
+    || projection.inputManifest.inputDomains.evidence.digest !== projection.inputManifest.evidenceStateDigest
+    || projection.inputManifest.inputDomains.graph.status !== "ready"
+    || projection.inputManifest.inputDomains.graph.digest !== projection.inputManifest.graphDigest
+    || projection.inputManifest.inputDomains.observed.status !== "ready"
+    || projection.inputManifest.inputDomains.observed.digest !== projection.inputManifest.observedFactsDigest
+    || projection.inputManifest.inputDomains.bindings.status !== "ready"
+    || projection.inputManifest.inputDomains.bindings.digest !== projection.inputManifest.bindingsDigest
+    || (projection.inputManifest.inputDomains["event-backlinks"].status === "ready"
+      && projection.inputManifest.inputDomains["event-backlinks"].digest !== projection.inputManifest.eventBacklinksDigest)
+    || projection.inputManifest.inputDomains.drift.digest !== projection.inputManifest.driftDigest
+    || projection.inputManifest.inputDomains.pressure.digest !== projection.inputManifest.pressureDigest
+    || projection.inputManifest.inputDomains["task-session"].digest !== projection.inputManifest.taskSessionDigest
+    || (projection.cursor.taskSessionDigest ?? null) !== projection.inputManifest.taskSessionDigest
+  ) {
+    throw new Error("explorer-projection-cache-integrity-mismatch");
+  }
+  const expectedAuthorityDigest = digestJson({
+    source: projection.inputManifest.authoritySource,
+    repository: projection.inputManifest.repository,
+    worktree: projection.inputManifest.worktree,
+    cursor: projection.inputManifest.authorityCursor,
+    graphDigest: projection.inputManifest.graphDigest,
+    evidenceStateDigest: projection.inputManifest.evidenceStateDigest
+  } as unknown as Json);
+  if (projection.inputManifest.inputDomains.authority.digest !== expectedAuthorityDigest) {
+    throw new Error("explorer-projection-cache-authority-domain-invalid");
+  }
+  if (projection.inputManifest.authoritySource === "git" && projection.inputManifest.authorityCursor !== null) {
+    throw new Error("explorer-projection-cache-authority-binding-invalid");
+  }
+  if (projection.inputManifest.authoritySource === "ledger") {
+    const cursor = projection.inputManifest.authorityCursor;
+    if (
+      cursor === null
+      || stableJson(cursor.repository) !== stableJson(scope.repository)
+      || stableJson(cursor.worktree) !== stableJson(scope.worktree)
+      || cursor.graphDigest !== projection.inputManifest.graphDigest
+      || cursor.evidenceStateDigest !== projection.inputManifest.evidenceStateDigest
+    ) throw new Error("explorer-projection-cache-authority-binding-invalid");
+  }
+  const expectedRequirements = EXPLORER_VIEW_INPUT_REQUIREMENTS[projection.view.id];
+  for (const [domain, state] of Object.entries(projection.inputManifest.inputDomains)) {
+    const expectedRequirement: string = expectedRequirements[domain as keyof typeof expectedRequirements];
+    if (state.requirement !== expectedRequirement) {
+      throw new Error("explorer-projection-cache-domain-policy-invalid");
+    }
+    if (state.requirement === "required" && (state.status !== "ready" || state.digest === null)) {
+      throw new Error("explorer-projection-cache-required-domain-invalid");
+    }
+    if (state.requirement === "not-used" && (state.status !== "not-used" || state.digest !== null)) {
+      throw new Error("explorer-projection-cache-domain-contract-invalid");
+    }
   }
 }
 

@@ -54,7 +54,7 @@ const MIGRATION_CASES = [
   { id: "pre-ledger-0005", from: "0005_external_docs_cache", applyCount: 5 },
   { id: "ledger-v1-0006", from: "0006_architecture_ledger", applyCount: 6 },
   { id: "pre-search-fts-0008", from: "0008_runtime_job_queue_hardening", applyCount: 8 },
-  { id: "current-0015", from: "0015_snapshot_anchor_v2", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
+  { id: "current-0016", from: "0016_manifest_addressed_projection_cache", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
 ] as const;
 
 const BUNDLE_SIGNATURES = [
@@ -68,7 +68,9 @@ const BUNDLE_SIGNATURES = [
       "0013_evidence_lifecycle",
       "0014_architecture_change_feed",
       "0015_snapshot_anchor_v2",
+      "0016_manifest_addressed_projection_cache",
       "source_storage_workspace_id",
+      "manifest_digest",
       "architecture_events",
       "architecture_event_subjects",
       "architecture_change_feed",

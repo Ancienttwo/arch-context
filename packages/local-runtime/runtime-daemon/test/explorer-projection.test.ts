@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { ExplorerProjectionQueryV2, NormalizedCodeContext } from "@archcontext/contracts";
-import type { ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
+import { architectureLedgerStateDigest, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 import {
   ExplorerProjectionCompileError,
   compileExplorerProjection,
   compileExplorerProjectionChanges,
   compileSystemMapProjection,
+  explorerViewDefinitionDigest,
   type CompileSystemMapProjectionInput
 } from "../src/explorer-projection";
 
@@ -47,14 +48,18 @@ function compile(overrides: Partial<CompileSystemMapProjectionInput> = {}) {
     ],
     constraints: []
   };
+  const inputGraph = overrides.graph ?? graph;
   return compileSystemMapProjection({
     query,
     repository,
     worktree,
+    authoritySource: "git",
     authorityCursor: null,
-    graph,
-    graphDigest: `sha256:${"2".repeat(64)}`,
+    graph: inputGraph,
+    graphDigest: architectureLedgerStateDigest(inputGraph),
+    evidenceStateDigest: `sha256:${"4".repeat(64)}`,
     observed: observed(),
+    bindings: [],
     tokenRequired: true,
     ...overrides
   });
@@ -114,6 +119,69 @@ describe("compileSystemMapProjection", () => {
     expect(withBinding.inputManifest.bindingsDigest).not.toBe(base.inputManifest.bindingsDigest);
     expect(withBinding.inputManifest.manifestDigest).not.toBe(base.inputManifest.manifestDigest);
     expect(withBinding.inputManifest.compatibilityDigest).toBe(base.inputManifest.compatibilityDigest);
+    expect(base.inputManifest.inputDomains).toMatchObject({
+      graph: { requirement: "required", status: "ready" },
+      observed: { requirement: "required", status: "ready" },
+      bindings: { requirement: "required", status: "ready" },
+      "event-backlinks": { requirement: "optional", status: "unavailable", reasonCode: "not-provided" },
+      "task-session": { requirement: "optional", status: "unavailable", digest: null }
+    });
+  });
+
+  test("fails closed on required missing unavailable and mismatched domains", () => {
+    expect(() => compile({ bindings: undefined })).toThrow("required-input-unavailable:bindings:not-provided");
+    expect(() => compile({ observedAvailability: { status: "unavailable", reasonCode: "codegraph-index-missing" } }))
+      .toThrow("required-input-unavailable:observed:codegraph-index-missing");
+    expect(() => compile({ graphDigest: `sha256:${"0".repeat(64)}` })).toThrow("required-input-digest-mismatch:graph");
+    expect(() => compile({ authoritySource: "ledger", authorityCursor: null }))
+      .toThrow("required-input-unavailable:authority:ledger-cursor-not-provided");
+    expect(() => compile({
+      authoritySource: "ledger",
+      authorityCursor: {
+        schemaVersion: "archcontext.authority-cursor/v1",
+        repository,
+        worktree: { ...worktree, headSha: "b".repeat(40) },
+        eventSequence: 1,
+        eventId: "event.one",
+        eventHash: `sha256:${"5".repeat(64)}`,
+        graphDigest: architectureLedgerStateDigest({
+          entities: [
+            { entityId: "module.api", kind: "module", canonicalName: "API", status: "active" },
+            { entityId: "module.db", kind: "module", canonicalName: "Database", status: "active" }
+          ],
+          relations: [
+            { relationId: "relation.api-writes-db", kind: "writes", sourceEntityId: "module.api", targetEntityId: "module.db", status: "active" }
+          ],
+          constraints: []
+        }),
+        evidenceStateDigest: `sha256:${"4".repeat(64)}`
+      }
+    })).toThrow("required-input-digest-mismatch:authority");
+  });
+
+  test("binds view-definition identity to the typed domain policy", () => {
+    const current = explorerViewDefinitionDigest("system-map");
+    const changed = explorerViewDefinitionDigest("system-map", {
+      authority: "required",
+      graph: "required",
+      evidence: "required",
+      observed: "required",
+      bindings: "required",
+      "event-backlinks": "required",
+      drift: "optional",
+      pressure: "optional",
+      "task-session": "optional"
+    });
+    expect(changed).not.toBe(current);
+  });
+
+  test("distinguishes an unavailable optional domain from a known-empty domain", () => {
+    const unavailable = compile();
+    const knownEmpty = compile({ eventBacklinks: [] });
+    expect(unavailable.inputManifest.inputDomains["event-backlinks"]).toMatchObject({ status: "unavailable", digest: null });
+    expect(knownEmpty.inputManifest.inputDomains["event-backlinks"]).toMatchObject({ status: "ready" });
+    expect(knownEmpty.inputManifest.manifestDigest).not.toBe(unavailable.inputManifest.manifestDigest);
+    expect(knownEmpty.inputManifest.compatibilityDigest).toBe(unavailable.inputManifest.compatibilityDigest);
   });
 
   test("rejects a stale expected cursor", () => {
@@ -187,17 +255,23 @@ describe("compileSystemMapProjection", () => {
     const taskQuery: ExplorerProjectionQueryV2 = { ...query, viewId: "task-impact", taskSessionId: "task.current" };
     expect(() => compileExplorerProjection({
       query: taskQuery, repository, worktree,
+      authoritySource: "git",
       authorityCursor: null,
       graph: { entities: [], relations: [], constraints: [] }, graphDigest: `sha256:${"2".repeat(64)}`,
-      observed: observed(), tokenRequired: true
+      observed: observed(), evidenceStateDigest: `sha256:${"4".repeat(64)}`, tokenRequired: true
     })).toThrow(ExplorerProjectionCompileError);
+    const taskGraph: ArchitectureLedgerGraphState = {
+      entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active" }], relations: [], constraints: []
+    };
     const projection = compileExplorerProjection({
       query: taskQuery,
       repository,
       worktree,
+      authoritySource: "git",
       authorityCursor: null,
-      graph: { entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active" }], relations: [], constraints: [] },
-      graphDigest: `sha256:${"2".repeat(64)}`,
+      graph: taskGraph,
+      graphDigest: architectureLedgerStateDigest(taskGraph),
+      evidenceStateDigest: `sha256:${"4".repeat(64)}`,
       observed: observed({ symbols: [{ id: "symbol.api", name: "Api", kind: "function", path: "src/api.ts" }] }),
       bindings: [{ bindingId: "binding.api", targetEntityId: "module.api", observedSymbolId: "symbol.api", verified: true }],
       taskSession: { taskSessionId: "task.current", task: "change API", taskSessionDigest: `sha256:${"7".repeat(64)}` },
@@ -208,18 +282,22 @@ describe("compileSystemMapProjection", () => {
   });
 
   test("drift-pressure uses evaluated inputs and typed inspector backlinks", () => {
+    const driftGraph: ArchitectureLedgerGraphState = {
+      entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active", summary: "Owns API" }],
+      relations: [],
+      constraints: [{ constraintId: "constraint.api", kind: "boundary", subjectId: "module.api", status: "active", severity: "error" }]
+    };
     const projection = compileExplorerProjection({
       query: { ...query, viewId: "drift-pressure" },
       repository,
       worktree,
+      authoritySource: "git",
       authorityCursor: null,
-      graph: {
-        entities: [{ entityId: "module.api", kind: "module", canonicalName: "API", status: "active", summary: "Owns API" }],
-        relations: [],
-        constraints: [{ constraintId: "constraint.api", kind: "boundary", subjectId: "module.api", status: "active", severity: "error" }]
-      },
-      graphDigest: `sha256:${"2".repeat(64)}`,
+      graph: driftGraph,
+      graphDigest: architectureLedgerStateDigest(driftGraph),
+      evidenceStateDigest: `sha256:${"4".repeat(64)}`,
       observed: observed(),
+      bindings: [],
       pressure: { inputDigest: `sha256:${"8".repeat(64)}`, level: "medium", score: 40, signals: [{ type: "boundary-change", evidence: ["module.api"] }] },
       drift: { inputDigest: `sha256:${"9".repeat(64)}`, subjectIds: ["module.api"], reasonCodes: ["semantic-drift"] },
       eventBacklinks: [{ eventId: "event.api", subjectIds: ["module.api"], title: "API decision", rationale: "Keep one boundary" }],
@@ -270,7 +348,6 @@ describe("compileSystemMapProjection", () => {
     });
     const head = compile({
       query: { ...query, budget: { maxNodes: 1, maxRelations: 0 } },
-      graphDigest: `sha256:${"4".repeat(64)}`,
       graph: {
         entities: [
           { entityId: "module.a", kind: "module", canonicalName: "A", status: "active" },

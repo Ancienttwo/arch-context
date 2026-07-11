@@ -2,6 +2,7 @@
 import { performance } from "node:perf_hooks";
 import { readFileSync } from "node:fs";
 import { digestJson } from "../packages/contracts/src/schema.ts";
+import { architectureLedgerStateDigest } from "../packages/core/architecture-ledger/src/index.ts";
 import { compileSystemMapProjection } from "../packages/local-runtime/runtime-daemon/src/explorer-projection.ts";
 
 const CHECK = process.argv.includes("--check");
@@ -63,12 +64,13 @@ function benchmark(entityCount) {
     constraints: []
   };
   const query = { schemaVersion: "archcontext.explorer-projection-query/v2", viewId: "system-map", semanticLevel: "context", depth: 1, budget: { maxNodes: 50, maxRelations: 100 } };
-  compileSystemMapProjection({ query, repository, worktree, graph, graphDigest: digestJson({ entityCount }), observed, tokenRequired: true });
+  const graphDigest = architectureLedgerStateDigest(graph);
+  compileSystemMapProjection({ query, repository, worktree, authoritySource: "git", authorityCursor: null, graph, graphDigest, evidenceStateDigest: digestJson([]), observed, bindings: [], tokenRequired: true });
   const durations = [];
   let projection;
   for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
     const started = performance.now();
-    projection = compileSystemMapProjection({ query, repository, worktree, graph, graphDigest: digestJson({ entityCount }), observed, tokenRequired: true });
+    projection = compileSystemMapProjection({ query, repository, worktree, authoritySource: "git", authorityCursor: null, graph, graphDigest, evidenceStateDigest: digestJson([]), observed, bindings: [], tokenRequired: true });
     durations.push(performance.now() - started);
   }
   durations.sort((a, b) => a - b);

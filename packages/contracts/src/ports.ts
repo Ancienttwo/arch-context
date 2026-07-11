@@ -312,10 +312,12 @@ export interface ExplorerProjectionQueryV2 {
 export interface ExplorerProjectionCursorV2 {
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
+  authoritySource: "git" | "ledger";
   authorityCursor: AuthorityCursorV1 | null;
   inputManifestDigest: string;
   compatibilityDigest: string;
   graphDigest: string;
+  evidenceStateDigest: string;
   observedFactsDigest: string;
   viewDefinitionDigest: string;
   compilerVersion: "archcontext.explorer-view-compiler/v1";
@@ -327,9 +329,11 @@ export interface ProjectionInputManifestV1 {
   schemaVersion: "archcontext.projection-input-manifest/v1";
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
+  authoritySource: "git" | "ledger";
   authorityCursor: AuthorityCursorV1 | null;
   queryDigest: string;
   graphDigest: string;
+  evidenceStateDigest: string;
   observedFactsDigest: string;
   observedAvailability: { status: "ready" | "unavailable"; reasonCode?: string };
   bindingsDigest: string;
@@ -337,12 +341,45 @@ export interface ProjectionInputManifestV1 {
   driftDigest: string | null;
   pressureDigest: string | null;
   taskSessionDigest: string | null;
+  inputDomains: Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1>;
   viewDefinitionDigest: string;
   compilerVersion: "archcontext.explorer-view-compiler/v1";
   tokenRequired: boolean;
   compatibilityDigest: string;
   manifestDigest: string;
 }
+
+export type ProjectionInputDomainV1 =
+  | "authority"
+  | "graph"
+  | "evidence"
+  | "observed"
+  | "bindings"
+  | "event-backlinks"
+  | "drift"
+  | "pressure"
+  | "task-session";
+
+export type ProjectionInputDomainStateV1 =
+  | { requirement: "required"; status: "ready"; digest: string }
+  | { requirement: "optional"; status: "ready"; digest: string }
+  | { requirement: "optional"; status: "unavailable"; digest: null; reasonCode: string }
+  | { requirement: "not-used"; status: "not-used"; digest: null };
+
+export const EXPLORER_VIEW_INPUT_REQUIREMENTS = {
+  "system-map": {
+    authority: "required", graph: "required", evidence: "required", observed: "required", bindings: "required",
+    "event-backlinks": "optional", drift: "optional", pressure: "optional", "task-session": "optional"
+  },
+  "task-impact": {
+    authority: "required", graph: "required", evidence: "required", observed: "required", bindings: "required",
+    "event-backlinks": "optional", drift: "optional", pressure: "optional", "task-session": "required"
+  },
+  "drift-pressure": {
+    authority: "required", graph: "required", evidence: "required", observed: "required", bindings: "required",
+    "event-backlinks": "optional", drift: "required", pressure: "required", "task-session": "optional"
+  }
+} as const satisfies Record<ExplorerViewIdV2, Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1["requirement"]>>;
 
 export interface ExplorerSubjectRefV2 {
   kind: ExplorerSubjectRefKindV2;

@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "archcontext.data-engine-de3-readback/v1",
+  "generatedAt": "2026-07-11T10:32:53.805Z",
+  "gitCommit": "d28fae1575a2cf0eaf321975e644332154e21ee1",
+  "branch": "codex/data-engine-authority-incremental",
+  "contracts": {
+    "manifest": "archcontext.projection-input-manifest/v1",
+    "migration": "0016_manifest_addressed_projection_cache",
+    "cacheKey": "repository-worktree-manifest-digest",
+    "deltaCompatibility": "manifest-compatibility-digest"
+  },
+  "invariants": {
+    "typedViewDomainPolicy": true,
+    "requiredDomainsFailClosed": true,
+    "explicitAuthorityBinding": true,
+    "optionalMissingDiffersFromEmpty": true,
+    "exactManifestCacheLookup": true,
+    "storedBodyAndRowIntegrity": true,
+    "viewPolicyChangesIdentity": true,
+    "productionTestStoreParity": true,
+    "invalidationPrecedesExactHit": true,
+    "exactHitAndNegativeCoverage": true,
+    "compatibilityAllowsStateChange": true,
+    "migrationIsOneWay": true
+  },
+  "commands": [
+    {
+      "command": "bun run typecheck",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 3495,
+      "stdoutDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrDigest": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    },
+    {
+      "command": "bun run check:package-boundaries",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 101,
+      "stdoutDigest": "sha256:65d50ef205239c6dd837801774c2615a8670519bec348c2b91e9c802cd83428f",
+      "stderrDigest": "sha256:1511003fedd943ed840a5f51ce273d076828261e5e1c1edc31e00bd9e9c575d9"
+    },
+    {
+      "command": "bun test packages/contracts/test/contracts.test.ts packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon packages/surfaces/cli/test/cli.test.ts scripts/architecture-ledger-al10-release-packaging-readback.test.ts",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 49409,
+      "stdoutDigest": "sha256:eb3f53d479eb0146a62c9397f52102913e4e91d45e9bcbb1abc2bca6459b60d5",
+      "stderrDigest": "sha256:eece09c030f10e11ecf3a9db8780ecf009adbae8a3db3b26eeffc11efab6521f"
+    },
+    {
+      "command": "bun run verify:explorer",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 5122,
+      "stdoutDigest": "sha256:56adf6ee89e5344e03239f53e7c5c1a4a02bc17403d80aebc417d561d4372bd4",
+      "stderrDigest": "sha256:d6e499a17952154f753dfedb922e765f78fa48c9ccb9e2c6d2ef95d518aef742"
+    },
+    {
+      "command": "node scripts/packaged-cli-smoke.mjs",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 4497,
+      "stdoutDigest": "sha256:2b37ac074001d586795acd67cdbb1cd962851b763d34badc0887adbec51afd74",
+      "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "repo-harness run contract-run preflight --contract tasks/contracts/20260711-1749-data-engine-de3-manifest-cache.contract.md --json",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 252,
+      "stdoutDigest": "sha256:6117c1e5326fa5b1a35b3a9a22ce28d30a76d1245491e33d80a3741d01a970b2",
+      "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "verdict": "PASS"
+}

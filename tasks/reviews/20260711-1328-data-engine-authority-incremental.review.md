@@ -1,12 +1,12 @@
 # Task Review: data-engine-authority-incremental
 
-> **Status**: DE0-DE2 Passed
+> **Status**: DE0-DE3 Passed
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Notes File**: tasks/notes/20260711-1328-data-engine-authority-incremental.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
-> **Last Updated**: 2026-07-11 17:40
-> **Recommendation**: pass DE2; continue to DE3
+> **Last Updated**: 2026-07-11 18:33
+> **Recommendation**: pass DE3; continue to DE4
 
 ## Human Review Card
 
@@ -139,3 +139,23 @@ merge/cleanup back to main.
   both pass.
 - Residual scope: cache manifest ownership and required-domain hardening remain DE3;
   no DE2 finding or failing check remains.
+
+## DE3 Acceptance Addendum
+
+- Verdict: pass for `tasks/contracts/20260711-1749-data-engine-de3-manifest-cache.contract.md`.
+- Readback: `docs/verification/data-engine-de3-readback.json` verdict PASS; focused
+  matrix and packaged CLI smoke pass.
+- Full verification: 1046 tests passed, 0 failed; Explorer 10k p95 34.48ms and 100k
+  p95 490.83ms; packaged CLI, privacy, acceptance ledgers, and eval gates PASS.
+- Authority: manifests explicitly select Git or ledger. Git requires a null ledger
+  cursor; ledger requires exact repository/worktree/graph/evidence cursor binding.
+- Cache: exact hits use complete scope plus manifest digest. Production SQLite and
+  TestLocalStore share strict schema, privacy, body digest, row, scope, domain-policy,
+  cursor, availability, and token-mode validation.
+- Contracts: the shared view policy contributes to view identity; domain states are a
+  discriminated union in TypeScript and JSON Schema; missing optional and known-empty
+  inputs remain distinct.
+- `$check`: eleven unique findings fixed, 0 deferred. Final architecture and security
+  re-reviews both pass with no remaining verified finding.
+- Residual scope: bounded projection read planning/partial SQLite reads remain DE4;
+  no DE3 finding or failing focused check remains.

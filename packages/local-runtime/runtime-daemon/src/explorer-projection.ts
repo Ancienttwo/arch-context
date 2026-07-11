@@ -1,6 +1,7 @@
 import {
   type AuthorityCursorV1,
   digestJson,
+  EXPLORER_VIEW_INPUT_REQUIREMENTS,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
   type ExplorerBacklinksV2,
@@ -13,10 +14,12 @@ import {
   type ExplorerViewIdV2,
   type Json,
   type NormalizedCodeContext,
+  type ProjectionInputDomainStateV1,
+  type ProjectionInputDomainV1,
   type ProjectionInputManifestV1,
   type SourceSelector
 } from "@archcontext/contracts";
-import type { ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
+import { architectureLedgerStateDigest, type ArchitectureLedgerGraphState } from "@archcontext/core/architecture-ledger";
 
 export const EXPLORER_VIEW_COMPILER_VERSION = "archcontext.explorer-view-compiler/v1" as const;
 
@@ -26,7 +29,7 @@ const VIEW_DEFINITIONS: Record<ExplorerViewIdV2, { id: ExplorerViewIdV2; title: 
   "drift-pressure": { id: "drift-pressure", title: "Drift & Pressure", question: "Where do declared and observed facts disagree or accumulate pressure?" }
 };
 
-export const SYSTEM_MAP_VIEW_DEFINITION_DIGEST = viewDefinitionDigest("system-map");
+export const SYSTEM_MAP_VIEW_DEFINITION_DIGEST = explorerViewDefinitionDigest("system-map");
 
 export interface ExplorerResolvedBindingV2 {
   bindingId: string;
@@ -59,9 +62,11 @@ export interface CompileExplorerProjectionInput {
   query: ExplorerProjectionQueryV2;
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
+  authoritySource: "git" | "ledger";
   authorityCursor: AuthorityCursorV1 | null;
   graph: ArchitectureLedgerGraphState;
   graphDigest: string;
+  evidenceStateDigest: string;
   observed: NormalizedCodeContext;
   bindings?: ExplorerResolvedBindingV2[];
   pressure?: ExplorerPressureInputV2;
@@ -86,23 +91,24 @@ export function compileSystemMapProjection(input: CompileSystemMapProjectionInpu
 }
 
 export function compileExplorerProjection(input: CompileExplorerProjectionInput): ExplorerProjectionV2 {
-  assertQuery(input);
   const view = VIEW_DEFINITIONS[input.query.viewId];
   const semanticLevel = input.query.semanticLevel ?? "context";
-  const observedFactsDigest = canonicalObservedFactsDigest(input.observed);
-  const inputManifest = projectionInputManifest(input, observedFactsDigest);
+  const inputManifest = compileProjectionInputManifest(input);
+  const observedFactsDigest = inputManifest.observedFactsDigest;
   const cursor = {
     repository: input.repository,
     worktree: input.worktree,
+    authoritySource: input.authoritySource,
     authorityCursor: input.authorityCursor,
     inputManifestDigest: inputManifest.manifestDigest,
     compatibilityDigest: inputManifest.compatibilityDigest,
     graphDigest: input.graphDigest,
+    evidenceStateDigest: input.evidenceStateDigest,
     observedFactsDigest,
-    viewDefinitionDigest: viewDefinitionDigest(view.id),
+    viewDefinitionDigest: explorerViewDefinitionDigest(view.id),
     compilerVersion: EXPLORER_VIEW_COMPILER_VERSION,
     observedAvailability: input.observedAvailability ?? { status: "ready" as const },
-    ...(input.taskSession ? { taskSessionDigest: input.taskSession.taskSessionDigest } : {})
+    ...(inputManifest.taskSessionDigest ? { taskSessionDigest: inputManifest.taskSessionDigest } : {})
   } as const;
   assertExpectedCursor(input.query, cursor);
 
@@ -288,8 +294,12 @@ function assertQuery(input: CompileExplorerProjectionInput): void {
   if (!Number.isInteger(query.depth) || query.depth < 0 || query.depth > 2) throw new ExplorerProjectionCompileError("invalid-query", "Explorer depth must be an integer from 0 to 2");
   if (!Number.isInteger(query.budget.maxNodes) || query.budget.maxNodes < 1 || query.budget.maxNodes > 1000) throw new ExplorerProjectionCompileError("invalid-query", "Explorer maxNodes must be an integer from 1 to 1000");
   if (!Number.isInteger(query.budget.maxRelations) || query.budget.maxRelations < 0 || query.budget.maxRelations > 5000) throw new ExplorerProjectionCompileError("invalid-query", "Explorer maxRelations must be an integer from 0 to 5000");
-  if (query.viewId === "task-impact" && (!query.taskSessionId || !input.taskSession || query.taskSessionId !== input.taskSession.taskSessionId || input.observedAvailability?.status === "unavailable")) throw new ExplorerProjectionCompileError("precondition-failed", "task-impact requires a current daemon-owned task session and available observed facts");
-  if (query.viewId === "drift-pressure" && (!input.pressure || !input.drift)) throw new ExplorerProjectionCompileError("invalid-query", "drift-pressure requires evaluated pressure and drift inputs");
+  if (query.viewId === "task-impact" && !query.taskSessionId) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:task-session:task-session-id-missing");
+  }
+  if (query.viewId === "task-impact" && input.taskSession && query.taskSessionId !== input.taskSession.taskSessionId) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "required-input-mismatch:task-session");
+  }
 }
 
 function assertExpectedCursor(query: ExplorerProjectionQueryV2, actual: Pick<ExplorerProjectionV2["cursor"], "worktree" | "graphDigest" | "observedFactsDigest">): void {
@@ -329,9 +339,49 @@ function explorerProjectionQueryDigest(query: ExplorerProjectionQueryV2): string
   } as unknown as Json);
 }
 
-function projectionInputManifest(input: CompileExplorerProjectionInput, observedFactsDigest: string): ProjectionInputManifestV1 {
+export function compileProjectionInputManifest(input: CompileExplorerProjectionInput): ProjectionInputManifestV1 {
+  assertQuery(input);
+  assertAuthorityBinding(input);
+  if (input.observedAvailability?.status === "unavailable") {
+    throw new ExplorerProjectionCompileError(
+      "precondition-failed",
+      `required-input-unavailable:observed:${input.observedAvailability.reasonCode ?? "unavailable"}`
+    );
+  }
+  const actualGraphDigest = architectureLedgerStateDigest(input.graph);
+  if (actualGraphDigest !== input.graphDigest) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "required-input-digest-mismatch:graph");
+  }
+  const observedFactsDigest = canonicalObservedFactsDigest(input.observed);
   const queryDigest = explorerProjectionQueryDigest(input.query);
-  const viewDigest = viewDefinitionDigest(input.query.viewId);
+  const viewDigest = explorerViewDefinitionDigest(input.query.viewId);
+  const bindingsDigest = input.bindings === undefined ? null : digestJson([...input.bindings].sort((a, b) => a.bindingId.localeCompare(b.bindingId)) as unknown as Json);
+  const eventBacklinksDigest = input.eventBacklinks === undefined ? null : digestJson([...input.eventBacklinks]
+    .map((event) => ({ ...event, subjectIds: uniqueSorted(event.subjectIds) }))
+    .sort((a, b) => a.eventId.localeCompare(b.eventId)) as unknown as Json);
+  const driftDigest = input.drift ? digestJson(input.drift as unknown as Json) : null;
+  const pressureDigest = input.pressure ? digestJson(input.pressure as unknown as Json) : null;
+  const taskSessionDigest = input.taskSession ? digestJson(input.taskSession as unknown as Json) : null;
+  const requirements = EXPLORER_VIEW_INPUT_REQUIREMENTS[input.query.viewId];
+  const authorityDigest = digestJson({
+    source: input.authoritySource,
+    repository: input.repository,
+    worktree: input.worktree,
+    cursor: input.authorityCursor,
+    graphDigest: input.graphDigest,
+    evidenceStateDigest: input.evidenceStateDigest
+  } as unknown as Json);
+  const inputDomains: ProjectionInputManifestV1["inputDomains"] = {
+    authority: projectionInputDomain("authority", requirements.authority, authorityDigest),
+    graph: projectionInputDomain("graph", requirements.graph, actualGraphDigest),
+    evidence: projectionInputDomain("evidence", requirements.evidence, input.evidenceStateDigest),
+    observed: projectionInputDomain("observed", requirements.observed, observedFactsDigest),
+    bindings: projectionInputDomain("bindings", requirements.bindings, bindingsDigest),
+    "event-backlinks": projectionInputDomain("event-backlinks", requirements["event-backlinks"], eventBacklinksDigest),
+    drift: projectionInputDomain("drift", requirements.drift, driftDigest),
+    pressure: projectionInputDomain("pressure", requirements.pressure, pressureDigest),
+    "task-session": projectionInputDomain("task-session", requirements["task-session"], taskSessionDigest)
+  };
   const compatibilityDigest = digestJson({
     repository: input.repository.storageRepositoryId,
     worktree: input.worktree.storageWorkspaceId,
@@ -343,27 +393,70 @@ function projectionInputManifest(input: CompileExplorerProjectionInput, observed
     schemaVersion: "archcontext.projection-input-manifest/v1" as const,
     repository: input.repository,
     worktree: input.worktree,
+    authoritySource: input.authoritySource,
     authorityCursor: input.authorityCursor,
     queryDigest,
     graphDigest: input.graphDigest,
+    evidenceStateDigest: input.evidenceStateDigest,
     observedFactsDigest,
     observedAvailability: input.observedAvailability ?? { status: "ready" as const },
-    bindingsDigest: digestJson([...(input.bindings ?? [])].sort((a, b) => a.bindingId.localeCompare(b.bindingId)) as unknown as Json),
-    eventBacklinksDigest: digestJson([...(input.eventBacklinks ?? [])]
-      .map((event) => ({ ...event, subjectIds: uniqueSorted(event.subjectIds) }))
-      .sort((a, b) => a.eventId.localeCompare(b.eventId)) as unknown as Json),
-    driftDigest: input.drift ? digestJson(input.drift as unknown as Json) : null,
-    pressureDigest: input.pressure ? digestJson(input.pressure as unknown as Json) : null,
-    taskSessionDigest: input.taskSession ? digestJson(input.taskSession as unknown as Json) : null,
+    bindingsDigest: bindingsDigest!,
+    eventBacklinksDigest: eventBacklinksDigest ?? digestJson([] as unknown as Json),
+    driftDigest,
+    pressureDigest,
+    taskSessionDigest,
+    inputDomains,
     viewDefinitionDigest: viewDigest,
     compilerVersion: EXPLORER_VIEW_COMPILER_VERSION,
     tokenRequired: input.tokenRequired,
     compatibilityDigest
   };
-  return {
+  const manifest = {
     ...manifestWithoutDigest,
     manifestDigest: digestJson(manifestWithoutDigest as unknown as Json)
   };
+  assertExpectedCursor(input.query, {
+    worktree: input.worktree,
+    graphDigest: input.graphDigest,
+    observedFactsDigest
+  });
+  return manifest;
+}
+
+function assertAuthorityBinding(input: CompileExplorerProjectionInput): void {
+  if (input.authoritySource === "git") {
+    if (input.authorityCursor !== null) {
+      throw new ExplorerProjectionCompileError("precondition-failed", "authority-source-cursor-mismatch:git");
+    }
+    return;
+  }
+  const cursor = input.authorityCursor;
+  if (cursor === null) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "required-input-unavailable:authority:ledger-cursor-not-provided");
+  }
+  if (
+    digestJson(cursor.repository as unknown as Json) !== digestJson(input.repository as unknown as Json)
+    || digestJson(cursor.worktree as unknown as Json) !== digestJson(input.worktree as unknown as Json)
+    || cursor.graphDigest !== input.graphDigest
+    || cursor.evidenceStateDigest !== input.evidenceStateDigest
+  ) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "required-input-digest-mismatch:authority");
+  }
+}
+
+function projectionInputDomain(
+  domain: ProjectionInputDomainV1,
+  requirement: ProjectionInputDomainStateV1["requirement"],
+  digest: string | null
+): ProjectionInputDomainStateV1 {
+  if (requirement === "not-used") return { requirement, status: "not-used", digest: null };
+  if (digest === null) {
+    if (requirement === "required") {
+      throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:${domain}:not-provided`);
+    }
+    return { requirement, status: "unavailable", digest: null, reasonCode: "not-provided" };
+  }
+  return { requirement, status: "ready", digest };
 }
 
 function buildRelations(input: CompileExplorerProjectionInput, byEntity: Map<string, string>, bySymbol: Map<string, string>): ExplorerRelationOccurrenceV2[] {
@@ -507,8 +600,11 @@ function canonicalObservedFactsDigest(observed: NormalizedCodeContext): string {
   return digestJson({ digest: observed.digest, symbols: [...observed.symbols].sort((a, b) => a.id.localeCompare(b.id)), edges: [...observed.edges].sort(compareObservedEdges), evidence: observed.evidence.map((item) => ({ id: item.id, selector: item.selector, confidence: item.confidence, snapshot: item.snapshot })).sort((a, b) => a.id.localeCompare(b.id)) } as unknown as Json);
 }
 
-function viewDefinitionDigest(viewId: ExplorerViewIdV2): string {
-  return digestJson({ ...VIEW_DEFINITIONS[viewId], compilerVersion: EXPLORER_VIEW_COMPILER_VERSION, grouping: "kind-at-overview", authority: "daemon-selected-read-model", reconciliation: "accepted-evidence-binding-only" } as unknown as Json);
+export function explorerViewDefinitionDigest(
+  viewId: ExplorerViewIdV2,
+  requirements: Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1["requirement"]> = EXPLORER_VIEW_INPUT_REQUIREMENTS[viewId]
+): string {
+  return digestJson({ ...VIEW_DEFINITIONS[viewId], requirements, compilerVersion: EXPLORER_VIEW_COMPILER_VERSION, grouping: "kind-at-overview", authority: "daemon-selected-read-model", reconciliation: "accepted-evidence-binding-only" } as unknown as Json);
 }
 
 function declaredEntitySelectors(entity: ArchitectureLedgerGraphState["entities"][number]): SourceSelector[] {

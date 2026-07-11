@@ -23,6 +23,7 @@ import {
   SQLITE_PRAGMAS,
   SqliteLocalStore,
   architectureAffectedSubjects,
+  assertExplorerProjectionCacheIntegrity,
   assertNoSourceStorageSchema,
   inspectLegacyLocalStoreMigration,
   migrateLegacyLocalStoreIfNeeded,
@@ -55,7 +56,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0012_explorer_projection_index",
       "0013_evidence_lifecycle",
       "0014_architecture_change_feed",
-      "0015_snapshot_anchor_v2"
+      "0015_snapshot_anchor_v2",
+      "0016_manifest_addressed_projection_cache"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -275,6 +277,41 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("manifest cache migration removes pre-manifest rows and adds exact lookup index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-manifest-cache-migration-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const db = new Database(dbPath);
+    try {
+      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 15)) {
+        for (const statement of migration.statements) db.exec(statement);
+        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
+      }
+      const digest = `sha256:${"a".repeat(64)}`;
+      db.query(
+        `INSERT INTO explorer_projection_cache
+          (projection_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest,
+            view_definition_digest, compiler_version, projection_json, created_at, invalidated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
+      ).run(digest, "repo.storage", "workspace.storage", "system-map", digest, digest, digest, "archcontext.explorer-view-compiler/v1", "{}", "2026-07-11T00:00:00.000Z");
+    } finally {
+      db.close();
+    }
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM explorer_projection_cache")).toBe(0);
+      const migratedDb = new Database(dbPath);
+      const columns = migratedDb.prepare("PRAGMA table_info(explorer_projection_cache)").all().map((row) => String((row as Record<string, unknown>).name));
+      const indexes = migratedDb.prepare("PRAGMA index_list(explorer_projection_cache)").all().map((row) => String((row as Record<string, unknown>).name));
+      migratedDb.close();
+      expect(columns).toContain("manifest_digest");
+      expect(indexes).toContain("idx_explorer_projection_scope_manifest");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("schema guard rejects source or diff storage columns", () => {
     expect(() => assertNoSourceStorageSchema(["CREATE TABLE bad (source_code TEXT NOT NULL)"])).toThrow(
       "source_code"
@@ -294,11 +331,24 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         dependencies: [{ occurrenceId: projection.occurrences[0]!.occurrenceId, dependencyKeys: ["entity:module.api", "path:src/api.ts"] }]
       });
       await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projection.projectionDigest })).resolves.toEqual(projection);
+      await expect(store.readExplorerProjectionByManifest({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        manifestDigest: projection.inputManifest.manifestDigest
+      })).resolves.toEqual(projection);
+      await expect(store.readExplorerProjectionByManifest({
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: { ...ARCHITECTURE_LEDGER_SCOPE.worktree, branch: "other", headSha: "def456ledger" },
+        manifestDigest: projection.inputManifest.manifestDigest
+      })).resolves.toBeUndefined();
       await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.api"] })).resolves.toEqual([projection.occurrences[0]!.occurrenceId]);
       await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.other"] })).resolves.toEqual([]);
       await expect(store.invalidateExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, occurrenceIds: [projection.occurrences[0]!.occurrenceId] })).resolves.toBe(2);
       await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.api"] })).resolves.toEqual([]);
       await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projection.projectionDigest })).resolves.toEqual(projection);
+      await expect(store.readExplorerProjectionByManifest({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        manifestDigest: projection.inputManifest.manifestDigest
+      })).resolves.toBeUndefined();
       await expect(store.readLatestExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, viewId: projection.view.id })).resolves.toBeUndefined();
       await expect(store.clearExplorerDerivedState(ARCHITECTURE_LEDGER_SCOPE)).resolves.toBe(1);
     } finally {
@@ -313,12 +363,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const store = new SqliteLocalStore(databasePath);
     try {
       await store.migrate();
-      const base = { ...explorerProjectionFixture(), projectionDigest: `sha256:${"f".repeat(64)}` };
-      const head = {
-        ...base,
-        cursor: { ...base.cursor, graphDigest: digestJson({ graph: "head" } as unknown as Json) },
-        projectionDigest: `sha256:${"0".repeat(64)}`
-      };
+      const base = explorerProjectionFixture("base");
+      const head = explorerProjectionFixture("head");
       await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: base, dependencies: [] });
       await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: head, dependencies: [] });
 
@@ -331,6 +377,128 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       store.close();
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("manifest-addressed cache rejects corrupted rows and nondeterministic output", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-manifest-integrity-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const projection = explorerProjectionFixture();
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection, dependencies: [] });
+
+      const changed = structuredClone(projection);
+      changed.occurrences[0]!.name = "Nondeterministic API";
+      const { projectionDigest: _ignored, ...changedWithoutDigest } = changed;
+      changed.projectionDigest = digestJson(changedWithoutDigest as unknown as Json);
+      await expect(store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: changed, dependencies: [] }))
+        .rejects.toThrow("explorer-projection-cache-manifest-conflict");
+
+      const corruptDb = new Database(databasePath);
+      const corrupted = structuredClone(projection);
+      corrupted.view.title = "Corrupted cache title";
+      corruptDb.prepare("UPDATE explorer_projection_cache SET projection_json = ? WHERE manifest_digest = ?")
+        .run(stableJsonFixture(corrupted), projection.inputManifest.manifestDigest);
+      corruptDb.close();
+      await expect(store.readExplorerProjectionByManifest({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        manifestDigest: projection.inputManifest.manifestDigest
+      })).rejects.toThrow("explorer-projection-cache-integrity-mismatch");
+
+      const schemaPoisoned = structuredClone(projection);
+      const schemaSubject = schemaPoisoned.occurrences[0];
+      if (!schemaSubject || schemaSubject.role !== "subject") throw new Error("subject fixture required");
+      schemaSubject.inspector.sourceSelectors = [{ path: "src/api.ts", memo: "private body" } as never];
+      const { projectionDigest: _schemaDigest, ...schemaPoisonedWithoutDigest } = schemaPoisoned;
+      schemaPoisoned.projectionDigest = digestJson(schemaPoisonedWithoutDigest as unknown as Json);
+      const schemaDb = new Database(databasePath);
+      schemaDb.prepare("UPDATE explorer_projection_cache SET projection_digest = ?, projection_json = ? WHERE manifest_digest = ?")
+        .run(schemaPoisoned.projectionDigest, stableJsonFixture(schemaPoisoned), projection.inputManifest.manifestDigest);
+      schemaDb.close();
+      await expect(store.readExplorerProjectionByManifest({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        manifestDigest: projection.inputManifest.manifestDigest
+      })).rejects.toThrow("explorer-projection-cache-schema-invalid");
+
+      const privacyPoisoned = structuredClone(projection);
+      const subject = privacyPoisoned.occurrences[0];
+      if (!subject || subject.role !== "subject") throw new Error("subject fixture required");
+      subject.name = "diff --git a/private.ts b/private.ts";
+      const { projectionDigest: _privacyDigest, ...privacyPoisonedWithoutDigest } = privacyPoisoned;
+      privacyPoisoned.projectionDigest = digestJson(privacyPoisonedWithoutDigest as unknown as Json);
+      const privacyDb = new Database(databasePath);
+      privacyDb.prepare("UPDATE explorer_projection_cache SET projection_digest = ?, projection_json = ? WHERE manifest_digest = ?")
+        .run(privacyPoisoned.projectionDigest, stableJsonFixture(privacyPoisoned), projection.inputManifest.manifestDigest);
+      privacyDb.close();
+      await expect(store.readExplorerProjectionByManifest({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        manifestDigest: projection.inputManifest.manifestDigest
+      })).rejects.toThrow("explorer-projection-cache-privacy-invalid");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("TestLocalStore enforces production cache scope and body integrity", async () => {
+    const store = new TestLocalStore();
+    const projection = explorerProjectionFixture();
+    await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection, dependencies: [] });
+    await expect(store.readExplorerProjectionByManifest({
+      repository: { ...ARCHITECTURE_LEDGER_SCOPE.repository, repositoryId: "repo.other-logical-id" },
+      worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      manifestDigest: projection.inputManifest.manifestDigest
+    })).resolves.toBeUndefined();
+
+    const record = store.explorerProjections.get(projection.projectionDigest);
+    if (!record) throw new Error("projection fixture must be stored");
+    const poisoned = record.projection as ExplorerProjectionV2 & { injected?: string };
+    poisoned.injected = "test-double-poison";
+    const { projectionDigest: _ignored, ...poisonedWithoutDigest } = poisoned;
+    poisoned.projectionDigest = digestJson(poisonedWithoutDigest as unknown as Json);
+    await expect(store.readExplorerProjectionByManifest({
+      ...ARCHITECTURE_LEDGER_SCOPE,
+      manifestDigest: projection.inputManifest.manifestDigest
+    })).rejects.toThrow("explorer-projection-cache-schema-invalid");
+  });
+
+  test("cache integrity binds cursor authority and canonical view domain policy", () => {
+    const ledgerProjection = ledgerExplorerProjectionFixture();
+    const divergentCursor = structuredClone(ledgerProjection);
+    divergentCursor.cursor.authorityCursor = {
+      ...divergentCursor.cursor.authorityCursor!,
+      worktree: { ...divergentCursor.cursor.authorityCursor!.worktree, headSha: "b".repeat(40) }
+    };
+    const { projectionDigest: _cursorDigest, ...divergentCursorWithoutDigest } = divergentCursor;
+    divergentCursor.projectionDigest = digestJson(divergentCursorWithoutDigest as unknown as Json);
+    expect(() => assertExplorerProjectionCacheIntegrity(divergentCursor, ARCHITECTURE_LEDGER_SCOPE))
+      .toThrow("explorer-projection-cache-integrity-mismatch");
+
+    const downgraded = explorerProjectionFixture();
+    downgraded.view = { id: "drift-pressure", title: "Drift & Pressure", question: "Where is pressure?" };
+    const { projectionDigest: _policyDigest, ...downgradedWithoutDigest } = downgraded;
+    downgraded.projectionDigest = digestJson(downgradedWithoutDigest as unknown as Json);
+    expect(() => assertExplorerProjectionCacheIntegrity(downgraded, ARCHITECTURE_LEDGER_SCOPE))
+      .toThrow("explorer-projection-cache-domain-policy-invalid");
+
+    const unavailableObserved = explorerProjectionFixture();
+    unavailableObserved.inputManifest.observedAvailability = { status: "unavailable", reasonCode: "index-missing" };
+    const { manifestDigest: _observedManifestDigest, ...unavailableManifestWithoutDigest } = unavailableObserved.inputManifest;
+    unavailableObserved.inputManifest.manifestDigest = digestJson(unavailableManifestWithoutDigest as unknown as Json);
+    unavailableObserved.cursor.observedAvailability = { status: "unavailable", reasonCode: "index-missing" };
+    unavailableObserved.cursor.inputManifestDigest = unavailableObserved.inputManifest.manifestDigest;
+    const { projectionDigest: _observedProjectionDigest, ...unavailableObservedWithoutDigest } = unavailableObserved;
+    unavailableObserved.projectionDigest = digestJson(unavailableObservedWithoutDigest as unknown as Json);
+    expect(() => assertExplorerProjectionCacheIntegrity(unavailableObserved, ARCHITECTURE_LEDGER_SCOPE))
+      .toThrow("explorer-projection-cache-integrity-mismatch");
+
+    const tokenMismatch = explorerProjectionFixture();
+    tokenMismatch.capabilities.tokenRequired = false;
+    const { projectionDigest: _tokenDigest, ...tokenMismatchWithoutDigest } = tokenMismatch;
+    tokenMismatch.projectionDigest = digestJson(tokenMismatchWithoutDigest as unknown as Json);
+    expect(() => assertExplorerProjectionCacheIntegrity(tokenMismatch, ARCHITECTURE_LEDGER_SCOPE))
+      .toThrow("explorer-projection-cache-integrity-mismatch");
   });
 
   test("runtime state paths use an OS/user-data root partitioned by repository and worktree", () => {
@@ -637,7 +805,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0012_explorer_projection_index",
       "0013_evidence_lifecycle",
       "0014_architecture_change_feed",
-      "0015_snapshot_anchor_v2"
+      "0015_snapshot_anchor_v2",
+      "0016_manifest_addressed_projection_cache"
     ]);
 
     const snapshot = {
@@ -2340,28 +2509,55 @@ const ARCHITECTURE_LEDGER_SCOPE = {
   }
 };
 
-function explorerProjectionFixture(): ExplorerProjectionV2 {
+function explorerProjectionFixture(graphLabel = "one", observedLabel = "one"): ExplorerProjectionV2 {
   const occurrenceId = "occurrence.system-map.entity.module.api";
   const compatibilityDigest = digestJson({ compatibility: "system-map" } as unknown as Json);
-  const inputManifest = {
+  const graphDigest = digestJson({ graph: graphLabel } as unknown as Json);
+  const evidenceStateDigest = digestJson({ evidence: "state" } as unknown as Json);
+  const observedFactsDigest = digestJson({ observed: observedLabel } as unknown as Json);
+  const authorityDigest = digestJson({
+    source: "git",
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    cursor: null,
+    graphDigest,
+    evidenceStateDigest
+  } as unknown as Json);
+  const inputManifestWithoutDigest = {
     schemaVersion: "archcontext.projection-input-manifest/v1" as const,
     repository: ARCHITECTURE_LEDGER_SCOPE.repository,
     worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    authoritySource: "git" as const,
     authorityCursor: null,
     queryDigest: digestJson({ query: "system-map" } as unknown as Json),
-    graphDigest: digestJson({ graph: "one" } as unknown as Json),
-    observedFactsDigest: digestJson({ observed: "one" } as unknown as Json),
+    graphDigest,
+    evidenceStateDigest,
+    observedFactsDigest,
     observedAvailability: { status: "ready" as const },
     bindingsDigest: digestJson([]),
     eventBacklinksDigest: digestJson([]),
     driftDigest: null,
     pressureDigest: null,
     taskSessionDigest: null,
+    inputDomains: {
+      authority: { requirement: "required" as const, status: "ready" as const, digest: authorityDigest },
+      graph: { requirement: "required" as const, status: "ready" as const, digest: graphDigest },
+      evidence: { requirement: "required" as const, status: "ready" as const, digest: evidenceStateDigest },
+      observed: { requirement: "required" as const, status: "ready" as const, digest: observedFactsDigest },
+      bindings: { requirement: "required" as const, status: "ready" as const, digest: digestJson([]) },
+      "event-backlinks": { requirement: "optional" as const, status: "ready" as const, digest: digestJson([]) },
+      drift: { requirement: "optional" as const, status: "unavailable" as const, digest: null, reasonCode: "not-provided" },
+      pressure: { requirement: "optional" as const, status: "unavailable" as const, digest: null, reasonCode: "not-provided" },
+      "task-session": { requirement: "optional" as const, status: "unavailable" as const, digest: null, reasonCode: "not-provided" }
+    },
     viewDefinitionDigest: digestJson({ view: "system-map" } as unknown as Json),
     compilerVersion: "archcontext.explorer-view-compiler/v1" as const,
     tokenRequired: true,
-    compatibilityDigest,
-    manifestDigest: digestJson({ manifest: "system-map" } as unknown as Json)
+    compatibilityDigest
+  };
+  const inputManifest = {
+    ...inputManifestWithoutDigest,
+    manifestDigest: digestJson(inputManifestWithoutDigest as unknown as Json)
   };
   const withoutDigest = {
     schemaVersion: "archcontext.explorer-projection/v2" as const,
@@ -2372,11 +2568,13 @@ function explorerProjectionFixture(): ExplorerProjectionV2 {
     cursor: {
       repository: ARCHITECTURE_LEDGER_SCOPE.repository,
       worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      authoritySource: "git" as const,
       authorityCursor: null,
       inputManifestDigest: inputManifest.manifestDigest,
       compatibilityDigest,
-      graphDigest: digestJson({ graph: "one" } as unknown as Json),
-      observedFactsDigest: digestJson({ observed: "one" } as unknown as Json),
+      graphDigest,
+      evidenceStateDigest,
+      observedFactsDigest,
       viewDefinitionDigest: digestJson({ view: "system-map" } as unknown as Json),
       compilerVersion: "archcontext.explorer-view-compiler/v1" as const,
       observedAvailability: { status: "ready" as const }
@@ -2403,6 +2601,38 @@ function explorerProjectionFixture(): ExplorerProjectionV2 {
     capabilities: { readOnly: true as const, mutationMode: "forbidden" as const, egress: "none" as const, tokenRequired: true }
   };
   return { ...withoutDigest, projectionDigest: digestJson(withoutDigest as unknown as Json) };
+}
+
+function ledgerExplorerProjectionFixture(): ExplorerProjectionV2 {
+  const projection = explorerProjectionFixture();
+  const authorityCursor = {
+    schemaVersion: "archcontext.authority-cursor/v1" as const,
+    repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+    worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+    eventSequence: 1,
+    eventId: "event.cache-fixture",
+    eventHash: digestJson({ event: "cache-fixture" } as unknown as Json),
+    graphDigest: projection.inputManifest.graphDigest,
+    evidenceStateDigest: projection.inputManifest.evidenceStateDigest
+  };
+  projection.inputManifest.authoritySource = "ledger";
+  projection.inputManifest.authorityCursor = authorityCursor;
+  projection.inputManifest.inputDomains.authority.digest = digestJson({
+    source: "ledger",
+    repository: projection.inputManifest.repository,
+    worktree: projection.inputManifest.worktree,
+    cursor: authorityCursor,
+    graphDigest: projection.inputManifest.graphDigest,
+    evidenceStateDigest: projection.inputManifest.evidenceStateDigest
+  } as unknown as Json);
+  const { manifestDigest: _manifestDigest, ...manifestWithoutDigest } = projection.inputManifest;
+  projection.inputManifest.manifestDigest = digestJson(manifestWithoutDigest as unknown as Json);
+  projection.cursor.authoritySource = "ledger";
+  projection.cursor.authorityCursor = authorityCursor;
+  projection.cursor.inputManifestDigest = projection.inputManifest.manifestDigest;
+  const { projectionDigest: _projectionDigest, ...projectionWithoutDigest } = projection;
+  projection.projectionDigest = digestJson(projectionWithoutDigest as unknown as Json);
+  return projection;
 }
 
 function runtimeAgentJob(suffix: string, input: {

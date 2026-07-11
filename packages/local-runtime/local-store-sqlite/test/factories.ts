@@ -26,7 +26,7 @@ import {
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
 import { digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -55,6 +55,8 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly architectureChangeFeed: ArchitectureChangeFeedRecordV1[] = [];
   readonly architectureChangeFeedConsumers = new Map<string, { checkpoint: number; delivered: number }>();
   readonly explorerProjections = new Map<string, { scope: ArchitectureLedgerScope; projection: ExplorerProjectionV2 }>();
+  readonly explorerManifestCacheReads: string[] = [];
+  explorerManifestCacheHits = 0;
   readonly invalidatedExplorerProjections = new Set<string>();
   readonly explorerDependencies = new Map<string, Set<string>>();
 
@@ -803,6 +805,13 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void> {
+    assertExplorerProjectionCacheIntegrity(input.projection, input);
+    const manifestConflict = [...this.explorerProjections.values()].find((candidate) =>
+      testSameExplorerScope(candidate.scope, input)
+      && candidate.projection.inputManifest.manifestDigest === input.projection.inputManifest.manifestDigest
+      && candidate.projection.projectionDigest !== input.projection.projectionDigest
+    );
+    if (manifestConflict) throw new Error("explorer-projection-cache-manifest-conflict");
     this.explorerProjections.set(input.projection.projectionDigest, { scope: input, projection: structuredClone(input.projection) });
     this.invalidatedExplorerProjections.delete(input.projection.projectionDigest);
     for (const entry of input.dependencies) this.explorerDependencies.set(`${input.projection.projectionDigest}\0${entry.occurrenceId}`, new Set(entry.dependencyKeys));
@@ -810,16 +819,34 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
     const record = this.explorerProjections.get(input.projectionDigest);
-    if (!record || record.scope.repository.storageRepositoryId !== input.repository.storageRepositoryId || record.scope.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId) return undefined;
+    if (!record || !testSameExplorerScope(record.scope, input)) return undefined;
+    assertExplorerProjectionCacheIntegrity(record.projection, input);
     return structuredClone(record.projection);
   }
 
+  async readExplorerProjectionByManifest(input: ArchitectureLedgerScope & { manifestDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
+    this.explorerManifestCacheReads.push(input.manifestDigest);
+    const record = [...this.explorerProjections.values()].find((candidate) =>
+      !this.invalidatedExplorerProjections.has(candidate.projection.projectionDigest)
+      &&
+      testSameExplorerScope(candidate.scope, input)
+      && candidate.projection.inputManifest.manifestDigest === input.manifestDigest
+    );
+    if (record) {
+      assertExplorerProjectionCacheIntegrity(record.projection, input);
+      this.explorerManifestCacheHits += 1;
+    }
+    return record ? structuredClone(record.projection) : undefined;
+  }
+
   async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
-    return [...this.explorerProjections.values()].reverse().find((record) =>
+    const record = [...this.explorerProjections.values()].reverse().find((record) =>
       !this.invalidatedExplorerProjections.has(record.projection.projectionDigest)
-      && record.scope.repository.storageRepositoryId === input.repository.storageRepositoryId
-      && record.scope.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
-      && record.projection.view.id === input.viewId)?.projection;
+      && testSameExplorerScope(record.scope, input)
+      && record.projection.view.id === input.viewId);
+    if (!record) return undefined;
+    assertExplorerProjectionCacheIntegrity(record.projection, input);
+    return structuredClone(record.projection);
   }
 
   async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
@@ -911,6 +938,11 @@ export class TestLocalStore implements RuntimeLocalStore {
         && event.worktree.worktreeDigest === scope.worktree.worktreeDigest)
       ?.eventHash ?? null;
   }
+}
+
+function testSameExplorerScope(left: ArchitectureLedgerScope, right: ArchitectureLedgerScope): boolean {
+  return JSON.stringify(left.repository) === JSON.stringify(right.repository)
+    && JSON.stringify(left.worktree) === JSON.stringify(right.worktree);
 }
 
 function testChangeFeedConsumerKey(input: ArchitectureLedgerScope & { consumerId: string }): string {

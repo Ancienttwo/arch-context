@@ -61,11 +61,20 @@ Event, materialized evidence/binding rows, and tombstones share the event transa
 
 `ProjectionInputManifestV1` contains canonical digests for query, graph, observed
 facts/availability, bindings, event backlinks, drift, pressure, task session, view
-definition, compiler, repository/worktree identity, and token mode. It exposes:
+definition, compiler, repository/worktree identity, evidence state, authority source,
+and token mode. Each view declares a typed required/optional/not-used policy for every
+input domain. It exposes:
 
 - `manifestDigest`: changes when any compiler input changes.
 - `compatibilityDigest`: stable only for projections whose repository/worktree,
   query, view definition, and compiler semantics are comparable.
+
+Authority is explicit rather than inferred from cursor presence. `git` authority
+requires a null ledger cursor and retains Git-visible `.archcontext/` as product truth.
+`ledger` authority requires a cursor bound to the exact repository, worktree, graph
+digest, and evidence-state digest. Exact cache lookup uses the full manifest digest;
+stored rows are revalidated against the strict Projection V2 schema, privacy policy,
+canonical body digests, scope, and authority binding before use.
 
 ### 4. Use a transactional change feed
 

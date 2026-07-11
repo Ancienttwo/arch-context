@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
@@ -19,6 +19,11 @@ const stateRoot = mkdtempSync(join(tmpdir(), "archctx-packaged-state-"));
 
 try {
   writeFileSync(join(repo, "README.md"), "# packaged cli smoke\n", "utf8");
+  execFileSync(resolveCodeGraphBin(), ["init", repo], {
+    cwd: repo,
+    env: { ...process.env, DO_NOT_TRACK: "1", PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}` },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
   const canonicalRepo = realpathSync.native(repo);
 
   const paths = await runArchctx("paths");
@@ -55,7 +60,7 @@ try {
   assert(explorer.data?.page?.returnedNodes <= 20 && explorer.data?.page?.returnedRelations <= 40, "packaged Explorer must honor hard budgets");
   assert(!JSON.stringify(explorer.data).includes("sourceBody"), "packaged Explorer must not expose source bodies");
 
-  assert(explorer.data?.cursor?.observedAvailability?.status === "unavailable", "packaged Explorer must explicitly report unavailable CodeGraph instead of inventing observed facts");
+  assert(explorer.data?.cursor?.observedAvailability?.status === "ready", "packaged Explorer must consume an explicit CodeGraph index");
 
   const mcpStartup = await runArchctxMcpSession([
     {
@@ -288,6 +293,13 @@ function resolveArchctxBin() {
     ? [join(binDir, "archctx.cmd"), join(binDir, "archctx.exe"), join(binDir, "archctx")]
     : [join(binDir, "archctx")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function resolveCodeGraphBin() {
+  const candidates = process.platform === "win32"
+    ? [join(binDir, "codegraph.cmd"), join(binDir, "codegraph.exe"), join(binDir, "codegraph")]
+    : [join(binDir, "codegraph")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? "codegraph";
 }
 
 function runArchctxMcp(message) {

@@ -85,7 +85,7 @@ function completePacket(): any {
       migrationRow("pre-ledger-0005", 5),
       migrationRow("ledger-v1-0006", 6),
       migrationRow("pre-search-fts-0008", 8),
-      migrationRow("current-0015", 15)
+      migrationRow("current-0016", 16)
     ],
     releasePackage: {
       fg6: {
@@ -122,7 +122,7 @@ function completePacket(): any {
       },
       packageFiles: ["bin/archctx.mjs", "package.json", "README.md"],
       bundleSignatures: [
-        signatureGroup("migrations", 16),
+        signatureGroup("migrations", 18),
         signatureGroup("hooks", 5),
         signatureGroup("renderers", 5),
         signatureGroup("agent-adapter-contracts", 7)
@@ -158,9 +158,9 @@ function migrationRow(id: string, fromAppliedCount: number): any {
     id,
     from: id,
     fromAppliedCount,
-    toAppliedCount: 15,
+    toAppliedCount: 16,
     fromLatestMigrationId: fromAppliedCount === 0 ? null : `000${fromAppliedCount}_migration`,
-    toLatestMigrationId: "0015_snapshot_anchor_v2",
+    toLatestMigrationId: "0016_manifest_addressed_projection_cache",
     fromHasLedgerTables: fromAppliedCount >= 9,
     toHasLedgerTables: true,
     missingTables: [],

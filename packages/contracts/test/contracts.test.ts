@@ -345,6 +345,24 @@ describe("JSON schema contracts", () => {
     expect(v2.properties.capabilities.properties.readOnly.const).toBe(true);
     expect(v2.properties.capabilities.properties.mutationMode.const).toBe("forbidden");
     expect(v2.properties.capabilities.properties.egress.const).toBe("none");
+
+    const fixture = readJson("packages/contracts/fixtures/valid/explorer-projection-v2.json") as any;
+    const ledgerWithoutCursor = structuredClone(fixture);
+    ledgerWithoutCursor.cursor.authoritySource = "ledger";
+    expect(validateJsonSchema(v2, ledgerWithoutCursor).valid).toBe(false);
+    const unavailableRequired = structuredClone(fixture);
+    unavailableRequired.inputManifest.inputDomains.graph = {
+      requirement: "required", status: "unavailable", digest: null, reasonCode: "not-provided"
+    };
+    expect(validateJsonSchema(v2, unavailableRequired).valid).toBe(false);
+    const notUsedOptional = structuredClone(fixture);
+    notUsedOptional.inputManifest.inputDomains["event-backlinks"] = {
+      requirement: "optional", status: "not-used", digest: null
+    };
+    expect(validateJsonSchema(v2, notUsedOptional).valid).toBe(false);
+    const nestedUnknown = structuredClone(fixture);
+    nestedUnknown.occurrences[0].inspector.sourceSelectors = [{ path: "src/runtime.ts", memo: "private body" }];
+    expect(validateJsonSchema(v2, nestedUnknown).valid).toBe(false);
   });
 
   test("retrieval decision gate exposes machine-checkable thresholds", () => {

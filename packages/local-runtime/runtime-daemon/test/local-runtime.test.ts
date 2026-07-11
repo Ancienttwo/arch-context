@@ -4277,6 +4277,12 @@ describe("local runtime foundation", () => {
       expect(bodyV2.data.page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
       expect(JSON.stringify(bodyV2.data)).not.toContain("sourceBody");
       expect(bodyV2.data.capabilities).toMatchObject({ readOnly: true, mutationMode: "forbidden", egress: "none" });
+      const repeatedProjectionV2 = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(repeatedProjectionV2.status).toBe(200);
+      expect(((await repeatedProjectionV2.json()) as any).data.projectionDigest).toBe(bodyV2.data.projectionDigest);
+      expect(localStore.explorerManifestCacheHits).toBe(1);
 
       const taskImpact = await fetch(`${data.url}projection/v2?view=task-impact&taskSessionId=task.explorer-current&maxNodes=5&maxRelations=5`, {
         headers: { Authorization: `Bearer ${data.token}` }
@@ -4524,6 +4530,32 @@ describe("local runtime foundation", () => {
       expect(revoked.status).toBe(401);
       await daemon.stopExplorer();
       expect((daemon.explorerStatus().data as any).running).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("Explorer system-map fails closed when required observed facts are unavailable", async () => {
+    const root = tempRepo();
+    const baseFacts = countingCheckpointFacts().port;
+    const unavailableFacts: CodeFactsPort = {
+      ...baseFacts,
+      async ensureReady() {
+        throw new Error("CodeGraph index missing");
+      }
+    };
+    try {
+      const daemon = await createStartedTestDaemon({ codeFacts: unavailableFacts });
+      await daemon.init(root, "Explorer Required Domain App");
+      const result = await daemon.explorerProjectionV2(root, {
+        schemaVersion: "archcontext.explorer-projection-query/v2",
+        viewId: "system-map",
+        depth: 1,
+        budget: { maxNodes: 5, maxRelations: 5 }
+      });
+      expect(result.ok).toBe(false);
+      expect(result.error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect(result.error?.message).toContain("required-input-unavailable:observed:codegraph-index-missing");
     } finally {
       removeTempRepo(root);
     }

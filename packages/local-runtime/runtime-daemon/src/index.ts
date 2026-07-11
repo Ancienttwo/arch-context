@@ -104,6 +104,7 @@ import {
   ExplorerProjectionCompileError,
   compileExplorerProjection,
   compileExplorerProjectionChanges,
+  compileProjectionInputManifest,
   type ExplorerResolvedBindingV2
 } from "./explorer-projection";
 
@@ -3980,9 +3981,7 @@ export class ArchctxDaemon {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const reasonCode = message.includes("CodeGraph index missing") ? "codegraph-index-missing" : "codegraph-unavailable";
-      if (query.viewId !== "system-map") throw new ExplorerProjectionCompileError("precondition-failed", `${query.viewId} requires observed facts: ${reasonCode}`);
-      observedAvailability = { status: "unavailable", reasonCode };
-      observed = { task, symbols: [], edges: [], evidence: [], digest: digestJson({ observedAvailability } as unknown as Json) };
+      throw new ExplorerProjectionCompileError("precondition-failed", `required-input-unavailable:observed:${reasonCode}`);
     }
     const scope = { repository: readback.repository, worktree: readback.worktree };
     await this.processArchitectureChangeFeed(root, scope);
@@ -4013,13 +4012,15 @@ export class ArchctxDaemon {
     const authorityCursor = replay.cursor.lastEventId && replayGraphDigest === readback.graphDigest
       ? explorerAuthorityCursorFromReplay(scope, replay)
       : null;
-    const projection = compileExplorerProjection({
+    const projectionInput = {
       query,
       repository: readback.repository,
       worktree: readback.worktree,
+      authoritySource: authorityCursor ? "ledger" as const : "git" as const,
       authorityCursor,
       graph: readback.state,
       graphDigest: readback.graphDigest,
+      evidenceStateDigest: evidenceState.stateDigest,
       observed,
       bindings: explorerResolvedBindings(evidenceState),
       pressure,
@@ -4028,7 +4029,22 @@ export class ArchctxDaemon {
       eventBacklinks,
       observedAvailability,
       tokenRequired: true
-    });
+    };
+    const inputManifest = compileProjectionInputManifest(projectionInput);
+    let cached: ExplorerProjectionV2 | undefined;
+    try {
+      cached = await this.localStore.readExplorerProjectionByManifest({
+        ...scope,
+        manifestDigest: inputManifest.manifestDigest
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("explorer-projection-cache-")) {
+        throw new ExplorerProjectionCompileError("precondition-failed", error.message);
+      }
+      throw error;
+    }
+    if (cached) return cached;
+    const projection = compileExplorerProjection(projectionInput);
     const previous = await this.localStore.readLatestExplorerProjection({ ...scope, viewId: projection.view.id });
     const changedDependencyKeys = previous ? explorerChangedDependencyKeys(previous, projection) : [];
     const affectedOccurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys: changedDependencyKeys });
