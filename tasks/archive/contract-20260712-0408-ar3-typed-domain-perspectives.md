@@ -1,3 +1,9 @@
+> **Archived**: 2026-07-12 04:08
+> **Related Plan**: plans/archive/plan-20260712-0349-ar3-typed-domain-perspectives.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260712-0408
+
 # Task Contract: ar3-typed-domain-perspectives
 
 > **Status**: Fulfilled

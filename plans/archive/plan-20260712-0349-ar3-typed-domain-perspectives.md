@@ -1,6 +1,6 @@
 # Plan: AR3 Typed Data-Flow and External Integrations
 
-> **Status**: Completed
+> **Status**: Archived
 > **Created**: 20260712-0349
 > **Slug**: ar3-typed-domain-perspectives
 > **Planning Source**: repo-harness-sprint
