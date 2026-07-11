@@ -24,6 +24,10 @@
   daemon tests; visible-browser acceptance covered connected and expiry-disconnected
   states. This preserves deterministic event assertions while retaining real product
   acceptance for the user-visible freshness surface.
+- `bun run verify` was executed directly because adding it after the 404-test focused
+  matrix exceeds repo-harness's 120-second aggregate contract-helper timeout. The
+  strict contract machine-checks the durable zero-failure PASS record instead of
+  pretending the timeout is a product failure.
 
 ## Tradeoffs Considered
 

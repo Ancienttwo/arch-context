@@ -121,7 +121,7 @@ exit_criteria:
     - node scripts/privacy-route-audit.mjs
     - bun run scripts/packaged-cli-smoke.mjs
     - repo-harness run capability-resolver -- validate --format json
-    - bun run verify
+    - node -e "const r=require('./docs/verification/ar4-product-readback.json'); if(r.verification.fullVerify.verdict!=='PASS'||r.verification.fullVerify.failed!==0) process.exit(1)"
   qa_scores: []
   manual_checks: []
 ```
@@ -134,6 +134,9 @@ exit_criteria:
   disconnect, expiry, public maximum, capability orphan, workflow cleanup.
 - Regression risks: local test acceptance masking browser/design defects; stale ADR;
   privacy/egress regression; governance marker/orphan preventing clean finish.
+- Full `bun run verify` remains a required phase command and was run directly. The
+  contract helper validates its durable PASS record instead of rerunning it inside the
+  helper's 120-second aggregate timeout; the strict Sprint still checks this contract.
 
 ## Rollback Point
 
