@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-07-12T03:16:03+0800 -->
+<!-- updated_at: 2026-07-12T03:30:23+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: Idle
-> **Updated At**: 2026-07-12T03:16:03+0800
-> **Source Branch**: codex/ar0-deterministic-topology-kernel
-> **Source Commit**: 6817d82
+> **Updated At**: 2026-07-12T03:30:23+0800
+> **Source Branch**: codex/ar1-navigation-live-freshness
+> **Source Commit**: b328f89
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -52,18 +52,18 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 
 ```
  M packages/local-runtime/explorer-html/src/index.ts
+ M packages/local-runtime/explorer-html/src/topology.ts
+ M packages/local-runtime/runtime-daemon/src/index.ts
+ M packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
  M packages/surfaces/explorer-ui/test/explorer-ui.test.ts
- M scripts/explorer-view-compiler-readback.mjs
- M tasks/todos.md
-?? docs/verification/explorer-ar0-topology-readback.json
-?? docs/verification/explorer-ar0-topology-readback.md
-?? packages/local-runtime/explorer-html/src/topology.ts
-?? packages/local-runtime/explorer-html/test/
-?? plans/archive/plan-20260712-0301-ar0-deterministic-topology-kernel.md
-?? tasks/archive/contract-20260712-0316-ar0-deterministic-topology-kernel.md
-?? tasks/archive/notes-20260712-0316-ar0-deterministic-topology-kernel.md
-?? tasks/archive/review-20260712-0316-ar0-deterministic-topology-kernel.md
-?? tasks/archive/todo-20260712-0316-ar0-deterministic-topology-kernel.md
+?? docs/verification/explorer-ar1-navigation-freshness-readback.json
+?? docs/verification/explorer-ar1-navigation-freshness-readback.md
+?? packages/local-runtime/explorer-html/test/runtime-script.test.ts
+?? plans/archive/plan-20260712-0317-ar1-navigation-live-freshness.md
+?? tasks/archive/contract-20260712-0330-ar1-navigation-live-freshness.md
+?? tasks/archive/notes-20260712-0330-ar1-navigation-live-freshness.md
+?? tasks/archive/review-20260712-0330-ar1-navigation-live-freshness.md
+?? tasks/archive/todo-20260712-0330-ar1-navigation-live-freshness.md
 ```
 
 ## Source Artifacts

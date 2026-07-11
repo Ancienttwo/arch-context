@@ -121,6 +121,10 @@ describe("@archcontext/surfaces/explorer-ui V2", () => {
     expect(html).toContain('aria-label="Bounded architecture topology"');
     expect(html).toContain("<svg");
     expect(html).not.toContain("map-node");
+    expect(html).toContain('data-topology-viewport');
+    expect(html).toContain('data-topology-action="fit"');
+    expect(html).toContain('id="live-status"');
+    expect(html).toContain("prefers-reduced-motion:reduce");
     expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|https?:\/\//);
   });
 
@@ -130,6 +134,7 @@ describe("@archcontext/surfaces/explorer-ui V2", () => {
     expect(html).toContain('data-level="overview"');
     expect(html).toContain("Owns local runtime orchestration.");
     expect(html).toContain("projection-invalidated");
+    expect(html).toContain("authority-changed");
     expect(html).toContain(projection.projectionDigest);
     expect(html).not.toContain("sourceBody");
   });

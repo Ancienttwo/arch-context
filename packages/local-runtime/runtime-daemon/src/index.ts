@@ -6652,7 +6652,7 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
 function writeHtml(response: ServerResponse, statusCode: number, body: string): void {
   response.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+    "Content-Security-Policy": "default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   });
   response.end(body);
 }

@@ -4565,6 +4565,18 @@ describe("local runtime foundation", () => {
       expect(sse.headers.get("content-type")).toContain("text/event-stream");
       const reader = sse.body!.getReader();
       await reader.read();
+      await fetch(`${data.url}projection/v2?level=overview&maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      const projectionInvalidationChunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Explorer projection invalidation timeout")), 2_000))
+      ]);
+      const projectionInvalidationText = new TextDecoder().decode(projectionInvalidationChunk.value);
+      expect(projectionInvalidationText).toContain("projection-invalidated");
+      expect(projectionInvalidationText).toContain("viewDefinitionDigest");
+      expect(projectionInvalidationText).toContain("projectionDigest");
+      expect(projectionInvalidationText).not.toContain("sourceBody");
       const updatedEvidenceItem = {
         ...evidenceItem,
         summary: "Explorer lifecycle binding updated",
@@ -4619,7 +4631,7 @@ describe("local runtime foundation", () => {
       const html = await fetch(`${data.url}?token=${data.token}`);
       expect(html.status).toBe(200);
       expect(html.headers.get("content-type")).toContain("text/html");
-      expect(html.headers.get("content-security-policy")).toContain("connect-src 'self'");
+      expect(html.headers.get("content-security-policy")).toBe("default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
       const htmlBody = await html.text();
       expect(htmlBody).toContain("ArchContext Explorer");
       expect(htmlBody).toContain("read-only · local · no egress");
@@ -4632,6 +4644,29 @@ describe("local runtime foundation", () => {
       expect(revoked.status).toBe(401);
       await daemon.stopExplorer();
       expect((daemon.explorerStatus().data as any).running).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("Explorer token expiry fails closed for HTML and SSE without ambient authentication", async () => {
+    const root = tempRepo();
+    let now = "2026-06-20T00:00:00.000Z";
+    try {
+      const daemon = await createStartedTestDaemon({ clock: () => now });
+      await daemon.init(root, "Explorer Token Expiry App");
+      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 1 });
+      const data = started.data as any;
+      const beforeExpiry = await fetch(`${data.url}?token=${data.token}`);
+      expect(beforeExpiry.status).toBe(200);
+      now = "2026-06-20T00:00:02.000Z";
+      const expiredHtml = await fetch(`${data.url}?token=${data.token}`);
+      expect(expiredHtml.status).toBe(401);
+      const expiredSse = await fetch(`${data.url}events?token=${data.token}`);
+      expect(expiredSse.status).toBe(401);
+      const ambient = await fetch(data.url, { headers: { Cookie: `token=${data.token}` } });
+      expect(ambient.status).toBe(401);
+      await daemon.stopExplorer();
     } finally {
       removeTempRepo(root);
     }

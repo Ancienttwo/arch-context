@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "archcontext.explorer-ar1-navigation-freshness-readback/v1",
+  "capturedAt": "2026-07-12T03:28:00+08:00",
+  "urlState": {
+    "exactExpandToggle": "PASS",
+    "unrelatedRepeatedExpandPreserved": "PASS",
+    "tokenBudgetDepthTaskAndViewStatePreserved": "PASS",
+    "focusSetsDetail": "PASS",
+    "breadcrumbOverviewRemovesOnlyFocus": "PASS"
+  },
+  "visualInteraction": {
+    "fitZoomPanTransient": "PASS",
+    "networkRequests": 0,
+    "editableKeyboardTargetsIgnored": "PASS",
+    "reducedMotionRule": "PASS",
+    "staticNoJavaScriptSurface": "PASS"
+  },
+  "liveFreshness": {
+    "authorityChanged": "unconditional shared debounce",
+    "projectionInvalidated": "matching view definition plus changed projection digest",
+    "burstReloadCount": 1,
+    "malformedPayload": "close and disconnected",
+    "eventSourceError": "close and disconnected",
+    "missingOrExpiredToken": "fail closed"
+  },
+  "security": {
+    "contentSecurityPolicy": "default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "ambientCookieAuthentication": "rejected",
+    "externalAssets": [],
+    "compatibilityPaths": []
+  },
+  "focusedTests": {
+    "runtimeScript": 4,
+    "explorerSurface": 2,
+    "runtimeDaemonSuite": 93,
+    "explorerProjectionRegression": 16,
+    "total": 115,
+    "failed": 0
+  },
+  "typecheck": "PASS",
+  "verifyExplorer": "PASS",
+  "verdict": "PASS"
+}
