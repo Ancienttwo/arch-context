@@ -59,7 +59,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0014_architecture_change_feed",
       "0015_snapshot_anchor_v2",
       "0016_manifest_addressed_projection_cache",
-      "0017_explorer_cache_lifecycle"
+      "0017_explorer_cache_lifecycle",
+      "0018_immutable_evidence_checkpoints"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -348,6 +349,48 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await restarted.migrate();
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM explorer_occurrence_dependencies")).toBe(0);
       restarted.close();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("immutable evidence checkpoint migration upgrades an already-applied 0017 database", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-evidence-checkpoint-0018-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const database = new Database(databasePath);
+    try {
+      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 17)) {
+        for (const statement of migration.statements) database.exec(statement);
+        database.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)")
+          .run(migration.id, "2026-07-11T00:00:00.000Z");
+      }
+      const oldColumns = database.prepare("PRAGMA table_info(architecture_evidence_state_checkpoints)").all()
+        .map((row) => String((row as Record<string, unknown>).name));
+      expect(oldColumns).not.toContain("event_sequence");
+    } finally {
+      database.close();
+    }
+
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const migrated = new Database(databasePath);
+      const columns = migrated.prepare("PRAGMA table_info(architecture_evidence_state_checkpoints)").all()
+        .map((row) => String((row as Record<string, unknown>).name));
+      const triggers = migrated.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'architecture_evidence_state_checkpoints_immutable_%' ORDER BY name"
+      ).all().map((row) => String((row as Record<string, unknown>).name));
+      migrated.close();
+      expect(columns).toEqual(expect.arrayContaining(["event_sequence", "scope_event_count"]));
+      expect(triggers).toEqual([
+        "architecture_evidence_state_checkpoints_immutable_delete",
+        "architecture_evidence_state_checkpoints_immutable_update"
+      ]);
+
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [architectureLedgerEvent(0)] });
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_evidence_state_checkpoints")).toBe(1);
+      expect(await sqliteScalar(databasePath, "SELECT event_sequence AS value FROM architecture_evidence_state_checkpoints")).toBe(1);
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });
@@ -1234,7 +1277,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0014_architecture_change_feed",
       "0015_snapshot_anchor_v2",
       "0016_manifest_addressed_projection_cache",
-      "0017_explorer_cache_lifecycle"
+      "0017_explorer_cache_lifecycle",
+      "0018_immutable_evidence_checkpoints"
     ]);
 
     const snapshot = {

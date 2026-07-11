@@ -16,9 +16,9 @@
   was expanded only for migration/readback compatibility files required by full verify.
 - Actual files changed: contracts/schemas, architecture delta/ledger, SQLite store,
   daemon HTTP/RPC, CLI, Explorer fixtures/tests, ADR, readback, and workflow artifacts.
-- Commands passed: every phase contract/readback; final focused 205-test matrix;
+- Commands passed: every phase contract/readback; final focused 206-test matrix;
   `bun run typecheck`; package-boundary and privacy audits; final `bun run verify`
-  with 1062 tests; 10k/100k Explorer benchmarks; packaged CLI and eval gates.
+  with 1063 tests; 10k/100k Explorer benchmarks; packaged CLI and eval gates.
 - External acceptance: not applicable to this local data-engine phase.
 - Residual risks: no verified program finding remains; SQLite remains operational,
   Git-visible `.archcontext/` remains product authority.
@@ -199,10 +199,11 @@ over Git-visible product authority. All phase and holistic `$check` findings are
   verified finding. Fixes cover atomic save/GC, source-bound readback, trusted canonical
   clocks, TestLocalStore transaction/metrics parity, metric overflow/content rejection,
   actual byte accounting, scoped orphans, and persisted pin tamper recovery.
-- Full verification: `bun run verify` passes 1062 tests with 0 failures; package
+- Full verification: `bun run verify` passes 1063 tests with 0 failures; package
   boundaries, production mock reachability, Explorer, packaged CLI, privacy, GitHub
   contract, acceptance ledgers, sprint status, and representative eval all PASS.
-- Migration packaging evidence now recognizes `0017_explorer_cache_lifecycle`, the
+- Migration packaging evidence now recognizes `0017_explorer_cache_lifecycle`,
+  `0018_immutable_evidence_checkpoints`, the
   metrics table, and cache accounting signatures; its focused readback tests pass.
 - Final DE5 record/readback is source-digest bound to the current contract, code,
   tests, ADR, runbook, plan, notes, review, package scripts, and migration packaging
@@ -213,8 +214,10 @@ over Git-visible product authority. All phase and holistic `$check` findings are
 - Duplicate append lookup now selects and validates the complete stored event row;
   event JSON, denormalized scope, payload/provenance, chain hash, and event hash must
   all agree before idempotency can return an existing event.
-- Migration `0017_explorer_cache_lifecycle` also creates one immutable, append-only
-  evidence-state checkpoint per event. It binds scope, global sequence, scope count,
+- Migration `0017_explorer_cache_lifecycle` creates the original derived checkpoint;
+  additive migration `0018_immutable_evidence_checkpoints` upgrades it to one immutable,
+  append-only evidence-state checkpoint per event without rewriting migration history.
+  It binds scope, global sequence, scope count,
   event/hash, and evidence digest. New events append feed/checkpoint atomically;
   historical rows build them only after replay and materialized-state verification.
 - Explorer authority uses an O(1) latest event/feed/checkpoint join. A feed-only digest

@@ -66,6 +66,7 @@ if (mode === "run") {
     invariants: {
       additiveLifecycleMigration: contractsSource.includes("ExplorerProjectionCachePolicyV1")
         && storeSource.includes('id: "0017_explorer_cache_lifecycle"')
+        && storeSource.includes('id: "0018_immutable_evidence_checkpoints"')
         && storeSource.includes("explorer_runtime_metrics")
         && storeSource.includes("body_bytes")
         && storeSource.includes("pinned_until"),

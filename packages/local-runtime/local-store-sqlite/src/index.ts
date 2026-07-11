@@ -807,6 +807,24 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       `CREATE TABLE IF NOT EXISTS architecture_evidence_state_checkpoints (
         storage_repository_id TEXT NOT NULL,
         storage_workspace_id TEXT NOT NULL,
+        event_id TEXT NOT NULL,
+        event_hash TEXT NOT NULL,
+        evidence_state_digest TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id),
+        FOREIGN KEY(event_id) REFERENCES architecture_events(event_id)
+      )`
+    ]
+  },
+  {
+    id: "0018_immutable_evidence_checkpoints",
+    statements: [
+      "DROP TRIGGER IF EXISTS architecture_evidence_state_checkpoints_immutable_update",
+      "DROP TRIGGER IF EXISTS architecture_evidence_state_checkpoints_immutable_delete",
+      "DROP TABLE architecture_evidence_state_checkpoints",
+      `CREATE TABLE architecture_evidence_state_checkpoints (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
         event_id TEXT PRIMARY KEY,
         event_sequence INTEGER NOT NULL CHECK(event_sequence > 0),
         scope_event_count INTEGER NOT NULL CHECK(scope_event_count > 0),

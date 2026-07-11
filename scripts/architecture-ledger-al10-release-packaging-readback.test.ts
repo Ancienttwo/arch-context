@@ -25,7 +25,7 @@ describe("AL10 release packaging readback evidence", () => {
     const result = inspectArchitectureLedgerAl10ReleasePackagingReadback(packet);
 
     expect(result.ok).toBe(false);
-    expect(result.failures).toContain("migrationMatrix must include 5 supported states");
+    expect(result.failures).toContain("migrationMatrix must include 6 supported states");
     expect(result.failures).toContain("migrationMatrix missing pre-ledger-0005");
     expect(result.failures).toContain("fresh-empty: migration must pass");
     expect(result.failures).toContain("fresh-empty: integrity must be ok");
@@ -85,7 +85,8 @@ function completePacket(): any {
       migrationRow("pre-ledger-0005", 5),
       migrationRow("ledger-v1-0006", 6),
       migrationRow("pre-search-fts-0008", 8),
-      migrationRow("current-0017", 17)
+      migrationRow("current-0017", 17),
+      migrationRow("current-0018", 18)
     ],
     releasePackage: {
       fg6: {
@@ -122,7 +123,7 @@ function completePacket(): any {
       },
       packageFiles: ["bin/archctx.mjs", "package.json", "README.md"],
       bundleSignatures: [
-        signatureGroup("migrations", 25),
+        signatureGroup("migrations", 26),
         signatureGroup("hooks", 5),
         signatureGroup("renderers", 5),
         signatureGroup("agent-adapter-contracts", 7)
@@ -158,9 +159,9 @@ function migrationRow(id: string, fromAppliedCount: number): any {
     id,
     from: id,
     fromAppliedCount,
-    toAppliedCount: 17,
+    toAppliedCount: 18,
     fromLatestMigrationId: fromAppliedCount === 0 ? null : `000${fromAppliedCount}_migration`,
-    toLatestMigrationId: "0017_explorer_cache_lifecycle",
+    toLatestMigrationId: "0018_immutable_evidence_checkpoints",
     fromHasLedgerTables: fromAppliedCount >= 9,
     toHasLedgerTables: true,
     missingTables: [],

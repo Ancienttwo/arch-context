@@ -50,9 +50,14 @@
       "applyCount": 8
     },
     {
-      "id": "current-0009",
-      "from": "0009_architecture_ledger_search_fts",
-      "applyCount": 9
+      "id": "current-0017",
+      "from": "0017_explorer_cache_lifecycle",
+      "applyCount": 17
+    },
+    {
+      "id": "current-0018",
+      "from": "0018_immutable_evidence_checkpoints",
+      "applyCount": 18
     }
   ],
   "migrationIds": [
@@ -64,16 +69,25 @@
     "0006_architecture_ledger",
     "0007_runtime_job_queue",
     "0008_runtime_job_queue_hardening",
-    "0009_architecture_ledger_search_fts"
+    "0009_architecture_ledger_search_fts",
+    "0010_audit_runs",
+    "0011_changeset_cleanup_cursor",
+    "0012_explorer_projection_index",
+    "0013_evidence_lifecycle",
+    "0014_architecture_change_feed",
+    "0015_snapshot_anchor_v2",
+    "0016_manifest_addressed_projection_cache",
+    "0017_explorer_cache_lifecycle",
+    "0018_immutable_evidence_checkpoints"
   ],
   "migrationMatrix": [
     {
       "id": "fresh-empty",
       "from": "empty local store",
       "fromAppliedCount": 0,
-      "toAppliedCount": 9,
+      "toAppliedCount": 18,
       "fromLatestMigrationId": null,
-      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -85,9 +99,9 @@
       "id": "pre-ledger-0005",
       "from": "0005_external_docs_cache",
       "fromAppliedCount": 5,
-      "toAppliedCount": 9,
+      "toAppliedCount": 18,
       "fromLatestMigrationId": "0005_external_docs_cache",
-      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -99,9 +113,9 @@
       "id": "ledger-v1-0006",
       "from": "0006_architecture_ledger",
       "fromAppliedCount": 6,
-      "toAppliedCount": 9,
+      "toAppliedCount": 18,
       "fromLatestMigrationId": "0006_architecture_ledger",
-      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -113,9 +127,9 @@
       "id": "pre-search-fts-0008",
       "from": "0008_runtime_job_queue_hardening",
       "fromAppliedCount": 8,
-      "toAppliedCount": 9,
+      "toAppliedCount": 18,
       "fromLatestMigrationId": "0008_runtime_job_queue_hardening",
-      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -124,12 +138,26 @@
       "passed": true
     },
     {
-      "id": "current-0009",
-      "from": "0009_architecture_ledger_search_fts",
-      "fromAppliedCount": 9,
-      "toAppliedCount": 9,
-      "fromLatestMigrationId": "0009_architecture_ledger_search_fts",
-      "toLatestMigrationId": "0009_architecture_ledger_search_fts",
+      "id": "current-0017",
+      "from": "0017_explorer_cache_lifecycle",
+      "fromAppliedCount": 17,
+      "toAppliedCount": 18,
+      "fromLatestMigrationId": "0017_explorer_cache_lifecycle",
+      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "fromHasLedgerTables": true,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    },
+    {
+      "id": "current-0018",
+      "from": "0018_immutable_evidence_checkpoints",
+      "fromAppliedCount": 18,
+      "toAppliedCount": 18,
+      "fromLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
       "fromHasLedgerTables": true,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -147,31 +175,30 @@
     },
     "package": {
       "name": "archctx",
-      "version": "0.1.4-beta.0",
+      "version": "0.2.3",
       "private": false,
       "bin": {
-        "archctx": "./bin/archctx.mjs",
-        "codegraph": "./bin/codegraph.mjs"
+        "archctx": "./bin/archctx.mjs"
       },
       "engines": {
         "node": ">=24 <26"
       },
       "dependencies": {
-        "@colbymchenry/codegraph": "1.0.1",
+        "@colbymchenry/codegraph": "1.4.0",
         "@node-rs/jieba": "^2.0.1"
       }
     },
     "artifact": {
       "artifactDir": "_ops/npm/al10-release-packaging",
-      "tarball": "archctx-0.1.4-beta.0.tgz",
-      "tarballSha256": "sha256:87bc02be0a03f6c0b7d91abdf45f55638030741c912024e44aad019bfb304566",
-      "tarballBytes": 273998,
-      "unpackedBytes": 1444220
+      "tarball": "archctx-0.2.3.tgz",
+      "tarballSha256": "sha256:8321c301f03d816c9514a12de2859beec29efa1de5a25e1686e88fa56bce3133",
+      "tarballBytes": 374856,
+      "unpackedBytes": 2003467
     },
     "bin": {
       "path": "bin/archctx.mjs",
-      "bytes": 1184447,
-      "sha256": "sha256:d3b860353222bae8ffc01aa9c0b733fa8b719e01926f9b240d38f046e0016add",
+      "bytes": 1705389,
+      "sha256": "sha256:9401f6e0ef4d47a8532f0df616fd7e9fddc7065dbbed6c1ff02466700eee30f5",
       "shebang": "#!/usr/bin/env node"
     },
     "packageFiles": [
@@ -196,7 +223,6 @@
       "assets/sources/core.yaml",
       "assets/sources/s6.yaml",
       "bin/archctx.mjs",
-      "bin/codegraph.mjs",
       "package.json",
       "schemas/cloud/attestation-v2.schema.json",
       "schemas/cloud/attestation.schema.json",
@@ -233,7 +259,10 @@
       "schemas/runtime/changeset.schema.json",
       "schemas/runtime/evidence-binding.schema.json",
       "schemas/runtime/evidence-item.schema.json",
-      "schemas/runtime/explorer-projection.schema.json",
+      "schemas/runtime/explorer-delta-query.schema.json",
+      "schemas/runtime/explorer-projection-delta.schema.json",
+      "schemas/runtime/explorer-projection-query-v2.schema.json",
+      "schemas/runtime/explorer-projection-v2.schema.json",
       "schemas/runtime/explorer-service.schema.json",
       "schemas/runtime/external-document-resource.schema.json",
       "schemas/runtime/investigation-report.schema.json",
@@ -259,8 +288,8 @@
       {
         "id": "migrations",
         "description": "SQLite architecture ledger migrations and current tables",
-        "requiredCount": 5,
-        "presentCount": 5,
+        "requiredCount": 26,
+        "presentCount": 26,
         "missing": [],
         "passed": true
       },
@@ -300,7 +329,7 @@
       "noSourceFilesPackaged": true
     }
   },
-  "readbackDigest": "sha256:c9d8aeba962a01d4faf414da40f873c207804a4952bab80bd87c0db9c69aeb7b",
+  "readbackDigest": "sha256:611bdf0940139a4dd37d65e0a3c124a5c765b0e90597486fc369981d6c7a29c3",
   "assertions": {
     "AL10-10": true,
     "AL10-11": true,

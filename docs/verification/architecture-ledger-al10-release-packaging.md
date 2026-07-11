@@ -10,25 +10,26 @@
 
 | State | From applied | To applied | Latest migration | Integrity | Result |
 | --- | ---: | ---: | --- | --- | --- |
-| fresh-empty | 0 | 9 | 0009_architecture_ledger_search_fts | ok | pass |
-| pre-ledger-0005 | 5 | 9 | 0009_architecture_ledger_search_fts | ok | pass |
-| ledger-v1-0006 | 6 | 9 | 0009_architecture_ledger_search_fts | ok | pass |
-| pre-search-fts-0008 | 8 | 9 | 0009_architecture_ledger_search_fts | ok | pass |
-| current-0009 | 9 | 9 | 0009_architecture_ledger_search_fts | ok | pass |
+| fresh-empty | 0 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
+| pre-ledger-0005 | 5 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
+| ledger-v1-0006 | 6 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
+| pre-search-fts-0008 | 8 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
+| current-0017 | 17 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
+| current-0018 | 18 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
 
 ## Package Bundle
 
-- Package: archctx@0.1.4-beta.0
-- Tarball: archctx-0.1.4-beta.0.tgz
-- Package files: 79
-- CLI bytes: 1184447
-- CLI digest: sha256:d3b860353222bae8ffc01aa9c0b733fa8b719e01926f9b240d38f046e0016add
+- Package: archctx@0.2.3
+- Tarball: archctx-0.2.3.tgz
+- Package files: 81
+- CLI bytes: 1705389
+- CLI digest: sha256:9401f6e0ef4d47a8532f0df616fd7e9fddc7065dbbed6c1ff02466700eee30f5
 
 ## Bundle Signatures
 
 | Group | Present | Required | Missing |
 | --- | ---: | ---: | --- |
-| migrations | 5 | 5 | - |
+| migrations | 26 | 26 | - |
 | hooks | 5 | 5 | - |
 | renderers | 5 | 5 | - |
 | agent-adapter-contracts | 7 | 7 | - |
