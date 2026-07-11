@@ -1,10 +1,10 @@
 # Implementation Notes: data-engine-authority-incremental
 
-> **Status**: DE0-DE3 Complete
+> **Status**: DE0-DE5 Complete
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Review**: tasks/reviews/20260711-1328-data-engine-authority-incremental.review.md
-> **Last Updated**: 2026-07-11 18:20
+> **Last Updated**: 2026-07-11 20:58
 > **Lifecycle**: notes
 
 ## Design Decisions
@@ -166,7 +166,14 @@
   fixed. Final reviewers report PASS. Regression coverage includes GC fault rollback,
   source-digest readback staleness, offset/invalid/overlong pins, metric content and
   overflow, mutable byte accounting, TestLocalStore rollback, and 160-manifest churn.
-- Final full `bun run verify` passes 1060 tests with 0 failures. The new migration is
+- Final holistic hardening validates a duplicate append by re-reading the complete
+  stored event row through the canonical row/JSON/hash/scope validator. A forged
+  `event_json` can no longer become an accepted idempotent success.
+- Evidence-state authority now has an independent per-scope checkpoint, written in
+  the same event/feed transaction and reconstructed only after verified historical
+  replay. Explorer cross-checks the latest feed event/hash/digest against this row in
+  O(1), and feed backfill rejects an existing row that differs from replay authority.
+- Final full `bun run verify` passes 1061 tests with 0 failures. The new migration is
   included in AL10 migration/package signatures, and all privacy, acceptance-ledger,
   sprint-status, packaged CLI, Explorer, governance, and eval gates pass.
 

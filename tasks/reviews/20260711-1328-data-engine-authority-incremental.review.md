@@ -1,26 +1,29 @@
 # Task Review: data-engine-authority-incremental
 
-> **Status**: DE0-DE3 Passed
+> **Status**: DE0-DE5 Passed
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Notes File**: tasks/notes/20260711-1328-data-engine-authority-incremental.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
-> **Last Updated**: 2026-07-11 18:33
-> **Recommendation**: pass DE3; continue to DE4
+> **Last Updated**: 2026-07-11 20:58
+> **Recommendation**: pass the complete DE0-DE5 program; merge to main
 
 ## Human Review Card
 
-- Verdict: pass for the bounded DE0 contract.
+- Verdict: pass for the complete DE0-DE5 program and every bounded phase contract.
 - Change type: code-change + migration + shared contract.
 - Intended files changed: DE0 contract paths only; the contract Allowed Paths list
   was expanded only for migration/readback compatibility files required by full verify.
 - Actual files changed: contracts/schemas, architecture delta/ledger, SQLite store,
   daemon HTTP/RPC, CLI, Explorer fixtures/tests, ADR, readback, and workflow artifacts.
-- Commands passed: contract preflight; focused 394-test matrix; `bun run typecheck`;
-  package-boundary audit; DE0 readback; `bun run verify` with 1030 tests.
+- Commands passed: every phase contract/readback; final focused 183-test matrix;
+  `bun run typecheck`; package-boundary and privacy audits; final `bun run verify`
+  with 1061 tests; 10k/100k Explorer benchmarks; packaged CLI and eval gates.
 - External acceptance: not applicable to this local data-engine phase.
-- Residual risks: none inside DE0; DE1-DE5 remain deliberately open in the program plan.
-- Rollback: revert the DE0 checkpoint commit; do not edit authoritative event history.
+- Residual risks: no verified program finding remains; SQLite remains operational,
+  Git-visible `.archcontext/` remains product authority.
+- Rollback: revert the phase commits and rebuild disposable indexes/cache; do not edit
+  authoritative event history or SQL-reverse an accepted mutation.
 
 ## Mode Evidence
 
@@ -87,22 +90,21 @@
 
 ## Failing Items
 
-- None for DE0.
+- None for DE0-DE5.
 
 ## Retest Steps
 
-1. `bun run readback:de0:data-engine`
-2. `bun run verify`
-3. Inspect `docs/verification/data-engine-de0-readback.json` for `verdict: PASS`.
+1. Run `bun run readback:de0:data-engine` through `bun run readback:de5:data-engine`.
+2. Run `bun run verify`.
+3. Inspect every `docs/verification/data-engine-de*-readback.json` for `verdict: PASS`.
 
 ## Summary
 
-DE0, DE1, and DE2 satisfy their bounded contracts. DE1 adds an atomic typed subject/feed
-boundary, indexed backlinks, restart-safe feed consumption, and digest-only Explorer
-invalidation; DE2 adds verified Snapshot V2 anchors and O(tail) normal replay without
-promoting SQLite over Git-visible authority. The complete program is not done: DE3-DE5
-remain unchecked and must land sequentially before final
-merge/cleanup back to main.
+DE0-DE5 satisfy their bounded contracts. The combined engine separates delta authority,
+appends a transactional subject/feed index, restores verified snapshots plus bounded
+tails, addresses projections by complete manifests, executes canonical bounded reads,
+and retains only policy-bounded disposable cache/metric state. SQLite is not promoted
+over Git-visible product authority. All phase and holistic `$check` findings are closed.
 
 ## DE1 Acceptance Addendum
 
@@ -197,7 +199,7 @@ merge/cleanup back to main.
   verified finding. Fixes cover atomic save/GC, source-bound readback, trusted canonical
   clocks, TestLocalStore transaction/metrics parity, metric overflow/content rejection,
   actual byte accounting, scoped orphans, and persisted pin tamper recovery.
-- Full verification: `bun run verify` passes 1060 tests with 0 failures; package
+- Full verification: `bun run verify` passes 1061 tests with 0 failures; package
   boundaries, production mock reachability, Explorer, packaged CLI, privacy, GitHub
   contract, acceptance ledgers, sprint status, and representative eval all PASS.
 - Migration packaging evidence now recognizes `0017_explorer_cache_lifecycle`, the
@@ -205,3 +207,17 @@ merge/cleanup back to main.
 - Final DE5 record/readback is source-digest bound to the current contract, code,
   tests, ADR, runbook, plan, notes, review, package scripts, and migration packaging
   verifier. `readback:de5:data-engine` rejects any later drift.
+
+## Holistic Security Hardening Addendum
+
+- Duplicate append lookup now selects and validates the complete stored event row;
+  event JSON, denormalized scope, payload/provenance, chain hash, and event hash must
+  all agree before idempotency can return an existing event.
+- Migration `0017_explorer_cache_lifecycle` also creates one evidence-state checkpoint
+  per ledger scope. New events update feed and checkpoint atomically; historical rows
+  build checkpoints only after replay and materialized-state verification.
+- Explorer authority uses an O(1) latest event/feed/checkpoint join. A feed-only digest
+  mutation fails with `explorer-projection-authority-evidence-checkpoint-mismatch`.
+  Backfill independently compares every existing feed row with recomputed authority.
+- Regressions cover forged stored event JSON and forged latest feed evidence digest.
+  The final holistic architecture and security re-review found no remaining issue.

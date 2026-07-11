@@ -122,7 +122,7 @@ function completePacket(): any {
       },
       packageFiles: ["bin/archctx.mjs", "package.json", "README.md"],
       bundleSignatures: [
-        signatureGroup("migrations", 21),
+        signatureGroup("migrations", 23),
         signatureGroup("hooks", 5),
         signatureGroup("renderers", 5),
         signatureGroup("agent-adapter-contracts", 7)

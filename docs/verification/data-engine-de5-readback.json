@@ -1,9 +1,9 @@
 {
   "schemaVersion": "archcontext.data-engine-de5-readback/v1",
-  "generatedAt": "2026-07-11T12:38:33.603Z",
-  "baselineCommit": "c48969451d45c9a082d019e6cb2e035a5d1a2fab",
+  "generatedAt": "2026-07-11T13:00:04.146Z",
+  "baselineCommit": "92be322c28fc0c98f252c45d3a24ce36513e877f",
   "branch": "codex/data-engine-authority-incremental",
-  "sourceDigest": "sha256:6db423d5eaac8ba1fd86cac9906f485cb468e4eecd0d08829821a79375470a31",
+  "sourceDigest": "sha256:15212ea34091f57fc60d43131e18cba62d35ae7ec059163f4f52468bb9d6a163",
   "policy": {
     "schemaVersion": "archcontext.explorer-cache-policy/v1",
     "defaultMaxEntriesPerScope": 128,
@@ -17,13 +17,13 @@
       "entityCount": 10000,
       "relationCount": 9999,
       "durationsMs": [
-        0.62,
-        0.79,
+        0.61,
+        0.73,
         0.83,
-        0.88,
-        1.76
+        0.89,
+        1.71
       ],
-      "p95Ms": 1.76,
+      "p95Ms": 1.71,
       "returnedNodes": 50,
       "returnedRelations": 49,
       "omittedNodeCount": 9950,
@@ -35,13 +35,13 @@
       "entityCount": 100000,
       "relationCount": 99999,
       "durationsMs": [
+        0.45,
+        0.48,
         0.49,
-        0.51,
-        0.51,
-        0.58,
-        0.68
+        0.5,
+        0.58
       ],
-      "p95Ms": 0.68,
+      "p95Ms": 0.58,
       "returnedNodes": 50,
       "returnedRelations": 49,
       "omittedNodeCount": 99950,
@@ -65,7 +65,7 @@
       "command": "bun run typecheck",
       "ok": true,
       "exitCode": 0,
-      "durationMs": 4812,
+      "durationMs": 3902,
       "stdoutDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "stderrDigest": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
     },
@@ -73,23 +73,23 @@
       "command": "bun test packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon",
       "ok": true,
       "exitCode": 0,
-      "durationMs": 27980,
+      "durationMs": 29390,
       "stdoutDigest": "sha256:eb3f53d479eb0146a62c9397f52102913e4e91d45e9bcbb1abc2bca6459b60d5",
-      "stderrDigest": "sha256:8562b264aaf01d11ad2ab9ff7af1186e08f395c72c02640e7f3d5c1f6ec25bcf"
+      "stderrDigest": "sha256:949f9042516d4fedcfa6065b518f381793daa19731957609e5327e7d82915c65"
     },
     {
       "command": "bun run verify:explorer",
       "ok": true,
       "exitCode": 0,
-      "durationMs": 285,
-      "stdoutDigest": "sha256:37e1fd49a4f74d4e34b78e0f1a56a9f7ac450b229c90f538a920d0a8c6001367",
+      "durationMs": 323,
+      "stdoutDigest": "sha256:5605b037c7b33cd57926f18e01d1bdbc30851400e07a89c86048fa9cf26e7535",
       "stderrDigest": "sha256:d6e499a17952154f753dfedb922e765f78fa48c9ccb9e2c6d2ef95d518aef742"
     },
     {
       "command": "node scripts/packaged-cli-smoke.mjs",
       "ok": true,
       "exitCode": 0,
-      "durationMs": 5561,
+      "durationMs": 4581,
       "stdoutDigest": "sha256:2b37ac074001d586795acd67cdbb1cd962851b763d34badc0887adbec51afd74",
       "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
@@ -97,7 +97,7 @@
       "command": "repo-harness run contract-run preflight --contract tasks/contracts/20260711-2005-data-engine-de5-cache-lifecycle-observability.contract.md --json",
       "ok": true,
       "exitCode": 0,
-      "durationMs": 276,
+      "durationMs": 257,
       "stdoutDigest": "sha256:a896f2a0fe34836644dd02ac2d3b60723638082a468d62ee9e5fc64d4beafc0c",
       "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }

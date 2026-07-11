@@ -166,6 +166,9 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       const feed = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.migration" });
       expect(feed.records).toHaveLength(1);
       expect(feed.records[0]).toMatchObject({ eventId: normalized.eventId, eventHash: normalized.eventHash, affectedSubjects: [] });
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_evidence_state_checkpoints")).toBe(1);
+      expect(await sqliteScalar(dbPath, "SELECT evidence_state_digest AS value FROM architecture_evidence_state_checkpoints LIMIT 1"))
+        .toBe(feed.records[0]!.changedInputDigests.evidenceAfter);
       store.close();
 
       const incompleteMarkerDb = new Database(dbPath);
@@ -827,6 +830,21 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       const plan = canonicalProjectionReadPlanV1(query, "verified-ledger-current");
       const authority = await store.readExplorerProjectionAuthority(ARCHITECTURE_LEDGER_SCOPE);
       expect(authority).toBeDefined();
+      const authorityPoison = new Database(databasePath);
+      const originalEvidenceDigest = String((authorityPoison.query(
+        "SELECT evidence_after_digest AS value FROM architecture_change_feed ORDER BY feed_sequence DESC LIMIT 1"
+      ).get() as { value: string }).value);
+      authorityPoison.run(
+        "UPDATE architecture_change_feed SET evidence_after_digest = ? WHERE feed_sequence = (SELECT MAX(feed_sequence) FROM architecture_change_feed)",
+        [`sha256:${"f".repeat(64)}`]
+      );
+      await expect(store.readExplorerProjectionAuthority(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("explorer-projection-authority-evidence-checkpoint-mismatch");
+      authorityPoison.run(
+        "UPDATE architecture_change_feed SET evidence_after_digest = ? WHERE feed_sequence = (SELECT MAX(feed_sequence) FROM architecture_change_feed)",
+        [originalEvidenceDigest]
+      );
+      authorityPoison.close();
       const result = await store.readExplorerProjectionInputs({ ...ARCHITECTURE_LEDGER_SCOPE, query, plan, authorityCursor: authority!.authorityCursor });
       expect(result.graph.entities.map((item) => item.entityId)).toEqual(["entity.0", "entity.1"]);
       expect(result.graph.relations.map((item) => item.relationId)).toEqual(["relation.root-to-worker"]);
@@ -2269,6 +2287,31 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         .toEqual([first.eventId]);
       expect((await store.readArchitectureLedgerState(ARCHITECTURE_LEDGER_SCOPE)).entities.map((entity) => entity.entityId))
         .toEqual(["entity.0"]);
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events")).toBe(1);
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
+
+  test("architecture ledger idempotent append rejects a tampered stored authority row", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-idempotency-authority-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const first = architectureLedgerEvent(0);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first] });
+      const poison = new Database(databasePath);
+      const stored = poison.query("SELECT event_id, event_json FROM architecture_events LIMIT 1").get() as { event_id: string; event_json: string };
+      const forged = JSON.parse(stored.event_json) as ArchitectureEventV1;
+      forged.payload = { ...(forged.payload as Record<string, Json>), summary: "forged stored authority" } as Json;
+      poison.run("DROP TRIGGER architecture_events_immutable_update");
+      poison.run("UPDATE architecture_events SET event_json = ? WHERE event_id = ?", [stableJsonFixture(forged), stored.event_id]);
+      poison.close();
+
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first] }))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
       expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM architecture_events")).toBe(1);
     } finally {
       store.close();

@@ -47,7 +47,8 @@ const REQUIRED_LEDGER_TABLES = [
   "architecture_event_subjects",
   "architecture_change_feed",
   "architecture_change_feed_consumers",
-  "architecture_change_feed_backfill_state"
+  "architecture_change_feed_backfill_state",
+  "architecture_evidence_state_checkpoints"
 ] as const;
 
 const MIGRATION_CASES = [
@@ -79,8 +80,10 @@ const BUNDLE_SIGNATURES = [
       "architecture_change_feed",
       "architecture_change_feed_consumers",
       "architecture_change_feed_backfill_state",
+      "architecture_evidence_state_checkpoints",
       "explorer_projection_cache",
       "explorer_runtime_metrics",
+      "evidence_state_digest",
       "evidence_tombstones",
       "architecture_ledger_search_fts",
       "schema_migrations"
