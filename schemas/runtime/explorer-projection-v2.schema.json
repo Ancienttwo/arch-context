@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/explorer-projection-v2.schema.json",
+  "title": "ExplorerProjectionV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "view", "availableViews", "semanticLevel", "breadcrumbs", "cursor", "occurrences", "relations", "page", "projectionDigest", "capabilities"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.explorer-projection/v2" },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "question"],
+      "properties": {
+        "id": { "enum": ["system-map", "task-impact", "drift-pressure"] },
+        "title": { "type": "string" },
+        "question": { "type": "string" }
+      }
+    },
+    "availableViews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "enabled"],
+        "properties": {
+          "id": { "enum": ["system-map", "task-impact", "drift-pressure"] },
+          "enabled": { "type": "boolean" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "semanticLevel": { "enum": ["overview", "context", "detail"] },
+    "breadcrumbs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["occurrenceId", "label"],
+        "properties": {
+          "occurrenceId": { "type": "string" },
+          "label": { "type": "string" }
+        }
+      }
+    },
+    "cursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "worktree", "graphDigest", "observedFactsDigest", "viewDefinitionDigest", "compilerVersion", "observedAvailability"],
+      "properties": {
+        "repository": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repositoryId", "storageRepositoryId"],
+          "properties": {
+            "repositoryId": { "type": "string" },
+            "storageRepositoryId": { "type": "string" }
+          }
+        },
+        "worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspaceId", "storageWorkspaceId", "branch", "headSha", "worktreeDigest"],
+          "properties": {
+            "workspaceId": { "type": "string" },
+            "storageWorkspaceId": { "type": "string" },
+            "branch": { "type": "string" },
+            "headSha": { "type": "string" },
+            "worktreeDigest": { "type": "string" }
+          }
+        },
+        "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "observedFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "viewDefinitionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "compilerVersion": { "const": "archcontext.explorer-view-compiler/v1" },
+        "taskSessionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "observedAvailability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["ready", "unavailable"] },
+            "reasonCode": { "type": "string" }
+          }
+        }
+      }
+    },
+    "occurrences": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["occurrenceId", "role", "subjectRefs", "name", "kind", "childrenCount", "expandable", "verificationStatus", "authorityState", "pressure", "sourceSelectors", "provenance", "inspector", "backlinks"],
+            "properties": {
+              "occurrenceId": { "type": "string" },
+              "role": { "const": "subject" },
+              "parentOccurrenceId": { "type": "string" },
+              "subjectRefs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "id"],
+                  "properties": {
+                    "kind": { "enum": ["architecture-entity", "architecture-relation", "architecture-constraint", "code-symbol"] },
+                    "id": { "type": "string" }
+                  }
+                }
+              },
+              "name": { "type": "string" },
+              "kind": { "type": "string" },
+              "childrenCount": { "type": "integer", "minimum": 0 },
+              "expandable": { "type": "boolean" },
+              "verificationStatus": { "enum": ["MATCHED", "DRIFT", "UNKNOWN", "VERIFIED"] },
+              "authorityState": { "enum": ["BOUND", "UNBOUND_OBSERVED", "DECLARED_UNOBSERVED"] },
+              "pressure": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["evaluated", "signals"],
+                "properties": {
+                  "evaluated": { "type": "boolean" },
+                  "level": { "enum": ["low", "medium", "high"] },
+                  "score": { "type": "number", "minimum": 0, "maximum": 100 },
+                  "signals": { "type": "array", "items": { "type": "string" } },
+                  "inputDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+                }
+              },
+              "sourceSelectors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path"],
+                  "properties": {
+                    "path": { "type": "string" },
+                    "symbolId": { "type": "string" },
+                    "startLine": { "type": "integer", "minimum": 1 },
+                    "endLine": { "type": "integer", "minimum": 1 }
+                  }
+                }
+              },
+              "provenance": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["declaredEntityIds", "observedSymbolIds", "evidenceBindingIds"],
+                "properties": {
+                  "declaredEntityIds": { "type": "array", "items": { "type": "string" } },
+                  "observedSymbolIds": { "type": "array", "items": { "type": "string" } },
+                  "evidenceBindingIds": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "inspector": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["constraints", "decisions", "sourceSelectors", "evidenceBindingIds"],
+                "properties": {
+                  "summary": { "type": "string" },
+                  "responsibility": { "type": "string" },
+                  "constraints": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["id", "kind"],
+                      "properties": { "id": { "type": "string" }, "kind": { "type": "string" }, "severity": { "type": "string" }, "summary": { "type": "string" } }
+                    }
+                  },
+                  "decisions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["eventId"],
+                      "properties": { "eventId": { "type": "string" }, "title": { "type": "string" }, "rationale": { "type": "string" } }
+                    }
+                  },
+                  "sourceSelectors": { "type": "array", "items": { "type": "object" } },
+                  "evidenceBindingIds": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "backlinks": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["appearsInViews", "affectedByTaskSessionIds", "constrainedByIds", "evidencedByBindingIds", "changedByEventIds", "decidedByEventIds", "incomingRelationIds", "outgoingRelationIds"],
+                "properties": {
+                  "appearsInViews": { "type": "array", "items": { "enum": ["system-map", "task-impact", "drift-pressure"] } },
+                  "affectedByTaskSessionIds": { "type": "array", "items": { "type": "string" } },
+                  "constrainedByIds": { "type": "array", "items": { "type": "string" } },
+                  "evidencedByBindingIds": { "type": "array", "items": { "type": "string" } },
+                  "changedByEventIds": { "type": "array", "items": { "type": "string" } },
+                  "decidedByEventIds": { "type": "array", "items": { "type": "string" } },
+                  "incomingRelationIds": { "type": "array", "items": { "type": "string" } },
+                  "outgoingRelationIds": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["occurrenceId", "role", "subjectRefs", "name", "kind", "childrenCount", "expandable", "verificationStatus", "authorityState", "pressure", "sourceSelectors", "provenance", "derivation"],
+            "properties": {
+              "occurrenceId": { "type": "string" },
+              "role": { "const": "derived-group" },
+              "parentOccurrenceId": { "type": "string" },
+              "subjectRefs": { "const": [] },
+              "name": { "type": "string" },
+              "kind": { "type": "string" },
+              "childrenCount": { "type": "integer", "minimum": 0 },
+              "expandable": { "type": "boolean" },
+              "verificationStatus": { "const": "UNKNOWN" },
+              "authorityState": { "const": "DERIVED" },
+              "pressure": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["evaluated", "signals"],
+                "properties": {
+                  "evaluated": { "const": false },
+                  "signals": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "sourceSelectors": { "const": [] },
+              "provenance": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["declaredEntityIds", "observedSymbolIds", "evidenceBindingIds"],
+                "properties": {
+                  "declaredEntityIds": { "type": "array", "items": { "type": "string" } },
+                  "observedSymbolIds": { "type": "array", "items": { "type": "string" } },
+                  "evidenceBindingIds": { "type": "array", "items": { "type": "string" } }
+                }
+              },
+              "derivation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["ruleId", "inputDigest", "compilerVersion"],
+                "properties": {
+                  "ruleId": { "type": "string" },
+                  "inputDigest": { "type": "string" },
+                  "compilerVersion": { "const": "archcontext.explorer-view-compiler/v1" }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["occurrenceId", "sourceOccurrenceId", "targetOccurrenceId", "kind", "verificationStatus", "provenance"],
+        "properties": {
+          "occurrenceId": { "type": "string" },
+          "sourceOccurrenceId": { "type": "string" },
+          "targetOccurrenceId": { "type": "string" },
+          "kind": { "type": "string" },
+          "verificationStatus": { "enum": ["MATCHED", "DRIFT", "UNKNOWN", "VERIFIED"] },
+          "provenance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["declaredRelationIds", "observedEdgeIds", "evidenceBindingIds"],
+            "properties": {
+              "declaredRelationIds": { "type": "array", "items": { "type": "string" } },
+              "observedEdgeIds": { "type": "array", "items": { "type": "string" } },
+              "evidenceBindingIds": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["budget", "totalNodes", "totalRelations", "returnedNodes", "returnedRelations", "truncated", "omittedNodeCount", "omittedRelationCount"],
+      "properties": {
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxNodes", "maxRelations"],
+          "properties": {
+            "maxNodes": { "type": "integer", "minimum": 1, "maximum": 1000 },
+            "maxRelations": { "type": "integer", "minimum": 0, "maximum": 5000 }
+          }
+        },
+        "totalNodes": { "type": "integer", "minimum": 0 },
+        "totalRelations": { "type": "integer", "minimum": 0 },
+        "returnedNodes": { "type": "integer", "minimum": 0 },
+        "returnedRelations": { "type": "integer", "minimum": 0 },
+        "truncated": { "type": "boolean" },
+        "omittedNodeCount": { "type": "integer", "minimum": 0 },
+        "omittedRelationCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "projectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readOnly", "mutationMode", "egress", "tokenRequired"],
+      "properties": {
+        "readOnly": { "const": true },
+        "mutationMode": { "const": "forbidden" },
+        "egress": { "const": "none" },
+        "tokenRequired": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -49,6 +49,14 @@ try {
   const repositoryId = status.data?.repositoryId;
   const initialWorktreeDigest = status.data?.worktreeDigest;
 
+  const explorer = await runArchctx("explore", "projection", "--view", "system-map", "--level", "context", "--max-nodes", "20", "--max-relations", "40");
+  assert(explorer.ok === true, "packaged Explorer V2 projection must succeed");
+  assert(explorer.data?.schemaVersion === "archcontext.explorer-projection/v2", "packaged Explorer must expose only projection V2");
+  assert(explorer.data?.page?.returnedNodes <= 20 && explorer.data?.page?.returnedRelations <= 40, "packaged Explorer must honor hard budgets");
+  assert(!JSON.stringify(explorer.data).includes("sourceBody"), "packaged Explorer must not expose source bodies");
+
+  assert(explorer.data?.cursor?.observedAvailability?.status === "unavailable", "packaged Explorer must explicitly report unavailable CodeGraph instead of inventing observed facts");
+
   const mcpStartup = await runArchctxMcpSession([
     {
       jsonrpc: "2.0",

@@ -2329,9 +2329,12 @@ describe("archctx CLI", () => {
       const context = await runTestCli("context", ["--landscape", "--task", "change local API", "--max-symbols", "2"], root);
       expect(context.ok).toBe(true);
       expect((context.data as any).extensions.landscapeDigest).toMatch(/^sha256:/);
-      const explore = await runTestCli("explore", ["projection"], root);
+      const explore = await runTestCli("explore", ["projection", "--max-nodes", "5", "--max-relations", "5"], root);
       expect(explore.ok).toBe(true);
-      expect((explore.data as any).schemaVersion).toBe("archcontext.explorer-projection/v1");
+      expect((explore.data as any).schemaVersion).toBe("archcontext.explorer-projection/v2");
+      expect((explore.data as any).view.id).toBe("system-map");
+      expect((explore.data as any).page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
+      expect((explore.data as any).occurrences.length).toBeLessThanOrEqual(5);
       const start = await runTestCli("explore", ["start"], root);
       expect((start.data as any).command).toBe("archctx explore start --foreground");
       expect((start.data as any).readOnly).toBe(true);

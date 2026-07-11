@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "archcontext.explorer-projection-query/v2",
+  "viewId": "system-map",
+  "depth": 1,
+  "budget": { "maxNodes": 80, "maxRelations": 160 }
+}

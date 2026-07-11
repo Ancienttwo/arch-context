@@ -20,7 +20,7 @@ import {
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import type { AgentJobV1, ArchitectureEventV1, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
+import type { AgentJobV1, ArchitectureEventV1, ExplorerProjectionV2, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -46,6 +46,8 @@ export class TestLocalStore implements RuntimeLocalStore {
   }>();
   readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
   readonly architectureEvents: ArchitectureEventV1[] = [];
+  readonly explorerProjections = new Map<string, { scope: ArchitectureLedgerScope; projection: ExplorerProjectionV2 }>();
+  readonly explorerDependencies = new Map<string, Set<string>>();
 
   async migrate(): Promise<void> {
     for (const migration of LOCAL_SQLITE_MIGRATIONS) this.migrations.add(migration.id);
@@ -628,6 +630,50 @@ export class TestLocalStore implements RuntimeLocalStore {
       graphDigest: architectureLedgerStateDigest(replayArchitectureLedgerEvents(this.architectureEvents))
     }, null, 2)}\n`, "utf8");
     return { backupPath: input.backupPath, integrity: "ok" };
+  }
+
+  async saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void> {
+    this.explorerProjections.set(input.projection.projectionDigest, { scope: input, projection: structuredClone(input.projection) });
+    for (const entry of input.dependencies) this.explorerDependencies.set(`${input.projection.projectionDigest}\0${entry.occurrenceId}`, new Set(entry.dependencyKeys));
+  }
+
+  async readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
+    const record = this.explorerProjections.get(input.projectionDigest);
+    if (!record || record.scope.repository.storageRepositoryId !== input.repository.storageRepositoryId || record.scope.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId) return undefined;
+    return structuredClone(record.projection);
+  }
+
+  async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
+    return [...this.explorerProjections.values()].reverse().find((record) => record.scope.repository.storageRepositoryId === input.repository.storageRepositoryId && record.scope.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId && record.projection.view.id === input.viewId)?.projection;
+  }
+
+  async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
+    const keys = new Set(input.dependencyKeys);
+    const result: string[] = [];
+    for (const [compound, dependencies] of this.explorerDependencies) {
+      if (![...dependencies].some((dependency) => keys.has(dependency))) continue;
+      result.push(compound.slice(compound.indexOf("\0") + 1));
+    }
+    return [...new Set(result)].sort();
+  }
+
+  async invalidateExplorerOccurrences(input: ArchitectureLedgerScope & { occurrenceIds: string[] }): Promise<number> {
+    const ids = new Set(input.occurrenceIds);
+    let deleted = 0;
+    for (const [compound, dependencies] of this.explorerDependencies) {
+      const occurrenceId = compound.slice(compound.indexOf("\0") + 1);
+      if (!ids.has(occurrenceId)) continue;
+      deleted += dependencies.size;
+      this.explorerDependencies.delete(compound);
+    }
+    return deleted;
+  }
+
+  async clearExplorerDerivedState(): Promise<number> {
+    const count = this.explorerProjections.size;
+    this.explorerProjections.clear();
+    this.explorerDependencies.clear();
+    return count;
   }
 
   clearDerivedLandscapeState(): void {

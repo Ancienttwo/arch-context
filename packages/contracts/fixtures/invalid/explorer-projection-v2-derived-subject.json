@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "archcontext.explorer-projection/v2",
+  "view": { "id": "system-map", "title": "System Map", "question": "What exists?" },
+  "availableViews": [{ "id": "system-map", "enabled": true }],
+  "semanticLevel": "overview",
+  "breadcrumbs": [],
+  "cursor": {
+    "repository": { "repositoryId": "repo.local", "storageRepositoryId": "repo.1111111111111111" },
+    "worktree": { "workspaceId": "workspace.local", "storageWorkspaceId": "ws.1111111111111111", "branch": "main", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+    "graphDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "observedFactsDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "viewDefinitionDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "compilerVersion": "archcontext.explorer-view-compiler/v1",
+    "observedAvailability": { "status": "ready" }
+  },
+  "occurrences": [{
+    "occurrenceId": "occurrence.system-map.group.fake",
+    "role": "derived-group",
+    "subjectRefs": [{ "kind": "architecture-entity", "id": "fake" }],
+    "name": "Fake",
+    "kind": "group",
+    "childrenCount": 0,
+    "expandable": false,
+    "verificationStatus": "UNKNOWN",
+    "authorityState": "DERIVED",
+    "pressure": { "evaluated": false, "signals": [] },
+    "sourceSelectors": [],
+    "provenance": { "declaredEntityIds": [], "observedSymbolIds": [], "evidenceBindingIds": [] },
+    "derivation": { "ruleId": "fake", "inputDigest": "sha256:x", "compilerVersion": "archcontext.explorer-view-compiler/v1" }
+  }],
+  "relations": [],
+  "page": { "budget": { "maxNodes": 1, "maxRelations": 0 }, "totalNodes": 1, "totalRelations": 0, "returnedNodes": 1, "returnedRelations": 0, "truncated": false, "omittedNodeCount": 0, "omittedRelationCount": 0 },
+  "projectionDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "capabilities": { "readOnly": true, "mutationMode": "forbidden", "egress": "none", "tokenRequired": true }
+}

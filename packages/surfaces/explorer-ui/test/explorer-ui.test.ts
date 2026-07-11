@@ -1,69 +1,66 @@
 import { describe, expect, test } from "bun:test";
-import type { ExplorerProjection } from "@archcontext/contracts";
-import { filterExplorerProjection, renderExplorerHtml } from "../src/index";
+import type { ExplorerProjectionV2 } from "@archcontext/contracts";
+import { renderExplorerHtml } from "../src/index";
 
-const projection: ExplorerProjection = {
-  schemaVersion: "archcontext.explorer-projection/v1",
-  generatedAt: "2026-06-20T00:00:00.000Z",
-  repository: {
-    repositoryId: "repo.local",
-    headSha: "abc123",
-    worktreeDigest: "sha256:test"
+const projection: ExplorerProjectionV2 = {
+  schemaVersion: "archcontext.explorer-projection/v2",
+  view: { id: "system-map", title: "System Map", question: "What exists?" },
+  availableViews: [
+    { id: "system-map", enabled: true },
+    { id: "task-impact", enabled: false, reason: "current task session required" },
+    { id: "drift-pressure", enabled: true }
+  ],
+  semanticLevel: "context",
+  breadcrumbs: [{ occurrenceId: "occurrence.system-map.entity.module.runtime", label: "Runtime" }],
+  cursor: {
+    repository: { repositoryId: "repo.local", storageRepositoryId: "repo.storage" },
+    worktree: { workspaceId: "ws.local", storageWorkspaceId: "ws.storage", branch: "main", headSha: "a".repeat(40), worktreeDigest: `sha256:${"1".repeat(64)}` },
+    graphDigest: `sha256:${"2".repeat(64)}`,
+    observedFactsDigest: `sha256:${"3".repeat(64)}`,
+    viewDefinitionDigest: `sha256:${"4".repeat(64)}`,
+    compilerVersion: "archcontext.explorer-view-compiler/v1",
+    observedAvailability: { status: "ready" }
   },
-  nodes: [
-    {
-      id: "module.runtime",
-      name: "Runtime",
-      kind: "module",
-      verificationStatus: "MATCHED",
-      pressure: { level: "low", score: 8, signals: [] },
-      sourceSelectors: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts", symbolId: "ArchctxDaemon" }]
-    },
-    {
-      id: "module.billing",
-      name: "Billing",
-      kind: "module",
-      verificationStatus: "DRIFT",
-      pressure: { level: "high", score: 91, signals: ["lifecycle-owner"] },
-      sourceSelectors: [{ path: "packages/cloud/control-plane/src/index.ts" }]
-    }
-  ],
-  relations: [
-    { id: "relation.runtime-billing", source: "module.runtime", target: "module.billing", kind: "uses", verificationStatus: "MATCHED" }
-  ],
-  verification: [],
-  pressure: [],
-  interventions: [],
-  capabilities: {
-    readOnly: true,
-    mutationMode: "forbidden",
-    egress: "none",
-    tokenRequired: true
-  }
+  occurrences: [{
+    occurrenceId: "occurrence.system-map.entity.module.runtime",
+    role: "subject",
+    subjectRefs: [{ kind: "architecture-entity", id: "module.runtime" }],
+    name: "Runtime",
+    kind: "module",
+    childrenCount: 0,
+    expandable: false,
+    verificationStatus: "MATCHED",
+    authorityState: "BOUND",
+    pressure: { evaluated: true, level: "low", score: 0, signals: [], inputDigest: `sha256:${"5".repeat(64)}` },
+    sourceSelectors: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts" }],
+    provenance: { declaredEntityIds: ["module.runtime"], observedSymbolIds: ["symbol.runtime"], evidenceBindingIds: ["binding.runtime"] },
+    inspector: { summary: "Owns local runtime orchestration.", constraints: [], decisions: [], sourceSelectors: [{ path: "packages/local-runtime/runtime-daemon/src/index.ts" }], evidenceBindingIds: ["binding.runtime"] },
+    backlinks: { appearsInViews: ["system-map", "drift-pressure"], affectedByTaskSessionIds: [], constrainedByIds: [], evidencedByBindingIds: ["binding.runtime"], changedByEventIds: [], decidedByEventIds: [], incomingRelationIds: [], outgoingRelationIds: [] }
+  }],
+  relations: [],
+  page: { budget: { maxNodes: 80, maxRelations: 160 }, totalNodes: 1, totalRelations: 0, returnedNodes: 1, returnedRelations: 0, truncated: false, omittedNodeCount: 0, omittedRelationCount: 0 },
+  projectionDigest: `sha256:${"6".repeat(64)}`,
+  capabilities: { readOnly: true, mutationMode: "forbidden", egress: "none", tokenRequired: true }
 };
 
-describe("@archcontext/surfaces/explorer-ui", () => {
-  test("renders a local read-only graph without external assets", () => {
+describe("@archcontext/surfaces/explorer-ui V2", () => {
+  test("renders a self-contained authority-aware view without external assets", () => {
     const html = renderExplorerHtml(projection);
-    expect(html).toContain("ArchContext Explorer");
-    expect(html).toContain("role=\"application\"");
-    expect(html).toContain("Architecture graph");
-    expect(html).toContain("Verification");
-    expect(html).toContain("module.runtime");
-    expect(html).not.toContain("https://");
-    expect(html).not.toContain("changesets/apply");
+    expect(html).toContain("ArchContext Explorer V2");
+    expect(html).toContain("System Map");
+    expect(html).not.toContain("DECLARED_UNOBSERVED");
+    expect(html).toContain("BOUND");
+    expect(html).toContain("read-only · local · no egress");
+    expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|https?:\/\//);
   });
 
-  test("honors a server-provided focus id in the diagram view", () => {
-    const html = renderExplorerHtml(projection, { focusId: "module.runtime" });
-    expect(html).toContain("Architecture diagram focused on Runtime");
-    expect(html).toContain('<option value="module.runtime" selected>Runtime · module</option>');
-  });
-
-  test("filters projections by node metadata while keeping matching relations", () => {
-    const filtered = filterExplorerProjection(projection, "billing");
-    expect(filtered.nodes.map((node) => node.id)).toEqual(["module.billing"]);
-    expect(filtered.relations).toHaveLength(1);
-    expect(filterExplorerProjection(projection, "missing").nodes).toEqual([]);
+  test("renders view, semantic level, focus and digest-only invalidation controls", () => {
+    const html = renderExplorerHtml(projection, { focusSubjectId: "module.runtime" });
+    expect(html).toContain('data-view="task-impact"');
+    expect(html).toContain('data-level="overview"');
+    expect(html).toContain("Owns local runtime orchestration.");
+    expect(html).toContain("projection-invalidated");
+    expect(html).toContain(projection.projectionDigest);
+    expect(html).not.toContain("sourceBody");
   });
 });

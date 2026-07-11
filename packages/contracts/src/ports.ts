@@ -266,46 +266,6 @@ export interface ModelInteropImporter {
 export type ExplorerVerificationStatus = "MATCHED" | "DRIFT" | "UNKNOWN" | "VERIFIED";
 export type ExplorerPressureLevel = "low" | "medium" | "high";
 
-export interface ExplorerNodeView {
-  id: string;
-  name: string;
-  kind: string;
-  repositoryId?: string;
-  verificationStatus: ExplorerVerificationStatus;
-  pressure: {
-    level: ExplorerPressureLevel;
-    score: number;
-    signals: string[];
-  };
-  sourceSelectors: SourceSelector[];
-}
-
-export interface ExplorerRelationView {
-  id: string;
-  source: string;
-  target: string;
-  kind: string;
-  verificationStatus: ExplorerVerificationStatus;
-}
-
-export interface ExplorerProjection {
-  schemaVersion: "archcontext.explorer-projection/v1";
-  generatedAt: string;
-  repository: RepositorySnapshot;
-  nodes: ExplorerNodeView[];
-  relations: ExplorerRelationView[];
-  landscape?: Json;
-  verification: Json[];
-  pressure: Json[];
-  interventions: Json[];
-  capabilities: {
-    readOnly: true;
-    mutationMode: "forbidden";
-    egress: "none";
-    tokenRequired: boolean;
-  };
-}
-
 export interface ExplorerServiceContract {
   schemaVersion: "archcontext.explorer-service/v1";
   bindHost: "127.0.0.1";
@@ -316,6 +276,200 @@ export interface ExplorerServiceContract {
   readOnly: true;
   allowedMethods: ["GET"];
   egress: "none";
+}
+
+export type ExplorerViewIdV2 = "system-map" | "task-impact" | "drift-pressure";
+export type ExplorerSemanticLevelV2 = "overview" | "context" | "detail";
+export type ExplorerOccurrenceRoleV2 = "subject" | "derived-group";
+export type ExplorerSubjectRefKindV2 =
+  | "architecture-entity"
+  | "architecture-relation"
+  | "architecture-constraint"
+  | "code-symbol";
+
+export interface ExplorerExpectedCursorV2 {
+  headSha: string;
+  worktreeDigest: string;
+  graphDigest: string;
+  observedFactsDigest?: string;
+}
+
+export interface ExplorerProjectionQueryV2 {
+  schemaVersion: "archcontext.explorer-projection-query/v2";
+  viewId: ExplorerViewIdV2;
+  semanticLevel?: ExplorerSemanticLevelV2;
+  taskSessionId?: string;
+  expectedCursor?: ExplorerExpectedCursorV2;
+  focus?: { subjectId: string };
+  expandedOccurrenceIds?: string[];
+  depth: 0 | 1 | 2;
+  budget: {
+    maxNodes: number;
+    maxRelations: number;
+  };
+}
+
+export interface ExplorerProjectionCursorV2 {
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  graphDigest: string;
+  observedFactsDigest: string;
+  viewDefinitionDigest: string;
+  compilerVersion: "archcontext.explorer-view-compiler/v1";
+  taskSessionDigest?: string;
+  observedAvailability: { status: "ready" | "unavailable"; reasonCode?: string };
+}
+
+export interface ExplorerSubjectRefV2 {
+  kind: ExplorerSubjectRefKindV2;
+  id: string;
+}
+
+export interface ExplorerOccurrenceProvenanceV2 {
+  declaredEntityIds: string[];
+  observedSymbolIds: string[];
+  evidenceBindingIds: string[];
+}
+
+export type ExplorerAuthorityStateV2 = "BOUND" | "UNBOUND_OBSERVED" | "DECLARED_UNOBSERVED" | "DERIVED";
+
+export interface ExplorerPressureEvaluationV2 {
+  evaluated: boolean;
+  level?: ExplorerPressureLevel;
+  score?: number;
+  signals: string[];
+  inputDigest?: string;
+}
+
+export interface ExplorerInspectorV2 {
+  summary?: string;
+  responsibility?: string;
+  constraints: Array<{ id: string; kind: string; severity?: string; summary?: string }>;
+  decisions: Array<{ eventId: string; title?: string; rationale?: string }>;
+  sourceSelectors: SourceSelector[];
+  evidenceBindingIds: string[];
+}
+
+export interface ExplorerBacklinksV2 {
+  appearsInViews: ExplorerViewIdV2[];
+  affectedByTaskSessionIds: string[];
+  constrainedByIds: string[];
+  evidencedByBindingIds: string[];
+  changedByEventIds: string[];
+  decidedByEventIds: string[];
+  incomingRelationIds: string[];
+  outgoingRelationIds: string[];
+}
+
+export interface ExplorerSubjectOccurrenceV2 {
+  occurrenceId: string;
+  role: "subject";
+  parentOccurrenceId?: string;
+  subjectRefs: ExplorerSubjectRefV2[];
+  name: string;
+  kind: string;
+  childrenCount: number;
+  expandable: boolean;
+  verificationStatus: ExplorerVerificationStatus;
+  authorityState: ExplorerAuthorityStateV2;
+  pressure: ExplorerPressureEvaluationV2;
+  sourceSelectors: SourceSelector[];
+  provenance: ExplorerOccurrenceProvenanceV2;
+  inspector: ExplorerInspectorV2;
+  backlinks: ExplorerBacklinksV2;
+}
+
+export interface ExplorerDerivedGroupOccurrenceV2 {
+  occurrenceId: string;
+  role: "derived-group";
+  parentOccurrenceId?: string;
+  subjectRefs: [];
+  name: string;
+  kind: string;
+  childrenCount: number;
+  expandable: boolean;
+  verificationStatus: "UNKNOWN";
+  authorityState: "DERIVED";
+  pressure: ExplorerPressureEvaluationV2;
+  sourceSelectors: [];
+  provenance: ExplorerOccurrenceProvenanceV2;
+  derivation: {
+    ruleId: string;
+    inputDigest: string;
+    compilerVersion: "archcontext.explorer-view-compiler/v1";
+  };
+}
+
+export type ExplorerOccurrenceV2 = ExplorerSubjectOccurrenceV2 | ExplorerDerivedGroupOccurrenceV2;
+
+export interface ExplorerRelationOccurrenceV2 {
+  occurrenceId: string;
+  sourceOccurrenceId: string;
+  targetOccurrenceId: string;
+  kind: string;
+  verificationStatus: ExplorerVerificationStatus;
+  provenance: {
+    declaredRelationIds: string[];
+    observedEdgeIds: string[];
+    evidenceBindingIds: string[];
+  };
+}
+
+export interface ExplorerProjectionV2 {
+  schemaVersion: "archcontext.explorer-projection/v2";
+  view: {
+    id: ExplorerViewIdV2;
+    title: string;
+    question: string;
+  };
+  availableViews: Array<{ id: ExplorerViewIdV2; enabled: boolean; reason?: string }>;
+  semanticLevel: ExplorerSemanticLevelV2;
+  breadcrumbs: Array<{ occurrenceId: string; label: string }>;
+  cursor: ExplorerProjectionCursorV2;
+  occurrences: ExplorerOccurrenceV2[];
+  relations: ExplorerRelationOccurrenceV2[];
+  page: {
+    budget: { maxNodes: number; maxRelations: number };
+    totalNodes: number;
+    totalRelations: number;
+    returnedNodes: number;
+    returnedRelations: number;
+    truncated: boolean;
+    omittedNodeCount: number;
+    omittedRelationCount: number;
+  };
+  projectionDigest: string;
+  capabilities: {
+    readOnly: true;
+    mutationMode: "forbidden";
+    egress: "none";
+    tokenRequired: boolean;
+  };
+}
+
+export type ExplorerDeltaClassV1 = "architecture-fact" | "evidence" | "projection";
+
+export interface ExplorerDeltaQueryV1 {
+  schemaVersion: "archcontext.explorer-delta-query/v1";
+  baseProjectionDigest: string;
+  headProjectionDigest: string;
+}
+
+export interface ExplorerDeltaChangeV1 {
+  deltaClass: ExplorerDeltaClassV1;
+  subjectId: string;
+  change: "added" | "removed" | "changed";
+  fields: string[];
+  verificationTransition?: { from: ExplorerVerificationStatus; to: ExplorerVerificationStatus };
+}
+
+export interface ExplorerProjectionDeltaV1 {
+  schemaVersion: "archcontext.explorer-projection-delta/v1";
+  base: ExplorerProjectionCursorV2 & { projectionDigest: string };
+  head: ExplorerProjectionCursorV2 & { projectionDigest: string };
+  changes: ExplorerDeltaChangeV1[];
+  counts: Record<ExplorerDeltaClassV1, number>;
+  deltaDigest: string;
 }
 
 export interface RetrievalConfig {

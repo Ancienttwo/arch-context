@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/explorer-projection-query-v2.schema.json",
+  "title": "ExplorerProjectionQueryV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "viewId", "depth", "budget"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.explorer-projection-query/v2" },
+    "viewId": { "enum": ["system-map", "task-impact", "drift-pressure"] },
+    "semanticLevel": { "enum": ["overview", "context", "detail"] },
+    "taskSessionId": { "type": "string", "minLength": 1 },
+    "expectedCursor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headSha", "worktreeDigest", "graphDigest"],
+      "properties": {
+        "headSha": { "type": "string" },
+        "worktreeDigest": { "type": "string" },
+        "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "observedFactsDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    },
+    "focus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjectId"],
+      "properties": { "subjectId": { "type": "string" } }
+    },
+    "expandedOccurrenceIds": { "type": "array", "items": { "type": "string" } },
+    "depth": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxNodes", "maxRelations"],
+      "properties": {
+        "maxNodes": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "maxRelations": { "type": "integer", "minimum": 0, "maximum": 5000 }
+      }
+    }
+  }
+}

@@ -41,7 +41,7 @@
       "schemaVersion": "archcontext.runtime-rpc/v1",
       "protocol": "http-loopback"
     },
-    "sqliteMigrations": "0001_runtime_state..0004_changeset_journal",
+    "sqliteMigrations": "0001_runtime_state..0012_explorer_projection_index",
     "codeGraph": {
       "packageName": "@colbymchenry/codegraph",
       "requiredVersion": "1.4.0",

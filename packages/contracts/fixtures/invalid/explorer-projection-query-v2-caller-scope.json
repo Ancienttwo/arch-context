@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "archcontext.explorer-projection-query/v2",
+  "viewId": "system-map",
+  "repositoryId": "caller-controlled",
+  "depth": 1,
+  "budget": { "maxNodes": 80, "maxRelations": 160 }
+}

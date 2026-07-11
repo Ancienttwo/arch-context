@@ -3,7 +3,7 @@ export const ARCHCONTEXT_PRODUCT_VERSION = "0.2.3";
 export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.3.10";
 export const ARCHCONTEXT_NODE_RANGE = ">=24 <26";
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v1";
-export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-06-25.al0-ledger";
+export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-07-11.explorer-view-v2";
 
 export interface ProductVersionManifest {
   schemaVersion: "archcontext.product-version-manifest/v1";
@@ -97,7 +97,7 @@ export function productVersionManifest(): ProductVersionManifest {
         schemaVersion: LOCAL_RUNTIME_RPC_SCHEMA_VERSION,
         protocol: "http-loopback"
       },
-      sqliteMigrations: "0001_runtime_state..0004_changeset_journal",
+      sqliteMigrations: "0001_runtime_state..0012_explorer_projection_index",
       codeGraph: {
         packageName: "@colbymchenry/codegraph",
         requiredVersion: "1.4.0",

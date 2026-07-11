@@ -85,7 +85,7 @@ function completePacket(): any {
       migrationRow("pre-ledger-0005", 5),
       migrationRow("ledger-v1-0006", 6),
       migrationRow("pre-search-fts-0008", 8),
-      migrationRow("current-0011", 11)
+      migrationRow("current-0012", 12)
     ],
     releasePackage: {
       fg6: {
@@ -158,9 +158,9 @@ function migrationRow(id: string, fromAppliedCount: number): any {
     id,
     from: id,
     fromAppliedCount,
-    toAppliedCount: 11,
+    toAppliedCount: 12,
     fromLatestMigrationId: fromAppliedCount === 0 ? null : `000${fromAppliedCount}_migration`,
-    toLatestMigrationId: "0011_changeset_cleanup_cursor",
+    toLatestMigrationId: "0012_explorer_projection_index",
     fromHasLedgerTables: fromAppliedCount >= 9,
     toHasLedgerTables: true,
     missingTables: [],

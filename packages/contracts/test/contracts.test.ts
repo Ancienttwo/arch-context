@@ -74,7 +74,10 @@ const schemaByFixture: Record<string, string> = {
   "task-context": "schemas/runtime/task-context.schema.json",
   "changeset": "schemas/runtime/changeset.schema.json",
   "review-result": "schemas/runtime/review-result.schema.json",
-  "explorer-projection": "schemas/runtime/explorer-projection.schema.json",
+  "explorer-projection-query-v2": "schemas/runtime/explorer-projection-query-v2.schema.json",
+  "explorer-projection-v2": "schemas/runtime/explorer-projection-v2.schema.json",
+  "explorer-delta-query": "schemas/runtime/explorer-delta-query.schema.json",
+  "explorer-projection-delta": "schemas/runtime/explorer-projection-delta.schema.json",
   "explorer-service": "schemas/runtime/explorer-service.schema.json",
   "product-version-manifest": "schemas/runtime/product-version-manifest.schema.json",
   "external-document-resource": "schemas/runtime/external-document-resource.schema.json",
@@ -334,14 +337,14 @@ describe("JSON schema contracts", () => {
   });
 
   test("explorer projection contract is read-only and contains no SaaS egress fields", () => {
-    const schema = readJson("schemas/runtime/explorer-projection.schema.json") as any;
-    const rootProperties = Object.keys(schema.properties);
-    for (const forbidden of ["operation", "operations", "changeset", "mutationEndpoint", "saasEndpoint", "remoteUrl"]) {
-      expect(rootProperties).not.toContain(forbidden);
+    const v2 = readJson("schemas/runtime/explorer-projection-v2.schema.json") as any;
+    const v2RootProperties = Object.keys(v2.properties);
+    for (const forbidden of ["operation", "operations", "changeset", "mutationEndpoint", "saasEndpoint", "remoteUrl", "sourceBody", "rawDiff", "codeGraphBody"]) {
+      expect(v2RootProperties).not.toContain(forbidden);
     }
-    expect(schema.properties.capabilities.properties.readOnly.const).toBe(true);
-    expect(schema.properties.capabilities.properties.mutationMode.enum).toEqual(["forbidden"]);
-    expect(schema.properties.capabilities.properties.egress.enum).toEqual(["none"]);
+    expect(v2.properties.capabilities.properties.readOnly.const).toBe(true);
+    expect(v2.properties.capabilities.properties.mutationMode.const).toBe("forbidden");
+    expect(v2.properties.capabilities.properties.egress.const).toBe("none");
   });
 
   test("retrieval decision gate exposes machine-checkable thresholds", () => {
@@ -412,7 +415,10 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.task-context/v1": "task-context",
     "archcontext.changeset/v1": "changeset",
     "archcontext.review/v1": "review-result",
-    "archcontext.explorer-projection/v1": "explorer-projection",
+    "archcontext.explorer-projection-query/v2": "explorer-projection-query-v2",
+    "archcontext.explorer-projection/v2": "explorer-projection-v2",
+    "archcontext.explorer-delta-query/v1": "explorer-delta-query",
+    "archcontext.explorer-projection-delta/v1": "explorer-projection-delta",
     "archcontext.explorer-service/v1": "explorer-service",
     "archcontext.product-version-manifest/v1": "product-version-manifest",
     "archcontext.practice-catalog-manifest/v1": "practice-catalog-manifest",

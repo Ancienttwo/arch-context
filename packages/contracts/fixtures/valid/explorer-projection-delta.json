@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "archcontext.explorer-projection-delta/v1",
+  "base": {
+    "repository": { "repositoryId": "repo.local", "storageRepositoryId": "repo.storage" },
+    "worktree": { "workspaceId": "ws.local", "storageWorkspaceId": "ws.storage", "branch": "main", "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111" },
+    "graphDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "observedFactsDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "viewDefinitionDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "compilerVersion": "archcontext.explorer-view-compiler/v1",
+    "observedAvailability": { "status": "ready" },
+    "projectionDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "head": {
+    "repository": { "repositoryId": "repo.local", "storageRepositoryId": "repo.storage" },
+    "worktree": { "workspaceId": "ws.local", "storageWorkspaceId": "ws.storage", "branch": "main", "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "worktreeDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666" },
+    "graphDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "observedFactsDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "viewDefinitionDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "compilerVersion": "archcontext.explorer-view-compiler/v1",
+    "observedAvailability": { "status": "ready" },
+    "projectionDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  "changes": [{ "deltaClass": "architecture-fact", "subjectId": "module.api", "change": "added", "fields": ["subject"] }],
+  "counts": { "architecture-fact": 1, "evidence": 0, "projection": 0 },
+  "deltaDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

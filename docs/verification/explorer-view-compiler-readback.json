@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "archcontext.explorer-view-compiler-readback/v1",
+  "recordedAt": "2026-07-11T00:00:00.000Z",
+  "compilerVersion": "archcontext.explorer-view-compiler/v1",
+  "command": "bun run verify:explorer",
+  "iterations": 5,
+  "outputBudget": { "maxNodes": 50, "maxRelations": 100 },
+  "p95LimitMs": 3000,
+  "benchmarks": [
+    {
+      "entityCount": 10000,
+      "relationCount": 9999,
+      "p95Ms": 36.07,
+      "returnedNodes": 50,
+      "returnedRelations": 49,
+      "omittedNodeCount": 9950,
+      "omittedRelationCount": 9950,
+      "budgetBounded": true
+    },
+    {
+      "entityCount": 100000,
+      "relationCount": 99999,
+      "p95Ms": 598.07,
+      "returnedNodes": 50,
+      "returnedRelations": 49,
+      "omittedNodeCount": 99950,
+      "omittedRelationCount": 99950,
+      "budgetBounded": true
+    }
+  ],
+  "acceptance": {
+    "EV1": {
+      "status": "verified",
+      "evidence": [
+        "packages/local-runtime/explorer-html/src/index.ts",
+        "packages/surfaces/explorer-ui/test/explorer-ui.test.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts"
+      ]
+    },
+    "EV2": {
+      "status": "verified",
+      "evidence": [
+        "packages/contracts/src/ports.ts",
+        "packages/local-runtime/runtime-daemon/src/explorer-projection.ts",
+        "packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts"
+      ]
+    },
+    "EV3": {
+      "status": "verified",
+      "evidence": [
+        "schemas/runtime/explorer-delta-query.schema.json",
+        "schemas/runtime/explorer-projection-delta.schema.json",
+        "packages/local-runtime/runtime-daemon/test/explorer-projection.test.ts",
+        "packages/local-runtime/runtime-daemon/test/local-runtime.test.ts"
+      ]
+    },
+    "EV4": {
+      "status": "verified",
+      "evidence": [
+        "packages/local-runtime/local-store-sqlite/src/index.ts",
+        "packages/local-runtime/local-store-sqlite/test/local-store-sqlite.test.ts",
+        "scripts/explorer-view-compiler-readback.mjs",
+        "scripts/packaged-cli-smoke.mjs"
+      ]
+    }
+  },
+  "migration": { "v1RuntimeReferences": [], "passed": true },
+  "privacy": { "forbiddenFieldsFound": [], "passed": true },
+  "verdict": "PASS"
+}

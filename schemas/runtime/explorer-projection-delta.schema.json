@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/runtime/explorer-projection-delta.schema.json",
+  "title": "ExplorerProjectionDeltaV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "base", "head", "changes", "counts", "deltaDigest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.explorer-projection-delta/v1" },
+    "base": { "type": "object" },
+    "head": { "type": "object" },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deltaClass", "subjectId", "change", "fields"],
+        "properties": {
+          "deltaClass": { "enum": ["architecture-fact", "evidence", "projection"] },
+          "subjectId": { "type": "string" },
+          "change": { "enum": ["added", "removed", "changed"] },
+          "fields": { "type": "array", "items": { "type": "string" } },
+          "verificationTransition": { "type": "object" }
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture-fact", "evidence", "projection"],
+      "properties": {
+        "architecture-fact": { "type": "integer", "minimum": 0 },
+        "evidence": { "type": "integer", "minimum": 0 },
+        "projection": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "deltaDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

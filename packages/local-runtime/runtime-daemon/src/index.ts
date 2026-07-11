@@ -72,6 +72,7 @@ import {
 import { loadPracticeCatalog, practiceCatalogEnvelope, type PracticeCatalogCommandInput } from "@archcontext/core/practice-catalog";
 import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPracticeWaiverOwnerRegistry, loadPracticeWaivers, shouldEvaluatePracticeEnforcement, validatePracticeWaiver } from "@archcontext/core/practice-engine";
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
+import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import {
   architectureDocumentationSourceDigest,
   loadArchitectureDocumentationInputs,
@@ -82,7 +83,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type ExplorerProjection, type ExplorerServiceContract, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceBindingV1, type EvidenceItemV2, type ExplorerDeltaQueryV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -96,6 +97,13 @@ import {
   type GithubIssueExecutorPort,
   type GithubIssueListedRecord
 } from "./github-issue-executor";
+import {
+  ExplorerProjectionCompileError,
+  compileExplorerProjection,
+  compileExplorerProjectionDelta,
+  type ExplorerEventBacklinkInputV2,
+  type ExplorerResolvedBindingV2
+} from "./explorer-projection";
 
 const RUNTIME_AGENT_HOOK_DEFAULT_MAX_QUEUED_JOBS = 32;
 const RUNTIME_AGENT_HOOK_DEFAULT_PRIORITY = 0;
@@ -706,7 +714,8 @@ export interface RuntimeDaemonClient {
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
   landscapeStatus(): Promise<JsonEnvelope> | JsonEnvelope;
   explorerServiceContract(tokenTtlSeconds?: number): Promise<JsonEnvelope> | JsonEnvelope;
-  explorerProjection(root: string, query?: string): Promise<JsonEnvelope> | JsonEnvelope;
+  explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> | JsonEnvelope;
+  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV1): Promise<JsonEnvelope> | JsonEnvelope;
   startExplorer(root: string, options?: ExplorerServerOptions): Promise<JsonEnvelope> | JsonEnvelope;
   stopExplorer(): Promise<JsonEnvelope> | JsonEnvelope;
   revokeExplorerToken(): Promise<JsonEnvelope> | JsonEnvelope;
@@ -747,12 +756,8 @@ interface ExplorerServerSession {
   token: string;
   expiresAt: number;
   revoked: boolean;
-}
-
-interface ModelFileSummary {
-  path: string;
-  schemaVersion: string;
-  digest: string;
+  sseClients: Set<ServerResponse>;
+  lastProjectionDigest?: string;
 }
 
 interface ArchitectureLedgerReadModelValidation {
@@ -3836,10 +3841,145 @@ export class ArchctxDaemon {
     return okEnvelope("explorer.contract", contract as unknown as Json);
   }
 
-  async explorerProjection(root: string, query?: string): Promise<JsonEnvelope> {
+  async explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<JsonEnvelope> {
     this.assertRunning();
-    const projection = await this.buildExplorerProjection(root, query);
-    return okEnvelope("explorer.projection", projection as unknown as Json);
+    try {
+      const projection = await this.buildExplorerProjectionV2(root, query);
+      return okEnvelope("explorer.projection.v2", projection as unknown as Json);
+    } catch (error) {
+      if (error instanceof ExplorerProjectionCompileError) {
+        return errorEnvelope(
+          "explorer.projection.v2",
+          error.reason === "precondition-failed" ? "AC_PRECONDITION_FAILED" : "AC_SCHEMA_INVALID",
+          error.message
+        );
+      }
+      throw error;
+    }
+  }
+
+  async explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV1): Promise<JsonEnvelope> {
+    this.assertRunning();
+    if (query.schemaVersion !== "archcontext.explorer-delta-query/v1") {
+      return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", `unsupported Explorer delta schema: ${query.schemaVersion}`);
+    }
+    const readback = await this.architectureLedgerReadback(root);
+    const scope = { repository: readback.repository, worktree: readback.worktree };
+    const [base, head] = await Promise.all([
+      this.localStore.readExplorerProjection({ ...scope, projectionDigest: query.baseProjectionDigest }),
+      this.localStore.readExplorerProjection({ ...scope, projectionDigest: query.headProjectionDigest })
+    ]);
+    if (!base || !head) return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", "both digest-addressed Explorer projections must exist in the daemon cache");
+    try {
+      return okEnvelope("explorer.delta", compileExplorerProjectionDelta(base, head) as unknown as Json);
+    } catch (error) {
+      if (error instanceof ExplorerProjectionCompileError) return errorEnvelope("explorer.delta", "AC_PRECONDITION_FAILED", error.message);
+      throw error;
+    }
+  }
+
+  private async buildExplorerProjectionV2(root: string, query: ExplorerProjectionQueryV2): Promise<ExplorerProjectionV2> {
+    const readback = await this.architectureLedgerReadback(root);
+    const workspace = { root, repositoryId: readback.repository.repositoryId, headSha: readback.worktree.headSha };
+    let taskSession: { taskSessionId: string; task: string; taskSessionDigest: string } | undefined;
+    if (query.taskSessionId) {
+      const snapshot = await this.readPracticeCheckpointBaseline(readback.repository.repositoryId, query.taskSessionId);
+      if (!snapshot) {
+        if (query.viewId === "task-impact") throw new ExplorerProjectionCompileError("precondition-failed", `task session not found: ${query.taskSessionId}`);
+      } else if (snapshot.headSha !== readback.worktree.headSha || snapshot.worktreeDigest !== readback.worktree.worktreeDigest) {
+        if (query.viewId === "task-impact") throw new ExplorerProjectionCompileError("precondition-failed", `task session is stale: ${query.taskSessionId}`);
+      } else {
+        taskSession = {
+          taskSessionId: query.taskSessionId,
+          task: snapshot.task,
+          taskSessionDigest: digestJson({ taskSessionId: query.taskSessionId, snapshot } as unknown as Json)
+        };
+      }
+    }
+    const task = query.viewId === "task-impact" && taskSession ? taskSession.task : `architecture explorer ${query.viewId}`;
+    let observed: NormalizedCodeContext;
+    let observedAvailability: { status: "ready" | "unavailable"; reasonCode?: string } = { status: "ready" };
+    try {
+      await this.codeFacts.ensureReady(workspace);
+      observed = await this.codeFacts.buildTaskContext({
+        task,
+        maxSymbols: Math.min(1000, Math.max(query.budget.maxNodes, query.budget.maxNodes * 4)),
+        includeSource: false
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const reasonCode = message.includes("CodeGraph index missing") ? "codegraph-index-missing" : "codegraph-unavailable";
+      if (query.viewId !== "system-map") throw new ExplorerProjectionCompileError("precondition-failed", `${query.viewId} requires observed facts: ${reasonCode}`);
+      observedAvailability = { status: "unavailable", reasonCode };
+      observed = { task, symbols: [], edges: [], evidence: [], digest: digestJson({ observedAvailability } as unknown as Json) };
+    }
+    const replay = await this.localStore.replayArchitectureLedger({ repository: readback.repository, worktree: readback.worktree });
+    const pressureResult = observedAvailability.status === "ready" ? detectArchitecturePressure({
+      task,
+      symbols: observed.symbols.map((symbol) => symbol.id),
+      files: observed.symbols.map((symbol) => symbol.path),
+      edges: observed.edges,
+      observedEvidence: observed.evidence
+    }) : undefined;
+    const pressure = pressureResult ? {
+      inputDigest: digestJson({ task, observedFactsDigest: observed.digest, pressure: pressureResult } as unknown as Json),
+      level: pressureResult.level,
+      score: pressureResult.score,
+      signals: pressureResult.signals.map((signal) => ({ type: signal.type, evidence: signal.evidence }))
+    } : undefined;
+    const drift = {
+      inputDigest: digestJson(readback.drift as unknown as Json),
+      subjectIds: uniqueStrings((readback.drift.projectionDiffs ?? []).flatMap((diff) => diff.targetId ? [diff.targetId] : [])),
+      reasonCodes: readback.drift.reasonCodes
+    };
+    const projection = compileExplorerProjection({
+      query,
+      repository: readback.repository,
+      worktree: readback.worktree,
+      graph: readback.state,
+      graphDigest: readback.graphDigest,
+      observed,
+      bindings: explorerResolvedBindings(replay.events),
+      pressure,
+      drift,
+      taskSession,
+      eventBacklinks: explorerEventBacklinks(replay.events),
+      observedAvailability,
+      tokenRequired: true
+    });
+    const scope = { repository: readback.repository, worktree: readback.worktree };
+    const previous = await this.localStore.readLatestExplorerProjection({ ...scope, viewId: projection.view.id });
+    const changedDependencyKeys = previous ? explorerChangedDependencyKeys(previous, projection) : [];
+    const affectedOccurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys: changedDependencyKeys });
+    await this.localStore.invalidateExplorerOccurrences({ ...scope, occurrenceIds: affectedOccurrenceIds });
+    await this.localStore.saveExplorerProjection({
+      repository: readback.repository,
+      worktree: readback.worktree,
+      projection,
+      dependencies: explorerProjectionDependencies(projection)
+    });
+    this.notifyExplorerInvalidation(projection, affectedOccurrenceIds);
+    return projection;
+  }
+
+  private notifyExplorerInvalidation(projection: ExplorerProjectionV2, affectedOccurrenceIds: string[]): void {
+    const explorer = this.explorer;
+    if (!explorer || explorer.lastProjectionDigest === projection.projectionDigest) return;
+    if (explorer.revoked || Date.parse(this.clock()) >= explorer.expiresAt) {
+      for (const client of explorer.sseClients) client.end();
+      explorer.sseClients.clear();
+      return;
+    }
+    explorer.lastProjectionDigest = projection.projectionDigest;
+    const payload = JSON.stringify({
+      schemaVersion: "archcontext.explorer-invalidation/v1",
+      projectionDigest: projection.projectionDigest,
+      graphDigest: projection.cursor.graphDigest,
+      observedFactsDigest: projection.cursor.observedFactsDigest,
+      viewDefinitionDigest: projection.cursor.viewDefinitionDigest,
+      affectedOccurrencesDigest: digestJson(affectedOccurrenceIds as unknown as Json)
+    });
+    for (const client of explorer.sseClients) client.write(`event: projection-invalidated\ndata: ${payload}\n\n`);
   }
 
   async startExplorer(root: string, options: ExplorerServerOptions = {}): Promise<JsonEnvelope> {
@@ -3861,7 +4001,8 @@ export class ArchctxDaemon {
       port: 0,
       token,
       expiresAt,
-      revoked: false
+      revoked: false,
+      sseClients: new Set<ServerResponse>()
     });
     await new Promise<void>((resolveListen) => server.listen(options.port ?? 0, "127.0.0.1", resolveListen));
     holder.port = (server.address() as AddressInfo).port;
@@ -3881,7 +4022,11 @@ export class ArchctxDaemon {
 
   async revokeExplorerToken(): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (this.explorer) this.explorer.revoked = true;
+    if (this.explorer) {
+      this.explorer.revoked = true;
+      for (const client of this.explorer.sseClients) client.end();
+      this.explorer.sseClients.clear();
+    }
     return okEnvelope("explorer.revoke", this.explorerStatusData() as unknown as Json);
   }
 
@@ -4078,67 +4223,6 @@ export class ArchctxDaemon {
     }
   }
 
-  private async buildExplorerProjection(root: string, query?: string): Promise<ExplorerProjection> {
-    const session = await this.openSession(root);
-    await this.codeFacts.ensureReady(session.workspace);
-    const model = await this.readModelStore.validateModel(session.workspace).catch(() => undefined);
-    const modelFiles = await this.readModelStore.loadModel(session.workspace).catch(() => []) as ModelFileSummary[];
-    const codeContext = await this.codeFacts.buildTaskContext({ task: "architecture explorer", maxSymbols: 80, includeSource: false });
-    const modelNodes = modelFiles.map((file) => ({
-      id: file.path,
-      name: file.path.split("/").at(-1) ?? file.path,
-      kind: schemaVersionKind(file.schemaVersion),
-      verificationStatus: "MATCHED" as const,
-      pressure: { level: "low" as const, score: 0, signals: [] },
-      sourceSelectors: [{ path: file.path }]
-    }));
-    const codeNodes = codeContext.symbols.map((symbol) => ({
-      id: symbol.id,
-      name: symbol.name,
-      kind: symbol.kind,
-      verificationStatus: codeContext.evidence.some((evidence) => evidence.selector.symbolId === symbol.id && evidence.confidence === "verified")
-        ? "VERIFIED" as const
-        : "MATCHED" as const,
-      pressure: { level: "low" as const, score: 0, signals: [] },
-      sourceSelectors: [{ path: symbol.path, symbolId: symbol.id, startLine: symbol.range?.startLine, endLine: symbol.range?.endLine }]
-    }));
-    const projection: ExplorerProjection = {
-      schemaVersion: "archcontext.explorer-projection/v1",
-      generatedAt: this.clock(),
-      repository: {
-        ...session.snapshot,
-        modelDigest: model?.modelDigest
-      },
-      nodes: dedupeExplorerNodes([...modelNodes, ...codeNodes]),
-      relations: codeContext.edges.map((edge, index) => ({
-        id: `relation.${index + 1}`,
-        source: edge.source,
-        target: edge.target,
-        kind: edge.kind,
-        verificationStatus: edge.confidence === "high" ? "MATCHED" : "UNKNOWN"
-      })),
-      landscape: this.landscape ? {
-        ...this.landscape,
-        crossRepoRelations: await this.localStore.listCrossRepoRelations(this.landscape)
-      } as unknown as Json : undefined,
-      verification: [
-        ...modelFiles.map((file) => ({ path: file.path, schemaVersion: file.schemaVersion, digest: file.digest, confidence: "declared" })),
-        ...codeContext.evidence.map((evidence) => evidence as unknown as Json)
-      ] as unknown as Json[],
-      pressure: codeContext.symbols.map((symbol) => ({ symbolId: symbol.id, level: "low", score: 0 })) as unknown as Json[],
-      interventions: modelFiles
-        .filter((file) => file.schemaVersion === "archcontext.intervention/v1")
-        .map((file) => ({ path: file.path, digest: file.digest })) as unknown as Json[],
-      capabilities: {
-        readOnly: true,
-        mutationMode: "forbidden",
-        egress: "none",
-        tokenRequired: true
-      }
-    };
-    return filterExplorerProjection(projection, query);
-  }
-
   private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {
     const url = new URL(request.url ?? "/", `http://${session.host}:${session.port}`);
     response.setHeader("Cache-Control", "no-store");
@@ -4154,14 +4238,60 @@ export class ArchctxDaemon {
       writeJson(response, 401, { ok: false, error: "explorer token required" });
       return;
     }
-    if (url.pathname === "/" || url.pathname === "/index.html") {
-      const projection = await this.buildExplorerProjection(session.root, url.searchParams.get("q") ?? undefined);
-      writeHtml(response, 200, renderExplorerHtml(projection, { focusId: url.searchParams.get("focus") }));
+    if (url.pathname === "/events") {
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no"
+      });
+      response.write(": archcontext explorer digest invalidation\n\n");
+      session.sseClients.add(response);
+      request.on("close", () => session.sseClients.delete(response));
       return;
     }
-    if (url.pathname === "/projection" || url.pathname === "/search") {
-      const projection = await this.buildExplorerProjection(session.root, url.searchParams.get("q") ?? undefined);
-      writeJson(response, 200, okEnvelope("explorer.projection", projection as unknown as Json));
+    if (url.pathname === "/" || url.pathname === "/index.html") {
+      let query: ExplorerProjectionQueryV2;
+      try {
+        query = explorerProjectionQueryV2FromUrl(url);
+      } catch (error) {
+        writeJson(response, 400, errorEnvelope("explorer.projection.v2", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error)));
+        return;
+      }
+      const result = await this.explorerProjectionV2(session.root, query);
+      if (!result.ok) {
+        writeJson(response, result.error?.code === "AC_PRECONDITION_FAILED" ? 409 : 400, result);
+        return;
+      }
+      const projection = result.data as unknown as ExplorerProjectionV2;
+      writeHtml(response, 200, renderExplorerHtml(projection, { focusSubjectId: query.focus?.subjectId }));
+      return;
+    }
+    if (url.pathname === "/projection/v2") {
+      let query: ExplorerProjectionQueryV2;
+      try {
+        query = explorerProjectionQueryV2FromUrl(url);
+      } catch (error) {
+        writeJson(response, 400, errorEnvelope(
+          "explorer.projection.v2",
+          "AC_SCHEMA_INVALID",
+          error instanceof Error ? error.message : String(error)
+        ));
+        return;
+      }
+      const result = await this.explorerProjectionV2(session.root, query);
+      writeJson(response, result.ok ? 200 : result.error?.code === "AC_PRECONDITION_FAILED" ? 409 : 400, result);
+      return;
+    }
+    if (url.pathname === "/delta") {
+      const baseProjectionDigest = url.searchParams.get("baseProjectionDigest");
+      const headProjectionDigest = url.searchParams.get("headProjectionDigest");
+      if (!baseProjectionDigest || !headProjectionDigest) {
+        writeJson(response, 400, errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "baseProjectionDigest and headProjectionDigest are required"));
+        return;
+      }
+      const result = await this.explorerProjectionDelta(session.root, { schemaVersion: "archcontext.explorer-delta-query/v1", baseProjectionDigest, headProjectionDigest });
+      writeJson(response, result.ok ? 200 : 409, result);
       return;
     }
     writeJson(response, 404, { ok: false, error: "not found" });
@@ -4201,6 +4331,8 @@ export class ArchctxDaemon {
     const current = this.explorer;
     if (!current) return;
     this.explorer = undefined;
+    for (const client of current.sseClients) client.end();
+    current.sseClients.clear();
     await new Promise<void>((resolveClose, rejectClose) => {
       current.server.close((error) => error ? rejectClose(error) : resolveClose());
     });
@@ -4378,8 +4510,12 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("explorerServiceContract", [tokenTtlSeconds]);
   }
 
-  explorerProjection(root: string, query?: string) {
-    return this.call("explorerProjection", [root, query]);
+  explorerProjectionV2(root: string, query: ExplorerProjectionQueryV2) {
+    return this.call("explorerProjectionV2", [root, query]);
+  }
+
+  explorerProjectionDelta(root: string, query: ExplorerDeltaQueryV1) {
+    return this.call("explorerProjectionDelta", [root, query]);
   }
 
   startExplorer(root: string, options: ExplorerServerOptions = {}) {
@@ -4713,8 +4849,10 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.landscapeStatus();
       case "explorerServiceContract":
         return this.daemon.explorerServiceContract(params[0] as number | undefined);
-      case "explorerProjection":
-        return this.daemon.explorerProjection(params[0] as string, params[1] as string | undefined);
+      case "explorerProjectionV2":
+        return this.daemon.explorerProjectionV2(params[0] as string, params[1] as ExplorerProjectionQueryV2);
+      case "explorerProjectionDelta":
+        return this.daemon.explorerProjectionDelta(params[0] as string, params[1] as ExplorerDeltaQueryV1);
       case "startExplorer":
         return this.daemon.startExplorer(params[0] as string, params[1] as ExplorerServerOptions | undefined);
       case "stopExplorer":
@@ -5107,6 +5245,150 @@ function isArchitectureLedgerManagedModelPath(path: string): boolean {
     || path.startsWith(".archcontext/model/constraints/");
 }
 
+function explorerResolvedBindings(events: ArchitectureEventV1[]): ExplorerResolvedBindingV2[] {
+  const evidenceById = new Map<string, EvidenceItemV2>();
+  const bindingsById = new Map<string, EvidenceBindingV1>();
+  for (const event of events) {
+    const payload = architectureLedgerPayload(event);
+    for (const item of payload.evidenceItems ?? []) evidenceById.set(item.evidenceId, item);
+    for (const binding of payload.evidenceBindings ?? []) bindingsById.set(binding.bindingId, binding);
+  }
+  return [...bindingsById.values()]
+    .filter((binding) => binding.target.kind === "entity")
+    .flatMap((binding) => {
+      const evidence = evidenceById.get(binding.evidenceId);
+      const observedSymbolId = evidence?.selector.symbolId;
+      if (!evidence || !observedSymbolId) return [];
+      return [{
+        bindingId: binding.bindingId,
+        targetEntityId: binding.target.id,
+        observedSymbolId,
+        verified: evidence.strength === "verified" && binding.authorityEffect !== "context-only"
+      }];
+    })
+    .sort((left, right) => left.bindingId.localeCompare(right.bindingId));
+}
+
+function explorerProjectionQueryV2FromUrl(url: URL): ExplorerProjectionQueryV2 {
+  const expectedValues = {
+    headSha: url.searchParams.get("expectedHeadSha") ?? undefined,
+    worktreeDigest: url.searchParams.get("expectedWorktreeDigest") ?? undefined,
+    graphDigest: url.searchParams.get("expectedGraphDigest") ?? undefined,
+    observedFactsDigest: url.searchParams.get("expectedObservedFactsDigest") ?? undefined
+  };
+  const expectedRequired = [expectedValues.headSha, expectedValues.worktreeDigest, expectedValues.graphDigest];
+  if (expectedRequired.some(Boolean) && !expectedRequired.every(Boolean)) {
+    throw new Error("expectedHeadSha, expectedWorktreeDigest, and expectedGraphDigest must be provided together");
+  }
+  const maxNodes = parseExplorerInteger(url.searchParams.get("maxNodes"), 80, "maxNodes");
+  const maxRelations = parseExplorerInteger(url.searchParams.get("maxRelations"), 160, "maxRelations");
+  const depth = parseExplorerInteger(url.searchParams.get("depth"), 1, "depth") as 0 | 1 | 2;
+  const viewId = url.searchParams.get("view") ?? "system-map";
+  if (!(["system-map", "task-impact", "drift-pressure"] as string[]).includes(viewId)) throw new Error(`unsupported Explorer view: ${viewId}`);
+  const semanticLevel = url.searchParams.get("level") ?? "context";
+  if (!(["overview", "context", "detail"] as string[]).includes(semanticLevel)) throw new Error(`unsupported Explorer semantic level: ${semanticLevel}`);
+  return {
+    schemaVersion: "archcontext.explorer-projection-query/v2",
+    viewId: viewId as ExplorerProjectionQueryV2["viewId"],
+    semanticLevel: semanticLevel as NonNullable<ExplorerProjectionQueryV2["semanticLevel"]>,
+    ...(url.searchParams.get("taskSessionId") ? { taskSessionId: url.searchParams.get("taskSessionId")! } : {}),
+    ...(expectedRequired.every(Boolean) ? {
+      expectedCursor: {
+        headSha: expectedValues.headSha!,
+        worktreeDigest: expectedValues.worktreeDigest!,
+        graphDigest: expectedValues.graphDigest!,
+        ...(expectedValues.observedFactsDigest ? { observedFactsDigest: expectedValues.observedFactsDigest } : {})
+      }
+    } : {}),
+    ...(url.searchParams.get("focus") ? { focus: { subjectId: url.searchParams.get("focus")! } } : {}),
+    expandedOccurrenceIds: url.searchParams.getAll("expand"),
+    depth,
+    budget: { maxNodes, maxRelations }
+  };
+}
+
+function explorerEventBacklinks(events: ArchitectureEventV1[]): ExplorerEventBacklinkInputV2[] {
+  return events.map((event) => {
+    const payload = architectureLedgerPayload(event);
+    const subjectIds: string[] = [];
+    for (const operation of payload.operations ?? []) {
+      if (operation.op === "upsert_entity") subjectIds.push(operation.entity.entityId);
+      if (operation.op === "delete_entity") subjectIds.push(operation.entityId);
+      if (operation.op === "upsert_relation") subjectIds.push(operation.relation.relationId, operation.relation.sourceEntityId, operation.relation.targetEntityId);
+      if (operation.op === "delete_relation") subjectIds.push(operation.relationId);
+      if (operation.op === "upsert_constraint") subjectIds.push(operation.constraint.constraintId, operation.constraint.subjectId);
+      if (operation.op === "delete_constraint") subjectIds.push(operation.constraintId);
+    }
+    return {
+      eventId: event.eventId,
+      subjectIds: uniqueStrings(subjectIds),
+      ...(payload.title ? { title: payload.title } : {}),
+      ...(payload.rationale ? { rationale: payload.rationale } : {})
+    };
+  }).filter((event) => event.subjectIds.length > 0);
+}
+
+function explorerProjectionDependencies(projection: ExplorerProjectionV2): Array<{ occurrenceId: string; dependencyKeys: string[] }> {
+  return projection.occurrences.map((occurrence) => ({
+    occurrenceId: occurrence.occurrenceId,
+    dependencyKeys: uniqueStrings([
+      `graph:${projection.cursor.graphDigest}`,
+      `observed:${projection.cursor.observedFactsDigest}`,
+      `view:${projection.cursor.viewDefinitionDigest}`,
+      ...occurrence.provenance.declaredEntityIds.map((id) => `entity:${id}`),
+      ...occurrence.provenance.observedSymbolIds.map((id) => `symbol:${id}`),
+      ...occurrence.provenance.evidenceBindingIds.map((id) => `binding:${id}`),
+      ...occurrence.sourceSelectors.map((selector) => `path:${selector.path}`),
+      ...projection.relations.filter((relation) => relation.sourceOccurrenceId === occurrence.occurrenceId || relation.targetOccurrenceId === occurrence.occurrenceId).flatMap((relation) => [
+        ...relation.provenance.declaredRelationIds.map((id) => `relation:${id}`),
+        ...relation.provenance.observedEdgeIds.map((id) => `edge:${id}`)
+      ])
+    ])
+  }));
+}
+
+function explorerChangedDependencyKeys(base: ExplorerProjectionV2, head: ExplorerProjectionV2): string[] {
+  const baseById = new Map(base.occurrences.map((occurrence) => [occurrence.occurrenceId, occurrence]));
+  const headById = new Map(head.occurrences.map((occurrence) => [occurrence.occurrenceId, occurrence]));
+  const keys: string[] = [];
+  for (const occurrenceId of uniqueStrings([...baseById.keys(), ...headById.keys()])) {
+    const before = baseById.get(occurrenceId);
+    const after = headById.get(occurrenceId);
+    if (JSON.stringify(before) === JSON.stringify(after)) continue;
+    for (const occurrence of [before, after]) {
+      if (!occurrence) continue;
+      keys.push(...occurrence.provenance.declaredEntityIds.map((id) => `entity:${id}`));
+      keys.push(...occurrence.provenance.observedSymbolIds.map((id) => `symbol:${id}`));
+      keys.push(...occurrence.provenance.evidenceBindingIds.map((id) => `binding:${id}`));
+      keys.push(...occurrence.sourceSelectors.map((selector) => `path:${selector.path}`));
+    }
+  }
+  const baseRelations = new Map(base.relations.map((relation) => [relation.occurrenceId, relation]));
+  const headRelations = new Map(head.relations.map((relation) => [relation.occurrenceId, relation]));
+  for (const relationId of uniqueStrings([...baseRelations.keys(), ...headRelations.keys()])) {
+    const before = baseRelations.get(relationId);
+    const after = headRelations.get(relationId);
+    if (JSON.stringify(before) === JSON.stringify(after)) continue;
+    for (const relation of [before, after]) {
+      if (!relation) continue;
+      keys.push(...relation.provenance.declaredRelationIds.map((id) => `relation:${id}`));
+      keys.push(...relation.provenance.observedEdgeIds.map((id) => `edge:${id}`));
+    }
+  }
+  return uniqueStrings(keys);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function parseExplorerInteger(value: string | null, fallback: number, field: string): number {
+  if (value === null) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) throw new Error(`${field} must be an integer`);
+  return parsed;
+}
+
 function schemaVersionFromModelBody(body: string): string {
   const match = body.match(/schemaVersion:\s*"?([^"\n]+)"?/);
   if (match) return match[1].trim();
@@ -5149,32 +5431,6 @@ function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: Ru
       ]
     } as unknown as Json)
   };
-}
-
-function dedupeExplorerNodes(nodes: ExplorerProjection["nodes"]): ExplorerProjection["nodes"] {
-  return [...new Map(nodes.map((node) => [node.id, node])).values()].sort((a, b) => a.id.localeCompare(b.id));
-}
-
-function filterExplorerProjection(projection: ExplorerProjection, query = ""): ExplorerProjection {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return projection;
-  const nodes = projection.nodes.filter((node) =>
-    [node.id, node.name, node.kind, node.repositoryId ?? "", node.verificationStatus, ...node.pressure.signals]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalized)
-  );
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  return {
-    ...projection,
-    nodes,
-    relations: projection.relations.filter((relation) => nodeIds.has(relation.source) || nodeIds.has(relation.target))
-  };
-}
-
-function schemaVersionKind(schemaVersion: string): string {
-  const match = schemaVersion.match(/^archcontext\.([a-z-]+)\/v\d+$/);
-  return match?.[1] ?? "architecture-file";
 }
 
 function createDeveloperReviewRunPaths(input: {
@@ -6040,7 +6296,7 @@ function writeJson(response: ServerResponse, statusCode: number, body: unknown):
 function writeHtml(response: ServerResponse, statusCode: number, body: string): void {
   response.writeHead(statusCode, {
     "Content-Type": "text/html; charset=utf-8",
-    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
+    "Content-Security-Policy": "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'"
   });
   response.end(body);
 }

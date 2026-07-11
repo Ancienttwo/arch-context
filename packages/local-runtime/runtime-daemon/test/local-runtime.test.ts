@@ -4244,6 +4244,7 @@ describe("local runtime foundation", () => {
     try {
       const daemon = await createStartedTestDaemon({ clock: () => "2026-06-20T00:00:00.000Z" });
       await daemon.init(root, "Explorer App");
+      await daemon.prepare(root, "change the Explorer runtime boundary", 12_288, 12, "task.explorer-current");
       const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 60 });
       expect(started.ok).toBe(true);
       const data = started.data as any;
@@ -4262,15 +4263,94 @@ describe("local runtime foundation", () => {
       const projection = await fetch(`${data.url}projection`, {
         headers: { Authorization: `Bearer ${data.token}` }
       });
-      expect(projection.status).toBe(200);
-      const body = await projection.json() as any;
-      expect(body.data.schemaVersion).toBe("archcontext.explorer-projection/v1");
-      expect(body.data.capabilities).toMatchObject({ readOnly: true, mutationMode: "forbidden", egress: "none" });
-      expect(JSON.stringify(body.data)).not.toContain("sourceBody");
+      expect(projection.status).toBe(404);
+
+      const projectionV2 = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(projectionV2.status).toBe(200);
+      const bodyV2 = await projectionV2.json() as any;
+      expect(bodyV2.data.schemaVersion).toBe("archcontext.explorer-projection/v2");
+      expect(bodyV2.data.view.id).toBe("system-map");
+      expect(bodyV2.data.occurrences.length).toBeLessThanOrEqual(5);
+      expect(bodyV2.data.page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
+      expect(JSON.stringify(bodyV2.data)).not.toContain("sourceBody");
+      expect(bodyV2.data.capabilities).toMatchObject({ readOnly: true, mutationMode: "forbidden", egress: "none" });
+
+      const taskImpact = await fetch(`${data.url}projection/v2?view=task-impact&taskSessionId=task.explorer-current&maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(taskImpact.status).toBe(200);
+      expect(((await taskImpact.json()) as any).data.view.id).toBe("task-impact");
+      writeFileSync(join(root, "TASK-SESSION-STALE.md"), "stale task cursor\n", "utf8");
+      const staleTask = await fetch(`${data.url}projection/v2?view=task-impact&taskSessionId=task.explorer-current`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(staleTask.status).toBe(409);
+      const systemMapWithStaleTaskHint = await fetch(`${data.url}projection/v2?view=system-map&taskSessionId=task.explorer-current`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(systemMapWithStaleTaskHint.status).toBe(200);
+      const missingTask = await fetch(`${data.url}projection/v2?view=task-impact&taskSessionId=task.missing`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(missingTask.status).toBe(409);
+
+      const driftPressure = await fetch(`${data.url}projection/v2?view=drift-pressure&maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(driftPressure.status).toBe(200);
+      expect(((await driftPressure.json()) as any).data.view.id).toBe("drift-pressure");
+
+      const deniedBudget = await fetch(`${data.url}projection/v2?maxNodes=1001&maxRelations=5001`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(deniedBudget.status).toBe(400);
+
+      const delta = await fetch(`${data.url}delta?baseProjectionDigest=${encodeURIComponent(bodyV2.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(bodyV2.data.projectionDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(delta.status).toBe(200);
+      expect(((await delta.json()) as any).data.counts).toEqual({ "architecture-fact": 0, evidence: 0, projection: 0 });
+
+      const detailProjection = await fetch(`${data.url}projection/v2?level=detail&maxNodes=5&maxRelations=5`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      const detailBody = await detailProjection.json() as any;
+      const projectionOnlyDelta = await fetch(`${data.url}delta?baseProjectionDigest=${encodeURIComponent(bodyV2.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(detailBody.data.projectionDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(projectionOnlyDelta.status).toBe(200);
+      expect(((await projectionOnlyDelta.json()) as any).data.counts).toMatchObject({ "architecture-fact": 0, evidence: 0, projection: 1 });
+
+      const sseAbort = new AbortController();
+      const sse = await fetch(`${data.url}events`, { headers: { Authorization: `Bearer ${data.token}` }, signal: sseAbort.signal });
+      expect(sse.status).toBe(200);
+      expect(sse.headers.get("content-type")).toContain("text/event-stream");
+      const reader = sse.body!.getReader();
+      await reader.read();
+      await fetch(`${data.url}projection/v2?level=overview&maxNodes=5&maxRelations=5`, { headers: { Authorization: `Bearer ${data.token}` } });
+      const eventChunk = await Promise.race([
+        reader.read(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Explorer SSE invalidation timeout")), 2_000))
+      ]);
+      const eventText = new TextDecoder().decode(eventChunk.value);
+      expect(eventText).toContain("projection-invalidated");
+      expect(eventText).toContain("projectionDigest");
+      expect(eventText).not.toContain("sourceBody");
+      expect(eventText).not.toContain("src/");
+      sseAbort.abort();
+
+      const staleV2 = await fetch(`${data.url}projection/v2?expectedHeadSha=${"f".repeat(40)}&expectedWorktreeDigest=${encodeURIComponent(bodyV2.data.cursor.worktree.worktreeDigest)}&expectedGraphDigest=${encodeURIComponent(bodyV2.data.cursor.graphDigest)}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      expect(staleV2.status).toBe(409);
+      expect(((await staleV2.json()) as any).error.code).toBe("AC_PRECONDITION_FAILED");
 
       const html = await fetch(`${data.url}?token=${data.token}`);
       expect(html.status).toBe(200);
       expect(html.headers.get("content-type")).toContain("text/html");
+      expect(html.headers.get("content-security-policy")).toContain("connect-src 'self'");
       const htmlBody = await html.text();
       expect(htmlBody).toContain("ArchContext Explorer");
       expect(htmlBody).toContain("read-only · local · no egress");
@@ -4283,6 +4363,27 @@ describe("local runtime foundation", () => {
       expect(revoked.status).toBe(401);
       await daemon.stopExplorer();
       expect((daemon.explorerStatus().data as any).running).toBe(false);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("Explorer fails closed over malformed repository model input without leaking its body", async () => {
+    const root = tempRepo();
+    try {
+      const daemon = await createStartedTestDaemon();
+      await daemon.init(root, "Malformed Explorer App");
+      const malformedPath = join(root, ".archcontext", "model", "nodes", "malformed.yaml");
+      writeFileSync(malformedPath, "schemaVersion: broken\nTOP_SECRET_BODY: should-not-leak\n", "utf8");
+      const started = await daemon.startExplorer(root, { port: 0, tokenTtlSeconds: 60 });
+      const data = started.data as any;
+      const response = await fetch(`${data.url}projection/v2`, { headers: { Authorization: `Bearer ${data.token}` } });
+      expect(response.status).toBe(200);
+      const body = await response.text();
+      expect(body).not.toContain("TOP_SECRET_BODY");
+      expect(body).not.toContain("should-not-leak");
+      expect(body).not.toContain("malformed.yaml");
+      await daemon.stopExplorer();
     } finally {
       removeTempRepo(root);
     }

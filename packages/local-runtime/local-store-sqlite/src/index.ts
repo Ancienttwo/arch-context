@@ -41,7 +41,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -76,7 +76,9 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "architecture_ledger_operations",
   "architecture_ledger_fts",
   "architecture_ledger_search_fts",
-  "audit_runs"
+  "audit_runs",
+  "explorer_projection_cache",
+  "explorer_occurrence_dependencies"
 ] as const;
 
 export const SQLITE_PRAGMAS = [
@@ -611,6 +613,34 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       "ALTER TABLE changeset_journal ADD COLUMN cleanup_completed_at TEXT",
       "CREATE INDEX IF NOT EXISTS idx_changeset_journal_cleanup_pending ON changeset_journal(status, cleanup_completed_at, updated_at)"
     ]
+  },
+  {
+    id: "0012_explorer_projection_index",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS explorer_projection_cache (
+        projection_digest TEXT PRIMARY KEY,
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        view_id TEXT NOT NULL,
+        graph_digest TEXT NOT NULL,
+        observed_facts_digest TEXT NOT NULL,
+        view_definition_digest TEXT NOT NULL,
+        compiler_version TEXT NOT NULL,
+        projection_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_explorer_projection_scope ON explorer_projection_cache(storage_repository_id, storage_workspace_id, view_id, created_at)",
+      `CREATE TABLE IF NOT EXISTS explorer_occurrence_dependencies (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        projection_digest TEXT NOT NULL,
+        occurrence_id TEXT NOT NULL,
+        dependency_key TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id, projection_digest, occurrence_id, dependency_key),
+        FOREIGN KEY(projection_digest) REFERENCES explorer_projection_cache(projection_digest) ON DELETE CASCADE
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_explorer_dependency_key ON explorer_occurrence_dependencies(storage_repository_id, storage_workspace_id, dependency_key)"
+    ]
   }
 ] as const;
 
@@ -1048,6 +1078,12 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   compactArchitectureLedger(input: ArchitectureLedgerScope & { beforeSnapshotId: string }): Promise<{ snapshotId: string; compactedEventCount: number }>;
   checkArchitectureLedgerIntegrity(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerIntegrityResult>;
   backupArchitectureLedger(input: { backupPath: string }): Promise<{ backupPath: string; integrity: string }>;
+  saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void>;
+  readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined>;
+  readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined>;
+  listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]>;
+  invalidateExplorerOccurrences(input: ArchitectureLedgerScope & { occurrenceIds: string[] }): Promise<number>;
+  clearExplorerDerivedState(input?: ArchitectureLedgerScope): Promise<number>;
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
@@ -2070,6 +2106,100 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (existsSync(input.backupPath)) rmSync(input.backupPath, { force: true });
     db.exec(`VACUUM INTO ${sqliteStringLiteral(input.backupPath)}`);
     return { backupPath: input.backupPath, integrity: assertSqliteIntegrity(input.backupPath) };
+  }
+
+  async saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void> {
+    const db = await this.database();
+    const storageWorkspaceId = architectureLedgerWorkspaceKey(input.worktree);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(
+        `INSERT OR REPLACE INTO explorer_projection_cache
+          (projection_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest, view_definition_digest, compiler_version, projection_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        input.projection.projectionDigest,
+        input.repository.storageRepositoryId,
+        storageWorkspaceId,
+        input.projection.view.id,
+        input.projection.cursor.graphDigest,
+        input.projection.cursor.observedFactsDigest,
+        input.projection.cursor.viewDefinitionDigest,
+        input.projection.cursor.compilerVersion,
+        stableJson(input.projection),
+        nowIso()
+      );
+      db.prepare(
+        "DELETE FROM explorer_occurrence_dependencies WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?"
+      ).run(input.repository.storageRepositoryId, storageWorkspaceId, input.projection.projectionDigest);
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO explorer_occurrence_dependencies
+          (storage_repository_id, storage_workspace_id, projection_digest, occurrence_id, dependency_key)
+          VALUES (?, ?, ?, ?, ?)`
+      );
+      for (const entry of input.dependencies) for (const dependencyKey of [...new Set(entry.dependencyKeys)].sort()) {
+        insert.run(input.repository.storageRepositoryId, storageWorkspaceId, input.projection.projectionDigest, entry.occurrenceId, dependencyKey);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  async readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT projection_json FROM explorer_projection_cache
+        WHERE projection_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+    ).get(input.projectionDigest, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
+    return row ? JSON.parse(String(row.projection_json)) as ExplorerProjectionV2 : undefined;
+  }
+
+  async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT projection_json FROM explorer_projection_cache
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND view_id = ?
+        ORDER BY created_at DESC, rowid DESC LIMIT 1`
+    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), input.viewId);
+    return row ? JSON.parse(String(row.projection_json)) as ExplorerProjectionV2 : undefined;
+  }
+
+  async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
+    if (input.dependencyKeys.length === 0) return [];
+    const db = await this.database();
+    const placeholders = input.dependencyKeys.map(() => "?").join(", ");
+    return db.prepare(
+      `SELECT DISTINCT occurrence_id FROM explorer_occurrence_dependencies
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND dependency_key IN (${placeholders})
+        ORDER BY occurrence_id ASC`
+    ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), ...input.dependencyKeys).map((row) => String(row.occurrence_id));
+  }
+
+  async invalidateExplorerOccurrences(input: ArchitectureLedgerScope & { occurrenceIds: string[] }): Promise<number> {
+    if (input.occurrenceIds.length === 0) return 0;
+    const db = await this.database();
+    const placeholders = input.occurrenceIds.map(() => "?").join(", ");
+    const count = Number(db.prepare(
+      `SELECT COUNT(*) AS count FROM explorer_occurrence_dependencies
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND occurrence_id IN (${placeholders})`
+    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), ...input.occurrenceIds)?.count ?? 0);
+    db.prepare(
+      `DELETE FROM explorer_occurrence_dependencies
+        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND occurrence_id IN (${placeholders})`
+    ).run(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), ...input.occurrenceIds);
+    return count;
+  }
+
+  async clearExplorerDerivedState(input?: ArchitectureLedgerScope): Promise<number> {
+    const db = await this.database();
+    const count = input
+      ? Number(db.prepare("SELECT COUNT(*) AS count FROM explorer_projection_cache WHERE storage_repository_id = ? AND storage_workspace_id = ?").get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree))?.count ?? 0)
+      : Number(db.prepare("SELECT COUNT(*) AS count FROM explorer_projection_cache").get()?.count ?? 0);
+    if (input) db.prepare("DELETE FROM explorer_projection_cache WHERE storage_repository_id = ? AND storage_workspace_id = ?").run(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
+    else db.prepare("DELETE FROM explorer_projection_cache").run();
+    return count;
   }
 
   clearDerivedLandscapeState(): void {

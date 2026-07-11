@@ -58,3 +58,5 @@ The set below mirrors PRD §28 and is intentionally complete before package work
 | ADR-0040 | Hybrid Architecture Ledger |
 | ADR-0041 | Daemon-Driven Local Architecture Audit with Advisory GitHub Issue Drafts |
 | ADR-0042 | Local Approve-and-Publish for Advisory GitHub Issue Drafts |
+| ADR-0043 | Agent Context Provider |
+| ADR-0044 | Authority-Aware Explorer View Compiler |

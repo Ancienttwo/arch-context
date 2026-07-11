@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +12,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { digestJson, type AgentJobV1, type ArchitectureEventV1, type Json } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureEventV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   LOCAL_SQLITE_MIGRATIONS,
@@ -45,7 +46,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0008_runtime_job_queue_hardening",
       "0009_architecture_ledger_search_fts",
       "0010_audit_runs",
-      "0011_changeset_cleanup_cursor"
+      "0011_changeset_cleanup_cursor",
+      "0012_explorer_projection_index"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -63,6 +65,56 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "source_code"
     );
     expect(() => assertNoSourceStorageSchema(["CREATE TABLE bad (diff_body TEXT NOT NULL)"])).toThrow("diff_body");
+  });
+
+  test("Explorer projection cache is digest-addressed, rebuildable, and dependency-scoped", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const projection = explorerProjectionFixture();
+      await store.saveExplorerProjection({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        projection,
+        dependencies: [{ occurrenceId: projection.occurrences[0]!.occurrenceId, dependencyKeys: ["entity:module.api", "path:src/api.ts"] }]
+      });
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projection.projectionDigest })).resolves.toEqual(projection);
+      await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.api"] })).resolves.toEqual([projection.occurrences[0]!.occurrenceId]);
+      await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.other"] })).resolves.toEqual([]);
+      await expect(store.invalidateExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, occurrenceIds: [projection.occurrences[0]!.occurrenceId] })).resolves.toBe(2);
+      await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.api"] })).resolves.toEqual([]);
+      await expect(store.clearExplorerDerivedState(ARCHITECTURE_LEDGER_SCOPE)).resolves.toBe(1);
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projection.projectionDigest })).resolves.toBeUndefined();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Explorer latest projection uses insertion order when writes share a timestamp", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-latest-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const base = { ...explorerProjectionFixture(), projectionDigest: `sha256:${"f".repeat(64)}` };
+      const head = {
+        ...base,
+        cursor: { ...base.cursor, graphDigest: digestJson({ graph: "head" } as unknown as Json) },
+        projectionDigest: `sha256:${"0".repeat(64)}`
+      };
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: base, dependencies: [] });
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: head, dependencies: [] });
+
+      const database = new Database(databasePath);
+      database.prepare("UPDATE explorer_projection_cache SET created_at = ?").run("2026-07-11T00:00:00.000Z");
+      database.close();
+
+      await expect(store.readLatestExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, viewId: "system-map" })).resolves.toEqual(head);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("runtime state paths use an OS/user-data root partitioned by repository and worktree", () => {
@@ -365,7 +417,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0008_runtime_job_queue_hardening",
       "0009_architecture_ledger_search_fts",
       "0010_audit_runs",
-      "0011_changeset_cleanup_cursor"
+      "0011_changeset_cleanup_cursor",
+      "0012_explorer_projection_index"
     ]);
 
     const snapshot = {
@@ -1598,6 +1651,46 @@ const ARCHITECTURE_LEDGER_SCOPE = {
     worktreeDigest: digestJson({ worktree: "architecture-ledger-test" } as unknown as Json)
   }
 };
+
+function explorerProjectionFixture(): ExplorerProjectionV2 {
+  const occurrenceId = "occurrence.system-map.entity.module.api";
+  const withoutDigest = {
+    schemaVersion: "archcontext.explorer-projection/v2" as const,
+    view: { id: "system-map" as const, title: "System Map", question: "What exists?" },
+    availableViews: [{ id: "system-map" as const, enabled: true }],
+    semanticLevel: "context" as const,
+    breadcrumbs: [],
+    cursor: {
+      repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+      worktree: ARCHITECTURE_LEDGER_SCOPE.worktree,
+      graphDigest: digestJson({ graph: "one" } as unknown as Json),
+      observedFactsDigest: digestJson({ observed: "one" } as unknown as Json),
+      viewDefinitionDigest: digestJson({ view: "system-map" } as unknown as Json),
+      compilerVersion: "archcontext.explorer-view-compiler/v1" as const,
+      observedAvailability: { status: "ready" as const }
+    },
+    occurrences: [{
+      occurrenceId,
+      role: "subject" as const,
+      subjectRefs: [{ kind: "architecture-entity" as const, id: "module.api" }],
+      name: "API",
+      kind: "module",
+      childrenCount: 0,
+      expandable: false,
+      verificationStatus: "UNKNOWN" as const,
+      authorityState: "DECLARED_UNOBSERVED" as const,
+      pressure: { evaluated: true, level: "low" as const, score: 0, signals: [], inputDigest: digestJson({ pressure: "one" } as unknown as Json) },
+      sourceSelectors: [{ path: "src/api.ts" }],
+      provenance: { declaredEntityIds: ["module.api"], observedSymbolIds: [], evidenceBindingIds: [] },
+      inspector: { constraints: [], decisions: [], sourceSelectors: [{ path: "src/api.ts" }], evidenceBindingIds: [] },
+      backlinks: { appearsInViews: ["system-map" as const], affectedByTaskSessionIds: [], constrainedByIds: [], evidencedByBindingIds: [], changedByEventIds: [], decidedByEventIds: [], incomingRelationIds: [], outgoingRelationIds: [] }
+    }],
+    relations: [],
+    page: { budget: { maxNodes: 80, maxRelations: 160 }, totalNodes: 1, totalRelations: 0, returnedNodes: 1, returnedRelations: 0, truncated: false, omittedNodeCount: 0, omittedRelationCount: 0 },
+    capabilities: { readOnly: true as const, mutationMode: "forbidden" as const, egress: "none" as const, tokenRequired: true }
+  };
+  return { ...withoutDigest, projectionDigest: digestJson(withoutDigest as unknown as Json) };
+}
 
 function runtimeAgentJob(suffix: string, input: {
   fingerprint?: string;

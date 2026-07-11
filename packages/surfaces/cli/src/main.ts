@@ -4,7 +4,7 @@ import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, ope
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AgentJobV1, AttestationV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
+import type { AgentJobV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -254,7 +254,13 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
-      if (subcommand === "projection") return daemon.explorerProjection(cwd, readFlag(args, "--query"));
+      if (subcommand === "projection") return daemon.explorerProjectionV2(cwd, explorerProjectionQueryV2FromCli(args));
+      if (subcommand === "delta") {
+        const baseProjectionDigest = readFlag(args, "--base-projection-digest");
+        const headProjectionDigest = readFlag(args, "--head-projection-digest");
+        if (!baseProjectionDigest || !headProjectionDigest) return errorEnvelope("explorer.delta", "AC_SCHEMA_INVALID", "explore delta requires --base-projection-digest and --head-projection-digest");
+        return daemon.explorerProjectionDelta(cwd, { schemaVersion: "archcontext.explorer-delta-query/v1", baseProjectionDigest, headProjectionDigest });
+      }
       if (subcommand === "contract") return daemon.explorerServiceContract(Number(readFlag(args, "--token-ttl-seconds") ?? 900));
       if (subcommand === "status") return daemon.explorerStatus();
       if (subcommand === "stop") return daemon.stopExplorer();
@@ -280,7 +286,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
           }
         };
       }
-      return errorEnvelope("explore", "AC_SCHEMA_INVALID", "explore requires start|stop|status|revoke|projection|contract");
+      return errorEnvelope("explore", "AC_SCHEMA_INVALID", "explore requires start|stop|status|revoke|projection|delta|contract");
     }
     case "prepare": {
       const task = readFlag(args, "--task") ?? args.join(" ").trim();
@@ -3134,4 +3140,36 @@ function readRepeatedFlag(args: string[], flag: string): string[] {
     if (args[index] === flag && args[index + 1]) values.push(args[index + 1]);
   }
   return values;
+}
+
+function explorerProjectionQueryV2FromCli(args: string[]): ExplorerProjectionQueryV2 {
+  const expectedHeadSha = readFlag(args, "--expected-head-sha");
+  const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+  const expectedGraphDigest = readFlag(args, "--expected-graph-digest");
+  const expectedObservedFactsDigest = readFlag(args, "--expected-observed-facts-digest");
+  const expectedRequired = [expectedHeadSha, expectedWorktreeDigest, expectedGraphDigest];
+  if (expectedRequired.some(Boolean) && !expectedRequired.every(Boolean)) {
+    throw new Error("--expected-head-sha, --expected-worktree-digest, and --expected-graph-digest must be provided together");
+  }
+  return {
+    schemaVersion: "archcontext.explorer-projection-query/v2",
+    viewId: (readFlag(args, "--view") ?? "system-map") as ExplorerProjectionQueryV2["viewId"],
+    semanticLevel: (readFlag(args, "--level") ?? "context") as NonNullable<ExplorerProjectionQueryV2["semanticLevel"]>,
+    ...(readFlag(args, "--task-session-id") ? { taskSessionId: readFlag(args, "--task-session-id")! } : {}),
+    ...(expectedRequired.every(Boolean) ? {
+      expectedCursor: {
+        headSha: expectedHeadSha!,
+        worktreeDigest: expectedWorktreeDigest!,
+        graphDigest: expectedGraphDigest!,
+        ...(expectedObservedFactsDigest ? { observedFactsDigest: expectedObservedFactsDigest } : {})
+      }
+    } : {}),
+    ...(readFlag(args, "--focus") ? { focus: { subjectId: readFlag(args, "--focus")! } } : {}),
+    expandedOccurrenceIds: readRepeatedFlag(args, "--expand"),
+    depth: Number(readFlag(args, "--depth") ?? 1) as 0 | 1 | 2,
+    budget: {
+      maxNodes: Number(readFlag(args, "--max-nodes") ?? 80),
+      maxRelations: Number(readFlag(args, "--max-relations") ?? 160)
+    }
+  };
 }
