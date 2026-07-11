@@ -3,7 +3,7 @@
 > **Status**: Approved
 > **Slug**: authority-aware-architecture-reading-completion
 > **Created**: 2026-07-12 02:58
-> **Updated**: 2026-07-12 03:00
+> **Updated**: 2026-07-12 03:16
 > **Source Plan**: `plans/plan-20260712-0225-authority-aware-architecture-reading-completion.md`
 > **Source Spec**: `docs/spec.md`
 > **Goal Mode**: incremental
@@ -98,7 +98,7 @@ execution for small tasks. Every row needs a concrete acceptance line.
 
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
-| 1 | [ ] | AR0 deterministic bounded topology kernel and SVG renderer cutover | contract | `bun test packages/local-runtime/explorer-html/test/topology.test.ts packages/surfaces/explorer-ui/test/explorer-ui.test.ts && bun run verify:explorer` passes; reversed input is byte-identical; 80/160 p95 <= 50ms and 1000/5000 p95 <= 500ms; no external asset/dependency | (pending) |
+| 1 | [x] | AR0 deterministic bounded topology kernel and SVG renderer cutover | contract | `bun test packages/local-runtime/explorer-html/test/topology.test.ts packages/surfaces/explorer-ui/test/explorer-ui.test.ts && bun run verify:explorer` passes; reversed input is byte-identical; 80/160 p95 <= 50ms and 1000/5000 p95 <= 500ms; no external asset/dependency | `plans/archive/plan-20260712-0301-ar0-deterministic-topology-kernel.md` |
 | 2 | [ ] | AR1 URL navigation, accessibility, CSP, and exact dual-SSE freshness | contract | Explorer surface + daemon HTTP/SSE tests pass for exact expand/focus state preservation, keyboard/reduced-motion/no-JS, declared CSP, unconditional debounced `authority-changed`, digest-qualified `projection-invalidated`, expiry, and one-refetch bursts | (pending) |
 | 3 | [ ] | AR2 Inspector 2.0 and required typed historyEvents atomic cutover | contract | Contract/schema/compiler/RPC/CLI/HTML tests pass with required canonically sorted/deduplicated `historyEvents`; privacy audit proves no prohibited bodies; repository contains no optional/legacy history reader | (pending) |
 | 4 | [ ] | AR3 typed data-flow and external-integrations perspectives | contract | Contract/compiler/HTTP/CLI/HTML/package tests pass for typed positive/empty/stale/budget cases; adversarial names/paths remain excluded; new view digests force manifest-addressed cache misses | (pending) |
@@ -110,3 +110,4 @@ Keep this section last; `.ai/harness/scripts/sprint-backlog.sh complete-task` ap
 
 | When | Task | Plan | Result |
 |------|------|------|--------|
+| 2026-07-12 03:16 | AR0 deterministic bounded topology kernel and SVG renderer cutover | `plans/archive/plan-20260712-0301-ar0-deterministic-topology-kernel.md` | done |
