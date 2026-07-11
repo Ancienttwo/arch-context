@@ -16,6 +16,11 @@
 > **Task Review**: `tasks/reviews/20260711-1328-data-engine-authority-incremental.review.md`
 > **Implementation Notes**: `tasks/notes/20260711-1328-data-engine-authority-incremental.notes.md`
 
+Phase contracts:
+
+- DE0: `tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md` (complete)
+- DE1: `tasks/contracts/20260711-1605-data-engine-de1-change-feed.contract.md` (complete)
+
 ## Agentic Routing
 - Selected route: gstack:plan-eng-review
 - Routing reason: Captured from repo-harness-plan planning output.
@@ -386,16 +391,16 @@ on daemon startup; it deletes dependency rows transactionally with cache rows.
 
 ### DE1 · Transactional subject index and change feed
 
-- [ ] Add migrations for `architecture_event_subjects` and
+- [x] Add migrations for `architecture_event_subjects` and
       `architecture_change_feed` with scope/event/subject indexes.
-- [ ] Generate typed affected subjects from graph operations, evidence items, and
+- [x] Generate typed affected subjects from graph operations, evidence items, and
       evidence bindings, including evidence-only events.
-- [ ] Append event, materialized state, subject rows, and feed row atomically.
-- [ ] Move event backlinks to the typed index.
-- [ ] Drive cache invalidation/SSE from durable committed feed cursors.
-- [ ] Prove crash-before-commit, crash-after-commit, restart replay, duplicate poll,
+- [x] Append event, materialized state, subject rows, and feed row atomically.
+- [x] Move event backlinks to the typed index.
+- [x] Drive cache invalidation/SSE from durable committed feed cursors.
+- [x] Prove crash-before-commit, crash-after-commit, restart replay, duplicate poll,
       and subject-selective invalidation.
-- [ ] Prove an evidence-only event invalidates binding-dependent projections.
+- [x] Prove an evidence-only event invalidates binding-dependent projections.
 
 ### DE2 · Snapshot-anchored replay and scope reads
 
@@ -571,7 +576,7 @@ readback, and full `bun run verify`. No LLM prompt/eval path is changed.
 
 - [x] DE0: Land manifest-compatible authority-separated delta V2, evidence
       lifecycle, and the budget-displacement regression.
-- [ ] DE1: Land transactional subject index/change feed and feed-driven invalidation.
+- [x] DE1: Land transactional subject index/change feed and feed-driven invalidation.
 - [ ] DE2: Land verified snapshot-anchor tail replay and direct scope resolution.
 - [ ] DE3: Land manifest-addressed cache keys and required-domain hardening.
 - [ ] DE4: Land bounded projection read planner and partial SQLite reads.

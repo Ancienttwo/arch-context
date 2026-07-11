@@ -4397,6 +4397,9 @@ describe("local runtime foundation", () => {
           }
         } as any]
       });
+      const lifecycleFeedRecord = localStore.architectureChangeFeed.at(-1)!;
+      expect(lifecycleFeedRecord.eventId).toBe("arch_event.explorer_lifecycle");
+      expect(Math.max(...[...localStore.architectureChangeFeedConsumers.values()].map((consumer) => consumer.checkpoint), 0)).toBeLessThan(lifecycleFeedRecord.feedSequence);
       const lifecycleProjectionResponse = await fetch(`${data.url}projection/v2?maxNodes=5&maxRelations=5`, {
         headers: { Authorization: `Bearer ${data.token}` }
       });
@@ -4404,6 +4407,9 @@ describe("local runtime foundation", () => {
       const lifecycleProjection = await lifecycleProjectionResponse.json() as any;
       expect(lifecycleProjection.data.inputManifest.bindingsDigest).not.toBe(authorityProjection.data.inputManifest.bindingsDigest);
       expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.provenance.evidenceBindingIds.includes(evidenceBinding.bindingId))).toBe(true);
+      expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.backlinks.changedByEventIds.includes("arch_event.explorer_lifecycle"))).toBe(true);
+      expect(localStore.invalidatedExplorerProjections.has(authorityProjection.data.projectionDigest)).toBe(true);
+      expect(Math.max(...[...localStore.architectureChangeFeedConsumers.values()].map((consumer) => consumer.checkpoint), 0)).toBe(lifecycleFeedRecord.feedSequence);
       const lifecycleEventId = lifecycleProjection.data.cursor.authorityCursor.eventId;
       const lifecycleDelta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}`, {
         headers: { Authorization: `Bearer ${data.token}` }
@@ -4439,14 +4445,47 @@ describe("local runtime foundation", () => {
       expect(sse.headers.get("content-type")).toContain("text/event-stream");
       const reader = sse.body!.getReader();
       await reader.read();
+      const updatedEvidenceItem = {
+        ...evidenceItem,
+        summary: "Explorer lifecycle binding updated",
+        digest: digestJson({ evidenceId: evidenceItem.evidenceId, summary: "Explorer lifecycle binding updated" } as any)
+      };
+      await localStore.appendArchitectureEvents({
+        writer: "runtime-daemon",
+        events: [{
+          schemaVersion: "archcontext.architecture-event/v1",
+          eventId: "arch_event.explorer_lifecycle_update",
+          eventType: "architecture.evidence.lifecycle",
+          payloadVersion: "archcontext.architecture-evidence-lifecycle/v2",
+          repository: authorityCursor.repository,
+          worktree: authorityCursor.worktree,
+          baseDigest: authorityCursor.graphDigest,
+          resultingDigest: authorityCursor.graphDigest,
+          headSha: authorityCursor.worktree.headSha,
+          actor: { kind: "daemon", id: "archctxd.test" },
+          source: "apply_update",
+          timestamp: "2026-06-20T00:00:02.000Z",
+          idempotencyKey: "explorer-evidence-lifecycle-update",
+          provenance: evidenceItem.provenance,
+          payload: {
+            summary: "Update Explorer evidence item",
+            evidenceOperations: [
+              { target: "item", action: "update", evidenceId: updatedEvidenceItem.evidenceId, previousDigest: digestJson(evidenceItem as any), value: updatedEvidenceItem }
+            ]
+          }
+        } as any]
+      });
       await fetch(`${data.url}projection/v2?level=overview&maxNodes=5&maxRelations=5`, { headers: { Authorization: `Bearer ${data.token}` } });
       const eventChunk = await Promise.race([
         reader.read(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Explorer SSE invalidation timeout")), 2_000))
       ]);
       const eventText = new TextDecoder().decode(eventChunk.value);
-      expect(eventText).toContain("projection-invalidated");
-      expect(eventText).toContain("projectionDigest");
+      expect(eventText).toContain("authority-changed");
+      expect(eventText).toContain("feedSequence");
+      expect(eventText).toContain("subjectsDigest");
+      expect(eventText).not.toContain("summary");
+      expect(eventText).not.toContain("payload");
       expect(eventText).not.toContain("sourceBody");
       expect(eventText).not.toContain("src/");
       sseAbort.abort();

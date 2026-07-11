@@ -2285,27 +2285,51 @@ function compileEvidenceLifecycleOperations(
 }
 
 export function replayArchitectureLedgerEvidenceState(events: ArchitectureEventV1[]): EvidenceStateAtCursorV1 {
-  const items = new Map<string, EvidenceItemV2>();
-  const bindings = new Map<string, EvidenceBindingV1>();
-  const tombstones = new Map<string, EvidenceLifecycleTombstoneV1>();
+  const state = mutableArchitectureLedgerEvidenceState();
+  for (const event of events) applyArchitectureLedgerEvidenceEventToMutableState(state, event);
+  return freezeArchitectureLedgerEvidenceState(state);
+}
 
-  for (const event of events) {
-    const payload = architectureLedgerPayload(event);
-    for (const item of payload.evidenceItems ?? []) applyLegacyEvidenceCreate(items, tombstones, "item", item.evidenceId, item, event.eventId);
-    for (const binding of payload.evidenceBindings ?? []) {
-      requireLiveEvidenceItem(items, binding.evidenceId, event.eventId);
-      applyLegacyEvidenceCreate(bindings, tombstones, "binding", binding.bindingId, binding, event.eventId);
-    }
-    for (const operation of payload.evidenceOperations ?? []) {
-      applyEvidenceLifecycleOperation({ items, bindings, tombstones }, operation, event.eventId);
-    }
+export function applyArchitectureLedgerEvidenceEvent(
+  previous: EvidenceStateAtCursorV1,
+  event: ArchitectureEventV1
+): EvidenceStateAtCursorV1 {
+  const state = mutableArchitectureLedgerEvidenceState(previous);
+  applyArchitectureLedgerEvidenceEventToMutableState(state, event);
+  return freezeArchitectureLedgerEvidenceState(state);
+}
+
+function mutableArchitectureLedgerEvidenceState(previous?: EvidenceStateAtCursorV1) {
+  return {
+    items: new Map((previous?.evidenceItems ?? []).map((item) => [item.evidenceId, item])),
+    bindings: new Map((previous?.evidenceBindings ?? []).map((binding) => [binding.bindingId, binding])),
+    tombstones: new Map((previous?.tombstones ?? []).map((tombstone) => [`${tombstone.target}:${tombstone.id}`, tombstone]))
+  };
+}
+
+function applyArchitectureLedgerEvidenceEventToMutableState(
+  state: ReturnType<typeof mutableArchitectureLedgerEvidenceState>,
+  event: ArchitectureEventV1
+): void {
+  const payload = architectureLedgerPayload(event);
+  for (const item of payload.evidenceItems ?? []) applyLegacyEvidenceCreate(state.items, state.tombstones, "item", item.evidenceId, item, event.eventId);
+  for (const binding of payload.evidenceBindings ?? []) {
+    requireLiveEvidenceItem(state.items, binding.evidenceId, event.eventId);
+    applyLegacyEvidenceCreate(state.bindings, state.tombstones, "binding", binding.bindingId, binding, event.eventId);
   }
+  for (const operation of payload.evidenceOperations ?? []) {
+    applyEvidenceLifecycleOperation(state, operation, event.eventId);
+  }
+}
 
+function freezeArchitectureLedgerEvidenceState(
+  state: ReturnType<typeof mutableArchitectureLedgerEvidenceState>
+): EvidenceStateAtCursorV1 {
   const stateWithoutDigest = {
     schemaVersion: "archcontext.evidence-state-at-cursor/v1" as const,
-    evidenceItems: [...items.values()].sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)),
-    evidenceBindings: [...bindings.values()].sort((left, right) => left.bindingId.localeCompare(right.bindingId)),
-    tombstones: [...tombstones.values()].sort((left, right) => `${left.target}:${left.id}`.localeCompare(`${right.target}:${right.id}`))
+    evidenceItems: [...state.items.values()].sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)),
+    evidenceBindings: [...state.bindings.values()].sort((left, right) => left.bindingId.localeCompare(right.bindingId)),
+    tombstones: [...state.tombstones.values()].sort((left, right) => `${left.target}:${left.id}`.localeCompare(`${right.target}:${right.id}`))
   };
   return { ...stateWithoutDigest, stateDigest: digestJson(stateWithoutDigest as unknown as Json) };
 }

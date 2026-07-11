@@ -7,9 +7,11 @@ import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
+  applyArchitectureLedgerEvidenceEvent,
   architectureLedgerPayload,
   architectureLedgerStateDigest,
   evidenceLifecycleValueDigest,
+  normalizeArchitectureLedgerEvent,
   planAuditRunToArchitectureLedgerEvent,
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
@@ -20,6 +22,7 @@ import {
   LOCAL_SQLITE_MIGRATIONS,
   SQLITE_PRAGMAS,
   SqliteLocalStore,
+  architectureAffectedSubjects,
   assertNoSourceStorageSchema,
   inspectLegacyLocalStoreMigration,
   migrateLegacyLocalStoreIfNeeded,
@@ -50,7 +53,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0010_audit_runs",
       "0011_changeset_cleanup_cursor",
       "0012_explorer_projection_index",
-      "0013_evidence_lifecycle"
+      "0013_evidence_lifecycle",
+      "0014_architecture_change_feed"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -98,6 +102,116 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("change feed migration backfills verified historical events and rejects tampered event JSON", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-change-feed-migration-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const db = new Database(dbPath);
+    const normalized = normalizeArchitectureLedgerEvent(architectureEvidenceLifecycleEvent("backfill", []), null);
+    const workspaceKey = `ledger-scope:${digestJson({
+      storageWorkspaceId: normalized.worktree.storageWorkspaceId,
+      branch: normalized.worktree.branch,
+      headSha: normalized.worktree.headSha,
+      worktreeDigest: normalized.worktree.worktreeDigest
+    } as unknown as Json).slice("sha256:".length)}`;
+    const storageEventId = `${workspaceKey}:${normalized.eventId}`;
+    try {
+      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 13)) {
+        for (const statement of migration.statements) db.exec(statement);
+        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, normalized.timestamp);
+      }
+      db.query(
+        `INSERT INTO architecture_events
+          (event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha,
+            worktree_digest, event_type, payload_version, source, actor_kind, actor_id, base_digest, resulting_digest,
+            previous_event_hash, event_hash, idempotency_key, payload_json, provenance_json, event_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        storageEventId,
+        normalized.repository.repositoryId,
+        normalized.repository.storageRepositoryId,
+        normalized.worktree.workspaceId,
+        workspaceKey,
+        normalized.worktree.branch,
+        normalized.worktree.headSha,
+        normalized.worktree.worktreeDigest,
+        normalized.eventType,
+        normalized.payloadVersion,
+        normalized.source,
+        normalized.actor.kind,
+        normalized.actor.id,
+        normalized.baseDigest,
+        normalized.resultingDigest,
+        null,
+        normalized.eventHash!,
+        normalized.idempotencyKey,
+        stableJsonFixture(normalized.payload),
+        stableJsonFixture(normalized.provenance),
+        stableJsonFixture(normalized),
+        normalized.timestamp
+      );
+    } finally {
+      db.close();
+    }
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const feed = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.migration" });
+      expect(feed.records).toHaveLength(1);
+      expect(feed.records[0]).toMatchObject({ eventId: normalized.eventId, eventHash: normalized.eventHash, affectedSubjects: [] });
+      store.close();
+
+      const incompleteMarkerDb = new Database(dbPath);
+      incompleteMarkerDb.prepare("DELETE FROM architecture_change_feed_backfill_state").run();
+      incompleteMarkerDb.prepare(
+        `INSERT INTO architecture_entities_current
+          (storage_repository_id, storage_workspace_id, entity_id, repository_id, workspace_id, branch, head_sha,
+            worktree_digest, kind, canonical_name, status, path, summary, metadata_json, last_event_id, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        normalized.repository.storageRepositoryId,
+        workspaceKey,
+        "module.corrupt",
+        normalized.repository.repositoryId,
+        normalized.worktree.workspaceId,
+        normalized.worktree.branch,
+        normalized.worktree.headSha,
+        normalized.worktree.worktreeDigest,
+        "module",
+        "Corrupt materialized row",
+        "active",
+        null,
+        null,
+        "{}",
+        storageEventId,
+        normalized.timestamp
+      );
+      incompleteMarkerDb.close();
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const incompleteStore = new SqliteLocalStore(dbPath);
+        await expect(incompleteStore.migrate()).rejects.toThrow("architecture-change-feed-backfill-materialized-graph-mismatch");
+        incompleteStore.close();
+      }
+      const repairMarkerDb = new Database(dbPath);
+      repairMarkerDb.prepare("DELETE FROM architecture_entities_current WHERE entity_id = ?").run("module.corrupt");
+      repairMarkerDb.close();
+      const repairedStore = new SqliteLocalStore(dbPath);
+      await repairedStore.migrate();
+      repairedStore.close();
+
+      const tamperedDb = new Database(dbPath);
+      tamperedDb.prepare("DELETE FROM architecture_change_feed").run();
+      tamperedDb.prepare("UPDATE architecture_events SET event_json = ? WHERE event_id = ?")
+        .run(stableJsonFixture({ ...normalized, idempotencyKey: "tampered" }), storageEventId);
+      tamperedDb.close();
+      const tamperedStore = new SqliteLocalStore(dbPath);
+      await expect(tamperedStore.migrate()).rejects.toThrow("architecture-change-feed-backfill-idempotency-key-mismatch");
+      tamperedStore.close();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("schema guard rejects source or diff storage columns", () => {
     expect(() => assertNoSourceStorageSchema(["CREATE TABLE bad (source_code TEXT NOT NULL)"])).toThrow(
       "source_code"
@@ -121,8 +235,9 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.other"] })).resolves.toEqual([]);
       await expect(store.invalidateExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, occurrenceIds: [projection.occurrences[0]!.occurrenceId] })).resolves.toBe(2);
       await expect(store.listAffectedExplorerOccurrences({ ...ARCHITECTURE_LEDGER_SCOPE, dependencyKeys: ["entity:module.api"] })).resolves.toEqual([]);
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projection.projectionDigest })).resolves.toEqual(projection);
+      await expect(store.readLatestExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, viewId: projection.view.id })).resolves.toBeUndefined();
       await expect(store.clearExplorerDerivedState(ARCHITECTURE_LEDGER_SCOPE)).resolves.toBe(1);
-      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projection.projectionDigest })).resolves.toBeUndefined();
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });
@@ -457,7 +572,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0010_audit_runs",
       "0011_changeset_cleanup_cursor",
       "0012_explorer_projection_index",
-      "0013_evidence_lifecycle"
+      "0013_evidence_lifecycle",
+      "0014_architecture_change_feed"
     ]);
 
     const snapshot = {
@@ -1732,7 +1848,204 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("architecture change feed is transactional typed restart-safe and idempotent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-change-feed-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const first = sqliteEvidenceItem("Owns API");
+    const second = sqliteEvidenceItem("Owns API and routing");
+    const binding = sqliteEvidenceBinding(first.evidenceId);
+    const createBase = architectureEvidenceLifecycleEvent("feed-create", [
+      { target: "item", action: "create", evidenceId: first.evidenceId, value: first },
+      { target: "binding", action: "create", bindingId: binding.bindingId, value: binding }
+    ]);
+    const create = {
+      ...createBase,
+      payload: { ...(createBase.payload as Record<string, Json>), title: "Evidence ownership", rationale: "Direct verified selector" }
+    } as ArchitectureEventV1;
+    const update = architectureEvidenceLifecycleEvent("feed-update", [{
+      target: "item",
+      action: "update",
+      evidenceId: first.evidenceId,
+      previousDigest: evidenceLifecycleValueDigest(first),
+      value: second
+    }]);
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [create, update], faultAfterEvents: 1 }))
+        .rejects.toThrow("architecture-ledger-fault-injection");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events")).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_event_subjects")).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_change_feed")).toBe(0);
+
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [create, update] });
+      const firstPoll = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed", limit: 10 });
+      const duplicatePoll = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed", limit: 10 });
+      expect(duplicatePoll.records).toEqual(firstPoll.records);
+      expect(firstPoll.records).toHaveLength(2);
+      expect(firstPoll.records[0]?.affectedSubjects).toContainEqual({
+        authorityClass: "evidence",
+        subjectKind: "evidence-binding",
+        subjectId: binding.bindingId,
+        operation: "create"
+      });
+      expect(firstPoll.records[1]?.affectedSubjects).toContainEqual({
+        authorityClass: "evidence",
+        subjectKind: "evidence-binding",
+        subjectId: binding.bindingId,
+        operation: "reference"
+      });
+      expect(firstPoll.records[1]?.changedInputDigests.evidenceBefore).not.toBe(firstPoll.records[1]?.changedInputDigests.evidenceAfter);
+      await expect(store.acknowledgeArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.unseen", feedSequence: firstPoll.records[1]!.feedSequence }))
+        .rejects.toThrow("ack-requires-delivered-sequence");
+      const crossScope = {
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: {
+          ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+          branch: "other",
+          headSha: "b".repeat(40),
+          worktreeDigest: digestJson({ scope: "other" } as unknown as Json)
+        }
+      };
+      await expect(store.acknowledgeArchitectureChangeFeed({ ...crossScope, consumerId: "test.feed", feedSequence: firstPoll.records[1]!.feedSequence }))
+        .rejects.toThrow("ack-requires-delivered-sequence");
+      const checkpoint = await store.acknowledgeArchitectureChangeFeed({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        consumerId: "test.feed",
+        feedSequence: firstPoll.records[1]!.feedSequence
+      });
+      await expect(store.acknowledgeArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed", feedSequence: checkpoint }))
+        .resolves.toBe(checkpoint);
+      expect((await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed" })).records).toEqual([]);
+      const backlinks = await store.listArchitectureEventBacklinks(ARCHITECTURE_LEDGER_SCOPE);
+      expect(backlinks.find((item) => item.eventId === update.eventId)?.subjectIds).toContain(binding.bindingId);
+      expect(backlinks.find((item) => item.eventId === create.eventId)).toMatchObject({
+        title: "Evidence ownership",
+        rationale: "Direct verified selector"
+      });
+      const corruptDb = new Database(dbPath);
+      corruptDb.prepare("UPDATE architecture_change_feed SET event_hash = ? WHERE logical_event_id = ?")
+        .run(`sha256:${"0".repeat(64)}`, update.eventId);
+      corruptDb.close();
+      await expect(store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.corrupt" }))
+        .rejects.toThrow("architecture-change-feed-authority-mismatch");
+      const repairDb = new Database(dbPath);
+      repairDb.prepare("UPDATE architecture_change_feed SET event_hash = ? WHERE logical_event_id = ?")
+        .run(firstPoll.records[1]!.eventHash, update.eventId);
+      repairDb.close();
+      const corruptCursorDb = new Database(dbPath);
+      corruptCursorDb.prepare("UPDATE architecture_change_feed_consumers SET feed_sequence = ?, delivered_sequence = ? WHERE consumer_id = ?")
+        .run(999_999, 999_999, "test.feed");
+      corruptCursorDb.close();
+      await expect(store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed" }))
+        .rejects.toThrow("architecture-change-feed-consumer-checkpoint-missing");
+      const repairCursorDb = new Database(dbPath);
+      repairCursorDb.prepare("UPDATE architecture_change_feed_consumers SET feed_sequence = ?, delivered_sequence = ? WHERE consumer_id = ?")
+        .run(checkpoint, checkpoint, "test.feed");
+      repairCursorDb.prepare("UPDATE architecture_event_subjects SET logical_event_id = ? WHERE logical_event_id = ?")
+        .run("arch_event.forged", update.eventId);
+      repairCursorDb.close();
+      await expect(store.listArchitectureEventBacklinks(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("architecture-event-backlink-logical-id-mismatch");
+      const repairBacklinkDb = new Database(dbPath);
+      repairBacklinkDb.prepare("UPDATE architecture_event_subjects SET logical_event_id = ? WHERE logical_event_id = ?")
+        .run(update.eventId, "arch_event.forged");
+      repairBacklinkDb.close();
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [create] });
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_change_feed")).toBe(2);
+    } finally {
+      store.close();
+    }
+
+    const restarted = new SqliteLocalStore(dbPath);
+    try {
+      await restarted.migrate();
+      const unread = await restarted.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.restart" });
+      expect(unread.records).toHaveLength(2);
+      expect(unread.records.map((record) => record.eventId)).toEqual([create.eventId, update.eventId]);
+    } finally {
+      restarted.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("affected subject extraction retains both sides of moved graph and evidence references", () => {
+    const first = sqliteEvidenceItem("Old evidence reference");
+    const binding = sqliteEvidenceBinding(first.evidenceId);
+    const create = architectureEvidenceLifecycleEvent("reference-create", [
+      { target: "item", action: "create", evidenceId: first.evidenceId, value: first },
+      { target: "binding", action: "create", bindingId: binding.bindingId, value: binding }
+    ]);
+    const evidenceBefore = applyArchitectureLedgerEvidenceEvent(emptyEvidenceStateFixture(), create);
+    const movedItem = {
+      ...first,
+      subject: "module.api.v2",
+      selector: { kind: "path" as const, id: "module.api.v2", path: "packages/api-v2" },
+      digest: digestJson({ evidenceId: first.evidenceId, subject: "module.api.v2" } as unknown as Json)
+    };
+    const movedBinding = { ...binding, target: { kind: "entity" as const, id: "module.api.v2" } };
+    const update = architectureEvidenceLifecycleEvent("reference-update", [
+      { target: "item", action: "update", evidenceId: first.evidenceId, previousDigest: evidenceLifecycleValueDigest(first), value: movedItem },
+      { target: "binding", action: "update", bindingId: binding.bindingId, previousDigest: evidenceLifecycleValueDigest(binding), value: movedBinding }
+    ]);
+    const evidenceAfter = applyArchitectureLedgerEvidenceEvent(evidenceBefore, update);
+    const evidenceSubjects = architectureAffectedSubjects(update, { entities: [], relations: [], constraints: [] }, evidenceBefore, evidenceAfter);
+    expect(evidenceSubjects).toContainEqual({ authorityClass: "evidence", subjectKind: "subject", subjectId: "module.api", operation: "reference" });
+    expect(evidenceSubjects).toContainEqual({ authorityClass: "evidence", subjectKind: "subject", subjectId: "module.api.v2", operation: "reference" });
+    expect(evidenceSubjects).toContainEqual({ authorityClass: "evidence", subjectKind: "entity", subjectId: "module.api", operation: "reference" });
+    expect(evidenceSubjects).toContainEqual({ authorityClass: "evidence", subjectKind: "entity", subjectId: "module.api.v2", operation: "reference" });
+
+    const graphEvent = {
+      ...architectureEvidenceLifecycleEvent("graph-reference-update", []),
+      eventType: "architecture.graph.changed",
+      payloadVersion: "archcontext.architecture-ledger-payload/v1",
+      payload: {
+        summary: "Move relation and constraint references",
+        operations: [
+          { op: "upsert_relation", relation: { relationId: "rel.api", kind: "calls", sourceEntityId: "module.new-source", targetEntityId: "module.new-target", status: "active" } },
+          { op: "upsert_constraint", constraint: { constraintId: "constraint.api", kind: "boundary", subjectId: "module.new-subject", status: "active" } },
+          { op: "delete_entity", entityId: "module.new-source" }
+        ]
+      }
+    } as ArchitectureEventV1;
+    const graphSubjects = architectureAffectedSubjects(graphEvent, {
+      entities: [],
+      relations: [{ relationId: "rel.api", kind: "calls", sourceEntityId: "module.old-source", targetEntityId: "module.old-target", status: "active" }],
+      constraints: [{ constraintId: "constraint.api", kind: "boundary", subjectId: "module.old-subject", status: "active" }]
+    }, evidenceAfter, evidenceAfter);
+    for (const subjectId of ["module.old-source", "module.old-target", "module.new-source", "module.new-target"]) {
+      expect(graphSubjects).toContainEqual({ authorityClass: "architecture-fact", subjectKind: "entity", subjectId, operation: "reference" });
+    }
+    for (const subjectId of ["module.old-subject", "module.new-subject"]) {
+      expect(graphSubjects).toContainEqual({ authorityClass: "architecture-fact", subjectKind: "subject", subjectId, operation: "reference" });
+    }
+    expect(graphSubjects).toContainEqual({ authorityClass: "architecture-fact", subjectKind: "relation", subjectId: "rel.api", operation: "delete" });
+  });
 });
+
+function emptyEvidenceStateFixture() {
+  const withoutDigest = {
+    schemaVersion: "archcontext.evidence-state-at-cursor/v1" as const,
+    evidenceItems: [],
+    evidenceBindings: [],
+    tombstones: []
+  };
+  return { ...withoutDigest, stateDigest: digestJson(withoutDigest as unknown as Json) };
+}
+
+function stableJsonFixture(value: unknown): string {
+  return JSON.stringify(sortJsonFixture(value));
+}
+
+function sortJsonFixture(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonFixture);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => entry !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, sortJsonFixture(entry)]));
+}
 
 const ARCHITECTURE_LEDGER_SCOPE = {
   repository: {

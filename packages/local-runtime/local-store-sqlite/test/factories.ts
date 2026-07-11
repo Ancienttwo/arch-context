@@ -21,8 +21,8 @@ import {
   type ArchitectureLedgerReplayVerification,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import type { AgentJobV1, ArchitectureEventV1, EvidenceStateAtCursorV1, ExplorerProjectionV2, ExternalDocumentationCacheEntry, ExternalDocumentationProvider, Json, RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type RepositorySnapshot } from "@archcontext/contracts";
+import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -47,7 +47,10 @@ export class TestLocalStore implements RuntimeLocalStore {
   }>();
   readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
   readonly architectureEvents: ArchitectureEventV1[] = [];
+  readonly architectureChangeFeed: ArchitectureChangeFeedRecordV1[] = [];
+  readonly architectureChangeFeedConsumers = new Map<string, { checkpoint: number; delivered: number }>();
   readonly explorerProjections = new Map<string, { scope: ArchitectureLedgerScope; projection: ExplorerProjectionV2 }>();
+  readonly invalidatedExplorerProjections = new Set<string>();
   readonly explorerDependencies = new Map<string, Set<string>>();
 
   async migrate(): Promise<void> {
@@ -472,6 +475,8 @@ export class TestLocalStore implements RuntimeLocalStore {
     const appendedEvents: ArchitectureEventV1[] = [];
     const duplicateEvents: ArchitectureEventV1[] = [];
     const initialEventCount = this.architectureEvents.length;
+    const initialFeedCount = this.architectureChangeFeed.length;
+    let processed = 0;
     try {
       for (const event of input.events) {
         const scope = scopeFromEvent(event);
@@ -480,6 +485,9 @@ export class TestLocalStore implements RuntimeLocalStore {
           duplicateEvents.push(duplicate);
           continue;
         }
+        const beforeEvents = this.eventsForScope(scope);
+        const beforeGraph = replayArchitectureLedgerEvents(beforeEvents);
+        const evidenceBefore = replayArchitectureLedgerEvidenceState(beforeEvents);
         const operations = architectureLedgerPayload(event).operations ?? [];
         if (operations.length > 0) {
           const currentDigest = architectureLedgerStateDigest(this.stateForScope(scope));
@@ -489,9 +497,7 @@ export class TestLocalStore implements RuntimeLocalStore {
         }
         const normalized = normalizeArchitectureLedgerEvent(event, this.latestEventHashForScope(event));
         const payload = architectureLedgerPayload(normalized);
-        if ((payload.evidenceOperations?.length ?? 0) > 0) {
-          replayArchitectureLedgerEvidenceState([...this.eventsForScope(scope), normalized]);
-        }
+        const evidenceAfter = replayArchitectureLedgerEvidenceState([...beforeEvents, normalized]);
         this.architectureEvents.push(normalized);
         if (operations.length > 0) {
           const resultingDigest = architectureLedgerStateDigest(this.stateForScope(scope));
@@ -499,10 +505,36 @@ export class TestLocalStore implements RuntimeLocalStore {
             throw new Error(`architecture-ledger-resulting-digest-conflict: expected ${resultingDigest}, received ${event.resultingDigest}`);
           }
         }
+        const afterGraph = this.stateForScope(scope);
+        const affectedSubjects = architectureAffectedSubjects(normalized, beforeGraph, evidenceBefore, evidenceAfter);
+        const eventPayload = architectureLedgerPayload(normalized);
+        this.architectureChangeFeed.push({
+          schemaVersion: "archcontext.architecture-change-feed-record/v1",
+          feedSequence: this.architectureChangeFeed.length + 1,
+          repository: normalized.repository,
+          worktree: normalized.worktree,
+          eventSequence: this.architectureEvents.length,
+          eventId: normalized.eventId,
+          eventHash: normalized.eventHash!,
+          ...(eventPayload.title ? { title: eventPayload.title } : {}),
+          ...(eventPayload.rationale ? { rationale: eventPayload.rationale } : {}),
+          affectedSubjects,
+          subjectsDigest: digestJson({ eventId: normalized.eventId, subjects: affectedSubjects } as unknown as Json),
+          changedInputDigests: {
+            graphBefore: architectureLedgerStateDigest(beforeGraph),
+            graphAfter: architectureLedgerStateDigest(afterGraph),
+            evidenceBefore: evidenceBefore.stateDigest,
+            evidenceAfter: evidenceAfter.stateDigest
+          },
+          committedAt: normalized.timestamp
+        });
         appendedEvents.push(normalized);
+        processed += 1;
+        if (input.faultAfterEvents !== undefined && processed >= input.faultAfterEvents) throw new Error("architecture-ledger-fault-injection");
       }
     } catch (error) {
       this.architectureEvents.splice(initialEventCount);
+      this.architectureChangeFeed.splice(initialFeedCount);
       throw error;
     }
     this.architectureEventAppends.push(input);
@@ -604,6 +636,52 @@ export class TestLocalStore implements RuntimeLocalStore {
     return replayArchitectureLedgerEvidenceState(this.eventsForScope(input));
   }
 
+  async listArchitectureChangeFeed(input: ArchitectureLedgerScope & { consumerId: string; limit?: number }): Promise<ArchitectureChangeFeedBatchV1> {
+    const key = testChangeFeedConsumerKey(input);
+    const consumer = this.architectureChangeFeedConsumers.get(key) ?? { checkpoint: 0, delivered: 0 };
+    const limit = Math.max(1, Math.min(500, Math.trunc(input.limit ?? 100)));
+    const available = this.architectureChangeFeed
+      .filter((record) => testFeedScopeMatches(record, input) && record.feedSequence > consumer.checkpoint)
+      .sort((left, right) => left.feedSequence - right.feedSequence);
+    const records = available.slice(0, limit);
+    if (records.length > 0) {
+      consumer.delivered = Math.max(consumer.delivered, records.at(-1)!.feedSequence);
+      this.architectureChangeFeedConsumers.set(key, consumer);
+    }
+    return {
+      schemaVersion: "archcontext.architecture-change-feed-batch/v1",
+      consumerId: input.consumerId,
+      checkpoint: consumer.checkpoint,
+      records,
+      hasMore: available.length > limit
+    };
+  }
+
+  async acknowledgeArchitectureChangeFeed(input: ArchitectureLedgerScope & { consumerId: string; feedSequence: number }): Promise<number> {
+    const key = testChangeFeedConsumerKey(input);
+    const consumer = this.architectureChangeFeedConsumers.get(key) ?? { checkpoint: 0, delivered: 0 };
+    if (input.feedSequence <= consumer.checkpoint) return consumer.checkpoint;
+    if (input.feedSequence > consumer.delivered) throw new Error("architecture-change-feed-ack-requires-delivered-sequence");
+    if (!this.architectureChangeFeed.some((record) => record.feedSequence === input.feedSequence && testFeedScopeMatches(record, input))) {
+      throw new Error("architecture-change-feed-ack-scope-mismatch");
+    }
+    consumer.checkpoint = input.feedSequence;
+    this.architectureChangeFeedConsumers.set(key, consumer);
+    return consumer.checkpoint;
+  }
+
+  async listArchitectureEventBacklinks(input: ArchitectureLedgerScope): Promise<ArchitectureEventBacklinkV1[]> {
+    return this.architectureChangeFeed
+      .filter((record) => testFeedScopeMatches(record, input) && record.affectedSubjects.length > 0)
+      .sort((left, right) => left.eventSequence - right.eventSequence)
+      .map((record) => ({
+        eventId: record.eventId,
+        subjectIds: [...new Set(record.affectedSubjects.map((subject) => subject.subjectId))].sort(),
+        ...(record.title ? { title: record.title } : {}),
+        ...(record.rationale ? { rationale: record.rationale } : {})
+      }));
+  }
+
   async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {
     const materialized = await this.readArchitectureLedgerState(input);
     const replayed = await this.replayArchitectureLedger(input);
@@ -649,6 +727,7 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void> {
     this.explorerProjections.set(input.projection.projectionDigest, { scope: input, projection: structuredClone(input.projection) });
+    this.invalidatedExplorerProjections.delete(input.projection.projectionDigest);
     for (const entry of input.dependencies) this.explorerDependencies.set(`${input.projection.projectionDigest}\0${entry.occurrenceId}`, new Set(entry.dependencyKeys));
   }
 
@@ -659,13 +738,20 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
-    return [...this.explorerProjections.values()].reverse().find((record) => record.scope.repository.storageRepositoryId === input.repository.storageRepositoryId && record.scope.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId && record.projection.view.id === input.viewId)?.projection;
+    return [...this.explorerProjections.values()].reverse().find((record) =>
+      !this.invalidatedExplorerProjections.has(record.projection.projectionDigest)
+      && record.scope.repository.storageRepositoryId === input.repository.storageRepositoryId
+      && record.scope.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+      && record.projection.view.id === input.viewId)?.projection;
   }
 
   async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
     const keys = new Set(input.dependencyKeys);
     const result: string[] = [];
     for (const [compound, dependencies] of this.explorerDependencies) {
+      const projectionDigest = compound.slice(0, compound.indexOf("\0"));
+      const projection = this.explorerProjections.get(projectionDigest);
+      if (!projection || projection.scope.repository.storageRepositoryId !== input.repository.storageRepositoryId || projection.scope.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId) continue;
       if (![...dependencies].some((dependency) => keys.has(dependency))) continue;
       result.push(compound.slice(compound.indexOf("\0") + 1));
     }
@@ -675,11 +761,21 @@ export class TestLocalStore implements RuntimeLocalStore {
   async invalidateExplorerOccurrences(input: ArchitectureLedgerScope & { occurrenceIds: string[] }): Promise<number> {
     const ids = new Set(input.occurrenceIds);
     let deleted = 0;
+    const projectionDigests = new Set<string>();
     for (const [compound, dependencies] of this.explorerDependencies) {
+      const projectionDigest = compound.slice(0, compound.indexOf("\0"));
+      const projection = this.explorerProjections.get(projectionDigest);
+      if (!projection || projection.scope.repository.storageRepositoryId !== input.repository.storageRepositoryId || projection.scope.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId) continue;
       const occurrenceId = compound.slice(compound.indexOf("\0") + 1);
       if (!ids.has(occurrenceId)) continue;
       deleted += dependencies.size;
-      this.explorerDependencies.delete(compound);
+      projectionDigests.add(projectionDigest);
+    }
+    for (const projectionDigest of projectionDigests) {
+      this.invalidatedExplorerProjections.add(projectionDigest);
+      for (const compound of [...this.explorerDependencies.keys()]) {
+        if (compound.startsWith(`${projectionDigest}\0`)) this.explorerDependencies.delete(compound);
+      }
     }
     return deleted;
   }
@@ -687,6 +783,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   async clearExplorerDerivedState(): Promise<number> {
     const count = this.explorerProjections.size;
     this.explorerProjections.clear();
+    this.invalidatedExplorerProjections.clear();
     this.explorerDependencies.clear();
     return count;
   }
@@ -737,6 +834,18 @@ export class TestLocalStore implements RuntimeLocalStore {
         && event.worktree.worktreeDigest === scope.worktree.worktreeDigest)
       ?.eventHash ?? null;
   }
+}
+
+function testChangeFeedConsumerKey(input: ArchitectureLedgerScope & { consumerId: string }): string {
+  return `${input.consumerId}\0${input.repository.storageRepositoryId}\0${input.worktree.storageWorkspaceId}\0${input.worktree.branch}\0${input.worktree.headSha}\0${input.worktree.worktreeDigest}`;
+}
+
+function testFeedScopeMatches(record: ArchitectureChangeFeedRecordV1, input: ArchitectureLedgerScope): boolean {
+  return record.repository.storageRepositoryId === input.repository.storageRepositoryId
+    && record.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+    && record.worktree.branch === input.worktree.branch
+    && record.worktree.headSha === input.worktree.headSha
+    && record.worktree.worktreeDigest === input.worktree.worktreeDigest;
 }
 
 function scopeFromEvent(event: ArchitectureEventV1): ArchitectureLedgerScope {

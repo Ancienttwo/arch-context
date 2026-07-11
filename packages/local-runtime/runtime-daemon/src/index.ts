@@ -43,6 +43,7 @@ import {
   replayArchitectureLedgerEvents,
   showArchitectureLedgerBookSubject,
   type ArchitectureAuditRunV1,
+  type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
   type ArchitectureLedgerProjectionFile,
   type ArchitectureLedgerScope,
@@ -85,7 +86,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -103,7 +104,6 @@ import {
   ExplorerProjectionCompileError,
   compileExplorerProjection,
   compileExplorerProjectionChanges,
-  type ExplorerEventBacklinkInputV2,
   type ExplorerResolvedBindingV2
 } from "./explorer-projection";
 
@@ -2024,7 +2024,7 @@ export class ArchctxDaemon {
       ...(input.eventType ? { eventType: input.eventType } : {}),
       ...(input.confirmPublicTokenDigest ? { confirmPublicTokenDigest: input.confirmPublicTokenDigest } : {})
     });
-    const result = await this.localStore.appendArchitectureEvents({
+    const result = await this.appendArchitectureEventsWithFeed(root, {
       writer: "runtime-daemon",
       events: [plan.event]
     });
@@ -2506,9 +2506,7 @@ export class ArchctxDaemon {
     });
     if (journalId) await this.localStore.recordChangeSetLedgerPlan(journalId, { event: plan.event });
     const appendInput = { writer: "runtime-daemon" as const, events: [plan.event] };
-    const result = journalId
-      ? await this.localStore.appendArchitectureEventsAndCommitChangeSet(journalId, appendInput)
-      : await this.localStore.appendArchitectureEvents(appendInput);
+    const result = await this.appendArchitectureEventsWithFeed(root, appendInput, journalId);
     return result;
   }
 
@@ -2890,7 +2888,7 @@ export class ArchctxDaemon {
           }
         } as unknown as Json
       };
-      const append = await this.localStore.appendArchitectureEvents({
+      const append = await this.appendArchitectureEventsWithFeed(root, {
         writer: "runtime-daemon",
         events: [event]
       });
@@ -3036,7 +3034,7 @@ export class ArchctxDaemon {
         "runtime.sqlite"
       ));
       const backup = await this.localStore.backupArchitectureLedger({ backupPath });
-      const append = await this.localStore.appendArchitectureEvents({
+      const append = await this.appendArchitectureEventsWithFeed(repositoryRoot, {
         writer: "runtime-daemon",
         events: [plan.event]
       });
@@ -3197,7 +3195,7 @@ export class ArchctxDaemon {
       let proposedExternalProjectionChange: Json | undefined;
       if (previousGraphDigest === plan.graphDigest) {
         if (!exactScopeHasEvents) {
-          append = await this.localStore.appendArchitectureEvents({
+          append = await this.appendArchitectureEventsWithFeed(root, {
             writer: "runtime-daemon",
             events: [importPlan.event]
           });
@@ -3210,7 +3208,7 @@ export class ArchctxDaemon {
             createdAt: this.clock(),
             command: rebuildCommand
           });
-          append = await this.localStore.appendArchitectureEvents({
+          append = await this.appendArchitectureEventsWithFeed(root, {
             writer: "runtime-daemon",
             events: [cursorPlan.event]
           });
@@ -3225,7 +3223,7 @@ export class ArchctxDaemon {
           previousState,
           previousEvidenceState: authorityEvidenceState
         });
-        append = await this.localStore.appendArchitectureEvents({
+        append = await this.appendArchitectureEventsWithFeed(root, {
           writer: "runtime-daemon",
           events: [proposal.event]
         });
@@ -3240,7 +3238,7 @@ export class ArchctxDaemon {
           reconcileCommand: "archctx ledger rebuild --from-git --accept-external-projection --expected-worktree-digest <current>"
         } as unknown as Json;
       } else {
-        append = await this.localStore.appendArchitectureEvents({
+        append = await this.appendArchitectureEventsWithFeed(root, {
           writer: "runtime-daemon",
           events: [exactScopeHasEvents ? plan.event : importPlan.event]
         });
@@ -3976,7 +3974,12 @@ export class ArchctxDaemon {
       observedAvailability = { status: "unavailable", reasonCode };
       observed = { task, symbols: [], edges: [], evidence: [], digest: digestJson({ observedAvailability } as unknown as Json) };
     }
-    const replay = await this.localStore.replayArchitectureLedger({ repository: readback.repository, worktree: readback.worktree });
+    const scope = { repository: readback.repository, worktree: readback.worktree };
+    await this.processArchitectureChangeFeed(root, scope);
+    const [replay, eventBacklinks] = await Promise.all([
+      this.localStore.replayArchitectureLedger(scope),
+      this.localStore.listArchitectureEventBacklinks(scope)
+    ]);
     const pressureResult = observedAvailability.status === "ready" ? detectArchitecturePressure({
       task,
       symbols: observed.symbols.map((symbol) => symbol.id),
@@ -4013,11 +4016,10 @@ export class ArchctxDaemon {
       pressure,
       drift,
       taskSession,
-      eventBacklinks: explorerEventBacklinks(replay.events),
+      eventBacklinks,
       observedAvailability,
       tokenRequired: true
     });
-    const scope = { repository: readback.repository, worktree: readback.worktree };
     const previous = await this.localStore.readLatestExplorerProjection({ ...scope, viewId: projection.view.id });
     const changedDependencyKeys = previous ? explorerChangedDependencyKeys(previous, projection) : [];
     const affectedOccurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys: changedDependencyKeys });
@@ -4291,6 +4293,66 @@ export class ArchctxDaemon {
     } finally {
       this.writerLocked = false;
     }
+  }
+
+  private async appendArchitectureEventsWithFeed(
+    root: string,
+    input: ArchitectureLedgerAppendInput,
+    journalId?: string
+  ): Promise<ArchitectureLedgerAppendResult> {
+    const result = journalId
+      ? await this.localStore.appendArchitectureEventsAndCommitChangeSet(journalId, input)
+      : await this.localStore.appendArchitectureEvents(input);
+    const scopes = new Map<string, ArchitectureLedgerScope>();
+    for (const event of [...result.appendedEvents, ...result.duplicateEvents]) {
+      const scope = { repository: event.repository, worktree: event.worktree };
+      scopes.set(`${event.repository.storageRepositoryId}:${event.worktree.storageWorkspaceId}:${event.worktree.branch}:${event.worktree.headSha}:${event.worktree.worktreeDigest}`, scope);
+    }
+    for (const scope of scopes.values()) await this.processArchitectureChangeFeed(root, scope);
+    return result;
+  }
+
+  private async processArchitectureChangeFeed(root: string, scope: ArchitectureLedgerScope): Promise<number> {
+    const consumerId = "runtime-daemon.explorer-cache.v1";
+    let processed = 0;
+    for (let page = 0; page < 1_000; page += 1) {
+      const batch = await this.localStore.listArchitectureChangeFeed({ ...scope, consumerId, limit: 100 });
+      if (batch.records.length === 0) return processed;
+      for (const record of batch.records) {
+        const dependencyKeys = architectureChangeFeedDependencyKeys(record);
+        const occurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys });
+        await this.localStore.invalidateExplorerOccurrences({ ...scope, occurrenceIds });
+        this.notifyExplorerAuthorityInvalidation(root, record, occurrenceIds);
+        processed += 1;
+      }
+      await this.localStore.acknowledgeArchitectureChangeFeed({
+        ...scope,
+        consumerId,
+        feedSequence: batch.records.at(-1)!.feedSequence
+      });
+      if (!batch.hasMore) return processed;
+    }
+    throw new Error("architecture-change-feed-page-limit-exceeded");
+  }
+
+  private notifyExplorerAuthorityInvalidation(root: string, record: ArchitectureChangeFeedRecordV1, occurrenceIds: string[]): void {
+    const explorer = this.explorer;
+    if (!explorer || explorer.root !== root) return;
+    if (explorer.revoked || Date.parse(this.clock()) >= explorer.expiresAt) {
+      for (const client of explorer.sseClients) client.end();
+      explorer.sseClients.clear();
+      return;
+    }
+    const payload = JSON.stringify({
+      schemaVersion: "archcontext.explorer-authority-invalidation/v1",
+      feedSequence: record.feedSequence,
+      eventId: record.eventId,
+      eventHash: record.eventHash,
+      subjectsDigest: record.subjectsDigest,
+      changedInputDigestsDigest: digestJson(record.changedInputDigests as unknown as Json),
+      affectedOccurrencesDigest: digestJson(occurrenceIds as unknown as Json)
+    });
+    for (const client of explorer.sseClients) client.write(`event: authority-changed\ndata: ${payload}\n\n`);
   }
 
   private async handleExplorerRequest(request: IncomingMessage, response: ServerResponse, session: ExplorerServerSession): Promise<void> {
@@ -5423,27 +5485,6 @@ function explorerProjectionQueryV2FromUrl(url: URL): ExplorerProjectionQueryV2 {
   };
 }
 
-function explorerEventBacklinks(events: ArchitectureEventV1[]): ExplorerEventBacklinkInputV2[] {
-  return events.map((event) => {
-    const payload = architectureLedgerPayload(event);
-    const subjectIds: string[] = [];
-    for (const operation of payload.operations ?? []) {
-      if (operation.op === "upsert_entity") subjectIds.push(operation.entity.entityId);
-      if (operation.op === "delete_entity") subjectIds.push(operation.entityId);
-      if (operation.op === "upsert_relation") subjectIds.push(operation.relation.relationId, operation.relation.sourceEntityId, operation.relation.targetEntityId);
-      if (operation.op === "delete_relation") subjectIds.push(operation.relationId);
-      if (operation.op === "upsert_constraint") subjectIds.push(operation.constraint.constraintId, operation.constraint.subjectId);
-      if (operation.op === "delete_constraint") subjectIds.push(operation.constraintId);
-    }
-    return {
-      eventId: event.eventId,
-      subjectIds: uniqueStrings(subjectIds),
-      ...(payload.title ? { title: payload.title } : {}),
-      ...(payload.rationale ? { rationale: payload.rationale } : {})
-    };
-  }).filter((event) => event.subjectIds.length > 0);
-}
-
 function explorerProjectionDependencies(projection: ExplorerProjectionV2): Array<{ occurrenceId: string; dependencyKeys: string[] }> {
   return projection.occurrences.map((occurrence) => ({
     occurrenceId: occurrence.occurrenceId,
@@ -5461,6 +5502,22 @@ function explorerProjectionDependencies(projection: ExplorerProjectionV2): Array
       ])
     ])
   }));
+}
+
+function architectureChangeFeedDependencyKeys(record: ArchitectureChangeFeedRecordV1): string[] {
+  const keys = record.changedInputDigests.graphBefore === record.changedInputDigests.graphAfter
+    ? []
+    : [`graph:${record.changedInputDigests.graphBefore}`];
+  for (const subject of record.affectedSubjects) {
+    if (subject.subjectKind === "entity") keys.push(`entity:${subject.subjectId}`);
+    else if (subject.subjectKind === "relation") keys.push(`relation:${subject.subjectId}`);
+    else if (subject.subjectKind === "constraint") keys.push(`constraint:${subject.subjectId}`);
+    else if (subject.subjectKind === "evidence-binding") keys.push(`binding:${subject.subjectId}`);
+    else if (subject.subjectKind === "subject") {
+      keys.push(`entity:${subject.subjectId}`, `relation:${subject.subjectId}`, `constraint:${subject.subjectId}`);
+    }
+  }
+  return uniqueStrings(keys);
 }
 
 function explorerChangedDependencyKeys(base: ExplorerProjectionV2, head: ExplorerProjectionV2): string[] {

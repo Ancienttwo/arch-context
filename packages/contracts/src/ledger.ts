@@ -301,6 +301,59 @@ export interface EvidenceStateAtCursorV1 {
   stateDigest: string;
 }
 
+export type ArchitectureAffectedSubjectAuthorityClassV1 = "architecture-fact" | "evidence";
+export type ArchitectureAffectedSubjectKindV1 =
+  | "entity"
+  | "relation"
+  | "constraint"
+  | "evidence-item"
+  | "evidence-binding"
+  | "subject";
+export type ArchitectureAffectedSubjectOperationV1 = "create" | "update" | "remove" | "upsert" | "delete" | "reference";
+
+export interface ArchitectureAffectedSubjectV1 {
+  authorityClass: ArchitectureAffectedSubjectAuthorityClassV1;
+  subjectKind: ArchitectureAffectedSubjectKindV1;
+  subjectId: string;
+  operation: ArchitectureAffectedSubjectOperationV1;
+}
+
+export interface ArchitectureChangeFeedRecordV1 {
+  schemaVersion: "archcontext.architecture-change-feed-record/v1";
+  feedSequence: number;
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  eventSequence: number;
+  eventId: string;
+  eventHash: string;
+  title?: string;
+  rationale?: string;
+  affectedSubjects: ArchitectureAffectedSubjectV1[];
+  subjectsDigest: string;
+  changedInputDigests: {
+    graphBefore: string;
+    graphAfter: string;
+    evidenceBefore: string;
+    evidenceAfter: string;
+  };
+  committedAt: string;
+}
+
+export interface ArchitectureChangeFeedBatchV1 {
+  schemaVersion: "archcontext.architecture-change-feed-batch/v1";
+  consumerId: string;
+  checkpoint: number;
+  records: ArchitectureChangeFeedRecordV1[];
+  hasMore: boolean;
+}
+
+export interface ArchitectureEventBacklinkV1 {
+  eventId: string;
+  subjectIds: string[];
+  title?: string;
+  rationale?: string;
+}
+
 export interface ArchitectureSubjectSelectorV1 {
   schemaVersion: typeof ARCHITECTURE_SUBJECT_SELECTOR_SCHEMA_VERSION;
   selectorId: string;

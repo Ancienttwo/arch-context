@@ -69,10 +69,19 @@ definition, compiler, repository/worktree identity, and token mode. It exposes:
 
 ### 4. Use a transactional change feed
 
-Every committed ledger event will append typed affected subjects and a durable
-change-feed record in the same SQLite transaction. Extraction covers graph operations,
-evidence lifecycle operations, and evidence bindings. SSE remains a digest-only
-notification; the durable feed is the recovery source.
+Every committed ledger event appends typed affected subjects and a durable change-feed
+record in the same SQLite transaction. Extraction covers both sides of graph and
+evidence reference changes, evidence bindings, and entity-delete relation cascades.
+Steady append derives evidence transitions from materialized current state plus one
+validated event, not historical event replay.
+
+Migration backfill revalidates stored event rows, scope, sequence, event hash, and
+previous-hash chain; it advances per-scope state in one pass and commits derived rows
+in bounded batches. A durable completion marker is written only after final graph and
+evidence materialized-state verification. Indexed backlink digests bind logical event
+ID plus typed subjects. Consumer checkpoints are scoped, monotonic, and must resolve to
+delivered feed rows. SSE remains a digest-only notification; the durable feed is the
+recovery source.
 
 ### 5. Anchor normal replay, retain genesis audit
 

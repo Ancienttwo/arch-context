@@ -1,12 +1,12 @@
 # Task Review: data-engine-authority-incremental
 
-> **Status**: DE0 Passed
+> **Status**: DE0-DE1 Passed
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Notes File**: tasks/notes/20260711-1328-data-engine-authority-incremental.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
-> **Last Updated**: 2026-07-11 16:05
-> **Recommendation**: pass DE0; continue to DE1
+> **Last Updated**: 2026-07-11 17:00
+> **Recommendation**: pass DE1; continue to DE2
 
 ## Human Review Card
 
@@ -97,6 +97,24 @@
 
 ## Summary
 
-DE0 satisfies its bounded contract and is ready for a checkpoint commit. The complete
-program is not done: DE1-DE5 remain unchecked and must land sequentially before final
+DE0 and DE1 satisfy their bounded contracts. DE1 adds an atomic typed subject/feed
+boundary, indexed backlinks, restart-safe feed consumption, and digest-only Explorer
+invalidation without promoting SQLite over Git-visible authority. The complete program
+is not done: DE2-DE5 remain unchecked and must land sequentially before final
 merge/cleanup back to main.
+
+## DE1 Acceptance Addendum
+
+- Verdict: pass for `tasks/contracts/20260711-1605-data-engine-de1-change-feed.contract.md`.
+- Readback: `docs/verification/data-engine-de1-readback.json` verdict PASS.
+- Full verification: 1033 tests passed, 0 failed; Explorer/privacy/readback gates PASS.
+- Atomicity/recovery: crash rollback exposes zero event/subject/feed rows; committed
+  unread rows replay after restart; duplicate poll/ack remains idempotent and scoped.
+- Integrity: poll checkpoints resolve to in-scope feed rows; backfill revalidates event
+  sequence, scope, payload/provenance, event hash, and previous-hash chain; backlink
+  digests bind logical event ID plus typed subjects.
+- `$check`: 7 findings fixed, 0 deferred. The fixes cover old/new reference union,
+  steady-state history replay removal, bounded backfill, durable completion marker,
+  historical row/hash verification, cursor validation, and backlink ID integrity.
+- Residual scope: DE2 snapshot-anchored replay remains open by design; no DE1 finding
+  or failing check remains.

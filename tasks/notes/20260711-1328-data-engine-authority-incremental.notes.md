@@ -1,10 +1,10 @@
 # Implementation Notes: data-engine-authority-incremental
 
-> **Status**: DE0 Complete
+> **Status**: DE0-DE1 Complete
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Review**: tasks/reviews/20260711-1328-data-engine-authority-incremental.review.md
-> **Last Updated**: 2026-07-11 16:05
+> **Last Updated**: 2026-07-11 17:00
 > **Lifecycle**: notes
 
 ## Design Decisions
@@ -34,6 +34,21 @@
   lifecycle replay instead of maintaining local last-write-wins scans.
 - Migration `0013_evidence_lifecycle` clears pre-manifest projection cache rows, and
   cache reads validate the new cursor/manifest shape before returning a projection.
+- DE1 migration `0014_architecture_change_feed` adds typed event-subject rows, a
+  monotonic durable feed, scoped consumer checkpoints, and a durable backfill-complete
+  marker. Event/current-state/subject/feed writes remain one `BEGIN IMMEDIATE` unit.
+- Affected-subject extraction records both sides of moved graph/evidence references,
+  including relation/constraint targets, live bindings, and entity-delete cascades.
+- Steady append reads materialized evidence/binding/tombstone state and applies only
+  the candidate event; it no longer replays historical event JSON while holding the
+  single-writer transaction.
+- Historical backfill verifies event row, scope, sequence, payload/provenance, hash,
+  and previous-hash chain; it advances per-scope state in one pass and commits derived
+  rows in bounded 500-row batches. The completion marker is written only after final
+  graph/evidence materialized-state verification.
+- Explorer backlinks now come from the typed index with eventId-bound subject digests.
+  Daemon invalidation consumes unread feed rows idempotently, marks latest projections
+  stale while preserving digest-addressed Delta bases, and emits metadata-only SSE.
 
 ## Deviations From Plan Or Spec
 
@@ -56,7 +71,7 @@
 
 ## Open Questions
 
-- None for DE0. DE1 remains the next bounded phase in the accepted program plan.
+- None for DE0 or DE1. DE2 is the next bounded phase in the accepted program plan.
 
 ## Evidence Links
 
@@ -69,6 +84,11 @@
 - Readback: `docs/verification/data-engine-de0-readback.json` verdict PASS.
 - Independent `$check`: five findings found and fixed; architecture and security
   re-review both report all original findings closed.
+- DE1 focused readback: `docs/verification/data-engine-de1-readback.json` PASS.
+- DE1 full verification: `bun run verify` — 1033 passing tests, 0 failures; Explorer
+  10k p95 27.06ms and 100k p95 525.92ms; privacy PASS.
+- DE1 independent `$check`: seven verified findings found and fixed. Architecture
+  and security re-review report every original and follow-up finding closed.
 
 ## Promotion Candidates
 
