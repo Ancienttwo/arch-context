@@ -10,7 +10,7 @@
 
 ## Human Review Card
 
-- Verdict: pass.
+- Verdict: pass
 - Change type: code-change + product/design acceptance + governance closeout.
 - Intended files changed: exact AR4 contract paths.
 - Actual files changed: ADR-0044, capability registry, three bounded product fixes and
