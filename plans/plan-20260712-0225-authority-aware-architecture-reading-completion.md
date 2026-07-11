@@ -970,6 +970,20 @@ mockups. Five key screenshots were captured under
 zero; all verified design defects were P1 ship gates and were fixed in AR4.
 Overall design score: 9/10 → 9.8/10.
 
+## Final Integration Readback
+
+- Final program commit verification used isolated operational state
+  `ARCHCONTEXT_STATE_DIR=/tmp/archctx-final-verify.SGIGmp`: `bun run verify` PASS,
+  **1093 pass / 0 fail**, representative eval PASS.
+- Final compiler readback: 10k p95 **4.39 ms**, 100k p95 **0.55 ms**; default
+  renderer p95 **0.90 ms**; public-maximum renderer p95 **16.31 ms**.
+- The existing host-default rebuildable SQLite partition failed closed before tests
+  with `architecture-event-direct-scope-backfill-authority-mismatch`. It was not
+  deleted, quarantined, rewritten, or used as authority. This is an operational-state
+  recovery concern outside AR0-AR4; Git-visible `.archcontext/` truth is unchanged.
+- The user-owned delegation artifact remains byte-identical at SHA-256
+  `10fc961f78b6a26a16b9fa9d1fea368d4b4493e7d825add46495df0b760e14ea`.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
