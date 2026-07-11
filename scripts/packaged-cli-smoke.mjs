@@ -61,6 +61,14 @@ try {
   assert(!JSON.stringify(explorer.data).includes("sourceBody"), "packaged Explorer must not expose source bodies");
 
   assert(explorer.data?.cursor?.observedAvailability?.status === "ready", "packaged Explorer must consume an explicit CodeGraph index");
+  assert(JSON.stringify(explorer.data?.availableViews?.map((view) => view.id)) === JSON.stringify(["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"]), "packaged Explorer must expose the canonical five-view catalog");
+
+  for (const view of ["data-flow", "external-integrations"]) {
+    const typedView = await runArchctx("explore", "projection", "--view", view, "--level", "context", "--max-nodes", "20", "--max-relations", "40");
+    assert(typedView.ok === true, `packaged Explorer ${view} projection must succeed`);
+    assert(typedView.data?.view?.id === view, `packaged Explorer must preserve ${view} identity`);
+    assert(typedView.data?.page?.returnedNodes <= 20 && typedView.data?.page?.returnedRelations <= 40, `packaged Explorer ${view} must honor hard budgets`);
+  }
 
   const mcpStartup = await runArchctxMcpSession([
     {

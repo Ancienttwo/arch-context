@@ -2335,6 +2335,13 @@ describe("archctx CLI", () => {
       expect((explore.data as any).view.id).toBe("system-map");
       expect((explore.data as any).page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
       expect((explore.data as any).occurrences.length).toBeLessThanOrEqual(5);
+      for (const view of ["data-flow", "external-integrations"] as const) {
+        const typedView = await runTestCli("explore", ["projection", "--view", view, "--max-nodes", "5", "--max-relations", "5"], root);
+        expect(typedView.ok).toBe(true);
+        expect((typedView.data as any).view.id).toBe(view);
+      }
+      await expect(runTestCli("explore", ["projection", "--view", "external-by-name"], root))
+        .rejects.toThrow("unsupported Explorer view");
       const legacyDelta = await runTestCli("explore", [
         "delta",
         "--base-projection-digest", (explore.data as any).projectionDigest,

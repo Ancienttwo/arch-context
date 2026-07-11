@@ -3,6 +3,7 @@ import {
   canonicalProjectionReadPlanV1,
   digestJson,
   explorerProjectionQueryDigestV2,
+  EXPLORER_VIEW_IDS,
   EXPLORER_VIEW_INPUT_REQUIREMENTS,
   PROJECTION_READ_PLANNER_VERSION,
   type ArchitectureRepositoryIdentityV1,
@@ -29,11 +30,15 @@ import { architectureLedgerStateDigest, queryArchitectureLedgerBookNeighbors, ty
 export const EXPLORER_VIEW_COMPILER_VERSION = "archcontext.explorer-view-compiler/v1" as const;
 const EXPLORER_INSPECTOR_CONTRACT_VERSION = "archcontext.explorer-inspector/history-events-required-v1" as const;
 
-const VIEW_DEFINITIONS: Record<ExplorerViewIdV2, { id: ExplorerViewIdV2; title: string; question: string }> = {
-  "system-map": { id: "system-map", title: "System Map", question: "What accepted architecture entities exist and how do they relate?" },
-  "task-impact": { id: "task-impact", title: "Task Impact", question: "What architecture subjects does this current task cross or constrain?" },
-  "drift-pressure": { id: "drift-pressure", title: "Drift & Pressure", question: "Where do declared and observed facts disagree or accumulate pressure?" }
+const VIEW_DEFINITIONS: Record<ExplorerViewIdV2, { id: ExplorerViewIdV2; title: string; question: string; selectionPolicy: string }> = {
+  "system-map": { id: "system-map", title: "System Map", question: "What accepted architecture entities exist and how do they relate?", selectionPolicy: "all-typed-subjects-and-relations/v1" },
+  "task-impact": { id: "task-impact", title: "Task Impact", question: "What architecture subjects does this current task cross or constrain?", selectionPolicy: "task-backlink-subjects-and-induced-relations/v1" },
+  "drift-pressure": { id: "drift-pressure", title: "Drift & Pressure", question: "Where do declared and observed facts disagree or accumulate pressure?", selectionPolicy: "drift-pressure-or-unbound-subjects-and-induced-relations/v1" },
+  "data-flow": { id: "data-flow", title: "Data Flow", question: "Where does typed data move through reads, writes, publications, and subscriptions?", selectionPolicy: "typed-relation-kinds:publishes,reads,subscribes,writes-and-exact-endpoints/v1" },
+  "external-integrations": { id: "external-integrations", title: "External Integrations", question: "Which typed external systems touch the architecture and through which direct relations?", selectionPolicy: "typed-architecture-entity-kind:external-system-and-direct-adjacency/v1" }
 };
+
+const DATA_FLOW_RELATION_KINDS = new Set(["reads", "writes", "publishes", "subscribes"]);
 
 export const SYSTEM_MAP_VIEW_DEFINITION_DIGEST = explorerViewDefinitionDigest("system-map");
 
@@ -180,7 +185,8 @@ export function compileSystemMapProjection(input: CompileSystemMapProjectionInpu
 }
 
 export function compileExplorerProjection(input: CompileExplorerProjectionInput): ExplorerProjectionV2 {
-  const view = VIEW_DEFINITIONS[input.query.viewId];
+  const viewDefinition = VIEW_DEFINITIONS[input.query.viewId];
+  const view = { id: viewDefinition.id, title: viewDefinition.title, question: viewDefinition.question };
   const semanticLevel = input.query.semanticLevel ?? "context";
   const inputManifest = compileProjectionInputManifest(input);
   const observedFactsDigest = inputManifest.observedFactsDigest;
@@ -302,11 +308,12 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
 
   const relations = buildRelations(input, occurrenceByEntity, occurrenceBySymbol);
   attachRelationBacklinks(subjectOccurrences, relations);
-  const viewSubjects = filterSubjectsForView(subjectOccurrences, input.query.viewId);
-  const viewSubjectIds = new Set(viewSubjects.map((occurrence) => occurrence.occurrenceId));
-  const viewRelations = relations.filter((relation) => viewSubjectIds.has(relation.sourceOccurrenceId) && viewSubjectIds.has(relation.targetOccurrenceId));
+  attachTypedDomainViewBacklinks(subjectOccurrences, relations);
+  const selectedViewGraph = selectViewGraph(subjectOccurrences, relations, input.query.viewId);
+  const viewSubjects = selectedViewGraph.subjects;
+  const viewRelations = selectedViewGraph.relations;
   const withGroups = semanticLevel === "overview"
-    ? overviewGroups(view.id, viewSubjects, input.query.expandedOccurrenceIds ?? [], input.readSet.entityKindTotals)
+    ? overviewGroups(view.id, viewSubjects, input.query.expandedOccurrenceIds ?? [], entityKindTotalsForView(input, viewSubjects))
     : viewSubjects;
   const scopedOccurrenceIds = selectScopedOccurrenceIds(withGroups, viewRelations, input.query);
   const scopedOccurrences = withGroups.filter((occurrence) => scopedOccurrenceIds.has(occurrence.occurrenceId));
@@ -317,10 +324,11 @@ export function compileExplorerProjection(input: CompileExplorerProjectionInput)
     .filter((relation) => returnedOccurrenceIds.has(relation.sourceOccurrenceId) && returnedOccurrenceIds.has(relation.targetOccurrenceId))
     .slice(0, input.query.budget.maxRelations);
   const focus = input.query.focus ? returnedOccurrences.find((occurrence) => occurrence.role === "subject" && occurrence.subjectRefs.some((ref) => ref.id === input.query.focus!.subjectId)) : undefined;
-  const plannedTotalNodes = input.readPlan.kind !== "overview-aggregate"
+  const exactTypedSubset = input.query.viewId === "data-flow" || input.query.viewId === "external-integrations";
+  const plannedTotalNodes = input.readPlan.kind !== "overview-aggregate" && !exactTypedSubset
     ? Math.max(scopedOccurrences.length, input.readSet.authoritativeTotals.entities)
     : scopedOccurrences.length;
-  const plannedTotalRelations = input.readPlan.kind !== "overview-aggregate"
+  const plannedTotalRelations = input.readPlan.kind !== "overview-aggregate" && !exactTypedSubset
     ? Math.max(scopedRelations.length, input.readSet.authoritativeTotals.relations)
     : scopedRelations.length;
   const page = {
@@ -624,10 +632,76 @@ function attachRelationBacklinks(occurrences: ExplorerOccurrenceV2[], relations:
   }
 }
 
-function filterSubjectsForView(occurrences: ExplorerOccurrenceV2[], view: ExplorerViewIdV2): ExplorerOccurrenceV2[] {
-  if (view === "system-map") return occurrences;
-  if (view === "task-impact") return occurrences.filter((item) => item.role === "subject" && item.backlinks.affectedByTaskSessionIds.length > 0);
-  return occurrences.filter((item) => item.role === "subject" && (item.verificationStatus === "DRIFT" || item.pressure.score! > 0 || item.authorityState !== "BOUND"));
+function selectViewGraph(
+  occurrences: ExplorerOccurrenceV2[],
+  relations: ExplorerRelationOccurrenceV2[],
+  view: ExplorerViewIdV2
+): { subjects: ExplorerOccurrenceV2[]; relations: ExplorerRelationOccurrenceV2[] } {
+  if (view === "system-map") return { subjects: occurrences, relations };
+
+  if (view === "data-flow") {
+    const selectedRelations = relations.filter((relation) => DATA_FLOW_RELATION_KINDS.has(relation.kind));
+    const selectedIds = relationEndpointIds(selectedRelations);
+    return {
+      subjects: occurrences.filter((occurrence) => selectedIds.has(occurrence.occurrenceId)),
+      relations: selectedRelations
+    };
+  }
+
+  if (view === "external-integrations") {
+    const externalIds = new Set(occurrences
+      .filter((occurrence) => occurrence.role === "subject"
+        && occurrence.kind === "external-system"
+        && occurrence.subjectRefs.some((subject) => subject.kind === "architecture-entity"))
+      .map((occurrence) => occurrence.occurrenceId));
+    const selectedRelations = relations.filter((relation) => externalIds.has(relation.sourceOccurrenceId) || externalIds.has(relation.targetOccurrenceId));
+    const selectedIds = new Set([...externalIds, ...relationEndpointIds(selectedRelations)]);
+    return {
+      subjects: occurrences.filter((occurrence) => selectedIds.has(occurrence.occurrenceId)),
+      relations: selectedRelations
+    };
+  }
+
+  const subjects = view === "task-impact"
+    ? occurrences.filter((item) => item.role === "subject" && item.backlinks.affectedByTaskSessionIds.length > 0)
+    : occurrences.filter((item) => item.role === "subject" && (item.verificationStatus === "DRIFT" || item.pressure.score! > 0 || item.authorityState !== "BOUND"));
+  const selectedIds = new Set(subjects.map((occurrence) => occurrence.occurrenceId));
+  return {
+    subjects,
+    relations: relations.filter((relation) => selectedIds.has(relation.sourceOccurrenceId) && selectedIds.has(relation.targetOccurrenceId))
+  };
+}
+
+function relationEndpointIds(relations: ExplorerRelationOccurrenceV2[]): Set<string> {
+  return new Set(relations.flatMap((relation) => [relation.sourceOccurrenceId, relation.targetOccurrenceId]));
+}
+
+function attachTypedDomainViewBacklinks(occurrences: ExplorerOccurrenceV2[], relations: ExplorerRelationOccurrenceV2[]): void {
+  const memberships = new Map<string, Set<ExplorerViewIdV2>>();
+  for (const view of ["data-flow", "external-integrations"] as const) {
+    for (const subject of selectViewGraph(occurrences, relations, view).subjects) {
+      const views = memberships.get(subject.occurrenceId) ?? new Set<ExplorerViewIdV2>();
+      views.add(view);
+      memberships.set(subject.occurrenceId, views);
+    }
+  }
+  for (const occurrence of occurrences) {
+    if (occurrence.role !== "subject") continue;
+    const memberViews = memberships.get(occurrence.occurrenceId);
+    if (!memberViews) continue;
+    const combined = new Set([...occurrence.backlinks.appearsInViews, ...memberViews]);
+    occurrence.backlinks.appearsInViews = EXPLORER_VIEW_IDS.filter((view) => combined.has(view));
+  }
+}
+
+function entityKindTotalsForView(input: CompileExplorerProjectionInput, subjects: ExplorerOccurrenceV2[]): ProjectionReadSetV1["entityKindTotals"] {
+  if (input.query.viewId !== "data-flow" && input.query.viewId !== "external-integrations") return input.readSet.entityKindTotals;
+  return [...subjects.reduce((counts, subject) => {
+    if (subject.role === "subject") counts.set(subject.kind, (counts.get(subject.kind) ?? 0) + 1);
+    return counts;
+  }, new Map<string, number>()).entries()]
+    .map(([kind, count]) => ({ kind, count }))
+    .sort((left, right) => left.kind.localeCompare(right.kind));
 }
 
 function overviewGroups(
@@ -679,7 +753,9 @@ function availableViews(input: CompileExplorerProjectionInput): ExplorerProjecti
   return [
     { id: "system-map", enabled: true },
     input.taskSession && input.observedAvailability?.status !== "unavailable" ? { id: "task-impact", enabled: true } : { id: "task-impact", enabled: false, reason: "current task session and observed facts required" },
-    input.pressure && input.drift ? { id: "drift-pressure", enabled: true } : { id: "drift-pressure", enabled: false, reason: "evaluated drift and pressure inputs required" }
+    input.pressure && input.drift ? { id: "drift-pressure", enabled: true } : { id: "drift-pressure", enabled: false, reason: "evaluated drift and pressure inputs required" },
+    { id: "data-flow", enabled: true },
+    { id: "external-integrations", enabled: true }
   ];
 }
 

@@ -278,7 +278,8 @@ export interface ExplorerServiceContract {
   egress: "none";
 }
 
-export type ExplorerViewIdV2 = "system-map" | "task-impact" | "drift-pressure";
+export const EXPLORER_VIEW_IDS = ["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"] as const;
+export type ExplorerViewIdV2 = typeof EXPLORER_VIEW_IDS[number];
 export type ExplorerSemanticLevelV2 = "overview" | "context" | "detail";
 export type ExplorerOccurrenceRoleV2 = "subject" | "derived-group";
 export type ExplorerSubjectRefKindV2 =
@@ -382,6 +383,14 @@ export const EXPLORER_VIEW_INPUT_REQUIREMENTS = {
   "drift-pressure": {
     authority: "required", graph: "required", evidence: "required", observed: "required", bindings: "required",
     "event-backlinks": "optional", drift: "required", pressure: "required", "task-session": "optional"
+  },
+  "data-flow": {
+    authority: "required", graph: "required", evidence: "required", observed: "required", bindings: "required",
+    "event-backlinks": "optional", drift: "optional", pressure: "optional", "task-session": "optional"
+  },
+  "external-integrations": {
+    authority: "required", graph: "required", evidence: "required", observed: "required", bindings: "required",
+    "event-backlinks": "optional", drift: "optional", pressure: "optional", "task-session": "optional"
   }
 } as const satisfies Record<ExplorerViewIdV2, Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1["requirement"]>>;
 
@@ -451,7 +460,7 @@ export function canonicalProjectionReadPlanV1(
 ): ProjectionReadPlanV1 {
   if (
     query.schemaVersion !== "archcontext.explorer-projection-query/v2"
-    || !["system-map", "task-impact", "drift-pressure"].includes(query.viewId)
+    || !(EXPLORER_VIEW_IDS as readonly string[]).includes(query.viewId)
     || !Number.isInteger(query.depth) || query.depth < 0 || query.depth > 2
     || !Number.isInteger(query.budget.maxNodes) || query.budget.maxNodes < 1 || query.budget.maxNodes > 1_000
     || !Number.isInteger(query.budget.maxRelations) || query.budget.maxRelations < 0 || query.budget.maxRelations > 5_000

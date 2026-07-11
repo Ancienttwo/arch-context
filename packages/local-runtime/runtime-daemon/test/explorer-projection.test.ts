@@ -432,6 +432,145 @@ describe("compileSystemMapProjection", () => {
     expect(occurrence.backlinks.decidedByEventIds).toEqual(["event.api"]);
   });
 
+  test("data-flow selects only exact typed flow relations and their endpoints", () => {
+    const flowGraph: ArchitectureLedgerGraphState = {
+      entities: [
+        { entityId: "module.api", kind: "module", canonicalName: "API", status: "active" },
+        { entityId: "datastore.db", kind: "datastore", canonicalName: "Database", status: "active" },
+        { entityId: "external.bus", kind: "external-system", canonicalName: "Event Bus", status: "active" },
+        { entityId: "module.adversarial", kind: "module", canonicalName: "Reads External Payment API", status: "active" }
+      ],
+      relations: [
+        { relationId: "relation.reads", kind: "reads", sourceEntityId: "module.api", targetEntityId: "datastore.db", status: "active" },
+        { relationId: "relation.writes", kind: "writes", sourceEntityId: "module.api", targetEntityId: "datastore.db", status: "active" },
+        { relationId: "relation.publishes", kind: "publishes", sourceEntityId: "module.api", targetEntityId: "external.bus", status: "active" },
+        { relationId: "relation.subscribes", kind: "subscribes", sourceEntityId: "external.bus", targetEntityId: "module.api", status: "active" },
+        { relationId: "relation.calls", kind: "calls", sourceEntityId: "module.adversarial", targetEntityId: "module.api", status: "active" }
+      ],
+      constraints: []
+    };
+    const input = {
+      query: { ...query, viewId: "data-flow" as const }, repository, worktree,
+      authoritySource: "git" as const, authorityCursor: null,
+      graph: flowGraph, graphDigest: architectureLedgerStateDigest(flowGraph),
+      evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+      observed: observed({ symbols: [{ id: "symbol.adversarial", name: "PublishesExternalSystem", kind: "function", path: "src/writes/external-system.ts" }] }),
+      bindings: [], tokenRequired: true
+    };
+    const projection = compileExplorerProjection(withReadPlan(input));
+    expect(projection.view).toEqual({
+      id: "data-flow",
+      title: "Data Flow",
+      question: "Where does typed data move through reads, writes, publications, and subscriptions?"
+    });
+    expect(projection.relations.map((relation) => relation.kind)).toEqual(["publishes", "reads", "subscribes", "writes"]);
+    expect(projection.occurrences.flatMap((occurrence) => occurrence.provenance.declaredEntityIds)).toEqual(["datastore.db", "external.bus", "module.api"]);
+    expect(JSON.stringify(projection)).not.toContain("module.adversarial");
+    expect(projection.occurrences.every((occurrence) => occurrence.role !== "subject" || occurrence.backlinks.appearsInViews.includes("data-flow"))).toBe(true);
+
+    const reversedGraph = { ...flowGraph, entities: [...flowGraph.entities].reverse(), relations: [...flowGraph.relations].reverse() };
+    const reversed = compileExplorerProjection(withReadPlan({ ...input, graph: reversedGraph, graphDigest: architectureLedgerStateDigest(reversedGraph) }));
+    expect(reversed.occurrences).toEqual(projection.occurrences);
+    expect(reversed.relations).toEqual(projection.relations);
+  });
+
+  test("external-integrations selects typed external seeds and direct adjacency only", () => {
+    const externalGraph: ArchitectureLedgerGraphState = {
+      entities: [
+        { entityId: "external.payments", kind: "external-system", canonicalName: "Payments", status: "active" },
+        { entityId: "module.api", kind: "module", canonicalName: "API", status: "active" },
+        { entityId: "datastore.db", kind: "datastore", canonicalName: "Database", status: "active" },
+        { entityId: "module.fake", kind: "module", canonicalName: "External Integration Gateway", status: "active" }
+      ],
+      relations: [
+        { relationId: "relation.payment-call", kind: "calls", sourceEntityId: "module.api", targetEntityId: "external.payments", status: "active" },
+        { relationId: "relation.payment-read", kind: "reads", sourceEntityId: "external.payments", targetEntityId: "datastore.db", status: "active" },
+        { relationId: "relation.neighbor-only", kind: "writes", sourceEntityId: "module.api", targetEntityId: "datastore.db", status: "active" },
+        { relationId: "relation.fake", kind: "calls", sourceEntityId: "module.fake", targetEntityId: "module.api", status: "active" }
+      ],
+      constraints: []
+    };
+    const projection = compileExplorerProjection(withReadPlan({
+      query: { ...query, viewId: "external-integrations" }, repository, worktree,
+      authoritySource: "git", authorityCursor: null,
+      graph: externalGraph, graphDigest: architectureLedgerStateDigest(externalGraph),
+      evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+      observed: observed({ symbols: [{ id: "symbol.fake", name: "ExternalIntegration", kind: "function", path: "external/system.ts" }] }),
+      bindings: [], tokenRequired: true
+    }));
+    expect(projection.relations.flatMap((relation) => relation.provenance.declaredRelationIds)).toEqual(["relation.payment-call", "relation.payment-read"]);
+    expect(projection.occurrences.flatMap((occurrence) => occurrence.provenance.declaredEntityIds)).toEqual(["datastore.db", "external.payments", "module.api"]);
+    expect(JSON.stringify(projection)).not.toContain("module.fake");
+    expect(projection.occurrences.find((occurrence) => occurrence.provenance.declaredEntityIds.includes("external.payments"))?.role === "subject").toBe(true);
+  });
+
+  test("typed domain views return honest empty, bounded, focused, and stale-safe projections", () => {
+    const emptyGraph: ArchitectureLedgerGraphState = {
+      entities: [{ entityId: "module.external-name-only", kind: "module", canonicalName: "External Writes Service", status: "active" }],
+      relations: [],
+      constraints: []
+    };
+    for (const viewId of ["data-flow", "external-integrations"] as const) {
+      const projection = compileExplorerProjection(withReadPlan({
+        query: { ...query, viewId }, repository, worktree, authoritySource: "git", authorityCursor: null,
+        graph: emptyGraph, graphDigest: architectureLedgerStateDigest(emptyGraph), evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+        observed: observed(), bindings: [], tokenRequired: true
+      }));
+      expect(projection.occurrences).toEqual([]);
+      expect(projection.relations).toEqual([]);
+      expect(projection.page).toMatchObject({ totalNodes: 0, totalRelations: 0, returnedNodes: 0, returnedRelations: 0, truncated: false });
+      const overview = compileExplorerProjection(withReadPlan({
+        query: { ...query, viewId, semanticLevel: "overview" }, repository, worktree, authoritySource: "git", authorityCursor: null,
+        graph: emptyGraph, graphDigest: architectureLedgerStateDigest(emptyGraph), evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+        observed: observed(), bindings: [], tokenRequired: true
+      }));
+      expect(overview.occurrences).toEqual([]);
+    }
+
+    const flowGraph: ArchitectureLedgerGraphState = {
+      entities: [
+        { entityId: "module.a", kind: "module", canonicalName: "A", status: "active" },
+        { entityId: "module.b", kind: "module", canonicalName: "B", status: "active" },
+        { entityId: "module.c", kind: "module", canonicalName: "C", status: "active" }
+      ],
+      relations: [
+        { relationId: "relation.a-b", kind: "reads", sourceEntityId: "module.a", targetEntityId: "module.b", status: "active" },
+        { relationId: "relation.b-c", kind: "writes", sourceEntityId: "module.b", targetEntityId: "module.c", status: "active" }
+      ], constraints: []
+    };
+    const budgetQuery: ExplorerProjectionQueryV2 = { ...query, viewId: "data-flow", budget: { maxNodes: 2, maxRelations: 1 } };
+    const bounded = compileExplorerProjection(withReadPlan({
+      query: budgetQuery, repository, worktree, authoritySource: "git", authorityCursor: null,
+      graph: flowGraph, graphDigest: architectureLedgerStateDigest(flowGraph), evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+      observed: observed(), bindings: [], tokenRequired: true
+    }));
+    expect(bounded.page.returnedNodes).toBeLessThanOrEqual(2);
+    expect(bounded.page.returnedRelations).toBeLessThanOrEqual(1);
+    expect(bounded.page.truncated).toBe(true);
+
+    const focused = compileExplorerProjection(withReadPlan({
+      query: { ...query, viewId: "data-flow", semanticLevel: "detail", focus: { subjectId: "module.b" }, depth: 1 },
+      repository, worktree, authoritySource: "git", authorityCursor: null,
+      graph: flowGraph, graphDigest: architectureLedgerStateDigest(flowGraph), evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+      observed: observed(), bindings: [], tokenRequired: true
+    }));
+    expect(focused.occurrences.flatMap((occurrence) => occurrence.provenance.declaredEntityIds)).toEqual(["module.a", "module.b", "module.c"]);
+    expect(focused.breadcrumbs.at(-1)?.label).toBe("B");
+
+    expect(() => compileExplorerProjection(withReadPlan({
+      query: { ...query, viewId: "data-flow", expectedCursor: { headSha: "b".repeat(40), worktreeDigest: worktree.worktreeDigest, graphDigest: architectureLedgerStateDigest(flowGraph) } },
+      repository, worktree, authoritySource: "git", authorityCursor: null,
+      graph: flowGraph, graphDigest: architectureLedgerStateDigest(flowGraph), evidenceStateDigest: `sha256:${"4".repeat(64)}`,
+      observed: observed(), bindings: [], tokenRequired: true
+    }))).toThrow(ExplorerProjectionCompileError);
+  });
+
+  test("five view definitions have distinct digest-bound selection policies", () => {
+    const digests = (["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"] as const).map((view) => explorerViewDefinitionDigest(view));
+    expect(new Set(digests).size).toBe(5);
+    expect(compile().availableViews.map((view) => view.id)).toEqual(["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"]);
+  });
+
   test("projection delta never derives fact or evidence changes from rendered occurrences", () => {
     const base = compile();
     const renderedHead = structuredClone(base);

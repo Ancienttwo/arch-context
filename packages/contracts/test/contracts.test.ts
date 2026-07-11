@@ -56,7 +56,7 @@ import {
 } from "../src/product-version";
 import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
-import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
+import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -74,6 +74,18 @@ test("Explorer cache policy contract keeps every retention and pin limit explici
     maxPinnedEntriesPerScope: 8,
     maxPinTtlMs: 900_000
   }));
+});
+
+test("Explorer V2 schemas expose exactly the canonical five-view catalog", () => {
+  const querySchema = readJson("schemas/runtime/explorer-projection-query-v2.schema.json") as any;
+  const projectionSchema = readJson("schemas/runtime/explorer-projection-v2.schema.json") as any;
+  expect(querySchema.properties.viewId.enum).toEqual(EXPLORER_VIEW_IDS);
+  expect(projectionSchema.properties.view.properties.id.enum).toEqual(EXPLORER_VIEW_IDS);
+  expect(projectionSchema.properties.availableViews.items.properties.id.enum).toEqual(EXPLORER_VIEW_IDS);
+
+  const query = readJson("packages/contracts/fixtures/valid/explorer-projection-query-v2.json") as Record<string, Json>;
+  for (const viewId of EXPLORER_VIEW_IDS) expect(validateJsonSchema(querySchema, { ...query, viewId }).valid).toBe(true);
+  expect(validateJsonSchema(querySchema, { ...query, viewId: "external-by-name" }).valid).toBe(false);
 });
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",

@@ -4362,6 +4362,7 @@ describe("local runtime foundation", () => {
       const bodyV2 = await projectionV2.json() as any;
       expect(bodyV2.data.schemaVersion).toBe("archcontext.explorer-projection/v2");
       expect(bodyV2.data.view.id).toBe("system-map");
+      expect(bodyV2.data.availableViews.map((view: any) => view.id)).toEqual(["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"]);
       expect(bodyV2.data.occurrences.length).toBeLessThanOrEqual(5);
       expect(bodyV2.data.page.budget).toEqual({ maxNodes: 5, maxRelations: 5 });
       expect(JSON.stringify(bodyV2.data)).not.toContain("sourceBody");
@@ -4384,6 +4385,17 @@ describe("local runtime foundation", () => {
         expect.objectContaining({ metricName: "cache-hit", reasonCode: "manifest-read", sampleCount: 1 }),
         expect.objectContaining({ metricName: "cache-rebuild", reasonCode: "manifest-miss", sampleCount: 1 })
       ]));
+
+      for (const view of ["data-flow", "external-integrations"] as const) {
+        const typedView = await fetch(`${data.url}projection/v2?view=${view}&maxNodes=5&maxRelations=5`, {
+          headers: { Authorization: `Bearer ${data.token}` }
+        });
+        expect(typedView.status).toBe(200);
+        const typedBody = await typedView.json() as any;
+        expect(typedBody.data.view.id).toBe(view);
+        expect(typedBody.data.page.returnedNodes).toBeLessThanOrEqual(5);
+        expect(typedBody.data.page.returnedRelations).toBeLessThanOrEqual(5);
+      }
 
       const taskImpact = await fetch(`${data.url}projection/v2?view=task-impact&taskSessionId=task.explorer-current&maxNodes=5&maxRelations=5`, {
         headers: { Authorization: `Bearer ${data.token}` }
@@ -4635,6 +4647,8 @@ describe("local runtime foundation", () => {
       expect(html.headers.get("content-security-policy")).toBe("default-src 'none'; connect-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
       const htmlBody = await html.text();
       expect(htmlBody).toContain("ArchContext Explorer");
+      expect(htmlBody).toContain("Data Flow");
+      expect(htmlBody).toContain("External Integrations");
       expect(htmlBody).toContain("read-only · local · no egress");
       expect(htmlBody).not.toContain("https://");
 

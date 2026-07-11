@@ -8,7 +8,9 @@ const projection: ExplorerProjectionV2 = {
   availableViews: [
     { id: "system-map", enabled: true },
     { id: "task-impact", enabled: false, reason: "current task session required" },
-    { id: "drift-pressure", enabled: true }
+    { id: "drift-pressure", enabled: true },
+    { id: "data-flow", enabled: true },
+    { id: "external-integrations", enabled: true }
   ],
   semanticLevel: "context",
   breadcrumbs: [{ occurrenceId: "occurrence.system-map.entity.module.runtime", label: "Runtime" }],

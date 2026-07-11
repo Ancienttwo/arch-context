@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "archcontext.explorer-ar3-domain-perspectives-readback/v1",
+  "recordedAt": "2026-07-12T04:00:55+08:00",
+  "baseCommit": "17770d3",
+  "viewCatalog": [
+    "system-map",
+    "task-impact",
+    "drift-pressure",
+    "data-flow",
+    "external-integrations"
+  ],
+  "selectionPolicies": {
+    "data-flow": {
+      "relationKinds": ["publishes", "reads", "subscribes", "writes"],
+      "subjects": "exact-relation-endpoints",
+      "emptyResult": "zero-subjects-zero-relations"
+    },
+    "external-integrations": {
+      "seed": "typed-architecture-entity-kind:external-system",
+      "relations": "directly-adjacent-only",
+      "subjects": "seed-and-exact-opposite-endpoints",
+      "emptyResult": "zero-subjects-zero-relations"
+    }
+  },
+  "viewDefinitionDigests": {
+    "preAr3SystemMap": "sha256:5fe7c1dfa525b83e80589a6654be6914f14b2bc4197f3598de5d8497ad76dbcf",
+    "system-map": "sha256:24a297a7925d53782ef14a12d5ae5d193ac34ff47c62da700bb3c8b539b9e512",
+    "task-impact": "sha256:a0b0a37d3661169455b1ab0e5262d7af208da3e4e030c37236edf76458c776ad",
+    "drift-pressure": "sha256:d70043ae31e9cb6c46e096405213846ea270024de72e19056be17b8b0b857ec2",
+    "data-flow": "sha256:7c4da761780d99cb73c2eb8cc6293297584e228a9d0cae401f174a10666aa9c8",
+    "external-integrations": "sha256:ba98c297159485a5a5c9c305d616a10735b77c802a1478c2ca80a0392b80aa1b"
+  },
+  "tests": {
+    "focusedMatrix": { "passed": 325, "failed": 0 },
+    "compiler": { "passed": 23, "failed": 0 },
+    "packagedCliSmoke": "PASS",
+    "typecheck": "PASS",
+    "verifyExplorer": "PASS",
+    "privacyRouteAudit": "PASS"
+  },
+  "negativeEvidence": {
+    "adversarialNamesExcluded": true,
+    "adversarialPathsExcluded": true,
+    "unrelatedNeighborRelationsExcluded": true,
+    "legacyAliases": [],
+    "compatibilityReaders": [],
+    "fallbackClassifiers": [],
+    "databaseMigrations": [],
+    "cacheRewrites": [],
+    "browserSemanticDerivation": []
+  },
+  "cacheLifecycle": "selectionPolicy participates in viewDefinitionDigest; old manifest-addressed entries become unreachable misses and are not mutated",
+  "authority": "Git-visible .archcontext remains authoritative; SQLite remains disposable operational state"
+}

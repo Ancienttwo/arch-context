@@ -1,6 +1,6 @@
 # Plan: AR3 Typed Data-Flow and External Integrations
 
-> **Status**: Executing
+> **Status**: Completed
 > **Created**: 20260712-0349
 > **Slug**: ar3-typed-domain-perspectives
 > **Planning Source**: repo-harness-sprint
@@ -223,16 +223,16 @@ database schema or cache lifecycle change is a stop condition requiring a new pl
 
 # Task Breakdown
 
-- [ ] Create the bounded AR3 contract/worktree and record the base commit.
-- [ ] Extend the public union, per-view requirements, schemas, fixtures, and canonical
+- [x] Create the bounded AR3 contract/worktree and record the base commit.
+- [x] Extend the public union, per-view requirements, schemas, fixtures, and canonical
       view validation atomically.
-- [ ] Implement exact typed subgraph selection and digest policy discriminators.
-- [ ] Advertise both views and extend subject backlinks without inferring authority.
-- [ ] Add compiler positives, adversarial negatives, honest-empty, focus, budget,
+- [x] Implement exact typed subgraph selection and digest policy discriminators.
+- [x] Advertise both views and extend subject backlinks without inferring authority.
+- [x] Add compiler positives, adversarial negatives, honest-empty, focus, budget,
       determinism, digest, and stale-cursor coverage.
-- [ ] Add HTTP, CLI, generic HTML, schema, and packaged smoke coverage.
-- [ ] Write durable readback with old/new digest evidence and explicit no-fallback audit.
-- [ ] Run focused tests, typecheck, `verify:explorer`, packaged smoke, contract/sprint
+- [x] Add HTTP, CLI, generic HTML, schema, and packaged smoke coverage.
+- [x] Write durable readback with old/new digest evidence and explicit no-fallback audit.
+- [x] Run focused tests, typecheck, `verify:explorer`, packaged smoke, contract/sprint
       strict verification; complete review/notes and merge the isolated worktree.
 
 # Verification
@@ -267,11 +267,11 @@ derivation, or cache rewrite. Stop on any contract path drift or stale-cursor by
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
 
 ## Task Breakdown
-- [ ] Create the bounded AR3 contract/worktree and record the base commit.
-- [ ] Extend the public union, per-view requirements, schemas, fixtures, and canonical
-- [ ] Implement exact typed subgraph selection and digest policy discriminators.
-- [ ] Advertise both views and extend subject backlinks without inferring authority.
-- [ ] Add compiler positives, adversarial negatives, honest-empty, focus, budget,
-- [ ] Add HTTP, CLI, generic HTML, schema, and packaged smoke coverage.
-- [ ] Write durable readback with old/new digest evidence and explicit no-fallback audit.
-- [ ] Run focused tests, typecheck, `verify:explorer`, packaged smoke, contract/sprint
+- [x] Create the bounded AR3 contract/worktree and record the base commit.
+- [x] Extend the public union, per-view requirements, schemas, fixtures, and canonical
+- [x] Implement exact typed subgraph selection and digest policy discriminators.
+- [x] Advertise both views and extend subject backlinks without inferring authority.
+- [x] Add compiler positives, adversarial negatives, honest-empty, focus, budget,
+- [x] Add HTTP, CLI, generic HTML, schema, and packaged smoke coverage.
+- [x] Write durable readback with old/new digest evidence and explicit no-fallback audit.
+- [x] Run focused tests, typecheck, `verify:explorer`, packaged smoke, contract/sprint

@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CALLER_PROVIDED_ATTESTATION_FIELDS, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import { CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
 import type { AgentJobV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
@@ -3157,9 +3157,11 @@ function explorerProjectionQueryV2FromCli(args: string[]): ExplorerProjectionQue
   if (expectedRequired.some(Boolean) && !expectedRequired.every(Boolean)) {
     throw new Error("--expected-head-sha, --expected-worktree-digest, and --expected-graph-digest must be provided together");
   }
+  const viewId = readFlag(args, "--view") ?? "system-map";
+  if (!(EXPLORER_VIEW_IDS as readonly string[]).includes(viewId)) throw new Error(`unsupported Explorer view: ${viewId}`);
   return {
     schemaVersion: "archcontext.explorer-projection-query/v2",
-    viewId: (readFlag(args, "--view") ?? "system-map") as ExplorerProjectionQueryV2["viewId"],
+    viewId: viewId as ExplorerProjectionQueryV2["viewId"],
     semanticLevel: (readFlag(args, "--level") ?? "context") as NonNullable<ExplorerProjectionQueryV2["semanticLevel"]>,
     ...(readFlag(args, "--task-session-id") ? { taskSessionId: readFlag(args, "--task-session-id")! } : {}),
     ...(expectedRequired.every(Boolean) ? {

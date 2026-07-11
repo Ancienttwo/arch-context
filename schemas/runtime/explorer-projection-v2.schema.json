@@ -12,7 +12,7 @@
       "additionalProperties": false,
       "required": ["id", "title", "question"],
       "properties": {
-        "id": { "enum": ["system-map", "task-impact", "drift-pressure"] },
+        "id": { "enum": ["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"] },
         "title": { "type": "string" },
         "question": { "type": "string" }
       }
@@ -24,7 +24,7 @@
         "additionalProperties": false,
         "required": ["id", "enabled"],
         "properties": {
-          "id": { "enum": ["system-map", "task-impact", "drift-pressure"] },
+          "id": { "enum": ["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"] },
           "enabled": { "type": "boolean" },
           "reason": { "type": "string" }
         }
@@ -282,7 +282,7 @@
                 "additionalProperties": false,
                 "required": ["appearsInViews", "affectedByTaskSessionIds", "constrainedByIds", "evidencedByBindingIds", "changedByEventIds", "decidedByEventIds", "incomingRelationIds", "outgoingRelationIds"],
                 "properties": {
-                  "appearsInViews": { "type": "array", "items": { "enum": ["system-map", "task-impact", "drift-pressure"] } },
+                  "appearsInViews": { "type": "array", "items": { "enum": ["system-map", "task-impact", "drift-pressure", "data-flow", "external-integrations"] } },
                   "affectedByTaskSessionIds": { "type": "array", "items": { "type": "string" } },
                   "constrainedByIds": { "type": "array", "items": { "type": "string" } },
                   "evidencedByBindingIds": { "type": "array", "items": { "type": "string" } },

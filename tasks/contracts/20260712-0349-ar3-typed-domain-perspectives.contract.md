@@ -1,6 +1,6 @@
 # Task Contract: ar3-typed-domain-perspectives
 
-> **Status**: Partial
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260712-0349-ar3-typed-domain-perspectives.md
 > **Task Profile**: code-change
 > **Owner**: ancienttwo
