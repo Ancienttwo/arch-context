@@ -46,7 +46,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
 import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -89,7 +89,8 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "architecture_ledger_search_fts",
   "audit_runs",
   "explorer_projection_cache",
-  "explorer_occurrence_dependencies"
+  "explorer_occurrence_dependencies",
+  "explorer_runtime_metrics"
 ] as const;
 
 export const SQLITE_PRAGMAS = [
@@ -779,6 +780,30 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       "DELETE FROM explorer_projection_cache",
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_explorer_projection_scope_manifest ON explorer_projection_cache(storage_repository_id, storage_workspace_id, manifest_digest)"
     ]
+  },
+  {
+    id: "0017_explorer_cache_lifecycle",
+    statements: [
+      "ALTER TABLE explorer_projection_cache ADD COLUMN body_bytes INTEGER NOT NULL DEFAULT 0 CHECK(body_bytes >= 0)",
+      "ALTER TABLE explorer_projection_cache ADD COLUMN last_accessed_at TEXT",
+      "ALTER TABLE explorer_projection_cache ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0 CHECK(access_count >= 0)",
+      "ALTER TABLE explorer_projection_cache ADD COLUMN pinned_until TEXT",
+      "ALTER TABLE explorer_projection_cache ADD COLUMN pin_reason TEXT CHECK(pin_reason IN ('delta-base', 'delta-head'))",
+      "UPDATE explorer_projection_cache SET body_bytes = length(CAST(projection_json AS BLOB)), last_accessed_at = created_at",
+      "CREATE INDEX IF NOT EXISTS idx_explorer_projection_gc ON explorer_projection_cache(storage_repository_id, storage_workspace_id, pinned_until, invalidated_at, last_accessed_at, created_at, projection_digest)",
+      `CREATE TABLE IF NOT EXISTS explorer_runtime_metrics (
+        storage_repository_id TEXT NOT NULL,
+        storage_workspace_id TEXT NOT NULL,
+        metric_name TEXT NOT NULL CHECK(metric_name IN ('feed-lag', 'replay-tail-length', 'plan-rows-read', 'compile-time-ms', 'cache-hit', 'cache-miss', 'cache-eviction', 'cache-rebuild')),
+        reason_code TEXT NOT NULL CHECK(reason_code IN ('none', 'digest-read', 'manifest-read', 'latest-read', 'manifest-miss', 'invalidated', 'expired', 'count-pressure', 'byte-pressure', 'startup-retention', 'explicit-collection', 'projection-compile', 'change-feed', 'anchored-replay', 'bounded-read-plan')),
+        sample_count INTEGER NOT NULL CHECK(sample_count >= 0 AND sample_count <= 9007199254740991),
+        total_value REAL NOT NULL CHECK(total_value >= 0 AND total_value <= 9007199254740991),
+        max_value REAL NOT NULL CHECK(max_value >= 0 AND max_value <= 9007199254740991),
+        last_value REAL NOT NULL CHECK(last_value >= 0 AND last_value <= 9007199254740991),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(storage_repository_id, storage_workspace_id, metric_name, reason_code)
+      )`
+    ]
   }
 ] as const;
 
@@ -1227,12 +1252,82 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined>;
   readExplorerProjectionByManifest(input: ArchitectureLedgerScope & { manifestDigest: string }): Promise<ExplorerProjectionV2 | undefined>;
   readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined>;
+  pinExplorerProjections(input: ArchitectureLedgerScope & { projectionDigests: string[]; reason: ExplorerProjectionPinReason; expiresAt: string }): Promise<number>;
+  collectExplorerProjectionCache(input: ArchitectureLedgerScope & { policy?: ExplorerProjectionCachePolicyV1 }): Promise<ExplorerProjectionCacheCollectionResultV1>;
+  readExplorerProjectionCacheStats(input: ArchitectureLedgerScope): Promise<ExplorerProjectionCacheStatsV1>;
+  recordExplorerRuntimeMetric(input: ArchitectureLedgerScope & ExplorerRuntimeMetricSampleV1): Promise<void>;
   listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]>;
   invalidateExplorerOccurrences(input: ArchitectureLedgerScope & { occurrenceIds: string[] }): Promise<number>;
   clearExplorerDerivedState(input?: ArchitectureLedgerScope): Promise<number>;
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
+}
+
+export type ExplorerProjectionPinReason = "delta-base" | "delta-head";
+
+export type ExplorerRuntimeMetricName =
+  | "feed-lag"
+  | "replay-tail-length"
+  | "plan-rows-read"
+  | "compile-time-ms"
+  | "cache-hit"
+  | "cache-miss"
+  | "cache-eviction"
+  | "cache-rebuild";
+
+export type ExplorerRuntimeMetricReason =
+  | "none"
+  | "digest-read"
+  | "manifest-read"
+  | "latest-read"
+  | "manifest-miss"
+  | "invalidated"
+  | "expired"
+  | "count-pressure"
+  | "byte-pressure"
+  | "startup-retention"
+  | "explicit-collection"
+  | "projection-compile"
+  | "change-feed"
+  | "anchored-replay"
+  | "bounded-read-plan";
+
+export interface ExplorerRuntimeMetricSampleV1 {
+  metricName: ExplorerRuntimeMetricName;
+  reasonCode: ExplorerRuntimeMetricReason;
+  value: number;
+  recordedAt?: string;
+}
+
+export const DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY: ExplorerProjectionCachePolicyV1 = Object.freeze({
+  schemaVersion: "archcontext.explorer-cache-policy/v1",
+  maxEntriesPerScope: 128,
+  maxBytesPerScope: 64 * 1024 * 1024,
+  maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+  maxPinnedEntriesPerScope: 8,
+  maxPinTtlMs: 15 * 60 * 1000
+});
+
+export interface ExplorerProjectionCacheStatsV1 {
+  schemaVersion: "archcontext.explorer-cache-stats/v1";
+  storageRepositoryId: string;
+  storageWorkspaceId: string;
+  entryCount: number;
+  bodyBytes: number;
+  pinnedEntryCount: number;
+  invalidatedEntryCount: number;
+  metrics: Array<ExplorerRuntimeMetricSampleV1 & { sampleCount: number; totalValue: number; maxValue: number; recordedAt: string }>;
+}
+
+export interface ExplorerProjectionCacheCollectionResultV1 {
+  schemaVersion: "archcontext.explorer-cache-collection/v1";
+  reasonCode: "startup-retention" | "explicit-collection";
+  before: Pick<ExplorerProjectionCacheStatsV1, "entryCount" | "bodyBytes" | "pinnedEntryCount" | "invalidatedEntryCount">;
+  after: Pick<ExplorerProjectionCacheStatsV1, "entryCount" | "bodyBytes" | "pinnedEntryCount" | "invalidatedEntryCount">;
+  evictedProjectionDigests: string[];
+  orphanDependencyCount: number;
+  limitsSatisfied: boolean;
 }
 
 export interface ExplorerProjectionReadResult {
@@ -1276,14 +1371,23 @@ type SqliteDatabase = {
 
 export class SqliteLocalStore implements RuntimeLocalStore {
   private db?: SqliteDatabase;
+  private readonly explorerCachePolicy: ExplorerProjectionCachePolicyV1;
 
-  constructor(private readonly databasePath = defaultLocalStorePath()) {}
+  constructor(
+    private readonly databasePath = defaultLocalStorePath(),
+    explorerCachePolicy: ExplorerProjectionCachePolicyV1 = DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
+    private readonly clock: () => string = nowIso
+  ) {
+    assertExplorerProjectionCachePolicy(explorerCachePolicy);
+    this.explorerCachePolicy = Object.freeze({ ...explorerCachePolicy });
+  }
 
   async migrate(): Promise<void> {
     const db = await this.database();
     applyLocalSqliteMigrations(db);
     backfillArchitectureEventDirectScope(db);
     backfillArchitectureChangeFeed(db);
+    collectExplorerProjectionCacheFromDb(db, undefined, this.explorerCachePolicy, canonicalLifecycleTime(this.clock()), "startup-retention");
   }
 
   async beginSnapshot(snapshot: RepositorySnapshot): Promise<string> {
@@ -2237,7 +2341,13 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
     const db = await this.database();
-    return replayArchitectureLedgerFromDb(db, input);
+    const result = replayArchitectureLedgerFromDb(db, input);
+    recordExplorerRuntimeMetricInDb(db, input, {
+      metricName: "replay-tail-length",
+      reasonCode: "anchored-replay",
+      value: result.replay.tailEventCount
+    });
+    return result;
   }
 
   async replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1> {
@@ -2499,6 +2609,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   async saveExplorerProjection(input: ArchitectureLedgerScope & { projection: ExplorerProjectionV2; dependencies: Array<{ occurrenceId: string; dependencyKeys: string[] }> }): Promise<void> {
     const db = await this.database();
     const storageWorkspaceId = architectureLedgerWorkspaceKey(input.worktree);
+    const operationNow = canonicalLifecycleTime(this.clock());
     assertExplorerProjectionCacheIntegrity(input.projection, input);
     assertArchitectureLedgerPersistenceSafe(input.projection as unknown as Json, "explorer-projection-cache");
     db.exec("BEGIN IMMEDIATE");
@@ -2510,10 +2621,15 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       if (existingManifest && String(existingManifest.projection_digest) !== input.projection.projectionDigest) {
         throw new Error("explorer-projection-cache-manifest-conflict");
       }
+      const projectionJson = stableJson(input.projection);
       db.prepare(
-        `INSERT OR REPLACE INTO explorer_projection_cache
-          (projection_digest, manifest_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest, view_definition_digest, compiler_version, projection_json, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO explorer_projection_cache
+          (projection_digest, manifest_digest, storage_repository_id, storage_workspace_id, view_id, graph_digest, observed_facts_digest, view_definition_digest, compiler_version,
+            projection_json, body_bytes, created_at, last_accessed_at, access_count, pinned_until, pin_reason, invalidated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL)
+          ON CONFLICT(projection_digest) DO UPDATE SET
+            projection_json = excluded.projection_json,
+            body_bytes = excluded.body_bytes`
       ).run(
         input.projection.projectionDigest,
         input.projection.inputManifest.manifestDigest,
@@ -2524,8 +2640,10 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         input.projection.cursor.observedFactsDigest,
         input.projection.cursor.viewDefinitionDigest,
         input.projection.cursor.compilerVersion,
-        stableJson(input.projection),
-        nowIso()
+        projectionJson,
+        utf8ByteLength(projectionJson),
+        operationNow,
+        operationNow
       );
       db.prepare(
         "DELETE FROM explorer_occurrence_dependencies WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?"
@@ -2538,6 +2656,15 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       for (const entry of input.dependencies) for (const dependencyKey of [...new Set(entry.dependencyKeys)].sort()) {
         insert.run(input.repository.storageRepositoryId, storageWorkspaceId, input.projection.projectionDigest, entry.occurrenceId, dependencyKey);
       }
+      const collection = collectExplorerProjectionCacheFromDb(
+        db,
+        input,
+        this.explorerCachePolicy,
+        operationNow,
+        "explicit-collection",
+        { transaction: "existing", cleanupOrphans: false }
+      );
+      if (!collection.limitsSatisfied) throw new Error("explorer-cache-retention-limits-unsatisfied");
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -2551,7 +2678,14 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       `SELECT * FROM explorer_projection_cache
         WHERE projection_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
     ).get(input.projectionDigest, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
-    return row ? explorerProjectionFromCacheRow(row, input) : undefined;
+    if (!row) {
+      recordExplorerRuntimeMetricInDb(db, input, { metricName: "cache-miss", reasonCode: "digest-read", value: 1 });
+      return undefined;
+    }
+    const projection = explorerProjectionFromCacheRow(row, input);
+    touchExplorerProjectionCacheRow(db, row, canonicalLifecycleTime(this.clock()));
+    recordExplorerRuntimeMetricInDb(db, input, { metricName: "cache-hit", reasonCode: "digest-read", value: 1 });
+    return projection;
   }
 
   async readExplorerProjectionByManifest(input: ArchitectureLedgerScope & { manifestDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
@@ -2561,7 +2695,14 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         WHERE manifest_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?
           AND invalidated_at IS NULL`
     ).get(input.manifestDigest, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
-    return row ? explorerProjectionFromCacheRow(row, input) : undefined;
+    if (!row) {
+      recordExplorerRuntimeMetricInDb(db, input, { metricName: "cache-miss", reasonCode: "manifest-read", value: 1 });
+      return undefined;
+    }
+    const projection = explorerProjectionFromCacheRow(row, input);
+    touchExplorerProjectionCacheRow(db, row, canonicalLifecycleTime(this.clock()));
+    recordExplorerRuntimeMetricInDb(db, input, { metricName: "cache-hit", reasonCode: "manifest-read", value: 1 });
+    return projection;
   }
 
   async readLatestExplorerProjection(input: ArchitectureLedgerScope & { viewId: string }): Promise<ExplorerProjectionV2 | undefined> {
@@ -2572,7 +2713,72 @@ export class SqliteLocalStore implements RuntimeLocalStore {
           AND invalidated_at IS NULL
         ORDER BY created_at DESC, rowid DESC LIMIT 1`
     ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), input.viewId);
-    return row ? explorerProjectionFromCacheRow(row, input) : undefined;
+    if (!row) return undefined;
+    const projection = explorerProjectionFromCacheRow(row, input);
+    touchExplorerProjectionCacheRow(db, row, canonicalLifecycleTime(this.clock()));
+    return projection;
+  }
+
+  async pinExplorerProjections(input: ArchitectureLedgerScope & { projectionDigests: string[]; reason: ExplorerProjectionPinReason; expiresAt: string }): Promise<number> {
+    const now = canonicalLifecycleTime(this.clock());
+    const nowMs = Date.parse(now);
+    const expiresAtMs = Date.parse(input.expiresAt);
+    if (!Number.isFinite(nowMs) || !Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs || expiresAtMs - nowMs > this.explorerCachePolicy.maxPinTtlMs) {
+      throw new Error("explorer-projection-pin-expiry-invalid");
+    }
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    const digests = [...new Set(input.projectionDigests)].sort();
+    if (digests.length === 0) return 0;
+    if (digests.length > this.explorerCachePolicy.maxPinnedEntriesPerScope) throw new Error("explorer-projection-pin-limit-exceeded");
+    const db = await this.database();
+    const workspace = architectureLedgerWorkspaceKey(input.worktree);
+    let pinned = 0;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existingPinned = Number(db.prepare(
+        `SELECT COUNT(*) AS count FROM explorer_projection_cache
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND pinned_until > ?
+            AND projection_digest NOT IN (${digests.map(() => "?").join(", ")})`
+      ).get(input.repository.storageRepositoryId, workspace, now, ...digests)?.count ?? 0);
+      const requestedExisting = Number(db.prepare(
+        `SELECT COUNT(*) AS count FROM explorer_projection_cache
+          WHERE storage_repository_id = ? AND storage_workspace_id = ?
+            AND projection_digest IN (${digests.map(() => "?").join(", ")})`
+      ).get(input.repository.storageRepositoryId, workspace, ...digests)?.count ?? 0);
+      if (existingPinned + requestedExisting > this.explorerCachePolicy.maxPinnedEntriesPerScope) {
+        throw new Error("explorer-projection-pin-limit-exceeded");
+      }
+      const update = db.prepare(
+        `UPDATE explorer_projection_cache SET pinned_until = ?, pin_reason = ?
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?`
+      );
+      for (const digest of digests) {
+        const result = update.run(expiresAt, input.reason, input.repository.storageRepositoryId, workspace, digest) as { changes?: number };
+        pinned += Number(result.changes ?? 0);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return pinned;
+  }
+
+  async collectExplorerProjectionCache(input: ArchitectureLedgerScope & { policy?: ExplorerProjectionCachePolicyV1 }): Promise<ExplorerProjectionCacheCollectionResultV1> {
+    const db = await this.database();
+    const policy = input.policy ?? this.explorerCachePolicy;
+    assertExplorerProjectionCachePolicyNarrowing(this.explorerCachePolicy, policy);
+    return collectExplorerProjectionCacheFromDb(db, input, policy, canonicalLifecycleTime(this.clock()), "explicit-collection");
+  }
+
+  async readExplorerProjectionCacheStats(input: ArchitectureLedgerScope): Promise<ExplorerProjectionCacheStatsV1> {
+    const db = await this.database();
+    return explorerProjectionCacheStatsFromDb(db, input, canonicalLifecycleTime(this.clock()));
+  }
+
+  async recordExplorerRuntimeMetric(input: ArchitectureLedgerScope & ExplorerRuntimeMetricSampleV1): Promise<void> {
+    const db = await this.database();
+    recordExplorerRuntimeMetricInDb(db, input, input);
   }
 
   async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
@@ -2650,6 +2856,327 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
 function architectureScopeFromEvent(event: ArchitectureEventV1 | undefined): ArchitectureLedgerScope | undefined {
   return event ? { repository: event.repository, worktree: event.worktree } : undefined;
+}
+
+const EXPLORER_RUNTIME_METRIC_NAMES = new Set<ExplorerRuntimeMetricName>([
+  "feed-lag", "replay-tail-length", "plan-rows-read", "compile-time-ms",
+  "cache-hit", "cache-miss", "cache-eviction", "cache-rebuild"
+]);
+const EXPLORER_RUNTIME_METRIC_REASONS = new Set<ExplorerRuntimeMetricReason>([
+  "none", "digest-read", "manifest-read", "latest-read", "manifest-miss",
+  "invalidated", "expired", "count-pressure", "byte-pressure", "startup-retention",
+  "explicit-collection", "projection-compile", "change-feed", "anchored-replay",
+  "bounded-read-plan"
+]);
+
+function assertExplorerProjectionCachePolicy(policy: ExplorerProjectionCachePolicyV1): void {
+  if (policy.schemaVersion !== "archcontext.explorer-cache-policy/v1") throw new Error("explorer-cache-policy-schema-invalid");
+  for (const [name, value] of Object.entries(policy)) {
+    if (name === "schemaVersion") continue;
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`explorer-cache-policy-${name}-invalid`);
+  }
+  if (policy.maxPinnedEntriesPerScope > policy.maxEntriesPerScope) throw new Error("explorer-cache-policy-pins-exceed-entry-limit");
+}
+
+function canonicalLifecycleTime(value: string): string {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error("explorer-cache-lifecycle-time-invalid");
+  return new Date(parsed).toISOString();
+}
+
+function assertExplorerProjectionCachePolicyNarrowing(
+  configured: ExplorerProjectionCachePolicyV1,
+  requested: ExplorerProjectionCachePolicyV1
+): void {
+  assertExplorerProjectionCachePolicy(requested);
+  if (
+    requested.maxEntriesPerScope > configured.maxEntriesPerScope
+    || requested.maxBytesPerScope > configured.maxBytesPerScope
+    || requested.maxAgeMs > configured.maxAgeMs
+    || requested.maxPinnedEntriesPerScope > configured.maxPinnedEntriesPerScope
+    || requested.maxPinTtlMs > configured.maxPinTtlMs
+  ) {
+    throw new Error("explorer-cache-policy-cannot-widen-configured-limits");
+  }
+}
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function touchExplorerProjectionCacheRow(db: SqliteDatabase, row: Record<string, unknown>, now: string): void {
+  db.prepare(
+    `UPDATE explorer_projection_cache SET last_accessed_at = ?, access_count = access_count + 1
+      WHERE projection_digest = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+  ).run(now, String(row.projection_digest), String(row.storage_repository_id), String(row.storage_workspace_id));
+}
+
+function recordExplorerRuntimeMetricInDb(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  sample: ExplorerRuntimeMetricSampleV1
+): void {
+  if (!EXPLORER_RUNTIME_METRIC_NAMES.has(sample.metricName)) throw new Error("explorer-runtime-metric-name-invalid");
+  if (!EXPLORER_RUNTIME_METRIC_REASONS.has(sample.reasonCode)) throw new Error("explorer-runtime-metric-reason-invalid");
+  if (!Number.isSafeInteger(sample.value) || sample.value < 0) throw new Error("explorer-runtime-metric-value-invalid");
+  const value = sample.value;
+  let recordedAt: string;
+  try {
+    recordedAt = canonicalLifecycleTime(sample.recordedAt ?? nowIso());
+  } catch {
+    throw new Error("explorer-runtime-metric-time-invalid");
+  }
+  const existing = db.prepare(
+    `SELECT sample_count, total_value FROM explorer_runtime_metrics
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND metric_name = ? AND reason_code = ?`
+  ).get(
+    scope.repository.storageRepositoryId,
+    architectureLedgerWorkspaceKey(scope.worktree),
+    sample.metricName,
+    sample.reasonCode
+  );
+  if (
+    existing
+    && (!Number.isSafeInteger(Number(existing.sample_count))
+      || !Number.isSafeInteger(Number(existing.total_value))
+      || Number(existing.sample_count) + 1 > Number.MAX_SAFE_INTEGER
+      || Number(existing.total_value) + value > Number.MAX_SAFE_INTEGER)
+  ) throw new Error("explorer-runtime-metric-aggregate-overflow");
+  db.prepare(
+    `INSERT INTO explorer_runtime_metrics
+      (storage_repository_id, storage_workspace_id, metric_name, reason_code, sample_count, total_value, max_value, last_value, updated_at)
+      VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+      ON CONFLICT(storage_repository_id, storage_workspace_id, metric_name, reason_code) DO UPDATE SET
+        sample_count = sample_count + 1,
+        total_value = total_value + excluded.last_value,
+        max_value = MAX(max_value, excluded.last_value),
+        last_value = excluded.last_value,
+        updated_at = excluded.updated_at`
+  ).run(
+    scope.repository.storageRepositoryId,
+    architectureLedgerWorkspaceKey(scope.worktree),
+    sample.metricName,
+    sample.reasonCode,
+    value,
+    value,
+    value,
+    recordedAt
+  );
+}
+
+function explorerProjectionCacheCountsFromDb(
+  db: SqliteDatabase,
+  repositoryId: string,
+  workspaceId: string,
+  now: string
+): Pick<ExplorerProjectionCacheStatsV1, "entryCount" | "bodyBytes" | "pinnedEntryCount" | "invalidatedEntryCount"> {
+  const row = db.prepare(
+    `SELECT COUNT(*) AS entry_count, COALESCE(SUM(length(CAST(projection_json AS BLOB))), 0) AS body_bytes,
+        COALESCE(SUM(CASE WHEN pinned_until > ? THEN 1 ELSE 0 END), 0) AS pinned_count,
+        COALESCE(SUM(CASE WHEN invalidated_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS invalidated_count
+      FROM explorer_projection_cache WHERE storage_repository_id = ? AND storage_workspace_id = ?`
+  ).get(now, repositoryId, workspaceId);
+  return {
+    entryCount: Number(row?.entry_count ?? 0),
+    bodyBytes: Number(row?.body_bytes ?? 0),
+    pinnedEntryCount: Number(row?.pinned_count ?? 0),
+    invalidatedEntryCount: Number(row?.invalidated_count ?? 0)
+  };
+}
+
+function explorerProjectionCacheStatsFromDb(db: SqliteDatabase, scope: ArchitectureLedgerScope, now: string): ExplorerProjectionCacheStatsV1 {
+  const repositoryId = scope.repository.storageRepositoryId;
+  const workspaceId = architectureLedgerWorkspaceKey(scope.worktree);
+  const counts = explorerProjectionCacheCountsFromDb(db, repositoryId, workspaceId, now);
+  const metrics = db.prepare(
+    `SELECT metric_name, reason_code, sample_count, total_value, max_value, last_value, updated_at
+      FROM explorer_runtime_metrics WHERE storage_repository_id = ? AND storage_workspace_id = ?
+      ORDER BY metric_name, reason_code`
+  ).all(repositoryId, workspaceId).map((row) => {
+    const metricName = String(row.metric_name) as ExplorerRuntimeMetricName;
+    const reasonCode = String(row.reason_code) as ExplorerRuntimeMetricReason;
+    const value = Number(row.last_value);
+    const sampleCount = Number(row.sample_count);
+    const totalValue = Number(row.total_value);
+    const maxValue = Number(row.max_value);
+    if (
+      !EXPLORER_RUNTIME_METRIC_NAMES.has(metricName)
+      || !EXPLORER_RUNTIME_METRIC_REASONS.has(reasonCode)
+      || ![value, sampleCount, totalValue, maxValue].every((item) => Number.isSafeInteger(item) && item >= 0)
+    ) throw new Error("explorer-runtime-metric-row-invalid");
+    return { metricName, reasonCode, value, sampleCount, totalValue, maxValue, recordedAt: canonicalLifecycleTime(String(row.updated_at)) };
+  });
+  return {
+    schemaVersion: "archcontext.explorer-cache-stats/v1",
+    storageRepositoryId: repositoryId,
+    storageWorkspaceId: workspaceId,
+    ...counts,
+    metrics
+  };
+}
+
+function collectExplorerProjectionCacheFromDb(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope | undefined,
+  policy: ExplorerProjectionCachePolicyV1,
+  now: string,
+  reasonCode: "startup-retention" | "explicit-collection",
+  options: { transaction: "own" | "existing"; cleanupOrphans: boolean } = { transaction: "own", cleanupOrphans: true }
+): ExplorerProjectionCacheCollectionResultV1 {
+  assertExplorerProjectionCachePolicy(policy);
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs)) throw new Error("explorer-cache-collection-time-invalid");
+  if (options.transaction === "own") db.exec("BEGIN IMMEDIATE");
+  try {
+    const orphanDependencyCount = options.cleanupOrphans ? Number(db.prepare(
+      `SELECT COUNT(*) AS count FROM explorer_occurrence_dependencies AS dependency
+        WHERE NOT EXISTS (SELECT 1 FROM explorer_projection_cache AS cache
+          WHERE cache.projection_digest = dependency.projection_digest
+            AND cache.storage_repository_id = dependency.storage_repository_id
+            AND cache.storage_workspace_id = dependency.storage_workspace_id)`
+    ).get()?.count ?? 0) : 0;
+    if (options.cleanupOrphans) {
+      db.prepare(
+        `DELETE FROM explorer_occurrence_dependencies
+          WHERE NOT EXISTS (SELECT 1 FROM explorer_projection_cache AS cache
+            WHERE cache.projection_digest = explorer_occurrence_dependencies.projection_digest
+              AND cache.storage_repository_id = explorer_occurrence_dependencies.storage_repository_id
+              AND cache.storage_workspace_id = explorer_occurrence_dependencies.storage_workspace_id)`
+      ).run();
+    }
+    const scopes = scope ? [{ repositoryId: scope.repository.storageRepositoryId, workspaceId: architectureLedgerWorkspaceKey(scope.worktree), authorityScope: scope }] : db.prepare(
+      `SELECT DISTINCT storage_repository_id, storage_workspace_id FROM explorer_projection_cache
+        ORDER BY storage_repository_id, storage_workspace_id`
+    ).all().map((row) => ({
+      repositoryId: String(row.storage_repository_id),
+      workspaceId: String(row.storage_workspace_id),
+      authorityScope: undefined
+    }));
+    let combinedBefore = { entryCount: 0, bodyBytes: 0, pinnedEntryCount: 0, invalidatedEntryCount: 0 };
+    let combinedAfter = { entryCount: 0, bodyBytes: 0, pinnedEntryCount: 0, invalidatedEntryCount: 0 };
+    const evictedProjectionDigests: string[] = [];
+    let limitsSatisfied = true;
+    for (const selected of scopes) {
+      db.prepare(
+        `UPDATE explorer_projection_cache SET body_bytes = length(CAST(projection_json AS BLOB))
+          WHERE storage_repository_id = ? AND storage_workspace_id = ?
+            AND body_bytes != length(CAST(projection_json AS BLOB))`
+      ).run(selected.repositoryId, selected.workspaceId);
+      db.prepare(
+        `UPDATE explorer_projection_cache SET pinned_until = NULL, pin_reason = NULL
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND pinned_until IS NOT NULL AND pinned_until <= ?`
+      ).run(selected.repositoryId, selected.workspaceId, now);
+      const before = explorerProjectionCacheCountsFromDb(db, selected.repositoryId, selected.workspaceId, now);
+      combinedBefore = sumExplorerCacheCounts(combinedBefore, before);
+      const lifecycleRows = db.prepare(
+        `SELECT projection_digest, created_at, last_accessed_at, pinned_until, pin_reason
+          FROM explorer_projection_cache
+          WHERE storage_repository_id = ? AND storage_workspace_id = ?
+          ORDER BY projection_digest`
+      ).all(selected.repositoryId, selected.workspaceId);
+      for (const row of lifecycleRows) {
+        const digest = String(row.projection_digest);
+        const createdAt = canonicalStoredLifecycleTime(row.created_at, nowMs, policy.maxPinTtlMs);
+        if (!createdAt) {
+          db.prepare(
+            `DELETE FROM explorer_projection_cache
+              WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?`
+          ).run(selected.repositoryId, selected.workspaceId, digest);
+          evictedProjectionDigests.push(digest);
+          if (selected.authorityScope) recordExplorerRuntimeMetricInDb(db, selected.authorityScope, {
+            metricName: "cache-eviction", reasonCode: "invalidated", value: 1, recordedAt: now
+          });
+          continue;
+        }
+        const lastAccessedAt = canonicalStoredLifecycleTime(row.last_accessed_at ?? row.created_at, nowMs, policy.maxPinTtlMs);
+        if (!lastAccessedAt) {
+          db.prepare(
+            `UPDATE explorer_projection_cache SET last_accessed_at = ?
+              WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?`
+          ).run(createdAt, selected.repositoryId, selected.workspaceId, digest);
+        }
+        if (row.pinned_until !== null && row.pinned_until !== undefined) {
+          const pinnedUntil = canonicalStoredLifecycleTime(row.pinned_until, nowMs, policy.maxPinTtlMs);
+          if (!pinnedUntil || !["delta-base", "delta-head"].includes(String(row.pin_reason ?? ""))) {
+            db.prepare(
+              `UPDATE explorer_projection_cache SET pinned_until = NULL, pin_reason = NULL
+                WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?`
+            ).run(selected.repositoryId, selected.workspaceId, digest);
+          }
+        }
+      }
+      const retained = explorerProjectionCacheCountsFromDb(db, selected.repositoryId, selected.workspaceId, now);
+      let remainingEntries = retained.entryCount;
+      let remainingBytes = retained.bodyBytes;
+      const cutoff = new Date(nowMs - policy.maxAgeMs).toISOString();
+      const rows = db.prepare(
+        `SELECT projection_digest, length(CAST(projection_json AS BLOB)) AS body_bytes, invalidated_at, created_at, COALESCE(last_accessed_at, created_at) AS last_accessed_at
+          FROM explorer_projection_cache
+          WHERE storage_repository_id = ? AND storage_workspace_id = ?
+            AND (pinned_until IS NULL OR pinned_until <= ?)
+          ORDER BY
+            CASE WHEN invalidated_at IS NOT NULL THEN 0 WHEN created_at <= ? THEN 1 ELSE 2 END,
+            COALESCE(last_accessed_at, created_at), created_at, projection_digest`
+      ).all(selected.repositoryId, selected.workspaceId, now, cutoff);
+      for (const row of rows) {
+        const mandatory = row.invalidated_at !== null && row.invalidated_at !== undefined || String(row.created_at) <= cutoff;
+        const countPressure = remainingEntries > policy.maxEntriesPerScope;
+        const bytePressure = remainingBytes > policy.maxBytesPerScope;
+        if (!mandatory && !countPressure && !bytePressure) break;
+        db.prepare(
+          `DELETE FROM explorer_projection_cache
+            WHERE storage_repository_id = ? AND storage_workspace_id = ? AND projection_digest = ?`
+        ).run(selected.repositoryId, selected.workspaceId, String(row.projection_digest));
+        remainingEntries -= 1;
+        remainingBytes -= Number(row.body_bytes ?? 0);
+        evictedProjectionDigests.push(String(row.projection_digest));
+        if (selected.authorityScope) {
+          recordExplorerRuntimeMetricInDb(db, selected.authorityScope, {
+            metricName: "cache-eviction",
+            reasonCode: row.invalidated_at ? "invalidated" : String(row.created_at) <= cutoff ? "expired" : bytePressure ? "byte-pressure" : "count-pressure",
+            value: 1,
+            recordedAt: now
+          });
+        }
+      }
+      const after = explorerProjectionCacheCountsFromDb(db, selected.repositoryId, selected.workspaceId, now);
+      combinedAfter = sumExplorerCacheCounts(combinedAfter, after);
+      limitsSatisfied &&= after.entryCount <= policy.maxEntriesPerScope && after.bodyBytes <= policy.maxBytesPerScope;
+    }
+    if (options.transaction === "own") db.exec("COMMIT");
+    return {
+      schemaVersion: "archcontext.explorer-cache-collection/v1",
+      reasonCode,
+      before: combinedBefore,
+      after: combinedAfter,
+      evictedProjectionDigests: evictedProjectionDigests.sort(),
+      orphanDependencyCount,
+      limitsSatisfied
+    };
+  } catch (error) {
+    if (options.transaction === "own") db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function canonicalStoredLifecycleTime(value: unknown, nowMs: number, maxFutureMs: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) || parsed > nowMs + maxFutureMs) return undefined;
+  const canonical = new Date(parsed).toISOString();
+  return value === canonical ? canonical : undefined;
+}
+
+function sumExplorerCacheCounts(
+  left: Pick<ExplorerProjectionCacheStatsV1, "entryCount" | "bodyBytes" | "pinnedEntryCount" | "invalidatedEntryCount">,
+  right: Pick<ExplorerProjectionCacheStatsV1, "entryCount" | "bodyBytes" | "pinnedEntryCount" | "invalidatedEntryCount">
+) {
+  return {
+    entryCount: left.entryCount + right.entryCount,
+    bodyBytes: left.bodyBytes + right.bodyBytes,
+    pinnedEntryCount: left.pinnedEntryCount + right.pinnedEntryCount,
+    invalidatedEntryCount: left.invalidatedEntryCount + right.invalidatedEntryCount
+  };
 }
 
 function explorerProjectionFromCacheRow(

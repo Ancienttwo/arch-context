@@ -98,7 +98,7 @@
 
 ## Open Questions
 
-- None for DE0-DE3. DE4 is the next bounded phase in the accepted program plan.
+- None. DE0-DE5 are implemented; no program finding is deferred.
 
 ## Evidence Links
 
@@ -150,6 +150,25 @@
 - DE4 independent `$check` closed every review-round finding. Final architecture and
   security verdicts are PASS; the final coordinated derived-subject/feed-digest poison
   is filtered by immutable event-payload direct-subject authority.
+- DE5 migration `0017_explorer_cache_lifecycle` adds byte/access accounting, bounded
+  expiring delta pins, a stable GC index, and numeric aggregate runtime metrics. The
+  cache remains a disposable child of Git/ledger authority.
+- Retention runs after each save and at startup. It removes dependency orphans,
+  clears expired pins, collects invalid/expired unpinned rows, then applies per-scope
+  count/byte pressure in LRU/created/digest order.
+- Delta requests pin exact base/head projection digests for ten minutes, within the
+  policy maximum of eight digests and fifteen minutes. Pins cannot authorize a cache
+  body or survive their explicit expiry.
+- Metrics cover feed lag, anchored replay tail length, bounded plan rows, compile time,
+  hit/miss, eviction, and rebuild. Metric names/reason codes are allow-listed and
+  values are non-negative numeric aggregates only.
+- DE5 independent `$check` found nine unique issues across review rounds; all were
+  fixed. Final reviewers report PASS. Regression coverage includes GC fault rollback,
+  source-digest readback staleness, offset/invalid/overlong pins, metric content and
+  overflow, mutable byte accounting, TestLocalStore rollback, and 160-manifest churn.
+- Final full `bun run verify` passes 1060 tests with 0 failures. The new migration is
+  included in AL10 migration/package signatures, and all privacy, acceptance-ledger,
+  sprint-status, packaged CLI, Explorer, governance, and eval gates pass.
 
 ## Promotion Candidates
 

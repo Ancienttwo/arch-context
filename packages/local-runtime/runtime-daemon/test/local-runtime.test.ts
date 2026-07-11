@@ -12,7 +12,7 @@ import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRA
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
-import { migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, migrationSql, assertNoSourceStorageSchema, SQLITE_PRAGMAS, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel, listModelFiles, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "../src/investigation-transport";
@@ -4331,7 +4331,7 @@ describe("local runtime foundation", () => {
   test("Explorer loopback service is token-gated, read-only, and revocable", async () => {
     const root = tempRepo();
     try {
-      const localStore = new TestLocalStore();
+      const localStore = new TestLocalStore(DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, () => "2026-06-20T00:00:00.000Z");
       const daemon = await createStartedTestDaemon({ localStore, clock: () => "2026-06-20T00:00:00.000Z" });
       await daemon.init(root, "Explorer App");
       await daemon.prepare(root, "change the Explorer runtime boundary", 12_288, 12, "task.explorer-current");
@@ -4372,6 +4372,18 @@ describe("local runtime foundation", () => {
       expect(repeatedProjectionV2.status).toBe(200);
       expect(((await repeatedProjectionV2.json()) as any).data.projectionDigest).toBe(bodyV2.data.projectionDigest);
       expect(localStore.explorerManifestCacheHits).toBe(1);
+      expect(localStore.explorerRuntimeMetrics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ metricName: "cache-rebuild", reasonCode: "manifest-miss", value: 1 }),
+        expect.objectContaining({ metricName: "compile-time-ms", reasonCode: "projection-compile" })
+      ]));
+      const testCacheStats = await localStore.readExplorerProjectionCacheStats({
+        repository: bodyV2.data.inputManifest.repository,
+        worktree: bodyV2.data.inputManifest.worktree
+      });
+      expect(testCacheStats.metrics).toEqual(expect.arrayContaining([
+        expect.objectContaining({ metricName: "cache-hit", reasonCode: "manifest-read", sampleCount: 1 }),
+        expect.objectContaining({ metricName: "cache-rebuild", reasonCode: "manifest-miss", sampleCount: 1 })
+      ]));
 
       const taskImpact = await fetch(`${data.url}projection/v2?view=task-impact&taskSessionId=task.explorer-current&maxNodes=5&maxRelations=5`, {
         headers: { Authorization: `Bearer ${data.token}` }
@@ -4424,6 +4436,7 @@ describe("local runtime foundation", () => {
       });
       expect(delta.status).toBe(200);
       expect(((await delta.json()) as any).data.counts).toEqual({ "architecture-fact": 0, evidence: 0, projection: 0 });
+      expect(localStore.explorerCacheMetadata.get(authorityProjection.data.projectionDigest)).toMatchObject({ pinReason: "delta-head" });
       const malformedDelta = await daemon.explorerProjectionDelta(root, {} as any);
       expect(malformedDelta.ok).toBe(false);
       expect((malformedDelta.error as any).reasonCode).toBe("invalid-delta-query");

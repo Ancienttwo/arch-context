@@ -56,8 +56,25 @@ import {
 } from "../src/product-version";
 import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
+import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+
+test("Explorer cache policy contract keeps every retention and pin limit explicit", () => {
+  const policy: ExplorerProjectionCachePolicyV1 = {
+    schemaVersion: EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION,
+    maxEntriesPerScope: 128,
+    maxBytesPerScope: 64 * 1024 * 1024,
+    maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+    maxPinnedEntriesPerScope: 8,
+    maxPinTtlMs: 15 * 60 * 1000
+  };
+  expect(policy).toEqual(expect.objectContaining({
+    schemaVersion: "archcontext.explorer-cache-policy/v1",
+    maxPinnedEntriesPerScope: 8,
+    maxPinTtlMs: 900_000
+  }));
+});
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",
   "architecture-relation": "schemas/repo/architecture-relation.schema.json",

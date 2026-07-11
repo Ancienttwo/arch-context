@@ -19,6 +19,7 @@ import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
+  DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
   LOCAL_SQLITE_MIGRATIONS,
   SQLITE_PRAGMAS,
   SqliteLocalStore,
@@ -57,7 +58,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0013_evidence_lifecycle",
       "0014_architecture_change_feed",
       "0015_snapshot_anchor_v2",
-      "0016_manifest_addressed_projection_cache"
+      "0016_manifest_addressed_projection_cache",
+      "0017_explorer_cache_lifecycle"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -312,6 +314,43 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("cache lifecycle migration adds bounded accounting, pins, metrics, and startup orphan cleanup", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cache-lifecycle-migration-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const projection = explorerProjectionFixture("orphan-scope-anchor");
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection, dependencies: [] });
+      store.close();
+      const database = new Database(databasePath);
+      const columns = database.prepare("PRAGMA table_info(explorer_projection_cache)").all().map((row) => String((row as Record<string, unknown>).name));
+      const metricTable = database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'explorer_runtime_metrics'").get();
+      database.exec("PRAGMA foreign_keys = OFF");
+      database.prepare(
+        `INSERT INTO explorer_occurrence_dependencies
+          (storage_repository_id, storage_workspace_id, projection_digest, occurrence_id, dependency_key)
+          VALUES (?, ?, ?, ?, ?)`
+      ).run("repo.storage", "orphan.workspace", `sha256:${"f".repeat(64)}`, "occ.orphan", "entity:orphan");
+      database.prepare(
+        `INSERT INTO explorer_occurrence_dependencies
+          (storage_repository_id, storage_workspace_id, projection_digest, occurrence_id, dependency_key)
+          VALUES (?, ?, ?, ?, ?)`
+      ).run("repo.other", "workspace.other", projection.projectionDigest, "occ.cross-scope", "entity:cross-scope");
+      database.close();
+      expect(columns).toEqual(expect.arrayContaining(["body_bytes", "last_accessed_at", "access_count", "pinned_until", "pin_reason"]));
+      expect(metricTable).toBeDefined();
+
+      const restarted = new SqliteLocalStore(databasePath);
+      await restarted.migrate();
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM explorer_occurrence_dependencies")).toBe(0);
+      restarted.close();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("schema guard rejects source or diff storage columns", () => {
     expect(() => assertNoSourceStorageSchema(["CREATE TABLE bad (source_code TEXT NOT NULL)"])).toThrow(
       "source_code"
@@ -357,6 +396,27 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("deleting every Explorer cache row cannot change authoritative ledger results", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-authority-independent-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [architectureLedgerEvent(0)] });
+      const before = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      const projection = explorerProjectionFixture("disposable-cache");
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection, dependencies: [] });
+      await expect(store.clearExplorerDerivedState(ARCHITECTURE_LEDGER_SCOPE)).resolves.toBe(1);
+      const after = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      expect(after.graphDigest).toBe(before.graphDigest);
+      expect(after.evidenceState.stateDigest).toBe(before.evidenceState.stateDigest);
+      expect(after.cursor).toEqual(before.cursor);
+      expect(after.state).toEqual(before.state);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("Explorer latest projection uses insertion order when writes share a timestamp", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-explorer-latest-"));
     const databasePath = join(root, "runtime.sqlite");
@@ -373,6 +433,227 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       database.close();
 
       await expect(store.readLatestExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, viewId: "system-map" })).resolves.toEqual(head);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Explorer cache GC retains bounded delta pins and deterministically evicts unpinned LRU rows", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-gc-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const policy = {
+      schemaVersion: "archcontext.explorer-cache-policy/v1" as const,
+      maxEntriesPerScope: 3,
+      maxBytesPerScope: 10_000_000,
+      maxAgeMs: 60_000,
+      maxPinnedEntriesPerScope: 2,
+      maxPinTtlMs: 10_000
+    };
+    let currentNow = "2026-07-11T20:00:04.000Z";
+    const store = new SqliteLocalStore(databasePath, policy, () => currentNow);
+    try {
+      await store.migrate();
+      const base = explorerProjectionFixture("base");
+      const middle = explorerProjectionFixture("middle");
+      const head = explorerProjectionFixture("head");
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: base, dependencies: [] });
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: middle, dependencies: [] });
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: head, dependencies: [] });
+      const database = new Database(databasePath);
+      database.prepare("UPDATE explorer_projection_cache SET created_at = ?, last_accessed_at = ? WHERE projection_digest = ?")
+        .run("2026-07-11T20:00:01.000Z", "2026-07-11T20:00:01.000Z", base.projectionDigest);
+      database.prepare("UPDATE explorer_projection_cache SET created_at = ?, last_accessed_at = ? WHERE projection_digest = ?")
+        .run("2026-07-11T20:00:02.000Z", "2026-07-11T20:00:02.000Z", middle.projectionDigest);
+      database.prepare("UPDATE explorer_projection_cache SET created_at = ?, last_accessed_at = ? WHERE projection_digest = ?")
+        .run("2026-07-11T20:00:03.000Z", "2026-07-11T20:00:03.000Z", head.projectionDigest);
+      database.close();
+      await expect(store.pinExplorerProjections({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        projectionDigests: [base.projectionDigest],
+        reason: "delta-base",
+        expiresAt: "2026-07-12T04:00:09.000+08:00"
+      })).resolves.toBe(1);
+      currentNow = "2026-07-11T20:00:05.000Z";
+      const collected = await store.collectExplorerProjectionCache({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        policy: { ...policy, maxEntriesPerScope: 2 }
+      });
+      expect(collected).toMatchObject({ limitsSatisfied: true, before: { entryCount: 3 }, after: { entryCount: 2, pinnedEntryCount: 1 } });
+      expect(collected.evictedProjectionDigests).toEqual([middle.projectionDigest]);
+      await expect(store.collectExplorerProjectionCache({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        policy: { ...policy, maxBytesPerScope: policy.maxBytesPerScope + 1 }
+      })).rejects.toThrow("explorer-cache-policy-cannot-widen-configured-limits");
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: base.projectionDigest })).resolves.toEqual(base);
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: middle.projectionDigest })).resolves.toBeUndefined();
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: head.projectionDigest })).resolves.toEqual(head);
+
+      currentNow = "2026-07-11T20:00:10.000Z";
+      const afterExpiry = await store.collectExplorerProjectionCache({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        policy: { ...policy, maxEntriesPerScope: 1, maxPinnedEntriesPerScope: 1 }
+      });
+      expect(afterExpiry.after).toMatchObject({ entryCount: 1, pinnedEntryCount: 0 });
+      expect(afterExpiry.limitsSatisfied).toBe(true);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Explorer save and retention roll back together when GC fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-atomic-gc-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const policy = {
+      schemaVersion: "archcontext.explorer-cache-policy/v1" as const,
+      maxEntriesPerScope: 1,
+      maxBytesPerScope: 10_000_000,
+      maxAgeMs: 60_000,
+      maxPinnedEntriesPerScope: 1,
+      maxPinTtlMs: 10_000
+    };
+    const store = new SqliteLocalStore(databasePath, policy, () => "2026-07-11T20:00:00.000Z");
+    try {
+      await store.migrate();
+      const base = explorerProjectionFixture("atomic-base");
+      const head = explorerProjectionFixture("atomic-head");
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: base, dependencies: [] });
+      const database = new Database(databasePath);
+      database.exec(`CREATE TRIGGER explorer_cache_gc_fault BEFORE DELETE ON explorer_projection_cache
+        BEGIN SELECT RAISE(ABORT, 'explorer-cache-gc-fault'); END`);
+      database.close();
+      await expect(store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: head, dependencies: [] }))
+        .rejects.toThrow("explorer-cache-gc-fault");
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM explorer_projection_cache")).toBe(1);
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: base.projectionDigest })).resolves.toEqual(base);
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: head.projectionDigest })).resolves.toBeUndefined();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Explorer GC recomputes serialized bytes instead of trusting mutable accounting", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-byte-accounting-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath, undefined, () => "2026-07-11T20:00:00.000Z");
+    try {
+      await store.migrate();
+      const projection = explorerProjectionFixture("byte-accounting");
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection, dependencies: [] });
+      const database = new Database(databasePath);
+      database.prepare("UPDATE explorer_projection_cache SET body_bytes = 0 WHERE projection_digest = ?").run(projection.projectionDigest);
+      database.close();
+      const collected = await store.collectExplorerProjectionCache({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        policy: { ...DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, maxBytesPerScope: 100 }
+      });
+      expect(collected.before.bodyBytes).toBeGreaterThan(100);
+      expect(collected.after).toMatchObject({ entryCount: 0, bodyBytes: 0 });
+      expect(collected.limitsSatisfied).toBe(true);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Explorer cache remains within per-scope count and byte limits after sustained manifest churn and restart", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-churn-"));
+    const databasePath = join(root, "runtime.sqlite");
+    let tick = 0;
+    const clock = () => new Date(Date.parse("2026-07-11T20:00:00.000Z") + tick * 1_000).toISOString();
+    const store = new SqliteLocalStore(databasePath, DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, clock);
+    try {
+      await store.migrate();
+      const projections: ExplorerProjectionV2[] = [];
+      for (tick = 1; tick <= 160; tick += 1) {
+        const projection = explorerProjectionFixture(`churn-${tick}`);
+        projections.push(projection);
+        await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection, dependencies: [] });
+      }
+      const stats = await store.readExplorerProjectionCacheStats(ARCHITECTURE_LEDGER_SCOPE);
+      expect(stats.entryCount).toBe(DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY.maxEntriesPerScope);
+      expect(stats.bodyBytes).toBeLessThanOrEqual(DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY.maxBytesPerScope);
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projections[0]!.projectionDigest })).resolves.toBeUndefined();
+      await expect(store.readExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projectionDigest: projections.at(-1)!.projectionDigest })).resolves.toEqual(projections.at(-1)!);
+      store.close();
+      const restarted = new SqliteLocalStore(databasePath, DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, clock);
+      await restarted.migrate();
+      const restartedStats = await restarted.readExplorerProjectionCacheStats(ARCHITECTURE_LEDGER_SCOPE);
+      expect(restartedStats.entryCount).toBe(DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY.maxEntriesPerScope);
+      expect(restartedStats.bodyBytes).toBeLessThanOrEqual(DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY.maxBytesPerScope);
+      restarted.close();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("Explorer runtime metrics accept only bounded numeric allow-listed samples", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-metrics-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      await store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "compile-time-ms", reasonCode: "projection-compile", value: 12 });
+      await store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "compile-time-ms", reasonCode: "projection-compile", value: 8 });
+      const stats = await store.readExplorerProjectionCacheStats(ARCHITECTURE_LEDGER_SCOPE);
+      expect(stats.metrics).toContainEqual(expect.objectContaining({ metricName: "compile-time-ms", reasonCode: "projection-compile", sampleCount: 2, totalValue: 20, maxValue: 12, value: 8 }));
+      await expect(store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "private-source" as never, reasonCode: "projection-compile", value: 1 }))
+        .rejects.toThrow("explorer-runtime-metric-name-invalid");
+      await expect(store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "cache-hit", reasonCode: "secret-label" as never, value: 1 }))
+        .rejects.toThrow("explorer-runtime-metric-reason-invalid");
+      await expect(store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "cache-hit", reasonCode: "manifest-read", value: Number.NaN }))
+        .rejects.toThrow("explorer-runtime-metric-value-invalid");
+      await store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "cache-hit", reasonCode: "digest-read", value: Number.MAX_SAFE_INTEGER });
+      await expect(store.recordExplorerRuntimeMetric({ ...ARCHITECTURE_LEDGER_SCOPE, metricName: "cache-hit", reasonCode: "digest-read", value: 1 }))
+        .rejects.toThrow("explorer-runtime-metric-aggregate-overflow");
+      await store.recordExplorerRuntimeMetric({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        metricName: "cache-miss",
+        reasonCode: "manifest-read",
+        value: 1,
+        recordedAt: "Sat, 11 Jul 2026 12:15:00 GMT (PRIVATE SOURCE BODY secret-token)"
+      });
+      expect(await sqliteScalar(databasePath, "SELECT updated_at AS value FROM explorer_runtime_metrics WHERE metric_name = 'cache-miss' AND reason_code = 'manifest-read'"))
+        .toBe("2026-07-11T12:15:00.000Z");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("startup retention clears invalid and overlong persisted pins before expiry collection", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-explorer-cache-pin-tamper-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const policy = {
+      ...DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
+      maxEntriesPerScope: 4,
+      maxPinnedEntriesPerScope: 2,
+      maxAgeMs: 1_000,
+      maxPinTtlMs: 10_000
+    };
+    const clock = () => "2026-07-11T20:00:00.000Z";
+    const store = new SqliteLocalStore(databasePath, policy, clock);
+    try {
+      await store.migrate();
+      const invalid = explorerProjectionFixture("invalid-pin");
+      const overlong = explorerProjectionFixture("overlong-pin");
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: invalid, dependencies: [] });
+      await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: overlong, dependencies: [] });
+      store.close();
+      const database = new Database(databasePath);
+      database.prepare("UPDATE explorer_projection_cache SET created_at = ?, last_accessed_at = ?, pinned_until = ?, pin_reason = ? WHERE projection_digest = ?")
+        .run("2026-07-11T19:59:50.000Z", "2026-07-11T19:59:50.000Z", "zzzz", "delta-base", invalid.projectionDigest);
+      database.prepare("UPDATE explorer_projection_cache SET created_at = ?, last_accessed_at = ?, pinned_until = ?, pin_reason = ? WHERE projection_digest = ?")
+        .run("2026-07-11T19:59:50.000Z", "2026-07-11T19:59:50.000Z", "2026-07-11T21:00:00.000Z", "delta-head", overlong.projectionDigest);
+      database.close();
+
+      const restarted = new SqliteLocalStore(databasePath, policy, clock);
+      await restarted.migrate();
+      expect(await sqliteScalar(databasePath, "SELECT COUNT(*) FROM explorer_projection_cache")).toBe(0);
+      restarted.close();
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });
@@ -461,6 +742,30 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       ...ARCHITECTURE_LEDGER_SCOPE,
       manifestDigest: projection.inputManifest.manifestDigest
     })).rejects.toThrow("explorer-projection-cache-schema-invalid");
+  });
+
+  test("TestLocalStore rolls back cache dependency pin and metric state when retention telemetry fails", async () => {
+    const policy = {
+      ...DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
+      maxEntriesPerScope: 1,
+      maxPinnedEntriesPerScope: 1
+    };
+    const store = new TestLocalStore(policy, () => "2026-07-11T20:00:00.000Z");
+    const base = explorerProjectionFixture("test-store-atomic-base");
+    const head = explorerProjectionFixture("test-store-atomic-head");
+    await store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: base, dependencies: [] });
+    await store.recordExplorerRuntimeMetric({
+      ...ARCHITECTURE_LEDGER_SCOPE,
+      metricName: "cache-eviction",
+      reasonCode: "count-pressure",
+      value: Number.MAX_SAFE_INTEGER
+    });
+    await expect(store.saveExplorerProjection({ ...ARCHITECTURE_LEDGER_SCOPE, projection: head, dependencies: [] }))
+      .rejects.toThrow("explorer-runtime-metric-aggregate-overflow");
+    expect([...store.explorerProjections.keys()]).toEqual([base.projectionDigest]);
+    expect(store.explorerCacheMetadata.has(base.projectionDigest)).toBe(true);
+    expect(store.explorerCacheMetadata.has(head.projectionDigest)).toBe(false);
+    expect(store.explorerRuntimeMetrics).toHaveLength(1);
   });
 
   test("cache integrity binds cursor authority and canonical view domain policy", () => {
@@ -903,7 +1208,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0013_evidence_lifecycle",
       "0014_architecture_change_feed",
       "0015_snapshot_anchor_v2",
-      "0016_manifest_addressed_projection_cache"
+      "0016_manifest_addressed_projection_cache",
+      "0017_explorer_cache_lifecycle"
     ]);
 
     const snapshot = {

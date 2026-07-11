@@ -386,6 +386,16 @@ export const EXPLORER_VIEW_INPUT_REQUIREMENTS = {
 } as const satisfies Record<ExplorerViewIdV2, Record<ProjectionInputDomainV1, ProjectionInputDomainStateV1["requirement"]>>;
 
 export const PROJECTION_READ_PLANNER_VERSION = "archcontext.projection-read-planner/v1" as const;
+export const EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION = "archcontext.explorer-cache-policy/v1" as const;
+
+export interface ExplorerProjectionCachePolicyV1 {
+  schemaVersion: typeof EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION;
+  maxEntriesPerScope: number;
+  maxBytesPerScope: number;
+  maxAgeMs: number;
+  maxPinnedEntriesPerScope: number;
+  maxPinTtlMs: number;
+}
 
 export interface ProjectionReadPlanV1 {
   schemaVersion: "archcontext.projection-read-plan/v1";

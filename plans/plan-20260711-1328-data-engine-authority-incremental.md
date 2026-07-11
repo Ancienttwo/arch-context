@@ -1,6 +1,6 @@
 # Plan: Data Engine Authority, Delta, and Incremental Execution
 
-> **Status**: Executing
+> **Status**: Complete
 > **Created**: 20260711-1328
 > **Slug**: data-engine-authority-incremental
 > **Planning Source**: repo-harness-plan
@@ -23,6 +23,7 @@ Phase contracts:
 - DE2: `tasks/contracts/20260711-1720-data-engine-de2-snapshot-replay.contract.md` (complete)
 - DE3: `tasks/contracts/20260711-1749-data-engine-de3-manifest-cache.contract.md` (complete)
 - DE4: `tasks/contracts/20260711-1836-data-engine-de4-bounded-read-planner.contract.md` (complete)
+- DE5: `tasks/contracts/20260711-2005-data-engine-de5-cache-lifecycle-observability.contract.md` (complete)
 
 ## Agentic Routing
 - Selected route: gstack:plan-eng-review
@@ -435,13 +436,13 @@ on daemon startup; it deletes dependency rows transactionally with cache rows.
 
 ### DE5 · Cache lifecycle and operational evidence
 
-- [ ] Add cache policy contract, access/size accounting, pins, deterministic GC,
+- [x] Add cache policy contract, access/size accounting, pins, deterministic GC,
       orphan cleanup, and startup retention.
-- [ ] Add feed lag, replay tail length, plan rows read, compile time, cache hit/miss,
+- [x] Add feed lag, replay tail length, plan rows read, compile time, cache hit/miss,
       evictions, and rebuild reason metrics without source content.
-- [ ] Prove pinned delta bases survive, unpinned rows evict, crash recovery is safe,
+- [x] Prove pinned delta bases survive, unpinned rows evict, crash recovery is safe,
       and cache deletion cannot affect authoritative results.
-- [ ] Add representative 10k/100k readback and operations/runbook evidence.
+- [x] Add representative 10k/100k readback and operations/runbook evidence.
 
 ## Sequencing and Worktree Strategy
 
@@ -583,8 +584,8 @@ readback, and full `bun run verify`. No LLM prompt/eval path is changed.
 - [x] DE2: Land verified snapshot-anchor tail replay and direct scope resolution.
 - [x] DE3: Land manifest-addressed cache keys and required-domain hardening.
 - [x] DE4: Land bounded projection read planner and partial SQLite reads.
-- [ ] DE5: Land cache retention/GC, metrics, 10k/100k readback, and runbooks.
-- [ ] Complete ADR/index, program notes, acceptance evidence, full verification, and
+- [x] DE5: Land cache retention/GC, metrics, 10k/100k readback, and runbooks.
+- [x] Complete ADR/index, program notes, acceptance evidence, full verification, and
       contract/worktree closeout.
 
 ## GSTACK REVIEW REPORT

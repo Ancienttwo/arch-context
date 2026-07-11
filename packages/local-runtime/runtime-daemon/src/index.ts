@@ -3919,6 +3919,9 @@ export class ArchctxDaemon {
         "projection-cache-miss"
       );
     }
+    const pinExpiresAt = new Date(Date.parse(this.clock()) + 10 * 60 * 1000).toISOString();
+    await this.localStore.pinExplorerProjections({ ...scope, projectionDigests: [base.projectionDigest], reason: "delta-base", expiresAt: pinExpiresAt });
+    await this.localStore.pinExplorerProjections({ ...scope, projectionDigests: [head.projectionDigest], reason: "delta-head", expiresAt: pinExpiresAt });
     try {
       let baseReplay: ArchitectureLedgerReplayResult;
       let headReplay: ArchitectureLedgerReplayResult;
@@ -4130,6 +4133,12 @@ export class ArchctxDaemon {
       }, [...activeState.entities.reduce((counts, entity) => counts.set(entity.kind, (counts.get(entity.kind) ?? 0) + 1), new Map<string, number>()).entries()]
         .map(([kind, count]) => ({ kind, count })).sort((a, b) => a.kind.localeCompare(b.kind)), metadata.truncated);
     }
+    await this.localStore.recordExplorerRuntimeMetric({
+      ...scope,
+      metricName: "plan-rows-read",
+      reasonCode: "bounded-read-plan",
+      value: Object.values(readSet.rowsRead).reduce((sum, value) => sum + value, 0)
+    });
     let drift: { inputDigest: string; subjectIds: string[]; reasonCodes: string[] } | undefined;
     if (yamlPlan) {
       let ledgerComparisonGraph = emptyArchitectureLedgerState();
@@ -4202,7 +4211,10 @@ export class ArchctxDaemon {
       throw error;
     }
     if (cached) return cached;
+    await this.localStore.recordExplorerRuntimeMetric({ ...scope, metricName: "cache-rebuild", reasonCode: "manifest-miss", value: 1 });
+    const compileStartedAt = Date.now();
     const projection = compileExplorerProjection(projectionInput);
+    await this.localStore.recordExplorerRuntimeMetric({ ...scope, metricName: "compile-time-ms", reasonCode: "projection-compile", value: Date.now() - compileStartedAt });
     const previous = await this.localStore.readLatestExplorerProjection({ ...scope, viewId: projection.view.id });
     const changedDependencyKeys = previous ? explorerChangedDependencyKeys(previous, projection) : [];
     const affectedOccurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys: changedDependencyKeys });
@@ -4501,6 +4513,12 @@ export class ArchctxDaemon {
     for (let page = 0; page < 1_000; page += 1) {
       const batch = await this.localStore.listArchitectureChangeFeed({ ...scope, consumerId, limit: 100 });
       if (batch.records.length === 0) return processed;
+      await this.localStore.recordExplorerRuntimeMetric({
+        ...scope,
+        metricName: "feed-lag",
+        reasonCode: "change-feed",
+        value: Math.max(0, Date.parse(this.clock()) - Date.parse(batch.records[0]!.committedAt))
+      });
       for (const record of batch.records) {
         const dependencyKeys = architectureChangeFeedDependencyKeys(record);
         const occurrenceIds = await this.localStore.listAffectedExplorerOccurrences({ ...scope, dependencyKeys });

@@ -42,6 +42,7 @@ const REQUIRED_LEDGER_TABLES = [
   "architecture_ledger_search_fts",
   "explorer_projection_cache",
   "explorer_occurrence_dependencies",
+  "explorer_runtime_metrics",
   "evidence_tombstones",
   "architecture_event_subjects",
   "architecture_change_feed",
@@ -54,7 +55,7 @@ const MIGRATION_CASES = [
   { id: "pre-ledger-0005", from: "0005_external_docs_cache", applyCount: 5 },
   { id: "ledger-v1-0006", from: "0006_architecture_ledger", applyCount: 6 },
   { id: "pre-search-fts-0008", from: "0008_runtime_job_queue_hardening", applyCount: 8 },
-  { id: "current-0016", from: "0016_manifest_addressed_projection_cache", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
+  { id: "current-0017", from: "0017_explorer_cache_lifecycle", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
 ] as const;
 
 const BUNDLE_SIGNATURES = [
@@ -69,14 +70,17 @@ const BUNDLE_SIGNATURES = [
       "0014_architecture_change_feed",
       "0015_snapshot_anchor_v2",
       "0016_manifest_addressed_projection_cache",
+      "0017_explorer_cache_lifecycle",
       "source_storage_workspace_id",
       "manifest_digest",
+      "body_bytes",
       "architecture_events",
       "architecture_event_subjects",
       "architecture_change_feed",
       "architecture_change_feed_consumers",
       "architecture_change_feed_backfill_state",
       "explorer_projection_cache",
+      "explorer_runtime_metrics",
       "evidence_tombstones",
       "architecture_ledger_search_fts",
       "schema_migrations"

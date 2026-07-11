@@ -145,8 +145,19 @@ total. The compiler has no store dependency, accepts only the selected graph/rea
 retains the full authoritative graph digest, and rejects any non-canonical
 plan/source/digest/row-count mismatch.
 
-Derived projection cache lifecycle limits, pins, GC, orphan cleanup, and operational
-metrics remain the separate DE5 decision slice.
+DE5 treats the Explorer projection cache as bounded disposable operational state.
+Migration `0017_explorer_cache_lifecycle` adds serialized-byte/access accounting,
+expiring delta-base/head pins, deterministic per-scope GC, startup orphan cleanup,
+and aggregate metadata-only metrics. Default retention is 128 rows/64 MiB/7 days per
+scope; at most eight exact digests may be pinned for no more than 15 minutes.
+Invalidated and expired unpinned rows are collected before LRU rows, with creation
+time and projection digest as stable tie-breakers.
+
+Metrics use an allow-listed name/reason vocabulary and non-negative numeric values.
+They cover feed lag, anchored replay tail length, planned rows read, compile time,
+cache hit/miss, eviction, and rebuild reason. Cache/metric deletion can cause only
+recomputation or an explicit digest-addressed delta miss; it cannot modify or replace
+Git model files, ledger events/snapshots, or verified materialized authority.
 
 ## Invariants
 
@@ -170,6 +181,8 @@ metrics remain the separate DE5 decision slice.
   later phases without weakening authority semantics.
 - DE4 moves full-graph selection out of the compiler. Verified-ledger focus/detail
   graph and metadata rows are hard bounded; full graph identity remains cursor-bound.
+- DE5 bounds cache count, bytes, age, and pins per scope, applies retention after save
+  and startup, and makes rebuild pressure diagnosable without persisting content.
 
 ## Verification
 

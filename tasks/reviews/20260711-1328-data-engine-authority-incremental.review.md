@@ -179,3 +179,29 @@ merge/cleanup back to main.
   security review reported four (including overlapping boundedness concerns); all
   were fixed. Final architecture and security re-reviews both pass with no remaining
   verified finding.
+
+## DE5 Acceptance Addendum
+
+- Verdict: pass for `tasks/contracts/20260711-2005-data-engine-de5-cache-lifecycle-observability.contract.md`.
+- Authority: cache/dependency/pin/metric rows are disposable operational state and
+  cannot mutate Git-visible model or ledger event/snapshot authority.
+- Lifecycle: additive migration, per-scope byte/count/age caps, expiring bounded pins,
+  deterministic LRU collection, dependency orphan cleanup, and startup retention are
+  implemented with SQLite recovery tests.
+- Observability: feed/replay/planner/compiler/cache signals use only allow-listed
+  names/reasons and numeric values; arbitrary labels and content payloads fail closed.
+- Evidence target: `docs/verification/data-engine-de5-readback.json` plus the 10k/100k
+  Explorer benchmark and `docs/runbooks/data-engine-cache-operations.md`.
+- `$check`: nine unique architecture/security findings were fixed with no deferral.
+  Final architecture and security/privacy re-reviews both report PASS and no remaining
+  verified finding. Fixes cover atomic save/GC, source-bound readback, trusted canonical
+  clocks, TestLocalStore transaction/metrics parity, metric overflow/content rejection,
+  actual byte accounting, scoped orphans, and persisted pin tamper recovery.
+- Full verification: `bun run verify` passes 1060 tests with 0 failures; package
+  boundaries, production mock reachability, Explorer, packaged CLI, privacy, GitHub
+  contract, acceptance ledgers, sprint status, and representative eval all PASS.
+- Migration packaging evidence now recognizes `0017_explorer_cache_lifecycle`, the
+  metrics table, and cache accounting signatures; its focused readback tests pass.
+- Final DE5 record/readback is source-digest bound to the current contract, code,
+  tests, ADR, runbook, plan, notes, review, package scripts, and migration packaging
+  verifier. `readback:de5:data-engine` rejects any later drift.

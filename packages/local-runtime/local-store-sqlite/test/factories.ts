@@ -25,8 +25,8 @@ import {
   type ArchitectureLedgerSnapshotInput,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
-import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionMetadataResult, type ExplorerProjectionReadResult, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
+import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
   readonly migrations = new Set<string>();
@@ -55,15 +55,31 @@ export class TestLocalStore implements RuntimeLocalStore {
   readonly architectureChangeFeed: ArchitectureChangeFeedRecordV1[] = [];
   readonly architectureChangeFeedConsumers = new Map<string, { checkpoint: number; delivered: number }>();
   readonly explorerProjections = new Map<string, { scope: ArchitectureLedgerScope; projection: ExplorerProjectionV2 }>();
+  readonly explorerCacheMetadata = new Map<string, { createdAt: string; lastAccessedAt: string; bodyBytes: number; pinnedUntil?: string; pinReason?: ExplorerProjectionPinReason }>();
+  readonly explorerRuntimeMetrics: Array<ArchitectureLedgerScope & ExplorerRuntimeMetricSampleV1> = [];
   readonly explorerManifestCacheReads: string[] = [];
   readonly explorerProjectionInputReads: ProjectionReadPlanV1[] = [];
   architectureLedgerFullStateReads = 0;
   explorerManifestCacheHits = 0;
   readonly invalidatedExplorerProjections = new Set<string>();
   readonly explorerDependencies = new Map<string, Set<string>>();
+  private readonly explorerCachePolicy: ExplorerProjectionCachePolicyV1;
+
+  constructor(
+    explorerCachePolicy: ExplorerProjectionCachePolicyV1 = DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
+    private readonly clock: () => string = () => new Date().toISOString()
+  ) {
+    assertTestExplorerCachePolicy(explorerCachePolicy);
+    this.explorerCachePolicy = Object.freeze({ ...explorerCachePolicy });
+  }
 
   async migrate(): Promise<void> {
     for (const migration of LOCAL_SQLITE_MIGRATIONS) this.migrations.add(migration.id);
+    const scopes = new Map<string, ArchitectureLedgerScope>();
+    for (const record of this.explorerProjections.values()) {
+      scopes.set(`${record.scope.repository.storageRepositoryId}\0${record.scope.worktree.storageWorkspaceId}`, record.scope);
+    }
+    for (const scope of scopes.values()) await this.collectExplorerProjectionCache(scope);
   }
 
   async beginSnapshot(snapshot: RepositorySnapshot): Promise<string> {
@@ -940,15 +956,45 @@ export class TestLocalStore implements RuntimeLocalStore {
       && candidate.projection.projectionDigest !== input.projection.projectionDigest
     );
     if (manifestConflict) throw new Error("explorer-projection-cache-manifest-conflict");
-    this.explorerProjections.set(input.projection.projectionDigest, { scope: input, projection: structuredClone(input.projection) });
-    this.invalidatedExplorerProjections.delete(input.projection.projectionDigest);
-    for (const entry of input.dependencies) this.explorerDependencies.set(`${input.projection.projectionDigest}\0${entry.occurrenceId}`, new Set(entry.dependencyKeys));
+    const projectionsBefore = structuredClone([...this.explorerProjections.entries()]);
+    const metadataBefore = structuredClone([...this.explorerCacheMetadata.entries()]);
+    const invalidatedBefore = [...this.invalidatedExplorerProjections];
+    const dependenciesBefore = [...this.explorerDependencies.entries()].map(([key, value]) => [key, new Set(value)] as const);
+    try {
+      this.explorerProjections.set(input.projection.projectionDigest, { scope: input, projection: structuredClone(input.projection) });
+      const now = new Date(Date.parse(this.clock())).toISOString();
+      this.explorerCacheMetadata.set(input.projection.projectionDigest, {
+        createdAt: now,
+        lastAccessedAt: now,
+        bodyBytes: new TextEncoder().encode(JSON.stringify(input.projection)).byteLength
+      });
+      this.invalidatedExplorerProjections.delete(input.projection.projectionDigest);
+      for (const entry of input.dependencies) this.explorerDependencies.set(`${input.projection.projectionDigest}\0${entry.occurrenceId}`, new Set(entry.dependencyKeys));
+      const collection = await this.collectExplorerProjectionCache(input);
+      if (!collection.limitsSatisfied) throw new Error("explorer-cache-retention-limits-unsatisfied");
+    } catch (error) {
+      this.explorerProjections.clear();
+      for (const [key, value] of projectionsBefore) this.explorerProjections.set(key, value);
+      this.explorerCacheMetadata.clear();
+      for (const [key, value] of metadataBefore) this.explorerCacheMetadata.set(key, value);
+      this.invalidatedExplorerProjections.clear();
+      for (const digest of invalidatedBefore) this.invalidatedExplorerProjections.add(digest);
+      this.explorerDependencies.clear();
+      for (const [key, value] of dependenciesBefore) this.explorerDependencies.set(key, value);
+      throw error;
+    }
   }
 
   async readExplorerProjection(input: ArchitectureLedgerScope & { projectionDigest: string }): Promise<ExplorerProjectionV2 | undefined> {
     const record = this.explorerProjections.get(input.projectionDigest);
-    if (!record || !testSameExplorerScope(record.scope, input)) return undefined;
+    if (!record || !testSameExplorerScope(record.scope, input)) {
+      await this.recordExplorerRuntimeMetric({ ...input, metricName: "cache-miss", reasonCode: "digest-read", value: 1 });
+      return undefined;
+    }
     assertExplorerProjectionCacheIntegrity(record.projection, input);
+    const metadata = this.explorerCacheMetadata.get(input.projectionDigest);
+    if (metadata) metadata.lastAccessedAt = new Date(Date.parse(this.clock())).toISOString();
+    await this.recordExplorerRuntimeMetric({ ...input, metricName: "cache-hit", reasonCode: "digest-read", value: 1 });
     return structuredClone(record.projection);
   }
 
@@ -963,6 +1009,11 @@ export class TestLocalStore implements RuntimeLocalStore {
     if (record) {
       assertExplorerProjectionCacheIntegrity(record.projection, input);
       this.explorerManifestCacheHits += 1;
+      const metadata = this.explorerCacheMetadata.get(record.projection.projectionDigest);
+      if (metadata) metadata.lastAccessedAt = new Date(Date.parse(this.clock())).toISOString();
+      await this.recordExplorerRuntimeMetric({ ...input, metricName: "cache-hit", reasonCode: "manifest-read", value: 1 });
+    } else {
+      await this.recordExplorerRuntimeMetric({ ...input, metricName: "cache-miss", reasonCode: "manifest-read", value: 1 });
     }
     return record ? structuredClone(record.projection) : undefined;
   }
@@ -974,7 +1025,161 @@ export class TestLocalStore implements RuntimeLocalStore {
       && record.projection.view.id === input.viewId);
     if (!record) return undefined;
     assertExplorerProjectionCacheIntegrity(record.projection, input);
+    const metadata = this.explorerCacheMetadata.get(record.projection.projectionDigest);
+    if (metadata) metadata.lastAccessedAt = new Date(Date.parse(this.clock())).toISOString();
     return structuredClone(record.projection);
+  }
+
+  async pinExplorerProjections(input: ArchitectureLedgerScope & { projectionDigests: string[]; reason: ExplorerProjectionPinReason; expiresAt: string }): Promise<number> {
+    const now = new Date(Date.parse(this.clock())).toISOString();
+    const ttl = Date.parse(input.expiresAt) - Date.parse(now);
+    const digests = [...new Set(input.projectionDigests)].sort();
+    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > this.explorerCachePolicy.maxPinTtlMs) throw new Error("explorer-projection-pin-expiry-invalid");
+    if (digests.length > this.explorerCachePolicy.maxPinnedEntriesPerScope) throw new Error("explorer-projection-pin-limit-exceeded");
+    const alreadyPinned = [...this.explorerCacheMetadata.entries()].filter(([digest, metadata]) =>
+      !digests.includes(digest)
+      && (metadata.pinnedUntil ?? "") > now
+      && testSameExplorerScope(this.explorerProjections.get(digest)!.scope, input)
+    ).length;
+    const requestedExisting = digests.filter((digest) => {
+      const record = this.explorerProjections.get(digest);
+      return record && testSameExplorerScope(record.scope, input);
+    }).length;
+    if (alreadyPinned + requestedExisting > this.explorerCachePolicy.maxPinnedEntriesPerScope) throw new Error("explorer-projection-pin-limit-exceeded");
+    let pinned = 0;
+    for (const digest of digests) {
+      const record = this.explorerProjections.get(digest);
+      const metadata = this.explorerCacheMetadata.get(digest);
+      if (!record || !metadata || !testSameExplorerScope(record.scope, input)) continue;
+      metadata.pinnedUntil = new Date(Date.parse(input.expiresAt)).toISOString();
+      metadata.pinReason = input.reason;
+      pinned += 1;
+    }
+    return pinned;
+  }
+
+  async collectExplorerProjectionCache(input: ArchitectureLedgerScope & { policy?: ExplorerProjectionCachePolicyV1 }): Promise<ExplorerProjectionCacheCollectionResultV1> {
+    const policy = input.policy ?? this.explorerCachePolicy;
+    assertTestExplorerCachePolicy(policy);
+    if (
+      policy.maxEntriesPerScope > this.explorerCachePolicy.maxEntriesPerScope
+      || policy.maxBytesPerScope > this.explorerCachePolicy.maxBytesPerScope
+      || policy.maxAgeMs > this.explorerCachePolicy.maxAgeMs
+      || policy.maxPinnedEntriesPerScope > this.explorerCachePolicy.maxPinnedEntriesPerScope
+      || policy.maxPinTtlMs > this.explorerCachePolicy.maxPinTtlMs
+    ) throw new Error("explorer-cache-policy-cannot-widen-configured-limits");
+    const projectionsBefore = structuredClone([...this.explorerProjections.entries()]);
+    const metadataBefore = structuredClone([...this.explorerCacheMetadata.entries()]);
+    const invalidatedBefore = [...this.invalidatedExplorerProjections];
+    const dependenciesBefore = [...this.explorerDependencies.entries()].map(([key, value]) => [key, new Set(value)] as const);
+    const metricsBefore = structuredClone(this.explorerRuntimeMetrics);
+    try {
+    const now = new Date(Date.parse(this.clock())).toISOString();
+    const before = this.testExplorerCacheCounts(input, now);
+    const cutoff = new Date(Date.parse(now) - policy.maxAgeMs).toISOString();
+    for (const [digest, metadata] of this.explorerCacheMetadata) {
+      const record = this.explorerProjections.get(digest);
+      if (!record || !testSameExplorerScope(record.scope, input) || !metadata.pinnedUntil) continue;
+      const parsedPin = Date.parse(metadata.pinnedUntil);
+      const canonicalPin = Number.isFinite(parsedPin) ? new Date(parsedPin).toISOString() : undefined;
+      if (
+        !canonicalPin
+        || metadata.pinnedUntil !== canonicalPin
+        || parsedPin > Date.parse(now) + policy.maxPinTtlMs
+        || metadata.pinnedUntil <= now
+        || !["delta-base", "delta-head"].includes(metadata.pinReason ?? "")
+      ) {
+        delete metadata.pinnedUntil;
+        delete metadata.pinReason;
+      }
+    }
+    const candidates = [...this.explorerProjections.entries()]
+      .filter(([, record]) => testSameExplorerScope(record.scope, input))
+      .filter(([digest]) => !(this.explorerCacheMetadata.get(digest)?.pinnedUntil && this.explorerCacheMetadata.get(digest)!.pinnedUntil! > now))
+      .sort(([left], [right]) => {
+        const a = this.explorerCacheMetadata.get(left)!;
+        const b = this.explorerCacheMetadata.get(right)!;
+        const aPriority = this.invalidatedExplorerProjections.has(left) ? 0 : a.createdAt <= cutoff ? 1 : 2;
+        const bPriority = this.invalidatedExplorerProjections.has(right) ? 0 : b.createdAt <= cutoff ? 1 : 2;
+        return aPriority - bPriority || a.lastAccessedAt.localeCompare(b.lastAccessedAt) || a.createdAt.localeCompare(b.createdAt) || left.localeCompare(right);
+      });
+    let entries = before.entryCount;
+    let bytes = before.bodyBytes;
+    const evictedProjectionDigests: string[] = [];
+    for (const [digest] of candidates) {
+      const metadata = this.explorerCacheMetadata.get(digest)!;
+      const invalidated = this.invalidatedExplorerProjections.has(digest);
+      const expired = metadata.createdAt <= cutoff;
+      const bytePressure = bytes > policy.maxBytesPerScope;
+      if (!invalidated && !expired && entries <= policy.maxEntriesPerScope && !bytePressure) break;
+      this.explorerProjections.delete(digest);
+      this.explorerCacheMetadata.delete(digest);
+      this.invalidatedExplorerProjections.delete(digest);
+      for (const key of [...this.explorerDependencies.keys()]) if (key.startsWith(`${digest}\0`)) this.explorerDependencies.delete(key);
+      entries -= 1;
+      bytes -= metadata.bodyBytes;
+      evictedProjectionDigests.push(digest);
+      await this.recordExplorerRuntimeMetric({
+        ...input,
+        metricName: "cache-eviction",
+        reasonCode: invalidated ? "invalidated" : expired ? "expired" : bytePressure ? "byte-pressure" : "count-pressure",
+        value: 1,
+        recordedAt: now
+      });
+    }
+    const after = this.testExplorerCacheCounts(input, now);
+    return { schemaVersion: "archcontext.explorer-cache-collection/v1", reasonCode: "explicit-collection", before, after, evictedProjectionDigests: evictedProjectionDigests.sort(), orphanDependencyCount: 0, limitsSatisfied: after.entryCount <= policy.maxEntriesPerScope && after.bodyBytes <= policy.maxBytesPerScope };
+    } catch (error) {
+      this.explorerProjections.clear();
+      for (const [key, value] of projectionsBefore) this.explorerProjections.set(key, value);
+      this.explorerCacheMetadata.clear();
+      for (const [key, value] of metadataBefore) this.explorerCacheMetadata.set(key, value);
+      this.invalidatedExplorerProjections.clear();
+      for (const digest of invalidatedBefore) this.invalidatedExplorerProjections.add(digest);
+      this.explorerDependencies.clear();
+      for (const [key, value] of dependenciesBefore) this.explorerDependencies.set(key, value);
+      this.explorerRuntimeMetrics.splice(0, this.explorerRuntimeMetrics.length, ...metricsBefore);
+      throw error;
+    }
+  }
+
+  async readExplorerProjectionCacheStats(input: ArchitectureLedgerScope): Promise<ExplorerProjectionCacheStatsV1> {
+    const counts = this.testExplorerCacheCounts(input, new Date(Date.parse(this.clock())).toISOString());
+    const aggregate = new Map<string, ExplorerProjectionCacheStatsV1["metrics"][number]>();
+    for (const sample of this.explorerRuntimeMetrics.filter((entry) => testSameExplorerScope(entry, input))) {
+      const key = `${sample.metricName}\0${sample.reasonCode}`;
+      const current = aggregate.get(key);
+      const recordedAt = sample.recordedAt ?? "1970-01-01T00:00:00.000Z";
+      aggregate.set(key, current ? {
+        ...sample,
+        value: sample.value,
+        sampleCount: current.sampleCount + 1,
+        totalValue: current.totalValue + sample.value,
+        maxValue: Math.max(current.maxValue, sample.value),
+        recordedAt
+      } : { ...sample, sampleCount: 1, totalValue: sample.value, maxValue: sample.value, recordedAt });
+    }
+    return {
+      schemaVersion: "archcontext.explorer-cache-stats/v1",
+      storageRepositoryId: input.repository.storageRepositoryId,
+      storageWorkspaceId: input.worktree.storageWorkspaceId,
+      ...counts,
+      metrics: [...aggregate.values()].sort((left, right) => left.metricName.localeCompare(right.metricName) || left.reasonCode.localeCompare(right.reasonCode))
+    };
+  }
+
+  async recordExplorerRuntimeMetric(input: ArchitectureLedgerScope & ExplorerRuntimeMetricSampleV1): Promise<void> {
+    if (!["feed-lag", "replay-tail-length", "plan-rows-read", "compile-time-ms", "cache-hit", "cache-miss", "cache-eviction", "cache-rebuild"].includes(input.metricName)) throw new Error("explorer-runtime-metric-name-invalid");
+    if (!["none", "digest-read", "manifest-read", "latest-read", "manifest-miss", "invalidated", "expired", "count-pressure", "byte-pressure", "startup-retention", "explicit-collection", "projection-compile", "change-feed", "anchored-replay", "bounded-read-plan"].includes(input.reasonCode)) throw new Error("explorer-runtime-metric-reason-invalid");
+    if (!Number.isSafeInteger(input.value) || input.value < 0) throw new Error("explorer-runtime-metric-value-invalid");
+    const currentTotal = this.explorerRuntimeMetrics
+      .filter((entry) => testSameExplorerScope(entry, input) && entry.metricName === input.metricName && entry.reasonCode === input.reasonCode)
+      .reduce((sum, entry) => sum + entry.value, 0);
+    if (!Number.isSafeInteger(currentTotal) || currentTotal + input.value > Number.MAX_SAFE_INTEGER) throw new Error("explorer-runtime-metric-aggregate-overflow");
+    const recordedAtMs = Date.parse(input.recordedAt ?? this.clock());
+    if (!Number.isFinite(recordedAtMs)) throw new Error("explorer-runtime-metric-time-invalid");
+    const recordedAt = new Date(recordedAtMs).toISOString();
+    this.explorerRuntimeMetrics.push(structuredClone({ ...input, recordedAt }));
   }
 
   async listAffectedExplorerOccurrences(input: ArchitectureLedgerScope & { dependencyKeys: string[] }): Promise<string[]> {
@@ -1015,6 +1220,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   async clearExplorerDerivedState(): Promise<number> {
     const count = this.explorerProjections.size;
     this.explorerProjections.clear();
+    this.explorerCacheMetadata.clear();
     this.invalidatedExplorerProjections.clear();
     this.explorerDependencies.clear();
     return count;
@@ -1030,6 +1236,16 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   close(): void {}
+
+  private testExplorerCacheCounts(input: ArchitectureLedgerScope, now: string) {
+    const digests = [...this.explorerProjections.entries()].filter(([, record]) => testSameExplorerScope(record.scope, input)).map(([digest]) => digest);
+    return {
+      entryCount: digests.length,
+      bodyBytes: digests.reduce((sum, digest) => sum + (this.explorerCacheMetadata.get(digest)?.bodyBytes ?? 0), 0),
+      pinnedEntryCount: digests.filter((digest) => (this.explorerCacheMetadata.get(digest)?.pinnedUntil ?? "") > now).length,
+      invalidatedEntryCount: digests.filter((digest) => this.invalidatedExplorerProjections.has(digest)).length
+    };
+  }
 
   private requiredRuntimeAgentJob(jobId: string): RuntimeAgentJobRecord {
     const record = this.runtimeAgentJobs.get(jobId);
@@ -1066,6 +1282,15 @@ export class TestLocalStore implements RuntimeLocalStore {
         && event.worktree.worktreeDigest === scope.worktree.worktreeDigest)
       ?.eventHash ?? null;
   }
+}
+
+function assertTestExplorerCachePolicy(policy: ExplorerProjectionCachePolicyV1): void {
+  if (policy.schemaVersion !== "archcontext.explorer-cache-policy/v1") throw new Error("explorer-cache-policy-schema-invalid");
+  for (const [name, value] of Object.entries(policy)) {
+    if (name === "schemaVersion") continue;
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`explorer-cache-policy-${name}-invalid`);
+  }
+  if (policy.maxPinnedEntriesPerScope > policy.maxEntriesPerScope) throw new Error("explorer-cache-policy-pins-exceed-entry-limit");
 }
 
 function testSameExplorerScope(left: ArchitectureLedgerScope, right: ArchitectureLedgerScope): boolean {
