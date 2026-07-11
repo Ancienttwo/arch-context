@@ -465,7 +465,7 @@ function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
     "archcontext.product-version-manifest/v1": "product-version-manifest",
     "archcontext.practice-catalog-manifest/v1": "practice-catalog-manifest",
     "archcontext.architecture-event/v1": "architecture-event",
-    "archcontext.architecture-snapshot/v1": "architecture-snapshot",
+    "archcontext.architecture-snapshot/v2": "architecture-snapshot",
     "archcontext.projection-target/v1": "projection-target",
     "archcontext.evidence-item/v2": "evidence-item",
     "archcontext.evidence-binding/v1": "evidence-binding",

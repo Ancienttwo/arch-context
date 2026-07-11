@@ -4,9 +4,9 @@
   "title": "ArchitectureSnapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "snapshotId", "repository", "worktree", "sourceMode", "eventCursor", "graphDigest", "projectionDigest", "entityCount", "relationCount", "constraintCount", "inputDigests", "createdAt"],
+  "required": ["schemaVersion", "snapshotId", "repository", "worktree", "sourceMode", "eventCursor", "graphDigest", "evidenceDigest", "stateDigest", "state", "projectionDigest", "entityCount", "relationCount", "constraintCount", "inputDigests", "createdAt"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.architecture-snapshot/v1" },
+    "schemaVersion": { "const": "archcontext.architecture-snapshot/v2" },
     "snapshotId": { "type": "string", "pattern": "^arch_snapshot\\.[a-zA-Z0-9_-]+$" },
     "repository": {
       "type": "object",
@@ -29,17 +29,50 @@
         "worktreeDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
       }
     },
-    "sourceMode": { "enum": ["yaml", "dual", "ledger-shadow", "ledger-authoritative"] },
+    "sourceMode": { "enum": ["yaml", "dual", "dual-compare", "ledger-shadow", "ledger", "ledger-authoritative"] },
     "eventCursor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["lastEventId", "lastEventHash"],
+      "required": ["eventCount", "lastEventSequence", "lastEventId", "lastEventHash"],
       "properties": {
+        "eventCount": { "type": "integer", "minimum": 1 },
+        "lastEventSequence": { "type": "integer", "minimum": 1 },
         "lastEventId": { "type": "string", "pattern": "^arch_event\\.[a-zA-Z0-9_-]+$" },
         "lastEventHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
       }
     },
     "graphDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "evidenceDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "stateDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graph", "evidence"],
+      "properties": {
+        "graph": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entities", "relations", "constraints"],
+          "properties": {
+            "entities": { "type": "array", "items": { "type": "object" } },
+            "relations": { "type": "array", "items": { "type": "object" } },
+            "constraints": { "type": "array", "items": { "type": "object" } }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schemaVersion", "evidenceItems", "evidenceBindings", "tombstones", "stateDigest"],
+          "properties": {
+            "schemaVersion": { "const": "archcontext.evidence-state-at-cursor/v1" },
+            "evidenceItems": { "type": "array", "items": { "type": "object" } },
+            "evidenceBindings": { "type": "array", "items": { "type": "object" } },
+            "tombstones": { "type": "array", "items": { "type": "object" } },
+            "stateDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          }
+        }
+      }
+    },
     "projectionDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "entityCount": { "type": "integer", "minimum": 0 },
     "relationCount": { "type": "integer", "minimum": 0 },

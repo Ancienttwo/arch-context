@@ -39,13 +39,13 @@ import {
   queryArchitectureLedgerBookNeighbors,
   queryArchitectureLedgerBookRecommendations,
   queryArchitectureLedgerBookTimeline,
-  replayArchitectureLedgerEvidenceState,
   replayArchitectureLedgerEvents,
   showArchitectureLedgerBookSubject,
   type ArchitectureAuditRunV1,
   type ArchitectureLedgerAppendInput,
   type ArchitectureLedgerAppendResult,
   type ArchitectureLedgerProjectionFile,
+  type ArchitectureLedgerReplayResult,
   type ArchitectureLedgerScope,
   type ArchitectureLedgerGraphState
 } from "@archcontext/core/architecture-ledger";
@@ -2604,7 +2604,8 @@ export class ArchctxDaemon {
     const command = input.command ?? "status";
     const readback = await this.architectureLedgerReadback(root);
     const scope = { repository: readback.repository, worktree: readback.worktree };
-    const replay = await this.localStore.replayArchitectureLedger(scope);
+    const replayMode = ["query", "timeline", "diff", "evidence", "recommendations"].includes(command) ? "genesis" as const : "anchored" as const;
+    const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: replayMode });
     const state = readback.state;
     const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
     const freshness = {
@@ -2618,9 +2619,9 @@ export class ArchctxDaemon {
       graphDigest: readback.graphDigest,
       projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
       ledgerCursor: {
-        eventCount: replay.events.length,
-        lastEventId: replay.events.at(-1)?.eventId,
-        lastEventHash: replay.events.at(-1)?.eventHash
+        eventCount: replay.cursor.eventCount,
+        lastEventId: replay.cursor.lastEventId,
+        lastEventHash: replay.cursor.lastEventHash
       }
     };
     const provenance = {
@@ -2654,7 +2655,7 @@ export class ArchctxDaemon {
           entities: state.entities.length,
           relations: state.relations.length,
           constraints: state.constraints.length,
-          events: replay.events.length
+          events: replay.cursor.eventCount
         },
         drift: {
           ok: readback.drift.ok,
@@ -2764,7 +2765,7 @@ export class ArchctxDaemon {
     const command = input.command;
     const readMetrics = async () => {
       const scope = await this.architectureLedgerScope(repositoryRoot);
-      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
       const artifacts = recommendationArtifactsFromEvents(replay.events);
       return okEnvelope("recommendations.metrics", {
         ...aggregateRecommendationLifecycleMetrics({
@@ -2778,9 +2779,9 @@ export class ArchctxDaemon {
           repository: scope.repository,
           worktree: scope.worktree,
           ledgerCursor: {
-            eventCount: replay.events.length,
-            lastEventId: replay.events.at(-1)?.eventId,
-            lastEventHash: replay.events.at(-1)?.eventHash
+            eventCount: replay.cursor.eventCount,
+            lastEventId: replay.cursor.lastEventId,
+            lastEventHash: replay.cursor.lastEventHash
           },
           graphDigest: replay.graphDigest
         }
@@ -2803,7 +2804,7 @@ export class ArchctxDaemon {
       }
       const now = input.now ?? this.clock();
       const scope = await this.architectureLedgerScope(repositoryRoot);
-      const replay = await this.localStore.replayArchitectureLedger(scope);
+      const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
       const artifacts = recommendationArtifactsFromEvents(replay.events);
       const current = latestRecommendationById(artifacts.recommendations, input.recommendationId!);
       if (!current) {
@@ -3071,7 +3072,7 @@ export class ArchctxDaemon {
         verification: {
           schemaVersion: "archcontext.runtime-architecture-ledger-migration-verification/v1",
           ok: verified,
-          replayedEventCount: replay.events.length,
+          replayedEventCount: replay.cursor.eventCount,
           graphDigest: replay.graphDigest,
           expectedGraphDigest: plan.graphDigest,
           integrity,
@@ -3143,8 +3144,8 @@ export class ArchctxDaemon {
       const scope = await this.architectureLedgerGitScope(root);
       const files = listModelFiles(root);
       const exactReplay = await this.localStore.replayArchitectureLedger(scope);
-      const exactEvidenceState = await this.localStore.replayArchitectureLedgerEvidence(scope);
-      const exactScopeHasEvents = exactReplay.events.length > 0;
+      const exactEvidenceState = exactReplay.evidenceState;
+      const exactScopeHasEvents = exactReplay.cursor.eventCount > 0;
       const authorityScope = exactScopeHasEvents
         ? scope
         : await this.localStore.resolveLatestArchitectureLedgerScope(scope);
@@ -3154,7 +3155,7 @@ export class ArchctxDaemon {
       const previousGraphDigest = architectureLedgerStateDigest(previousState);
       const authorityEvidenceState = exactScopeHasEvents
         ? exactEvidenceState
-        : await this.localStore.replayArchitectureLedgerEvidence(authorityScope);
+        : (await this.localStore.replayArchitectureLedger(authorityScope)).evidenceState;
       const rebuildCommand = input.acceptExternalProjection
         ? "archctx ledger rebuild --from-git --accept-external-projection"
         : "archctx ledger rebuild --from-git";
@@ -3263,7 +3264,7 @@ export class ArchctxDaemon {
         reconcileRequired: rebuildStatus === "external-projection-proposed",
         appendedEventCount: append.appendedEvents.length,
         duplicateEventCount: append.duplicateEvents.length,
-        replayedEventCount: replay.events.length,
+        replayedEventCount: replay.cursor.eventCount,
         graphDigest: replay.graphDigest,
         previousGraphDigest,
         proposedGraphDigest: plan.graphDigest,
@@ -3344,7 +3345,7 @@ export class ArchctxDaemon {
       queryForTask: async ({ task, maxItems, maxBytes }) => {
         const readback = await this.architectureLedgerReadback(root);
         const scope = { repository: readback.repository, worktree: readback.worktree };
-        const replay = await this.localStore.replayArchitectureLedger(scope);
+        const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
         const ftsMatches = await this.localStore.queryArchitectureLedgerFts({
           ...scope,
           query: task,
@@ -3370,9 +3371,9 @@ export class ArchctxDaemon {
           graphDigest: readback.graphDigest,
           projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
           ledgerCursor: {
-            eventCount: replay.events.length,
-            lastEventId: replay.events.at(-1)?.eventId,
-            lastEventHash: replay.events.at(-1)?.eventHash
+            eventCount: replay.cursor.eventCount,
+            lastEventId: replay.cursor.lastEventId,
+            lastEventHash: replay.cursor.lastEventHash
           }
         };
         return {
@@ -3894,19 +3895,28 @@ export class ArchctxDaemon {
       );
     }
     try {
-      const replay = await this.localStore.replayArchitectureLedger(scope);
-      const baseIndex = replay.events.findIndex((event) => event.eventId === query.base.eventId);
-      const headIndex = replay.events.findIndex((event) => event.eventId === query.head.eventId);
-      if (baseIndex < 0 || headIndex < 0) throw new ExplorerDeltaPreconditionError("authority-event-missing", "both authority cursor events must exist in the selected repository/worktree scope");
-      if (baseIndex > headIndex) throw new ExplorerDeltaPreconditionError("authority-cursor-reversed", "Explorer delta requires base event at or before head event");
-      const baseEvents = replay.events.slice(0, baseIndex + 1);
-      const headEvents = replay.events.slice(0, headIndex + 1);
-      const baseGraph = replayArchitectureLedgerEvents(baseEvents);
-      const headGraph = replayArchitectureLedgerEvents(headEvents);
-      const baseEvidence = replayArchitectureLedgerEvidenceState(baseEvents);
-      const headEvidence = replayArchitectureLedgerEvidenceState(headEvents);
-      const baseCursor = explorerAuthorityCursor(baseEvents[baseIndex]!, baseIndex + 1, baseGraph, baseEvidence.stateDigest);
-      const headCursor = explorerAuthorityCursor(headEvents[headIndex]!, headIndex + 1, headGraph, headEvidence.stateDigest);
+      let baseReplay: ArchitectureLedgerReplayResult;
+      let headReplay: ArchitectureLedgerReplayResult;
+      try {
+        [baseReplay, headReplay] = await Promise.all([
+          this.localStore.replayArchitectureLedger({ ...scope, untilEventId: query.base.eventId }),
+          this.localStore.replayArchitectureLedger({ ...scope, untilEventId: query.head.eventId })
+        ]);
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("architecture-ledger-event-not-found:")) {
+          throw new ExplorerDeltaPreconditionError("authority-event-missing", "both authority cursor events must exist in the selected repository/worktree scope");
+        }
+        throw error;
+      }
+      if (baseReplay.cursor.lastEventSequence > headReplay.cursor.lastEventSequence) {
+        throw new ExplorerDeltaPreconditionError("authority-cursor-reversed", "Explorer delta requires base event at or before head event");
+      }
+      const baseGraph = baseReplay.state;
+      const headGraph = headReplay.state;
+      const baseEvidence = baseReplay.evidenceState;
+      const headEvidence = headReplay.evidenceState;
+      const baseCursor = explorerAuthorityCursorFromReplay(scope, baseReplay);
+      const headCursor = explorerAuthorityCursorFromReplay(scope, headReplay);
       if (!sameExplorerAuthorityCursor(base.cursor.authorityCursor, baseCursor) || !sameExplorerAuthorityCursor(head.cursor.authorityCursor, headCursor)) {
         throw new ExplorerDeltaPreconditionError("projection-authority-mismatch", "Explorer projection authority cursor does not match the requested event state");
       }
@@ -3998,11 +4008,10 @@ export class ArchctxDaemon {
       subjectIds: uniqueStrings((readback.drift.projectionDiffs ?? []).flatMap((diff) => diff.targetId ? [diff.targetId] : [])),
       reasonCodes: readback.drift.reasonCodes
     };
-    const evidenceState = replayArchitectureLedgerEvidenceState(replay.events);
+    const evidenceState = replay.evidenceState;
     const replayGraphDigest = architectureLedgerStateDigest(replay.state);
-    const lastEvent = replay.events.at(-1);
-    const authorityCursor = lastEvent && replayGraphDigest === readback.graphDigest
-      ? explorerAuthorityCursor(lastEvent, replay.events.length, replay.state, evidenceState.stateDigest)
+    const authorityCursor = replay.cursor.lastEventId && replayGraphDigest === readback.graphDigest
+      ? explorerAuthorityCursorFromReplay(scope, replay)
       : null;
     const projection = compileExplorerProjection({
       query,
@@ -5282,22 +5291,22 @@ function sameExplorerAuthorityCursor(actual: AuthorityCursorV1 | null, expected:
   return actual !== null && digestJson(actual as unknown as Json) === digestJson(expected as unknown as Json);
 }
 
-function explorerAuthorityCursor(
-  event: ArchitectureEventV1,
-  eventSequence: number,
-  graph: ArchitectureLedgerGraphState,
-  evidenceStateDigest: string
+function explorerAuthorityCursorFromReplay(
+  scope: ArchitectureLedgerScope,
+  replay: ArchitectureLedgerReplayResult
 ): AuthorityCursorV1 {
-  if (!event.eventHash) throw new ExplorerProjectionCompileError("precondition-failed", `authority cursor event hash missing: ${event.eventId}`);
+  if (!replay.cursor.lastEventId || !replay.cursor.lastEventHash) {
+    throw new ExplorerProjectionCompileError("precondition-failed", "authority cursor requires a replayed event");
+  }
   return {
     schemaVersion: "archcontext.authority-cursor/v1",
-    repository: event.repository,
-    worktree: event.worktree,
-    eventSequence,
-    eventId: event.eventId,
-    eventHash: event.eventHash,
-    graphDigest: architectureLedgerStateDigest(graph),
-    evidenceStateDigest
+    repository: scope.repository,
+    worktree: scope.worktree,
+    eventSequence: replay.cursor.eventCount,
+    eventId: replay.cursor.lastEventId,
+    eventHash: replay.cursor.lastEventHash,
+    graphDigest: replay.graphDigest,
+    evidenceStateDigest: replay.evidenceState.stateDigest
   };
 }
 
@@ -5317,8 +5326,8 @@ async function architectureBookResolveRef(
   const snapshotId = trimmed.startsWith("snapshot:") ? trimmed.slice("snapshot:".length) : undefined;
   if (snapshotId) {
     try {
-      const replay = await store.replayArchitectureLedger({ ...scope, snapshotId });
-      return { events: replay.events, state: replay.state, lastEventId: replay.events.at(-1)?.eventId };
+      const replay = await store.replayArchitectureLedger({ ...scope, snapshotId, mode: "genesis" });
+      return { events: replay.events, state: replay.state, lastEventId: replay.cursor.lastEventId };
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("architecture-ledger-snapshot-not-found:")) return undefined;
       throw error;

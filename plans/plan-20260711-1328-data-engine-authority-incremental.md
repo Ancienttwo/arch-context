@@ -20,6 +20,7 @@ Phase contracts:
 
 - DE0: `tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md` (complete)
 - DE1: `tasks/contracts/20260711-1605-data-engine-de1-change-feed.contract.md` (complete)
+- DE2: `tasks/contracts/20260711-1720-data-engine-de2-snapshot-replay.contract.md` (complete)
 
 ## Agentic Routing
 - Selected route: gstack:plan-eng-review
@@ -404,12 +405,12 @@ on daemon startup; it deletes dependency rows transactionally with cache rows.
 
 ### DE2 · Snapshot-anchored replay and scope reads
 
-- [ ] Add verified graph+evidence+tombstone snapshot state, anchor selection, and
+- [x] Add verified graph+evidence+tombstone snapshot state, anchor selection, and
       tail-range event query.
-- [ ] Keep explicit full-genesis integrity replay and compare it to anchored output.
-- [ ] Add direct composite scope lookup with `LIMIT 1`; remove event JSON scan.
-- [ ] Add corruption, wrong-scope, missing-anchor, out-of-order, and equivalence tests.
-- [ ] Benchmark replay by tail length and prove normal read cost is independent of
+- [x] Keep explicit full-genesis integrity replay and compare it to anchored output.
+- [x] Add direct composite scope lookup with `LIMIT 1`; remove event JSON scan.
+- [x] Add corruption, wrong-scope, missing-anchor, out-of-order, and equivalence tests.
+- [x] Benchmark replay by tail length and prove normal read cost is independent of
       compacted history length.
 
 ### DE3 · Manifest-addressed cache and input-domain hardening
@@ -577,7 +578,7 @@ readback, and full `bun run verify`. No LLM prompt/eval path is changed.
 - [x] DE0: Land manifest-compatible authority-separated delta V2, evidence
       lifecycle, and the budget-displacement regression.
 - [x] DE1: Land transactional subject index/change feed and feed-driven invalidation.
-- [ ] DE2: Land verified snapshot-anchor tail replay and direct scope resolution.
+- [x] DE2: Land verified snapshot-anchor tail replay and direct scope resolution.
 - [ ] DE3: Land manifest-addressed cache keys and required-domain hardening.
 - [ ] DE4: Land bounded projection read planner and partial SQLite reads.
 - [ ] DE5: Land cache retention/GC, metrics, 10k/100k readback, and runbooks.

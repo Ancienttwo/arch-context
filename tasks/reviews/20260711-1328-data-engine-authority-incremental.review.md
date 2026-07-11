@@ -1,12 +1,12 @@
 # Task Review: data-engine-authority-incremental
 
-> **Status**: DE0-DE1 Passed
+> **Status**: DE0-DE2 Passed
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Notes File**: tasks/notes/20260711-1328-data-engine-authority-incremental.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
-> **Last Updated**: 2026-07-11 17:00
-> **Recommendation**: pass DE1; continue to DE2
+> **Last Updated**: 2026-07-11 17:40
+> **Recommendation**: pass DE2; continue to DE3
 
 ## Human Review Card
 
@@ -97,10 +97,11 @@
 
 ## Summary
 
-DE0 and DE1 satisfy their bounded contracts. DE1 adds an atomic typed subject/feed
+DE0, DE1, and DE2 satisfy their bounded contracts. DE1 adds an atomic typed subject/feed
 boundary, indexed backlinks, restart-safe feed consumption, and digest-only Explorer
-invalidation without promoting SQLite over Git-visible authority. The complete program
-is not done: DE2-DE5 remain unchecked and must land sequentially before final
+invalidation; DE2 adds verified Snapshot V2 anchors and O(tail) normal replay without
+promoting SQLite over Git-visible authority. The complete program is not done: DE3-DE5
+remain unchecked and must land sequentially before final
 merge/cleanup back to main.
 
 ## DE1 Acceptance Addendum
@@ -116,5 +117,25 @@ merge/cleanup back to main.
 - `$check`: 7 findings fixed, 0 deferred. The fixes cover old/new reference union,
   steady-state history replay removal, bounded backfill, durable completion marker,
   historical row/hash verification, cursor validation, and backlink ID integrity.
-- Residual scope: DE2 snapshot-anchored replay remains open by design; no DE1 finding
-  or failing check remains.
+- At the DE1 gate, snapshot-anchored replay remained open by design; it is now closed
+  by the DE2 addendum below. No DE1 finding or failing check remains.
+
+## DE2 Acceptance Addendum
+
+- Verdict: pass for `tasks/contracts/20260711-1720-data-engine-de2-snapshot-replay.contract.md`.
+- Readback: `docs/verification/data-engine-de2-readback.json` verdict PASS; focused
+  matrix: 384 pass, 0 fail.
+- Full verification: 1038 tests passed, 0 failed; Explorer 10k p95 23.55ms and 100k
+  p95 537.81ms; privacy and acceptance gates PASS.
+- Authority: snapshot creation independently replays genesis, compares materialized
+  graph/evidence, applies privacy guards, and builds only from verified replay state.
+- Restore: explicit snapshot refs verify in anchored and genesis modes; automatic
+  selection uses the newest in-scope V2 anchor at or before target and reads only tail.
+- Cost: cursor eventCount binds the transactionally maintained scoped event count;
+  tail counts advance strictly and hot replay uses anchor count plus tail length.
+- Integrity: typed event row/JSON/hash, logical target ID, complete snapshot row,
+  cursor, scope, body, evidence/tombstone, and compact anchor all fail closed.
+- `$check`: eight unique findings fixed, 0 deferred; architecture and security re-review
+  both pass.
+- Residual scope: cache manifest ownership and required-domain hardening remain DE3;
+  no DE2 finding or failing check remains.

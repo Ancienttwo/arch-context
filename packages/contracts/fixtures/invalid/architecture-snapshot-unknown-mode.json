@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.architecture-snapshot/v1",
+  "schemaVersion": "archcontext.architecture-snapshot/v2",
   "snapshotId": "arch_snapshot.invalid_mode",
   "repository": {
     "repositoryId": "repo.archcontext",
@@ -14,14 +14,32 @@
   },
   "sourceMode": "sql-only",
   "eventCursor": {
+    "eventCount": 1,
+    "lastEventSequence": 1,
     "lastEventId": "arch_event.al0_contract_freeze",
     "lastEventHash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
   },
   "graphDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+  "evidenceDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "stateDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "state": {
+    "graph": {
+      "entities": [],
+      "relations": [],
+      "constraints": []
+    },
+    "evidence": {
+      "schemaVersion": "archcontext.evidence-state-at-cursor/v1",
+      "evidenceItems": [],
+      "evidenceBindings": [],
+      "tombstones": [],
+      "stateDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
   "projectionDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
-  "entityCount": 12,
-  "relationCount": 8,
-  "constraintCount": 4,
+  "entityCount": 0,
+  "relationCount": 0,
+  "constraintCount": 0,
   "inputDigests": {
     "modelDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
   },

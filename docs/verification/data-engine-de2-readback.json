@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "archcontext.data-engine-de2-readback/v1",
+  "generatedAt": "2026-07-11T09:44:16.921Z",
+  "gitCommit": "70be09a0ffde0b766862509d43a50439afbdac81",
+  "branch": "codex/data-engine-authority-incremental",
+  "contracts": {
+    "snapshot": "archcontext.architecture-snapshot/v2",
+    "migration": "0015_snapshot_anchor_v2",
+    "normalReplay": "anchored",
+    "auditReplay": "genesis"
+  },
+  "invariants": {
+    "snapshotCarriesGraphAndEvidence": true,
+    "exactSequenceIdHashAnchor": true,
+    "newestBoundedAnchor": true,
+    "hotReplayHasNoPrefixCount": true,
+    "eventCountCheckpointIsImmutableAndScoped": true,
+    "independentGenesisAudit": true,
+    "completeRowIntegrityBinding": true,
+    "directIndexedScopeReads": true,
+    "compactRequiresVerifiedAnchor": true,
+    "explorerUsesAnchoredReplay": true,
+    "corruptionAndTailTests": true,
+    "migrationIsV2Only": true
+  },
+  "commands": [
+    {
+      "command": "bun run typecheck",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 3235,
+      "stdoutDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrDigest": "sha256:8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    },
+    {
+      "command": "bun run check:package-boundaries",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 104,
+      "stdoutDigest": "sha256:65d50ef205239c6dd837801774c2615a8670519bec348c2b91e9c802cd83428f",
+      "stderrDigest": "sha256:1511003fedd943ed840a5f51ce273d076828261e5e1c1edc31e00bd9e9c575d9"
+    },
+    {
+      "command": "bun test packages/contracts/test/contracts.test.ts packages/core/architecture-ledger packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon packages/surfaces/cli/test/cli.test.ts scripts/architecture-ledger-al10-release-packaging-readback.test.ts",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 48434,
+      "stdoutDigest": "sha256:eb3f53d479eb0146a62c9397f52102913e4e91d45e9bcbb1abc2bca6459b60d5",
+      "stderrDigest": "sha256:556c7bdb578495167060efe999dc2cc3ece8d11cfc4d8d5d21f3c837cf7920f0"
+    },
+    {
+      "command": "bun run verify:explorer",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 2347,
+      "stdoutDigest": "sha256:3d7d9357886af435e47324fcfcde743815f9b1451cc420ca2051ddb53dd5558c",
+      "stderrDigest": "sha256:d6e499a17952154f753dfedb922e765f78fa48c9ccb9e2c6d2ef95d518aef742"
+    },
+    {
+      "command": "repo-harness run contract-run preflight --contract tasks/contracts/20260711-1720-data-engine-de2-snapshot-replay.contract.md --json",
+      "ok": true,
+      "exitCode": 0,
+      "durationMs": 452,
+      "stdoutDigest": "sha256:dce87d1d9bf92453792ef51b11b3bea7e37d2e42c24714220aa55ebac05e431a",
+      "stderrDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "verdict": "PASS"
+}

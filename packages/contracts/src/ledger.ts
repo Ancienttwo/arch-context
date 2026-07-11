@@ -1,7 +1,7 @@
 import { digestJson, type Json } from "./schema";
 
 export const ARCHITECTURE_EVENT_SCHEMA_VERSION = "archcontext.architecture-event/v1" as const;
-export const ARCHITECTURE_SNAPSHOT_SCHEMA_VERSION = "archcontext.architecture-snapshot/v1" as const;
+export const ARCHITECTURE_SNAPSHOT_SCHEMA_VERSION = "archcontext.architecture-snapshot/v2" as const;
 export const EVIDENCE_ITEM_SCHEMA_VERSION = "archcontext.evidence-item/v2" as const;
 export const EVIDENCE_BINDING_SCHEMA_VERSION = "archcontext.evidence-binding/v1" as const;
 export const RECOMMENDATION_RUN_SCHEMA_VERSION = "archcontext.recommendation-run/v1" as const;
@@ -172,17 +172,25 @@ export interface ArchitectureEventV1 {
   extensions?: Record<string, Json>;
 }
 
-export interface ArchitectureSnapshotV1 {
+export interface ArchitectureSnapshotV2 {
   schemaVersion: typeof ARCHITECTURE_SNAPSHOT_SCHEMA_VERSION;
   snapshotId: string;
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
   sourceMode: ArchitectureLedgerMode;
   eventCursor: {
+    eventCount: number;
+    lastEventSequence: number;
     lastEventId: string;
     lastEventHash: string;
   };
   graphDigest: string;
+  evidenceDigest: string;
+  stateDigest: string;
+  state: {
+    graph: Json;
+    evidence: EvidenceStateAtCursorV1;
+  };
   projectionDigest: string;
   entityCount: number;
   relationCount: number;
@@ -732,7 +740,7 @@ export function architectureEventHash(event: ArchitectureEventV1): string {
   return digestJson(hashable as unknown as Json);
 }
 
-export function architectureSnapshotDigest(snapshot: ArchitectureSnapshotV1): string {
+export function architectureSnapshotDigest(snapshot: ArchitectureSnapshotV2): string {
   const { snapshotId: _snapshotId, createdAt: _createdAt, extensions: _extensions, ...hashable } = snapshot;
   return digestJson(hashable as unknown as Json);
 }

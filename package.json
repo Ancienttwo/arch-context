@@ -144,6 +144,8 @@
     "readback:de0:data-engine": "bun scripts/data-engine-de0-readback.ts inspect --out docs/verification/data-engine-de0-readback.json",
     "record:de1:data-engine": "bun scripts/data-engine-de1-readback.ts run --out docs/verification/data-engine-de1-readback.json --report docs/verification/data-engine-de1-readback.md",
     "readback:de1:data-engine": "bun scripts/data-engine-de1-readback.ts inspect --out docs/verification/data-engine-de1-readback.json",
+    "record:de2:data-engine": "bun scripts/data-engine-de2-readback.ts run --out docs/verification/data-engine-de2-readback.json --report docs/verification/data-engine-de2-readback.md",
+    "readback:de2:data-engine": "bun scripts/data-engine-de2-readback.ts inspect --out docs/verification/data-engine-de2-readback.json",
     "verify": "bun run typecheck && node scripts/package-boundary-audit.mjs && node scripts/production-mock-reachability-audit.mjs && bun run verify:practices && bun test && bun run verify:explorer && node scripts/packaged-cli-smoke.mjs && node scripts/privacy-route-audit.mjs && bun run verify:github-api-contract && node scripts/privacy-packet-capture-audit.mjs docs/security/captures/metadata-only.har.json && node scripts/privacy-capture-manifest.mjs readback && bun run readback:s3:hook-egress && bun run readback:s5:context7 && node scripts/security-scan-manifest.mjs readback && node scripts/verify-acceptance-ledger.mjs && node scripts/verify-practice-assets-acceptance-ledger.mjs && node scripts/sprint-status-check.mjs && bun evals/run.ts --check",
     "verify:governance": "node scripts/verify-governance.mjs",
     "verify:acceptance-ledger": "node scripts/verify-acceptance-ledger.mjs",

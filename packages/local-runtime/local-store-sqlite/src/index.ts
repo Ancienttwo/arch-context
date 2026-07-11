@@ -17,6 +17,8 @@ import {
 } from "@archcontext/core/architecture-domain";
 import {
   applyArchitectureLedgerEvidenceEvent,
+  applyArchitectureLedgerGraphEvent,
+  assertArchitectureLedgerPersistenceSafe,
   architectureLedgerPayload,
   architectureLedgerSnapshotFromState,
   architectureLedgerStateDigest,
@@ -44,7 +46,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, digestJson, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, digestJson, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type RepositorySnapshot } from "@archcontext/contracts";
 
 const runtimeRequire = createRequire(import.meta.url);
 const SQLITE_SIDECAR_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -727,6 +729,46 @@ export const LOCAL_SQLITE_MIGRATIONS = [
         completed_at TEXT NOT NULL
       )`
     ]
+  },
+  {
+    id: "0015_snapshot_anchor_v2",
+    statements: [
+      "ALTER TABLE architecture_snapshots ADD COLUMN snapshot_schema_version TEXT",
+      "ALTER TABLE architecture_snapshots ADD COLUMN last_event_sequence INTEGER",
+      "ALTER TABLE architecture_snapshots ADD COLUMN evidence_digest TEXT",
+      "ALTER TABLE architecture_snapshots ADD COLUMN state_digest TEXT",
+      "ALTER TABLE architecture_events ADD COLUMN source_storage_workspace_id TEXT",
+      "ALTER TABLE architecture_events ADD COLUMN scope_event_count INTEGER",
+      "DELETE FROM architecture_snapshots",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_snapshots_scope_sequence ON architecture_snapshots(storage_repository_id, storage_workspace_id, last_event_sequence DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_change_feed_scope_logical_event ON architecture_change_feed(storage_repository_id, storage_workspace_id, logical_event_id)",
+      "CREATE INDEX IF NOT EXISTS idx_architecture_events_direct_scope ON architecture_events(storage_repository_id, source_storage_workspace_id, workspace_id, branch, event_sequence DESC)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_architecture_events_scope_count ON architecture_events(storage_repository_id, storage_workspace_id, scope_event_count)",
+      `CREATE TRIGGER IF NOT EXISTS architecture_events_immutable_delete
+        BEFORE DELETE ON architecture_events
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-events-immutable');
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS architecture_events_immutable_update
+        BEFORE UPDATE OF event_sequence, event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id,
+          branch, head_sha, worktree_digest, event_type, payload_version, source, actor_kind, actor_id,
+          base_digest, resulting_digest, previous_event_hash, event_hash, idempotency_key, payload_json,
+          provenance_json, event_json, created_at ON architecture_events
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-events-immutable');
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS architecture_events_scope_backfill_only
+        BEFORE UPDATE OF source_storage_workspace_id, scope_event_count ON architecture_events
+        WHEN NOT (
+          OLD.source_storage_workspace_id IS NULL
+          AND OLD.scope_event_count IS NULL
+          AND NEW.source_storage_workspace_id IS NOT NULL
+          AND NEW.scope_event_count IS NOT NULL
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-events-immutable');
+        END`
+    ]
   }
 ] as const;
 
@@ -1154,7 +1196,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   listAuditRuns(input: ArchitectureLedgerScope & { statuses?: ArchitectureAuditRunV1["status"][] }): Promise<ArchitectureAuditRunV1[]>;
   getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined>;
   readArchitectureLedgerSourceCursor(input: ArchitectureLedgerScope & { cursorId: string }): Promise<Record<string, Json> | undefined>;
-  createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1>;
+  createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV2>;
   readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState>;
   readArchitectureLedgerNeighborhood(input: ArchitectureLedgerScope & { id: string; depth: number }): Promise<ArchitectureLedgerGraphState>;
   queryArchitectureLedgerFts(input: ArchitectureLedgerScope & { query: string; maxItems?: number }): Promise<ArchitectureBookFtsMatch[]>;
@@ -1207,6 +1249,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   async migrate(): Promise<void> {
     const db = await this.database();
     applyLocalSqliteMigrations(db);
+    backfillArchitectureEventDirectScope(db);
     backfillArchitectureChangeFeed(db);
   }
 
@@ -1978,34 +2021,43 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async resolveArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope> {
     const db = await this.database();
-    const rows = db.prepare(
-      `SELECT event_json FROM architecture_events
-        WHERE storage_repository_id = ? AND workspace_id = ? AND branch = ?
-        ORDER BY event_sequence DESC`
-    ).all(input.repository.storageRepositoryId, input.worktree.workspaceId, input.worktree.branch);
-    for (const row of rows) {
-      const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
-      if (event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId) {
-        return architectureScopeFromEvent(event)!;
-      }
+    const row = db.prepare(
+      `SELECT *
+        FROM architecture_events
+        WHERE storage_repository_id = ? AND source_storage_workspace_id = ? AND workspace_id = ? AND branch = ?
+        ORDER BY event_sequence DESC LIMIT 1`
+    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.worktree.workspaceId, input.worktree.branch);
+    if (!row) return input;
+    const event = architectureLedgerEventFromStoredRow(row);
+    if (
+      event.repository.storageRepositoryId !== input.repository.storageRepositoryId
+      || event.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId
+      || event.worktree.workspaceId !== input.worktree.workspaceId
+      || event.worktree.branch !== input.worktree.branch
+    ) {
+      throw new Error("architecture-ledger-direct-scope-authority-mismatch");
     }
-    return input;
+    return { repository: event.repository, worktree: event.worktree };
   }
 
   async resolveLatestArchitectureLedgerScope(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerScope> {
     const db = await this.database();
-    const rows = db.prepare(
-      `SELECT event_json FROM architecture_events
-        WHERE storage_repository_id = ? AND workspace_id = ?
-        ORDER BY event_sequence DESC`
-    ).all(input.repository.storageRepositoryId, input.worktree.workspaceId);
-    for (const row of rows) {
-      const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
-      if (event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId) {
-        return architectureScopeFromEvent(event)!;
-      }
+    const row = db.prepare(
+      `SELECT *
+        FROM architecture_events
+        WHERE storage_repository_id = ? AND source_storage_workspace_id = ? AND workspace_id = ?
+        ORDER BY event_sequence DESC LIMIT 1`
+    ).get(input.repository.storageRepositoryId, input.worktree.storageWorkspaceId, input.worktree.workspaceId);
+    if (!row) return input;
+    const event = architectureLedgerEventFromStoredRow(row);
+    if (
+      event.repository.storageRepositoryId !== input.repository.storageRepositoryId
+      || event.worktree.storageWorkspaceId !== input.worktree.storageWorkspaceId
+      || event.worktree.workspaceId !== input.worktree.workspaceId
+    ) {
+      throw new Error("architecture-ledger-direct-scope-authority-mismatch");
     }
-    return input;
+    return { repository: event.repository, worktree: event.worktree };
   }
 
   async getAuditRun(input: ArchitectureLedgerScope & { runId: string }): Promise<ArchitectureAuditRunV1 | undefined> {
@@ -2026,57 +2078,79 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     return row ? JSON.parse(String(row.cursor_json)) as Record<string, Json> : undefined;
   }
 
-  async createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV1> {
+  async createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV2> {
     const db = await this.database();
     const startedAt = Date.now();
-    const latest = latestArchitectureEvent(
-      db,
-      input.repository.storageRepositoryId,
-      architectureLedgerWorkspaceKey(input.worktree)
-    );
-    if (!latest) throw new Error("architecture-ledger-snapshot-requires-event");
-    const state = readArchitectureLedgerStateFromDb(db, input);
-    const snapshot = architectureLedgerSnapshotFromState({
-      ...input,
-      lastEventId: latest.event.eventId,
-      lastEventHash: latest.event.eventHash ?? latest.eventHash,
-      state
-    });
-    db.prepare(
-      `INSERT INTO architecture_snapshots
-        (snapshot_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha, worktree_digest,
-          source_mode, last_event_id, last_event_hash, graph_digest, projection_digest, entity_count, relation_count,
-          constraint_count, input_digests_json, snapshot_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      snapshot.snapshotId,
-      snapshot.repository.repositoryId,
-      snapshot.repository.storageRepositoryId,
-      snapshot.worktree.workspaceId,
-      architectureLedgerWorkspaceKey(snapshot.worktree),
-      snapshot.worktree.branch,
-      snapshot.worktree.headSha,
-      snapshot.worktree.worktreeDigest,
-      snapshot.sourceMode,
-      architectureLedgerStorageId(snapshot.worktree, snapshot.eventCursor.lastEventId),
-      snapshot.eventCursor.lastEventHash,
-      snapshot.graphDigest,
-      snapshot.projectionDigest,
-      snapshot.entityCount,
-      snapshot.relationCount,
-      snapshot.constraintCount,
-      stableJson(snapshot.inputDigests),
-      stableJson(snapshot),
-      snapshot.createdAt
-    );
-    recordArchitectureLedgerOperation(db, {
-      scope: input,
-      operationKind: "create_snapshot",
-      durationMs: Date.now() - startedAt,
-      rowCount: 1,
-      rebuildReason: null
-    });
-    return snapshot;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const replay = replayArchitectureLedgerFromDb(db, { ...input, mode: "genesis" });
+      if (replay.cursor.eventCount === 0 || !replay.cursor.lastEventId || !replay.cursor.lastEventHash) {
+        throw new Error("architecture-ledger-snapshot-requires-event");
+      }
+      const materializedState = readArchitectureLedgerStateFromDb(db, input);
+      const materializedEvidenceState = readArchitectureLedgerEvidenceStateFromDb(db, input);
+      if (
+        stableJson(materializedState) !== stableJson(replay.state)
+        || stableJson(materializedEvidenceState) !== stableJson(replay.evidenceState)
+      ) {
+        throw new Error("architecture-ledger-snapshot-materialized-state-mismatch");
+      }
+      assertArchitectureLedgerPersistenceSafe(replay.state as unknown as Json, "architecture-snapshot.state.graph");
+      assertArchitectureLedgerPersistenceSafe(replay.evidenceState as unknown as Json, "architecture-snapshot.state.evidence");
+      const snapshot = architectureLedgerSnapshotFromState({
+        ...input,
+        eventCount: replay.cursor.eventCount,
+        lastEventSequence: replay.cursor.lastEventSequence,
+        lastEventId: replay.cursor.lastEventId,
+        lastEventHash: replay.cursor.lastEventHash,
+        state: replay.state,
+        evidenceState: replay.evidenceState
+      });
+      db.prepare(
+        `INSERT INTO architecture_snapshots
+          (snapshot_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha, worktree_digest,
+            source_mode, last_event_id, last_event_hash, graph_digest, projection_digest, entity_count, relation_count,
+            constraint_count, input_digests_json, snapshot_json, created_at, snapshot_schema_version,
+            last_event_sequence, evidence_digest, state_digest)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        snapshot.snapshotId,
+        snapshot.repository.repositoryId,
+        snapshot.repository.storageRepositoryId,
+        snapshot.worktree.workspaceId,
+        architectureLedgerWorkspaceKey(snapshot.worktree),
+        snapshot.worktree.branch,
+        snapshot.worktree.headSha,
+        snapshot.worktree.worktreeDigest,
+        snapshot.sourceMode,
+        architectureLedgerStorageId(snapshot.worktree, snapshot.eventCursor.lastEventId),
+        snapshot.eventCursor.lastEventHash,
+        snapshot.graphDigest,
+        snapshot.projectionDigest,
+        snapshot.entityCount,
+        snapshot.relationCount,
+        snapshot.constraintCount,
+        stableJson(snapshot.inputDigests),
+        stableJson(snapshot),
+        snapshot.createdAt,
+        snapshot.schemaVersion,
+        snapshot.eventCursor.lastEventSequence,
+        snapshot.evidenceDigest,
+        snapshot.stateDigest
+      );
+      recordArchitectureLedgerOperation(db, {
+        scope: input,
+        operationKind: "create_snapshot",
+        durationMs: Date.now() - startedAt,
+        rowCount: 1,
+        rebuildReason: null
+      });
+      db.exec("COMMIT");
+      return snapshot;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   async readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState> {
@@ -2096,14 +2170,11 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
     const db = await this.database();
-    const events = architectureEventsForReplay(db, input);
-    const state = replayArchitectureLedgerEvents(events);
-    return { events, state, graphDigest: architectureLedgerStateDigest(state) };
+    return replayArchitectureLedgerFromDb(db, input);
   }
 
   async replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1> {
-    const db = await this.database();
-    return replayArchitectureLedgerEvidenceState(architectureEventsForReplay(db, input));
+    return (await this.replayArchitectureLedger(input)).evidenceState;
   }
 
   async listArchitectureChangeFeed(input: ArchitectureLedgerScope & { consumerId: string; limit?: number }): Promise<ArchitectureChangeFeedBatchV1> {
@@ -2232,16 +2303,33 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {
     const materialized = await this.readArchitectureLedgerState(input);
-    const replayed = await this.replayArchitectureLedger(input);
+    const materializedEvidence = readArchitectureLedgerEvidenceStateFromDb(await this.database(), input);
+    const [replayed, anchored] = await Promise.all([
+      this.replayArchitectureLedger({ ...input, mode: "genesis" }),
+      this.replayArchitectureLedger({ ...input, mode: "anchored" })
+    ]);
     const materializedDigest = architectureLedgerStateDigest(materialized);
-    const mismatches = materializedDigest === replayed.graphDigest && stableJson(materialized) === stableJson(replayed.state)
-      ? []
-      : ["materialized-current-state-does-not-match-replay"];
+    const mismatches: string[] = [];
+    if (materializedDigest !== replayed.graphDigest || stableJson(materialized) !== stableJson(replayed.state)) {
+      mismatches.push("materialized-current-state-does-not-match-replay");
+    }
+    if (materializedEvidence.stateDigest !== replayed.evidenceState.stateDigest || stableJson(materializedEvidence) !== stableJson(replayed.evidenceState)) {
+      mismatches.push("materialized-evidence-state-does-not-match-replay");
+    }
+    if (anchored.graphDigest !== replayed.graphDigest || stableJson(anchored.state) !== stableJson(replayed.state)) {
+      mismatches.push("anchored-graph-state-does-not-match-genesis-replay");
+    }
+    if (anchored.evidenceState.stateDigest !== replayed.evidenceState.stateDigest || stableJson(anchored.evidenceState) !== stableJson(replayed.evidenceState)) {
+      mismatches.push("anchored-evidence-state-does-not-match-genesis-replay");
+    }
     return {
       ok: mismatches.length === 0,
       materializedDigest,
       replayedDigest: replayed.graphDigest,
-      eventCount: replayed.events.length,
+      materializedEvidenceDigest: materializedEvidence.stateDigest,
+      replayedEvidenceDigest: replayed.evidenceState.stateDigest,
+      anchoredTailEventCount: anchored.replay.tailEventCount,
+      eventCount: replayed.cursor.eventCount,
       mismatches
     };
   }
@@ -2254,7 +2342,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       deleteArchitectureCurrentState(db, input);
       const events = architectureEventsForReplay(db, input);
       for (const event of events) materializeArchitectureLedgerEvent(db, event);
-      const state = readArchitectureLedgerStateFromDb(db, input);
+      const replay = replayArchitectureLedgerFromDb(db, { ...input, mode: "genesis" });
       recordArchitectureLedgerOperation(db, {
         scope: input,
         operationKind: "rebuild_current_state",
@@ -2263,7 +2351,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         rebuildReason: "manual-current-state-rebuild"
       });
       db.exec("COMMIT");
-      return { events, state, graphDigest: architectureLedgerStateDigest(state) };
+      return replay;
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
@@ -2273,29 +2361,36 @@ export class SqliteLocalStore implements RuntimeLocalStore {
   async compactArchitectureLedger(input: ArchitectureLedgerScope & { beforeSnapshotId: string }): Promise<{ snapshotId: string; compactedEventCount: number }> {
     const db = await this.database();
     const startedAt = Date.now();
-    const snapshot = db.prepare(
-      `SELECT last_event_id FROM architecture_snapshots
-        WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
-    ).get(input.beforeSnapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
-    if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.beforeSnapshotId}`);
-    const cursor = db.prepare("SELECT event_sequence FROM architecture_events WHERE event_id = ?").get(String(snapshot.last_event_id));
-    if (!cursor) throw new Error(`architecture-ledger-snapshot-cursor-not-found: ${String(snapshot.last_event_id)}`);
-    const before = Number(db.prepare(
-      `SELECT COUNT(*) AS count FROM architecture_events
-        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
-    ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), Number(cursor.event_sequence))?.count ?? 0);
-    db.prepare(
-      `UPDATE architecture_events SET compacted_by_snapshot_id = ?
-        WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
-    ).run(input.beforeSnapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), Number(cursor.event_sequence));
-    recordArchitectureLedgerOperation(db, {
-      scope: input,
-      operationKind: "compact_events",
-      durationMs: Date.now() - startedAt,
-      rowCount: before,
-      rebuildReason: null
-    });
-    return { snapshotId: input.beforeSnapshotId, compactedEventCount: before };
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare(
+        `SELECT * FROM architecture_snapshots
+          WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
+      ).get(input.beforeSnapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
+      if (!row) throw new Error(`architecture-ledger-snapshot-not-found: ${input.beforeSnapshotId}`);
+      const { snapshot } = verifyArchitectureLedgerSnapshotRow(db, input, row);
+      const cursorSequence = snapshot.eventCursor.lastEventSequence;
+      const before = Number(db.prepare(
+        `SELECT COUNT(*) AS count FROM architecture_events
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
+      ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), cursorSequence)?.count ?? 0);
+      db.prepare(
+        `UPDATE architecture_events SET compacted_by_snapshot_id = ?
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ? AND compacted_by_snapshot_id IS NULL`
+      ).run(input.beforeSnapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), cursorSequence);
+      recordArchitectureLedgerOperation(db, {
+        scope: input,
+        operationKind: "compact_events",
+        durationMs: Date.now() - startedAt,
+        rowCount: before,
+        rebuildReason: null
+      });
+      db.exec("COMMIT");
+      return { snapshotId: input.beforeSnapshotId, compactedEventCount: before };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   async checkArchitectureLedgerIntegrity(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerIntegrityResult> {
@@ -2604,29 +2699,44 @@ function latestArchitectureEventHash(db: SqliteDatabase, storageRepositoryId: st
   return latestArchitectureEvent(db, storageRepositoryId, storageWorkspaceId)?.eventHash ?? null;
 }
 
-function latestArchitectureEvent(db: SqliteDatabase, storageRepositoryId: string, storageWorkspaceId: string): { event: ArchitectureEventV1; eventHash: string } | undefined {
+function latestArchitectureEvent(db: SqliteDatabase, storageRepositoryId: string, storageWorkspaceId: string): { event: ArchitectureEventV1; eventHash: string; eventSequence: number } | undefined {
   const row = db.prepare(
-    `SELECT event_json, event_hash FROM architecture_events
+    `SELECT event_sequence, event_json, event_hash FROM architecture_events
       WHERE storage_repository_id = ? AND storage_workspace_id = ?
       ORDER BY event_sequence DESC LIMIT 1`
   ).get(storageRepositoryId, storageWorkspaceId);
-  return row ? { event: JSON.parse(String(row.event_json)) as ArchitectureEventV1, eventHash: String(row.event_hash) } : undefined;
+  return row ? {
+    event: JSON.parse(String(row.event_json)) as ArchitectureEventV1,
+    eventHash: String(row.event_hash),
+    eventSequence: Number(row.event_sequence)
+  } : undefined;
+}
+
+function nextArchitectureScopeEventCount(db: SqliteDatabase, storageRepositoryId: string, storageWorkspaceId: string): number {
+  const current = Number(db.prepare(
+    `SELECT COALESCE(MAX(scope_event_count), 0) AS event_count FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?`
+  ).get(storageRepositoryId, storageWorkspaceId)?.event_count ?? 0);
+  if (!Number.isSafeInteger(current) || current < 0) throw new Error("architecture-ledger-scope-event-count-invalid");
+  return current + 1;
 }
 
 function insertArchitectureEvent(db: SqliteDatabase, event: ArchitectureEventV1): number {
   const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
     `INSERT INTO architecture_events
-      (event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha, worktree_digest,
+      (event_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, source_storage_workspace_id, scope_event_count, branch, head_sha, worktree_digest,
         event_type, payload_version, source, actor_kind, actor_id, base_digest, resulting_digest, previous_event_hash,
         event_hash, idempotency_key, payload_json, provenance_json, event_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     architectureLedgerStorageId(event.worktree, event.eventId),
     event.repository.repositoryId,
     event.repository.storageRepositoryId,
     event.worktree.workspaceId,
     workspaceKey,
+    event.worktree.storageWorkspaceId,
+    nextArchitectureScopeEventCount(db, event.repository.storageRepositoryId, workspaceKey),
     event.worktree.branch,
     event.worktree.headSha,
     event.worktree.worktreeDigest,
@@ -3629,28 +3739,303 @@ function optionalJsonMetadata(value: unknown): { metadata?: Record<string, Json>
   return Object.keys(metadata).length > 0 ? { metadata } : {};
 }
 
-function architectureEventsForReplay(db: SqliteDatabase, input: ArchitectureLedgerReplayInput): ArchitectureEventV1[] {
-  let untilEventId = input.untilEventId;
+type ArchitectureLedgerEventCursorRow = Record<string, unknown> & {
+  event_sequence: number;
+  event_id: string;
+  event_hash: string;
+  event_json: string;
+};
+
+function replayArchitectureLedgerFromDb(db: SqliteDatabase, input: ArchitectureLedgerReplayInput): ArchitectureLedgerReplayResult {
+  const explicitSnapshotRow = input.snapshotId
+    ? architectureLedgerReplayAnchorRow(db, input, Number.MAX_SAFE_INTEGER)
+    : undefined;
+  if (input.snapshotId && !explicitSnapshotRow) throw new Error(`architecture-ledger-snapshot-not-found: ${input.snapshotId}`);
+  const explicitSnapshot = explicitSnapshotRow ? verifyArchitectureLedgerSnapshotRow(db, input, explicitSnapshotRow) : undefined;
+  const target = architectureLedgerReplayTarget(db, input, explicitSnapshot);
+  if (!target) {
+    const state = emptyArchitectureLedgerState();
+    return {
+      events: [],
+      state,
+      evidenceState: emptyArchitectureLedgerEvidenceState(),
+      graphDigest: architectureLedgerStateDigest(state),
+      cursor: { eventCount: 0, lastEventSequence: 0 },
+      replay: { mode: input.mode ?? "anchored", anchorEventSequence: 0, tailEventCount: 0 }
+    };
+  }
+  const mode = input.mode ?? "anchored";
+  const snapshotRow = mode === "anchored" && !explicitSnapshot
+    ? architectureLedgerReplayAnchorRow(db, input, target.eventSequence)
+    : undefined;
+  const anchor = mode === "anchored"
+    ? explicitSnapshot ?? (snapshotRow ? verifyArchitectureLedgerSnapshotRow(db, input, snapshotRow) : undefined)
+    : undefined;
+  if (explicitSnapshot && explicitSnapshot.snapshot.eventCursor.lastEventSequence > target.eventSequence) {
+    throw new Error("architecture-ledger-snapshot-after-target");
+  }
+  let state = anchor?.graphState ?? emptyArchitectureLedgerState();
+  let evidenceState = anchor?.snapshot.state.evidence ?? emptyArchitectureLedgerEvidenceState();
+  const anchorSequence = anchor?.snapshot.eventCursor.lastEventSequence ?? 0;
+  const tailRows = db.prepare(
+    `SELECT * FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ?
+        AND event_sequence > ? AND event_sequence <= ?
+      ORDER BY event_sequence ASC`
+  ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), anchorSequence, target.eventSequence);
+  const events = architectureLedgerEventsFromAuthorityRows(
+    input,
+    tailRows,
+    anchor?.snapshot.eventCursor.lastEventHash ?? null,
+    anchor?.snapshot.eventCursor.eventCount ?? 0
+  );
+  for (const event of events) {
+    state = applyArchitectureLedgerGraphEvent(state, event);
+    evidenceState = applyArchitectureLedgerEvidenceEvent(evidenceState, event);
+  }
+  const lastEvent = events.at(-1);
+  const lastEventId = lastEvent?.eventId ?? anchor?.snapshot.eventCursor.lastEventId;
+  const lastEventHash = lastEvent?.eventHash ?? anchor?.snapshot.eventCursor.lastEventHash;
+  if (lastEventId !== target.event.eventId || lastEventHash !== target.eventHash) {
+    throw new Error("architecture-ledger-replay-target-cursor-mismatch");
+  }
+  const eventCount = (anchor?.snapshot.eventCursor.eventCount ?? 0) + events.length;
+  return {
+    events,
+    state,
+    evidenceState,
+    graphDigest: architectureLedgerStateDigest(state),
+    cursor: {
+      eventCount,
+      lastEventSequence: target.eventSequence,
+      lastEventId: target.event.eventId,
+      lastEventHash: target.eventHash
+    },
+    replay: {
+      mode,
+      ...(anchor ? { anchorSnapshotId: anchor.snapshot.snapshotId } : {}),
+      anchorEventSequence: anchorSequence,
+      tailEventCount: events.length
+    }
+  };
+}
+
+function architectureLedgerReplayTarget(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerReplayInput,
+  explicitSnapshot?: ReturnType<typeof verifyArchitectureLedgerSnapshotRow>
+): { eventSequence: number; event: ArchitectureEventV1; eventHash: string } | undefined {
+  const workspaceKey = architectureLedgerWorkspaceKey(input.worktree);
+  let row: Record<string, unknown> | undefined;
+  if (input.untilEventId) {
+    row = db.prepare(
+      `SELECT architecture_events.* FROM architecture_change_feed
+        JOIN architecture_events ON architecture_events.event_id = architecture_change_feed.event_id
+        WHERE architecture_change_feed.storage_repository_id = ?
+          AND architecture_change_feed.storage_workspace_id = ?
+          AND architecture_change_feed.logical_event_id = ?
+        LIMIT 1`
+    ).get(input.repository.storageRepositoryId, workspaceKey, input.untilEventId);
+    if (!row) throw new Error(`architecture-ledger-event-not-found: ${input.untilEventId}`);
+  } else if (input.snapshotId) {
+    if (!explicitSnapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.snapshotId}`);
+    return {
+      eventSequence: explicitSnapshot.snapshot.eventCursor.lastEventSequence,
+      event: explicitSnapshot.cursorEvent,
+      eventHash: explicitSnapshot.snapshot.eventCursor.lastEventHash
+    };
+  } else {
+    row = db.prepare(
+      `SELECT * FROM architecture_events
+        WHERE storage_repository_id = ? AND storage_workspace_id = ?
+        ORDER BY event_sequence DESC LIMIT 1`
+    ).get(input.repository.storageRepositoryId, workspaceKey);
+  }
+  if (!row) return undefined;
+  const event = architectureLedgerEventFromAuthorityRow(input, row);
+  if (input.untilEventId && event.eventId !== input.untilEventId) {
+    throw new Error(`architecture-ledger-event-authority-mismatch: ${input.untilEventId}`);
+  }
+  return { eventSequence: Number(row.event_sequence), event, eventHash: String(row.event_hash) };
+}
+
+function architectureLedgerReplayAnchorRow(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerReplayInput,
+  targetEventSequence: number
+): Record<string, unknown> | undefined {
   if (input.snapshotId) {
-    const snapshot = db.prepare(
-      `SELECT last_event_id FROM architecture_snapshots
+    return db.prepare(
+      `SELECT * FROM architecture_snapshots
         WHERE snapshot_id = ? AND storage_repository_id = ? AND storage_workspace_id = ?`
     ).get(input.snapshotId, input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
-    if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.snapshotId}`);
-    untilEventId = String(snapshot.last_event_id);
   }
-  const rows = db.prepare(
-    `SELECT event_id, event_json FROM architecture_events
-      WHERE storage_repository_id = ? AND storage_workspace_id = ?
-      ORDER BY event_sequence`
-  ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree));
+  return db.prepare(
+    `SELECT * FROM architecture_snapshots
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND last_event_sequence <= ?
+      ORDER BY last_event_sequence DESC, created_at DESC LIMIT 1`
+  ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), targetEventSequence);
+}
+
+function verifyArchitectureLedgerSnapshotRow(
+  db: SqliteDatabase,
+  input: ArchitectureLedgerScope,
+  row: Record<string, unknown>
+): { snapshot: ArchitectureSnapshotV2; graphState: ArchitectureLedgerGraphState; cursorEvent: ArchitectureEventV1 } {
+  const snapshot = JSON.parse(String(row.snapshot_json)) as ArchitectureSnapshotV2;
+  if (snapshot.schemaVersion !== "archcontext.architecture-snapshot/v2" || String(row.snapshot_schema_version) !== snapshot.schemaVersion) {
+    throw new Error("architecture-ledger-snapshot-schema-invalid");
+  }
+  if (stableJson(snapshot.repository) !== stableJson(input.repository) || stableJson(snapshot.worktree) !== stableJson(input.worktree)) {
+    throw new Error("architecture-ledger-snapshot-scope-mismatch");
+  }
+  const graphState = snapshot.state?.graph as unknown as ArchitectureLedgerGraphState;
+  const graphDigest = architectureLedgerStateDigest(graphState);
+  const evidence = snapshot.state?.evidence;
+  if (!evidence || evidence.schemaVersion !== "archcontext.evidence-state-at-cursor/v1") throw new Error("architecture-ledger-snapshot-evidence-invalid");
+  const evidenceWithoutDigest = {
+    schemaVersion: evidence.schemaVersion,
+    evidenceItems: evidence.evidenceItems,
+    evidenceBindings: evidence.evidenceBindings,
+    tombstones: evidence.tombstones
+  };
+  const evidenceDigest = digestJson(evidenceWithoutDigest as unknown as Json);
+  const stateDigest = digestJson(snapshot.state as unknown as Json);
+  if (
+    graphDigest !== snapshot.graphDigest
+    || evidenceDigest !== evidence.stateDigest
+    || evidenceDigest !== snapshot.evidenceDigest
+    || stateDigest !== snapshot.stateDigest
+    || !Number.isSafeInteger(snapshot.eventCursor.eventCount)
+    || snapshot.eventCursor.eventCount < 1
+    || snapshot.eventCursor.eventCount > snapshot.eventCursor.lastEventSequence
+    || Number(row.last_event_sequence) !== snapshot.eventCursor.lastEventSequence
+    || String(row.last_event_hash) !== snapshot.eventCursor.lastEventHash
+    || String(row.graph_digest) !== snapshot.graphDigest
+    || String(row.evidence_digest) !== snapshot.evidenceDigest
+    || String(row.state_digest) !== snapshot.stateDigest
+    || Number(row.entity_count) !== graphState.entities.length
+    || Number(row.relation_count) !== graphState.relations.length
+    || Number(row.constraint_count) !== graphState.constraints.length
+    || stableJson(JSON.parse(String(row.input_digests_json))) !== stableJson(snapshot.inputDigests)
+    || String(row.snapshot_id) !== snapshot.snapshotId
+    || String(row.repository_id) !== snapshot.repository.repositoryId
+    || String(row.storage_repository_id) !== snapshot.repository.storageRepositoryId
+    || String(row.workspace_id) !== snapshot.worktree.workspaceId
+    || String(row.storage_workspace_id) !== architectureLedgerWorkspaceKey(snapshot.worktree)
+    || String(row.branch) !== snapshot.worktree.branch
+    || String(row.head_sha) !== snapshot.worktree.headSha
+    || String(row.worktree_digest) !== snapshot.worktree.worktreeDigest
+    || String(row.source_mode) !== snapshot.sourceMode
+    || String(row.projection_digest) !== snapshot.projectionDigest
+    || String(row.created_at) !== snapshot.createdAt
+    || architectureSnapshotDigest(snapshot) !== snapshot.extensions?.digest
+  ) {
+    throw new Error(`architecture-ledger-snapshot-integrity-mismatch: ${snapshot.snapshotId}`);
+  }
+  const cursorRow = db.prepare(
+    `SELECT * FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence = ?`
+  ).get(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), snapshot.eventCursor.lastEventSequence);
+  if (!cursorRow) throw new Error(`architecture-ledger-snapshot-cursor-not-found: ${snapshot.eventCursor.lastEventId}`);
+  const cursorEvent = architectureLedgerEventFromAuthorityRow(input, cursorRow);
+  if (
+    cursorEvent.eventId !== snapshot.eventCursor.lastEventId
+    || cursorEvent.eventHash !== snapshot.eventCursor.lastEventHash
+    || Number(cursorRow.scope_event_count) !== snapshot.eventCursor.eventCount
+    || String(row.last_event_id) !== architectureLedgerStorageId(input.worktree, cursorEvent.eventId)
+  ) {
+    throw new Error(`architecture-ledger-snapshot-cursor-mismatch: ${snapshot.snapshotId}`);
+  }
+  return { snapshot, graphState, cursorEvent };
+}
+
+function architectureLedgerEventsFromAuthorityRows(
+  scope: ArchitectureLedgerScope,
+  rows: Array<Record<string, unknown>>,
+  initialPreviousEventHash: string | null,
+  initialEventCount = 0
+): ArchitectureEventV1[] {
   const events: ArchitectureEventV1[] = [];
+  let previousEventHash = initialPreviousEventHash;
+  let previousEventSequence = 0;
   for (const row of rows) {
-    const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
+    const event = architectureLedgerEventFromAuthorityRow(scope, row);
+    const eventSequence = Number(row.event_sequence);
+    if (!Number.isSafeInteger(eventSequence) || eventSequence < 1 || eventSequence <= previousEventSequence) {
+      throw new Error(`architecture-ledger-event-sequence-invalid: ${event.eventId}`);
+    }
+    if (Number(row.scope_event_count) !== initialEventCount + events.length + 1) {
+      throw new Error(`architecture-ledger-scope-event-count-mismatch: ${event.eventId}`);
+    }
+    if ((event.previousEventHash ?? null) !== previousEventHash || (row.previous_event_hash ?? null) !== previousEventHash) {
+      throw new Error(`architecture-ledger-event-chain-mismatch: ${event.eventId}`);
+    }
+    previousEventSequence = eventSequence;
+    previousEventHash = event.eventHash!;
     events.push(event);
-    if (untilEventId && (String(row.event_id) === untilEventId || event.eventId === untilEventId)) break;
   }
   return events;
+}
+
+function architectureLedgerEventFromAuthorityRow(scope: ArchitectureLedgerScope, row: Record<string, unknown>): ArchitectureEventV1 {
+  const event = architectureLedgerEventFromStoredRow(row);
+  if (
+    stableJson(event.repository) !== stableJson(scope.repository)
+    || stableJson(event.worktree) !== stableJson(scope.worktree)
+  ) {
+    throw new Error(`architecture-ledger-event-authority-mismatch: ${event.eventId}`);
+  }
+  return event;
+}
+
+function architectureLedgerEventFromStoredRow(row: Record<string, unknown>): ArchitectureEventV1 {
+  const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
+  validateArchitectureLedgerEvent(event);
+  const previousEventHash = row.previous_event_hash === null || row.previous_event_hash === undefined
+    ? null
+    : String(row.previous_event_hash);
+  if (
+    String(row.event_id) !== architectureLedgerStorageId(event.worktree, event.eventId)
+    || String(row.repository_id) !== event.repository.repositoryId
+    || String(row.storage_repository_id) !== event.repository.storageRepositoryId
+    || String(row.workspace_id) !== event.worktree.workspaceId
+    || String(row.storage_workspace_id) !== architectureLedgerWorkspaceKey(event.worktree)
+    || String(row.source_storage_workspace_id) !== event.worktree.storageWorkspaceId
+    || String(row.branch) !== event.worktree.branch
+    || String(row.head_sha) !== event.worktree.headSha
+    || String(row.worktree_digest) !== event.worktree.worktreeDigest
+    || String(row.event_type) !== event.eventType
+    || String(row.payload_version) !== event.payloadVersion
+    || String(row.source) !== event.source
+    || String(row.actor_kind) !== event.actor.kind
+    || String(row.actor_id) !== event.actor.id
+    || String(row.base_digest) !== event.baseDigest
+    || String(row.resulting_digest) !== event.resultingDigest
+    || previousEventHash !== (event.previousEventHash ?? null)
+    || String(row.idempotency_key) !== event.idempotencyKey
+    || String(row.payload_json) !== stableJson(event.payload)
+    || String(row.provenance_json) !== stableJson(event.provenance)
+    || String(row.created_at) !== event.timestamp
+    || event.headSha !== event.worktree.headSha
+    || !event.eventHash
+    || architectureEventHash(event) !== event.eventHash
+    || String(row.event_hash) !== event.eventHash
+  ) {
+    throw new Error(`architecture-ledger-event-authority-mismatch: ${event.eventId}`);
+  }
+  return event;
+}
+
+function architectureEventsForReplay(db: SqliteDatabase, input: ArchitectureLedgerReplayInput): ArchitectureEventV1[] {
+  const target = architectureLedgerReplayTarget(db, input);
+  if (!target) return [];
+  const rows = db.prepare(
+    `SELECT * FROM architecture_events
+      WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence <= ?
+      ORDER BY event_sequence ASC`
+  ).all(input.repository.storageRepositoryId, architectureLedgerWorkspaceKey(input.worktree), target.eventSequence);
+  return architectureLedgerEventsFromAuthorityRows(input, rows, null);
 }
 
 function deleteArchitectureCurrentState(db: SqliteDatabase, scope: ArchitectureLedgerScope): void {
@@ -3822,6 +4207,59 @@ function applyLocalSqliteMigrations(db: SqliteDatabase): void {
       db.exec("ROLLBACK");
       throw error;
     }
+  }
+}
+
+function backfillArchitectureEventDirectScope(db: SqliteDatabase): void {
+  const columns = new Set(db.prepare("PRAGMA table_info(architecture_events)").all().map((row) => String(row.name)));
+  if (!columns.has("source_storage_workspace_id") || !columns.has("scope_event_count")) return;
+  const missing = db.prepare(
+    "SELECT 1 AS missing FROM architecture_events WHERE source_storage_workspace_id IS NULL OR scope_event_count IS NULL LIMIT 1"
+  ).get();
+  if (!missing) return;
+  const rows = db.prepare("SELECT * FROM architecture_events ORDER BY event_sequence ASC").all();
+  const countsByScope = new Map<string, number>();
+  let transactionOpen = false;
+  let pending = 0;
+  try {
+    for (const row of rows) {
+      const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
+      validateArchitectureLedgerEvent(event);
+      if (
+        !event.eventHash
+        || architectureEventHash(event) !== event.eventHash
+        || String(row.event_hash) !== event.eventHash
+        || String(row.event_id) !== architectureLedgerStorageId(event.worktree, event.eventId)
+        || String(row.storage_repository_id) !== event.repository.storageRepositoryId
+        || String(row.workspace_id) !== event.worktree.workspaceId
+        || String(row.storage_workspace_id) !== architectureLedgerWorkspaceKey(event.worktree)
+      ) {
+        throw new Error(`architecture-event-direct-scope-backfill-authority-mismatch: ${event.eventId}`);
+      }
+      const scopeKey = `${event.repository.storageRepositoryId}\0${architectureLedgerWorkspaceKey(event.worktree)}`;
+      const scopeEventCount = (countsByScope.get(scopeKey) ?? 0) + 1;
+      countsByScope.set(scopeKey, scopeEventCount);
+      if (
+        String(row.source_storage_workspace_id ?? "") === event.worktree.storageWorkspaceId
+        && Number(row.scope_event_count) === scopeEventCount
+      ) continue;
+      if (!transactionOpen) {
+        db.exec("BEGIN IMMEDIATE");
+        transactionOpen = true;
+      }
+      db.prepare("UPDATE architecture_events SET source_storage_workspace_id = ?, scope_event_count = ? WHERE event_sequence = ?")
+        .run(event.worktree.storageWorkspaceId, scopeEventCount, Number(row.event_sequence));
+      pending += 1;
+      if (pending >= 500) {
+        db.exec("COMMIT");
+        transactionOpen = false;
+        pending = 0;
+      }
+    }
+    if (transactionOpen) db.exec("COMMIT");
+  } catch (error) {
+    if (transactionOpen) db.exec("ROLLBACK");
+    throw error;
   }
 }
 
@@ -4246,6 +4684,8 @@ function migrateSqliteDatabaseSync(databasePath: string): void {
   const db = openSqliteDatabaseSync(databasePath);
   try {
     applyLocalSqliteMigrations(db);
+    backfillArchitectureEventDirectScope(db);
+    backfillArchitectureChangeFeed(db);
   } finally {
     db.close();
   }

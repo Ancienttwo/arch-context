@@ -3,7 +3,10 @@ import type { ChangeSetDraft, ChangeSetJournalFile } from "@archcontext/core/cha
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  applyArchitectureLedgerEvidenceEvent,
+  applyArchitectureLedgerGraphEvent,
   architectureLedgerPayload,
+  architectureLedgerSnapshotFromState,
   architectureLedgerStateDigest,
   emptyArchitectureLedgerState,
   normalizeArchitectureLedgerEvent,
@@ -19,9 +22,10 @@ import {
   type ArchitectureLedgerReplayInput,
   type ArchitectureLedgerReplayResult,
   type ArchitectureLedgerReplayVerification,
+  type ArchitectureLedgerSnapshotInput,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type RepositorySnapshot } from "@archcontext/contracts";
+import { digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type EvidenceStateAtCursorV1, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type RepositorySnapshot } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, rebuildDerivedLandscapeState, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -47,6 +51,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   }>();
   readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
   readonly architectureEvents: ArchitectureEventV1[] = [];
+  readonly architectureSnapshots: ArchitectureSnapshotV2[] = [];
   readonly architectureChangeFeed: ArchitectureChangeFeedRecordV1[] = [];
   readonly architectureChangeFeedConsumers = new Map<string, { checkpoint: number; delivered: number }>();
   readonly explorerProjections = new Map<string, { scope: ArchitectureLedgerScope; projection: ExplorerProjectionV2 }>();
@@ -601,8 +606,21 @@ export class TestLocalStore implements RuntimeLocalStore {
     return (await this.listAuditRuns(input)).find((run) => run.runId === input.runId);
   }
 
-  async createArchitectureLedgerSnapshot(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async createArchitectureLedgerSnapshot(input: ArchitectureLedgerSnapshotInput): Promise<ArchitectureSnapshotV2> {
+    const events = this.eventsForScope(input);
+    const lastEvent = events.at(-1);
+    if (!lastEvent?.eventHash) throw new Error("architecture-ledger-snapshot-requires-event");
+    const snapshot = architectureLedgerSnapshotFromState({
+      ...input,
+      eventCount: events.length,
+      lastEventSequence: this.architectureEvents.indexOf(lastEvent) + 1,
+      lastEventId: lastEvent.eventId,
+      lastEventHash: lastEvent.eventHash,
+      state: replayArchitectureLedgerEvents(events),
+      evidenceState: replayArchitectureLedgerEvidenceState(events)
+    });
+    this.architectureSnapshots.push(snapshot);
+    return snapshot;
   }
 
   async readArchitectureLedgerState(input: ArchitectureLedgerScope): Promise<ArchitectureLedgerGraphState> {
@@ -627,13 +645,57 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async replayArchitectureLedger(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayResult> {
-    const events = this.eventsForScope(input);
-    const state = replayArchitectureLedgerEvents(events);
-    return { events, state, graphDigest: architectureLedgerStateDigest(state) };
+    const scopedEvents = this.eventsForScope({ ...input, untilEventId: undefined, snapshotId: undefined });
+    let targetIndex = scopedEvents.length - 1;
+    if (input.untilEventId) {
+      targetIndex = scopedEvents.findIndex((event) => event.eventId === input.untilEventId);
+      if (targetIndex < 0) throw new Error(`architecture-ledger-event-not-found: ${input.untilEventId}`);
+    } else if (input.snapshotId) {
+      const targetSnapshot = this.architectureSnapshots.find((snapshot) => snapshot.snapshotId === input.snapshotId && testSnapshotScopeMatches(snapshot, input));
+      if (!targetSnapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.snapshotId}`);
+      targetIndex = scopedEvents.findIndex((event) => event.eventId === targetSnapshot.eventCursor.lastEventId);
+    }
+    const targetEvents = targetIndex < 0 ? [] : scopedEvents.slice(0, targetIndex + 1);
+    const mode = input.mode ?? "anchored";
+    const explicitSnapshot = input.snapshotId
+      ? this.architectureSnapshots.find((snapshot) => snapshot.snapshotId === input.snapshotId && testSnapshotScopeMatches(snapshot, input))
+      : undefined;
+    const anchor = mode === "anchored"
+      ? explicitSnapshot ?? [...this.architectureSnapshots]
+        .filter((snapshot) => testSnapshotScopeMatches(snapshot, input) && snapshot.eventCursor.lastEventSequence <= (targetEvents.at(-1) ? this.architectureEvents.indexOf(targetEvents.at(-1)!) + 1 : 0))
+        .sort((left, right) => right.eventCursor.lastEventSequence - left.eventCursor.lastEventSequence)[0]
+      : undefined;
+    const targetSequence = targetEvents.at(-1) ? this.architectureEvents.indexOf(targetEvents.at(-1)!) + 1 : 0;
+    if (anchor && anchor.eventCursor.lastEventSequence > targetSequence) throw new Error("architecture-ledger-snapshot-after-target");
+    const events = targetEvents.filter((event) => this.architectureEvents.indexOf(event) + 1 > (anchor?.eventCursor.lastEventSequence ?? 0));
+    let state = anchor ? structuredClone(anchor.state.graph) as unknown as ArchitectureLedgerGraphState : emptyArchitectureLedgerState();
+    let evidenceState = anchor ? structuredClone(anchor.state.evidence) : replayArchitectureLedgerEvidenceState([]);
+    for (const event of events) {
+      state = applyArchitectureLedgerGraphEvent(state, event);
+      evidenceState = applyArchitectureLedgerEvidenceEvent(evidenceState, event);
+    }
+    const lastEvent = targetEvents.at(-1);
+    return {
+      events,
+      state,
+      evidenceState,
+      graphDigest: architectureLedgerStateDigest(state),
+      cursor: {
+        eventCount: targetEvents.length,
+        lastEventSequence: targetSequence,
+        ...(lastEvent ? { lastEventId: lastEvent.eventId, lastEventHash: lastEvent.eventHash } : {})
+      },
+      replay: {
+        mode,
+        ...(anchor ? { anchorSnapshotId: anchor.snapshotId } : {}),
+        anchorEventSequence: anchor?.eventCursor.lastEventSequence ?? 0,
+        tailEventCount: events.length
+      }
+    };
   }
 
   async replayArchitectureLedgerEvidence(input: ArchitectureLedgerReplayInput): Promise<EvidenceStateAtCursorV1> {
-    return replayArchitectureLedgerEvidenceState(this.eventsForScope(input));
+    return (await this.replayArchitectureLedger(input)).evidenceState;
   }
 
   async listArchitectureChangeFeed(input: ArchitectureLedgerScope & { consumerId: string; limit?: number }): Promise<ArchitectureChangeFeedBatchV1> {
@@ -684,14 +746,24 @@ export class TestLocalStore implements RuntimeLocalStore {
 
   async verifyArchitectureLedgerReplay(input: ArchitectureLedgerReplayInput): Promise<ArchitectureLedgerReplayVerification> {
     const materialized = await this.readArchitectureLedgerState(input);
-    const replayed = await this.replayArchitectureLedger(input);
+    const replayed = await this.replayArchitectureLedger({ ...input, mode: "genesis" });
+    const anchored = await this.replayArchitectureLedger({ ...input, mode: "anchored" });
+    const materializedEvidence = replayArchitectureLedgerEvidenceState(this.eventsForScope(input));
     const materializedDigest = architectureLedgerStateDigest(materialized);
+    const mismatches: string[] = [];
+    if (materializedDigest !== replayed.graphDigest) mismatches.push("materialized-current-state-does-not-match-replay");
+    if (materializedEvidence.stateDigest !== replayed.evidenceState.stateDigest) mismatches.push("materialized-evidence-state-does-not-match-replay");
+    if (anchored.graphDigest !== replayed.graphDigest) mismatches.push("anchored-graph-state-does-not-match-genesis-replay");
+    if (anchored.evidenceState.stateDigest !== replayed.evidenceState.stateDigest) mismatches.push("anchored-evidence-state-does-not-match-genesis-replay");
     return {
-      ok: materializedDigest === replayed.graphDigest,
+      ok: mismatches.length === 0,
       materializedDigest,
       replayedDigest: replayed.graphDigest,
-      eventCount: replayed.events.length,
-      mismatches: materializedDigest === replayed.graphDigest ? [] : ["materialized-current-state-does-not-match-replay"]
+      materializedEvidenceDigest: materializedEvidence.stateDigest,
+      replayedEvidenceDigest: replayed.evidenceState.stateDigest,
+      anchoredTailEventCount: anchored.replay.tailEventCount,
+      eventCount: replayed.cursor.eventCount,
+      mismatches
     };
   }
 
@@ -699,8 +771,13 @@ export class TestLocalStore implements RuntimeLocalStore {
     return this.replayArchitectureLedger(input);
   }
 
-  async compactArchitectureLedger(): Promise<never> {
-    throw new Error("TestLocalStore does not implement the SQLite architecture ledger");
+  async compactArchitectureLedger(input: ArchitectureLedgerScope & { beforeSnapshotId: string }): Promise<{ snapshotId: string; compactedEventCount: number }> {
+    const snapshot = this.architectureSnapshots.find((candidate) => candidate.snapshotId === input.beforeSnapshotId && testSnapshotScopeMatches(candidate, input));
+    if (!snapshot) throw new Error(`architecture-ledger-snapshot-not-found: ${input.beforeSnapshotId}`);
+    return {
+      snapshotId: snapshot.snapshotId,
+      compactedEventCount: this.architectureEvents.filter((event, index) => testEventScopeMatches(event, input) && index + 1 <= snapshot.eventCursor.lastEventSequence).length
+    };
   }
 
   async checkArchitectureLedgerIntegrity(input: ArchitectureLedgerScope) {
@@ -709,7 +786,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       ok: replay.ok,
       graphDigest: replay.materializedDigest,
       eventCount: replay.eventCount,
-      snapshotCount: 0,
+      snapshotCount: this.architectureSnapshots.length,
       failures: replay.mismatches
     };
   }
@@ -846,6 +923,22 @@ function testFeedScopeMatches(record: ArchitectureChangeFeedRecordV1, input: Arc
     && record.worktree.branch === input.worktree.branch
     && record.worktree.headSha === input.worktree.headSha
     && record.worktree.worktreeDigest === input.worktree.worktreeDigest;
+}
+
+function testSnapshotScopeMatches(snapshot: ArchitectureSnapshotV2, input: ArchitectureLedgerScope): boolean {
+  return snapshot.repository.storageRepositoryId === input.repository.storageRepositoryId
+    && snapshot.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+    && snapshot.worktree.branch === input.worktree.branch
+    && snapshot.worktree.headSha === input.worktree.headSha
+    && snapshot.worktree.worktreeDigest === input.worktree.worktreeDigest;
+}
+
+function testEventScopeMatches(event: ArchitectureEventV1, input: ArchitectureLedgerScope): boolean {
+  return event.repository.storageRepositoryId === input.repository.storageRepositoryId
+    && event.worktree.storageWorkspaceId === input.worktree.storageWorkspaceId
+    && event.worktree.branch === input.worktree.branch
+    && event.worktree.headSha === input.worktree.headSha
+    && event.worktree.worktreeDigest === input.worktree.worktreeDigest;
 }
 
 function scopeFromEvent(event: ArchitectureEventV1): ArchitectureLedgerScope {

@@ -54,7 +54,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0011_changeset_cleanup_cursor",
       "0012_explorer_projection_index",
       "0013_evidence_lifecycle",
-      "0014_architecture_change_feed"
+      "0014_architecture_change_feed",
+      "0015_snapshot_anchor_v2"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -155,6 +156,9 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     const store = new SqliteLocalStore(dbPath);
     try {
       await store.migrate();
+      expect(await sqliteScalar(dbPath, "SELECT source_storage_workspace_id AS value FROM architecture_events LIMIT 1"))
+        .toBe(normalized.worktree.storageWorkspaceId);
+      await expect(store.resolveLatestArchitectureLedgerScope(ARCHITECTURE_LEDGER_SCOPE)).resolves.toEqual(ARCHITECTURE_LEDGER_SCOPE);
       const feed = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.migration" });
       expect(feed.records).toHaveLength(1);
       expect(feed.records[0]).toMatchObject({ eventId: normalized.eventId, eventHash: normalized.eventHash, affectedSubjects: [] });
@@ -200,12 +204,71 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
 
       const tamperedDb = new Database(dbPath);
       tamperedDb.prepare("DELETE FROM architecture_change_feed").run();
+      tamperedDb.prepare("DROP TRIGGER architecture_events_immutable_update").run();
       tamperedDb.prepare("UPDATE architecture_events SET event_json = ? WHERE event_id = ?")
         .run(stableJsonFixture({ ...normalized, idempotencyKey: "tampered" }), storageEventId);
       tamperedDb.close();
       const tamperedStore = new SqliteLocalStore(dbPath);
       await expect(tamperedStore.migrate()).rejects.toThrow("architecture-change-feed-backfill-idempotency-key-mismatch");
       tamperedStore.close();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("snapshot anchor V2 migration removes digest-only V1 rows", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-snapshot-v2-migration-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const db = new Database(dbPath);
+    try {
+      for (const migration of LOCAL_SQLITE_MIGRATIONS.slice(0, 14)) {
+        for (const statement of migration.statements) db.exec(statement);
+        db.query("INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migration.id, "2026-07-11T00:00:00.000Z");
+      }
+      const digest = `sha256:${"a".repeat(64)}`;
+      db.prepare(
+        `INSERT INTO architecture_snapshots
+          (snapshot_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, branch, head_sha,
+            worktree_digest, source_mode, last_event_id, last_event_hash, graph_digest, projection_digest, entity_count,
+            relation_count, constraint_count, input_digests_json, snapshot_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        "architecture_snapshot.v1",
+        "repo.logical",
+        "repo.storage",
+        "workspace.logical",
+        "workspace.scope",
+        "main",
+        "a".repeat(40),
+        digest,
+        "dual",
+        "event.storage",
+        digest,
+        digest,
+        digest,
+        0,
+        0,
+        0,
+        stableJsonFixture({ modelDigest: digest }),
+        stableJsonFixture({ schemaVersion: "archcontext.architecture-snapshot/v1" }),
+        "2026-07-11T00:00:00.000Z"
+      );
+    } finally {
+      db.close();
+    }
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_snapshots")).toBe(0);
+      const migratedDb = new Database(dbPath);
+      const columns = migratedDb.prepare("PRAGMA table_info(architecture_snapshots)").all().map((row) => String((row as Record<string, unknown>).name));
+      const eventColumns = migratedDb.prepare("PRAGMA table_info(architecture_events)").all().map((row) => String((row as Record<string, unknown>).name));
+      const immutableTrigger = migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'architecture_events_immutable_delete'").get();
+      migratedDb.close();
+      expect(columns).toEqual(expect.arrayContaining(["snapshot_schema_version", "last_event_sequence", "evidence_digest", "state_digest"]));
+      expect(eventColumns).toEqual(expect.arrayContaining(["source_storage_workspace_id", "scope_event_count"]));
+      expect(immutableTrigger).toBeDefined();
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });
@@ -573,7 +636,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0011_changeset_cleanup_cursor",
       "0012_explorer_projection_index",
       "0013_evidence_lifecycle",
-      "0014_architecture_change_feed"
+      "0014_architecture_change_feed",
+      "0015_snapshot_anchor_v2"
     ]);
 
     const snapshot = {
@@ -1494,10 +1558,43 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         createdAt: "2026-06-25T00:30:00.000Z"
       });
       expect(snapshot.graphDigest).toBe(appended.graphDigest);
+      expect(snapshot).toMatchObject({
+        schemaVersion: "archcontext.architecture-snapshot/v2",
+        eventCursor: { eventCount: 1000, lastEventSequence: 1000 },
+        evidenceDigest: snapshot.state.evidence.stateDigest
+      });
+      const anchoredAtHead = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      expect(anchoredAtHead.events).toHaveLength(0);
+      expect(anchoredAtHead.cursor.eventCount).toBe(1000);
+      expect(anchoredAtHead.replay).toMatchObject({ anchorSnapshotId: snapshot.snapshotId, tailEventCount: 0 });
       await expect(store.compactArchitectureLedger({
         ...ARCHITECTURE_LEDGER_SCOPE,
         beforeSnapshotId: snapshot.snapshotId
       })).resolves.toEqual({ snapshotId: snapshot.snapshotId, compactedEventCount: 1000 });
+      const deletionDb = new Database(databasePath);
+      expect(() => deletionDb.prepare("DELETE FROM architecture_events WHERE event_sequence = 1").run())
+        .toThrow("architecture-events-immutable");
+      expect(() => deletionDb.prepare("UPDATE architecture_events SET payload_json = ? WHERE event_sequence = 1").run("{}"))
+        .toThrow("architecture-events-immutable");
+      expect(() => deletionDb.prepare("UPDATE architecture_events SET event_sequence = 0 WHERE event_sequence = 1").run())
+        .toThrow("architecture-events-immutable");
+      deletionDb.close();
+      const compactedReplay = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      expect(compactedReplay.events).toHaveLength(0);
+      expect(compactedReplay.replay.tailEventCount).toBe(0);
+      const queryPlanDb = new Database(databasePath);
+      const tailQueryPlan = queryPlanDb.prepare(
+        `EXPLAIN QUERY PLAN SELECT * FROM architecture_events
+          WHERE storage_repository_id = ? AND storage_workspace_id = ? AND event_sequence > ? AND event_sequence <= ?
+          ORDER BY event_sequence ASC`
+      ).all(
+        ARCHITECTURE_LEDGER_SCOPE.repository.storageRepositoryId,
+        `${ARCHITECTURE_LEDGER_SCOPE.worktree.workspaceId}:${ARCHITECTURE_LEDGER_SCOPE.worktree.branch}:${ARCHITECTURE_LEDGER_SCOPE.worktree.headSha}:${ARCHITECTURE_LEDGER_SCOPE.worktree.worktreeDigest}`,
+        1000,
+        1000
+      ) as Array<{ detail: string }>;
+      queryPlanDb.close();
+      expect(tailQueryPlan.some((row) => row.detail.includes("idx_architecture_events_scope_sequence"))).toBe(true);
       await expect(store.checkArchitectureLedgerIntegrity(ARCHITECTURE_LEDGER_SCOPE)).resolves.toMatchObject({
         ok: true,
         eventCount: 1000,
@@ -1783,9 +1880,191 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         createdAt: "2026-06-25T03:01:00.000Z"
       });
       expect((await store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, snapshotId: mainSnapshot.snapshotId })).events)
-        .toHaveLength(1);
+        .toHaveLength(0);
       expect((await store.replayArchitectureLedger({ ...featureScope, snapshotId: featureSnapshot.snapshotId })).events)
-        .toHaveLength(2);
+        .toHaveLength(0);
+      await expect(store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, snapshotId: featureSnapshot.snapshotId }))
+        .rejects.toThrow("architecture-ledger-snapshot-not-found");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("snapshot V2 restores verified graph and evidence state then replays only the ordered tail", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-snapshot-anchor-v2-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const history: ArchitectureEventV1[] = [];
+      for (let index = 0; index < 20; index += 1) history.push(architectureLedgerEvent(index, history));
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: history });
+      const transientItem = sqliteEvidenceItem("Transient snapshot evidence");
+      const transientBinding = sqliteEvidenceBinding(transientItem.evidenceId);
+      const transientCreate = architectureEvidenceLifecycleEvent("snapshot-transient-create", [
+        { target: "item", action: "create", evidenceId: transientItem.evidenceId, value: transientItem },
+        { target: "binding", action: "create", bindingId: transientBinding.bindingId, value: transientBinding }
+      ]);
+      const transientRemove = architectureEvidenceLifecycleEvent("snapshot-transient-remove", [
+        { target: "binding", action: "remove", bindingId: transientBinding.bindingId, previousDigest: evidenceLifecycleValueDigest(transientBinding), reasonCode: "snapshot-fixture" },
+        { target: "item", action: "remove", evidenceId: transientItem.evidenceId, previousDigest: evidenceLifecycleValueDigest(transientItem), reasonCode: "snapshot-fixture" }
+      ]);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [transientCreate, transientRemove] });
+      const snapshot = await store.createArchitectureLedgerSnapshot({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        sourceMode: "dual",
+        projectionDigest: digestJson({ projection: "snapshot-v2" } as unknown as Json),
+        inputDigests: { modelDigest: digestJson({ model: "snapshot-v2" } as unknown as Json) },
+        createdAt: "2026-07-11T09:00:00.000Z"
+      });
+      expect(snapshot.eventCursor.lastEventSequence).toBe(22);
+      expect(snapshot.state.graph).toEqual(replayArchitectureLedgerEvents(history) as unknown as Json);
+      expect(snapshot.state.evidence.evidenceItems).toHaveLength(1);
+      expect(snapshot.state.evidence.tombstones).toHaveLength(2);
+
+      const tail: ArchitectureEventV1[] = [];
+      for (let index = 20; index < 25; index += 1) {
+        const event = architectureLedgerEvent(index, [...history, ...tail]);
+        tail.push(event);
+      }
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: tail });
+      const originalEvidence = snapshot.state.evidence.evidenceItems[0]!;
+      const updatedEvidence = {
+        ...originalEvidence,
+        summary: "root module remains the verified architecture entrypoint",
+        digest: digestJson({ evidenceId: originalEvidence.evidenceId, revision: 2 } as unknown as Json)
+      };
+      const evidenceUpdate = architectureEvidenceLifecycleEvent("snapshot-tail-update", [{
+        target: "item",
+        action: "update",
+        evidenceId: originalEvidence.evidenceId,
+        previousDigest: evidenceLifecycleValueDigest(originalEvidence),
+        value: updatedEvidence
+      }]);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [evidenceUpdate] });
+
+      const anchored = await store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE);
+      const genesis = await store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, mode: "genesis" });
+      expect(anchored.replay).toEqual({
+        mode: "anchored",
+        anchorSnapshotId: snapshot.snapshotId,
+        anchorEventSequence: 22,
+        tailEventCount: 6
+      });
+      expect(anchored.events).toHaveLength(6);
+      expect(anchored.cursor.eventCount).toBe(28);
+      expect(anchored.state).toEqual(genesis.state);
+      expect(anchored.evidenceState).toEqual(genesis.evidenceState);
+      expect(anchored.evidenceState.evidenceItems[0]?.summary).toBe(updatedEvidence.summary);
+      expect(genesis.events).toHaveLength(28);
+
+      const beforeAnchor = await store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, untilEventId: history[9]!.eventId });
+      expect(beforeAnchor.replay.anchorSnapshotId).toBeUndefined();
+      expect(beforeAnchor.events).toHaveLength(10);
+      await expect(store.replayArchitectureLedger({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        snapshotId: snapshot.snapshotId,
+        untilEventId: history[9]!.eventId
+      })).rejects.toThrow("architecture-ledger-snapshot-after-target");
+      await expect(store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, untilEventId: "architecture_event.missing" }))
+        .rejects.toThrow("architecture-ledger-event-not-found");
+
+      const corruptDb = new Database(dbPath);
+      corruptDb.prepare("UPDATE architecture_snapshots SET state_digest = ? WHERE snapshot_id = ?")
+        .run(`sha256:${"0".repeat(64)}`, snapshot.snapshotId);
+      corruptDb.close();
+      await expect(store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("architecture-ledger-snapshot-integrity-mismatch");
+      const metadataCorruptDb = new Database(dbPath);
+      metadataCorruptDb.prepare("UPDATE architecture_snapshots SET state_digest = ?, branch = ? WHERE snapshot_id = ?")
+        .run(snapshot.stateDigest, "tampered/snapshot-metadata", snapshot.snapshotId);
+      metadataCorruptDb.close();
+      await expect(store.replayArchitectureLedger(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("architecture-ledger-snapshot-integrity-mismatch");
+      await expect(store.compactArchitectureLedger({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        beforeSnapshotId: snapshot.snapshotId
+      })).rejects.toThrow("architecture-ledger-snapshot-integrity-mismatch");
+      await expect(store.replayArchitectureLedger({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        snapshotId: snapshot.snapshotId,
+        mode: "genesis"
+      })).rejects.toThrow("architecture-ledger-snapshot-integrity-mismatch");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("replay rejects a typed event row that diverges from its hashed event JSON", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-replay-row-integrity-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const event = architectureLedgerEvent(0);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+      const corruptDb = new Database(dbPath);
+      corruptDb.prepare("DROP TRIGGER architecture_events_immutable_update").run();
+      corruptDb.prepare("UPDATE architecture_events SET payload_json = ?")
+        .run(JSON.stringify({ title: "forged typed row" }));
+      corruptDb.close();
+      await expect(store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, mode: "genesis" }))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("snapshot creation rejects materialized state that diverges from genesis authority", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-snapshot-authority-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const event = architectureLedgerEvent(0);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+      const corruptDb = new Database(dbPath);
+      corruptDb.prepare("UPDATE architecture_entities_current SET canonical_name = ?").run("forged-materialized-state");
+      corruptDb.close();
+      await expect(store.createArchitectureLedgerSnapshot({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        sourceMode: "dual",
+        projectionDigest: digestJson({ projection: "authority-check" } as unknown as Json),
+        inputDigests: { modelDigest: digestJson({ model: "authority-check" } as unknown as Json) },
+        createdAt: "2026-07-11T09:30:00.000Z"
+      })).rejects.toThrow("architecture-ledger-snapshot-materialized-state-mismatch");
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_snapshots")).toBe(0);
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("target and direct scope lookups reject denormalized row corruption", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-direct-lookup-authority-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(dbPath);
+    try {
+      await store.migrate();
+      const event = architectureLedgerEvent(0);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+      const feedCorruptDb = new Database(dbPath);
+      feedCorruptDb.prepare("UPDATE architecture_change_feed SET logical_event_id = ?").run("arch_event.forged-target");
+      feedCorruptDb.close();
+      await expect(store.replayArchitectureLedger({ ...ARCHITECTURE_LEDGER_SCOPE, untilEventId: "arch_event.forged-target" }))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
+
+      const scopeCorruptDb = new Database(dbPath);
+      scopeCorruptDb.prepare("DROP TRIGGER architecture_events_immutable_update").run();
+      scopeCorruptDb.prepare("UPDATE architecture_events SET head_sha = ?").run("f".repeat(40));
+      scopeCorruptDb.close();
+      await expect(store.resolveArchitectureLedgerScope(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
+      await expect(store.resolveLatestArchitectureLedgerScope(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
     } finally {
       store.close();
       rmSync(root, { recursive: true, force: true });

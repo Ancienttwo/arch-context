@@ -85,9 +85,22 @@ recovery source.
 
 ### 5. Anchor normal replay, retain genesis audit
 
-Normal historical reads will restore a verified snapshot containing graph, evidence,
-bindings, and tombstones, then replay only the ordered tail. Integrity audit retains
-full genesis replay and must prove identical state/digests.
+Normal historical reads restore a V2 snapshot containing graph, evidence, bindings,
+and tombstones, then replay only the ordered tail. Snapshot creation first performs a
+genesis replay inside the write transaction, proves materialized graph/evidence
+equivalence, applies the persistence privacy guard, and serializes only the verified
+replay state.
+
+Every explicit snapshot reference is fully verified even when the caller selects
+genesis mode; genesis ignores the state optimization, not the cursor/scope contract.
+The cursor binds global event sequence/id/hash plus a scoped event count checkpoint.
+Tail rows must advance both the hash chain and scoped count by one. Authority-bearing
+event columns are immutable after append; deletion is forbidden and migration receives
+one bounded NULL-to-typed scope backfill path. Compaction marks rows without deleting
+history. This lets the
+hot anchored path compute total count as anchor count plus tail length without a
+prefix `COUNT(*)`. Integrity audit retains full genesis replay and proves identical
+graph/evidence/tombstone state and digests.
 
 ### 6. Plan bounded reads and bound disposable cache
 
@@ -112,8 +125,8 @@ delete/rebuild.
 
 - Delta V2 is intentionally breaking before 1.0.
 - Evidence lifecycle adds a tombstone table and rejects ID reuse.
-- DE0 historical reads remain O(history); DE2 snapshot anchoring removes that cost
-  from normal reads while keeping integrity replay independent.
+- DE2 snapshot anchoring makes normal replay O(tail) after a verified anchor while
+  keeping snapshot creation and explicit integrity replay O(history).
 - Focused projection latency and cache storage become bounded and observable in
   later phases without weakening authority semantics.
 

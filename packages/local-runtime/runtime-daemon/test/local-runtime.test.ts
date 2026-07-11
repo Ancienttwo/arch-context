@@ -4345,6 +4345,15 @@ describe("local runtime foundation", () => {
         .flatMap((occurrence: any) => occurrence.provenance.declaredEntityIds)[0];
       expect(observedSymbolId).toBeTruthy();
       expect(targetEntityId).toBeTruthy();
+      const explorerAnchor = await localStore.createArchitectureLedgerSnapshot({
+        repository: authorityCursor.repository,
+        worktree: authorityCursor.worktree,
+        sourceMode: "dual",
+        projectionDigest: authorityProjection.data.projectionDigest,
+        inputDigests: { modelDigest: authorityCursor.graphDigest },
+        createdAt: "2026-06-20T00:00:00.500Z"
+      });
+      expect(explorerAnchor.schemaVersion).toBe("archcontext.architecture-snapshot/v2");
       const evidenceItem = {
         schemaVersion: "archcontext.evidence-item/v2",
         evidenceId: "evidence.explorer-lifecycle",
@@ -4410,6 +4419,9 @@ describe("local runtime foundation", () => {
       expect(lifecycleProjection.data.occurrences.some((occurrence: any) => occurrence.backlinks.changedByEventIds.includes("arch_event.explorer_lifecycle"))).toBe(true);
       expect(localStore.invalidatedExplorerProjections.has(authorityProjection.data.projectionDigest)).toBe(true);
       expect(Math.max(...[...localStore.architectureChangeFeedConsumers.values()].map((consumer) => consumer.checkpoint), 0)).toBe(lifecycleFeedRecord.feedSequence);
+      const anchoredLifecycleReplay = await localStore.replayArchitectureLedger({ repository: authorityCursor.repository, worktree: authorityCursor.worktree });
+      expect(anchoredLifecycleReplay.replay.anchorSnapshotId).toBe(explorerAnchor.snapshotId);
+      expect(anchoredLifecycleReplay.replay.tailEventCount).toBe(1);
       const lifecycleEventId = lifecycleProjection.data.cursor.authorityCursor.eventId;
       const lifecycleDelta = await fetch(`${data.url}delta?baseEventId=${encodeURIComponent(eventId)}&headEventId=${encodeURIComponent(lifecycleEventId)}&baseProjectionDigest=${encodeURIComponent(authorityProjection.data.projectionDigest)}&headProjectionDigest=${encodeURIComponent(lifecycleProjection.data.projectionDigest)}`, {
         headers: { Authorization: `Bearer ${data.token}` }

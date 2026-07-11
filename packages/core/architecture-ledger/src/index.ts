@@ -6,7 +6,7 @@ import {
   type ArchitectureEventV1,
   type ArchitectureLedgerMode,
   type ArchitectureRepositoryIdentityV1,
-  type ArchitectureSnapshotV1,
+  type ArchitectureSnapshotV2,
   type ArchitectureWorktreeIdentityV1,
   type EvidenceBindingV1,
   type EvidenceLifecycleOperationV1,
@@ -265,25 +265,42 @@ export interface ArchitectureLedgerSnapshotInput extends ArchitectureLedgerScope
   snapshotId?: string;
   sourceMode: ArchitectureLedgerMode;
   projectionDigest: string;
-  inputDigests: ArchitectureSnapshotV1["inputDigests"];
+  inputDigests: ArchitectureSnapshotV2["inputDigests"];
   createdAt: string;
 }
 
 export interface ArchitectureLedgerReplayInput extends ArchitectureLedgerScope {
   untilEventId?: string;
   snapshotId?: string;
+  mode?: "anchored" | "genesis";
 }
 
 export interface ArchitectureLedgerReplayResult {
   events: ArchitectureEventV1[];
   state: ArchitectureLedgerGraphState;
+  evidenceState: EvidenceStateAtCursorV1;
   graphDigest: string;
+  cursor: {
+    eventCount: number;
+    lastEventSequence: number;
+    lastEventId?: string;
+    lastEventHash?: string;
+  };
+  replay: {
+    mode: "anchored" | "genesis";
+    anchorSnapshotId?: string;
+    anchorEventSequence: number;
+    tailEventCount: number;
+  };
 }
 
 export interface ArchitectureLedgerReplayVerification {
   ok: boolean;
   materializedDigest: string;
   replayedDigest: string;
+  materializedEvidenceDigest: string;
+  replayedEvidenceDigest: string;
+  anchoredTailEventCount: number;
   eventCount: number;
   mismatches: string[];
 }
@@ -2233,6 +2250,15 @@ export function replayArchitectureLedgerEvents(events: ArchitectureEventV1[]): A
   return freezeState(state);
 }
 
+export function applyArchitectureLedgerGraphEvent(
+  previous: ArchitectureLedgerGraphState,
+  event: ArchitectureEventV1
+): ArchitectureLedgerGraphState {
+  const state = mutableState(previous);
+  applyArchitectureLedgerEvent(state, event);
+  return freezeState(state);
+}
+
 export function evidenceLifecycleValueDigest(value: EvidenceItemV2 | EvidenceBindingV1): string {
   return digestJson(value as unknown as Json);
 }
@@ -2442,26 +2468,39 @@ function evidenceLifecycleError(reason: string, target: "item" | "binding", id: 
 }
 
 export function architectureLedgerSnapshotFromState(input: ArchitectureLedgerSnapshotInput & {
+  eventCount: number;
+  lastEventSequence: number;
   lastEventId: string;
   lastEventHash: string;
   state: ArchitectureLedgerGraphState;
-}): ArchitectureSnapshotV1 {
-  const snapshot: ArchitectureSnapshotV1 = {
-    schemaVersion: "archcontext.architecture-snapshot/v1",
+  evidenceState: EvidenceStateAtCursorV1;
+}): ArchitectureSnapshotV2 {
+  const state = {
+    graph: canonicalArchitectureLedgerState(input.state) as unknown as Json,
+    evidence: input.evidenceState
+  };
+  const snapshot: ArchitectureSnapshotV2 = {
+    schemaVersion: "archcontext.architecture-snapshot/v2",
     snapshotId: input.snapshotId ?? `architecture_snapshot.${digestJson({
       repository: input.repository,
       worktree: input.worktree,
       lastEventId: input.lastEventId,
-      graphDigest: architectureLedgerStateDigest(input.state)
+      graphDigest: architectureLedgerStateDigest(input.state),
+      evidenceDigest: input.evidenceState.stateDigest
     } as unknown as Json).slice("sha256:".length, "sha256:".length + 16)}`,
     repository: input.repository,
     worktree: input.worktree,
     sourceMode: input.sourceMode,
     eventCursor: {
+      eventCount: input.eventCount,
+      lastEventSequence: input.lastEventSequence,
       lastEventId: input.lastEventId,
       lastEventHash: input.lastEventHash
     },
     graphDigest: architectureLedgerStateDigest(input.state),
+    evidenceDigest: input.evidenceState.stateDigest,
+    stateDigest: digestJson(state as unknown as Json),
+    state,
     projectionDigest: input.projectionDigest,
     entityCount: input.state.entities.length,
     relationCount: input.state.relations.length,

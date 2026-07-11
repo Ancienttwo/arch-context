@@ -1,10 +1,10 @@
 # Implementation Notes: data-engine-authority-incremental
 
-> **Status**: DE0-DE1 Complete
+> **Status**: DE0-DE2 Complete
 > **Plan**: plans/plan-20260711-1328-data-engine-authority-incremental.md
 > **Contract**: tasks/contracts/20260711-1328-data-engine-authority-incremental.contract.md
 > **Review**: tasks/reviews/20260711-1328-data-engine-authority-incremental.review.md
-> **Last Updated**: 2026-07-11 17:00
+> **Last Updated**: 2026-07-11 17:40
 > **Lifecycle**: notes
 
 ## Design Decisions
@@ -49,6 +49,21 @@
 - Explorer backlinks now come from the typed index with eventId-bound subject digests.
   Daemon invalidation consumes unread feed rows idempotently, marks latest projections
   stale while preserving digest-addressed Delta bases, and emits metadata-only SSE.
+- DE2 migration `0015_snapshot_anchor_v2` removes old digest-only snapshots, adds V2
+  graph/evidence/tombstone state, direct scope columns/indexes, and a scoped event-count
+  checkpoint. Authority columns are immutable after append, event deletion is
+  forbidden, and compaction remains a non-destructive mark.
+- Snapshot creation performs verified genesis replay inside the transaction, compares
+  it with materialized graph/evidence state, applies the persistence privacy guard, and
+  serializes only replay authority. A self-consistent snapshot over corrupted derived
+  tables is rejected before INSERT.
+- Every explicit snapshot ref verifies schema/body/digests/row metadata/scope/cursor
+  before target resolution in both anchored and genesis modes. Normal replay selects
+  the newest verified anchor and queries only `(anchorSequence, targetSequence]`.
+- Tail replay validates complete typed event rows against hashed event JSON, exact
+  logical target IDs, previous-hash continuity, and scoped event-count continuity.
+  Total count is `anchor.eventCount + tail.length`; no prefix count remains on the hot
+  path. Explorer Delta now replays exact base/head authority cursors through this path.
 
 ## Deviations From Plan Or Spec
 
@@ -71,7 +86,7 @@
 
 ## Open Questions
 
-- None for DE0 or DE1. DE2 is the next bounded phase in the accepted program plan.
+- None for DE0-DE2. DE3 is the next bounded phase in the accepted program plan.
 
 ## Evidence Links
 
@@ -89,6 +104,12 @@
   10k p95 27.06ms and 100k p95 525.92ms; privacy PASS.
 - DE1 independent `$check`: seven verified findings found and fixed. Architecture
   and security re-review report every original and follow-up finding closed.
+- DE2 focused readback: `docs/verification/data-engine-de2-readback.json` PASS; 384
+  focused tests pass with 0 failures.
+- DE2 full verification: `bun run verify` — 1038 passing tests, 0 failures;
+  Explorer 10k p95 23.55ms and 100k p95 537.81ms; privacy PASS.
+- DE2 independent `$check`: eight unique findings (nine reviewer reports including one
+  overlap) found and fixed. Architecture and security re-review report no open finding.
 
 ## Promotion Candidates
 
