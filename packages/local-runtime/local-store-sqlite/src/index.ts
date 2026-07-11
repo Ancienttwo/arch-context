@@ -807,13 +807,26 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       `CREATE TABLE IF NOT EXISTS architecture_evidence_state_checkpoints (
         storage_repository_id TEXT NOT NULL,
         storage_workspace_id TEXT NOT NULL,
-        event_id TEXT NOT NULL,
+        event_id TEXT PRIMARY KEY,
+        event_sequence INTEGER NOT NULL CHECK(event_sequence > 0),
+        scope_event_count INTEGER NOT NULL CHECK(scope_event_count > 0),
         event_hash TEXT NOT NULL,
         evidence_state_digest TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY(storage_repository_id, storage_workspace_id),
         FOREIGN KEY(event_id) REFERENCES architecture_events(event_id)
-      )`
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_architecture_evidence_state_checkpoints_scope
+        ON architecture_evidence_state_checkpoints(storage_repository_id, storage_workspace_id, event_sequence)`,
+      `CREATE TRIGGER IF NOT EXISTS architecture_evidence_state_checkpoints_immutable_update
+        BEFORE UPDATE ON architecture_evidence_state_checkpoints
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-evidence-state-checkpoints-immutable');
+        END`,
+      `CREATE TRIGGER IF NOT EXISTS architecture_evidence_state_checkpoints_immutable_delete
+        BEFORE DELETE ON architecture_evidence_state_checkpoints
+        BEGIN
+          SELECT RAISE(ABORT, 'architecture-evidence-state-checkpoints-immutable');
+        END`
     ]
   }
 ] as const;
@@ -3455,6 +3468,7 @@ function architectureEventByIdempotency(db: SqliteDatabase, event: ArchitectureE
   ).get(event.repository.storageRepositoryId, architectureLedgerWorkspaceKey(event.worktree), event.idempotencyKey);
   if (!row) return undefined;
   const storedEvent = architectureLedgerEventFromStoredRow(row);
+  assertArchitectureEvidenceStateCheckpointForEventRow(db, row, storedEvent);
   return {
     event: storedEvent,
     previousEventHash: storedEvent.previousEventHash ?? null
@@ -3716,23 +3730,79 @@ function persistArchitectureEvidenceStateCheckpoint(
   if (!event.eventHash || !/^sha256:[a-f0-9]{64}$/.test(evidenceStateDigest)) {
     throw new Error(`architecture-evidence-state-checkpoint-invalid:${event.eventId}`);
   }
+  const eventRow = db.prepare(
+    "SELECT event_sequence, scope_event_count FROM architecture_events WHERE event_id = ?"
+  ).get(architectureLedgerStorageId(event.worktree, event.eventId));
+  const eventSequence = Number(eventRow?.event_sequence);
+  const scopeEventCount = Number(eventRow?.scope_event_count);
+  if (!Number.isSafeInteger(eventSequence) || eventSequence < 1 || !Number.isSafeInteger(scopeEventCount) || scopeEventCount < 1) {
+    throw new Error(`architecture-evidence-state-checkpoint-cursor-invalid:${event.eventId}`);
+  }
+  const existing = db.prepare(
+    "SELECT * FROM architecture_evidence_state_checkpoints WHERE event_id = ?"
+  ).get(architectureLedgerStorageId(event.worktree, event.eventId));
+  if (existing) {
+    assertArchitectureEvidenceStateCheckpointRow(existing, event, eventSequence, scopeEventCount, evidenceStateDigest);
+    return;
+  }
   db.prepare(
     `INSERT INTO architecture_evidence_state_checkpoints
-      (storage_repository_id, storage_workspace_id, event_id, event_hash, evidence_state_digest, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(storage_repository_id, storage_workspace_id) DO UPDATE SET
-        event_id = excluded.event_id,
-        event_hash = excluded.event_hash,
-        evidence_state_digest = excluded.evidence_state_digest,
-        updated_at = excluded.updated_at`
+      (storage_repository_id, storage_workspace_id, event_id, event_sequence, scope_event_count, event_hash, evidence_state_digest, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     event.repository.storageRepositoryId,
     architectureLedgerWorkspaceKey(event.worktree),
     architectureLedgerStorageId(event.worktree, event.eventId),
+    eventSequence,
+    scopeEventCount,
     event.eventHash,
     evidenceStateDigest,
     event.timestamp
   );
+}
+
+function assertArchitectureEvidenceStateCheckpointForEventRow(
+  db: SqliteDatabase,
+  eventRow: Record<string, unknown>,
+  event: ArchitectureEventV1
+): void {
+  const checkpoint = db.prepare(
+    "SELECT * FROM architecture_evidence_state_checkpoints WHERE event_id = ?"
+  ).get(architectureLedgerStorageId(event.worktree, event.eventId));
+  if (!checkpoint) throw new Error(`architecture-ledger-event-authority-mismatch: ${event.eventId}`);
+  assertArchitectureEvidenceStateCheckpointRow(
+    checkpoint,
+    event,
+    Number(eventRow.event_sequence),
+    Number(eventRow.scope_event_count),
+    String(checkpoint.evidence_state_digest)
+  );
+}
+
+function assertArchitectureEvidenceStateCheckpointRow(
+  row: Record<string, unknown>,
+  event: ArchitectureEventV1,
+  eventSequence: number,
+  scopeEventCount: number,
+  evidenceStateDigest: string
+): void {
+  if (
+    !Number.isSafeInteger(eventSequence)
+    || eventSequence < 1
+    || !Number.isSafeInteger(scopeEventCount)
+    || scopeEventCount < 1
+    || !/^sha256:[a-f0-9]{64}$/.test(evidenceStateDigest)
+    || String(row.storage_repository_id) !== event.repository.storageRepositoryId
+    || String(row.storage_workspace_id) !== architectureLedgerWorkspaceKey(event.worktree)
+    || String(row.event_id) !== architectureLedgerStorageId(event.worktree, event.eventId)
+    || Number(row.event_sequence) !== eventSequence
+    || Number(row.scope_event_count) !== scopeEventCount
+    || String(row.event_hash) !== event.eventHash
+    || String(row.evidence_state_digest) !== evidenceStateDigest
+    || String(row.updated_at) !== event.timestamp
+  ) {
+    throw new Error(`architecture-ledger-event-authority-mismatch: ${event.eventId}`);
+  }
 }
 
 function architectureChangeFeedRecordFromRow(
@@ -4541,13 +4611,14 @@ function readExplorerProjectionAuthorityFromDb(
     `SELECT architecture_events.scope_event_count, architecture_change_feed.evidence_after_digest,
         architecture_change_feed.event_hash AS feed_event_hash, architecture_change_feed.event_sequence AS feed_event_sequence,
         architecture_evidence_state_checkpoints.event_id AS checkpoint_event_id,
+        architecture_evidence_state_checkpoints.event_sequence AS checkpoint_event_sequence,
+        architecture_evidence_state_checkpoints.scope_event_count AS checkpoint_scope_event_count,
         architecture_evidence_state_checkpoints.event_hash AS checkpoint_event_hash,
         architecture_evidence_state_checkpoints.evidence_state_digest AS checkpoint_evidence_state_digest
       FROM architecture_events JOIN architecture_change_feed
         ON architecture_change_feed.event_id = architecture_events.event_id
       LEFT JOIN architecture_evidence_state_checkpoints
-        ON architecture_evidence_state_checkpoints.storage_repository_id = architecture_events.storage_repository_id
-        AND architecture_evidence_state_checkpoints.storage_workspace_id = architecture_events.storage_workspace_id
+        ON architecture_evidence_state_checkpoints.event_id = architecture_events.event_id
       WHERE architecture_events.storage_repository_id = ? AND architecture_events.storage_workspace_id = ?
         AND architecture_events.event_sequence = ?
       LIMIT 1`
@@ -4565,6 +4636,8 @@ function readExplorerProjectionAuthorityFromDb(
   }
   if (
     String(authorityRow?.checkpoint_event_id) !== architectureLedgerStorageId(target.event.worktree, target.event.eventId)
+    || Number(authorityRow?.checkpoint_event_sequence) !== target.eventSequence
+    || Number(authorityRow?.checkpoint_scope_event_count) !== scopeEventCount
     || String(authorityRow?.checkpoint_event_hash) !== target.eventHash
     || String(authorityRow?.checkpoint_evidence_state_digest) !== evidenceStateDigest
   ) {
@@ -5429,11 +5502,17 @@ function architectureLedgerEventFromAuthorityRow(scope: ArchitectureLedgerScope,
 function architectureLedgerEventFromStoredRow(row: Record<string, unknown>): ArchitectureEventV1 {
   const event = JSON.parse(String(row.event_json)) as ArchitectureEventV1;
   validateArchitectureLedgerEvent(event);
+  const eventSequence = Number(row.event_sequence);
+  const scopeEventCount = Number(row.scope_event_count);
   const previousEventHash = row.previous_event_hash === null || row.previous_event_hash === undefined
     ? null
     : String(row.previous_event_hash);
   if (
-    String(row.event_id) !== architectureLedgerStorageId(event.worktree, event.eventId)
+    !Number.isSafeInteger(eventSequence)
+    || eventSequence < 1
+    || !Number.isSafeInteger(scopeEventCount)
+    || scopeEventCount < 1
+    || String(row.event_id) !== architectureLedgerStorageId(event.worktree, event.eventId)
     || String(row.repository_id) !== event.repository.repositoryId
     || String(row.storage_repository_id) !== event.repository.storageRepositoryId
     || String(row.workspace_id) !== event.worktree.workspaceId
@@ -5714,7 +5793,7 @@ function backfillArchitectureChangeFeed(db: SqliteDatabase): void {
     missingCount === 0
     && marker
     && architectureChangeFeedBackfillMarkerMatches(db, marker)
-    && architectureEvidenceStateCheckpointsMatchLatestFeed(db)
+    && architectureEvidenceStateCheckpointsMatchFeed(db)
   ) return;
   const rows = db.prepare("SELECT * FROM architecture_events ORDER BY event_sequence ASC").all();
   if (rows.length === 0) {
@@ -5728,7 +5807,7 @@ function backfillArchitectureChangeFeed(db: SqliteDatabase): void {
     constraints: Map<string, ArchitectureLedgerConstraintRecord>;
     evidence: EvidenceStateAtCursorV1;
     previousEventHash: string | null;
-    lastEvent: ArchitectureEventV1 | null;
+    scopeEventCount: number;
   }>();
   let transactionOpen = false;
   let pendingInBatch = 0;
@@ -5745,9 +5824,15 @@ function backfillArchitectureChangeFeed(db: SqliteDatabase): void {
         constraints: new Map<string, ArchitectureLedgerConstraintRecord>(),
         evidence: emptyArchitectureLedgerEvidenceState(),
         previousEventHash: null,
-        lastEvent: null
+        scopeEventCount: 0
       };
-      const eventSequence = assertArchitectureChangeFeedBackfillEventRow(row, event, state.previousEventHash, previousGlobalSequence);
+      const eventSequence = assertArchitectureChangeFeedBackfillEventRow(
+        row,
+        event,
+        state.previousEventHash,
+        previousGlobalSequence,
+        state.scopeEventCount + 1
+      );
       previousGlobalSequence = eventSequence;
       const payload = architectureLedgerPayload(event);
       const beforeGraph = architectureChangeFeedBackfillReferenceState(state, payload);
@@ -5794,12 +5879,23 @@ function backfillArchitectureChangeFeed(db: SqliteDatabase): void {
           evidenceBeforeDigest: evidenceBefore.stateDigest,
           evidenceAfterDigest: evidenceAfter.stateDigest
         });
+        if (!transactionOpen) {
+          db.exec("BEGIN IMMEDIATE");
+          transactionOpen = true;
+        }
+        persistArchitectureEvidenceStateCheckpoint(db, event, evidenceAfter.stateDigest);
+        pendingInBatch += 1;
+        if (pendingInBatch >= 500) {
+          db.exec("COMMIT");
+          transactionOpen = false;
+          pendingInBatch = 0;
+        }
       }
       applyArchitectureChangeFeedBackfillGraphReferences(state, payload);
       state.graphDigest = graphAfterDigest;
       state.evidence = evidenceAfter;
       state.previousEventHash = event.eventHash!;
-      state.lastEvent = event;
+      state.scopeEventCount += 1;
       states.set(scopeKey, state);
     }
     if (transactionOpen) {
@@ -5814,10 +5910,6 @@ function backfillArchitectureChangeFeed(db: SqliteDatabase): void {
     }
     db.exec("BEGIN IMMEDIATE");
     transactionOpen = true;
-    for (const state of states.values()) {
-      if (!state.lastEvent) throw new Error("architecture-evidence-state-checkpoint-event-missing");
-      persistArchitectureEvidenceStateCheckpoint(db, state.lastEvent, state.evidence.stateDigest);
-    }
     persistArchitectureChangeFeedBackfillMarker(db, rows);
     db.exec("COMMIT");
     transactionOpen = false;
@@ -5827,27 +5919,43 @@ function backfillArchitectureChangeFeed(db: SqliteDatabase): void {
   }
 }
 
-function architectureEvidenceStateCheckpointsMatchLatestFeed(db: SqliteDatabase): boolean {
-  const mismatch = db.prepare(
-    `SELECT 1 AS mismatch
-      FROM architecture_change_feed AS feed
-      LEFT JOIN architecture_change_feed AS newer
-        ON newer.storage_repository_id = feed.storage_repository_id
-        AND newer.storage_workspace_id = feed.storage_workspace_id
-        AND newer.feed_sequence > feed.feed_sequence
-      LEFT JOIN architecture_evidence_state_checkpoints AS checkpoint
-        ON checkpoint.storage_repository_id = feed.storage_repository_id
-        AND checkpoint.storage_workspace_id = feed.storage_workspace_id
-      WHERE newer.feed_sequence IS NULL
-        AND (
-          checkpoint.event_id IS NULL
-          OR checkpoint.event_id != feed.event_id
-          OR checkpoint.event_hash != feed.event_hash
-          OR checkpoint.evidence_state_digest != feed.evidence_after_digest
-        )
-      LIMIT 1`
+function architectureEvidenceStateCheckpointsMatchFeed(db: SqliteDatabase): boolean {
+  const counts = db.prepare(
+    `SELECT
+      (SELECT COUNT(*) FROM architecture_events) AS event_count,
+      (SELECT COUNT(*) FROM architecture_change_feed) AS feed_count,
+      (SELECT COUNT(*) FROM architecture_evidence_state_checkpoints) AS checkpoint_count`
   ).get();
-  return !mismatch;
+  const eventCount = Number(counts?.event_count);
+  if (eventCount !== Number(counts?.feed_count) || eventCount !== Number(counts?.checkpoint_count)) return false;
+  const latest = db.prepare(
+    `SELECT feed.storage_repository_id AS feed_storage_repository_id,
+        feed.storage_workspace_id AS feed_storage_workspace_id,
+        feed.event_id AS feed_event_id, feed.event_sequence AS feed_event_sequence,
+        feed.event_hash AS feed_event_hash, feed.evidence_after_digest AS feed_evidence_after_digest,
+        event.scope_event_count AS event_scope_event_count,
+        checkpoint.storage_repository_id AS checkpoint_storage_repository_id,
+        checkpoint.storage_workspace_id AS checkpoint_storage_workspace_id,
+        checkpoint.event_id AS checkpoint_event_id,
+        checkpoint.event_sequence AS checkpoint_event_sequence,
+        checkpoint.scope_event_count AS checkpoint_scope_event_count,
+        checkpoint.event_hash AS checkpoint_event_hash,
+        checkpoint.evidence_state_digest AS checkpoint_evidence_state_digest
+      FROM architecture_change_feed AS feed
+      JOIN architecture_events AS event ON event.event_id = feed.event_id
+      LEFT JOIN architecture_evidence_state_checkpoints AS checkpoint ON checkpoint.event_id = feed.event_id
+      ORDER BY feed.feed_sequence DESC LIMIT 1`
+  ).get();
+  if (!latest) return eventCount === 0;
+  return (
+    String(latest.checkpoint_storage_repository_id) === String(latest.feed_storage_repository_id)
+    && String(latest.checkpoint_storage_workspace_id) === String(latest.feed_storage_workspace_id)
+    && String(latest.checkpoint_event_id) === String(latest.feed_event_id)
+    && Number(latest.checkpoint_event_sequence) === Number(latest.feed_event_sequence)
+    && Number(latest.checkpoint_scope_event_count) === Number(latest.event_scope_event_count)
+    && String(latest.checkpoint_event_hash) === String(latest.feed_event_hash)
+    && String(latest.checkpoint_evidence_state_digest) === String(latest.feed_evidence_after_digest)
+  );
 }
 
 function assertArchitectureChangeFeedBackfillRow(
@@ -5910,10 +6018,13 @@ function assertArchitectureChangeFeedBackfillEventRow(
   row: Record<string, unknown>,
   event: ArchitectureEventV1,
   expectedPreviousEventHash: string | null,
-  previousGlobalSequence: number
+  previousGlobalSequence: number,
+  expectedScopeEventCount: number
 ): number {
   const eventSequence = Number(row.event_sequence);
-  if (!Number.isSafeInteger(eventSequence) || eventSequence <= previousGlobalSequence) throw new Error("architecture-change-feed-backfill-sequence-invalid");
+  if (!Number.isSafeInteger(eventSequence) || eventSequence !== previousGlobalSequence + 1) {
+    throw new Error("architecture-change-feed-backfill-sequence-invalid");
+  }
   const expectedStorageEventId = architectureLedgerStorageId(event.worktree, event.eventId);
   const pairs: Array<[unknown, unknown, string]> = [
     [row.event_id, expectedStorageEventId, "event-id"],
@@ -5921,6 +6032,8 @@ function assertArchitectureChangeFeedBackfillEventRow(
     [row.storage_repository_id, event.repository.storageRepositoryId, "storage-repository-id"],
     [row.workspace_id, event.worktree.workspaceId, "workspace-id"],
     [row.storage_workspace_id, architectureLedgerWorkspaceKey(event.worktree), "storage-workspace-id"],
+    [row.source_storage_workspace_id, event.worktree.storageWorkspaceId, "source-storage-workspace-id"],
+    [row.scope_event_count, expectedScopeEventCount, "scope-event-count"],
     [row.branch, event.worktree.branch, "branch"],
     [row.head_sha, event.worktree.headSha, "head-sha"],
     [row.worktree_digest, event.worktree.worktreeDigest, "worktree-digest"],

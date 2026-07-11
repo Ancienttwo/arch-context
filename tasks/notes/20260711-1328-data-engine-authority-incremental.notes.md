@@ -169,11 +169,12 @@
 - Final holistic hardening validates a duplicate append by re-reading the complete
   stored event row through the canonical row/JSON/hash/scope validator. A forged
   `event_json` can no longer become an accepted idempotent success.
-- Evidence-state authority now has an independent per-scope checkpoint, written in
-  the same event/feed transaction and reconstructed only after verified historical
-  replay. Explorer cross-checks the latest feed event/hash/digest against this row in
-  O(1), and feed backfill rejects an existing row that differs from replay authority.
-- Final full `bun run verify` passes 1061 tests with 0 failures. The new migration is
+- Evidence-state authority now has one immutable append-only checkpoint per event,
+  written in the same event/feed transaction and reconstructed only after verified
+  historical replay. It binds scope, global sequence, scope count, event/hash, and
+  evidence digest. Explorer cross-checks the latest authority in O(1), while backfill
+  rejects any existing feed/checkpoint row that differs from replay authority.
+- Final full `bun run verify` passes 1062 tests with 0 failures. The new migration is
   included in AL10 migration/package signatures, and all privacy, acceptance-ledger,
   sprint-status, packaged CLI, Explorer, governance, and eval gates pass.
 

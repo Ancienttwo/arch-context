@@ -1,9 +1,9 @@
 # Data Engine DE5 Readback
 
 - Verdict: **PASS**
-- Generated: 2026-07-11T13:00:04.146Z
-- Baseline commit: `92be322c28fc0c98f252c45d3a24ce36513e877f`
-- Source digest: `sha256:15212ea34091f57fc60d43131e18cba62d35ae7ec059163f4f52468bb9d6a163`
+- Generated: 2026-07-11T13:12:08.175Z
+- Baseline commit: `ff7ae0edffd70cdf28843459ded4e2f71f1c5701`
+- Source digest: `sha256:b982c9f12a97b7cef9d29b13cd81fb771bf54e90327f1070e46eeb2873ea54da`
 - Branch: `codex/data-engine-authority-incremental`
 
 ## Invariants
@@ -23,15 +23,15 @@
 
 | Entities | Relations | p95 ms | Returned nodes | Returned relations | Bounded |
 |---:|---:|---:|---:|---:|---|
-| 10000 | 9999 | 1.71 | 50 | 49 | PASS |
-| 100000 | 99999 | 0.58 | 50 | 49 | PASS |
+| 10000 | 9999 | 1.76 | 50 | 49 | PASS |
+| 100000 | 99999 | 0.52 | 50 | 49 | PASS |
 
 ## Commands
 
 | Command | Status | Duration ms |
 |---|---|---:|
-| `bun run typecheck` | PASS | 3902 |
-| `bun test packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon` | PASS | 29390 |
-| `bun run verify:explorer` | PASS | 323 |
-| `node scripts/packaged-cli-smoke.mjs` | PASS | 4581 |
-| `repo-harness run contract-run preflight --contract tasks/contracts/20260711-2005-data-engine-de5-cache-lifecycle-observability.contract.md --json` | PASS | 257 |
+| `bun run typecheck` | PASS | 4135 |
+| `bun test packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon` | PASS | 27608 |
+| `bun run verify:explorer` | PASS | 243 |
+| `node scripts/packaged-cli-smoke.mjs` | PASS | 4551 |
+| `repo-harness run contract-run preflight --contract tasks/contracts/20260711-2005-data-engine-de5-cache-lifecycle-observability.contract.md --json` | PASS | 283 |

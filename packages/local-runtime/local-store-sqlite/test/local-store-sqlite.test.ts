@@ -838,6 +838,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         "UPDATE architecture_change_feed SET evidence_after_digest = ? WHERE feed_sequence = (SELECT MAX(feed_sequence) FROM architecture_change_feed)",
         [`sha256:${"f".repeat(64)}`]
       );
+      expect(() => authorityPoison.run(
+        "UPDATE architecture_evidence_state_checkpoints SET evidence_state_digest = ?",
+        [`sha256:${"f".repeat(64)}`]
+      )).toThrow("architecture-evidence-state-checkpoints-immutable");
+      expect(() => authorityPoison.run(
+        "DELETE FROM architecture_evidence_state_checkpoints"
+      )).toThrow("architecture-evidence-state-checkpoints-immutable");
       await expect(store.readExplorerProjectionAuthority(ARCHITECTURE_LEDGER_SCOPE))
         .rejects.toThrow("explorer-projection-authority-evidence-checkpoint-mismatch");
       authorityPoison.run(
@@ -2319,6 +2326,35 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("architecture ledger cursors remain bound to immutable per-event checkpoints", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-architecture-ledger-cursor-authority-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    try {
+      await store.migrate();
+      const first = architectureLedgerEvent(0);
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first] });
+      const poison = new Database(databasePath);
+      poison.run("DROP TRIGGER architecture_events_immutable_update");
+      poison.run("DROP TRIGGER architecture_events_scope_backfill_only");
+      poison.run("UPDATE architecture_events SET scope_event_count = 999");
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first] }))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
+      await expect(store.readExplorerProjectionAuthority(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("explorer-projection-authority-evidence-checkpoint-mismatch");
+
+      poison.run("UPDATE architecture_events SET scope_event_count = 1, event_sequence = 999");
+      await expect(store.appendArchitectureEvents({ writer: "runtime-daemon", events: [first] }))
+        .rejects.toThrow("architecture-ledger-event-authority-mismatch");
+      await expect(store.readExplorerProjectionAuthority(ARCHITECTURE_LEDGER_SCOPE))
+        .rejects.toThrow("explorer-projection-authority-feed-mismatch");
+      poison.close();
+    } finally {
+      store.close();
+      removeTempRoot(root);
+    }
+  });
+
   test("ADR-0042: audit run pending -> issuing -> issued transitions append without idempotency conflict and project the latest status", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-audit-run-transitions-"));
     const databasePath = join(root, "runtime.sqlite");
@@ -2772,8 +2808,10 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_events")).toBe(0);
       expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_event_subjects")).toBe(0);
       expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_change_feed")).toBe(0);
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_evidence_state_checkpoints")).toBe(0);
 
       await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [create, update] });
+      expect(await sqliteScalar(dbPath, "SELECT COUNT(*) FROM architecture_evidence_state_checkpoints")).toBe(2);
       const firstPoll = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed", limit: 10 });
       const duplicatePoll = await store.listArchitectureChangeFeed({ ...ARCHITECTURE_LEDGER_SCOPE, consumerId: "test.feed", limit: 10 });
       expect(duplicatePoll.records).toEqual(firstPoll.records);

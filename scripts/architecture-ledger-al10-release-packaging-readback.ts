@@ -81,6 +81,8 @@ const BUNDLE_SIGNATURES = [
       "architecture_change_feed_consumers",
       "architecture_change_feed_backfill_state",
       "architecture_evidence_state_checkpoints",
+      "architecture_evidence_state_checkpoints_immutable_update",
+      "architecture_evidence_state_checkpoints_immutable_delete",
       "explorer_projection_cache",
       "explorer_runtime_metrics",
       "evidence_state_digest",
