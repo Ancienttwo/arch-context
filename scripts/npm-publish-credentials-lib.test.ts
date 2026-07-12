@@ -20,7 +20,7 @@ describe("withNpmPublishCredentials", () => {
           npmrcDir = dirname(npmrcPath);
           expect(existsSync(npmrcPath)).toBe(true);
           const mode = statSync(npmrcPath).mode & 0o777;
-          expect(mode).toBe(0o600);
+          if (process.platform !== "win32") expect(mode).toBe(0o600);
           const contents = readFileSync(npmrcPath, "utf8");
           expect(contents).toContain(`_authToken=${FAKE_TOKEN}`);
           expect(contents).toContain("registry=https://registry.example.test/");

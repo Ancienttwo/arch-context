@@ -4,7 +4,7 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-12T06:17:36.033Z",
+  "generatedAt": "2026-07-12T06:45:15.611Z",
   "package": {
     "name": "archctx",
     "version": "0.3.0",

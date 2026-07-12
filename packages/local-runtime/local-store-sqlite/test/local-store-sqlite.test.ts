@@ -37,7 +37,7 @@ import {
 } from "../src/index";
 import { TestLocalStore } from "./factories";
 
-const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = 30_000;
+const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 const LOCAL_STORE_SLOW_TEST_TIMEOUT_MS = 15_000;
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {

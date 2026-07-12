@@ -107,7 +107,7 @@ describe("governance verify workflow", () => {
 
 function listScriptFiles(): string[] {
   return readdirSync("scripts")
-    .map((name) => join("scripts", name))
+    .map((name) => join("scripts", name).replaceAll("\\", "/"))
     .filter((path) => statSync(path).isFile())
     .sort();
 }
