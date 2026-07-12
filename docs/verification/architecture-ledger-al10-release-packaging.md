@@ -22,8 +22,8 @@
 - Package: archctx@0.3.0
 - Tarball: archctx-0.3.0.tgz
 - Package files: 81
-- CLI bytes: 1757505
-- CLI digest: sha256:477ecfc562f2d4552616e4e954e2187bde2ba98470459a46617b63115e14257a
+- CLI bytes: 1757543
+- CLI digest: sha256:2d39fe1846fc8b6cdc3612fb9676e2f3f3b913cc5df626151161b86bbede331d
 
 ## Bundle Signatures
 

@@ -4,7 +4,7 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-12T06:45:15.611Z",
+  "generatedAt": "2026-07-12T07:37:11.857Z",
   "package": {
     "name": "archctx",
     "version": "0.3.0",
@@ -30,10 +30,10 @@
     "artifactDir": "_ops/npm/fg6-release-dry-run",
     "tarball": "archctx-0.3.0.tgz",
     "publishDryRunId": "archctx@0.3.0",
-    "integrity": "sha512-cyjzG6jdns9mIodPNUt9gTCR2uO+4jActhsr+wE8/RVEHYz+zeHZ5pD5y99xielZgJa3ZJeBU9R+eu5kvohh4A==",
-    "shasum": "80c604b481abc3e4eba3c3a421e7af7cd4ea846c",
-    "size": 386924,
-    "unpackedSize": 2056178,
+    "integrity": "sha512-thrpZN6CJEnRVuJoIQAHZrbuasPjiuNqIM0S7/DeQ7zRlraodmtWhZIe/WRGaLdN0Vd+HZ3isAkyJFK7VXkSmw==",
+    "shasum": "b5401c727ce11af7bb4afc058c5d433d210ecbf0",
+    "size": 386928,
+    "unpackedSize": 2056216,
     "entryCount": 81,
     "files": [
       "NOTICE.md",
