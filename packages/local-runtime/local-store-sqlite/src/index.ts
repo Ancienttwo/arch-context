@@ -6673,7 +6673,7 @@ function restoreRuntimeStateRecoveryFiles(files: RuntimeStateRecoveryFileV1[], p
 }
 
 function fsyncFile(path: string): void {
-  const fd = openSync(path, "r");
+  const fd = openSync(path, process.platform === "win32" ? "r+" : "r");
   try {
     fsyncSync(fd);
   } finally {

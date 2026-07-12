@@ -41,7 +41,12 @@ const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = process.platform === "win32" ? 120_00
 const LOCAL_STORE_SLOW_TEST_TIMEOUT_MS = 15_000;
 
 function rmSync(path: string, options?: RmDirOptions): void {
-  nodeRmSync(path, { maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100, ...options });
+  try {
+    nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
+  } catch (error) {
+    if (process.platform === "win32" && isTransientWindowsCleanupError(error)) return;
+    throw error;
+  }
 }
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {

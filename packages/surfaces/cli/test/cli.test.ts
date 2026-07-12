@@ -23,7 +23,12 @@ const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
 function rmSync(path: string, options?: RmDirOptions): void {
-  nodeRmSync(path, { maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100, ...options });
+  try {
+    nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
+  } catch (error) {
+    if (isIgnorableWindowsCleanupError(error)) return;
+    throw error;
+  }
 }
 
 function runTestCli(command: string, args: string[], root: string, stateRoot = testStateRoot(root)) {
