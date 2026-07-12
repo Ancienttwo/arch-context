@@ -9,7 +9,7 @@ import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
@@ -494,7 +494,7 @@ async function runRuntimeStateCommand(
   if (write && args.includes("--dry-run")) {
     return errorEnvelope("state.recover", "AC_SCHEMA_INVALID", "state recover accepts --dry-run or --write, not both");
   }
-  const worktreeDigest = computeWorktreeDigest(cwd);
+  const worktreeDigest = runtimeStateRecoveryWorktreeDigest(cwd);
   const inspection = inspectRuntimeStateRecovery(cwd);
   const writeCommand = inspection.status === "recovery-required" && inspection.targetFingerprint
     ? `archctx state recover --from-git --write --expected-worktree-digest ${worktreeDigest} --expected-target-fingerprint ${inspection.targetFingerprint}`
@@ -514,7 +514,7 @@ async function runRuntimeStateCommand(
   if (expectedWorktreeDigest !== worktreeDigest) {
     return errorEnvelope("state.recover", "AC_PRECONDITION_FAILED", `state recover worktree digest mismatch: expected ${expectedWorktreeDigest}, current ${worktreeDigest}`);
   }
-  if (inspection.status !== "recovery-required" || inspection.reasonCode !== "target-incomplete") {
+  if (inspection.status !== "recovery-required") {
     return errorEnvelope("state.recover", "AC_CAPABILITY_UNSUPPORTED", `state recovery is not available: ${inspection.reasonCode}`);
   }
   if (inspection.targetFingerprint !== expectedTargetFingerprint) {
@@ -527,17 +527,24 @@ async function runRuntimeStateCommand(
     expectedWorktreeDigest
   });
   const acceptExternalProjection = args.includes("--accept-external-projection");
+  const rebuildWorktreeDigest = computeWorktreeDigest(cwd);
   const rebuild = await (await runtime()).ledgerRebuild(cwd, {
     fromGit: true,
-    expectedWorktreeDigest,
+    expectedWorktreeDigest: rebuildWorktreeDigest,
     acceptExternalProjection
   });
-  const retryCommand = `archctx ledger rebuild --from-git --expected-worktree-digest ${expectedWorktreeDigest}${acceptExternalProjection ? " --accept-external-projection" : ""}`;
+  const rebuildSummary = {
+    schemaVersion: "archcontext.runtime-state-recovery-rebuild-summary/v1",
+    ok: rebuild.ok,
+    requestId: rebuild.requestId,
+    resultDigest: digestJson(rebuild as unknown as Json)
+  };
+  const retryCommand = `archctx ledger rebuild --from-git --expected-worktree-digest ${rebuildWorktreeDigest}${acceptExternalProjection ? " --accept-external-projection" : ""}`;
   if (!rebuild.ok) {
     return {
       ...rebuild,
       requestId: "state.recover",
-      data: { recovery, rebuild, retryCommand } as unknown as Json
+      data: { recovery, rebuildSummary, retryCommand } as unknown as Json
     };
   }
   const completion = completeRuntimeStateRecovery({ recovery, rebuildResult: rebuild as unknown as Json });
@@ -545,8 +552,9 @@ async function runRuntimeStateCommand(
     schemaVersion: "archcontext.runtime-state-recovery-command/v1",
     status: "recovered",
     recovery,
-    rebuild,
+    rebuildSummary,
     completion,
+    rebuildWorktreeDigest,
     retryCommand
   } as unknown as Json);
 }

@@ -1639,7 +1639,13 @@ describe("archctx CLI", () => {
       expect(recovered.ok).toBe(true);
       expect((recovered.data as any).status).toBe("recovered");
       expect((recovered.data as any).recovery.status).toBe("target-published-rebuild-required");
-      expect((recovered.data as any).rebuild.ok).toBe(true);
+      expect((recovered.data as any).rebuildSummary).toMatchObject({
+        schemaVersion: "archcontext.runtime-state-recovery-rebuild-summary/v1",
+        ok: true,
+        requestId: "ledger.rebuild"
+      });
+      expect((recovered.data as any).rebuildSummary.resultDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(JSON.stringify(recovered).length).toBeLessThan(20_000);
       expect((recovered.data as any).completion.status).toBe("recovered");
       expect(JSON.parse(readFileSync((recovered.data as any).recovery.receiptPath, "utf8")).status).toBe("recovered");
       const quarantinedDatabase = (recovered.data as any).recovery.quarantinedFiles.find((file: any) => file.name === "runtime.sqlite");
@@ -1705,6 +1711,11 @@ describe("archctx CLI", () => {
         acceptExternalProjection: true
       });
       expect((failed.data as any).recovery.status).toBe("target-published-rebuild-required");
+      expect((failed.data as any).rebuildSummary).toMatchObject({
+        schemaVersion: "archcontext.runtime-state-recovery-rebuild-summary/v1",
+        ok: false,
+        requestId: "ledger.rebuild"
+      });
       expect((failed.data as any).retryCommand).toContain("--accept-external-projection");
       expect(JSON.parse(readFileSync((failed.data as any).recovery.receiptPath, "utf8")).status).toBe("target-published-rebuild-required");
       expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");

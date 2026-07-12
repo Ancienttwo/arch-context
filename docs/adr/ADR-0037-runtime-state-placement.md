@@ -56,9 +56,10 @@ archctx state recover --from-git --write \
 ```
 
 Dry-run executes before daemon creation and may authorize recovery only when the
-canonical default target is `target-incomplete`. Current, absent, symlinked, or
-explicitly overridden targets are not recovery candidates. There is no force mode or
-arbitrary-path reset.
+canonical default target is `target-incomplete`, or when a private disposable copy of
+a schema-current target fails the complete startup migration/backfill probe. A truly
+current, absent, symlinked, explicitly overridden, or live-daemon target is not a
+recovery candidate. There is no force mode or arbitrary-path reset.
 
 Write recovery uses the migration lock, revalidates the exact target family and
 worktree digests, verifies disk capacity, constructs a clean current-schema target in
@@ -66,10 +67,24 @@ staging, and copies the old SQLite/WAL/SHM/marker bytes into a private metadata-
 quarantine before publish. A caught publish failure restores the original fingerprint.
 The quarantine is retained and is never deleted or restored automatically.
 
+The confirmation fingerprint covers the durable SQLite database, WAL, and migration
+marker. The copied SHM coordination file is recorded and preserved but excluded from
+the optimistic-lock digest because a read-only SQLite open may legitimately rewrite
+SHM bytes after the daemon has stopped.
+
+The recovery confirmation worktree digest excludes `.ai/harness/` and the Claude
+session/trace files, whose operational records may change between two CLI invocations.
+The subsequent daemon rebuild receives a fresh complete worktree digest inside the same
+write invocation, preserving the existing ledger rebuild precondition.
+
 Recovery does not interpret or salvage old rows. After clean publish it crosses the
 existing daemon-owned `ledgerRebuild(fromGit)` boundary. Git-visible `.archcontext/`
 remains the only reconstruction authority; external projection changes still require
 their existing explicit acceptance.
+
+The command response exposes a bounded rebuild summary and a digest of the full daemon
+result. It does not duplicate the full rebuild payload into CLI output or the recovery
+receipt.
 
 # Consequences
 

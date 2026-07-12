@@ -1237,6 +1237,42 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   });
 
+  test("runtime-state recovery detects a schema-current target whose startup backfill fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-startup-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-startup-root-"));
+    try {
+      const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
+      const paths = runtimeStatePaths(root, env);
+      const store = new SqliteLocalStore(paths.localStorePath);
+      await store.migrate();
+      await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [architectureLedgerEvent(0)] });
+      store.close();
+      const poison = new Database(paths.localStorePath);
+      poison.run("DROP TRIGGER architecture_events_immutable_update");
+      poison.run("DROP TRIGGER architecture_events_scope_backfill_only");
+      poison.run("UPDATE architecture_events SET source_storage_workspace_id = NULL, scope_event_count = NULL, event_hash = 'tampered'");
+      poison.run("PRAGMA wal_checkpoint(TRUNCATE)");
+      poison.close();
+
+      expect(inspectLegacyLocalStoreMigration(root, env).status).toBe("target-current");
+      const inspection = inspectRuntimeStateRecovery(root, env);
+      expect(inspection.status).toBe("recovery-required");
+      expect(inspection.reasonCode).toBe("target-startup-failed");
+      expect(inspection.integrityError).toContain("architecture-event-direct-scope-backfill-authority-mismatch");
+      const result = recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: inspection.targetFingerprint!,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      });
+      expect(result.targetIntegrity).toBe("ok");
+      expect(inspectRuntimeStateRecovery(root, env)).toMatchObject({ status: "not-required", reasonCode: "target-current" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
   test("runtime-state recovery rejects stale fingerprints, current or overridden targets, and insufficient disk", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-guards-repo-"));
     const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-guards-root-"));

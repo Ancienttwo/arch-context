@@ -57,6 +57,11 @@ const LEGACY_MIGRATION_LOCK_FILE = "runtime.sqlite.migration.lock";
 const RUNTIME_STATE_RECOVERY_RECEIPT_FILE = "runtime-state-recovery.json";
 const RUNTIME_STATE_RECOVERY_FREE_SPACE_MARGIN_BYTES = 16 * 1024 * 1024;
 const RUNTIME_STATE_RECOVERY_HASH_BUFFER_BYTES = 1024 * 1024;
+const RUNTIME_STATE_RECOVERY_WORKTREE_IGNORES = [
+  ".ai/harness",
+  ".claude/.session-id",
+  ".claude/.trace.jsonl"
+] as const;
 const REQUIRED_LOCAL_STORE_TABLES = [
   "schema_migrations",
   "repository_sessions",
@@ -934,7 +939,7 @@ export interface RuntimeStateRecoveryFileV1 {
 export interface RuntimeStateRecoveryInspectionV1 {
   schemaVersion: "archcontext.runtime-state-recovery-inspection/v1";
   status: "recovery-required" | "not-required" | "unsupported" | "blocked";
-  reasonCode: "target-incomplete" | "target-current" | "target-missing" | "explicit-local-store-override" | "daemon-running";
+  reasonCode: "target-incomplete" | "target-startup-failed" | "target-current" | "target-missing" | "explicit-local-store-override" | "daemon-running";
   writes: "none";
   targetLocalStorePath: string;
   migrationStatus: LegacyLocalStoreMigrationStatus;
@@ -1065,6 +1070,13 @@ export function inspectRuntimeStateRecovery(
     return runtimeStateRecoveryInspection(paths, migration, "unsupported", "explicit-local-store-override", []);
   }
   if (migration.status === "target-current") {
+    const daemonPid = runtimeStateRecoveryLiveDaemonPid(paths);
+    if (daemonPid !== undefined) return runtimeStateRecoveryInspection(paths, migration, "not-required", "target-current", [], undefined, daemonPid);
+    const snapshot = runtimeStateRecoveryTargetSnapshot(paths);
+    const startupProbe = runtimeStateRecoveryStartupProbe(paths, snapshot.files);
+    if (!startupProbe.ok) {
+      return runtimeStateRecoveryInspection(paths, migration, "recovery-required", "target-startup-failed", snapshot.files, snapshot.fingerprint, undefined, startupProbe.error);
+    }
     return runtimeStateRecoveryInspection(paths, migration, "not-required", "target-current", []);
   }
   if (migration.status !== "target-incomplete") {
@@ -1086,6 +1098,10 @@ export function assertRuntimeStateRecoveryDiskBudget(availableBytes: number, req
   }
 }
 
+export function runtimeStateRecoveryWorktreeDigest(root = process.cwd()): string {
+  return computeWorktreeDigest(runtimeStatePaths(root).repositoryRoot, { ignore: [...RUNTIME_STATE_RECOVERY_WORKTREE_IGNORES] });
+}
+
 export function recoverRuntimeStateTarget(input: {
   root?: string;
   expectedTargetFingerprint: string;
@@ -1096,7 +1112,7 @@ export function recoverRuntimeStateTarget(input: {
   const env = input.env ?? process.env;
   if (env[ARCHCONTEXT_LOCAL_STORE_PATH_ENV]) throw new Error("runtime-state-recovery-explicit-local-store-override-forbidden");
   const paths = runtimeStatePaths(root, env);
-  const currentWorktreeDigest = computeWorktreeDigest(paths.repositoryRoot);
+  const currentWorktreeDigest = runtimeStateRecoveryWorktreeDigest(paths.repositoryRoot);
   if (currentWorktreeDigest !== input.expectedWorktreeDigest) {
     throw new Error(`runtime-state-recovery-worktree-digest-mismatch:${currentWorktreeDigest}`);
   }
@@ -1111,11 +1127,15 @@ export function recoverRuntimeStateTarget(input: {
   try {
     assertRuntimeStateRecoveryDaemonStopped(paths);
     const inspection = inspectRuntimeStateRecovery(root, env);
-    if (inspection.status !== "recovery-required" || inspection.reasonCode !== "target-incomplete") {
+    if (inspection.status !== "recovery-required") {
       throw new Error(`runtime-state-recovery-not-required:${inspection.reasonCode}`);
     }
     if (inspection.targetFingerprint !== input.expectedTargetFingerprint) {
       throw new Error(`runtime-state-recovery-target-fingerprint-mismatch:${inspection.targetFingerprint ?? "missing"}`);
+    }
+    const lockedSnapshot = runtimeStateRecoveryTargetSnapshot(paths);
+    if (lockedSnapshot.fingerprint !== input.expectedTargetFingerprint) {
+      throw new Error(`runtime-state-recovery-target-fingerprint-mismatch:${lockedSnapshot.fingerprint}`);
     }
     assertRuntimeStateRecoveryDiskBudget(inspection.availableBytes, inspection.requiredFreeBytes);
 
@@ -1128,8 +1148,8 @@ export function recoverRuntimeStateTarget(input: {
     quarantineDirectory = join(paths.workspaceStateDir, "quarantine", `runtime-state-recovery-${Date.now()}-${randomUUID()}`);
     ensurePrivateDir(quarantineDirectory);
     assertRuntimeStateRecoveryPrivatePermissions(quarantineDirectory, 0o700);
-    quarantineFiles = copyRuntimeStateRecoveryFiles(inspection.targetFiles, quarantineDirectory);
-    assertRuntimeStateRecoveryCopy(inspection.targetFiles, quarantineFiles);
+    quarantineFiles = copyRuntimeStateRecoveryFiles(lockedSnapshot.files, quarantineDirectory);
+    assertRuntimeStateRecoveryCopy(lockedSnapshot.files, quarantineFiles);
     const prePublishSnapshot = runtimeStateRecoveryTargetSnapshot(paths);
     if (prePublishSnapshot.fingerprint !== input.expectedTargetFingerprint) {
       throw new Error(`runtime-state-recovery-target-changed-after-quarantine:${prePublishSnapshot.fingerprint}`);
@@ -6452,7 +6472,8 @@ function runtimeStateRecoveryInspection(
   reasonCode: RuntimeStateRecoveryInspectionV1["reasonCode"],
   files: RuntimeStateRecoveryFileV1[],
   targetFingerprint?: string,
-  daemonPid?: number
+  daemonPid?: number,
+  integrityError?: string
 ): RuntimeStateRecoveryInspectionV1 {
   const targetBytes = files.reduce((total, file) => total + file.sizeBytes, 0);
   const requiredFreeBytes = Math.min(Number.MAX_SAFE_INTEGER, targetBytes + RUNTIME_STATE_RECOVERY_FREE_SPACE_MARGIN_BYTES);
@@ -6463,7 +6484,7 @@ function runtimeStateRecoveryInspection(
     writes: "none",
     targetLocalStorePath: paths.localStorePath,
     migrationStatus: migration.status,
-    ...(migration.integrityCheck.error ? { integrityError: migration.integrityCheck.error } : {}),
+    ...(integrityError ?? migration.integrityCheck.error ? { integrityError: integrityError ?? migration.integrityCheck.error } : {}),
     ...(targetFingerprint ? { targetFingerprint } : {}),
     targetFiles: files,
     targetBytes,
@@ -6471,6 +6492,31 @@ function runtimeStateRecoveryInspection(
     availableBytes: runtimeStateRecoveryAvailableBytes(paths.localStorePath),
     ...(daemonPid === undefined ? {} : { daemonPid })
   };
+}
+
+function runtimeStateRecoveryStartupProbe(
+  paths: RuntimeStatePaths,
+  sourceFiles: RuntimeStateRecoveryFileV1[]
+): { ok: true } | { ok: false; error: string } {
+  const probeDirectory = join(paths.workspaceStateDir, `.runtime.sqlite.recovery-probe-${process.pid}-${randomUUID()}`);
+  const probePath = join(probeDirectory, "runtime.sqlite");
+  try {
+    ensurePrivateDir(probeDirectory);
+    assertRuntimeStateRecoveryPrivatePermissions(probeDirectory, 0o700);
+    for (const source of sourceFiles.filter((file) => file.name.startsWith("runtime.sqlite") && file.name !== LEGACY_MIGRATION_MARKER_FILE)) {
+      const target = join(probeDirectory, source.name);
+      copyFileSync(source.path, target);
+      makePrivateFile(target);
+    }
+    migrateSqliteDatabaseSync(probePath);
+    compactSqliteDatabase(probePath);
+    assertCurrentLocalStore(probePath);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: errorMessage(error) };
+  } finally {
+    rmSync(probeDirectory, { recursive: true, force: true });
+  }
 }
 
 function runtimeStateRecoveryLiveDaemonPid(paths: RuntimeStatePaths): number | undefined {
@@ -6535,7 +6581,10 @@ function digestRuntimeStateRecoveryFile(path: string): string {
 function runtimeStateRecoveryFingerprint(files: RuntimeStateRecoveryFileV1[]): string {
   return digestJson({
     schemaVersion: "archcontext.runtime-state-recovery-target-fingerprint/v1",
-    files: files.map(({ name, sizeBytes, digest }) => ({ name, sizeBytes, digest })).sort((left, right) => left.name.localeCompare(right.name))
+    files: files
+      .filter((file) => file.name !== "runtime.sqlite-shm")
+      .map(({ name, sizeBytes, digest }) => ({ name, sizeBytes, digest }))
+      .sort((left, right) => left.name.localeCompare(right.name))
   } as unknown as Json);
 }
 
@@ -6564,8 +6613,10 @@ function assertRuntimeStateRecoveryCopy(
   sourceFiles: RuntimeStateRecoveryFileV1[],
   copiedFiles: RuntimeStateRecoveryFileV1[]
 ): void {
-  if (runtimeStateRecoveryFingerprint(sourceFiles) !== runtimeStateRecoveryFingerprint(copiedFiles)) {
-    throw new Error("runtime-state-recovery-quarantine-fingerprint-mismatch");
+  const sourceFingerprint = runtimeStateRecoveryFingerprint(sourceFiles);
+  const copiedFingerprint = runtimeStateRecoveryFingerprint(copiedFiles);
+  if (sourceFingerprint !== copiedFingerprint) {
+    throw new Error(`runtime-state-recovery-quarantine-fingerprint-mismatch:${sourceFingerprint}!=${copiedFingerprint}`);
   }
 }
 
