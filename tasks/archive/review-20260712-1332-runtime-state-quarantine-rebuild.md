@@ -20,7 +20,7 @@
 - Change type: code-change
 - Intended files changed: plan/contract/review/notes, local-store recovery, CLI surface/tests, ADR, host readback
 - Actual files changed: exactly the contract allow-list; harness run/check artifacts are generated verification state
-- Commands passed: focused 127/0, typecheck, packaged smoke, implementation full verify 1092/0, recovered-host full verify 1101/0
+- Commands passed: focused 127/0, typecheck, packaged smoke, implementation full verify 1092/0, final merged recovered-host full verify 1102/0
 - External acceptance: manual override; this is a machine-local operational recovery with direct disk/runtime readback
 - Residual risks: quarantine consumes disk until a separately contracted cleanup command exists
 - Reviewer action required: none

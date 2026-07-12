@@ -22,7 +22,7 @@
 
 - Focused local-store + CLI matrix: `127 pass / 0 fail`.
 - Implementation worktree `bun run verify`: `1092 pass / 0 fail`.
-- Recovered host-default partition `bun run verify`: `1101 pass / 0 fail`.
+- Final merged `main` against the recovered host-default partition: `1102 pass / 0 fail`.
 - `bun run typecheck`: PASS.
 - `node scripts/packaged-cli-smoke.mjs`: PASS.
 - Ledger state after daemon upgrade: PASS, no semantic drift.
