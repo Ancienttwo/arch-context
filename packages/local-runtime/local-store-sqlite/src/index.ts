@@ -1139,12 +1139,6 @@ export function recoverRuntimeStateTarget(input: {
     }
     assertRuntimeStateRecoveryDiskBudget(inspection.availableBytes, inspection.requiredFreeBytes);
 
-    ensurePrivateDir(stagingDir);
-    assertRuntimeStateRecoveryPrivatePermissions(stagingDir, 0o700);
-    migrateSqliteDatabaseSync(stagingPath);
-    compactSqliteDatabase(stagingPath);
-    const stagingIntegrity = assertCurrentLocalStore(stagingPath);
-
     quarantineDirectory = join(paths.workspaceStateDir, "quarantine", `runtime-state-recovery-${Date.now()}-${randomUUID()}`);
     ensurePrivateDir(quarantineDirectory);
     assertRuntimeStateRecoveryPrivatePermissions(quarantineDirectory, 0o700);
@@ -1154,6 +1148,13 @@ export function recoverRuntimeStateTarget(input: {
     if (prePublishSnapshot.fingerprint !== input.expectedTargetFingerprint) {
       throw new Error(`runtime-state-recovery-target-changed-after-quarantine:${prePublishSnapshot.fingerprint}`);
     }
+
+    ensurePrivateDir(stagingDir);
+    assertRuntimeStateRecoveryPrivatePermissions(stagingDir, 0o700);
+    migrateSqliteDatabaseSync(stagingPath);
+    compactSqliteDatabase(stagingPath);
+    const stagingIntegrity = assertCurrentLocalStore(stagingPath);
+
     receiptPath = join(quarantineDirectory, RUNTIME_STATE_RECOVERY_RECEIPT_FILE);
     writeRuntimeStateRecoveryReceipt(receiptPath, {
       status: "quarantine-verified",
