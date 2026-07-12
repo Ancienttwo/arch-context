@@ -1,6 +1,6 @@
 # Runtime State Recovery Readback
 
-> **Verdict**: PASS  
+> **Verdict**: PASS
 > **Recorded**: 2026-07-12T05:28:15Z
 
 ## Authority result

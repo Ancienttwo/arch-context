@@ -175,7 +175,7 @@
     },
     "package": {
       "name": "archctx",
-      "version": "0.2.3",
+      "version": "0.3.0",
       "private": false,
       "bin": {
         "archctx": "./bin/archctx.mjs"
@@ -190,15 +190,15 @@
     },
     "artifact": {
       "artifactDir": "_ops/npm/al10-release-packaging",
-      "tarball": "archctx-0.2.3.tgz",
-      "tarballSha256": "sha256:8321c301f03d816c9514a12de2859beec29efa1de5a25e1686e88fa56bce3133",
-      "tarballBytes": 374856,
-      "unpackedBytes": 2003467
+      "tarball": "archctx-0.3.0.tgz",
+      "tarballSha256": "sha256:f4009bd29ef3f2dd98dabcda36df0de07f389f862c7f52dee4b75ef87b6698d1",
+      "tarballBytes": 386924,
+      "unpackedBytes": 2056178
     },
     "bin": {
       "path": "bin/archctx.mjs",
-      "bytes": 1705389,
-      "sha256": "sha256:9401f6e0ef4d47a8532f0df616fd7e9fddc7065dbbed6c1ff02466700eee30f5",
+      "bytes": 1757505,
+      "sha256": "sha256:477ecfc562f2d4552616e4e954e2187bde2ba98470459a46617b63115e14257a",
       "shebang": "#!/usr/bin/env node"
     },
     "packageFiles": [
@@ -329,7 +329,7 @@
       "noSourceFilesPackaged": true
     }
   },
-  "readbackDigest": "sha256:611bdf0940139a4dd37d65e0a3c124a5c765b0e90597486fc369981d6c7a29c3",
+  "readbackDigest": "sha256:ecd13ff0be6bb1b911d471b8a62945b31698ad783fcda6df979ecf4d20a20e40",
   "assertions": {
     "AL10-10": true,
     "AL10-11": true,

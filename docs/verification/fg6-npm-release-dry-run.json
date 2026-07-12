@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-10T17:49:37.831Z",
+  "generatedAt": "2026-07-12T06:17:36.033Z",
   "package": {
     "name": "archctx",
-    "version": "0.2.3",
+    "version": "0.3.0",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -28,13 +28,13 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.2.3.tgz",
-    "publishDryRunId": "archctx@0.2.3",
-    "integrity": "sha512-KLT4KrqhTSrYLi1zU6l2JZHOZMdMajOVkhtEnldkR25qGKjFVE1pubeMSC26piPXa8DGPnVaof/VIsmRhj38yw==",
-    "shasum": "0ad264beca1c0d2ee0f993b2604295bcaf3ba37c",
-    "size": 315660,
-    "unpackedSize": 1634879,
-    "entryCount": 78,
+    "tarball": "archctx-0.3.0.tgz",
+    "publishDryRunId": "archctx@0.3.0",
+    "integrity": "sha512-cyjzG6jdns9mIodPNUt9gTCR2uO+4jActhsr+wE8/RVEHYz+zeHZ5pD5y99xielZgJa3ZJeBU9R+eu5kvohh4A==",
+    "shasum": "80c604b481abc3e4eba3c3a421e7af7cd4ea846c",
+    "size": 386924,
+    "unpackedSize": 2056178,
+    "entryCount": 81,
     "files": [
       "NOTICE.md",
       "README.md",
@@ -93,7 +93,10 @@
       "schemas/runtime/changeset.schema.json",
       "schemas/runtime/evidence-binding.schema.json",
       "schemas/runtime/evidence-item.schema.json",
-      "schemas/runtime/explorer-projection.schema.json",
+      "schemas/runtime/explorer-delta-query.schema.json",
+      "schemas/runtime/explorer-projection-delta.schema.json",
+      "schemas/runtime/explorer-projection-query-v2.schema.json",
+      "schemas/runtime/explorer-projection-v2.schema.json",
       "schemas/runtime/explorer-service.schema.json",
       "schemas/runtime/external-document-resource.schema.json",
       "schemas/runtime/investigation-report.schema.json",
@@ -123,7 +126,7 @@
     "profileFileCount": 1,
     "sourceFileCount": 2,
     "sourceRecordCount": 19,
-    "schemaFileCount": 56,
+    "schemaFileCount": 59,
     "requiredAssetFiles": [
       {
         "path": "assets/catalog.yaml",
@@ -195,7 +198,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.2.3",
+    "postPublishInstallCommand": "npm install -g archctx@0.3.0",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {

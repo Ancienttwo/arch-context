@@ -3380,6 +3380,49 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("committed ledger append remains successful when derived feed drain is deferred", async () => {
+    class DeferredFeedStore extends TestLocalStore {
+      failFeedDrain = true;
+
+      override async listArchitectureChangeFeed(input: Parameters<TestLocalStore["listArchitectureChangeFeed"]>[0]): ReturnType<TestLocalStore["listArchitectureChangeFeed"]> {
+        if (this.failFeedDrain) throw new Error("fixture-derived-feed-unavailable");
+        return super.listArchitectureChangeFeed(input);
+      }
+    }
+
+    const root = tempRepo();
+    const store = new DeferredFeedStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store, clock: () => "2026-07-12T06:05:00.000Z" });
+      await daemon.init(root, "Deferred Feed App");
+      const status = await daemon.runtimeStatus(root);
+      const rebuild = await daemon.ledgerRebuild(root, {
+        fromGit: true,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(rebuild.ok).toBe(true);
+      expect((rebuild.data as any).appendedEventCount).toBe(1);
+      expect(store.architectureChangeFeed).toHaveLength(1);
+      expect(daemon.status().architectureChangeFeed).toMatchObject({ deferredScopeCount: 1 });
+      expect(daemon.status().architectureChangeFeed.failureDigests[0]).toMatch(/^sha256:[0-9a-f]{64}$/);
+
+      store.failFeedDrain = false;
+      const projection = await daemon.explorerProjectionV2(root, {
+        schemaVersion: "archcontext.explorer-projection-query/v2",
+        viewId: "system-map",
+        semanticLevel: "context",
+        depth: 1,
+        budget: { maxNodes: 5, maxRelations: 5 }
+      });
+      expect(projection.ok).toBe(true);
+      expect(daemon.status().architectureChangeFeed).toEqual({ deferredScopeCount: 0, failureDigests: [] });
+      expect(Math.max(...[...store.architectureChangeFeedConsumers.values()].map((consumer) => consumer.checkpoint), 0)).toBe(1);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger rebuild from Git proposes external projection changes before explicit reconcile", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();

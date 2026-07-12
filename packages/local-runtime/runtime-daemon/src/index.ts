@@ -217,6 +217,10 @@ export interface RuntimeStatus {
   sessions: number;
   repositories: string[];
   architectureLedger: RuntimeArchitectureLedgerModes;
+  architectureChangeFeed: {
+    deferredScopeCount: number;
+    failureDigests: string[];
+  };
 }
 
 export interface RepositorySession {
@@ -922,6 +926,7 @@ export class ArchctxDaemon {
   private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
   private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
+  private readonly deferredArchitectureChangeFeedFailures = new Map<string, string>();
   // Tracks the AbortController for every audit job's in-flight (foreground or detached
   // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
   // rather than leaving them running orphaned past the daemon's own lifetime.
@@ -983,6 +988,7 @@ export class ArchctxDaemon {
     this.sessions.clear();
     this.checkpointBaselines.clear();
     this.checkpointCoalesced.clear();
+    this.deferredArchitectureChangeFeedFailures.clear();
     this.localStore.close();
     this.running = false;
   }
@@ -992,7 +998,11 @@ export class ArchctxDaemon {
       running: this.running,
       sessions: this.sessions.size,
       repositories: [...this.sessions.keys()].sort(),
-      architectureLedger: this.architectureLedger
+      architectureLedger: this.architectureLedger,
+      architectureChangeFeed: {
+        deferredScopeCount: this.deferredArchitectureChangeFeedFailures.size,
+        failureDigests: [...this.deferredArchitectureChangeFeedFailures.values()].sort()
+      }
     };
   }
 
@@ -4510,16 +4520,33 @@ export class ArchctxDaemon {
       const scope = { repository: event.repository, worktree: event.worktree };
       scopes.set(`${event.repository.storageRepositoryId}:${event.worktree.storageWorkspaceId}:${event.worktree.branch}:${event.worktree.headSha}:${event.worktree.worktreeDigest}`, scope);
     }
-    for (const scope of scopes.values()) await this.processArchitectureChangeFeed(root, scope);
+    for (const scope of scopes.values()) await this.processArchitectureChangeFeedAfterCommit(root, scope);
     return result;
+  }
+
+  private async processArchitectureChangeFeedAfterCommit(root: string, scope: ArchitectureLedgerScope): Promise<void> {
+    const scopeDigest = digestJson(scope as unknown as Json);
+    try {
+      await this.processArchitectureChangeFeed(root, scope);
+      this.deferredArchitectureChangeFeedFailures.delete(scopeDigest);
+    } catch (error) {
+      this.deferredArchitectureChangeFeedFailures.set(scopeDigest, digestJson({
+        name: error instanceof Error ? error.name : "Error",
+        message: error instanceof Error ? error.message : String(error)
+      } as unknown as Json));
+    }
   }
 
   private async processArchitectureChangeFeed(root: string, scope: ArchitectureLedgerScope): Promise<number> {
     const consumerId = "runtime-daemon.explorer-cache.v1";
+    const scopeDigest = digestJson(scope as unknown as Json);
     let processed = 0;
     for (let page = 0; page < 1_000; page += 1) {
       const batch = await this.localStore.listArchitectureChangeFeed({ ...scope, consumerId, limit: 100 });
-      if (batch.records.length === 0) return processed;
+      if (batch.records.length === 0) {
+        this.deferredArchitectureChangeFeedFailures.delete(scopeDigest);
+        return processed;
+      }
       await this.localStore.recordExplorerRuntimeMetric({
         ...scope,
         metricName: "feed-lag",
@@ -4538,7 +4565,10 @@ export class ArchctxDaemon {
         consumerId,
         feedSequence: batch.records.at(-1)!.feedSequence
       });
-      if (!batch.hasMore) return processed;
+      if (!batch.hasMore) {
+        this.deferredArchitectureChangeFeedFailures.delete(scopeDigest);
+        return processed;
+      }
     }
     throw new Error("architecture-change-feed-page-limit-exceeded");
   }
