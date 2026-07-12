@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "archcontext.runtime-state-recovery-readback/v1",
+  "recordedAt": "2026-07-12T05:28:15Z",
+  "verdict": "PASS",
+  "authority": {
+    "gitVisibleTruth": ".archcontext/",
+    "runtimeStoreRole": "rebuildable-operational-state",
+    "readAuthority": "yaml",
+    "semanticDrift": false,
+    "graphDigest": "sha256:8e35dcd03abaed4359a9dc0ef6c139d29489646412b6c23012eb69bc0734bf48"
+  },
+  "recovery": {
+    "initialReasonCode": "target-startup-failed",
+    "initialTargetFingerprint": "sha256:0c1cba88d5fd95736aed474e805894bf0a8c9f8d14f75e3c029c432000aedc31",
+    "confirmedWorktreeDigest": "sha256:108fe7167aa6a2c91efb161cc5fef767b677b695e6a6b2dc503913a703d91605",
+    "finalStatus": "not-required",
+    "finalReasonCode": "target-current",
+    "receiptStatus": "recovered",
+    "receiptPath": "/Users/ancienttwo/Library/Application Support/ArchContext/repositories/repo.8e0a9b79935a68ed/worktrees/ws.7024cc9060bae15f/quarantine/runtime-state-recovery-1783833640110-9aa37aef-e4fe-4074-a7a2-315e02f6006e/runtime-state-recovery.json",
+    "quarantineDirectory": "/Users/ancienttwo/Library/Application Support/ArchContext/repositories/repo.8e0a9b79935a68ed/worktrees/ws.7024cc9060bae15f/quarantine/runtime-state-recovery-1783833640110-9aa37aef-e4fe-4074-a7a2-315e02f6006e",
+    "quarantinePermissions": "0700",
+    "filePermissions": "0600",
+    "quarantinedFiles": [
+      {
+        "name": "runtime.sqlite",
+        "sizeBytes": 905216,
+        "digest": "sha256:82c00a32d30f4b0987d7671bca4bc9cd6a7f4bd2c38be802ed695319dcc7b692"
+      },
+      {
+        "name": "runtime.sqlite-wal",
+        "sizeBytes": 0,
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "runtime.sqlite-shm",
+        "sizeBytes": 32768,
+        "digest": "sha256:fd4c9fda9cd3f9ae7c962b0ddf37232294d55580e1aa165aa06129b8549389eb"
+      },
+      {
+        "name": "runtime.sqlite.migration.json",
+        "sizeBytes": 462,
+        "digest": "sha256:6c3978c4224674f48ff79f13a8aba4376e67c06f52ada2ad414f5967be7d6be4"
+      }
+    ],
+    "rebuildResultDigest": "sha256:8283920ede0d91c8d099870c1b331c20d2354d1ce33a90dca286c8928cd0117c"
+  },
+  "verification": {
+    "hostRecovery": "PASS",
+    "hostLedgerState": "PASS",
+    "hostSemanticDrift": false,
+    "focusedTests": "127 pass / 0 fail",
+    "implementationFullVerify": "1092 pass / 0 fail",
+    "hostFullVerify": "1101 pass / 0 fail",
+    "fullVerify": "PASS",
+    "typecheck": "PASS",
+    "packagedCliSmoke": "PASS",
+    "userArtifactPreserved": "PASS",
+    "userArtifactSha256": "10fc961f78b6a26a16b9fa9d1fea368d4b4493e7d825add46495df0b760e14ea"
+  }
+}

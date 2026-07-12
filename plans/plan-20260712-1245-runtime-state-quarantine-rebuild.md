@@ -250,25 +250,15 @@ REPO_HARNESS_DIFF_BASE=<base> repo-harness run verify-sprint -- --strict
 
 # Task Breakdown
 
-- [ ] Capture bounded plan/contract/worktree and preserve the user untracked checksum.
-- [ ] Add read-only recovery inspection and bounded target-family fingerprinting.
-- [ ] Add lock-protected staging, verified quarantine copy, publish, and restore-on-error.
-- [ ] Add the daemon-bypassing CLI dry-run/write surface and existing rebuild handoff.
-- [ ] Update ADR-0037 and add focused failure-matrix coverage.
-- [ ] Run focused/package/full verification plus Architecture and Security review.
-- [ ] Exercise the supported command on the current host partition and record readback.
+- [x] Capture bounded plan/contract/worktree and preserve the user untracked checksum.
+- [x] Add read-only recovery inspection and bounded target-family fingerprinting.
+- [x] Add lock-protected staging, verified quarantine copy, publish, and restore-on-error.
+- [x] Add the daemon-bypassing CLI dry-run/write surface and existing rebuild handoff.
+- [x] Update ADR-0037 and add focused failure-matrix coverage.
+- [x] Run focused/package/full verification plus Architecture and Security review.
+- [x] Exercise the supported command on the current host partition and record readback.
 - [ ] Strict-verify, archive, fast-forward to main, clean branch/worktree markers, and
       prove the user-owned untracked artifact remains byte-identical.
 
 ## Annotations
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
-
-## Task Breakdown
-- [ ] Capture bounded plan/contract/worktree and preserve the user untracked checksum.
-- [ ] Add read-only recovery inspection and bounded target-family fingerprinting.
-- [ ] Add lock-protected staging, verified quarantine copy, publish, and restore-on-error.
-- [ ] Add the daemon-bypassing CLI dry-run/write surface and existing rebuild handoff.
-- [ ] Update ADR-0037 and add focused failure-matrix coverage.
-- [ ] Run focused/package/full verification plus Architecture and Security review.
-- [ ] Exercise the supported command on the current host partition and record readback.
-- [ ] Strict-verify, archive, fast-forward to main, clean branch/worktree markers, and
