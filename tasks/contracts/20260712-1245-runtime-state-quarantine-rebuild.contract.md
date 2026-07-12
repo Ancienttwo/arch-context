@@ -1,6 +1,6 @@
 # Task Contract: runtime-state-quarantine-rebuild
 
-> **Status**: Active
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260712-1245-runtime-state-quarantine-rebuild.md
 > **Task Profile**: code-change
 > **Owner**: ancienttwo

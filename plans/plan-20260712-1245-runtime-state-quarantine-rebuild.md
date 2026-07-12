@@ -257,7 +257,7 @@ REPO_HARNESS_DIFF_BASE=<base> repo-harness run verify-sprint -- --strict
 - [x] Update ADR-0037 and add focused failure-matrix coverage.
 - [x] Run focused/package/full verification plus Architecture and Security review.
 - [x] Exercise the supported command on the current host partition and record readback.
-- [ ] Strict-verify, archive, fast-forward to main, clean branch/worktree markers, and
+- [x] Strict-verify, archive, fast-forward to main, clean branch/worktree markers, and
       prove the user-owned untracked artifact remains byte-identical.
 
 ## Annotations
