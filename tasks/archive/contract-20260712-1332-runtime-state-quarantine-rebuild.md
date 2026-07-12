@@ -1,3 +1,9 @@
+> **Archived**: 2026-07-12 13:32
+> **Related Plan**: plans/archive/plan-20260712-1245-runtime-state-quarantine-rebuild.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260712-1332
+
 # Task Contract: runtime-state-quarantine-rebuild
 
 > **Status**: Fulfilled

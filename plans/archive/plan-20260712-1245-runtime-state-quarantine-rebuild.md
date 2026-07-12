@@ -1,6 +1,6 @@
 # Plan: Runtime State Quarantine and Git Rebuild
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260712-1245
 > **Slug**: runtime-state-quarantine-rebuild
 > **Planning Source**: waza-think

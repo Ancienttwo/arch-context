@@ -1,7 +1,13 @@
+> **Archived**: 2026-07-12 13:32
+> **Related Plan**: plans/archive/plan-20260712-1245-runtime-state-quarantine-rebuild.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260712-1332
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: (archive-workflow)
+> **Updated**: 2026-07-12 12:46
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.
