@@ -9,7 +9,7 @@ import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
@@ -535,15 +535,18 @@ async function runRuntimeStateCommand(
   const retryCommand = `archctx ledger rebuild --from-git --expected-worktree-digest ${expectedWorktreeDigest}${acceptExternalProjection ? " --accept-external-projection" : ""}`;
   if (!rebuild.ok) {
     return {
-      ...errorEnvelope("state.recover", "AC_RUNTIME_UNAVAILABLE", rebuild.error?.message ?? "runtime state published but Git rebuild failed"),
+      ...rebuild,
+      requestId: "state.recover",
       data: { recovery, rebuild, retryCommand } as unknown as Json
     };
   }
+  const completion = completeRuntimeStateRecovery({ recovery, rebuildResult: rebuild as unknown as Json });
   return okEnvelope("state.recover", {
     schemaVersion: "archcontext.runtime-state-recovery-command/v1",
     status: "recovered",
     recovery,
     rebuild,
+    completion,
     retryCommand
   } as unknown as Json);
 }

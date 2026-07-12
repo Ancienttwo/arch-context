@@ -959,6 +959,13 @@ export interface RuntimeStateRecoveryResultV1 {
   targetIntegrity: string;
 }
 
+export interface RuntimeStateRecoveryCompletionV1 {
+  schemaVersion: "archcontext.runtime-state-recovery-completion/v1";
+  status: "recovered";
+  receiptPath: string;
+  rebuildResultDigest: string;
+}
+
 export function defaultArchContextStateRoot(
   env: Record<string, string | undefined> = process.env,
   platform: NodeJS.Platform = process.platform,
@@ -1186,6 +1193,39 @@ export function recoverRuntimeStateTarget(input: {
     rmSync(stagingDir, { recursive: true, force: true });
     releaseLegacyMigrationLock(lock);
   }
+}
+
+export function completeRuntimeStateRecovery(input: {
+  recovery: RuntimeStateRecoveryResultV1;
+  rebuildResult: Json;
+}): RuntimeStateRecoveryCompletionV1 {
+  const expectedReceiptPath = resolve(input.recovery.quarantineDirectory, RUNTIME_STATE_RECOVERY_RECEIPT_FILE);
+  if (resolve(input.recovery.receiptPath) !== expectedReceiptPath) {
+    throw new Error("runtime-state-recovery-completion-receipt-path-mismatch");
+  }
+  const parsed = JSON.parse(readFileSync(expectedReceiptPath, "utf8")) as Record<string, unknown>;
+  if (
+    parsed.schemaVersion !== "archcontext.runtime-state-recovery-receipt/v1"
+    || parsed.status !== "target-published-rebuild-required"
+    || parsed.targetFingerprint !== input.recovery.targetFingerprintBefore
+    || parsed.expectedWorktreeDigest !== input.recovery.expectedWorktreeDigest
+  ) {
+    throw new Error("runtime-state-recovery-completion-receipt-mismatch");
+  }
+  const rebuildResultDigest = digestJson(input.rebuildResult);
+  writePrivateJson(expectedReceiptPath, {
+    ...parsed,
+    status: "recovered",
+    rebuildCompletedAt: nowIso(),
+    rebuildResultDigest
+  });
+  assertRuntimeStateRecoveryPrivatePermissions(expectedReceiptPath, 0o600);
+  return {
+    schemaVersion: "archcontext.runtime-state-recovery-completion/v1",
+    status: "recovered",
+    receiptPath: expectedReceiptPath,
+    rebuildResultDigest
+  };
 }
 
 export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Record<string, string | undefined> = process.env): LegacyLocalStoreMigration {

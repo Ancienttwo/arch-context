@@ -27,6 +27,7 @@ import {
   assertExplorerProjectionCacheIntegrity,
   assertNoSourceStorageSchema,
   assertRuntimeStateRecoveryDiskBudget,
+  completeRuntimeStateRecovery,
   inspectLegacyLocalStoreMigration,
   inspectRuntimeStateRecovery,
   migrateLegacyLocalStoreIfNeeded,
@@ -1223,6 +1224,13 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         expectedWorktreeDigest: computeWorktreeDigest(root)
       });
       expect(JSON.stringify(receipt)).not.toMatch(/sourceBody|rawDiff|prompt|completion|event_json/);
+      const completion = completeRuntimeStateRecovery({
+        recovery: result,
+        rebuildResult: { schemaVersion: "archcontext.envelope/v1", ok: true } as unknown as Json
+      });
+      expect(completion).toMatchObject({ status: "recovered", receiptPath: result.receiptPath });
+      expect(completion.rebuildResultDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(JSON.parse(readFileSync(result.receiptPath, "utf8")).status).toBe("recovered");
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(stateRoot, { recursive: true, force: true });

@@ -1640,6 +1640,8 @@ describe("archctx CLI", () => {
       expect((recovered.data as any).status).toBe("recovered");
       expect((recovered.data as any).recovery.status).toBe("target-published-rebuild-required");
       expect((recovered.data as any).rebuild.ok).toBe(true);
+      expect((recovered.data as any).completion.status).toBe("recovered");
+      expect(JSON.parse(readFileSync((recovered.data as any).recovery.receiptPath, "utf8")).status).toBe("recovered");
       const quarantinedDatabase = (recovered.data as any).recovery.quarantinedFiles.find((file: any) => file.name === "runtime.sqlite");
       expect(readFileSync(quarantinedDatabase.path, "utf8")).toBe("broken operational sqlite fixture\n");
       expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");
@@ -1696,6 +1698,7 @@ describe("archctx CLI", () => {
         } as any
       });
       expect(failed.ok).toBe(false);
+      expect((failed as any).error.code).toBe("AC_PRECONDITION_FAILED");
       expect(rebuildInput).toEqual({
         fromGit: true,
         expectedWorktreeDigest: (dryRun.data as any).worktreeDigest,
@@ -1703,6 +1706,7 @@ describe("archctx CLI", () => {
       });
       expect((failed.data as any).recovery.status).toBe("target-published-rebuild-required");
       expect((failed.data as any).retryCommand).toContain("--accept-external-projection");
+      expect(JSON.parse(readFileSync((failed.data as any).recovery.receiptPath, "utf8")).status).toBe("target-published-rebuild-required");
       expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");
     } finally {
       if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
