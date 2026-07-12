@@ -43,6 +43,34 @@ The storage repository identity is derived from the Git common directory when av
 
 ArchContext MUST NOT write mutable state into its package installation directory. Repository-local runtime paths such as `.archcontext/.local/` are supported only for migration, explicit overrides, or non-secret discovery pointers.
 
+## Unusable default-partition recovery
+
+An unusable canonical SQLite target is never quarantined automatically during ordinary
+startup. Startup remains fail-closed. The explicit recovery surface is:
+
+```text
+archctx state recover --from-git
+archctx state recover --from-git --write \
+  --expected-worktree-digest <exact> \
+  --expected-target-fingerprint <exact>
+```
+
+Dry-run executes before daemon creation and may authorize recovery only when the
+canonical default target is `target-incomplete`. Current, absent, symlinked, or
+explicitly overridden targets are not recovery candidates. There is no force mode or
+arbitrary-path reset.
+
+Write recovery uses the migration lock, revalidates the exact target family and
+worktree digests, verifies disk capacity, constructs a clean current-schema target in
+staging, and copies the old SQLite/WAL/SHM/marker bytes into a private metadata-receipted
+quarantine before publish. A caught publish failure restores the original fingerprint.
+The quarantine is retained and is never deleted or restored automatically.
+
+Recovery does not interpret or salvage old rows. After clean publish it crosses the
+existing daemon-owned `ledgerRebuild(fromGit)` boundary. Git-visible `.archcontext/`
+remains the only reconstruction authority; external projection changes still require
+their existing explicit acceptance.
+
 # Consequences
 
 - `.archcontext/model`, `.archcontext/decisions`, `.archcontext/policies`, and configured generated projections remain reviewable Git files.
@@ -50,4 +78,7 @@ ArchContext MUST NOT write mutable state into its package installation directory
 - Multi-repo landscapes avoid making one checkout own another repository's derived runtime state.
 - Crash recovery must discover runtime paths through `archctx paths`.
 - Existing `.archcontext/.local/runtime.sqlite` files may be copied forward into the new runtime partition, but `.archcontext/.local/` is not the canonical long-term state location.
+- Recovery receipts contain only paths, sizes, digests, reason codes, and timestamps;
+  they contain no SQLite rows, source bodies, diffs, prompts, completions, or event
+  bodies.
 - Because storage identities are path-derived from the Git common directory and canonical worktree root, moving or renaming a repository/worktree creates a new runtime partition. The old partition is treated as rebuildable orphaned derived state until an explicit future cleanup command removes it; this ADR does not introduce an alias registry.

@@ -9,7 +9,7 @@ import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
-import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
 import {
   ArchctxRuntimeRpcServer,
@@ -245,6 +245,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "landscape":
       return (await runtime()).landscapeStatus();
+    case "state":
+      return runRuntimeStateCommand(args, cwd, runtime);
     case "ledger":
       return runLedgerCommand(args, cwd, runtime);
     case "book":
@@ -469,14 +471,81 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["init", "sync", "validate", "context", "status", "daemon", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          commands: ["init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
+          examples: ["archctx init --name MyApp", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
   } finally {
     for (const handle of runtimeHandles.reverse()) await handle.close();
   }
+}
+
+async function runRuntimeStateCommand(
+  args: string[],
+  cwd: string,
+  runtime: () => Promise<RuntimeDaemonClient>
+) {
+  const subcommand = args[0] ?? "status";
+  if (subcommand !== "recover" || !args.includes("--from-git")) {
+    return errorEnvelope("state", "AC_SCHEMA_INVALID", "state requires recover --from-git");
+  }
+  const write = args.includes("--write");
+  if (write && args.includes("--dry-run")) {
+    return errorEnvelope("state.recover", "AC_SCHEMA_INVALID", "state recover accepts --dry-run or --write, not both");
+  }
+  const worktreeDigest = computeWorktreeDigest(cwd);
+  const inspection = inspectRuntimeStateRecovery(cwd);
+  const writeCommand = inspection.status === "recovery-required" && inspection.targetFingerprint
+    ? `archctx state recover --from-git --write --expected-worktree-digest ${worktreeDigest} --expected-target-fingerprint ${inspection.targetFingerprint}`
+    : undefined;
+  if (!write) {
+    return okEnvelope("state.recover", {
+      ...inspection,
+      worktreeDigest,
+      ...(writeCommand ? { writeCommand } : {})
+    } as unknown as Json);
+  }
+  const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+  const expectedTargetFingerprint = readFlag(args, "--expected-target-fingerprint");
+  if (!expectedWorktreeDigest || !expectedTargetFingerprint) {
+    return errorEnvelope("state.recover", "AC_SCHEMA_INVALID", "state recover --write requires --expected-worktree-digest and --expected-target-fingerprint from dry-run");
+  }
+  if (expectedWorktreeDigest !== worktreeDigest) {
+    return errorEnvelope("state.recover", "AC_PRECONDITION_FAILED", `state recover worktree digest mismatch: expected ${expectedWorktreeDigest}, current ${worktreeDigest}`);
+  }
+  if (inspection.status !== "recovery-required" || inspection.reasonCode !== "target-incomplete") {
+    return errorEnvelope("state.recover", "AC_CAPABILITY_UNSUPPORTED", `state recovery is not available: ${inspection.reasonCode}`);
+  }
+  if (inspection.targetFingerprint !== expectedTargetFingerprint) {
+    return errorEnvelope("state.recover", "AC_PRECONDITION_FAILED", `state recover target fingerprint mismatch: expected ${expectedTargetFingerprint}, current ${inspection.targetFingerprint ?? "missing"}`);
+  }
+
+  const recovery = recoverRuntimeStateTarget({
+    root: cwd,
+    expectedTargetFingerprint,
+    expectedWorktreeDigest
+  });
+  const acceptExternalProjection = args.includes("--accept-external-projection");
+  const rebuild = await (await runtime()).ledgerRebuild(cwd, {
+    fromGit: true,
+    expectedWorktreeDigest,
+    acceptExternalProjection
+  });
+  const retryCommand = `archctx ledger rebuild --from-git --expected-worktree-digest ${expectedWorktreeDigest}${acceptExternalProjection ? " --accept-external-projection" : ""}`;
+  if (!rebuild.ok) {
+    return {
+      ...errorEnvelope("state.recover", "AC_RUNTIME_UNAVAILABLE", rebuild.error?.message ?? "runtime state published but Git rebuild failed"),
+      data: { recovery, rebuild, retryCommand } as unknown as Json
+    };
+  }
+  return okEnvelope("state.recover", {
+    schemaVersion: "archcontext.runtime-state-recovery-command/v1",
+    status: "recovered",
+    recovery,
+    rebuild,
+    retryCommand
+  } as unknown as Json);
 }
 
 async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Promise<RuntimeDaemonClient>) {

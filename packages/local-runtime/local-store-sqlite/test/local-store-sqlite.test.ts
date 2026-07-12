@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { LANDSCAPE_FILE, landscapeYaml } from "@archcontext/core/architecture-domain";
+import { LANDSCAPE_FILE, computeWorktreeDigest, landscapeYaml } from "@archcontext/core/architecture-domain";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
   applyArchitectureLedgerEvidenceEvent,
@@ -26,9 +26,12 @@ import {
   architectureAffectedSubjects,
   assertExplorerProjectionCacheIntegrity,
   assertNoSourceStorageSchema,
+  assertRuntimeStateRecoveryDiskBudget,
   inspectLegacyLocalStoreMigration,
+  inspectRuntimeStateRecovery,
   migrateLegacyLocalStoreIfNeeded,
   migrationSql,
+  recoverRuntimeStateTarget,
   runtimeStatePaths
 } from "../src/index";
 import { TestLocalStore } from "./factories";
@@ -1154,6 +1157,179 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       );
       expect(existsSync(paths.localStorePath)).toBe(true);
       expect(existsSync(join(dirname(paths.localStorePath), "quarantine"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime-state recovery dry-run fingerprints an incomplete default target without mutation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-inspect-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-inspect-root-"));
+    try {
+      const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
+      const paths = runtimeStatePaths(root, env);
+      await writeIncompleteSqliteTarget(paths.localStorePath);
+      writeFileSync(join(paths.workspaceStateDir, "runtime.sqlite.migration.json"), "{\"fixture\":true}\n", "utf8");
+      const before = readFileSync(paths.localStorePath);
+
+      const inspection = inspectRuntimeStateRecovery(root, env);
+      expect(inspection.status).toBe("recovery-required");
+      expect(inspection.reasonCode).toBe("target-incomplete");
+      expect(inspection.targetFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(inspection.targetFiles.map((file) => file.name)).toEqual(["runtime.sqlite", "runtime.sqlite.migration.json"]);
+      expect(inspection.targetBytes).toBeGreaterThan(0);
+      expect(inspection.availableBytes).toBeGreaterThan(inspection.requiredFreeBytes);
+      expect(readFileSync(paths.localStorePath)).toEqual(before);
+      expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime-state recovery preserves verified bytes, publishes current schema, and writes a private receipt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-write-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-write-root-"));
+    try {
+      const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
+      const paths = runtimeStatePaths(root, env);
+      await writeIncompleteSqliteTarget(paths.localStorePath);
+      const markerPath = join(paths.workspaceStateDir, "runtime.sqlite.migration.json");
+      writeFileSync(markerPath, "{\"fixture\":true}\n", "utf8");
+      const originalDatabase = readFileSync(paths.localStorePath);
+      const originalMarker = readFileSync(markerPath);
+      const inspection = inspectRuntimeStateRecovery(root, env);
+
+      const result = recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: inspection.targetFingerprint!,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      });
+
+      expect(result.status).toBe("target-published-rebuild-required");
+      expect(result.targetIntegrity).toBe("ok");
+      expect(inspectLegacyLocalStoreMigration(root, env).status).toBe("target-current");
+      expect(result.quarantinedFiles.map((file) => file.name)).toEqual(["runtime.sqlite", "runtime.sqlite.migration.json"]);
+      expect(readFileSync(result.quarantinedFiles.find((file) => file.name === "runtime.sqlite")!.path)).toEqual(originalDatabase);
+      expect(readFileSync(result.quarantinedFiles.find((file) => file.name === "runtime.sqlite.migration.json")!.path)).toEqual(originalMarker);
+      expect(statSync(result.receiptPath).mode & 0o777).toBe(0o600);
+      const receipt = JSON.parse(readFileSync(result.receiptPath, "utf8"));
+      expect(receipt).toMatchObject({
+        schemaVersion: "archcontext.runtime-state-recovery-receipt/v1",
+        status: "target-published-rebuild-required",
+        targetFingerprint: inspection.targetFingerprint,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      });
+      expect(JSON.stringify(receipt)).not.toMatch(/sourceBody|rawDiff|prompt|completion|event_json/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime-state recovery rejects stale fingerprints, current or overridden targets, and insufficient disk", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-guards-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-guards-root-"));
+    try {
+      const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
+      const paths = runtimeStatePaths(root, env);
+      await writeIncompleteSqliteTarget(paths.localStorePath);
+      const before = readFileSync(paths.localStorePath);
+      const inspection = inspectRuntimeStateRecovery(root, env);
+      expect(() => recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: inspection.targetFingerprint!,
+        expectedWorktreeDigest: `sha256:${"e".repeat(64)}`
+      })).toThrow("runtime-state-recovery-worktree-digest-mismatch");
+      expect(() => recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: `sha256:${"f".repeat(64)}`,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).toThrow("runtime-state-recovery-target-fingerprint-mismatch");
+      expect(readFileSync(paths.localStorePath)).toEqual(before);
+      expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);
+
+      rmSync(paths.localStorePath, { force: true });
+      await writeTaskState(paths.localStorePath, "task.current", { current: true });
+      expect(inspectRuntimeStateRecovery(root, env).reasonCode).toBe("target-current");
+      expect(() => recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: `sha256:${"0".repeat(64)}`,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).toThrow("runtime-state-recovery-not-required:target-current");
+
+      const overrideEnv = { ARCHCONTEXT_STATE_DIR: stateRoot, ARCHCONTEXT_LOCAL_STORE_PATH: join(stateRoot, "override.sqlite") };
+      expect(inspectRuntimeStateRecovery(root, overrideEnv).reasonCode).toBe("explicit-local-store-override");
+      expect(() => recoverRuntimeStateTarget({
+        root,
+        env: overrideEnv,
+        expectedTargetFingerprint: `sha256:${"0".repeat(64)}`,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).toThrow("runtime-state-recovery-explicit-local-store-override-forbidden");
+      expect(() => assertRuntimeStateRecoveryDiskBudget(1024, 2048)).toThrow("runtime-state-recovery-insufficient-disk:1024<2048");
+
+      if (process.platform !== "win32") {
+        rmSync(paths.localStorePath, { force: true });
+        const external = join(stateRoot, "external-invalid.sqlite");
+        writeFileSync(external, "external invalid target\n", "utf8");
+        symlinkSync(external, paths.localStorePath);
+        expect(() => inspectRuntimeStateRecovery(root, env)).toThrow("runtime-state-recovery-target-symlink-forbidden:runtime.sqlite");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime-state recovery lock contention leaves the invalid target byte-identical", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-lock-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-lock-root-"));
+    try {
+      const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
+      const paths = runtimeStatePaths(root, env);
+      await writeIncompleteSqliteTarget(paths.localStorePath);
+      const inspection = inspectRuntimeStateRecovery(root, env);
+      const before = readFileSync(paths.localStorePath);
+      const lockPath = join(paths.workspaceStateDir, "runtime.sqlite.migration.lock");
+      writeFileSync(lockPath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+      expect(() => recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: inspection.targetFingerprint!,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).toThrow("Legacy SQLite migration already in progress");
+      expect(readFileSync(paths.localStorePath)).toEqual(before);
+      expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(stateRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime-state recovery refuses an incomplete target while a daemon control PID is live", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-state-recovery-daemon-repo-"));
+    const stateRoot = mkdtempSync(join(tmpdir(), "archctx-state-recovery-daemon-root-"));
+    try {
+      const env = { ARCHCONTEXT_STATE_DIR: stateRoot };
+      const paths = runtimeStatePaths(root, env);
+      await writeIncompleteSqliteTarget(paths.localStorePath);
+      const before = readFileSync(paths.localStorePath);
+      writeFileSync(paths.daemonConnectionPath, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+      const inspection = inspectRuntimeStateRecovery(root, env);
+      expect(inspection).toMatchObject({ status: "blocked", reasonCode: "daemon-running", daemonPid: process.pid });
+      expect(() => recoverRuntimeStateTarget({
+        root,
+        env,
+        expectedTargetFingerprint: inspection.targetFingerprint!,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      })).toThrow(`runtime-state-recovery-daemon-running:${process.pid}`);
+      expect(readFileSync(paths.localStorePath)).toEqual(before);
+      expect(existsSync(join(paths.workspaceStateDir, "quarantine"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(stateRoot, { recursive: true, force: true });

@@ -1613,6 +1613,116 @@ describe("archctx CLI", () => {
     }
   }, 15_000);
 
+  test("CLI state recover bypasses the broken target, quarantines it, and rebuilds from Git through the daemon", async () => {
+    const root = createInitializedGitRepo();
+    try {
+      const paths = testRuntimePaths(root);
+      mkdirSync(dirname(paths.localStorePath), { recursive: true });
+      writeFileSync(paths.localStorePath, "broken operational sqlite fixture\n", "utf8");
+
+      const dryRun = await runTestCli("state", ["recover", "--from-git"], root);
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).status).toBe("recovery-required");
+      expect((dryRun.data as any).reasonCode).toBe("target-incomplete");
+      expect((dryRun.data as any).targetFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect((dryRun.data as any).worktreeDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect((dryRun.data as any).writeCommand).toContain("archctx state recover --from-git --write");
+      expect(readFileSync(paths.localStorePath, "utf8")).toBe("broken operational sqlite fixture\n");
+
+      const recovered = await runTestCli("state", [
+        "recover",
+        "--from-git",
+        "--write",
+        "--expected-worktree-digest", (dryRun.data as any).worktreeDigest,
+        "--expected-target-fingerprint", (dryRun.data as any).targetFingerprint
+      ], root);
+      expect(recovered.ok).toBe(true);
+      expect((recovered.data as any).status).toBe("recovered");
+      expect((recovered.data as any).recovery.status).toBe("target-published-rebuild-required");
+      expect((recovered.data as any).rebuild.ok).toBe(true);
+      const quarantinedDatabase = (recovered.data as any).recovery.quarantinedFiles.find((file: any) => file.name === "runtime.sqlite");
+      expect(readFileSync(quarantinedDatabase.path, "utf8")).toBe("broken operational sqlite fixture\n");
+      expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");
+
+      const after = await runTestCli("state", ["recover", "--from-git"], root);
+      expect((after.data as any).status).toBe("not-required");
+      expect((after.data as any).reasonCode).toBe("target-current");
+    } finally {
+      removeTempRoot(root);
+    }
+  }, 30_000);
+
+  test("CLI state recover requires exact confirmations and preserves retry evidence when daemon rebuild fails", async () => {
+    const root = createInitializedGitRepo();
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+    try {
+      const paths = testRuntimePaths(root);
+      mkdirSync(dirname(paths.localStorePath), { recursive: true });
+      writeFileSync(paths.localStorePath, "broken retry sqlite fixture\n", "utf8");
+      const dryRun = await runCli("state", ["recover", "--from-git"], root);
+      expect(dryRun.ok).toBe(true);
+
+      const missing = await runCli("state", ["recover", "--from-git", "--write"], root);
+      expect(missing.ok).toBe(false);
+      expect((missing as any).error?.code).toBe("AC_SCHEMA_INVALID");
+      expect(readFileSync(paths.localStorePath, "utf8")).toBe("broken retry sqlite fixture\n");
+
+      const stale = await runCli("state", [
+        "recover", "--from-git", "--write",
+        "--expected-worktree-digest", `sha256:${"f".repeat(64)}`,
+        "--expected-target-fingerprint", (dryRun.data as any).targetFingerprint
+      ], root);
+      expect(stale.ok).toBe(false);
+      expect((stale as any).error?.code).toBe("AC_PRECONDITION_FAILED");
+      expect(readFileSync(paths.localStorePath, "utf8")).toBe("broken retry sqlite fixture\n");
+
+      let rebuildInput: any;
+      const failed = await runCli("state", [
+        "recover", "--from-git", "--write", "--accept-external-projection",
+        "--expected-worktree-digest", (dryRun.data as any).worktreeDigest,
+        "--expected-target-fingerprint", (dryRun.data as any).targetFingerprint
+      ], root, {
+        runtimeClient: {
+          ledgerRebuild: async (_root: string, input: any) => {
+            rebuildInput = input;
+            return {
+              schemaVersion: "archcontext.envelope/v1",
+              ok: false,
+              requestId: "ledger.rebuild",
+              error: { code: "AC_PRECONDITION_FAILED", severity: "warning", retryable: true, action: "rebuild-plan", message: "fixture rebuild rejected" }
+            };
+          }
+        } as any
+      });
+      expect(failed.ok).toBe(false);
+      expect(rebuildInput).toEqual({
+        fromGit: true,
+        expectedWorktreeDigest: (dryRun.data as any).worktreeDigest,
+        acceptExternalProjection: true
+      });
+      expect((failed.data as any).recovery.status).toBe("target-published-rebuild-required");
+      expect((failed.data as any).retryCommand).toContain("--accept-external-projection");
+      expect(migrateLegacyLocalStoreIfNeeded(root, testStateEnv(root)).status).toBe("target-current");
+    } finally {
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
+      removeTempRoot(root);
+    }
+  }, 30_000);
+
+  test("CLI help exposes the explicit state recovery command without a force alias", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-state-help-"));
+    try {
+      const help = await runCli("help", [], root);
+      expect((help.data as any).commands).toContain("state");
+      expect((help.data as any).examples).toContain("archctx state recover --from-git");
+      expect(JSON.stringify(help.data)).not.toContain("state recover --force");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("github connect, status, and disconnect use control-plane credential refs without gh", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-github-"));
     const credentials = new InMemoryCredentialSecretStore();
