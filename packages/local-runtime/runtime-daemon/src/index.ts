@@ -2581,7 +2581,7 @@ export class ArchctxDaemon {
       id: `changeset.ledger-rollback-${shortDigest(digestJson({ createdAt, projectionDigest: architectureLedgerProjectionDigest(projectedFiles) } as unknown as Json))}`,
       files: [
         ...currentFiles.map((file) => ({
-          path: join(backupRelativePath, archContextRelativePath(file.path)),
+          path: `${backupRelativePath}/${archContextRelativePath(file.path)}`,
           body: file.body
         })),
         { path: manifestPath, body: `${JSON.stringify(manifest, null, 2)}\n` },

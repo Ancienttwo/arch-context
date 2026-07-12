@@ -1224,7 +1224,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(result.quarantinedFiles.map((file) => file.name)).toEqual(["runtime.sqlite", "runtime.sqlite.migration.json"]);
       expect(readFileSync(result.quarantinedFiles.find((file) => file.name === "runtime.sqlite")!.path)).toEqual(originalDatabase);
       expect(readFileSync(result.quarantinedFiles.find((file) => file.name === "runtime.sqlite.migration.json")!.path)).toEqual(originalMarker);
-      expect(statSync(result.receiptPath).mode & 0o777).toBe(0o600);
+      if (process.platform !== "win32") expect(statSync(result.receiptPath).mode & 0o777).toBe(0o600);
       const receipt = JSON.parse(readFileSync(result.receiptPath, "utf8"));
       expect(receipt).toMatchObject({
         schemaVersion: "archcontext.runtime-state-recovery-receipt/v1",
