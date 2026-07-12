@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { LANDSCAPE_FILE, computeWorktreeDigest, landscapeYaml } from "@archcontext/core/architecture-domain";
@@ -39,6 +39,10 @@ import { TestLocalStore } from "./factories";
 
 const LEGACY_SQLITE_MIGRATION_TIMEOUT_MS = process.platform === "win32" ? 120_000 : 30_000;
 const LOCAL_STORE_SLOW_TEST_TIMEOUT_MS = 15_000;
+
+function rmSync(path: string, options?: RmDirOptions): void {
+  nodeRmSync(path, { maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100, ...options });
+}
 
 describe("@archcontext/local-runtime/local-store-sqlite", () => {
   test("migration SQL enables required SQLite safety pragmas", () => {

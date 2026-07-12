@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -21,6 +21,10 @@ const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
 const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
+
+function rmSync(path: string, options?: RmDirOptions): void {
+  nodeRmSync(path, { maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100, ...options });
+}
 
 function runTestCli(command: string, args: string[], root: string, stateRoot = testStateRoot(root)) {
   const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;

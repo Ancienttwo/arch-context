@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
@@ -50,6 +50,10 @@ const RUNTIME_TEST_STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-runtime-stat
 const CONTEXT7_FAILURE_MATRIX_CASES = ["disabled", "no-key", "no-network", "429", "timeout", "malformed"] as const;
 const DEVELOPER_REVIEW_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
 const WINDOWS_RUNTIME_IO_TEST_TIMEOUT_MS = process.platform === "win32" ? 30_000 : 5_000;
+
+function rmSync(path: string, options?: RmDirOptions): void {
+  nodeRmSync(path, { maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100, ...options });
+}
 type Context7FailureMatrixCase = typeof CONTEXT7_FAILURE_MATRIX_CASES[number];
 process.env.ARCHCONTEXT_STATE_DIR = RUNTIME_TEST_STATE_ROOT;
 
@@ -71,7 +75,7 @@ function removeTempRepo(root: string): void {
 
 function removeTempPath(path: string): void {
   try {
-    rmSync(path, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 100 : 0, retryDelay: 100 });
+    rmSync(path, { recursive: true, force: true });
   } catch (error) {
     if (isIgnorableWindowsCleanupError(error)) return;
     throw error;
@@ -4885,7 +4889,7 @@ describe("github issue executor", () => {
       );
       chmodSync(join(binDir, "gh"), 0o755);
       const previousPath = process.env.PATH;
-      process.env.PATH = `${binDir}${previousPath ? `:${previousPath}` : ""}`;
+      process.env.PATH = `${binDir}${previousPath ? `${delimiter}${previousPath}` : ""}`;
       try {
         const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
         let caught: unknown;
@@ -4925,7 +4929,7 @@ describe("github issue executor", () => {
       );
       chmodSync(join(binDir, "gh"), 0o755);
       const previousPath = process.env.PATH;
-      process.env.PATH = `${binDir}${previousPath ? `:${previousPath}` : ""}`;
+      process.env.PATH = `${binDir}${previousPath ? `${delimiter}${previousPath}` : ""}`;
       try {
         const executor = createNodeGithubIssueExecutor({ timeoutMs: 5_000 });
         const result = await executor.createIssue({
