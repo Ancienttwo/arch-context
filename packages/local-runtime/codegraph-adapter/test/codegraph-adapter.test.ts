@@ -6,6 +6,12 @@ import { digestJson, type Json } from "@archcontext/contracts";
 import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
+// Mirrors the synthetic id CodeGraphCliProvider assigns to a CLI node that has no hash id
+// of its own (e.g. entries parsed from the `codegraph node` text trail).
+function expectedSyntheticId(name: string, path: string): string {
+  return `codegraph.${digestJson({ name, path } as unknown as Json).slice(7, 19)}`;
+}
+
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
   test("disables CodeGraph telemetry by default without overriding explicit env", () => {
     const defaultEnv: Record<string, string | undefined> = {};
@@ -232,6 +238,113 @@ process.exit(2);
       expect(delta.candidateChanges.some((change) => change.kind === "node-materially-changed" && change.target.id === "module.web")).toBe(true);
       expect(delta.interpretations.every((interpretation) => interpretation.evidenceIds.length > 0)).toBe(true);
       expect(delta.evidenceBindings.some((binding) => binding.target.kind === "candidate-delta")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("extracts callers and callees from the CodeGraph node trail", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-trail-"));
+    const shimPath = join(root, "fake-codegraph.js");
+    try {
+      writeFileSync(shimPath, `
+const args = process.argv.slice(2);
+if (args[0] === "impact") {
+  console.log(JSON.stringify({
+    symbol: args[args.length - 1],
+    depth: 1,
+    nodeCount: 1,
+    edgeCount: 0,
+    affected: [
+      { name: "getImpact", kind: "method", filePath: "packages/local-runtime/codegraph-adapter/src/index.ts", startLine: 274 }
+    ]
+  }));
+  process.exit(0);
+}
+if (args[0] === "node") {
+  console.log("**getImpact** (method)");
+  console.log("");
+  console.log("**Location:** packages/local-runtime/codegraph-adapter/src/index.ts:274");
+  console.log("**Calls →** assertCompatible (packages/local-runtime/codegraph-adapter/src/index.ts:303), assertCompatible (packages/local-runtime/codegraph-adapter/src/index.ts:303), ImpactQuery (packages/contracts/src/ports.ts:111)");
+  console.log("**Called by ←** getCallers (packages/local-runtime/codegraph-adapter/src/index.ts:279), getCallees (packages/local-runtime/codegraph-adapter/src/index.ts:283), +28 more");
+  process.exit(0);
+}
+console.error("unexpected fake codegraph args", args);
+process.exit(2);
+`);
+
+      const adapter = new CodeGraphAdapter(new CodeGraphCliProvider(root, shimPath));
+      const impact = await adapter.getImpact({ symbolId: "CodeGraphAdapter::getImpact", depth: 1 });
+
+      expect(impact.affectedPaths).toEqual(["packages/local-runtime/codegraph-adapter/src/index.ts"]);
+      // Duplicate "assertCompatible" entry in the canned trail above must collapse to one
+      // edge, proving uniqueEdges() is applied before the result is returned.
+      expect(impact.callees).toEqual([
+        {
+          source: "CodeGraphAdapter::getImpact",
+          target: expectedSyntheticId("assertCompatible", "packages/local-runtime/codegraph-adapter/src/index.ts"),
+          kind: "calls",
+          confidence: "high"
+        },
+        {
+          source: "CodeGraphAdapter::getImpact",
+          target: expectedSyntheticId("ImpactQuery", "packages/contracts/src/ports.ts"),
+          kind: "calls",
+          confidence: "high"
+        }
+      ]);
+      // The trailing "+28 more" truncation marker must not be parsed as a third entry.
+      expect(impact.callers).toEqual([
+        {
+          source: expectedSyntheticId("getCallers", "packages/local-runtime/codegraph-adapter/src/index.ts"),
+          target: "CodeGraphAdapter::getImpact",
+          kind: "calls",
+          confidence: "high"
+        },
+        {
+          source: expectedSyntheticId("getCallees", "packages/local-runtime/codegraph-adapter/src/index.ts"),
+          target: "CodeGraphAdapter::getImpact",
+          kind: "calls",
+          confidence: "high"
+        }
+      ]);
+
+      const callers = await adapter.getCallers("CodeGraphAdapter::getImpact");
+      const callees = await adapter.getCallees("CodeGraphAdapter::getImpact");
+      expect(callers).toEqual(impact.callers);
+      expect(callees).toEqual(impact.callees);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("resolves callers and callees to empty arrays when the CLI node trail has no recognizable calls", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-trail-empty-"));
+    const shimPath = join(root, "fake-codegraph.js");
+    try {
+      writeFileSync(shimPath, `
+const args = process.argv.slice(2);
+if (args[0] === "impact") {
+  console.log(JSON.stringify({ affected: [] }));
+  process.exit(0);
+}
+if (args[0] === "node") {
+  console.log('Symbol "' + args[1] + '" not found in the codebase');
+  process.exit(0);
+}
+console.error("unexpected fake codegraph args", args);
+process.exit(2);
+`);
+
+      const provider = new CodeGraphCliProvider(root, shimPath);
+      const impact = await provider.getImpactRadius("class:a58304a6dfe8667b0efd3c9c5b707eaf", 1);
+
+      expect(impact).toEqual({
+        symbolId: "class:a58304a6dfe8667b0efd3c9c5b707eaf",
+        callers: [],
+        callees: [],
+        affectedPaths: []
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

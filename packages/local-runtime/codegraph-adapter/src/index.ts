@@ -99,10 +99,11 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
     const output = this.run(["impact", "-p", this.workspaceRoot, "-j", "-d", String(depth), symbolId]);
     const parsed = JSON.parse(output) as { affected?: CodeGraphCliNode[] };
     const affected = (parsed.affected ?? []).map(normalizeCliNode);
+    const trail = parseNodeTrail(this.run(["node", symbolId, "-p", this.workspaceRoot]), symbolId);
     return {
       symbolId,
-      callers: [],
-      callees: [],
+      callers: trail.callers,
+      callees: trail.callees,
       affectedPaths: affected.map((symbol) => symbol.path)
     };
   }
@@ -426,9 +427,13 @@ interface CodeGraphCliNode {
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".json"];
 
+function syntheticSymbolId(name: string, path: string): string {
+  return `codegraph.${digestJson({ name, path } as unknown as Json).slice(7, 19)}`;
+}
+
 function normalizeCliNode(node: CodeGraphCliNode): NormalizedSymbol {
   return {
-    id: node.id ?? `codegraph.${digestJson({ name: node.name, path: node.filePath } as unknown as Json).slice(7, 19)}`,
+    id: node.id ?? syntheticSymbolId(node.name, node.filePath),
     name: node.name,
     kind: node.kind,
     path: node.filePath,
@@ -487,6 +492,37 @@ function importTargetCandidates(base: string): string[] {
 
 function fileSymbolId(path: string): string {
   return `file:${path}`;
+}
+
+// The "Calls →" trail mixes real call sites with type references (parameter/return
+// annotations), so every entry is a best-effort "calls" edge, not a verified runtime call.
+function parseNodeTrail(output: string, symbolId: string): { callers: NormalizedEdge[]; callees: NormalizedEdge[] } {
+  const callees = trailEntries(output, "**Calls →**").map((entry) => ({
+    source: symbolId,
+    target: syntheticSymbolId(entry.name, entry.path),
+    kind: "calls" as const,
+    confidence: "high" as const
+  }));
+  const callers = trailEntries(output, "**Called by ←**").map((entry) => ({
+    source: syntheticSymbolId(entry.name, entry.path),
+    target: symbolId,
+    kind: "calls" as const,
+    confidence: "high" as const
+  }));
+  return { callers: uniqueEdges(callers), callees: uniqueEdges(callees) };
+}
+
+function trailEntries(output: string, marker: string): { name: string; path: string }[] {
+  const line = output.split("\n").find((candidate) => candidate.includes(marker));
+  if (!line) return [];
+  const rest = line.slice(line.indexOf(marker) + marker.length);
+  return rest.split(",")
+    .map((entry) => entry.trim())
+    .flatMap((entry) => {
+      const match = entry.match(/^(.+)\s\(([^()]+):(\d+)\)$/);
+      if (!match) return [];
+      return [{ name: match[1].trim(), path: match[2].trim() }];
+    });
 }
 
 function uniqueSymbols(symbols: NormalizedSymbol[]): NormalizedSymbol[] {
