@@ -3,11 +3,11 @@
 > **Status**: Approved
 > **Slug**: archctx-repo-harness-projection-runtime-integration
 > **Created**: 2026-08-08 14:33 +08:00
-> **Updated**: 2026-08-09 11:35
+> **Updated**: 2026-08-09 05:51
 > **Goal Mode**: incremental
 > **Primary Repository**: `/Users/ancienttwo/Projects/arch-context`
 > **Consumer Repository**: `/Users/ancienttwo/Projects/repo-harness`
-> **Verified Revisions**: `arch-context@4c9c1c17ddaa6ae723536e72e757952000be9b10`; `repo-harness@1eaf63019aadd2129376987957170d8310b35c3f`
+> **Verified Revisions**: `arch-context@cb2c135c2265163bafac31fba6d60bd0189ed111`; `repo-harness@06b1570cd555a1d6dd6d61338bee7199dd62023a`
 > **Source Review**: `docs/researches/20260808-GPT-review.md`
 > **Reference Document**: `/Users/ancienttwo/Projects/byok-sdk/docs/architecture/sdk-architecture.md`
 > **Release Targets**: `archctx-contracts@0.4.0`, `archctx@0.4.0`, `repo-harness@0.14.0`
@@ -548,7 +548,7 @@ row never lands.
 | 5 | [x] | AXR4 [arch-context] major-change classifier and ArchitectureRefreshSignalV1 producer | contract | accepted semantic/proof changes emit one stable signal; refactor/generated/layout-only changes emit none; unresolved candidates emit human-action signal; duplicate run preserves signalId | `plans/archive/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md` |
 | 6 | [x] | AXR5 [repo-harness] package-local archctx provider, node v2 reader/exporter, orthogonal config, readiness, and manual command lane | contract | disposable consumer installs integrity-verified 0.4.0 tarballs with no registry lookup; feature handshake passes; canonical mapper and helper projections accept v2/reject v1; PATH mismatch is irrelevant; provider disabled preserves current behavior | `repo-harness:plans/archive/plan-20260808-2015-axr5-archctx-provider-node-v2-readiness.md` |
 | 7 | [x] | AXR6 [repo-harness] durable Stop aggregation, bounded drain, retry/dead-letter, refresh consumer, receipt, and loop suppression | contract | 10 paths coalesce to one projection process; 150-second managed Stop timeout exceeds the 120-second drain and passes a real host cycle; exit 1/timeout/stale worktree retain events; retry/dead-letter, refresh, and loop gates pass | `repo-harness:plans/archive/plan-20260808-2311-axr6-durable-architecture-projection-runtime.md` |
-| 8 | [ ] | AXR7 [both] consumer-driven E2E, 10-document fidelity adoption, completion gate, and advisory dogfood | contract | cross-repo packed-tarball E2E passes; 10/10 nested docs adopt without external-byte drift; three named cycles produce receipts; second apply zero diff; gate accurately reports pending/adoption/human action | (pending) |
+| 8 | [x] | AXR7 [both] consumer-driven E2E, 10-document fidelity adoption, completion gate, and advisory dogfood | contract | cross-repo packed-tarball E2E passes; 10/10 nested docs adopt without external-byte drift; three named cycles produce receipts; second apply zero diff; gate accurately reports pending/adoption/human action | `repo-harness:plans/archive/plan-20260809-0327-axr7-consumer-e2e-adoption-dogfood.md` |
 | 9 | [ ] | AXR8 [both] npm release, selected-runtime readback, strict gate, and final capability authority cutover | contract | 0.4.0/0.14.0 registry + tarball readbacks pass; selected Bun-global runtime reports exact versions/features; strict Stop/readiness clean; capability authority cutover is 10/10 and no fallback/sync job remains | (pending) |
 
 ## Backlog Detail
@@ -767,8 +767,8 @@ nested documents and close the fidelity gap before strict gating.
   every target passes fidelity gates.
 - `check-architecture-sync` becomes aggregator for authority、projection drift、snapshot
   freshness、adoption、human actions、pending jobs and supplementary request cards.
-- repo-harness policy enables provider with advisory freshness; capability source remains
-  registry.
+- repo-harness policy enables provider with advisory freshness; the already-selected
+  ArchContext capability source remains the single authority.
 
 **Verification**:
 
@@ -778,7 +778,7 @@ nested documents and close the fidelity gap before strict gating.
 - `find docs/architecture/modules -name 'capability-*.md'` returns no generated files.
 
 **Independent value**: repo-harness has production-shaped automatic architecture docs and
-context refresh while retaining the already trusted registry index authority.
+context refresh while retaining its already-selected ArchContext index authority.
 
 ### AXR8 · Release and Authority Cutover
 
@@ -823,8 +823,9 @@ registry authority and no fallback.
 | 2026-08-08 20:10 | AXR4 [arch-context] major-change classifier and ArchitectureRefreshSignalV1 producer | `plans/archive/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md` | done |
 | 2026-08-08 23:11 | AXR5 [repo-harness] package-local provider, node v2 authority reader, readiness and manual lane | `repo-harness:plans/archive/plan-20260808-2015-axr5-archctx-provider-node-v2-readiness.md` | done |
 | 2026-08-09 11:35 | AXR6 [repo-harness] durable runtime orchestration and refresh | `repo-harness:plans/archive/plan-20260808-2311-axr6-durable-architecture-projection-runtime.md` | done at `repo-harness@99c645f3`; 2308 pass / 1 skip / 0 fail, packed host cycle and final Sprint gates passed; owner explicitly skipped the capacity-blocked Claude review through a typed `user_waiver` AcceptanceReceipt |
+| 2026-08-09 05:51 | AXR7 [both] consumer E2E, ten-document adoption, readiness aggregation and advisory dogfood | `repo-harness:plans/archive/plan-20260809-0327-axr7-consumer-e2e-adoption-dogfood.md` | done at `arch-context@cb2c135` and `repo-harness@06b1570c`; 10/10 capability/component/relation/flow models, 23/23 Mermaid sources, zero HTML, clean/single/multi packed Stop fixed points, 2313 pass / 1 skip / 0 fail, and typed owner waiver all passed |
 
 ### Current Execution Note
 
 - The repository's pre-Sprint mainline already selected `context.capability_source=archcontext` and carries ten node-v2 capability records. AXR8 must therefore verify and simplify that existing authority state; it must not perform a second cutover or recreate a registry/node dual-reader migration window.
-- AXR6 is merged and its worktree/branch are cleanly retired; AXR7 may now open the next isolated cross-repository work package.
+- AXR7 is merged and its worktree/branch are cleanly retired. AXR8 is the only remaining row; it owns registry publication, exact dependency pins, selected Bun-global readback and strict-gate cutover.
