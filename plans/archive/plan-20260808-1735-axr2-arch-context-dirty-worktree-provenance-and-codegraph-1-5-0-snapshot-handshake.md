@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR2 [arch-context] dirty-worktree provenance and CodeGraph 1.5.0 snapshot handshake
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260808-1735
 > **Slug**: axr2-arch-context-dirty-worktree-provenance-and-codegraph-1-5-0-snapshot-handshake
 > **Planning Source**: repo-harness-sprint

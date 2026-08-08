@@ -1,3 +1,9 @@
+> **Archived**: 2026-08-08 18:15
+> **Related Plan**: plans/archive/plan-20260808-1735-axr2-arch-context-dirty-worktree-provenance-and-codegraph-1-5-0-snapshot-handshake.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260808-1815
+
 # Task Contract: axr2-arch-context-dirty-worktree-provenance-and-codegraph-1-5-0-snapshot-handshake
 
 > **Status**: Fulfilled
