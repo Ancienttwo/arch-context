@@ -52,7 +52,7 @@
 > **Reviewed Subject Scope**: normalized-final-content
 > **Reviewed Target Revision**: 81e881e5c020ce27176ee824d0518aec3613d752
 > **Verification Evidence SHA256**: sha256:f06eb2a17ad553fa4e2aa49070f4992dcc61519ce1614da6d4015b601b9087db
-> **Issued At**: 2026-08-08T09:25:23.305Z
+> **Issued At**: 2026-08-08T09:34:04.755Z
 
 - Summary: External Claude re-review confirmed both P1 regressions fixed and both critical P2 test gaps closed; no P0/P1 remains.
 - Findings: P2: agentContextTargetPaths intentionally retains the generic source.include fallback while repo-harness/v1 layout resolution requires strict contractFiles, so callers must resolve the explicit profile before using generic agent-context derivation.
