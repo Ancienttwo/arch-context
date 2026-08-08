@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-08-08T19:19:31+0800 -->
+<!-- updated_at: 2026-08-08T20:10:36+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-08-08T19:19:31+0800
-> **Source Branch**: codex/axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler
-> **Source Commit**: bbce064
+> **Updated At**: 2026-08-08T20:10:36+0800
+> **Source Branch**: codex/axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer
+> **Source Commit**: 55b992a
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -41,7 +41,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - (none)
 ## Handoff
 
-- Exact Next Step: If a major module was just completed, stage its coherent diff first; then continue the next Task Breakdown item: Run `$think` for backlog task `AXR3 [arch-context] node v2, ArchitectureFlowV1, and BYOK-grade semantic P1/P2 compiler` using sprint `plans/sprints/20260808-1433-archctx-repo-harness-projection-runtime-integration.sprint.md` and acceptance: v1 dual reader absent; proven/not-applicable/unprovable matrix passes; semantic P1 and success/error P2 render; raw path/top-five heuristic cannot produce verified diagram
+- Exact Next Step: Stage the completed module diff first; then run /check and let canonical workflow gates determine whether review, external acceptance, verification, or worktree finish is next. Command: /check
 
 ## Checks
 
@@ -52,16 +52,16 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
- D tasks/contracts/20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.contract.md
- D tasks/notes/20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.notes.md
- D tasks/reviews/20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.review.md
+ D plans/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
+ D tasks/contracts/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.contract.md
+ D tasks/notes/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.notes.md
+ D tasks/reviews/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
-?? tasks/archive/contract-20260808-1919-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
-?? tasks/archive/notes-20260808-1919-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
-?? tasks/archive/review-20260808-1919-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
-?? tasks/archive/todo-20260808-1919-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
+?? plans/archive/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
+?? tasks/archive/contract-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
+?? tasks/archive/notes-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
+?? tasks/archive/review-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
+?? tasks/archive/todo-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
 ```
 
 ## Source Artifacts

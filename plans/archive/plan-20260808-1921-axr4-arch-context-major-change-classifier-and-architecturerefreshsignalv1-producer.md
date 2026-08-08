@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR4 [arch-context] major-change classifier and ArchitectureRefreshSignalV1 producer
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260808-1921
 > **Slug**: axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer
 > **Planning Source**: repo-harness-sprint
