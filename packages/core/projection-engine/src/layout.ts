@@ -92,7 +92,14 @@ export function resolveArchitectureDocumentationLayout(input: {
   profile?: ArchitectureProjectionProfile;
 }): ArchitectureDocumentationLayout {
   const profile = input.profile ?? "default";
-  const entityTargets = input.nodes.map((node) => {
+  // The repo-harness profile owns one nested document per capability. Child semantic
+  // nodes and relations are inputs to the capability's P1/P2 compiler, not additional
+  // documentation targets; attempting to parse them as capability identities both
+  // rejects valid semantic models and creates an unintended second document set.
+  const targetNodes = profile === REPO_HARNESS_PROJECTION_PROFILE
+    ? input.nodes.filter((node) => node.kind === "capability")
+    : input.nodes;
+  const entityTargets = targetNodes.map((node) => {
     const path = profile === REPO_HARNESS_PROJECTION_PROFILE
       ? parseRepoHarnessNodeProfile(node).modulePath
       : requiredPath(`docs/architecture/modules/${pathSegment(node.id)}.md`, `${node.id}.modulePath`);
@@ -105,7 +112,7 @@ export function resolveArchitectureDocumentationLayout(input: {
       "markdown"
     );
   });
-  const relationTargets = input.relations.map((relation) => layoutTarget(
+  const relationTargets = (profile === REPO_HARNESS_PROJECTION_PROFILE ? [] : input.relations).map((relation) => layoutTarget(
     `projection_target.relation.${stableId(relation.id)}`,
     "relation-summary",
     { kind: "relation", id: relation.id },
@@ -121,7 +128,7 @@ export function resolveArchitectureDocumentationLayout(input: {
     targets,
     expectedPaths: [...new Set([...targets.map((target) => target.path), "docs/architecture/.projection-manifest.json"])].sort(),
     orphanRoots: ["docs/architecture/modules", "docs/architecture/relations"],
-    entityPathByNodeId: new Map(entityTargets.map((target, index) => [input.nodes[index]!.id, target.path]))
+    entityPathByNodeId: new Map(entityTargets.map((target, index) => [targetNodes[index]!.id, target.path]))
   };
 }
 

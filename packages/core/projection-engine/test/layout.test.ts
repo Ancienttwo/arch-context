@@ -35,6 +35,20 @@ describe("repo-harness projection layout", () => {
     ]);
   });
 
+  test("keeps semantic child nodes and relations inside capability documents", () => {
+    const semanticModel: NativeModel = {
+      nodes: [
+        ...model.nodes,
+        { id: "component.hook-cascade", kind: "component", name: "Hook Cascade", parent: "capability.runtime-harness.hook-adapters" }
+      ],
+      relations: [{ id: "relation.hook-cascade", kind: "calls", source: "capability.runtime-harness.hook-adapters", target: "component.hook-cascade", intent: "drain queue" }]
+    };
+    const layout = resolveArchitectureDocumentationLayout({ ...semanticModel, profile: REPO_HARNESS_PROJECTION_PROFILE });
+    expect(layout.entityPathByNodeId.has("component.hook-cascade")).toBe(false);
+    expect(layout.targets.filter((target) => target.type === "entity-summary")).toHaveLength(2);
+    expect(layout.targets.filter((target) => target.type === "relation-summary")).toHaveLength(0);
+  });
+
   test("rejects malformed explicit identity and contract paths", () => {
     expect(() => resolveArchitectureDocumentationLayout({
       nodes: [capability("capability.Bad.name", "a/AGENTS.md", "a/CLAUDE.md")], relations: [], profile: REPO_HARNESS_PROJECTION_PROFILE
