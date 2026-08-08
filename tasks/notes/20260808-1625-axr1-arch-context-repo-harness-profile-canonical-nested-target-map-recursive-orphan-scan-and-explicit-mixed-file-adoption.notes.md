@@ -19,6 +19,10 @@
 - `runCliUnchecked` now awaits async docs/agent-context handlers before its `finally` closes the
   embedded daemon. The previous un-awaited return could stop `archctxd` between `planUpdate` and
   `applyUpdate` and was reproduced by the adoption integration test.
+- External Claude first review found two P1 regressions: empty legacy `localContracts` were no
+  longer filtered and a dotted literal directory before a glob was mistaken for a filename. Both
+  were fixed with direct regression tests. Its preview-mismatch and non-entity adoption P2 test
+  gaps were also closed before re-review.
 
 ## Deviations From Plan Or Spec
 

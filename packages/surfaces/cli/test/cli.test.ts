@@ -3224,6 +3224,16 @@ describe("archctx CLI", () => {
       expect(readFileSync(join(root, modulePath), "utf8")).toBe(original);
 
       const expectedWorktreeDigest = computeWorktreeDigest(root);
+      const mismatched = await runTestCli("docs", [
+        "adopt",
+        "--profile", "repo-harness/v1",
+        "--approved",
+        "--adoption-plan-id", "adoption_plan.wrong",
+        "--expected-worktree-digest", expectedWorktreeDigest
+      ], root);
+      expect(mismatched.ok).toBe(false);
+      expect(readFileSync(join(root, modulePath), "utf8")).toBe(original);
+
       const applied = await runTestCli("docs", [
         "adopt",
         "--profile", "repo-harness/v1",

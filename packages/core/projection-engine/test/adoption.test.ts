@@ -57,6 +57,25 @@ describe("architecture documentation adoption", () => {
       candidates: []
     }).issues).toEqual(["projection-adoption-no-candidates"]);
   });
+
+  test("adopts a non-entity mixed target only by appending after every human byte", () => {
+    const target = { ...entityTarget(), type: "architecture-index" as const, targetId: "projection_target.architecture.index", path: "docs/architecture/index.md" };
+    const existingBody = "# Human architecture index\n\nKeep this paragraph.\n";
+    const wrapped = `${target.generatedRegion.startMarker}\n# Generated index\n${target.generatedRegion.endMarker}\n`;
+    const plan = buildArchitectureDocumentationAdoptionPlan({
+      profile: REPO_HARNESS_PROJECTION_PROFILE,
+      expectedWorktreeDigest,
+      candidates: [{ path: target.path, existingBody, renderedBody: `${existingBody}\n${wrapped}`, target }]
+    });
+    expect(plan.allowed).toBe(true);
+    expect(plan.files[0]!.body).toBe(`${existingBody}\n${wrapped}`);
+    expect(plan.files[0]!.preservedRegions[0]).toEqual({
+      kind: "prefix",
+      start: 0,
+      end: existingBody.length,
+      digest: digestJson({ bytes: existingBody } as unknown as Json)
+    });
+  });
 });
 
 function entityTarget(): ProjectionTargetV1 {

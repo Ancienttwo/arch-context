@@ -153,7 +153,9 @@ export function contractFilesForNode(node: ProjectionLayoutNode): string[] {
     return [profile.contractFiles.agents, profile.contractFiles.claude];
   }
   const localContracts = extensions.localContracts;
-  return Array.isArray(localContracts) ? localContracts.filter((value): value is string => typeof value === "string") : [];
+  return Array.isArray(localContracts)
+    ? localContracts.filter((value): value is string => typeof value === "string" && value.trim() !== "")
+    : [];
 }
 
 export function loadArchitectureFilesForLayout(
@@ -172,16 +174,16 @@ export function loadArchitectureFilesForLayout(
 }
 
 export function primarySourceDirectory(pattern: string): string {
-  const segments = pattern.replaceAll("\\", "/").split("/");
-  const literal: string[] = [];
-  for (const segment of segments) {
-    if (/[*?\[\]{}!]/.test(segment)) break;
-    literal.push(segment);
+  const normalized = pattern.replaceAll("\\", "/");
+  const wildcardIndex = normalized.search(/[*?\[\]{}!]/);
+  if (wildcardIndex >= 0) {
+    const literalPrefix = normalized.slice(0, wildcardIndex);
+    if (literalPrefix.endsWith("/")) return literalPrefix.replace(/\/+$/, "") || ".";
+    const slash = literalPrefix.lastIndexOf("/");
+    return slash < 0 ? "." : literalPrefix.slice(0, slash);
   }
-  if (literal.length === 0) return ".";
-  const last = literal[literal.length - 1];
-  if (last && last.includes(".")) literal.pop();
-  return literal.join("/") || ".";
+  const slash = normalized.lastIndexOf("/");
+  return slash < 0 ? "." : normalized.slice(0, slash);
 }
 
 function recursiveMarkdownPaths(root: string, relativeRoot: string): string[] {

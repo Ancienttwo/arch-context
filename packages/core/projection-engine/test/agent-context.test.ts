@@ -6,6 +6,7 @@ import {
   agentContextProjectionTargetPaths,
   primarySourceDirectoryFromInclude,
   projectionOwnedPaths,
+  renderArchitectureDocumentationProjection,
   renderAgentContextProjection,
   type NativeModel
 } from "../src/index";
@@ -53,6 +54,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
   test("primarySourceDirectoryFromInclude derives the directory root of an include glob", () => {
     expect(primarySourceDirectoryFromInclude("packages/core/projection-engine/**")).toBe("packages/core/projection-engine");
     expect(primarySourceDirectoryFromInclude("src/subscription/generated/**")).toBe("src/subscription/generated");
+    expect(primarySourceDirectoryFromInclude("packages/lib.v2/**/*.ts")).toBe("packages/lib.v2");
     expect(primarySourceDirectoryFromInclude("scripts/inspect-project-state.ts")).toBe("scripts");
     expect(primarySourceDirectoryFromInclude("README.md")).toBe(".");
   });
@@ -126,6 +128,30 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     const projectionFile = plan.files.find((file) => file.path === "packages/core/projection-engine/CLAUDE.md")!;
     expect(projectionFile.body).toContain("source.include:");
     expect(projectionFile.body).toContain("source.exclude:");
+  });
+
+  test("filters empty legacy localContracts instead of rendering blank contract spans", () => {
+    const withLegacyContracts: NativeModel = {
+      nodes: [{
+        id: "module.legacy",
+        kind: "module",
+        name: "Legacy",
+        extensions: { localContracts: ["", "   ", "packages/legacy/AGENTS.md"] }
+      }],
+      relations: []
+    };
+    const docs = renderArchitectureDocumentationProjection({
+      model: withLegacyContracts,
+      sourceDigest,
+      verifiedAgainst: { branch: "main", commit: "7415329", committedAt: "2026-08-08T00:00:00Z" },
+      sourceChangesSinceStamp: [],
+      sourceScaleSignals: [],
+      importGraphs: [],
+      entrypointCallGraphs: []
+    });
+    const body = docs.files.find((file) => file.target.type === "entity-summary")!.body;
+    expect(body).toContain("**Local Contracts**:`packages/legacy/AGENTS.md`");
+    expect(body).not.toContain("**Local Contracts**:``");
   });
 
   test("rendering is deterministic: identical input yields identical output digests", () => {
