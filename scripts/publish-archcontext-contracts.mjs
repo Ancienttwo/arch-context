@@ -81,7 +81,7 @@ function publishContracts(env) {
       registry
     ];
     if (otp) publishArgs.push("--otp", otp);
-    const publishResult = run("npm", publishArgs, { env });
+    const publishResult = run("npm", publishArgs, { env, interactive: true });
     cleanupPublishPackage(publishRoot);
     publish = {
       skipped: false,
@@ -329,12 +329,12 @@ function runCleanRoomSmoke(name, version, env) {
   }
 }
 
-function run(commandName, args, { cwd = root, env = process.env } = {}) {
+function run(commandName, args, { cwd = root, env = process.env, interactive = false } = {}) {
   const result = spawnSync(commandName, args, {
     cwd,
     env,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: interactive ? "inherit" : ["ignore", "pipe", "pipe"]
   });
   return {
     status: result.status ?? 1,

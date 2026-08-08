@@ -65,7 +65,7 @@ function runChecksAndMaybePublish({ version, tarballPath, env }) {
       "public",
       "--registry",
       registry
-    ], { env });
+    ], { env, interactive: true });
     publish = {
       skipped: false,
       exitCode: publishResult.status,
@@ -124,12 +124,12 @@ function readRegistryPackage(name, version, env) {
   };
 }
 
-function run(commandName, args, { cwd = root, env = process.env } = {}) {
+function run(commandName, args, { cwd = root, env = process.env, interactive = false } = {}) {
   const result = spawnSync(commandName, args, {
     cwd,
     env,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: interactive ? "inherit" : ["ignore", "pipe", "pipe"]
   });
   return {
     status: result.status ?? 1,
