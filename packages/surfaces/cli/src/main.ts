@@ -36,7 +36,10 @@ import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfac
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
 import {
+  REPO_HARNESS_PROJECTION_PROFILE,
+  architectureAdoptionReceipt,
   assertArchitectureProjectionVerifiedAgainst,
+  buildArchitectureDocumentationAdoptionPlan,
   exportMermaidModel,
   loadAgentContextProjectionFiles,
   loadArchitectureDocumentationInputs,
@@ -45,6 +48,7 @@ import {
   renderAgentContextProjection,
   renderArchitectureDocumentationProjection,
   resolveArchitectureOwnerForPath,
+  type ArchitectureProjectionProfile,
   type ArchitectureDocumentationProjectionNotice,
   type ArchitectureProjectionVerifiedAgainst
 } from "@archcontext/surfaces/renderer";
@@ -341,9 +345,9 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
       return result.ok ? { ...result, data: paginate(result.data, args) } : result;
     }
     case "docs":
-      return runDocsCommand(args, cwd, await runtime());
+      return await runDocsCommand(args, cwd, await runtime());
     case "agent-context":
-      return runAgentContextProjectionCommand(args, cwd, await runtime());
+      return await runAgentContextProjectionCommand(args, cwd, await runtime());
     case "practices":
       return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
@@ -901,11 +905,11 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "status";
-  if (["plan", "preview", "apply", "drift", "clean"].includes(subcommand)) {
+  if (["plan", "preview", "apply", "adopt", "drift", "clean"].includes(subcommand)) {
     return runArchitectureDocsProjectionCommand(args, cwd, daemon);
   }
   if (!["status", "resolve", "pin", "fetch", "purge"].includes(subcommand)) {
-    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge|plan|preview|apply|drift|clean");
+    return errorEnvelope("docs", "AC_SCHEMA_INVALID", "docs requires status|resolve|pin|fetch|purge|plan|preview|apply|adopt|drift|clean");
   }
   if (subcommand === "status") {
     return daemon.docs(cwd, { command: "status", provider: "context7" });
@@ -951,13 +955,21 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
   const subcommand = args[0] ?? "plan";
   const root = findRepositoryRoot(cwd);
   const generatedAt = readFlag(args, "--generated-at") ?? new Date(0).toISOString();
-  const projection = buildArchitectureDocsProjection(root, generatedAt);
+  let profile: ArchitectureProjectionProfile;
+  let projection: ReturnType<typeof buildArchitectureDocsProjection>;
+  try {
+    profile = architectureProjectionProfile(args);
+    projection = buildArchitectureDocsProjection(root, generatedAt, profile);
+  } catch (error) {
+    return errorEnvelope(`docs.${subcommand}`, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+  }
   if (subcommand === "drift") {
     return okEnvelope("docs.drift", {
       schemaVersion: "archcontext.docs-drift/v1",
       ok: projection.plan.drift.ok,
       sourceDigest: projection.plan.sourceDigest,
       projectionDigest: projection.plan.projectionDigest,
+      profile: projection.plan.profile,
       rendererVersion: projection.plan.rendererVersion,
       targetCount: projection.plan.targets.length,
       fileCount: projection.plan.files.length,
@@ -976,8 +988,20 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       action: orphaned.length === 0 ? "none" : "manual-review-required-before-tombstone"
     } as unknown as Json);
   }
+  if (subcommand === "adopt") {
+    return runArchitectureDocsAdoptionCommand(args, root, daemon, projection, profile, generatedAt);
+  }
   if (projection.plan.rejected.length > 0) {
-    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection rejected ambiguous ownership: ${projection.plan.rejected.map((diff) => diff.path).join(", ")}`);
+    return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`);
+  }
+  if (subcommand === "apply" && profile === REPO_HARNESS_PROJECTION_PROFILE && projection.plan.drift.ok) {
+    return okEnvelope("docs.apply", {
+      schemaVersion: "archcontext.docs-projection-apply/v1",
+      status: "noop",
+      profile,
+      sourceDigest: projection.plan.sourceDigest,
+      projectionDigest: projection.plan.projectionDigest
+    } as unknown as Json);
   }
   const changeSetId = readFlag(args, "--id") ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
   const operations = [architectureDocsRenderProjectionOperation(root, projection.files)];
@@ -1025,15 +1049,23 @@ function withProjectionNotices(envelope: JsonEnvelope, notices: ArchitectureDocu
   };
 }
 
-function buildArchitectureDocsProjection(root: string, generatedAt: string) {
-  const loaded = loadArchitectureDocumentationInputs(root);
+function buildArchitectureDocsProjection(
+  root: string,
+  generatedAt: string,
+  profile: ArchitectureProjectionProfile = "default",
+  existingFilesOverride?: { path: string; body: string }[]
+) {
+  const loadedFromDisk = loadArchitectureDocumentationInputs(root, profile);
+  const loaded = { ...loadedFromDisk, existingFiles: existingFilesOverride ?? loadedFromDisk.existingFiles };
   const sourceDigest = digestJson({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
   } as unknown as Json);
   const codeGraphInputs = loadCapabilityCodeGraphProjectionInputs(root, loaded.model);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
+    profile,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
     verifiedAgainst: readArchitectureProjectionVerifiedAgainst(root),
@@ -1045,10 +1077,93 @@ function buildArchitectureDocsProjection(root: string, generatedAt: string) {
     generatedAt
   });
   return {
+    loaded,
     plan,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest]
   };
+}
+
+function architectureProjectionProfile(args: string[]): ArchitectureProjectionProfile {
+  const profile = readFlag(args, "--profile") ?? "default";
+  if (profile !== "default" && profile !== REPO_HARNESS_PROJECTION_PROFILE) {
+    throw new Error(`architecture-docs-profile-unsupported: ${profile}`);
+  }
+  return profile;
+}
+
+async function runArchitectureDocsAdoptionCommand(
+  args: string[],
+  root: string,
+  daemon: RuntimeDaemonClient,
+  projection: ReturnType<typeof buildArchitectureDocsProjection>,
+  profile: ArchitectureProjectionProfile,
+  generatedAt: string
+) {
+  if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
+    return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
+  }
+  const currentWorktreeDigest = computeWorktreeDigest(root);
+  const existingByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file.body]));
+  const missingCandidate = projection.plan.adoptionCandidates.find((file) => !existingByPath.has(file.path));
+  if (missingCandidate) {
+    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-preimage-missing: ${missingCandidate.path}`);
+  }
+  const adoption = buildArchitectureDocumentationAdoptionPlan({
+    profile,
+    expectedWorktreeDigest: currentWorktreeDigest,
+    candidates: projection.plan.adoptionCandidates.map((file) => ({
+      path: file.path,
+      existingBody: existingByPath.get(file.path)!,
+      renderedBody: file.body,
+      target: file.target
+    }))
+  });
+  const publicPlan = {
+    ...adoption,
+    files: adoption.files.map(({ body: _body, ...file }) => file)
+  };
+  if (!args.includes("--approved")) {
+    return okEnvelope("docs.adopt", publicPlan as unknown as Json);
+  }
+  if (!adoption.allowed) {
+    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", adoption.issues.join(", "));
+  }
+  const expectedPlanId = readFlag(args, "--adoption-plan-id");
+  const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
+  if (!expectedPlanId || !expectedWorktreeDigest) {
+    return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", "approved docs adopt requires --adoption-plan-id and --expected-worktree-digest from preview");
+  }
+  if (expectedPlanId !== adoption.adoptionPlanId || expectedWorktreeDigest !== adoption.expectedWorktreeDigest) {
+    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch");
+  }
+  const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
+  for (const file of [...projection.plan.files, ...adoption.files]) simulatedByPath.set(file.path, file);
+  const canonicalFirst = buildArchitectureDocsProjection(root, generatedAt, profile, [...simulatedByPath.values()]);
+  const canonicalExistingByPath = new Map(simulatedByPath);
+  for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, file);
+  const canonical = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()]);
+  if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
+    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-fixed-point-unproven");
+  }
+  const filesByPath = new Map<string, { path: string; body: string }>();
+  for (const file of canonical.files) filesByPath.set(file.path, file);
+  const planned = await daemon.planUpdate(root, {
+    id: adoption.changeSetId,
+    reason: { taskSessionId: readFlag(args, "--task-session-id") ?? "task_docs_adoption" },
+    operations: [architectureDocsRenderProjectionOperation(root, [...filesByPath.values()])]
+  });
+  if (!planned.ok) return planned;
+  const applied = await daemon.applyUpdate(root, {
+    id: adoption.changeSetId,
+    approved: true,
+    expectedWorktreeDigest
+  });
+  if (!applied.ok) return applied;
+  return okEnvelope("docs.adopt", {
+    ...architectureAdoptionReceipt(adoption),
+    apply: applied.data
+  } as unknown as Json);
 }
 
 /**

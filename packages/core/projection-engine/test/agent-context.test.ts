@@ -82,6 +82,33 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     expect(plan.targets.some((target) => target.scope.id === "module.no-source")).toBe(false);
   });
 
+  test("uses explicit repo-harness contractFiles as authority instead of source.include", () => {
+    const explicit: NativeModel = {
+      nodes: [{
+        id: "capability.runtime-harness.hook-adapters",
+        kind: "capability",
+        name: "Hook Adapters",
+        source: { include: ["wrong/inferred/**"] },
+        extensions: {
+          contractFiles: {
+            agents: "runtime/hooks/AGENTS.md",
+            claude: "runtime/hooks/CLAUDE.md"
+          }
+        }
+      }],
+      relations: []
+    };
+    expect(agentContextProjectionTargetPaths(explicit)).toEqual([
+      { nodeId: "capability.runtime-harness.hook-adapters", primarySourceDir: "runtime/hooks", path: "runtime/hooks/AGENTS.md" },
+      { nodeId: "capability.runtime-harness.hook-adapters", primarySourceDir: "runtime/hooks", path: "runtime/hooks/CLAUDE.md" }
+    ]);
+    expect(projectionOwnedPaths(explicit)).toEqual([
+      "docs/architecture/**",
+      "runtime/hooks/AGENTS.md",
+      "runtime/hooks/CLAUDE.md"
+    ]);
+  });
+
   test("renders a marker-delimited body carrying id/name/summary/source/extensions", () => {
     const plan = renderAgentContextProjection({ model, sourceDigest });
     const claudeFile = plan.files.find((file) => file.path === "scripts/CLAUDE.md")!;

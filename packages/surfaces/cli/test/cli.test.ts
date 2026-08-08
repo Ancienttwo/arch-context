@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -3167,6 +3167,82 @@ describe("archctx CLI", () => {
       removeTempRoot(root);
     }
   });
+
+  test("docs adopt is preview-bound, preserves human sections, and makes the next profile apply a noop", async () => {
+    const root = createInitializedGitRepo();
+    const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
+    const original = [
+      "# runtime-harness/hook-adapters",
+      "",
+      "## 1. Old P1",
+      "legacy architecture",
+      "",
+      "## 2. Old P2",
+      "legacy dataflow",
+      "",
+      "## 3. P3 Decisions",
+      "human decision  ",
+      "",
+      "## 4. History",
+      "human history",
+      ""
+    ].join("\n");
+    try {
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.node/v1",
+          id: "capability.runtime-harness.hook-adapters",
+          kind: "capability",
+          name: "Hook Adapters",
+          status: "active",
+          summary: "Routes runtime hook events.",
+          extensions: {
+            contractFiles: {
+              agents: "packages/runtime-harness/AGENTS.md",
+              claude: "packages/runtime-harness/CLAUDE.md"
+            }
+          }
+        }),
+        "utf8"
+      );
+      mkdirSync(dirname(join(root, modulePath)), { recursive: true });
+      writeFileSync(join(root, modulePath), original, "utf8");
+
+      const ordinary = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root);
+      expect(ordinary.ok).toBe(false);
+      expect(readFileSync(join(root, modulePath), "utf8")).toBe(original);
+
+      const preview = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1"], root);
+      expect(preview.ok).toBe(true);
+      expect((preview.data as any).allowed).toBe(true);
+      expect(readFileSync(join(root, modulePath), "utf8")).toBe(original);
+
+      const unbound = await runTestCli("docs", ["adopt", "--profile", "repo-harness/v1", "--approved"], root);
+      expect(unbound.ok).toBe(false);
+      expect(readFileSync(join(root, modulePath), "utf8")).toBe(original);
+
+      const expectedWorktreeDigest = computeWorktreeDigest(root);
+      const applied = await runTestCli("docs", [
+        "adopt",
+        "--profile", "repo-harness/v1",
+        "--approved",
+        "--adoption-plan-id", (preview.data as any).adoptionPlanId,
+        "--expected-worktree-digest", expectedWorktreeDigest
+      ], root);
+      expect(applied.ok).toBe(true);
+      const adopted = readFileSync(join(root, modulePath), "utf8");
+      expect(adopted).toStartWith("# runtime-harness/hook-adapters\n<!-- BEGIN ARCHCONTEXT:generated");
+      expect(adopted).toEndWith("## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n");
+
+      const second = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root);
+      expect(second.ok).toBe(true);
+      expect((second.data as any).status).toBe("noop");
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI process exit code reflects the final envelope ok value", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-exitcode-"));

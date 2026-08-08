@@ -11,6 +11,19 @@ import {
   type ProjectionTargetV1
 } from "@archcontext/contracts";
 import { assertRepoRelativePath, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
+import {
+  agentContextTargetPaths,
+  contractFilesForNode,
+  loadArchitectureFilesForLayout,
+  primarySourceDirectory,
+  resolveArchitectureDocumentationLayout,
+  type ArchitectureDocumentationLayout,
+  type ArchitectureProjectionProfile,
+  type ProjectionLayoutTargetDraft
+} from "./layout";
+
+export * from "./adoption";
+export * from "./layout";
 
 export interface NativeNodeSource {
   include?: string[];
@@ -88,6 +101,7 @@ export type ArchitectureDocumentationDriftReason =
   | "projection-manifest-missing"
   | "projection-manifest-invalid"
   | "projection-manifest-stale"
+  | "projection-adoption-required"
   | "projection-generated-region-missing"
   | "projection-generated-region-stale"
   | "projection-generated-region-manually-edited"
@@ -124,6 +138,7 @@ export interface ArchitectureDocumentationProjectionPlan {
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   sourceDigest: string;
   projectionDigest: string;
+  profile: ArchitectureProjectionProfile;
   targets: ProjectionTargetV1[];
   files: ArchitectureDocumentationProjectionFile[];
   manifest: ArchitectureDocumentationExistingFile & { digest: string };
@@ -133,6 +148,7 @@ export interface ArchitectureDocumentationProjectionPlan {
     diffs: ArchitectureDocumentationProjectionDrift[];
   };
   rejected: ArchitectureDocumentationProjectionDrift[];
+  adoptionCandidates: ArchitectureDocumentationProjectionFile[];
   /** Non-blocking; see `ArchitectureDocumentationProjectionNotice`. Empty on a fully measured run. */
   notices: ArchitectureDocumentationProjectionNotice[];
 }
@@ -275,6 +291,7 @@ export function assertCapabilityEntrypointCallGraphs(
 
 export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
+  profile?: ArchitectureProjectionProfile;
   sourceDigest: string;
   verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
   /**
@@ -296,6 +313,7 @@ export function renderArchitectureDocumentationProjection(input: {
   const rendererVersion = input.rendererVersion ?? ARCHITECTURE_DOCS_RENDERER_VERSION;
   const verifiedAgainst = assertArchitectureProjectionVerifiedAgainst(input.verifiedAgainst);
   const model = normalizeNativeModel(input.model);
+  const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
   const generatedAt = input.generatedAt ?? "1970-01-01T00:00:00.000Z";
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
@@ -318,7 +336,7 @@ export function renderArchitectureDocumentationProjection(input: {
     importGraphs: [...importGraphsByNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
     entrypointCallGraphs: [...callGraphsByNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId))
   } as unknown as Json);
-  const targetDrafts = architectureDocumentationTargetDrafts(model);
+  const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
   const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
   const changeSinceStampByNodeId = new Map(input.sourceChangesSinceStamp.map((entry) => [entry.nodeId, entry]));
   const notices: ArchitectureDocumentationProjectionNotice[] = [];
@@ -350,7 +368,8 @@ export function renderArchitectureDocumentationProjection(input: {
       importGraphsByNodeId,
       callGraphsByNodeId,
       decisions: input.decisions ?? [],
-      timeline: input.timeline ?? []
+      timeline: input.timeline ?? [],
+      layout
     });
     const generatedBodyDigest = digestJson({ targetId: draft.targetId, body: generatedBody } as unknown as Json);
     const target = projectionTarget({
@@ -375,6 +394,7 @@ export function renderArchitectureDocumentationProjection(input: {
   const expectedByPath = new Map(rendered.map((file) => [file.path, file]));
   const projectionDigest = digestJson({
     rendererVersion,
+    profile: layout.profile,
     sourceDigest: input.sourceDigest,
     files: rendered.map((file) => ({
       path: file.path,
@@ -386,6 +406,7 @@ export function renderArchitectureDocumentationProjection(input: {
   const manifestValue = {
     schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
     rendererVersion,
+    profile: layout.profile,
     sourceDigest: input.sourceDigest,
     projectionDigest,
     targetCount: targets.length,
@@ -421,13 +442,19 @@ export function renderArchitectureDocumentationProjection(input: {
     expectedManifest: manifest,
     existingFiles: input.existingFiles ?? []
   });
-  const rejected = drift.diffs.filter((diff) => diff.reasonCode === "projection-ambiguous-ownership");
+  const rejected = drift.diffs.filter((diff) =>
+    diff.reasonCode === "projection-ambiguous-ownership" || diff.reasonCode === "projection-adoption-required"
+  );
+  const adoptionCandidates = rendered.filter((file) => rejected.some((diff) =>
+    diff.reasonCode === "projection-adoption-required" && diff.path === file.path && diff.targetId === file.target.targetId
+  ));
 
   return {
     schemaVersion: "archcontext.architecture-docs-projection-plan/v1",
     rendererVersion,
     sourceDigest: input.sourceDigest,
     projectionDigest,
+    profile: layout.profile,
     targets,
     files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
     manifest,
@@ -439,19 +466,22 @@ export function renderArchitectureDocumentationProjection(input: {
       }))
     },
     rejected,
+    adoptionCandidates,
     notices
   };
 }
 
-export function loadArchitectureDocumentationInputs(root: string): {
+export function loadArchitectureDocumentationInputs(root: string, profile: ArchitectureProjectionProfile = "default"): {
   model: NativeModel;
   decisions: ArchitectureDecisionRecord[];
   existingFiles: ArchitectureDocumentationExistingFile[];
 } {
+  const model = loadNativeModelFromArchContext(root);
+  const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile });
   return {
-    model: loadNativeModelFromArchContext(root),
+    model,
     decisions: loadArchitectureDecisionRecords(root),
-    existingFiles: loadArchitectureDocumentationFiles(root)
+    existingFiles: loadArchitectureFilesForLayout(root, layout)
   };
 }
 
@@ -562,29 +592,15 @@ export function loadArchitectureDecisionRecords(root: string): ArchitectureDecis
     });
 }
 
-export function loadArchitectureDocumentationFiles(root: string): ArchitectureDocumentationExistingFile[] {
-  const files: ArchitectureDocumentationExistingFile[] = [];
-  for (const entry of [
-    "docs/architecture/index.md",
-    "docs/architecture/changelog.md",
-    "docs/architecture/decisions/index.md",
-    "docs/architecture/diagrams/architecture.mmd",
-    "docs/architecture/diagrams/architecture.likec4",
-    "docs/architecture/diagrams/architecture.structurizr.json",
-    "docs/architecture/.projection-manifest.json"
-  ]) {
-    const absolute = resolve(root, entry);
-    if (existsSync(absolute)) files.push({ path: entry, body: readFileSync(absolute, "utf8") });
-  }
-  for (const dir of ["docs/architecture/modules", "docs/architecture/relations"]) {
-    const absoluteDir = resolve(root, dir);
-    if (!existsSync(absoluteDir)) continue;
-    for (const file of readdirSync(absoluteDir).filter((name) => name.endsWith(".md")).sort()) {
-      const path = `${dir}/${file}`;
-      files.push({ path, body: readFileSync(resolve(root, path), "utf8") });
-    }
-  }
-  return files.sort((left, right) => left.path.localeCompare(right.path));
+export function loadArchitectureDocumentationFiles(
+  root: string,
+  model: NativeModel = loadNativeModelFromArchContext(root),
+  profile: ArchitectureProjectionProfile = "default"
+): ArchitectureDocumentationExistingFile[] {
+  return loadArchitectureFilesForLayout(
+    root,
+    resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile })
+  );
 }
 
 // --- Projection freshness (code moved, projection did not) ---
@@ -1078,13 +1094,7 @@ function escapeMermaid(value: string): string {
   return value.replace(/"/g, "'");
 }
 
-interface ProjectionTargetDraft {
-  targetId: string;
-  type: ProjectionTargetV1["type"];
-  scope: ProjectionTargetV1["scope"];
-  path: string;
-  ownership: ProjectionTargetV1["ownership"];
-  format: ProjectionTargetV1["format"];
+interface ProjectionTargetDraft extends ProjectionLayoutTargetDraft {
   /**
    * Human-owned scaffold written only when the target file does not exist yet. The projection
    * never rewrites it afterwards: the title and the §3/§4/Backlog headings live outside the
@@ -1093,76 +1103,10 @@ interface ProjectionTargetDraft {
   skeleton?: { prefix: string; suffix: string };
 }
 
-function architectureDocumentationTargetDrafts(model: NativeModel): ProjectionTargetDraft[] {
-  const entityTargets = model.nodes.map((node) => ({
-    targetId: `projection_target.entity.${stableId(node.id)}`,
-    type: "entity-summary" as const,
-    scope: { kind: "entity" as const, id: node.id, entityKind: node.kind },
-    path: `docs/architecture/modules/${pathSegment(node.id)}.md`,
-    ownership: "mixed" as const,
-    format: "markdown" as const,
-    skeleton: entitySummarySkeleton(node)
-  }));
-  const relationTargets = model.relations.map((relation) => ({
-    targetId: `projection_target.relation.${stableId(relation.id)}`,
-    type: "relation-summary" as const,
-    scope: { kind: "relation" as const, id: relation.id },
-    path: `docs/architecture/relations/${pathSegment(relation.id)}.md`,
-    ownership: "mixed" as const,
-    format: "markdown" as const
-  }));
-  return [
-    {
-      targetId: "projection_target.architecture.index",
-      type: "architecture-index",
-      scope: { kind: "repository" },
-      path: "docs/architecture/index.md",
-      ownership: "mixed",
-      format: "markdown"
-    },
-    ...entityTargets,
-    ...relationTargets,
-    {
-      targetId: "projection_target.decision.index",
-      type: "decision-index",
-      scope: { kind: "decision" },
-      path: "docs/architecture/decisions/index.md",
-      ownership: "mixed",
-      format: "markdown"
-    },
-    {
-      targetId: "projection_target.architecture.changelog",
-      type: "architecture-changelog",
-      scope: { kind: "changelog" },
-      path: "docs/architecture/changelog.md",
-      ownership: "mixed",
-      format: "markdown"
-    },
-    {
-      targetId: "projection_target.diagram.mermaid",
-      type: "diagram-mermaid",
-      scope: { kind: "diagram", id: "architecture" },
-      path: "docs/architecture/diagrams/architecture.mmd",
-      ownership: "generated",
-      format: "mermaid"
-    },
-    {
-      targetId: "projection_target.diagram.structurizr",
-      type: "diagram-structurizr",
-      scope: { kind: "diagram", id: "architecture" },
-      path: "docs/architecture/diagrams/architecture.structurizr.json",
-      ownership: "generated",
-      format: "structurizr-json"
-    },
-    {
-      targetId: "projection_target.diagram.likec4",
-      type: "diagram-likec4",
-      scope: { kind: "diagram", id: "architecture" },
-      path: "docs/architecture/diagrams/architecture.likec4",
-      ownership: "generated",
-      format: "likec4"
-    }
-  ];
+function architectureDocumentationTargetDrafts(model: NativeModel, layout: ArchitectureDocumentationLayout): ProjectionTargetDraft[] {
+  return layout.targets.map((target) => target.type === "entity-summary"
+    ? { ...target, skeleton: entitySummarySkeleton(model.nodes.find((node) => node.id === target.scope.id)!) }
+    : target);
 }
 
 function projectionTarget(input: ProjectionTargetDraft & {
@@ -1200,9 +1144,10 @@ function renderTargetGeneratedBody(
     callGraphsByNodeId: Map<string, CapabilityEntrypointCallGraph>;
     decisions: ArchitectureDecisionRecord[];
     timeline: ArchitectureDocumentationTimelineEntry[];
+    layout: ArchitectureDocumentationLayout;
   }
 ): string {
-  if (target.type === "architecture-index") return renderArchitectureIndex(model, input.generatedAt);
+  if (target.type === "architecture-index") return renderArchitectureIndex(model, input.generatedAt, input.layout);
   if (target.type === "entity-summary") {
     const node = model.nodes.find((entry) => entry.id === target.scope.id)!;
     return renderEntitySummary(node, model, {
@@ -1221,7 +1166,7 @@ function renderTargetGeneratedBody(
   return "";
 }
 
-function renderArchitectureIndex(model: NativeModel, generatedAt: string): string {
+function renderArchitectureIndex(model: NativeModel, generatedAt: string, layout: ArchitectureDocumentationLayout): string {
   const lines = [
     "# Architecture Index",
     "",
@@ -1229,7 +1174,11 @@ function renderArchitectureIndex(model: NativeModel, generatedAt: string): strin
     "",
     "## Entities",
     "",
-    ...model.nodes.map((node) => `- [${node.name}](modules/${pathSegment(node.id)}.md) — ${node.kind}${node.status ? ` / ${node.status}` : ""}`),
+    ...model.nodes.map((node) => {
+      const path = layout.entityPathByNodeId.get(node.id);
+      if (!path) throw new Error(`projection-layout-entity-target-missing: ${node.id}`);
+      return `- [${node.name}](${path.replace(/^docs\/architecture\//, "")}) — ${node.kind}${node.status ? ` / ${node.status}` : ""}`;
+    }),
     ...(model.nodes.length === 0 ? ["- No architecture entities recorded."] : []),
     "",
     "## Relations",
@@ -1272,7 +1221,7 @@ function renderEntitySummary(
   }
   const incoming = model.relations.filter((relation) => relation.target === node.id);
   const outgoing = model.relations.filter((relation) => relation.source === node.id);
-  const localContracts = nodeLocalContracts(node);
+  const localContracts = contractFilesForNode(node);
   const lines = [
     `> **狀態**:${node.status ? `\`${node.status}\`` : "未宣告(`status` 缺失)"}`,
     `> **Verified against**:\`${input.verifiedAgainst.branch}@${input.verifiedAgainst.commit}\`(${input.verifiedAgainst.committedAt.slice(0, 10)})`,
@@ -1464,13 +1413,6 @@ function escapeMermaidLabel(value: string): string {
   return value.replace(/["#;,]/g, (char) => codes[char]);
 }
 
-/** `extensions.localContracts` as declared on the node; nothing is inferred from the file tree. */
-function nodeLocalContracts(node: NativeNode): string[] {
-  const value = node.extensions?.localContracts;
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
-}
-
 /**
  * Handoff title form `<domain>/<name>`: the node id with its `capability.` prefix dropped and the
  * remaining dotted segments joined by `/`. A single remaining segment is used on its own. The id is
@@ -1614,7 +1556,7 @@ function architectureDocumentationProjectionDrift(input: {
       diffs.push({
         path: expected.path,
         targetId: expected.target.targetId,
-        reasonCode: expected.target.ownership === "generated" ? "projection-ambiguous-ownership" : "projection-generated-region-missing",
+        reasonCode: expected.target.ownership === "generated" ? "projection-ambiguous-ownership" : "projection-adoption-required",
         expectedDigest: expected.digest,
         actualDigest: digestJson({ path: existing.path, body: existing.body } as unknown as Json)
       });
@@ -1913,10 +1855,7 @@ export interface AgentContextProjectionPlan {
  */
 export function primarySourceDirectoryFromInclude(pattern: string): string {
   assertRepoRelativePath(pattern);
-  const wildcardIndex = pattern.search(/[*?]/);
-  const literalPrefix = wildcardIndex === -1 ? pattern : pattern.slice(0, wildcardIndex);
-  const lastSlash = literalPrefix.lastIndexOf("/");
-  return lastSlash === -1 ? "." : literalPrefix.slice(0, lastSlash);
+  return primarySourceDirectory(pattern);
 }
 
 /** One file the agent-context projection writes, and the capability node that owns it. */
@@ -1937,20 +1876,10 @@ export interface AgentContextProjectionTargetPath {
  * derivation may put them on the machine write surface.
  */
 export function agentContextProjectionTargetPaths(model: NativeModel): AgentContextProjectionTargetPath[] {
-  const out: AgentContextProjectionTargetPath[] = [];
-  for (const node of [...model.nodes].sort((left, right) => left.id.localeCompare(right.id))) {
-    if (node.kind !== "capability") continue;
-    const firstInclude = nativeNodeSource(node)?.include?.[0];
-    if (!firstInclude) continue;
-    const primarySourceDir = primarySourceDirectoryFromInclude(firstInclude);
-    if (primarySourceDir === ".") {
-      throw new Error(`agent-context-primary-source-dir-is-repository-root: ${node.id}`);
-    }
-    for (const { fileName } of AGENT_CONTEXT_FILE_NAMES) {
-      out.push({ nodeId: node.id, primarySourceDir, path: `${primarySourceDir}/${fileName}` });
-    }
-  }
-  return out;
+  return agentContextTargetPaths(model.nodes).map(({ nodeId, path }) => {
+    const slash = path.lastIndexOf("/");
+    return { nodeId, path, primarySourceDir: slash < 0 ? "." : path.slice(0, slash) };
+  });
 }
 
 /** Reads back whatever already exists at the derived agent-context target paths. */

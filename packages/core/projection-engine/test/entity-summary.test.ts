@@ -278,14 +278,16 @@ describe("entity-summary capability documentation projection", () => {
       .toEqual(Buffer.from(prefix));
   });
 
-  test("appends to an existing marker-free document without touching its bytes", () => {
+  test("rejects an existing marker-free mixed document and exposes an adoption candidate", () => {
     const existingBody = "# Hand written doc\n\nHuman prose that predates the projection.\n";
-    const plan = render({ existingFiles: [{ path: entityFile(render(), "capability.docs.projection").path, body: existingBody }] });
-    const body = entityFile(plan, "capability.docs.projection").body;
+    const path = entityFile(render(), "capability.docs.projection").path;
+    const plan = render({ existingFiles: [{ path, body: existingBody }] });
+    const candidate = plan.adoptionCandidates.find((entry) => entry.path === path)!;
 
-    expect(body.startsWith(existingBody.trimEnd())).toBe(true);
-    expect(body).toContain("> **Verified against**:`main@7415329`");
-    expect(plan.drift.reasonCodes).toContain("projection-generated-region-missing");
+    expect(plan.files.some((entry) => entry.path === path)).toBe(false);
+    expect(candidate.body.startsWith(existingBody.trimEnd())).toBe(true);
+    expect(plan.drift.reasonCodes).toContain("projection-adoption-required");
+    expect(plan.rejected).toContainEqual(expect.objectContaining({ path, reasonCode: "projection-adoption-required" }));
   });
 
   test("moving HEAD with unchanged inputs is a fixed point: the stamp sticks and drift stays clean", () => {

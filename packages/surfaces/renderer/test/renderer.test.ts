@@ -123,7 +123,7 @@ describe("@archcontext/surfaces/renderer", () => {
 
   test("preserves human-authored regions and detects projection drift classes", () => {
     const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
-    const initial = renderArchitectureDocumentationProjection({
+    const markerFree = renderArchitectureDocumentationProjection({
       verifiedAgainst,
       sourceChangesSinceStamp,
       sourceScaleSignals,
@@ -134,10 +134,40 @@ describe("@archcontext/surfaces/renderer", () => {
       generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [{ path: "docs/architecture/index.md", body: "# Architecture Index\n\nHuman note.\n" }]
     });
-    const index = initial.files.find((file) => file.path === "docs/architecture/index.md")!;
-    expect(index.body).toContain("Human note.");
-    expect(index.body).toContain("BEGIN ARCHCONTEXT:generated");
-    expect(initial.drift.reasonCodes).toContain("projection-generated-region-missing");
+    const candidate = markerFree.adoptionCandidates.find((file) => file.path === "docs/architecture/index.md")!;
+    expect(markerFree.files.some((file) => file.path === "docs/architecture/index.md")).toBe(false);
+    expect(candidate.body).toContain("Human note.");
+    expect(candidate.body).toContain("BEGIN ARCHCONTEXT:generated");
+    expect(markerFree.drift.reasonCodes).toContain("projection-adoption-required");
+
+    const seeded = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
+      model,
+      sourceDigest,
+      generatedAt: "2026-06-26T00:00:00.000Z"
+    });
+    const preserved = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
+      model,
+      sourceDigest,
+      generatedAt: "2026-06-26T00:00:00.000Z",
+      existingFiles: [
+        ...seeded.files.map(({ path, body }) => ({
+          path,
+          body: path === "docs/architecture/index.md" ? `Human note.\n\n${body}` : body
+        })),
+        seeded.manifest
+      ]
+    });
+    expect(preserved.files.find((file) => file.path === "docs/architecture/index.md")?.body).toStartWith("Human note.\n\n");
 
     const clean = renderArchitectureDocumentationProjection({
       verifiedAgainst,
@@ -148,7 +178,7 @@ describe("@archcontext/surfaces/renderer", () => {
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
-      existingFiles: [...initial.files.map(({ path, body }) => ({ path, body })), initial.manifest]
+      existingFiles: [...preserved.files.map(({ path, body }) => ({ path, body })), preserved.manifest]
     });
     expect(clean.drift.ok).toBe(true);
 
@@ -161,7 +191,7 @@ describe("@archcontext/surfaces/renderer", () => {
       model,
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       generatedAt: "2026-06-26T00:00:00.000Z",
-      existingFiles: [...initial.files.map(({ path, body }) => ({ path, body })), initial.manifest]
+      existingFiles: [...clean.files.map(({ path, body }) => ({ path, body })), clean.manifest]
     });
     expect(stale.drift.reasonCodes).toContain("projection-generated-region-stale");
 
@@ -175,11 +205,11 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [
-        ...initial.files.map(({ path, body }) => ({
+        ...clean.files.map(({ path, body }) => ({
           path,
           body: path === "docs/architecture/index.md" ? body.replace("Payment", "Manual Payment Edit") : body
         })),
-        initial.manifest
+        clean.manifest
       ]
     });
     expect(edited.drift.reasonCodes).toContain("projection-generated-region-manually-edited");
@@ -194,8 +224,8 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
       existingFiles: [
-        ...initial.files.map(({ path, body }) => ({ path, body })),
-        initial.manifest,
+        ...clean.files.map(({ path, body }) => ({ path, body })),
+        clean.manifest,
         {
           path: "docs/architecture/modules/obsolete.md",
           body: [
