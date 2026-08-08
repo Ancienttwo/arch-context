@@ -26,11 +26,11 @@ export interface ModelProposalV1 {
   changeSetId: string;
   taskSessionId: string;
   operations: Array<{
-    op: "create_entity" | "update_entity_fields";
+    op: "create_entity" | "update_entity_fields" | "delete_entity";
     path: string;
     entityId: string;
     expectedHash: "missing" | `sha256:${string}`;
-    body: string;
+    body?: string;
   }>;
 }
 
@@ -56,15 +56,20 @@ export function parseModelProposal(value: unknown): ModelProposalV1 {
   const seen = new Set<string>();
   for (const operation of proposal.operations) {
     if (!operation || typeof operation !== "object") throw new Error("proposal operation must be an object");
-    if (operation.op !== "create_entity" && operation.op !== "update_entity_fields") throw new Error(`unsupported model operation: ${String(operation.op)}`);
+    if (operation.op !== "create_entity" && operation.op !== "update_entity_fields" && operation.op !== "delete_entity") throw new Error(`unsupported model operation: ${String(operation.op)}`);
     if (!MODEL_PATH.test(operation.path)) throw new Error(`model operation path is outside the model authority: ${operation.path}`);
     if (seen.has(operation.path)) throw new Error(`duplicate model operation path: ${operation.path}`);
     seen.add(operation.path);
     if (!isId(operation.entityId)) throw new Error(`model operation entityId must be a stable id: ${operation.path}`);
     if (operation.expectedHash !== "missing" && !SHA256.test(operation.expectedHash)) throw new Error(`invalid expectedHash: ${operation.path}`);
-    if (typeof operation.body !== "string" || operation.body.trim().length === 0) throw new Error(`model operation body is required: ${operation.path}`);
-    if (!operation.body.endsWith("\n")) throw new Error(`model operation body must end with a newline: ${operation.path}`);
-    if (FORBIDDEN_BODY.some((pattern) => pattern.test(operation.body))) throw new Error(`model operation body contains forbidden secret material: ${operation.path}`);
+    if (operation.op === "delete_entity") {
+      if (operation.body !== undefined) throw new Error(`delete operation body must be omitted: ${operation.path}`);
+    } else {
+      const body = operation.body;
+      if (typeof body !== "string" || body.trim().length === 0) throw new Error(`model operation body is required: ${operation.path}`);
+      if (!body.endsWith("\n")) throw new Error(`model operation body must end with a newline: ${operation.path}`);
+      if (FORBIDDEN_BODY.some((pattern) => pattern.test(body))) throw new Error(`model operation body contains forbidden secret material: ${operation.path}`);
+    }
   }
   return proposal as ModelProposalV1;
 }

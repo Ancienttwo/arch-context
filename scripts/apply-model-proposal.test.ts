@@ -31,4 +31,14 @@ describe("apply-model-proposal", () => {
     expect(() => parseModelProposal({ ...proposal, operations: [proposal.operations[0], proposal.operations[0]] })).toThrow("duplicate");
     expect(() => parseModelProposal({ ...proposal, operations: [{ ...proposal.operations[0], expectedHash: "unknown" }] })).toThrow("invalid expectedHash");
   });
+
+  test("accepts a hash-bound delete without a body", () => {
+    const parsed = parseModelProposal({ ...proposal, operations: [{
+      op: "delete_entity",
+      path: ".archcontext/model/nodes/capability.bootstrap.yaml",
+      entityId: "capability.bootstrap",
+      expectedHash: `sha256:${"a".repeat(64)}`
+    }] });
+    expect(parsed.operations[0].op).toBe("delete_entity");
+  });
 });
