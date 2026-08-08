@@ -2,14 +2,14 @@
   "schemaVersion": "archcontext.local-product-tarball-smoke/v1",
   "package": {
     "name": "archctx",
-    "version": "0.1.5",
-    "tarball": "archctx-0.1.5.tgz",
-    "stageDir": "$TMPDIR/archctx-local-product-stage-zssOzf"
+    "version": "0.4.0",
+    "tarball": "archctx-0.4.0.tgz",
+    "stageDir": "$TMPDIR/archctx-local-product-stage-80RXLP"
   },
   "install": {
     "installer": "npm install <local-tarball>",
-    "installDir": "$TMPDIR/archctx-local-product-install-ysXUiY",
-    "bin": "$TMPDIR/archctx-local-product-install-ysXUiY/node_modules/.bin/archctx"
+    "installDir": "$TMPDIR/archctx-local-product-install-MbiUlu",
+    "bin": "$TMPDIR/archctx-local-product-install-MbiUlu/node_modules/.bin/archctx"
   },
   "runtime": {
     "cli": true,
@@ -30,8 +30,10 @@
       ]
     },
     "codeGraph": {
-      "dependency": "1.0.1",
-      "digest": "sha256:9163802e7a14b1b35a6b5d0547ec85bd97181386e74959e837c4ecee5d7c98a8"
+      "dependency": "1.5.0",
+      "bin": "$TMPDIR/archctx-local-product-install-MbiUlu/node_modules/.bin/codegraph",
+      "source": "dependency-provided-local-bin",
+      "digest": "sha256:c6fb68221c2ac43672e0093f19b087915943be5d1153c3653f7a7d1fb67029b3"
     },
     "practices": {
       "validation": "strict",
@@ -39,19 +41,19 @@
       "practiceCount": 41,
       "sourceCount": 19,
       "profileCount": 8,
-      "catalogDigest": "sha256:6da748c8c6230d18597951e5ff2de7d483e90caed61435cbd80418a5339c0299"
+      "catalogDigest": "sha256:61835a0efb9c5a19cb4fd16482026918785d01b94b6e60f2c2a06b64a4c713be"
     }
   },
   "product": {
     "distribution": "one-package",
-    "version": "0.1.5",
+    "version": "0.4.0",
     "rpcSchemaVersion": "archcontext.runtime-rpc/v1"
   },
   "lifecycle": {
     "install": "passed",
     "upgrade": "reinstall-retained-state",
     "uninstall": "package-removed-state-retained",
-    "retainedStore": "$TMPDIR/archctx-local-product-state-nc51Fw/repositories/repo.5048d82366cc9dd9/worktrees/ws.34aebccbab64ebf5/runtime.sqlite",
-    "stateRoot": "$TMPDIR/archctx-local-product-state-nc51Fw"
+    "retainedStore": "$TMPDIR/archctx-local-product-state-vDbXYN/repositories/repo.433fe4ee824fe62b/worktrees/ws.ec84e2e7d94da9ce/runtime.sqlite",
+    "stateRoot": "$TMPDIR/archctx-local-product-state-vDbXYN"
   }
 }

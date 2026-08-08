@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-07-12T07:37:11.857Z",
+  "generatedAt": "2026-08-08T22:04:40.660Z",
   "package": {
     "name": "archctx",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -19,22 +19,25 @@
       "archctx": "./bin/archctx.mjs"
     },
     "dependencies": {
-      "@colbymchenry/codegraph": "1.4.0",
+      "@colbymchenry/codegraph": "1.5.0",
       "@node-rs/jieba": "^2.0.1"
     },
+    "optionalDependencies": {},
+    "peerDependencies": {},
+    "bundleDependencies": [],
     "publishConfig": {
       "registry": "https://registry.npmjs.org/"
     }
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.3.0.tgz",
-    "publishDryRunId": "archctx@0.3.0",
-    "integrity": "sha512-thrpZN6CJEnRVuJoIQAHZrbuasPjiuNqIM0S7/DeQ7zRlraodmtWhZIe/WRGaLdN0Vd+HZ3isAkyJFK7VXkSmw==",
-    "shasum": "b5401c727ce11af7bb4afc058c5d433d210ecbf0",
-    "size": 386928,
-    "unpackedSize": 2056216,
-    "entryCount": 81,
+    "tarball": "archctx-0.4.0.tgz",
+    "publishDryRunId": "archctx@0.4.0",
+    "integrity": "sha512-LFl8PqYv6Yu/VUbQHKJR00v2VZerRiyEvTlPXZVYEVjh1DzD37QmvlCq6zTUgZE3+wVLJJRpKe69u1vj2P4N7w==",
+    "shasum": "ea6cacb33353272d01989f7bdbacf852187ac55b",
+    "size": 425792,
+    "unpackedSize": 2249429,
+    "entryCount": 86,
     "files": [
       "NOTICE.md",
       "README.md",
@@ -72,6 +75,7 @@
       "schemas/integrations/chatgpt-ga-tool.schema.json",
       "schemas/integrations/likec4-mapping.schema.json",
       "schemas/integrations/structurizr-mapping.schema.json",
+      "schemas/repo/architecture-flow.schema.json",
       "schemas/repo/architecture-intervention.schema.json",
       "schemas/repo/architecture-node.schema.json",
       "schemas/repo/architecture-relation.schema.json",
@@ -85,9 +89,11 @@
       "schemas/repo/practices/practice-waiver.schema.json",
       "schemas/repo/practices/practice.schema.json",
       "schemas/runtime/agent-job.schema.json",
+      "schemas/runtime/archctx-capabilities.schema.json",
       "schemas/runtime/architecture-candidate-delta-policy.schema.json",
       "schemas/runtime/architecture-candidate-delta.schema.json",
       "schemas/runtime/architecture-event.schema.json",
+      "schemas/runtime/architecture-refresh-signal.schema.json",
       "schemas/runtime/architecture-snapshot.schema.json",
       "schemas/runtime/architecture-subject-selector.schema.json",
       "schemas/runtime/changeset.schema.json",
@@ -108,6 +114,8 @@
       "schemas/runtime/practice-guidance.schema.json",
       "schemas/runtime/practice-match.schema.json",
       "schemas/runtime/product-version-manifest.schema.json",
+      "schemas/runtime/projection-request.schema.json",
+      "schemas/runtime/projection-result.schema.json",
       "schemas/runtime/projection-target.schema.json",
       "schemas/runtime/recommendation-feedback.schema.json",
       "schemas/runtime/recommendation-run.schema.json",
@@ -126,7 +134,7 @@
     "profileFileCount": 1,
     "sourceFileCount": 2,
     "sourceRecordCount": 19,
-    "schemaFileCount": 59,
+    "schemaFileCount": 64,
     "requiredAssetFiles": [
       {
         "path": "assets/catalog.yaml",
@@ -198,7 +206,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.3.0",
+    "postPublishInstallCommand": "npm install -g archctx@0.4.0",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
@@ -221,6 +229,8 @@
     "packageContentsIncludeAttributionNotice": true,
     "releaseAssetsProvenanceComplete": true,
     "context7OptionalNotRequired": true,
+    "mermaidChromiumRuntimeAbsent": true,
+    "mermaidChromiumFilesAbsent": true,
     "packageContentsBounded": true
   },
   "failures": []

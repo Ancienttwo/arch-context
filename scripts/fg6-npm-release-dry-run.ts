@@ -237,8 +237,8 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (Object.keys(packageBin).length !== 1 || packageBin.archctx !== "./bin/archctx.mjs") {
     failures.push("release package bin must expose only archctx");
   }
-  if (readRecord(pkg.dependencies)["@colbymchenry/codegraph"] !== "1.4.0") {
-    failures.push("release package must declare exact CodeGraph dependency 1.4.0");
+  if (readRecord(pkg.dependencies)["@colbymchenry/codegraph"] !== "1.5.0") {
+    failures.push("release package must declare exact CodeGraph dependency 1.5.0");
   }
   if (releaseRuntimePackageNames(pkg).some(isMermaidOrBrowserPackage)) {
     failures.push("release package runtime dependency surfaces must exclude Mermaid and browser runtimes");

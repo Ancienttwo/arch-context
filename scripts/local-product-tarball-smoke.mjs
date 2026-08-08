@@ -435,12 +435,18 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
 }
 
 function nodeOnlyRuntimeEnv(stateRoot) {
+  const runtimeBinDir = mkdtempTracked("archctx-node-only-bin-");
+  const runtimeNode = join(runtimeBinDir, process.platform === "win32" ? "node.cmd" : "node");
+  writeFileSync(runtimeNode, process.platform === "win32"
+    ? `@echo off\r\n${JSON.stringify(process.execPath)} %*\r\n`
+    : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`, "utf8");
+  chmodSync(runtimeNode, 0o755);
   return {
     ...process.env,
     DO_NOT_TRACK: "1",
     ARCHCONTEXT_STATE_DIR: stateRoot,
     PATH: [
-      dirname(process.execPath),
+      runtimeBinDir,
       "/usr/bin",
       "/bin",
       "/usr/sbin",

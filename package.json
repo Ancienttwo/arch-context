@@ -1,6 +1,6 @@
 {
   "name": "archcontext",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.10",
@@ -95,6 +95,7 @@
     "publish:contracts": "node scripts/publish-archcontext-contracts.mjs publish --confirm-publish",
     "preflight:archctx:npm": "node scripts/publish-archctx.mjs",
     "publish:archctx": "node scripts/publish-archctx.mjs --confirm-publish",
+    "apply:model-proposal": "bun scripts/apply-model-proposal.ts",
     "readback:release": "bun scripts/release-provenance-readback.ts run --out docs/verification/release-provenance-readback.json --report docs/verification/release-provenance.md --json",
     "readback:fg6:rollout": "bun scripts/fg6-rollout-readback.ts run --input _ops/env/fg6-rollout-evidence.json --out docs/verification/fg6-rollout-readback.json --json",
     "record:al4:closeout": "bun scripts/architecture-ledger-al4-closeout-readback.ts run --out docs/verification/architecture-ledger-al4-closeout-readback.json --json",
