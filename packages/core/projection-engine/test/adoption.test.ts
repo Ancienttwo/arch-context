@@ -76,6 +76,19 @@ describe("architecture documentation adoption", () => {
       digest: digestJson({ bytes: existingBody } as unknown as Json)
     });
   });
+
+  test("preserves a legacy H1 appendix after P3 instead of treating it as a range collision", () => {
+    const target = entityTarget();
+    const existingBody = "# title\n\n## 1. P1\nold\n\n## 2. P2\nold\n\n## 3. P3\nkeep\n\n# Legacy appendix\nkeep legacy\n";
+    const wrapped = `${target.generatedRegion.startMarker}\nnew\n${target.generatedRegion.endMarker}\n`;
+    const plan = buildArchitectureDocumentationAdoptionPlan({
+      profile: REPO_HARNESS_PROJECTION_PROFILE,
+      expectedWorktreeDigest,
+      candidates: [{ path: target.path, existingBody, renderedBody: wrapped, target }]
+    });
+    expect(plan.allowed).toBe(true);
+    expect(plan.files[0]!.body).toEndWith("## 3. P3\nkeep\n\n# Legacy appendix\nkeep legacy\n");
+  });
 });
 
 function entityTarget(): ProjectionTargetV1 {

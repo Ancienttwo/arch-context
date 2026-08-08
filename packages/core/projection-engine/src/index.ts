@@ -20,6 +20,7 @@ import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } 
 import {
   agentContextTargetPaths,
   ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  REPO_HARNESS_PROJECTION_PROFILE,
   contractFilesForNode,
   loadArchitectureFilesForLayout,
   primarySourceDirectory,
@@ -1510,16 +1511,18 @@ function renderArchitectureIndex(model: NativeModel, generatedAt: string, layout
     "",
     "## Entities",
     "",
-    ...model.nodes.map((node) => {
+    ...model.nodes.filter((node) => layout.entityPathByNodeId.has(node.id)).map((node) => {
       const path = layout.entityPathByNodeId.get(node.id);
       if (!path) throw new Error(`projection-layout-entity-target-missing: ${node.id}`);
       return `- [${node.name}](${path.replace(/^docs\/architecture\//, "")}) — ${node.kind}${node.status ? ` / ${node.status}` : ""}`;
     }),
-    ...(model.nodes.length === 0 ? ["- No architecture entities recorded."] : []),
+    ...(layout.entityPathByNodeId.size === 0 ? ["- No architecture entities recorded."] : []),
     "",
     "## Relations",
     "",
-    ...model.relations.map((relation) => `- [${relation.source} -> ${relation.target}](relations/${pathSegment(relation.id)}.md) — ${relation.kind}`),
+    ...model.relations.map((relation) => layout.profile === REPO_HARNESS_PROJECTION_PROFILE
+      ? `- ${relation.source} -> ${relation.target} — ${relation.kind}`
+      : `- [${relation.source} -> ${relation.target}](relations/${pathSegment(relation.id)}.md) — ${relation.kind}`),
     ...(model.relations.length === 0 ? ["- No architecture relations recorded."] : []),
     "",
     "## Projections",

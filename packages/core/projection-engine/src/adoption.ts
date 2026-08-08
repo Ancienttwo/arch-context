@@ -127,7 +127,10 @@ function entityAdoptionRange(path: string, body: string): { start: number; end: 
   const p1 = matches(body, /^##\s+1(?:[.：:]|\s).+$/gm);
   const p2 = matches(body, /^##\s+2(?:[.：:]|\s).+$/gm);
   const p3 = matches(body, /^##\s+3(?:[.：:]|\s).+$/gm);
-  if (title.length !== 1 || p1.length !== 1 || p2.length !== 1 || p3.length !== 1) {
+  // Additional H1 sections after P3 are human-owned appendices and remain in the
+  // preserved suffix. Only the leading document title and the numbered P1/P2/P3
+  // boundaries identify the adoption range.
+  if (title.length < 1 || p1.length !== 1 || p2.length !== 1 || p3.length !== 1) {
     throw new Error(`projection-adoption-heading-ambiguous: ${path}`);
   }
   const firstLineEnd = body.indexOf("\n", title[0].index);
