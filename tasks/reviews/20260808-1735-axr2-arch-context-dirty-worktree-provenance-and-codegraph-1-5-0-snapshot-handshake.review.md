@@ -63,7 +63,7 @@ screenshot/artifact path, or reviewer observation.
 > **Reviewed Subject Scope**: normalized-final-content
 > **Reviewed Target Revision**: 74ac67872e4ef21616a96baff9c2423495c3da85
 > **Verification Evidence SHA256**: sha256:d7418aaf4190e9cc48b3c036923d706a391a3a06e995a1a47fa8e8add3cb09d2
-> **Issued At**: 2026-08-08T10:13:08.322Z
+> **Issued At**: 2026-08-08T10:15:32.154Z
 
 - Summary: Claude read-only review found no P0 or P1 findings; AXR2 snapshot, CodeGraph 1.5 handshake, fixed-point, and fail-closed acceptance passed.
 - Findings: none
