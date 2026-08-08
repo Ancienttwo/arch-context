@@ -4,7 +4,7 @@ import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, ope
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARCHCONTEXT_PRODUCT_VERSION, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AgentJobV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ReviewChallengeV2 } from "@archcontext/contracts";
+import type { AgentJobV1, ArchctxCapabilitiesV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -73,7 +73,13 @@ class RuntimeVersionUnsupportedError extends Error {
 
 if (import.meta.main) {
   if (command === "capabilities") {
-    process.stdout.write(`${JSON.stringify(runCapabilitiesCommand(), null, 2)}\n`);
+    const result = await runCli(command, args, process.cwd());
+    if ("ok" in result) {
+      process.stdout.write(`${renderResult(result, "json")}\n`);
+      if (result.ok === false) process.exitCode = 1;
+    } else {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    }
   } else if (command === "mcp" && args.length === 0) {
     await runStdioMcpLoop(
       stdinLines(),
@@ -195,7 +201,19 @@ interface CliRuntimeHandle {
 
 type AgentHost = "codex" | "claude" | "generic";
 
-export async function runCli(command = "help", args: string[] = [], cwd: string, deps: CliRuntimeDeps = {}) {
+type CliCommandResult = Awaited<ReturnType<typeof runCliUnchecked>>;
+
+export function runCli(command: "capabilities", args?: string[], cwd?: string, deps?: CliRuntimeDeps): Promise<ArchctxCapabilitiesV1 | CliCommandResult>;
+export function runCli(command?: string, args?: string[], cwd?: string, deps?: CliRuntimeDeps): Promise<CliCommandResult>;
+export async function runCli(command = "help", args: string[] = [], cwd = process.cwd(), deps: CliRuntimeDeps = {}): Promise<ArchctxCapabilitiesV1 | CliCommandResult> {
+  if (command === "capabilities") {
+    const jsonFlags = args.filter((arg) => arg === "--json");
+    const unexpected = args.filter((arg) => arg !== "--json");
+    if (jsonFlags.length > 1 || unexpected.length > 0) {
+      return errorEnvelope("capabilities", "AC_SCHEMA_INVALID", "capabilities accepts only one optional --json flag");
+    }
+    return runCapabilitiesCommand();
+  }
   try {
     return await runCliUnchecked(command, args, cwd, deps);
   } catch (error) {

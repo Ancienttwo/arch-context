@@ -111,10 +111,7 @@ export function buildNpmReleaseDryRunReadback(input: {
   const publish = dryRunEntries[0] ?? {};
   const publishFiles = readArray(publish.files).map(readRecord);
   const packageFiles = publishFiles.map((file) => String(file.path ?? ""));
-  const runtimePackageNames = [
-    ...Object.keys(readRecord(input.packageJson.dependencies)),
-    ...Object.keys(readRecord(input.packageJson.optionalDependencies))
-  ].map((name) => name.toLowerCase());
+  const runtimePackageNames = releaseRuntimePackageNames(input.packageJson);
   const tarballName = String(packEntry.filename ?? publish.filename ?? "");
   const releaseAssets = inspectReleaseAssetStage(input.stageDir, packageFiles);
   const assertions = {
@@ -174,6 +171,9 @@ export function buildNpmReleaseDryRunReadback(input: {
       engines: readRecord(input.packageJson.engines),
       bin: readRecord(input.packageJson.bin),
       dependencies: readRecord(input.packageJson.dependencies),
+      optionalDependencies: readRecord(input.packageJson.optionalDependencies),
+      peerDependencies: readRecord(input.packageJson.peerDependencies),
+      bundleDependencies: readArray(input.packageJson.bundleDependencies ?? input.packageJson.bundledDependencies),
       publishConfig: readRecord(input.packageJson.publishConfig)
     },
     artifact: {
@@ -205,6 +205,15 @@ function isMermaidOrBrowserPackage(value: string): boolean {
     || value.includes("chrome-headless");
 }
 
+function releaseRuntimePackageNames(packageJson: Record<string, unknown>): string[] {
+  return [
+    ...Object.keys(readRecord(packageJson.dependencies)),
+    ...Object.keys(readRecord(packageJson.optionalDependencies)),
+    ...Object.keys(readRecord(packageJson.peerDependencies)),
+    ...readArray(packageJson.bundleDependencies ?? packageJson.bundledDependencies).map(String)
+  ].map((name) => name.toLowerCase());
+}
+
 export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; failures: string[] } {
   const failures: string[] = [];
   const record = readRecord(recording);
@@ -230,6 +239,9 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   }
   if (readRecord(pkg.dependencies)["@colbymchenry/codegraph"] !== "1.4.0") {
     failures.push("release package must declare exact CodeGraph dependency 1.4.0");
+  }
+  if (releaseRuntimePackageNames(pkg).some(isMermaidOrBrowserPackage)) {
+    failures.push("release package runtime dependency surfaces must exclude Mermaid and browser runtimes");
   }
   if (!String(artifact.tarball ?? "").startsWith(`${RELEASE_PACKAGE_NAME}-`)) failures.push("tarball must use archctx package name");
   const releaseAssets = readRecord(record.releaseAssets);

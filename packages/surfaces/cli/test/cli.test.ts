@@ -77,6 +77,9 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v2");
   const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
   expect(JSON.parse(processOutput)).toEqual(capabilities);
+  expect(await runCli("capabilities", [], "/path/that/does/not/exist")).toEqual(capabilities);
+  const invalid = await runCli("capabilities", ["unexpected"], "/path/that/does/not/exist");
+  expect("ok" in invalid && invalid.ok).toBe(false);
 });
 
 async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {

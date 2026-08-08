@@ -66,6 +66,7 @@ Complete this inventory before implementation. If any line is unknown, keep the 
 | `packages/surfaces/cli/src/main.ts`、`test/cli.test.ts` | edit | local `capabilities --json` command、help 与 exact output test |
 | `package.json`、`bun.lock` | edit | exact dev-only Mermaid CLI 与 validator script |
 | `scripts/verify-architecture-mermaid.mjs` | add | temp-only corpus extraction/render validation |
+| `scripts/verify-architecture-mermaid.test.ts` | add | CommonMark fence extraction false-positive/false-negative regression coverage |
 | `scripts/fg6-npm-release-dry-run.ts` | edit | production tarball/dependency negative assertions |
 
 ### Code Snippets

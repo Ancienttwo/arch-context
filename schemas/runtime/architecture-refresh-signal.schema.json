@@ -49,6 +49,13 @@
     "resultingDigests": { "$ref": "#/$defs/digestSet" },
     "projectionReceiptDigest": { "$ref": "#/$defs/digest" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "cause": { "const": "unresolved-major-candidate" } }, "required": ["cause"] },
+      "then": { "properties": { "mode": { "const": "human-action-required" } } },
+      "else": { "properties": { "mode": { "const": "refresh-required" } } }
+    }
+  ],
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "reasonCode": {

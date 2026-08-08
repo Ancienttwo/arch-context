@@ -7,16 +7,23 @@
   "required": ["schemaVersion", "requestId", "status", "inputSnapshot", "outputSnapshot", "affectedNodeIds", "files", "humanActions", "refreshSignals", "receiptDigest"],
   "properties": {
     "schemaVersion": { "const": "archcontext.projection-result/v1" },
-    "requestId": { "type": "string", "minLength": 1 },
+    "requestId": { "type": "string", "pattern": "^[a-zA-Z0-9_.:-]+$", "minLength": 1 },
     "status": { "enum": ["adoption-required", "applied", "blocked", "human-action-required", "noop", "permanent-failure", "planned", "retryable-failure"] },
     "inputSnapshot": { "$ref": "#/$defs/snapshot" },
     "outputSnapshot": { "$ref": "#/$defs/snapshot" },
-    "affectedNodeIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
-    "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+    "affectedNodeIds": { "type": "array", "uniqueItems": true, "description": "Canonical wire order is lexicographic and is enforced by projectionResultInvariantIssues.", "items": { "type": "string", "minLength": 1 } },
+    "files": { "type": "array", "description": "Canonical wire order is by path and is enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/file" } },
     "humanActions": { "type": "array", "items": { "$ref": "#/$defs/humanAction" } },
-    "refreshSignals": { "type": "array", "items": { "$ref": "#/$defs/refreshSignal" } },
+    "refreshSignals": { "type": "array", "description": "Canonical wire order is by signalId and cross-object receipt/snapshot bindings are enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/refreshSignal" } },
     "receiptDigest": { "$ref": "#/$defs/digest" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["adoption-required", "human-action-required"] } }, "required": ["status"] },
+      "then": { "properties": { "humanActions": { "minItems": 1 } } },
+      "else": { "properties": { "humanActions": { "maxItems": 0 } } }
+    }
+  ],
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
     "nullableDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
@@ -48,7 +55,21 @@
         "action": { "enum": ["create", "delete", "unchanged", "update"] },
         "preimageDigest": { "$ref": "#/$defs/nullableDigest" },
         "outputDigest": { "$ref": "#/$defs/nullableDigest" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "create" } }, "required": ["action"] },
+          "then": { "properties": { "preimageDigest": { "const": null }, "outputDigest": { "$ref": "#/$defs/digest" } } }
+        },
+        {
+          "if": { "properties": { "action": { "const": "delete" } }, "required": ["action"] },
+          "then": { "properties": { "preimageDigest": { "$ref": "#/$defs/digest" }, "outputDigest": { "const": null } } }
+        },
+        {
+          "if": { "properties": { "action": { "enum": ["unchanged", "update"] } }, "required": ["action"] },
+          "then": { "properties": { "preimageDigest": { "$ref": "#/$defs/digest" }, "outputDigest": { "$ref": "#/$defs/digest" } } }
+        }
+      ]
     },
     "humanAction": {
       "type": "object",
@@ -71,6 +92,9 @@
         "projectionDigest": { "$ref": "#/$defs/digest" }
       }
     },
+    "reasonCode": {
+      "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"]
+    },
     "refreshSignal": {
       "type": "object",
       "additionalProperties": false,
@@ -92,13 +116,20 @@
           }
         },
         "cause": { "enum": ["accepted-semantic-delta", "unresolved-major-candidate", "verified-flow-proof-delta"] },
-        "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"] } },
+        "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
         "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
         "refreshTargets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["architecture-contract-context", "architecture-readiness", "architecture-request-index", "capability-context", "capability-index"] } },
         "baseDigests": { "$ref": "#/$defs/digestSet" },
         "resultingDigests": { "$ref": "#/$defs/digestSet" },
         "projectionReceiptDigest": { "$ref": "#/$defs/digest" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "cause": { "const": "unresolved-major-candidate" } }, "required": ["cause"] },
+          "then": { "properties": { "mode": { "const": "human-action-required" } } },
+          "else": { "properties": { "mode": { "const": "refresh-required" } } }
+        }
+      ]
     }
   }
 }

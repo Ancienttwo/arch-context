@@ -177,6 +177,8 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
     ...sortedUniqueIssues("targets", input.targets),
     ...sortedUniqueIssues("changedPaths", input.changedPaths)
   ];
+  if (input.targets.length === 0) issues.push("targets must contain at least one projection target");
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("requestId must use the stable identifier character set");
   if (input.mode === "adopt" && !input.adoptionPlanId) issues.push("adoptionPlanId is required when mode=adopt");
   if (input.mode !== "adopt" && input.adoptionPlanId !== undefined) issues.push("adoptionPlanId is only allowed when mode=adopt");
   return issues;
@@ -190,21 +192,66 @@ export function projectionResultInvariantIssues(input: ProjectionResultV1): stri
     ...input.humanActions.flatMap((action, index) => sortedUniqueIssues(`humanActions[${index}].affectedNodeIds`, action.affectedNodeIds)),
     ...input.refreshSignals.flatMap((signal, index) => architectureRefreshSignalInvariantIssues(signal, `refreshSignals[${index}]`))
   ];
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("requestId must use the stable identifier character set");
   if (input.inputSnapshot.repositoryId !== input.outputSnapshot.repositoryId) issues.push("outputSnapshot.repositoryId must match inputSnapshot.repositoryId");
   if (input.inputSnapshot.workspaceId !== input.outputSnapshot.workspaceId) issues.push("outputSnapshot.workspaceId must match inputSnapshot.workspaceId");
+  const statusRequiresHumanAction = input.status === "adoption-required" || input.status === "human-action-required";
+  if (statusRequiresHumanAction && input.humanActions.length === 0) issues.push(`${input.status} status requires at least one human action`);
+  if (!statusRequiresHumanAction && input.humanActions.length > 0) issues.push(`human actions are not allowed when status=${input.status}`);
+  for (const [index, file] of input.files.entries()) {
+    const prefix = `files[${index}]`;
+    if (file.action === "create" && (file.preimageDigest !== null || file.outputDigest === null)) {
+      issues.push(`${prefix} create requires null preimageDigest and non-null outputDigest`);
+    }
+    if (file.action === "delete" && (file.preimageDigest === null || file.outputDigest !== null)) {
+      issues.push(`${prefix} delete requires non-null preimageDigest and null outputDigest`);
+    }
+    if (file.action === "update" && (file.preimageDigest === null || file.outputDigest === null || file.preimageDigest === file.outputDigest)) {
+      issues.push(`${prefix} update requires two different non-null digests`);
+    }
+    if (file.action === "unchanged" && (file.preimageDigest === null || file.outputDigest === null || file.preimageDigest !== file.outputDigest)) {
+      issues.push(`${prefix} unchanged requires equal non-null digests`);
+    }
+  }
+  const { receiptDigest, ...receiptPayload } = input;
+  if (projectionResultReceiptDigest(receiptPayload) !== receiptDigest) issues.push("receiptDigest must match the canonical projection result payload");
+  for (const [index, signal] of input.refreshSignals.entries()) {
+    const prefix = `refreshSignals[${index}]`;
+    if (signal.projectionReceiptDigest !== receiptDigest) issues.push(`${prefix}.projectionReceiptDigest must match receiptDigest`);
+    if (signal.repository.repositoryId !== input.outputSnapshot.repositoryId) issues.push(`${prefix}.repositoryId must match outputSnapshot.repositoryId`);
+    if (signal.worktree.workspaceId !== input.outputSnapshot.workspaceId) issues.push(`${prefix}.workspaceId must match outputSnapshot.workspaceId`);
+    if (signal.worktree.headSha !== input.outputSnapshot.headSha) issues.push(`${prefix}.headSha must match outputSnapshot.headSha`);
+    if (signal.worktree.worktreeDigest !== input.outputSnapshot.worktreeDigest) issues.push(`${prefix}.worktreeDigest must match outputSnapshot.worktreeDigest`);
+  }
   return issues;
 }
 
+/**
+ * Computes the accepted projection receipt. Signal back-references are omitted from the
+ * receipt payload to avoid a circular hash; every signal must then bind that receipt via
+ * projectionReceiptDigest, which projectionResultInvariantIssues verifies.
+ */
 export function projectionResultReceiptDigest(input: Omit<ProjectionResultV1, "receiptDigest">): Sha256Digest {
-  return digestJson(input as unknown as Json) as Sha256Digest;
+  const refreshSignals = input.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
+  return digestJson({ ...input, refreshSignals } as unknown as Json) as Sha256Digest;
 }
 
 export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefreshSignalV1, prefix = "signal"): string[] {
-  return [
+  const issues = [
     ...sortedUniqueIssues(`${prefix}.reasonCodes`, input.reasonCodes),
     ...sortedUniqueIssues(`${prefix}.affectedNodeIds`, input.affectedNodeIds),
     ...sortedUniqueIssues(`${prefix}.refreshTargets`, input.refreshTargets)
   ];
+  if (input.reasonCodes.length === 0) issues.push(`${prefix}.reasonCodes must contain at least one reason`);
+  if (input.affectedNodeIds.length === 0) issues.push(`${prefix}.affectedNodeIds must contain at least one node`);
+  if (input.refreshTargets.length === 0) issues.push(`${prefix}.refreshTargets must contain at least one target`);
+  if (input.cause === "unresolved-major-candidate" && input.mode !== "human-action-required") {
+    issues.push(`${prefix}.unresolved-major-candidate requires human-action-required mode`);
+  }
+  if (input.cause !== "unresolved-major-candidate" && input.mode !== "refresh-required") {
+    issues.push(`${prefix}.${input.cause} requires refresh-required mode`);
+  }
+  return issues;
 }
 
 function sortedUniqueIssues(label: string, values: readonly string[]): string[] {

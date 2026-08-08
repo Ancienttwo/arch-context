@@ -88,6 +88,7 @@ allowed_paths:
   - packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
   - schemas/runtime/
   - scripts/verify-architecture-mermaid.mjs
+  - scripts/verify-architecture-mermaid.test.ts
   - scripts/fg6-npm-release-dry-run.ts
   - scripts/fg6-npm-release-dry-run.test.ts
 ```
@@ -145,6 +146,7 @@ exit_criteria:
     - schemas/runtime/architecture-refresh-signal.schema.json
     - schemas/runtime/archctx-capabilities.schema.json
     - scripts/verify-architecture-mermaid.mjs
+    - scripts/verify-architecture-mermaid.test.ts
   artifacts_exist:
     - .ai/harness/checks/latest.json
     - tasks/notes/20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.notes.md
@@ -154,10 +156,11 @@ exit_criteria:
     - path: packages/surfaces/cli/test/cli.test.ts
     - path: packages/core/projection-engine/test/entity-summary.test.ts
     - path: scripts/fg6-npm-release-dry-run.test.ts
+    - path: scripts/verify-architecture-mermaid.test.ts
     - path: packages/local-runtime/runtime-daemon/test/local-runtime.test.ts
   commands_succeed:
     - bun run typecheck
-    - bun test packages/contracts/test/contracts.test.ts packages/contracts/test/publishability.test.ts packages/surfaces/cli/test/cli.test.ts packages/core/projection-engine/test/entity-summary.test.ts scripts/fg6-npm-release-dry-run.test.ts
+    - bun test packages/contracts/test/contracts.test.ts packages/contracts/test/publishability.test.ts packages/surfaces/cli/test/cli.test.ts packages/core/projection-engine/test/entity-summary.test.ts scripts/fg6-npm-release-dry-run.test.ts scripts/verify-architecture-mermaid.test.ts
     - bun run verify:architecture-mermaid
     - bun scripts/fg6-npm-release-dry-run.ts run --out /tmp/archctx-axr0-fg6.json --artifact-dir /tmp/archctx-axr0-artifacts --json
     - bun scripts/fg6-npm-release-dry-run.ts inspect --out /tmp/archctx-axr0-fg6.json --json

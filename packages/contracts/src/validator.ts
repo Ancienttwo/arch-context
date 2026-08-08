@@ -29,6 +29,7 @@ type JsonSchema = {
   not?: JsonSchema;
   additionalProperties?: boolean | JsonSchema;
   minItems?: number;
+  maxItems?: number;
   uniqueItems?: boolean;
   minLength?: number;
   maxLength?: number;
@@ -110,6 +111,9 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) {
       issues.push({ path, message: `expected at least ${schema.minItems} items` });
+    }
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      issues.push({ path, message: `expected at most ${schema.maxItems} items` });
     }
     if (schema.uniqueItems && new Set(value.map(canonicalize)).size !== value.length) {
       issues.push({ path, message: "expected unique items" });

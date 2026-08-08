@@ -14,11 +14,13 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
+      "description": "Canonical wire order is lexicographic and is enforced by projectionRequestInvariantIssues.",
       "items": { "enum": ["agent-context", "architecture-docs"] }
     },
     "changedPaths": {
       "type": "array",
       "uniqueItems": true,
+      "description": "Canonical wire order is lexicographic and is enforced by projectionRequestInvariantIssues.",
       "items": { "$ref": "#/$defs/repoPath" }
     },
     "expected": { "$ref": "#/$defs/expectedSnapshot" },

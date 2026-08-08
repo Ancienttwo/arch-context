@@ -63,6 +63,7 @@ import {
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
   projectionResultInvariantIssues,
+  type ArchitectureRefreshSignalV1,
   type ProjectionRequestV1,
   type ProjectionResultV1
 } from "../src/projection";
@@ -193,12 +194,57 @@ test("projection result contract denies raw bodies and keeps deterministic resul
   expect(validateJsonSchema(schema as any, withRawBody as any).valid).toBe(false);
   const { receiptDigest, ...receiptPayload } = valid;
   expect(projectionResultReceiptDigest(receiptPayload)).toBe(receiptDigest);
+  expect(projectionResultInvariantIssues({ ...valid, receiptDigest: `sha256:${"0".repeat(64)}` })).toContain(
+    "receiptDigest must match the canonical projection result payload"
+  );
+  expect(projectionResultInvariantIssues({
+    ...valid,
+    files: [{ ...valid.files[0], action: "unchanged", outputDigest: `sha256:${"d".repeat(64)}` }]
+  })).toContain("files[0] unchanged requires equal non-null digests");
+  expect(validateJsonSchema(schema as any, { ...valid, status: "human-action-required" } as any).valid).toBe(false);
+});
+
+test("projection result receipt binds refresh signals without a circular hash", () => {
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV1;
+  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
+  const unboundSignal: ArchitectureRefreshSignalV1 = {
+    ...fixture,
+    repository: { repositoryId: valid.outputSnapshot.repositoryId },
+    worktree: {
+      workspaceId: valid.outputSnapshot.workspaceId,
+      headSha: valid.outputSnapshot.headSha,
+      worktreeDigest: valid.outputSnapshot.worktreeDigest
+    },
+    projectionReceiptDigest: `sha256:${"0".repeat(64)}`
+  };
+  const { receiptDigest: _fixtureReceipt, ...basePayload } = valid;
+  const payload = { ...basePayload, refreshSignals: [unboundSignal] };
+  const receiptDigest = projectionResultReceiptDigest(payload);
+  const result: ProjectionResultV1 = {
+    ...payload,
+    refreshSignals: [{ ...unboundSignal, projectionReceiptDigest: receiptDigest }],
+    receiptDigest
+  };
+  expect(projectionResultInvariantIssues(result)).toEqual([]);
+  expect(projectionResultInvariantIssues({
+    ...result,
+    refreshSignals: [{ ...result.refreshSignals[0], projectionReceiptDigest: `sha256:${"f".repeat(64)}` }]
+  })).toContain("refreshSignals[0].projectionReceiptDigest must match receiptDigest");
+});
+
+test("projection result keeps its embedded refresh signal schema synchronized", () => {
+  const resultSchema = readJson("schemas/runtime/projection-result.schema.json") as any;
+  const standalone = readJson("schemas/runtime/architecture-refresh-signal.schema.json") as any;
+  const { $schema: _schema, $id: _id, title: _title, $defs: _defs, ...standaloneShape } = standalone;
+  expect(resultSchema.$defs.refreshSignal).toEqual(standaloneShape);
 });
 
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
   expect(archctxCapabilities("0.3.0")).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
+  const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
+  expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
 });
 
 function readJson(path: string): Json {
