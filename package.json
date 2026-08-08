@@ -159,7 +159,14 @@
     "verify:privacy-contract": "node scripts/github-api-contract-audit.mjs",
     "check:sprint": "node scripts/sprint-status-check.mjs",
     "check:package-boundaries": "node scripts/package-boundary-audit.mjs",
-    "eval": "bun evals/run.ts"
+    "eval": "bun evals/run.ts",
+    "check:brain-manifest": "repo-harness run check-brain-manifest",
+    "check:context-files": "repo-harness run check-context-files",
+    "check:deploy-sql": "repo-harness run check-deploy-sql-order",
+    "check:architecture-sync": "repo-harness run check-architecture-sync",
+    "check:task-sync": "repo-harness run check-task-sync",
+    "check:task-workflow": "repo-harness run check-task-workflow --strict",
+    "sync:brain-docs": "repo-harness run sync-brain-docs --all"
   },
   "devDependencies": {
     "@types/node": "^26.0.0",
