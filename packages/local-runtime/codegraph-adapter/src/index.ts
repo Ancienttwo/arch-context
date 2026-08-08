@@ -1,10 +1,16 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import {
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  ARCHITECTURE_DOCS_RENDERER_VERSION,
+  architectureDocumentationProjectionProvenance,
+  architectureDocumentationProjectionWorktreeDigest,
+  architectureDocumentationSourceTreeDigest,
   loadCapabilitySourceFootprints,
   nativeNodeSource,
   type CapabilityEntrypointCall,
@@ -13,12 +19,13 @@ import {
   type CapabilityEntrypointTrace,
   type CapabilityImportEdge,
   type CapabilityImportGraph,
+  type ArchitectureDocumentationProjectionProvenanceV1,
   type NativeModel
 } from "@archcontext/core/projection-engine";
 import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
-export const REQUIRED_CODEGRAPH_VERSION = "1.4.0";
+export const REQUIRED_CODEGRAPH_VERSION = "1.5.0";
 export const CODEGRAPH_TELEMETRY_ENV = "DO_NOT_TRACK";
 export const CODEGRAPH_TELEMETRY_DISABLED_VALUE = "1";
 const DEFAULT_CODEGRAPH_BINARY = "codegraph";
@@ -140,6 +147,15 @@ export interface CodeGraphCliInvocation {
   argsPrefix: string[];
 }
 
+/** Projection-runtime resolution is deliberately package-local; PATH is not an authority. */
+export function packagedCodeGraphCliInvocation(): CodeGraphCliInvocation {
+  const packagedShim = resolvePackagedCodeGraphShim();
+  if (!packagedShim) {
+    throw new Error(`CodeGraph package-local ${REQUIRED_CODEGRAPH_VERSION} binary is unavailable`);
+  }
+  return { command: process.execPath, argsPrefix: [packagedShim] };
+}
+
 export function codeGraphCliInvocation(binary: string, cwd: string, pathValue = process.env.PATH ?? ""): CodeGraphCliInvocation {
   const resolved = resolveExecutable(binary, cwd, pathValue);
   if (resolved && isNodeRuntimeScript(resolved)) {
@@ -188,6 +204,47 @@ function resolvePackagedCodeGraphShim(): string | undefined {
     return existsSync(shimPath) ? realpathSync.native(shimPath) : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Binds the projection receipt to the executable platform bundle, not only to the npm launcher.
+ * CodeGraph's public package is a thin shim which execs a platform package containing its own
+ * Node runtime and CLI entrypoint, so all of those executable layers are part of the authority.
+ */
+function packagedCodeGraphRuntimeDigest(): string {
+  try {
+    const manifestPath = requireFromAdapter.resolve(`${REQUIRED_CODEGRAPH_PACKAGE}/package.json`);
+    const packageRequire = createRequire(manifestPath);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      version?: string;
+      bin?: Record<string, string>;
+    };
+    if (manifest.version !== REQUIRED_CODEGRAPH_VERSION || !manifest.bin?.codegraph) {
+      throw new Error(`package manifest is not exact ${REQUIRED_CODEGRAPH_VERSION}`);
+    }
+    const platformPackage = `${REQUIRED_CODEGRAPH_PACKAGE}-${process.platform}-${process.arch}`;
+    const platformManifestPath = packageRequire.resolve(`${platformPackage}/package.json`);
+    const platformManifest = JSON.parse(readFileSync(platformManifestPath, "utf8")) as { version?: string };
+    if (platformManifest.version !== REQUIRED_CODEGRAPH_VERSION) {
+      throw new Error(`platform bundle is not exact ${REQUIRED_CODEGRAPH_VERSION}`);
+    }
+    const packageRoot = dirname(manifestPath);
+    const platformRoot = dirname(platformManifestPath);
+    const runtimeFiles = process.platform === "win32"
+      ? ["node.exe", "lib/dist/bin/codegraph.js"]
+      : ["bin/codegraph", "node", "lib/dist/bin/codegraph.js"];
+    return digestJson({
+      packageName: REQUIRED_CODEGRAPH_PACKAGE,
+      packageVersion: REQUIRED_CODEGRAPH_VERSION,
+      packageManifestDigest: digestFile(manifestPath),
+      launcherDigest: digestFile(resolve(packageRoot, manifest.bin.codegraph)),
+      platformPackage,
+      platformManifestDigest: digestFile(platformManifestPath),
+      runtimeFileDigests: runtimeFiles.map((path) => ({ path, digest: digestFile(resolve(platformRoot, path)) }))
+    } as unknown as Json);
+  } catch (error) {
+    throw new Error(`CodeGraph package-local runtime is unreadable: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -602,6 +659,281 @@ const ENTRYPOINT_SEED_KINDS = new Set(["function", "method"]);
 export interface CapabilityCodeGraphProjectionInputs {
   importGraphs: CapabilityImportGraph[];
   entrypointCallGraphs: CapabilityEntrypointCallGraph[];
+}
+
+export interface CodeGraphProjectionStatusV1 {
+  initialized: boolean;
+  version: string;
+  projectPath: string;
+  lastIndexed: string | null;
+  fileCount?: number;
+  nodeCount?: number;
+  edgeCount?: number;
+  nodesByKind?: Record<string, number>;
+  languages?: string[];
+  pendingChanges?: { added: number; modified: number; removed: number };
+  worktreeMismatch?: unknown;
+  index?: {
+    builtWithVersion?: string;
+    builtWithExtractionVersion?: number;
+    currentExtractionVersion?: number;
+    reindexRecommended?: boolean;
+    state?: string;
+    pendingRefs?: number;
+  };
+}
+
+export interface CodeGraphProjectionHandshakeV1 {
+  schemaVersion: "archcontext.codegraph-projection-handshake/v1";
+  packageName: typeof REQUIRED_CODEGRAPH_PACKAGE;
+  requiredVersion: typeof REQUIRED_CODEGRAPH_VERSION;
+  actualVersion: string;
+  binaryDigest: string;
+  availability: "ready" | "unavailable";
+  reasonCode?: "index-missing";
+  preSyncStatusDigest: string | null;
+  postSyncStatusDigest: string | null;
+  syncDigest: string | null;
+  indexedWorktreeDigest: string | null;
+  graphDigest: string;
+}
+
+export interface PreparedProjectionCodeFacts extends CapabilityCodeGraphProjectionInputs {
+  handshake: CodeGraphProjectionHandshakeV1;
+}
+
+export interface PreparedArchitectureDocumentationProjectionSnapshot extends PreparedProjectionCodeFacts {
+  provenance: ArchitectureDocumentationProjectionProvenanceV1;
+}
+
+/** Single snapshot assembly shared by CLI, daemon completion gates, and verification tests. */
+export function prepareArchitectureDocumentationProjectionSnapshot(
+  root: string,
+  model: NativeModel,
+  options: {
+    binary?: string;
+    importNodeLimit?: number;
+    timeouts?: { versionMs?: number; statusMs?: number; syncMs?: number };
+  } = {}
+): PreparedArchitectureDocumentationProjectionSnapshot {
+  const baseHeadSha = readProjectionHeadSha(root);
+  const worktreeDigest = architectureDocumentationProjectionWorktreeDigest(root, model);
+  const sourceTreeDigest = architectureDocumentationSourceTreeDigest(root, model);
+  const modelDigest = digestJson(model as unknown as Json);
+  const prepared = prepareProjectionCodeFacts(root, model, { ...options, sourceTreeDigest });
+  if (architectureDocumentationProjectionWorktreeDigest(root, model) !== worktreeDigest) {
+    throw new Error("architecture-docs-projection-worktree-changed-during-codegraph-sync");
+  }
+  const provenance = architectureDocumentationProjectionProvenance({
+    baseHeadSha,
+    worktreeDigest,
+    sourceTreeDigest,
+    modelDigest,
+    codeGraphDigest: prepared.handshake.graphDigest,
+    indexedWorktreeDigest: prepared.handshake.indexedWorktreeDigest,
+    rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
+    layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+    generatedFrom: {
+      codeGraphPackage: prepared.handshake.packageName,
+      codeGraphVersion: prepared.handshake.actualVersion,
+      codeGraphBinaryDigest: prepared.handshake.binaryDigest,
+      codeGraphStatus: prepared.handshake.availability
+    }
+  });
+  return { ...prepared, provenance };
+}
+
+/**
+ * Freezes the public CodeGraph proof used by one docs projection. The adapter never reads the
+ * `.codegraph` database: actual binary/version and both status snapshots come from the package-local
+ * CLI. A missing index is an explicit unavailable state; an existing but stale/incompatible index
+ * is an error and cannot produce verified facts.
+ */
+export function prepareProjectionCodeFacts(
+  root: string,
+  model: NativeModel,
+  options: {
+    sourceTreeDigest: string;
+    binary?: string;
+    importNodeLimit?: number;
+    timeouts?: { versionMs?: number; statusMs?: number; syncMs?: number };
+  }
+): PreparedProjectionCodeFacts {
+  const invocation = options.binary
+    ? codeGraphCliInvocation(options.binary, root, "")
+    : packagedCodeGraphCliInvocation();
+  const binaryPath = invocation.argsPrefix[0] ?? invocation.command;
+  const actualVersion = runProjectionCodeGraph(invocation, root, ["--version"], options.timeouts?.versionMs ?? 5_000).trim();
+  if (actualVersion !== REQUIRED_CODEGRAPH_VERSION) {
+    throw new Error(`CodeGraph ${REQUIRED_CODEGRAPH_VERSION} required, got actual binary ${actualVersion || "unknown"}`);
+  }
+  const binaryDigest = options.binary ? digestFile(binaryPath) : packagedCodeGraphRuntimeDigest();
+  if (!codeGraphIndexAvailable(root)) {
+    const graphDigest = digestJson({
+      schemaVersion: "archcontext.codegraph-projection-handshake/v1",
+      actualVersion,
+      binaryDigest,
+      availability: "unavailable",
+      reasonCode: "index-missing"
+    } as unknown as Json);
+    return {
+      importGraphs: [],
+      entrypointCallGraphs: [],
+      handshake: {
+        schemaVersion: "archcontext.codegraph-projection-handshake/v1",
+        packageName: REQUIRED_CODEGRAPH_PACKAGE,
+        requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+        actualVersion,
+        binaryDigest,
+        availability: "unavailable",
+        reasonCode: "index-missing",
+        preSyncStatusDigest: null,
+        postSyncStatusDigest: null,
+        syncDigest: null,
+        indexedWorktreeDigest: null,
+        graphDigest
+      }
+    };
+  }
+
+  const statusTimeout = options.timeouts?.statusMs ?? 10_000;
+  const preStatus = readProjectionCodeGraphStatus(invocation, root, statusTimeout);
+  assertProjectionCodeGraphStatus(preStatus, root, "pre-sync");
+  runProjectionCodeGraph(invocation, root, ["sync", root, "--quiet"], options.timeouts?.syncMs ?? 120_000);
+  const postStatus = readProjectionCodeGraphStatus(invocation, root, statusTimeout);
+  assertProjectionCodeGraphStatus(postStatus, root, "post-sync");
+  assertProjectionCodeGraphClean(postStatus, "post-sync");
+  const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, {
+    binary: binaryPath,
+    importNodeLimit: options.importNodeLimit
+  });
+  const finalStatus = readProjectionCodeGraphStatus(invocation, root, statusTimeout);
+  assertProjectionCodeGraphStatus(finalStatus, root, "post-query");
+  assertProjectionCodeGraphClean(finalStatus, "post-query");
+  const postDigest = projectionCodeGraphStatusDigest(postStatus);
+  const finalDigest = projectionCodeGraphStatusDigest(finalStatus);
+  if (postDigest !== finalDigest) throw new Error("CodeGraph indexed snapshot changed during projection queries");
+  const preDigest = projectionCodeGraphStatusDigest(preStatus);
+  const indexedWorktreeDigest = digestJson({
+    sourceTreeDigest: options.sourceTreeDigest,
+    statusDigest: postDigest
+  } as unknown as Json);
+  const graphDigest = digestJson({
+    actualVersion,
+    binaryDigest,
+    indexedWorktreeDigest,
+    importGraphs: inputs.importGraphs,
+    entrypointCallGraphs: inputs.entrypointCallGraphs
+  } as unknown as Json);
+  return {
+    ...inputs,
+    handshake: {
+      schemaVersion: "archcontext.codegraph-projection-handshake/v1",
+      packageName: REQUIRED_CODEGRAPH_PACKAGE,
+      requiredVersion: REQUIRED_CODEGRAPH_VERSION,
+      actualVersion,
+      binaryDigest,
+      availability: "ready",
+      preSyncStatusDigest: preDigest,
+      postSyncStatusDigest: postDigest,
+      syncDigest: digestJson({ preSyncStatusDigest: preDigest, postSyncStatusDigest: postDigest } as unknown as Json),
+      indexedWorktreeDigest,
+      graphDigest
+    }
+  };
+}
+
+function readProjectionCodeGraphStatus(invocation: CodeGraphCliInvocation, root: string, timeout: number): CodeGraphProjectionStatusV1 {
+  const output = runProjectionCodeGraph(invocation, root, ["status", "-j", root], timeout);
+  try {
+    return JSON.parse(output) as CodeGraphProjectionStatusV1;
+  } catch (error) {
+    throw new Error(`CodeGraph status JSON invalid: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function readProjectionHeadSha(root: string): string {
+  try {
+    const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5_000
+    }).trim();
+    if (!/^[a-f0-9]{40}$/.test(headSha)) throw new Error("HEAD is not a full commit SHA");
+    return headSha;
+  } catch (error) {
+    throw new Error(`Architecture projection HEAD is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function assertProjectionCodeGraphStatus(status: CodeGraphProjectionStatusV1, root: string, phase: string): void {
+  if (!status.initialized) throw new Error(`CodeGraph ${phase} status is not initialized`);
+  if (status.version !== REQUIRED_CODEGRAPH_VERSION || status.index?.builtWithVersion !== REQUIRED_CODEGRAPH_VERSION) {
+    throw new Error(`CodeGraph ${phase} status version mismatch`);
+  }
+  if (realpathSync.native(status.projectPath) !== realpathSync.native(root)) {
+    throw new Error(`CodeGraph ${phase} project path mismatch`);
+  }
+  if (status.index?.state !== "complete" || status.index.reindexRecommended !== false || status.index.pendingRefs !== 0) {
+    throw new Error(`CodeGraph ${phase} index is not complete and compatible`);
+  }
+  if (status.index.builtWithExtractionVersion !== status.index.currentExtractionVersion) {
+    throw new Error(`CodeGraph ${phase} extraction version mismatch`);
+  }
+  if (status.worktreeMismatch !== null) throw new Error(`CodeGraph ${phase} worktree mismatch`);
+}
+
+function assertProjectionCodeGraphClean(status: CodeGraphProjectionStatusV1, phase: string): void {
+  const pending = status.pendingChanges;
+  if (!pending || pending.added !== 0 || pending.modified !== 0 || pending.removed !== 0) {
+    throw new Error(`CodeGraph ${phase} index still has pending source changes`);
+  }
+}
+
+function projectionCodeGraphStatusDigest(status: CodeGraphProjectionStatusV1): string {
+  return digestJson({
+    version: status.version,
+    projectPathDigest: digestJson(realpathSync.native(status.projectPath) as unknown as Json),
+    lastIndexed: status.lastIndexed,
+    fileCount: status.fileCount,
+    nodeCount: status.nodeCount,
+    edgeCount: status.edgeCount,
+    nodesByKind: status.nodesByKind,
+    languages: [...(status.languages ?? [])].sort(),
+    pendingChanges: status.pendingChanges,
+    worktreeMismatch: status.worktreeMismatch,
+    index: status.index
+  } as unknown as Json);
+}
+
+function runProjectionCodeGraph(
+  invocation: CodeGraphCliInvocation,
+  root: string,
+  args: string[],
+  timeout: number
+): string {
+  disableCodeGraphTelemetryByDefault();
+  try {
+    return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout
+    });
+  } catch (error) {
+    const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
+    const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
+    throw new Error(`CodeGraph projection handshake failed: ${message}`);
+  }
+}
+
+function digestFile(path: string): string {
+  try {
+    return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
+  } catch (error) {
+    throw new Error(`CodeGraph binary is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /** True when this workspace carries a CodeGraph index the CLI can be pointed at. */

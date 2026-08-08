@@ -81,9 +81,10 @@ import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import {
   agentContextProjectionTargetPaths,
   architectureDocumentationSourceDigest,
+  architectureDocumentationSourceTreeDigest,
   assertArchitectureProjectionVerifiedAgainst,
   capabilitySourceChangesSinceStamps,
-  evaluateArchitectureProjectionFreshness,
+  evaluateArchitectureProjectionSnapshotFreshness,
   loadArchitectureDocumentationInputs,
   loadArchitectureProjectionManifestVerifiedAgainst,
   loadCapabilitySourceScaleSignals,
@@ -97,7 +98,7 @@ import {
 } from "@archcontext/core/projection-engine";
 import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
-import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, loadCapabilityCodeGraphProjectionInputs, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
@@ -6641,7 +6642,8 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     model: loaded.model,
     decisions: loaded.decisions
   });
-  const codeGraphInputs = loadCapabilityCodeGraphProjectionInputs(root, loaded.model);
+  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     decisions: loaded.decisions,
@@ -6655,6 +6657,7 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
     entrypointCallGraphs: codeGraphInputs.entrypointCallGraphs,
+    provenance,
     sourceDigest
   });
   return {
@@ -6681,10 +6684,12 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
 function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
   const manifest = loadArchitectureProjectionManifestVerifiedAgainst(root);
   if (manifest.status === "manifest-missing") return undefined;
-  return evaluateArchitectureProjectionFreshness({
-    model: loadNativeModelFromArchContext(root),
+  const model = loadNativeModelFromArchContext(root);
+  return evaluateArchitectureProjectionSnapshotFreshness({
+    model,
     manifest,
-    changeSets: measureChangeSetsForManifestStamps(root, manifest)
+    changeSets: measureChangeSetsForManifestStamps(root, manifest),
+    currentSourceTreeDigest: architectureDocumentationSourceTreeDigest(root, model)
   });
 }
 

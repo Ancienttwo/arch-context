@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import {
@@ -10,9 +11,10 @@ import {
   type ModelExportResult,
   type ProjectionTargetV1
 } from "@archcontext/contracts";
-import { assertRepoRelativePath, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
+import { assertRepoRelativePath, computeWorktreeDigest, parseJsonOrStableYaml } from "../../architecture-domain/src/index";
 import {
   agentContextTargetPaths,
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
   contractFilesForNode,
   loadArchitectureFilesForLayout,
   primarySourceDirectory,
@@ -139,6 +141,7 @@ export interface ArchitectureDocumentationProjectionPlan {
   sourceDigest: string;
   projectionDigest: string;
   profile: ArchitectureProjectionProfile;
+  provenance: ArchitectureDocumentationProjectionProvenanceV1;
   targets: ProjectionTargetV1[];
   files: ArchitectureDocumentationProjectionFile[];
   manifest: ArchitectureDocumentationExistingFile & { digest: string };
@@ -151,6 +154,25 @@ export interface ArchitectureDocumentationProjectionPlan {
   adoptionCandidates: ArchitectureDocumentationProjectionFile[];
   /** Non-blocking; see `ArchitectureDocumentationProjectionNotice`. Empty on a fully measured run. */
   notices: ArchitectureDocumentationProjectionNotice[];
+}
+
+export interface ArchitectureDocumentationProjectionProvenanceV1 {
+  schemaVersion: "archcontext.architecture-docs-projection-provenance/v1";
+  baseHeadSha: string;
+  worktreeDigest: string;
+  sourceTreeDigest: string;
+  modelDigest: string;
+  codeGraphDigest: string;
+  indexedWorktreeDigest: string | null;
+  projectionInputDigest: string;
+  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+  layoutVersion: typeof ARCHITECTURE_DOCS_LAYOUT_VERSION;
+  generatedFrom: {
+    codeGraphPackage: string;
+    codeGraphVersion: string;
+    codeGraphBinaryDigest: string;
+    codeGraphStatus: "ready" | "unavailable";
+  };
 }
 
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION;
@@ -293,6 +315,7 @@ export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
   profile?: ArchitectureProjectionProfile;
   sourceDigest: string;
+  provenance: ArchitectureDocumentationProjectionProvenanceV1;
   verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
   /**
    * Per node: did the code inside its declared `source.include` footprint change after the commit
@@ -311,10 +334,15 @@ export function renderArchitectureDocumentationProjection(input: {
   rendererVersion?: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
 }): ArchitectureDocumentationProjectionPlan {
   const rendererVersion = input.rendererVersion ?? ARCHITECTURE_DOCS_RENDERER_VERSION;
+  assertArchitectureDocumentationProjectionProvenance(input.provenance, rendererVersion);
   const verifiedAgainst = assertArchitectureProjectionVerifiedAgainst(input.verifiedAgainst);
   const model = normalizeNativeModel(input.model);
   const layout = resolveArchitectureDocumentationLayout({ nodes: model.nodes, relations: model.relations, profile: input.profile });
   const existingByPath = new Map((input.existingFiles ?? []).map((file) => [file.path, file.body]));
+  const provenance = stickyArchitectureDocumentationProjectionProvenance(
+    input.provenance,
+    existingByPath.get("docs/architecture/.projection-manifest.json")
+  );
   const generatedAt = input.generatedAt ?? "1970-01-01T00:00:00.000Z";
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
   const importGraphsByNodeId = new Map((input.importGraphs ?? []).map((graph) => [graph.nodeId, graph]));
@@ -396,6 +424,7 @@ export function renderArchitectureDocumentationProjection(input: {
     rendererVersion,
     profile: layout.profile,
     sourceDigest: input.sourceDigest,
+    projectionInputDigest: provenance.projectionInputDigest,
     files: rendered.map((file) => ({
       path: file.path,
       targetId: file.target.targetId,
@@ -408,6 +437,7 @@ export function renderArchitectureDocumentationProjection(input: {
     rendererVersion,
     profile: layout.profile,
     sourceDigest: input.sourceDigest,
+    provenance,
     projectionDigest,
     targetCount: targets.length,
     fileCount: rendered.length,
@@ -455,6 +485,7 @@ export function renderArchitectureDocumentationProjection(input: {
     sourceDigest: input.sourceDigest,
     projectionDigest,
     profile: layout.profile,
+    provenance,
     targets,
     files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
     manifest,
@@ -469,6 +500,101 @@ export function renderArchitectureDocumentationProjection(input: {
     adoptionCandidates,
     notices
   };
+}
+
+export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel): string {
+  const files = loadCapabilitySourceFootprints(root, model)
+    .flatMap((footprint) => footprint.files)
+    .filter((path, index, all) => all.indexOf(path) === index)
+    .sort((left, right) => left.localeCompare(right));
+  return digestJson(files.map((path) => ({
+    path,
+    digest: `sha256:${createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")}`
+  })) as unknown as Json);
+}
+
+/** Fixed-point worktree digest: projection-owned outputs cannot hash the manifest that embeds it. */
+export function architectureDocumentationProjectionWorktreeDigest(
+  root: string,
+  model: NativeModel
+): string {
+  return computeWorktreeDigest(root, {
+    ignore: [
+      "docs/architecture",
+      ...agentContextTargetPaths(model.nodes).map((target) => target.path)
+    ]
+  });
+}
+
+export function architectureDocumentationProjectionInputDigest(
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV1, "schemaVersion" | "projectionInputDigest">
+): string {
+  return digestJson(input as unknown as Json);
+}
+
+export function architectureDocumentationProjectionProvenance(
+  input: Omit<ArchitectureDocumentationProjectionProvenanceV1, "schemaVersion" | "projectionInputDigest">
+): ArchitectureDocumentationProjectionProvenanceV1 {
+  return {
+    schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
+    ...input,
+    projectionInputDigest: architectureDocumentationProjectionInputDigest(input)
+  };
+}
+
+/**
+ * HEAD and full-worktree identity describe when a projection was produced; they are not semantic
+ * freshness inputs. Preserve that generation snapshot while source/model/CodeGraph/layout inputs
+ * are unchanged, otherwise an unrelated commit (or committing the projection itself) would make
+ * the manifest permanently chase HEAD. A malformed or internally inconsistent prior provenance is
+ * never reused and is surfaced by the ordinary manifest drift check.
+ */
+function stickyArchitectureDocumentationProjectionProvenance(
+  current: ArchitectureDocumentationProjectionProvenanceV1,
+  existingManifestBody: string | undefined
+): ArchitectureDocumentationProjectionProvenanceV1 {
+  if (!existingManifestBody) return current;
+  try {
+    const parsed = JSON.parse(existingManifestBody) as { provenance?: ArchitectureDocumentationProjectionProvenanceV1 };
+    const prior = parsed.provenance;
+    if (!prior) return current;
+    assertArchitectureDocumentationProjectionProvenance(prior, current.rendererVersion);
+    return architectureDocumentationSemanticProvenanceDigest(prior) === architectureDocumentationSemanticProvenanceDigest(current)
+      ? prior
+      : current;
+  } catch {
+    return current;
+  }
+}
+
+function architectureDocumentationSemanticProvenanceDigest(
+  provenance: ArchitectureDocumentationProjectionProvenanceV1
+): string {
+  return digestJson({
+    sourceTreeDigest: provenance.sourceTreeDigest,
+    modelDigest: provenance.modelDigest,
+    codeGraphDigest: provenance.codeGraphDigest,
+    indexedWorktreeDigest: provenance.indexedWorktreeDigest,
+    rendererVersion: provenance.rendererVersion,
+    layoutVersion: provenance.layoutVersion,
+    generatedFrom: provenance.generatedFrom
+  } as unknown as Json);
+}
+
+function assertArchitectureDocumentationProjectionProvenance(
+  provenance: ArchitectureDocumentationProjectionProvenanceV1,
+  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION
+): void {
+  if (provenance.schemaVersion !== "archcontext.architecture-docs-projection-provenance/v1") {
+    throw new Error("architecture-docs-projection-provenance-schema-invalid");
+  }
+  if (provenance.rendererVersion !== rendererVersion || provenance.layoutVersion !== ARCHITECTURE_DOCS_LAYOUT_VERSION) {
+    throw new Error("architecture-docs-projection-provenance-version-mismatch");
+  }
+  const { schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload } = provenance;
+  if (architectureDocumentationProjectionInputDigest(payload) !== provenance.projectionInputDigest) {
+    throw new Error("architecture-docs-projection-input-digest-mismatch");
+  }
 }
 
 export function loadArchitectureDocumentationInputs(root: string, profile: ArchitectureProjectionProfile = "default"): {
@@ -620,7 +746,9 @@ export type ArchitectureProjectionFreshnessReasonCode =
   | "projection-verified-against-missing"
   | "projection-verified-against-invalid"
   | "projection-change-set-unavailable"
-  | "projection-source-changed-since-verified-commit";
+  | "projection-source-changed-since-verified-commit"
+  | "projection-snapshot-provenance-missing"
+  | "projection-source-tree-digest-mismatch";
 
 /**
  * Repo-relative paths that changed between the projection's `verifiedAgainst.commit` and the
@@ -789,6 +917,33 @@ export function evaluateArchitectureProjectionFreshness(input: {
   );
 }
 
+/** Dirty-worktree freshness authority layered over the historical per-node commit explanation. */
+export function evaluateArchitectureProjectionSnapshotFreshness(input: {
+  model: NativeModel;
+  manifest: ArchitectureProjectionManifestVerifiedAgainstReadback;
+  changeSets: CapabilitySourceChangeSetForCommit[];
+  currentSourceTreeDigest: string;
+}): ArchitectureProjectionFreshnessEvaluation {
+  const commitEvaluation = evaluateArchitectureProjectionFreshness(input);
+  if (input.manifest.status !== "present" || !input.manifest.provenance) {
+    return freshnessEvaluation(
+      [...new Set([...commitEvaluation.reasonCodes, "projection-snapshot-provenance-missing" as const])],
+      [commitEvaluation.detail, "projection manifest has no snapshot provenance"],
+      commitEvaluation.changedPathCount,
+      commitEvaluation.staleNodes
+    );
+  }
+  if (input.manifest.provenance.sourceTreeDigest !== input.currentSourceTreeDigest) {
+    return freshnessEvaluation(
+      [...new Set([...commitEvaluation.reasonCodes, "projection-source-tree-digest-mismatch" as const])],
+      [commitEvaluation.detail, "declared source tree digest differs from the accepted projection snapshot"],
+      commitEvaluation.changedPathCount,
+      commitEvaluation.staleNodes
+    );
+  }
+  return commitEvaluation;
+}
+
 /**
  * The one place a node's stamp is matched against a measured change set. Both consumers — the
  * freshness gate (`evaluateArchitectureProjectionFreshness`) and the renderer's stamp lifecycle
@@ -943,7 +1098,11 @@ export interface ArchitectureProjectionManifestNodeVerifiedAgainst {
 export type ArchitectureProjectionManifestVerifiedAgainstReadback =
   | { status: "manifest-missing" }
   | { status: "manifest-unreadable"; reason: string }
-  | { status: "present"; nodes: ArchitectureProjectionManifestNodeVerifiedAgainst[] };
+  | {
+      status: "present";
+      nodes: ArchitectureProjectionManifestNodeVerifiedAgainst[];
+      provenance?: ArchitectureDocumentationProjectionProvenanceV1;
+    };
 
 /**
  * Reads the per-target `verifiedAgainst` stamps back out of the projection manifest, keyed by the
@@ -981,7 +1140,14 @@ export function loadArchitectureProjectionManifestVerifiedAgainst(
     if (typeof nodeId !== "string" || nodeId === "") continue;
     nodes.push({ nodeId, verifiedAgainst: record.verifiedAgainst });
   }
-  return { status: "present", nodes };
+  const provenance = (parsed as Record<string, unknown>).provenance;
+  return {
+    status: "present",
+    nodes,
+    ...(provenance && typeof provenance === "object" && !Array.isArray(provenance)
+      ? { provenance: provenance as unknown as ArchitectureDocumentationProjectionProvenanceV1 }
+      : {})
+  };
 }
 
 export function normalizeNativeModel(model: NativeModel): NativeModel {

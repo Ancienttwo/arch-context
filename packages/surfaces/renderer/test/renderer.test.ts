@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import {
   ARCHITECTURE_DOCS_RENDERER_VERSION,
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  architectureDocumentationProjectionProvenance,
   exportMermaidModel,
   loadArchitectureDocumentationInputs,
   loadNativeModelFromArchContext,
@@ -33,6 +35,17 @@ const entrypointCallGraphs: never[] = [];
 // No node declares source.include either, so no covered source change is possible and the stamp
 // lifecycle needs no measurement.
 const sourceChangesSinceStamp: never[] = [];
+const projectionProvenance = architectureDocumentationProjectionProvenance({
+  baseHeadSha: "a".repeat(40),
+  worktreeDigest: "sha256:" + "1".repeat(64),
+  sourceTreeDigest: "sha256:" + "2".repeat(64),
+  modelDigest: "sha256:" + "3".repeat(64),
+  codeGraphDigest: "sha256:" + "4".repeat(64),
+  indexedWorktreeDigest: null,
+  rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
+  layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: "sha256:" + "5".repeat(64), codeGraphStatus: "unavailable" }
+});
 
 describe("@archcontext/surfaces/renderer", () => {
   test("normalizes model and exports deterministic Mermaid projection", () => {
@@ -83,6 +96,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -95,6 +109,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model: { nodes: [...model.nodes].reverse(), relations: [...model.relations].reverse() },
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -129,6 +144,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -146,6 +162,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z"
@@ -156,6 +173,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -175,6 +193,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -188,6 +207,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -201,6 +221,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -220,6 +241,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceScaleSignals,
       importGraphs,
       entrypointCallGraphs,
+      provenance: projectionProvenance,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",

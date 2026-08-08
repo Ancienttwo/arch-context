@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  ARCHITECTURE_DOCS_RENDERER_VERSION,
+  architectureDocumentationProjectionProvenance,
   AGENT_CONTEXT_BEGIN_PREFIX,
   AGENT_CONTEXT_END_PREFIX,
   AGENT_CONTEXT_RENDERER_VERSION,
@@ -12,6 +15,12 @@ import {
 } from "../src/index";
 
 const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+const provenance = architectureDocumentationProjectionProvenance({
+  baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
+  rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "unavailable" }
+});
 
 const model: NativeModel = {
   nodes: [
@@ -143,6 +152,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     const docs = renderArchitectureDocumentationProjection({
       model: withLegacyContracts,
       sourceDigest,
+      provenance,
       verifiedAgainst: { branch: "main", commit: "7415329", committedAt: "2026-08-08T00:00:00Z" },
       sourceChangesSinceStamp: [],
       sourceScaleSignals: [],

@@ -11,7 +11,7 @@ import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledg
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
-import { loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
+import { prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import {
   ArchctxRuntimeRpcServer,
   AUDIT_RUN_DEFAULT_TIMEOUT_MS,
@@ -50,6 +50,7 @@ import {
   resolveArchitectureOwnerForPath,
   type ArchitectureProjectionProfile,
   type ArchitectureDocumentationProjectionNotice,
+  type ArchitectureDocumentationProjectionProvenanceV1,
   type ArchitectureProjectionVerifiedAgainst
 } from "@archcontext/surfaces/renderer";
 
@@ -1000,7 +1001,9 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       status: "noop",
       profile,
       sourceDigest: projection.plan.sourceDigest,
-      projectionDigest: projection.plan.projectionDigest
+      projectionDigest: projection.plan.projectionDigest,
+      provenance: projection.plan.provenance,
+      ...(projection.plan.notices.length === 0 ? {} : { notices: projection.plan.notices })
     } as unknown as Json);
   }
   const changeSetId = readFlag(args, "--id") ?? `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
@@ -1018,7 +1021,7 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       approved: args.includes("--approved"),
       expectedWorktreeDigest
     });
-    return withProjectionNotices(applied, projection.plan.notices);
+    return withProjectionMetadata(applied, projection.plan.notices, projection.plan.provenance);
   }
   return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
     schemaVersion: "archcontext.docs-projection-change-set/v1",
@@ -1029,6 +1032,7 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
     fileCount: projection.files.length,
     drift: projection.plan.drift,
     notices: projection.plan.notices,
+    provenance: projection.plan.provenance,
     manifestPath: projection.manifest.path,
     draft: (plan.data as any).draft,
     preview: (plan.data as any).preview
@@ -1041,11 +1045,19 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
  * (rebased or missing stamp commit) must be visible on the surface that wrote the files, not only
  * on `plan`.
  */
-function withProjectionNotices(envelope: JsonEnvelope, notices: ArchitectureDocumentationProjectionNotice[]): JsonEnvelope {
-  if (notices.length === 0 || !envelope.ok) return envelope;
+function withProjectionMetadata(
+  envelope: JsonEnvelope,
+  notices: ArchitectureDocumentationProjectionNotice[],
+  provenance: ArchitectureDocumentationProjectionProvenanceV1
+): JsonEnvelope {
+  if (!envelope.ok) return envelope;
   return {
     ...envelope,
-    data: { ...(envelope.data as Record<string, Json>), notices: notices as unknown as Json }
+    data: {
+      ...(envelope.data as Record<string, Json>),
+      provenance: provenance as unknown as Json,
+      ...(notices.length === 0 ? {} : { notices: notices as unknown as Json })
+    }
   };
 }
 
@@ -1062,7 +1074,8 @@ function buildArchitectureDocsProjection(
     profile,
     decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
   } as unknown as Json);
-  const codeGraphInputs = loadCapabilityCodeGraphProjectionInputs(root, loaded.model);
+  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  const provenance = codeGraphInputs.provenance;
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     profile,
@@ -1073,6 +1086,7 @@ function buildArchitectureDocsProjection(
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
     entrypointCallGraphs: codeGraphInputs.entrypointCallGraphs,
+    provenance,
     sourceDigest,
     generatedAt
   });

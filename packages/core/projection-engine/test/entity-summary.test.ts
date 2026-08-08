@@ -3,6 +3,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  ARCHITECTURE_DOCS_RENDERER_VERSION,
+  architectureDocumentationProjectionProvenance,
   assertArchitectureProjectionVerifiedAgainst,
   loadCapabilitySourceFootprints,
   loadCapabilitySourceScaleSignals,
@@ -18,6 +21,12 @@ import {
 const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
 const verifiedAgainst = { branch: "main", commit: "7415329", committedAt: "2026-08-08T09:30:00+08:00" };
 const generatedAt = "2026-08-08T00:00:00.000Z";
+const provenance = architectureDocumentationProjectionProvenance({
+  baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
+  rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
+});
 
 const model: NativeModel = {
   nodes: [
@@ -118,6 +127,7 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
   return renderArchitectureDocumentationProjection({
     model,
     sourceDigest,
+    provenance,
     verifiedAgainst,
     sourceChangesSinceStamp,
     sourceScaleSignals: scaleSignals,
@@ -626,6 +636,7 @@ describe("P1 flowchart generation", () => {
       renderArchitectureDocumentationProjection({
         model: specialModel,
         sourceDigest,
+        provenance,
         verifiedAgainst,
         sourceChangesSinceStamp: [],
         generatedAt,

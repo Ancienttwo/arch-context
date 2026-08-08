@@ -8,7 +8,7 @@ import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput, type CommandInvestigationRunnerTransportResult } from "@archcontext/core/agent-orchestrator";
-import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
+import { assertNoCodeGraphInternalPathAccess, CodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, loadCapabilityCodeGraphProjectionInputs, prepareArchitectureDocumentationProjectionSnapshot } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, Context7ProviderError, type Context7Transport } from "@archcontext/local-runtime/context7-adapter";
 import { removeDetachedReviewWorktree } from "@archcontext/local-runtime/git-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
@@ -123,6 +123,10 @@ function readText(path: string): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
+function projectionTestProvenance(root: string, model: ReturnType<typeof loadNativeModelFromArchContext>) {
+  return prepareArchitectureDocumentationProjectionSnapshot(root, model).provenance;
+}
+
 function writeArchitectureDocsProjection(root: string): void {
   const loaded = loadArchitectureDocumentationInputs(root);
   const sourceDigest = architectureDocumentationSourceDigest({
@@ -141,7 +145,8 @@ function writeArchitectureDocsProjection(root: string): void {
     sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
-    sourceDigest
+    sourceDigest,
+    provenance: projectionTestProvenance(root, loaded.model)
   });
   for (const file of [
     ...plan.files.map((file) => ({ path: file.path, body: file.body })),
@@ -168,7 +173,8 @@ function architectureDocsProjectionOperation(root: string) {
     sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
-    sourceDigest: architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions })
+    sourceDigest: architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }),
+    provenance: projectionTestProvenance(root, loaded.model)
   });
   return {
     op: "render_projection" as const,

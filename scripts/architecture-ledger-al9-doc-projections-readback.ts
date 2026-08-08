@@ -4,10 +4,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
+  ARCHITECTURE_DOCS_RENDERER_VERSION,
   digestJson,
   type Json
 } from "@archcontext/contracts";
 import {
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  architectureDocumentationProjectionProvenance,
   assertArchitectureProjectionVerifiedAgainst,
   loadArchitectureDocumentationInputs,
   loadCapabilitySourceScaleSignals,
@@ -21,6 +24,15 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-doc-projections-readback.json";
 const DEFAULT_REPORT = "docs/verification/architecture-ledger-al9-doc-projections.md";
 const CLI = resolve(REPO_ROOT, "packages/surfaces/cli/src/main.ts");
+
+function projectionReadbackProvenance(sourceDigest: string) {
+  return architectureDocumentationProjectionProvenance({
+    baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+    modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
+    rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "unavailable" }
+  });
+}
 
 const command = process.argv[2] ?? "inspect";
 const out = readFlag("--out") ?? DEFAULT_OUT;
@@ -102,7 +114,8 @@ function currentRepoProjectionReadback() {
     sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(REPO_ROOT, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model),
-    sourceDigest
+    sourceDigest,
+    provenance: projectionReadbackProvenance(sourceDigest)
   });
   const projectionManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, "docs/architecture/.projection-manifest.json"), "utf8"));
   const targetManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, ".archcontext/projections/targets.json"), "utf8"));
@@ -211,7 +224,8 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
     sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
-    sourceDigest: projectionSourceDigest(loaded)
+    sourceDigest: projectionSourceDigest(loaded),
+    provenance: projectionReadbackProvenance(projectionSourceDigest(loaded))
   });
   return plan.rejected.some((diff) => diff.path === generatedDiagramPath && diff.reasonCode === "projection-ambiguous-ownership");
 }

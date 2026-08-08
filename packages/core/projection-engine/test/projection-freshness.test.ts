@@ -3,7 +3,12 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  ARCHITECTURE_DOCS_RENDERER_VERSION,
+  architectureDocumentationSourceTreeDigest,
+  architectureDocumentationProjectionProvenance,
   evaluateArchitectureProjectionFreshness,
+  evaluateArchitectureProjectionSnapshotFreshness,
   loadArchitectureProjectionManifestVerifiedAgainst,
   renderArchitectureDocumentationProjection,
   type ArchitectureProjectionManifestVerifiedAgainstReadback,
@@ -14,6 +19,12 @@ import {
 const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
 const verifiedAgainst = { branch: "main", commit: "7415329", committedAt: "2026-08-08T09:30:00+08:00" };
 const olderVerifiedAgainst = { branch: "main", commit: "0badc0de", committedAt: "2026-08-01T09:30:00+08:00" };
+const provenance = architectureDocumentationProjectionProvenance({
+  baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+  modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: sourceDigest,
+  rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "ready" }
+});
 
 const model: NativeModel = {
   nodes: [
@@ -56,6 +67,54 @@ function measuredAt(commit: string, ...paths: string[]): CapabilitySourceChangeS
 }
 
 describe("architecture projection freshness", () => {
+  test("source snapshot hashes uncommitted declared bytes and ignores projection-owned docs", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-source-tree-digest-"));
+    const sourcePath = join(root, "packages", "docs-runtime", "src", "index.ts");
+    const docsPath = join(root, "docs", "architecture", "index.md");
+    const sourceModel: NativeModel = {
+      nodes: [{
+        id: "capability.docs.runtime",
+        kind: "capability",
+        name: "Docs Runtime",
+        source: { include: ["packages/docs-runtime/**"] }
+      }],
+      relations: []
+    };
+    try {
+      mkdirSync(join(root, "packages", "docs-runtime", "src"), { recursive: true });
+      mkdirSync(join(root, "docs", "architecture"), { recursive: true });
+      writeFileSync(sourcePath, "export const version = 1;\n");
+      writeFileSync(docsPath, "# First projection\n");
+      const initial = architectureDocumentationSourceTreeDigest(root, sourceModel);
+      writeFileSync(docsPath, "# Edited projection\n");
+      expect(architectureDocumentationSourceTreeDigest(root, sourceModel)).toBe(initial);
+      writeFileSync(sourcePath, "export const version = 2;\n");
+      expect(architectureDocumentationSourceTreeDigest(root, sourceModel)).not.toBe(initial);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("dirty source is stale even when HEAD is unchanged, while docs-only bytes keep the same snapshot fresh", () => {
+    const manifest = { ...stampedAt(verifiedAgainst), provenance } as const;
+    const docsOnly = evaluateArchitectureProjectionSnapshotFreshness({
+      model,
+      manifest,
+      changeSets: [measuredAt(verifiedAgainst.commit, "docs/architecture/index.md")],
+      currentSourceTreeDigest: provenance.sourceTreeDigest
+    });
+    expect(docsOnly.ok).toBe(true);
+
+    const dirtySource = evaluateArchitectureProjectionSnapshotFreshness({
+      model,
+      manifest,
+      changeSets: [measuredAt(verifiedAgainst.commit)],
+      currentSourceTreeDigest: `sha256:${"9".repeat(64)}`
+    });
+    expect(dirtySource.ok).toBe(false);
+    expect(dirtySource.reasonCodes).toEqual(["projection-source-tree-digest-mismatch"]);
+  });
+
   test("changed paths inside a declared source footprint report the node as stale", () => {
     const evaluation = evaluateArchitectureProjectionFreshness({
       model,
@@ -286,6 +345,7 @@ describe("projection manifest verifiedAgainst readback", () => {
     const plan = renderArchitectureDocumentationProjection({
       model,
       sourceDigest,
+      provenance,
       verifiedAgainst,
       sourceChangesSinceStamp: [],
       sourceScaleSignals: [

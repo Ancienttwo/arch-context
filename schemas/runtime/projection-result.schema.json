@@ -30,16 +30,31 @@
     "snapshot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repositoryId", "workspaceId", "headSha", "worktreeDigest", "sourceTreeDigest", "modelDigest", "codeGraphDigest", "projectionInputDigest"],
+      "required": ["repositoryId", "workspaceId", "headSha", "baseHeadSha", "worktreeDigest", "sourceTreeDigest", "modelDigest", "codeGraphDigest", "indexedWorktreeDigest", "projectionInputDigest", "rendererVersion", "layoutVersion", "generatedFrom"],
       "properties": {
         "repositoryId": { "type": "string", "minLength": 1 },
         "workspaceId": { "type": "string", "minLength": 1 },
         "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "baseHeadSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
         "worktreeDigest": { "$ref": "#/$defs/digest" },
         "sourceTreeDigest": { "$ref": "#/$defs/digest" },
         "modelDigest": { "$ref": "#/$defs/digest" },
         "codeGraphDigest": { "$ref": "#/$defs/digest" },
-        "projectionInputDigest": { "$ref": "#/$defs/digest" }
+        "indexedWorktreeDigest": { "$ref": "#/$defs/nullableDigest" },
+        "projectionInputDigest": { "$ref": "#/$defs/digest" },
+        "rendererVersion": { "const": "archcontext.docs-renderer/v2" },
+        "layoutVersion": { "const": "archcontext.docs-layout/v1" },
+        "generatedFrom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphBinaryDigest", "codeGraphStatus"],
+          "properties": {
+            "codeGraphPackage": { "const": "@colbymchenry/codegraph" },
+            "codeGraphVersion": { "const": "1.5.0" },
+            "codeGraphBinaryDigest": { "$ref": "#/$defs/digest" },
+            "codeGraphStatus": { "enum": ["ready", "unavailable"] }
+          }
+        }
       }
     },
     "file": {

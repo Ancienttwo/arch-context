@@ -82,10 +82,20 @@ export interface ProjectionRequestV1 {
 }
 
 export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
+  baseHeadSha: string;
   sourceTreeDigest: Sha256Digest;
   modelDigest: Sha256Digest;
   codeGraphDigest: Sha256Digest;
+  indexedWorktreeDigest: Sha256Digest | null;
   projectionInputDigest: Sha256Digest;
+  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+  layoutVersion: "archcontext.docs-layout/v1";
+  generatedFrom: {
+    codeGraphPackage: "@colbymchenry/codegraph";
+    codeGraphVersion: "1.5.0";
+    codeGraphBinaryDigest: Sha256Digest;
+    codeGraphStatus: "ready" | "unavailable";
+  };
 }
 
 export interface ProjectionFileResultV1 {
@@ -195,6 +205,7 @@ export function projectionResultInvariantIssues(input: ProjectionResultV1): stri
   if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("requestId must use the stable identifier character set");
   if (input.inputSnapshot.repositoryId !== input.outputSnapshot.repositoryId) issues.push("outputSnapshot.repositoryId must match inputSnapshot.repositoryId");
   if (input.inputSnapshot.workspaceId !== input.outputSnapshot.workspaceId) issues.push("outputSnapshot.workspaceId must match inputSnapshot.workspaceId");
+  if (input.inputSnapshot.baseHeadSha !== input.outputSnapshot.baseHeadSha) issues.push("outputSnapshot.baseHeadSha must match inputSnapshot.baseHeadSha");
   const statusRequiresHumanAction = input.status === "adoption-required" || input.status === "human-action-required";
   if (statusRequiresHumanAction && input.humanActions.length === 0) issues.push(`${input.status} status requires at least one human action`);
   if (!statusRequiresHumanAction && input.humanActions.length > 0) issues.push(`human actions are not allowed when status=${input.status}`);

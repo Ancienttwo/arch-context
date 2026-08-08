@@ -10,6 +10,9 @@ import {
   transitionAgentJobStatus
 } from "@archcontext/core/agent-orchestrator";
 import {
+  ARCHITECTURE_DOCS_LAYOUT_VERSION,
+  ARCHITECTURE_DOCS_RENDERER_VERSION,
+  architectureDocumentationProjectionProvenance,
   architectureDocumentationSourceDigest,
   assertArchitectureProjectionVerifiedAgainst,
   loadArchitectureDocumentationInputs,
@@ -27,6 +30,15 @@ import { digestJson, type AgentJobV1, type InvestigationReportV1, type Json } fr
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-complete-task-provenance-readback.json";
 const DEFAULT_REPORT = "docs/verification/architecture-ledger-al9-complete-task-provenance.md";
+
+function projectionReadbackProvenance(sourceDigest: string) {
+  return architectureDocumentationProjectionProvenance({
+    baseHeadSha: "a".repeat(40), worktreeDigest: sourceDigest, sourceTreeDigest: sourceDigest,
+    modelDigest: sourceDigest, codeGraphDigest: sourceDigest, indexedWorktreeDigest: null,
+    rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION, layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
+    generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: sourceDigest, codeGraphStatus: "unavailable" }
+  });
+}
 
 const command = process.argv[2] ?? "inspect";
 const out = readFlag("--out") ?? DEFAULT_OUT;
@@ -159,7 +171,8 @@ function writeArchitectureDocsProjection(root: string): void {
     sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
-    sourceDigest
+    sourceDigest,
+    provenance: projectionReadbackProvenance(sourceDigest)
   });
   // The manifest is the renderer's own output, not a shape re-derived here: a local copy silently
   // falls behind whenever the manifest gains a field (it did — per-target `verifiedAgainst`), and
@@ -187,7 +200,8 @@ function docsProjectionDriftOk(root: string): boolean {
     sourceDigest: architectureDocumentationSourceDigest({
       model: loaded.model,
       decisions: loaded.decisions
-    })
+    }),
+    provenance: projectionReadbackProvenance(architectureDocumentationSourceDigest({ model: loaded.model, decisions: loaded.decisions }))
   });
   return plan.drift.ok && plan.rejected.length === 0;
 }

@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { digestJson, type Json } from "@archcontext/contracts";
-import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault } from "../src/index";
+import { CODEGRAPH_TELEMETRY_ENV, CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, REQUIRED_CODEGRAPH_VERSION, codeGraphCliInvocation, disableCodeGraphTelemetryByDefault, packagedCodeGraphCliInvocation, prepareProjectionCodeFacts } from "../src/index";
 import { MockCodeGraphProvider } from "./factories";
 
 // Mirrors the synthetic id CodeGraphCliProvider assigns to a CLI node that has no hash id
@@ -13,6 +13,135 @@ function expectedSyntheticId(name: string, path: string): string {
 }
 
 describe("@archcontext/local-runtime/codegraph-adapter multi-repo", () => {
+  test("resolves the projection binary from the exact package instead of PATH", () => {
+    const invocation = packagedCodeGraphCliInvocation();
+    expect(invocation.command).toBe(process.execPath);
+    expect(invocation.argsPrefix[0]).toEndWith(join("node_modules", "@colbymchenry", "codegraph", "npm-shim.js"));
+    expect(REQUIRED_CODEGRAPH_VERSION).toBe("1.5.0");
+    const root = mkdtempSync(join(tmpdir(), "archctx-packaged-codegraph-runtime-"));
+    try {
+      const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        sourceTreeDigest: `sha256:${"0".repeat(64)}`
+      });
+      expect(prepared.handshake).toMatchObject({
+        actualVersion: "1.5.0",
+        availability: "unavailable",
+        reasonCode: "index-missing"
+      });
+      expect(prepared.handshake.binaryDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(prepared.handshake.indexedWorktreeDigest).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds actual version, public status, sync, and source snapshot into one projection handshake", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-handshake-"));
+    const binary = join(root, "fake-codegraph.js");
+    const synced = join(root, "synced");
+    const actualRoot = realpathSync.native(root);
+    try {
+      mkdirSync(join(root, ".codegraph"));
+      writeFileSync(binary, `
+import { existsSync, writeFileSync } from "node:fs";
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") { process.stdout.write("1.5.0\\n"); process.exit(0); }
+if (argv[0] === "sync") { writeFileSync(${JSON.stringify(synced)}, "ok"); process.exit(0); }
+if (argv[0] === "status") {
+  const clean = existsSync(${JSON.stringify(synced)});
+  process.stdout.write(JSON.stringify({
+    initialized: true,
+    version: "1.5.0",
+    projectPath: ${JSON.stringify(actualRoot)},
+    lastIndexed: clean ? "2026-08-08T09:00:00.000Z" : "2026-08-08T08:00:00.000Z",
+    fileCount: 2,
+    nodeCount: 4,
+    edgeCount: 3,
+    nodesByKind: { file: 2, function: 2 },
+    languages: ["typescript"],
+    pendingChanges: { added: 0, modified: clean ? 0 : 1, removed: 0 },
+    worktreeMismatch: null,
+    index: { builtWithVersion: "1.5.0", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
+  }));
+  process.exit(0);
+}
+process.stderr.write("unexpected invocation " + JSON.stringify(argv));
+process.exit(2);
+`);
+      const prepared = prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary,
+        sourceTreeDigest: `sha256:${"1".repeat(64)}`
+      });
+      expect(prepared.importGraphs).toEqual([]);
+      expect(prepared.handshake).toMatchObject({
+        actualVersion: "1.5.0",
+        availability: "ready",
+        requiredVersion: "1.5.0"
+      });
+      expect(prepared.handshake.binaryDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(prepared.handshake.preSyncStatusDigest).not.toBe(prepared.handshake.postSyncStatusDigest);
+      expect(prepared.handshake.indexedWorktreeDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(prepared.handshake.graphDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed on actual-version and post-sync snapshot mismatches", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-mismatch-"));
+    const binary = join(root, "fake-codegraph.js");
+    try {
+      mkdirSync(join(root, ".codegraph"));
+      writeFileSync(binary, "if (process.argv[2] === '--version') process.stdout.write('1.4.0\\n');\n");
+      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary,
+        sourceTreeDigest: `sha256:${"2".repeat(64)}`
+      })).toThrow("actual binary 1.4.0");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed when the package-local handshake exceeds its bounded deadline", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-timeout-"));
+    const binary = join(root, "fake-codegraph.js");
+    try {
+      writeFileSync(binary, "setTimeout(() => process.stdout.write('1.5.0\\n'), 500);\n");
+      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary,
+        sourceTreeDigest: `sha256:${"3".repeat(64)}`,
+        timeouts: { versionMs: 20 }
+      })).toThrow("CodeGraph projection handshake failed");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("fails closed when sync leaves the public index status stale", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-codegraph-projection-stale-"));
+    const binary = join(root, "fake-codegraph.js");
+    const actualRoot = realpathSync.native(root);
+    try {
+      mkdirSync(join(root, ".codegraph"));
+      writeFileSync(binary, `
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") process.stdout.write("1.5.0\\n");
+else if (argv[0] === "sync") process.exit(0);
+else if (argv[0] === "status") process.stdout.write(JSON.stringify({
+  initialized: true, version: "1.5.0", projectPath: ${JSON.stringify(actualRoot)}, lastIndexed: "2026-08-08T09:00:00.000Z",
+  pendingChanges: { added: 0, modified: 1, removed: 0 }, worktreeMismatch: null,
+  index: { builtWithVersion: "1.5.0", builtWithExtractionVersion: 24, currentExtractionVersion: 24, reindexRecommended: false, state: "complete", pendingRefs: 0 }
+}));
+else process.exit(2);
+`);
+      expect(() => prepareProjectionCodeFacts(root, { nodes: [], relations: [] }, {
+        binary,
+        sourceTreeDigest: `sha256:${"4".repeat(64)}`
+      })).toThrow("post-sync index still has pending source changes");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   test("disables CodeGraph telemetry by default without overriding explicit env", () => {
     const defaultEnv: Record<string, string | undefined> = {};
     expect(disableCodeGraphTelemetryByDefault(defaultEnv)).toBe("1");

@@ -3,6 +3,7 @@ import { relative, resolve } from "node:path";
 import { isRepoRelativePosixPath, stableId, type Json, type ProjectionTargetV1 } from "@archcontext/contracts";
 
 export const REPO_HARNESS_PROJECTION_PROFILE = "repo-harness/v1" as const;
+export const ARCHITECTURE_DOCS_LAYOUT_VERSION = "archcontext.docs-layout/v1" as const;
 export type ArchitectureProjectionProfile = "default" | typeof REPO_HARNESS_PROJECTION_PROFILE;
 
 export interface ProjectionLayoutNode extends Record<string, Json | undefined> {

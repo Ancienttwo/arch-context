@@ -3249,6 +3249,20 @@ describe("archctx CLI", () => {
       const second = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root);
       expect(second.ok).toBe(true);
       expect((second.data as any).status).toBe("noop");
+      expect((second.data as any).provenance).toMatchObject({
+        schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
+        baseHeadSha: expect.stringMatching(/^[a-f0-9]{40}$/),
+        rendererVersion: "archcontext.docs-renderer/v2",
+        layoutVersion: "archcontext.docs-layout/v1",
+        generatedFrom: {
+          codeGraphPackage: "@colbymchenry/codegraph",
+          codeGraphVersion: "1.5.0",
+          codeGraphStatus: "unavailable"
+        }
+      });
+      expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
+      expect(manifest.provenance).toEqual((second.data as any).provenance);
     } finally {
       removeTempRoot(root);
     }

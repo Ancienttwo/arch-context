@@ -202,6 +202,32 @@ test("projection result contract denies raw bodies and keeps deterministic resul
     files: [{ ...valid.files[0], action: "unchanged", outputDigest: `sha256:${"d".repeat(64)}` }]
   })).toContain("files[0] unchanged requires equal non-null digests");
   expect(validateJsonSchema(schema as any, { ...valid, status: "human-action-required" } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    inputSnapshot: {
+      ...valid.inputSnapshot,
+      generatedFrom: {
+        codeGraphPackage: "@colbymchenry/codegraph",
+        codeGraphVersion: "1.5.0",
+        codeGraphBinaryDigest: valid.inputSnapshot.generatedFrom.codeGraphBinaryDigest
+      }
+    }
+  } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    inputSnapshot: {
+      ...valid.inputSnapshot,
+      indexedWorktreeDigest: null,
+      generatedFrom: { ...valid.inputSnapshot.generatedFrom, codeGraphStatus: "unavailable" }
+    }
+  } as any).valid).toBe(true);
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    outputSnapshot: {
+      ...valid.outputSnapshot,
+      generatedFrom: { ...valid.outputSnapshot.generatedFrom, codeGraphVersion: "1.4.0" }
+    }
+  } as any).valid).toBe(false);
 });
 
 test("projection result receipt binds refresh signals without a circular hash", () => {
