@@ -1,6 +1,6 @@
 # Task Contract: ship-pr96-and-harness-wip
 
-> **Status**: Partial
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260808-1336-ship-pr96-and-harness-wip.md
 > **Task Profile**: code-change
 > **Owner**: ancienttwo
