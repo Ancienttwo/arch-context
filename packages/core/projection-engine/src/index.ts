@@ -572,6 +572,7 @@ export function architectureDocumentationProjectionWorktreeDigest(
 ): string {
   return computeWorktreeDigest(root, {
     ignore: [
+      ".ai/harness",
       "docs/architecture",
       ...agentContextTargetPaths(model.nodes).map((target) => target.path)
     ]

@@ -127,6 +127,8 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
         worktreeDigest: provenance.worktreeDigest
       }
     };
+    mkdirSync(join(root, ".ai/harness/journal/post-edit/pending"), { recursive: true });
+    writeFileSync(join(root, ".ai/harness/journal/post-edit/pending/change.json"), "{}\n", "utf8");
     const result = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root);
     expect(result.ok, JSON.stringify(result)).toBe(true);
     const projection = result.data as unknown as ProjectionResultV1;
