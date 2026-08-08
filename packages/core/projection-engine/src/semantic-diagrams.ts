@@ -394,6 +394,7 @@ export function renderSemanticSequenceDiagram(diagram: SemanticP2DiagramAst): st
   const errors = diagram.outcomes.filter((outcome) => outcome.kind === "error");
   const lines = [
     "```mermaid",
+    "%%{init: {\"theme\":\"base\",\"themeVariables\":{\"background\":\"#0d1117\",\"actorBkg\":\"#312e81\",\"actorBorder\":\"#c4b5fd\",\"actorTextColor\":\"#ffffff\",\"signalColor\":\"#e5e7eb\",\"signalTextColor\":\"#e5e7eb\",\"labelBoxBkgColor\":\"#4c1d95\",\"labelBoxBorderColor\":\"#c4b5fd\",\"labelTextColor\":\"#ffffff\",\"noteBkgColor\":\"#78350f\",\"noteBorderColor\":\"#fcd34d\",\"noteTextColor\":\"#ffffff\",\"sequenceNumberColor\":\"#ffffff\"}}}%%",
     "sequenceDiagram",
     "  autonumber",
     ...diagram.participants.map((participant) => `  participant ${ids.get(participant.id)} as ${escapeMermaidLabel(participant.label)}`),

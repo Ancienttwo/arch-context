@@ -259,6 +259,8 @@ describe("semantic architecture compiler", () => {
       expect(result.evidenceCoverage.provenSelectors).toBe(result.evidenceCoverage.requiredSelectors);
       expect(result.p1.mermaid).toContain("flowchart LR");
       expect(result.p2.mermaid[0]).toContain("sequenceDiagram");
+      expect(result.p2.mermaid[0]).toContain('"actorTextColor":"#ffffff"');
+      expect(result.p2.mermaid[0]).toContain('"signalTextColor":"#e5e7eb"');
       expect(result.p2.mermaid[0]).toContain("alt ");
       expect(result.p2.mermaid[0]).toContain("else ");
     }

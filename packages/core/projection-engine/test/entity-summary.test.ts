@@ -228,7 +228,7 @@ describe("entity-summary capability documentation projection", () => {
     // Diagram slots carry accepted semantic authority and exact selector proof.
     expect(body).toContain("### 1.1 架構圖");
     expect(body).toContain("```mermaid\nflowchart LR");
-    expect(body).toContain("```mermaid\nsequenceDiagram");
+    expect(body).toMatch(/```mermaid\n%%\{init: .*\nsequenceDiagram/);
     expect(body).toContain("- Proof: `proven`");
     expect(body).toContain("> **Proof**: `proven`");
     expect(body).toContain("alt Model proven");
@@ -609,7 +609,7 @@ describe("semantic P1/P2 entity integration", () => {
     const body = entityFile(render({ selectorEvidence: [] }), "capability.docs.projection").body;
     expect(body).toContain("human-action-required");
     expect(body).toContain("`selector-evidence-missing`");
-    expect(body).not.toContain("```mermaid\nsequenceDiagram");
+    expect(body).not.toContain("sequenceDiagram");
   });
 
   test("truncated selector evidence cannot be upgraded to proven", () => {
