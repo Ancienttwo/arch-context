@@ -1,12 +1,12 @@
 # Task Contract: axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer
 
-> **Status**: Partial
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
 > **Task Profile**: code-change
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
 > **Owner**: ancienttwo
 > **Capability ID**: root
-> **Last Updated**: 2026-08-08 19:21
+> **Last Updated**: 2026-08-08 20:04
 > **Review File**: `tasks/reviews/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.review.md`
 > **Notes File**: `tasks/notes/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.notes.md`
 > **Exemplar**: `docs/reference-configs/contract-brief-example.md`
@@ -160,5 +160,5 @@ exit_criteria:
 
 ## Rollback Point
 
-- Commit / checkpoint:
-- Revert strategy:
+- Commit / checkpoint: `833bb06`
+- Revert strategy: revert `833bb06` before enabling the AXR5 consumer.
