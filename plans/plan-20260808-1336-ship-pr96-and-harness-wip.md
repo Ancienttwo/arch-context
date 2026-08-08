@@ -1,6 +1,6 @@
 # Plan: Ship PR #96 and repo-harness 0.13.2 WIP
 
-> **Status**: Executing
+> **Status**: Done
 > **Created**: 20260808-1336
 > **Slug**: ship-pr96-and-harness-wip
 > **Planning Source**: codex-plan
@@ -113,8 +113,8 @@ Land PR #96, then publish the existing repo-harness 0.13.2 refresh as a separate
 - [x] Verify PR #96 CI and merge it into main.
 - [x] Rebase the harness refresh onto merged main and resolve only the .gitignore authority overlap.
 - [x] Run strict workflow checks and full bun run verify on the combined tree.
-- [ ] Push, open, verify, and merge the harness refresh PR.
-- [ ] Clean safe branches/worktrees and read back final main.
+- [x] Push, open, verify, and merge the harness refresh PR.
+- [x] Clean safe branches/worktrees and read back final main.
 
 ## Invariants
 - .archcontext remains Git-visible; only .archcontext/.local remains runtime state.
@@ -129,5 +129,5 @@ Land PR #96, then publish the existing repo-harness 0.13.2 refresh as a separate
 - [x] Verify PR #96 CI and merge it into main.
 - [x] Rebase the harness refresh onto merged main and resolve only the .gitignore authority overlap.
 - [x] Run strict workflow checks and full bun run verify on the combined tree.
-- [ ] Push, open, verify, and merge the harness refresh PR.
-- [ ] Clean safe branches/worktrees and read back final main.
+- [x] Push, open, verify, and merge the harness refresh PR.
+- [x] Clean safe branches/worktrees and read back final main.

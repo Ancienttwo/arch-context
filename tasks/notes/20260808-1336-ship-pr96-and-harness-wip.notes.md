@@ -1,6 +1,6 @@
 # Implementation Notes: ship-pr96-and-harness-wip
 
-> **Status**: Active
+> **Status**: Complete
 > **Plan**: plans/plan-20260808-1336-ship-pr96-and-harness-wip.md
 > **Contract**: tasks/contracts/20260808-1336-ship-pr96-and-harness-wip.contract.md
 > **Review**: tasks/reviews/20260808-1336-ship-pr96-and-harness-wip.review.md
@@ -56,6 +56,17 @@
   ledgers, sprint status, and all representative eval thresholds passed.
 - Diff against `origin/main`: 30 files = 25 audited refresh files plus five
   work-package artifacts; no product source, ledger model, or runtime database.
+
+## Remote Ship Evidence
+
+- PR #97 merged at `2026-08-08T06:02:11Z` as
+  `573fa10cc2a8d588a532aa2c143bcd59607192d6`.
+- Required CI passed: Governance Verify plus Node 24/25 on Ubuntu, macOS, and
+  Windows. The Developer Review integration was neutral/skipped, not failed.
+- `origin/main` and the primary checkout both resolve to the PR #97 merge
+  commit; head `48a8da5dd877bc6951fe975bb7765405f5b66462` is an ancestor.
+- Merged PR #96/#97 branches and their clean worktrees were removed. The
+  unrelated `audit/native-pending-run` worktree remains untouched.
 
 ## Promotion Candidates
 

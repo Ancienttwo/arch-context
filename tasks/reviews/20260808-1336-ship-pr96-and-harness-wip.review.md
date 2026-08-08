@@ -16,8 +16,8 @@
 - Actual files changed: 30 files; exactly the intended refresh and workflow evidence, with no product source or ledger state
 - Commands passed: init dry-run (`plannedTotal: 0`), targeted strict workflow checks, and full `bun run verify`
 - External acceptance: user selected ship boundary A; local workflow-only slice uses the manual override below
-- Residual risks: generated ignore policy still requires the post-managed repo override; CI remains the remote acceptance gate
-- Reviewer action required: none before PR; merge only after all required GitHub checks pass
+- Residual risks: generated ignore policy still requires the committed post-managed repo override; no active ship blocker remains
+- Reviewer action required: none; PR #97 is merged and read back from `origin/main`
 - Rollback: abandon the branch before merge, or revert commits `b24808c` and `c5481ea` after merge
 
 ## Mode Evidence
@@ -33,7 +33,7 @@
 - Manual checks: `.archcontext` override is after the managed block; ignored runtime evidence is absent from the Git diff; diff scope is 30 intended files
 - Supporting artifacts: plan, contract, notes, review, `.ai/harness/checks/latest.json`, and ignored run snapshots
 - Implementation notes reviewed: yes
-- Run snapshot: local verification on branch `codex/ship-pr96-and-harness-wip` at `b24808c`
+- Run snapshot: local verification at `48a8da5`; remote merge readback at `573fa10`
 
 ## External Acceptance Advice
 
@@ -44,8 +44,8 @@
 > **External Completed**: 2026-08-08T13:46:00+08:00
 
 - P1 blockers: none
-- P2 advisories: GitHub CI must pass before merge
-- Acceptance checklist: local contract complete; remote CI and merge remain
+- P2 advisories: none for this tooling-only publication
+- Acceptance checklist: local contract, seven required CI jobs, merge, ancestry, and main synchronization all pass
 - Manual Override: This is a generated repository-workflow refresh with no product runtime, publication, or deployment surface. The user's explicit ship authorization plus deterministic init, strict workflow, and full repository verification replaces a separate external model review.
 
 ## Behavior Diff Notes
@@ -56,7 +56,7 @@
 
 ## Residual Risks / Follow-ups
 
-- Remote CI is not yet read back for this branch; the PR will not merge until all required jobs are green.
+- PR #97 CI passed Governance Verify and Node 24/25 on Ubuntu, macOS, and Windows; merge state was `CLEAN` before merge.
 - The unrelated `audit/native-pending-run` worktree remains untouched.
 
 ## Manual Check Evidence
@@ -79,7 +79,7 @@
 
 ## Failing Items
 
-- none locally; remote CI remains the merge gate
+- none
 
 ## Retest Steps
 
@@ -88,4 +88,4 @@
 
 ## Summary
 
-- PASS locally. The 25-file repo-harness 0.13.2 refresh is isolated on merged PR #96, the only conflict preserves `.archcontext` Git authority, runtime WIP remains ignored, and the complete verification chain passes.
+- PASS — SHIPPED. PR #97 merged as `573fa10`; all required CI passed, `.archcontext` Git authority is preserved, runtime WIP remains ignored, and the primary `main` checkout matches `origin/main`.
