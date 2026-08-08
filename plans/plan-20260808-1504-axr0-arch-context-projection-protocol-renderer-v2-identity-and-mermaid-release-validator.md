@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR0 [arch-context] projection protocol, renderer v2 identity, and Mermaid release validator
 
-> **Status**: Executing
+> **Status**: Done
 > **Created**: 20260808-1504
 > **Slug**: axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator
 > **Planning Source**: repo-harness-sprint
@@ -150,4 +150,4 @@ Before editing code, use `$think` to expand this sprint row into a decision-comp
 - [x] T3：加入 exact dev-only Mermaid CLI 与 temp-only architecture corpus validator
 - [x] T4：加强 FG6 production pack 对 Mermaid/Chromium 的负面断言
 - [x] T5：运行 targeted contracts/CLI/projection tests、Mermaid render、FG6 dry-run、typecheck/package boundary
-- [ ] T6：记录 notes/review/AcceptanceReceipt，通过 strict contract/sprint gate 后提交并回并主线
+- [x] T6：记录 notes/review/AcceptanceReceipt，通过 strict contract/sprint gate 后提交并回并主线
