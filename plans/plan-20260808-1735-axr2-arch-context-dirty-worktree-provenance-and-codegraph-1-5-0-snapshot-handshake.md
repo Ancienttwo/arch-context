@@ -185,4 +185,4 @@ Before editing code, use `$think` to expand this sprint row into a decision-comp
 - [x] T2: implement package-local CodeGraph 1.5.0 actual-version/status/sync handshake.
 - [x] T3: bind source/model/layout/renderer/CodeGraph digests into docs manifest and CLI/daemon receipt.
 - [x] T4: replace commit-only freshness with semantic source/proof snapshot comparison.
-- [ ] T5: close targeted/full verification, external review, AcceptanceReceipt and Sprint archive.
+- [x] T5: close targeted/full verification, external review, AcceptanceReceipt and Sprint archive.

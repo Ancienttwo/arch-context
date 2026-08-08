@@ -3,7 +3,7 @@
 > **Status**: Approved
 > **Slug**: archctx-repo-harness-projection-runtime-integration
 > **Created**: 2026-08-08 14:33 +08:00
-> **Updated**: 2026-08-08 17:34
+> **Updated**: 2026-08-08 18:13
 > **Goal Mode**: incremental
 > **Primary Repository**: `/Users/ancienttwo/Projects/arch-context`
 > **Consumer Repository**: `/Users/ancienttwo/Projects/repo-harness`
@@ -543,7 +543,7 @@ row never lands.
 |---|---|---|---|---|---|
 | 1 | [x] | AXR0 [arch-context] projection protocol, renderer v2 identity, and Mermaid release validator | contract | contracts/CLI tests pass; every generated fixture renders with `@mermaid-js/mermaid-cli@11.16.0`; production tarball excludes Mermaid/Chromium; `archctx capabilities --json` reports exact protocol/renderer/features | `plans/archive/plan-20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md` |
 | 2 | [x] | AXR1 [arch-context] repo-harness profile, canonical nested target map, recursive orphan scan, and explicit mixed-file adoption | contract | nested fixture resolves exact module/index/contract paths; unmarked mixed file writes zero bytes; approved adoption preserves all marker-external hashes; second apply is noop | `plans/archive/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md` |
-| 3 | [ ] | AXR2 [arch-context] dirty-worktree provenance and CodeGraph 1.5.0 snapshot handshake | contract | actual binary/version/sync/indexed-worktree digests are bound to receipt; stale/mismatch cases fail closed; source+docs same commit remains fresh | (pending) |
+| 3 | [x] | AXR2 [arch-context] dirty-worktree provenance and CodeGraph 1.5.0 snapshot handshake | contract | actual binary/version/sync/indexed-worktree digests are bound to receipt; stale/mismatch cases fail closed; source+docs same commit remains fresh | `plans/plan-20260808-1735-axr2-arch-context-dirty-worktree-provenance-and-codegraph-1-5-0-snapshot-handshake.md` |
 | 4 | [ ] | AXR3 [arch-context] node v2, ArchitectureFlowV1, and BYOK-grade semantic P1/P2 compiler | contract | v1 dual reader absent; proven/not-applicable/unprovable matrix passes; semantic P1 and success/error P2 render; raw path/top-five heuristic cannot produce verified diagram | (pending) |
 | 5 | [ ] | AXR4 [arch-context] major-change classifier and ArchitectureRefreshSignalV1 producer | contract | accepted semantic/proof changes emit one stable signal; refactor/generated/layout-only changes emit none; unresolved candidates emit human-action signal; duplicate run preserves signalId | (pending) |
 | 6 | [ ] | AXR5 [repo-harness] package-local archctx provider, node v2 reader/exporter, orthogonal config, readiness, and manual command lane | contract | disposable consumer installs integrity-verified 0.4.0 tarballs with no registry lookup; feature handshake passes; canonical mapper and helper projections accept v2/reject v1; PATH mismatch is irrelevant; provider disabled preserves current behavior | (pending) |
@@ -818,3 +818,4 @@ registry authority and no fallback.
 |---|---|---|---|
 | 2026-08-08 16:24 | AXR0 [arch-context] projection protocol, renderer v2 identity, and Mermaid release validator | `plans/archive/plan-20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md` | done |
 | 2026-08-08 17:34 | AXR1 [arch-context] repo-harness profile, canonical nested target map, recursive orphan scan, and explicit mixed-file adoption | `plans/archive/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md` | done |
+| 2026-08-08 18:13 | AXR2 [arch-context] dirty-worktree provenance and CodeGraph 1.5.0 snapshot handshake | `plans/plan-20260808-1735-axr2-arch-context-dirty-worktree-provenance-and-codegraph-1-5-0-snapshot-handshake.md` | done |

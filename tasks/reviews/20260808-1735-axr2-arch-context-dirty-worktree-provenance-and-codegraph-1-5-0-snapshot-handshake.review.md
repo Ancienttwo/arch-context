@@ -8,9 +8,9 @@
 > **Last Updated**: 2026-08-08 18:10
 > **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:1d1bb75a87d67c113cc64bca719dfa9c24b9700b776fb3594508409639a4fddd
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: 8bfb126
+> **Reviewed Target Revision**: 74ac67872e4ef21616a96baff9c2423495c3da85
 
 ## Human Review Card
 
@@ -55,17 +55,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Claude
+> **Source**: claude-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:1d1bb75a87d67c113cc64bca719dfa9c24b9700b776fb3594508409639a4fddd
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: 74ac67872e4ef21616a96baff9c2423495c3da85
+> **Verification Evidence SHA256**: sha256:d7418aaf4190e9cc48b3c036923d706a391a3a06e995a1a47fa8e8add3cb09d2
+> **Issued At**: 2026-08-08T10:13:08.322Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Claude read-only review found no P0 or P1 findings; AXR2 snapshot, CodeGraph 1.5 handshake, fixed-point, and fail-closed acceptance passed.
 - Findings: none
 
 ## Behavior Diff Notes
