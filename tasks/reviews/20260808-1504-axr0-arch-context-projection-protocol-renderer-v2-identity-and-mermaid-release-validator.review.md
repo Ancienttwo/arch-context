@@ -52,7 +52,7 @@
 > **Reviewed Subject Scope**: normalized-final-content
 > **Reviewed Target Revision**: c7963b468c2e7d530f0700b084513aee64a5b705
 > **Verification Evidence SHA256**: sha256:8282e4aa71124159546139457d5a349dba44b5041fca32d1391d03661acc22fd
-> **Issued At**: 2026-08-08T08:21:01.183Z
+> **Issued At**: 2026-08-08T08:23:36.350Z
 
 - Summary: External Claude re-review passed the final AXR0 subject with one P2 cross-validator advisory and no P0/P1 findings.
 - Findings: P2: projection-result.schema.json cannot express the TypeScript semantic inequality rule for update preimageDigest versus outputDigest, so schema-only consumers can accept an update whose two non-null digests are equal.
