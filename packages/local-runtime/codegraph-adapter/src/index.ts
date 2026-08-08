@@ -13,10 +13,7 @@ import {
   architectureDocumentationSourceTreeDigest,
   loadCapabilitySourceFootprints,
   nativeNodeSource,
-  type CapabilityEntrypointCall,
-  type CapabilityEntrypointCallGraph,
-  type CapabilityEntrypointSeed,
-  type CapabilityEntrypointTrace,
+  type ArchitectureSelectorEvidenceV1,
   type CapabilityImportEdge,
   type CapabilityImportGraph,
   type ArchitectureDocumentationProjectionProvenanceV1,
@@ -640,25 +637,18 @@ function architectureDeltaTask(git: ArchitectureDeltaGitChangeMetadata): string 
   ].filter(Boolean)).join(" ");
 }
 
-// --- Capability documentation projection inputs (P1 import graph / P2 call graph) ---
+// --- Capability documentation projection measurements and exact semantic bindings ---
 //
 // A thin read-only query surface over the same CodeGraph CLI the provider uses. It exists so the
 // documentation projection stays a pure function in @archcontext/core: the child process lives
-// here, the renderer only receives measured facts. Nothing below invents an edge — a specifier
-// the resolver cannot pin to a real file simply produces no edge.
+// here, the renderer only receives measured facts. Import graphs remain diagnostic measurements;
+// exact node-v2 selectors are the only CodeGraph facts that can bind a semantic flow step.
 
 /** Import-node dump budget for one repository. Hitting it marks the graph `truncated`. */
 export const CODEGRAPH_IMPORT_NODE_QUERY_LIMIT = 5000;
-/** Top-level symbols traced per declared entrypoint. Overflow is reported, never silently cut. */
-export const CODEGRAPH_ENTRYPOINT_SEED_BUDGET = 5;
-/** Call-trail entries kept per seed symbol. Overflow is reported as a truncated trail. */
-export const CODEGRAPH_ENTRYPOINT_CALL_BUDGET = 8;
-
-const ENTRYPOINT_SEED_KINDS = new Set(["function", "method"]);
-
 export interface CapabilityCodeGraphProjectionInputs {
   importGraphs: CapabilityImportGraph[];
-  entrypointCallGraphs: CapabilityEntrypointCallGraph[];
+  selectorEvidence: ArchitectureSelectorEvidenceV1[];
 }
 
 export interface CodeGraphProjectionStatusV1 {
@@ -778,7 +768,7 @@ export function prepareProjectionCodeFacts(
     } as unknown as Json);
     return {
       importGraphs: [],
-      entrypointCallGraphs: [],
+      selectorEvidence: [],
       handshake: {
         schemaVersion: "archcontext.codegraph-projection-handshake/v1",
         packageName: REQUIRED_CODEGRAPH_PACKAGE,
@@ -823,7 +813,7 @@ export function prepareProjectionCodeFacts(
     binaryDigest,
     indexedWorktreeDigest,
     importGraphs: inputs.importGraphs,
-    entrypointCallGraphs: inputs.entrypointCallGraphs
+    selectorEvidence: inputs.selectorEvidence
   } as unknown as Json);
   return {
     ...inputs,
@@ -942,13 +932,11 @@ export function codeGraphIndexAvailable(workspaceRoot: string): boolean {
 }
 
 /**
- * Measures the P1 import graph and the P2 entrypoint call graph for every node that declares a
- * source footprint or entrypoints.
+ * Measures import facts and exact node-v2 entrypoint→sink selectors. CodeGraph proves only the
+ * declared binding: it never chooses seed symbols, labels, order, branches or outcomes.
  *
- * With no index present this returns empty sets on purpose: the renderer then annotates the P1
- * section as "not generated" (an omitted diagram is honest), while a node that declares
- * `source.entrypoints` makes `assertCapabilityEntrypointCallGraphs` throw — P2 is fail-closed and
- * never degrades into an empty template.
+ * With no index present this returns empty evidence. The semantic compiler then reports
+ * `unprovable`; it never degrades into a path-based diagram.
  */
 export function loadCapabilityCodeGraphProjectionInputs(
   root: string,
@@ -960,19 +948,25 @@ export function loadCapabilityCodeGraphProjectionInputs(
     .map((node) => ({ nodeId: node.id, entrypoints: nativeNodeSource(node)?.entrypoints ?? [] }))
     .filter((entry) => entry.entrypoints.length > 0)
     .sort((left, right) => left.nodeId.localeCompare(right.nodeId));
-  if (footprints.length === 0 && entrypointNodes.length === 0) return { importGraphs: [], entrypointCallGraphs: [] };
-  if (!codeGraphIndexAvailable(root)) return { importGraphs: [], entrypointCallGraphs: [] };
+  if (footprints.length === 0 && entrypointNodes.length === 0) return { importGraphs: [], selectorEvidence: [] };
+  if (!codeGraphIndexAvailable(root)) return { importGraphs: [], selectorEvidence: [] };
 
   disableCodeGraphTelemetryByDefault();
   const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
   const importGraphs = footprints.length > 0
     ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT)
     : [];
-  const entrypointCallGraphs = entrypointNodes.map((entry) => ({
-    nodeId: entry.nodeId,
-    entrypoints: entry.entrypoints.map((path) => capabilityEntrypointTrace(root, binary, path))
-  }));
-  return { importGraphs, entrypointCallGraphs };
+  const selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
+    entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(root, binary, {
+      nodeId: entry.nodeId,
+      entrypointId: entrypoint.id,
+      sourcePath: entrypoint.path,
+      sourceSymbol: source.name,
+      sinkId: sink.id,
+      sinkPath: sink.path,
+      sinkSymbol: sink.symbol
+    })))));
+  return { importGraphs, selectorEvidence };
 }
 
 function capabilityImportGraphs(
@@ -1010,36 +1004,26 @@ function codeGraphImportNodes(root: string, binary: string, limit: number): { im
   return { imports: parsed.map(({ node }) => node), truncated: parsed.length >= limit };
 }
 
-function capabilityEntrypointTrace(root: string, binary: string, path: string): CapabilityEntrypointTrace {
-  const symbols = entrypointSeedSymbols(runCodeGraphCli(binary, root, ["node", "-p", root, "-f", path, "--symbols-only"]));
-  const budgeted = symbols.slice(0, CODEGRAPH_ENTRYPOINT_SEED_BUDGET);
-  const seeds: CapabilityEntrypointSeed[] = budgeted.map((symbol) => {
-    const trail = runCodeGraphCli(binary, root, ["node", "-p", root, symbol.name, "-f", path]);
-    const calls = entrypointTrailCalls(trail);
-    return {
-      symbol: symbol.name,
-      ...(symbol.line === undefined ? {} : { line: symbol.line }),
-      calls: calls.entries.slice(0, CODEGRAPH_ENTRYPOINT_CALL_BUDGET),
-      callsTruncated: calls.truncated || calls.entries.length > CODEGRAPH_ENTRYPOINT_CALL_BUDGET
-    };
-  });
-  return { path, seeds, seedsTruncated: symbols.length > budgeted.length };
+function exactSelectorEvidence(
+  root: string,
+  binary: string,
+  selector: Omit<ArchitectureSelectorEvidenceV1, "matched" | "truncated" | "callSites">
+): ArchitectureSelectorEvidenceV1 {
+  const output = runCodeGraphCli(binary, root, ["node", "-p", root, selector.sourceSymbol, "-f", selector.sourcePath]);
+  const calls = entrypointTrailCalls(output);
+  const callSites = calls.entries
+    .filter((entry) => entry.symbol === selector.sinkSymbol && entry.path === selector.sinkPath)
+    .map((entry) => ({ path: entry.path, ...(entry.line === undefined ? {} : { line: entry.line }) }));
+  return {
+    ...selector,
+    matched: callSites.length > 0,
+    truncated: calls.truncated,
+    callSites
+  };
 }
 
-/** Top-level function/method symbols from `codegraph node --symbols-only`, in declaration order. */
-function entrypointSeedSymbols(output: string): { name: string; line?: number }[] {
-  const out: { name: string; line?: number }[] = [];
-  for (const line of output.split("\n")) {
-    const head = /^-\s+`([^`]+)`\s+\(([a-z_]+)\)/.exec(line.trim());
-    if (!head || !ENTRYPOINT_SEED_KINDS.has(head[2])) continue;
-    const lineNumber = /—\s*:(\d+)\s*$/.exec(line);
-    out.push({ name: head[1], ...(lineNumber ? { line: Number(lineNumber[1]) } : {}) });
-  }
-  return out;
-}
-
-/** `Calls →` trail entries for one symbol; a `+N more` suffix marks the trail as truncated. */
-function entrypointTrailCalls(output: string): { entries: CapabilityEntrypointCall[]; truncated: boolean } {
+/** Exact call-trail entries for one explicitly named source symbol. */
+function entrypointTrailCalls(output: string): { entries: Array<{ symbol: string; path: string; line?: number }>; truncated: boolean } {
   const line = output.split("\n").find((candidate) => candidate.includes("**Calls →**"));
   if (!line) return { entries: [], truncated: false };
   const entries = trailEntries(output, "**Calls →**").map((entry) => ({

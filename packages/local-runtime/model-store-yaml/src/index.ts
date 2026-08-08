@@ -161,7 +161,7 @@ export function initializeArchContextModel(root: string, productName = "ArchCont
     riskDomains: []
   });
   writeYaml(root, ".archcontext/model/nodes/capability.architecture-context.yaml", {
-    schemaVersion: "archcontext.node/v1",
+    schemaVersion: "archcontext.node/v2",
     id: "capability.architecture-context",
     kind: "capability",
     name: "Architecture Context",
@@ -245,6 +245,12 @@ export class YamlModelStore implements ModelStorePort {
     const files = listModelFiles(workspace.root);
     for (const file of files) {
       if (!file.schemaVersion.startsWith("archcontext.")) errors.push(`${file.path}: missing schemaVersion`);
+      if (file.path.startsWith(".archcontext/model/nodes/") && file.schemaVersion !== "archcontext.node/v2") {
+        errors.push(`${file.path}: expected archcontext.node/v2, got ${file.schemaVersion || "missing"}`);
+      }
+      if (file.path.startsWith(".archcontext/model/flows/") && file.schemaVersion !== "archcontext.flow/v1") {
+        errors.push(`${file.path}: expected archcontext.flow/v1, got ${file.schemaVersion || "missing"}`);
+      }
     }
     const modelDigest = digestJson(files.map((file) => ({ path: file.path, digest: file.digest })));
     return { valid: errors.length === 0, errors, modelDigest };

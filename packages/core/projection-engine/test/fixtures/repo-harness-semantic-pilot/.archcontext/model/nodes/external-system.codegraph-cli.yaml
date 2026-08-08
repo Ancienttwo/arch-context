@@ -1,0 +1,7 @@
+schemaVersion: "archcontext.node/v2"
+id: "external-system.codegraph-cli"
+kind: "external-system"
+name: "Pinned CodeGraph CLI"
+status: "active"
+parent: "capability.verification.codegraph-readiness"
+summary: "Package-local CodeGraph runtime invoked through a bounded process."

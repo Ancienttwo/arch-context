@@ -1,0 +1,54 @@
+schemaVersion: "archcontext.flow/v1"
+id: "flow.verification.codegraph-readiness.check"
+capabilityId: "capability.verification.codegraph-readiness"
+name: "Verify CodeGraph readiness"
+applicability: "required"
+participants:
+  - id: "readiness"
+    nodeId: "capability.verification.codegraph-readiness"
+  - id: "report"
+    nodeId: "datastore.codegraph-tooling-report"
+  - id: "codegraph"
+    nodeId: "external-system.codegraph-cli"
+  - id: "check"
+    nodeId: "component.codegraph-readiness-check"
+steps:
+  - id: "read-report"
+    from: "readiness"
+    to: "report"
+    label: "Read selected runtime report"
+    evidence:
+      entrypointId: "entrypoint.codegraph.ensure"
+      sourceSymbol: "ensureCodegraph"
+      sinkId: "sink.codegraph.report"
+outcomes:
+  - id: "ready"
+    kind: "success"
+    label: "Runtime ready"
+    steps:
+      - id: "check-status"
+        from: "readiness"
+        to: "check"
+        label: "Verify version and index status"
+        evidence:
+          entrypointId: "entrypoint.codegraph.ensure"
+          sourceSymbol: "ensureCodegraph"
+          sinkId: "sink.codegraph.check"
+    terminal:
+      participant: "readiness"
+      label: "Return ready receipt"
+  - id: "blocked"
+    kind: "error"
+    label: "Runtime unavailable"
+    steps:
+      - id: "bounded-remediation"
+        from: "readiness"
+        to: "codegraph"
+        label: "Run bounded remediation command"
+        evidence:
+          entrypointId: "entrypoint.codegraph.ensure"
+          sourceSymbol: "ensureCodegraph"
+          sinkId: "sink.codegraph.run"
+    terminal:
+      participant: "readiness"
+      label: "Return typed readiness failure"

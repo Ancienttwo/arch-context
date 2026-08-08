@@ -1,0 +1,7 @@
+schemaVersion: "archcontext.node/v2"
+id: "component.architecture-cascade"
+kind: "component"
+name: "Architecture Cascade Helpers"
+status: "active"
+parent: "capability.runtime-harness.hook-adapters"
+summary: "Runs the current architecture queue and context helper cascade."

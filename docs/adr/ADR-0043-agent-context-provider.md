@@ -20,8 +20,8 @@ filing work is moving to ArchContext so agentic runtimes across products read
 capability-context from one provider instead of each product reinventing path-ownership
 and agent-context file conventions.
 
-ArchContext's `archcontext.node/v1` schema already carries `id`, `kind`, and
-`source.include`/`source.exclude`/`entrypoints` globs
+ArchContext's `archcontext.node/v2` schema carries `id`, `kind`,
+`source.include`/`source.exclude` globs, and structured entrypoint symbol/sink selectors
 (`schemas/repo/architecture-node.schema.json`). No node schema field is missing; what is
 missing is the cross-product contract for how an agentic runtime is supposed to consume
 these fields: which field is the capability identifier, how ownership ties break when

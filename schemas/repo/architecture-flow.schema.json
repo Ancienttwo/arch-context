@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archctx.repoharness.com/schemas/repo/architecture-flow.schema.json",
+  "title": "ArchitectureFlowV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "capabilityId", "name", "applicability"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.flow/v1" },
+    "id": { "type": "string", "pattern": "^flow\\.[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "capabilityId": { "type": "string", "pattern": "^capability\\.[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "applicability": { "type": "string", "enum": ["required", "not-applicable"] },
+    "rationale": { "type": "string", "minLength": 1 },
+    "participants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "nodeId"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+          "nodeId": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/step" }
+    },
+    "outcomes": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "label", "steps", "terminal"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+          "kind": { "type": "string", "enum": ["success", "error"] },
+          "label": { "type": "string", "minLength": 1 },
+          "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/step" } },
+          "terminal": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["participant", "label"],
+            "properties": {
+              "participant": { "type": "string", "minLength": 1 },
+              "label": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "allOf": [
+        { "contains": { "type": "object", "properties": { "kind": { "const": "success" } }, "required": ["kind"] }, "minContains": 1 },
+        { "contains": { "type": "object", "properties": { "kind": { "const": "error" } }, "required": ["kind"] }, "minContains": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "evidenceSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypointId", "sourceSymbol", "sinkId"],
+      "properties": {
+        "entrypointId": { "type": "string", "minLength": 1 },
+        "sourceSymbol": { "type": "string", "minLength": 1 },
+        "sinkId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "label", "evidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$" },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/evidenceSelector" }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": { "applicability": { "const": "required" } },
+      "required": ["participants", "steps", "outcomes"]
+    },
+    {
+      "properties": { "applicability": { "const": "not-applicable" } },
+      "required": ["rationale"],
+      "not": { "anyOf": [{ "required": ["participants"] }, { "required": ["steps"] }, { "required": ["outcomes"] }] }
+    }
+  ]
+}

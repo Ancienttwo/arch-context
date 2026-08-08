@@ -199,9 +199,10 @@ function npmPackDryRun(manifest, env) {
     const hasFixtures = files.some((file) => file.startsWith("fixtures/valid/"));
     const hasSchemas = files.some((file) => file.startsWith("schemas/"));
     const hasArchitectureNodeSchema = files.includes("schemas/repo/architecture-node.schema.json");
+    const hasArchitectureFlowSchema = files.includes("schemas/repo/architecture-flow.schema.json");
     const hasProjectionTargetSchema = files.includes("schemas/runtime/projection-target.schema.json");
     const hasTests = files.some((file) => file.startsWith("test/"));
-    const ok = hasSource && hasFixtures && hasSchemas && hasArchitectureNodeSchema && hasProjectionTargetSchema && !hasTests;
+    const ok = hasSource && hasFixtures && hasSchemas && hasArchitectureNodeSchema && hasArchitectureFlowSchema && hasProjectionTargetSchema && !hasTests;
     return {
       ok,
       exitCode: 0,
@@ -303,12 +304,15 @@ function runCleanRoomSmoke(name, version, env) {
       `import { digestJson, productVersionManifest } from "${name}";`,
       "const require = createRequire(import.meta.url);",
       `const architectureNodeSchemaPath = require.resolve("${name}/schemas/repo/architecture-node.schema.json");`,
+      `const architectureFlowSchemaPath = require.resolve("${name}/schemas/repo/architecture-flow.schema.json");`,
       `const projectionTargetSchemaPath = require.resolve("${name}/schemas/runtime/projection-target.schema.json");`,
       "const architectureNodeSchema = JSON.parse(readFileSync(architectureNodeSchemaPath, \"utf8\"));",
+      "const architectureFlowSchema = JSON.parse(readFileSync(architectureFlowSchemaPath, \"utf8\"));",
       "const projectionTargetSchema = JSON.parse(readFileSync(projectionTargetSchemaPath, \"utf8\"));",
       "if (!digestJson({ ok: true }).startsWith(\"sha256:\")) throw new Error(\"bad digest\");",
       `if (productVersionManifest().product.version !== "${version}") throw new Error("bad version");`,
-      "if (architectureNodeSchema.properties?.schemaVersion?.const !== \"archcontext.node/v1\") throw new Error(\"bad architecture node schema\");",
+      "if (architectureNodeSchema.properties?.schemaVersion?.const !== \"archcontext.node/v2\") throw new Error(\"bad architecture node schema\");",
+      "if (architectureFlowSchema.properties?.schemaVersion?.const !== \"archcontext.flow/v1\") throw new Error(\"bad architecture flow schema\");",
       "if (!projectionTargetSchema.properties?.type?.enum?.includes(\"agent-context\")) throw new Error(\"missing agent-context schema target\");",
       "console.log(\"ok\");",
       ""

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.node/v1",
+  "schemaVersion": "archcontext.node/v2",
   "id": "module.subscription",
   "kind": "module",
   "name": "Subscription",
@@ -10,7 +10,24 @@
   "source": {
     "include": ["src/subscription/**"],
     "exclude": ["src/subscription/generated/**"],
-    "entrypoints": ["src/subscription/index.ts"]
+    "entrypoints": [
+      {
+        "id": "entrypoint.subscription.create",
+        "path": "src/subscription/index.ts",
+        "symbols": [
+          {
+            "name": "createSubscription",
+            "sinks": [
+              {
+                "id": "sink.subscription.persist",
+                "path": "src/subscription/store.ts",
+                "symbol": "saveSubscription"
+              }
+            ]
+          }
+        ]
+      }
+    ]
   },
   "ownership": {
     "lifecycle": ["subscription"],

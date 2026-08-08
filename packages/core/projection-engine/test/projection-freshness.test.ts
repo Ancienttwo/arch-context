@@ -365,7 +365,7 @@ describe("projection manifest verifiedAgainst readback", () => {
         }
       ],
       importGraphs: [],
-      entrypointCallGraphs: []
+      selectorEvidence: []
     });
 
     const manifest = JSON.parse(plan.manifest.body);

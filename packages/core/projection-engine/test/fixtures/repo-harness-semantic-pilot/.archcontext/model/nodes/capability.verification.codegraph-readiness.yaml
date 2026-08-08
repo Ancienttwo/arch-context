@@ -1,0 +1,24 @@
+schemaVersion: "archcontext.node/v2"
+id: "capability.verification.codegraph-readiness"
+kind: "capability"
+name: "CodeGraph Readiness Verification"
+status: "active"
+summary: "Proves the selected CodeGraph runtime is ready before architecture projection."
+source:
+  include:
+    - "src/cli/tools/codegraph.ts"
+  entrypoints:
+    - id: "entrypoint.codegraph.ensure"
+      path: "src/cli/tools/codegraph.ts"
+      symbols:
+        - name: "ensureCodegraph"
+          sinks:
+            - id: "sink.codegraph.check"
+              path: "src/cli/tools/codegraph.ts"
+              symbol: "checkCodegraph"
+            - id: "sink.codegraph.report"
+              path: "src/cli/tools/codegraph.ts"
+              symbol: "readToolingReport"
+            - id: "sink.codegraph.run"
+              path: "src/cli/tools/codegraph.ts"
+              symbol: "run"

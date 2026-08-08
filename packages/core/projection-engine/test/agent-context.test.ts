@@ -157,7 +157,7 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
       sourceChangesSinceStamp: [],
       sourceScaleSignals: [],
       importGraphs: [],
-      entrypointCallGraphs: []
+      selectorEvidence: []
     });
     const body = docs.files.find((file) => file.target.type === "entity-summary")!.body;
     expect(body).toContain("**Local Contracts**:`packages/legacy/AGENTS.md`");

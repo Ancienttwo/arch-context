@@ -163,7 +163,7 @@ async function runProductionEquivalentRollbackDrill() {
         path,
         expectedHash: "missing",
         body: [
-          "schemaVersion: archcontext.node/v1",
+          "schemaVersion: archcontext.node/v2",
           "id: module.production-rollback",
           "kind: module",
           "name: Production Rollback",
@@ -180,7 +180,7 @@ async function runProductionEquivalentRollbackDrill() {
     });
     if (!apply.ok) throw new Error("failed to seed ledger-authoritative drill state");
     writeFileSync(join(root, path), [
-      "schemaVersion: archcontext.node/v1",
+      "schemaVersion: archcontext.node/v2",
       "id: module.production-rollback",
       "kind: module",
       "name: Production Rollback",
@@ -189,7 +189,7 @@ async function runProductionEquivalentRollbackDrill() {
       ""
     ].join("\n"), "utf8");
     writeFileSync(join(root, stalePath), [
-      "schemaVersion: archcontext.node/v1",
+      "schemaVersion: archcontext.node/v2",
       "id: module.production-rollback-stale",
       "kind: module",
       "name: Production Rollback Stale",

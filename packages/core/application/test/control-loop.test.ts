@@ -446,7 +446,7 @@ describe("M2 architecture control loop", () => {
             op: "create_entity",
             path: ".archcontext/model/nodes/module.new.yaml",
             expectedHash: "missing",
-            body: "schemaVersion: archcontext.node/v1\nid: module.new\nkind: module\nname: New\nstatus: active\nsummary: New module\nresponsibilities:\n- own-new\n"
+            body: "schemaVersion: archcontext.node/v2\nid: module.new\nkind: module\nname: New\nstatus: active\nsummary: New module\nresponsibilities:\n- own-new\n"
           }
         ]
       });
@@ -487,7 +487,7 @@ describe("M2 architecture control loop", () => {
               op: "create_entity",
               path: ".archcontext/model/nodes/module.success.yaml",
               expectedHash: "missing",
-              body: "schemaVersion: archcontext.node/v1\nid: module.success\nkind: module\nname: Success\nstatus: active\nsummary: Success module\nresponsibilities:\n- own-success\n"
+              body: "schemaVersion: archcontext.node/v2\nid: module.success\nkind: module\nname: Success\nstatus: active\nsummary: Success module\nresponsibilities:\n- own-success\n"
             }
           ]
         })
@@ -544,7 +544,7 @@ describe("M2 architecture control loop", () => {
               op: "create_entity",
               path: ".archcontext/model/nodes/module.stale.yaml",
               expectedHash: "missing",
-              body: "schemaVersion: archcontext.node/v1\nid: module.stale\nkind: module\nname: Stale\nstatus: active\nsummary: Stale\nresponsibilities:\n- stale\n"
+              body: "schemaVersion: archcontext.node/v2\nid: module.stale\nkind: module\nname: Stale\nstatus: active\nsummary: Stale\nresponsibilities:\n- stale\n"
             }
           ]
         })

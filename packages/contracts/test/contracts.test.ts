@@ -99,6 +99,7 @@ test("Explorer V2 schemas expose exactly the canonical five-view catalog", () =>
 });
 const schemaByFixture: Record<string, string> = {
   "architecture-node": "schemas/repo/architecture-node.schema.json",
+  "architecture-flow": "schemas/repo/architecture-flow.schema.json",
   "architecture-relation": "schemas/repo/architecture-relation.schema.json",
   "cross-repo-relation": "schemas/repo/cross-repo-relation.schema.json",
   "landscape": "schemas/repo/landscape.schema.json",
@@ -300,6 +301,26 @@ describe("JSON schema contracts", () => {
     const schema = readJson("schemas/repo/architecture-node.schema.json");
     const fixture = readJson("packages/contracts/fixtures/boundary/architecture-node-extension.json");
     expect(validateJsonSchema(schema as any, fixture).valid).toBe(true);
+  });
+
+  test("node v2 is an atomic cutover and rejects node v1 or string entrypoints", () => {
+    const schema = readJson("schemas/repo/architecture-node.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/architecture-node.json") as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, { ...fixture, schemaVersion: "archcontext.node/v1" } as Json).valid).toBe(false);
+    const source = fixture.source as Record<string, Json>;
+    expect(validateJsonSchema(schema as any, { ...fixture, source: { ...source, entrypoints: ["src/index.ts"] } } as Json).valid).toBe(false);
+  });
+
+  test("required flows need success and error outcomes while not-applicable flows cannot carry a hidden sequence", () => {
+    const schema = readJson("schemas/repo/architecture-flow.schema.json");
+    const fixture = readJson("packages/contracts/fixtures/valid/architecture-flow.json") as Record<string, Json>;
+    const outcomes = fixture.outcomes as Array<Record<string, Json>>;
+    expect(validateJsonSchema(schema as any, { ...fixture, outcomes: outcomes.filter((outcome) => outcome.kind === "success") } as Json).valid).toBe(false);
+    expect(validateJsonSchema(schema as any, {
+      ...fixture,
+      applicability: "not-applicable",
+      rationale: "No runtime data flow."
+    } as Json).valid).toBe(false);
   });
 
   test("all boundary fixtures are accepted by their schema", () => {
@@ -616,7 +637,8 @@ describe("JSON schema contracts", () => {
 function fixtureNameFromSchemaVersion(schemaVersion: Json): string {
   if (typeof schemaVersion !== "string") throw new Error("Fixture schemaVersion must be a string");
   const byVersion: Record<string, string> = {
-    "archcontext.node/v1": "architecture-node",
+    "archcontext.node/v2": "architecture-node",
+    "archcontext.flow/v1": "architecture-flow",
     "archcontext.relation/v1": "architecture-relation",
     "archcontext.cross-repo-relation/v1": "cross-repo-relation",
     "archcontext.landscape/v1": "landscape",

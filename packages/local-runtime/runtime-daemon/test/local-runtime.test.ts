@@ -3025,7 +3025,7 @@ describe("local runtime foundation", () => {
       const daemon = await createStartedTestDaemon();
       await daemon.init(root, "Practice Waiver App");
       writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
-        "schemaVersion: archcontext.node/v1",
+        "schemaVersion: archcontext.node/v2",
         "id: module.waiver-owner",
         "kind: module",
         "name: Waiver Owner",
@@ -3113,7 +3113,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.dual-ledger.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.dual-ledger\nkind: module\nname: Dual Ledger\nstatus: active\nsummary: Dual ledger node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.dual-ledger\nkind: module\nname: Dual Ledger\nstatus: active\nsummary: Dual ledger node\n"
         }]
       });
       expect(plan.ok).toBe(true);
@@ -3151,7 +3151,7 @@ describe("local runtime foundation", () => {
         actor: { kind: "daemon", id: "archctxd" }
       });
       expect((event.payload as any).operations.map((operation: any) => operation.entity?.entityId)).toContain("module.dual-ledger");
-      expect(JSON.stringify(event.payload)).not.toContain("schemaVersion: archcontext.node/v1");
+      expect(JSON.stringify(event.payload)).not.toContain("schemaVersion: archcontext.node/v2");
       expect((await daemon.runtimeStatus(root)).data).toMatchObject({
         architectureLedger: {
           rolloutMode: "dual",
@@ -3175,7 +3175,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.stale-worktree.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.stale-worktree\nkind: module\nname: Stale Worktree\nstatus: active\nsummary: Stale worktree\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.stale-worktree\nkind: module\nname: Stale Worktree\nstatus: active\nsummary: Stale worktree\n"
         }]
       });
       writeFileSync(join(root, "unrelated.txt"), "changed after planning\n", "utf8");
@@ -3201,7 +3201,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.stale-head.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.stale-head\nkind: module\nname: Stale Head\nstatus: active\nsummary: Stale head\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.stale-head\nkind: module\nname: Stale Head\nstatus: active\nsummary: Stale head\n"
         }]
       });
       writeFileSync(join(root, "HEAD-ADVANCE.md"), "advance\n", "utf8");
@@ -3242,7 +3242,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.stale-model.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.stale-model\nkind: module\nname: Stale Model\nstatus: active\nsummary: Stale model\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.stale-model\nkind: module\nname: Stale Model\nstatus: active\nsummary: Stale model\n"
         }]
       });
 
@@ -3273,7 +3273,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.ledger-projection.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-projection\nkind: module\nname: Ledger Projection\nstatus: active\nsummary: Ledger projection node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-projection\nkind: module\nname: Ledger Projection\nstatus: active\nsummary: Ledger projection node\n"
         }]
       });
 
@@ -3326,7 +3326,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.bounded-ledger-explorer.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.bounded-ledger-explorer\nkind: module\nname: Bounded Ledger Explorer\nstatus: active\nsummary: Bounded projection fixture\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.bounded-ledger-explorer\nkind: module\nname: Bounded Ledger Explorer\nstatus: active\nsummary: Bounded projection fixture\n"
         }]
       });
       await daemon.applyUpdate(root, {
@@ -3369,13 +3369,13 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.split-authority.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Original summary\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Original summary\n"
         }]
       });
       await daemon.applyUpdate(root, { id: "changeset.split-authority-explorer", approved: true, expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest });
       writeFileSync(
         join(root, ".archcontext", "model", "nodes", "module.split-authority.yaml"),
-        "schemaVersion: archcontext.node/v1\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Git graph changed after ledger event\n",
+        "schemaVersion: archcontext.node/v2\nid: module.split-authority\nkind: module\nname: Split Authority\nstatus: active\nsummary: Git graph changed after ledger event\n",
         "utf8"
       );
 
@@ -3422,7 +3422,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path,
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.dual-rollback\nkind: module\nname: Dual Rollback\nstatus: active\nsummary: Dual rollback node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.dual-rollback\nkind: module\nname: Dual Rollback\nstatus: active\nsummary: Dual rollback node\n"
         }]
       });
 
@@ -3456,7 +3456,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path: ".archcontext/model/nodes/module.ledger-read.yaml",
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-read\nkind: module\nname: Ledger Read\nstatus: active\nsummary: Ledger read node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-read\nkind: module\nname: Ledger Read\nstatus: active\nsummary: Ledger read node\n"
         }]
       });
       await daemon.applyUpdate(root, {
@@ -3583,7 +3583,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path,
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-runtime-read\nkind: module\nname: Ledger Runtime Read\nstatus: active\nsummary: Runtime reads from ledger state\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-runtime-read\nkind: module\nname: Ledger Runtime Read\nstatus: active\nsummary: Runtime reads from ledger state\n"
         }]
       });
       await daemon.applyUpdate(root, {
@@ -3647,7 +3647,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path,
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
         }]
       });
       await daemon.applyUpdate(root, {
@@ -3703,7 +3703,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path,
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Ledger rollback node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Ledger rollback node\n"
         }]
       });
       await daemon.applyUpdate(root, {
@@ -3711,8 +3711,8 @@ describe("local runtime foundation", () => {
         approved: true,
         expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
       });
-      writeFileSync(join(root, path), "schemaVersion: archcontext.node/v1\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Corrupted rollback projection\n", "utf8");
-      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v1\nid: module.rollback-stale\nkind: module\nname: Stale Rollback\nstatus: active\nsummary: Stale rollback projection\n", "utf8");
+      writeFileSync(join(root, path), "schemaVersion: archcontext.node/v2\nid: module.ledger-rollback\nkind: module\nname: Ledger Rollback\nstatus: active\nsummary: Corrupted rollback projection\n", "utf8");
+      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v2\nid: module.rollback-stale\nkind: module\nname: Stale Rollback\nstatus: active\nsummary: Stale rollback projection\n", "utf8");
 
       const dryRun = await daemon.ledgerRollback(root, { toYaml: true, dryRun: true });
       expect(dryRun.ok).toBe(true);
@@ -3919,7 +3919,7 @@ describe("local runtime foundation", () => {
           op: "create_entity",
           path,
           expectedHash: "missing",
-          body: "schemaVersion: archcontext.node/v1\nid: module.rebuild-delete\nkind: module\nname: Rebuild Delete\nstatus: active\nsummary: Rebuild delete node\n"
+          body: "schemaVersion: archcontext.node/v2\nid: module.rebuild-delete\nkind: module\nname: Rebuild Delete\nstatus: active\nsummary: Rebuild delete node\n"
         }]
       });
       await daemon.applyUpdate(root, {

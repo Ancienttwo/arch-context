@@ -55,7 +55,9 @@ bun run typecheck
 
 ## Sprint 2: Single-repo to Multi-repo
 
-- Existing `archcontext.node/v1` and `archcontext.relation/v1` documents remain valid.
+- Migrate every node document atomically from `archcontext.node/v1` to
+  `archcontext.node/v2`; the runtime has no v1 compatibility reader. Existing
+  `archcontext.relation/v1` documents remain valid.
 - Multi-repo references may use `repo.id::node.id`; unscoped single-repo IDs keep their original meaning.
 - New landscape state is additive: `archcontext.landscape/v1`, `archcontext.cross-repo-relation/v1`, `archcontext.org-runner-identity/v1`, and `archcontext.entitlement/v1`.
 - Local SQLite tables for landscape and cross-repo edges are derived state and can be rebuilt from Git-tracked model files plus CodeGraph indexes.

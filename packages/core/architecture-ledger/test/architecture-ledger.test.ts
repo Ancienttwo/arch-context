@@ -65,7 +65,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
   test("plans deterministic YAML import and projects back with zero semantic drift", () => {
     const files = [
       modelFile(".archcontext/model/nodes/module.api.yaml", [
-        "schemaVersion: \"archcontext.node/v1\"",
+        "schemaVersion: \"archcontext.node/v2\"",
         "id: \"module.api\"",
         "kind: \"module\"",
         "name: \"API\"",
@@ -79,7 +79,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
         ""
       ]),
       modelFile(".archcontext/model/nodes/module.checkout.yaml", [
-        "schemaVersion: \"archcontext.node/v1\"",
+        "schemaVersion: \"archcontext.node/v2\"",
         "id: \"module.checkout\"",
         "kind: \"module\"",
         "name: \"Checkout\"",
@@ -176,7 +176,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
   test("queries Book state, neighbors, timeline, diff, evidence and recommendations with deterministic budgets", () => {
     const files = [
       modelFile(".archcontext/model/nodes/module.api.yaml", [
-        "schemaVersion: \"archcontext.node/v1\"",
+        "schemaVersion: \"archcontext.node/v2\"",
         "id: \"module.api\"",
         "kind: \"module\"",
         "name: \"API\"",
@@ -185,7 +185,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
         ""
       ]),
       modelFile(".archcontext/model/nodes/module.checkout.yaml", [
-        "schemaVersion: \"archcontext.node/v1\"",
+        "schemaVersion: \"archcontext.node/v2\"",
         "id: \"module.checkout\"",
         "kind: \"module\"",
         "name: \"Checkout\"",
@@ -363,7 +363,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
   test("imports ADR frontmatter policies and manifest metadata as declared evidence without graph mutation", () => {
     const files = [
       modelFile(".archcontext/model/nodes/module.api.yaml", [
-        "schemaVersion: \"archcontext.node/v1\"",
+        "schemaVersion: \"archcontext.node/v2\"",
         "id: \"module.api\"",
         "kind: \"module\"",
         "name: \"API\"",
@@ -456,7 +456,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:00:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/legacy_api_module.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
@@ -497,7 +497,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:00:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
@@ -530,7 +530,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:00:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
@@ -566,7 +566,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:00:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
@@ -575,7 +575,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
           ""
         ]),
         modelFile(".archcontext/model/nodes/module.checkout.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.checkout\"",
           "kind: \"module\"",
           "name: \"Checkout\"",
@@ -591,7 +591,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:01:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"Renamed API\"",
@@ -620,7 +620,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:02:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
@@ -662,7 +662,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:04:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"API\"",
@@ -678,7 +678,7 @@ describe("@archcontext/core/architecture-ledger YAML bridge", () => {
       createdAt: "2026-06-25T02:05:00.000Z",
       files: [
         modelFile(".archcontext/model/nodes/module.api.yaml", [
-          "schemaVersion: \"archcontext.node/v1\"",
+          "schemaVersion: \"archcontext.node/v2\"",
           "id: \"module.api\"",
           "kind: \"module\"",
           "name: \"Renamed API\"",

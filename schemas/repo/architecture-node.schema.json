@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "id", "kind", "name", "status", "summary"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.node/v1" },
+    "schemaVersion": { "const": "archcontext.node/v2" },
     "id": { "type": "string", "pattern": "^([a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)*::)?[a-z][a-z0-9]*(\\.[a-z0-9][a-z0-9-]*)+$" },
     "kind": {
       "type": "string",
@@ -23,7 +23,44 @@
       "properties": {
         "include": { "type": "array", "items": { "type": "string" } },
         "exclude": { "type": "array", "items": { "type": "string" } },
-        "entrypoints": { "type": "array", "items": { "type": "string" } }
+        "entrypoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "path", "symbols"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+              "path": { "type": "string", "minLength": 1 },
+              "symbols": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "sinks"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "sinks": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id", "path", "symbol"],
+                        "properties": {
+                          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)+$" },
+                          "path": { "type": "string", "minLength": 1 },
+                          "symbol": { "type": "string", "minLength": 1 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "ownership": {

@@ -104,7 +104,7 @@ describe("@archcontext/core/architecture-domain", () => {
 
   test("stable YAML parser and canonical serializer round-trip nested architecture JSON", () => {
     const value = {
-      schemaVersion: "archcontext.node/v1",
+      schemaVersion: "archcontext.node/v2",
       id: "module.checkout",
       metadata: {
         owners: ["team-checkout", "team-platform"],
@@ -119,7 +119,7 @@ describe("@archcontext/core/architecture-domain", () => {
 
   test("stable YAML parser accepts plain YAML scalars from hand-written model files", () => {
     expect(parseJsonOrStableYaml([
-      "schemaVersion: archcontext.node/v1",
+      "schemaVersion: archcontext.node/v2",
       "id: module.checkout",
       "kind: module",
       "name: Checkout",
@@ -128,7 +128,7 @@ describe("@archcontext/core/architecture-domain", () => {
       "  score: 2",
       "  beta: true"
     ].join("\n"), ".archcontext/model/nodes/module.checkout.yaml")).toEqual({
-      schemaVersion: "archcontext.node/v1",
+      schemaVersion: "archcontext.node/v2",
       id: "module.checkout",
       kind: "module",
       name: "Checkout",

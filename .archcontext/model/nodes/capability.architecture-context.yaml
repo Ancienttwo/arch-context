@@ -1,11 +1,25 @@
 id: "capability.architecture-context"
 kind: "capability"
 name: "Architecture Context"
-schemaVersion: "archcontext.node/v1"
+schemaVersion: "archcontext.node/v2"
 source:
   entrypoints:
-    - "packages/local-runtime/runtime-daemon/src/index.ts"
-    - "packages/surfaces/cli/src/main.ts"
+    - id: "entrypoint.architecture-context.cli"
+      path: "packages/surfaces/cli/src/main.ts"
+      symbols:
+        - name: "runCli"
+          sinks:
+            - id: "sink.architecture-context.render"
+              path: "packages/core/projection-engine/src/index.ts"
+              symbol: "renderArchitectureDocumentationProjection"
+    - id: "entrypoint.architecture-context.daemon"
+      path: "packages/local-runtime/runtime-daemon/src/index.ts"
+      symbols:
+        - name: "loadCapabilitySourceChangesSinceStamps"
+          sinks:
+            - id: "sink.architecture-context.render-daemon"
+              path: "packages/core/projection-engine/src/index.ts"
+              symbol: "renderArchitectureDocumentationProjection"
   exclude:
     - "packages/**/test/**"
   include:

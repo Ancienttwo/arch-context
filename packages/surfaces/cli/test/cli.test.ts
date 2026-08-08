@@ -189,7 +189,7 @@ describe("archctx CLI", () => {
       const init = await runTestCli("init", ["--name", "CLI App"], root);
       expect(init.ok).toBe(true);
       writeFileSync(join(root, ".archcontext/model/nodes/module.waiver-owner.yaml"), [
-        "schemaVersion: archcontext.node/v1",
+        "schemaVersion: archcontext.node/v2",
         "id: module.waiver-owner",
         "kind: module",
         "name: Waiver Owner",
@@ -2695,7 +2695,7 @@ describe("archctx CLI", () => {
       expect(rebuild.ok).toBe(true);
       const canonicalProjection = readFileSync(join(root, projectionPath), "utf8");
       writeFileSync(join(root, projectionPath), canonicalProjection.replace("Keeps product and architecture intent available to coding agents.", "CLI rollback corrupted projection."), "utf8");
-      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v1\nid: module.cli-rollback-stale\nkind: module\nname: CLI Rollback Stale\nstatus: active\nsummary: CLI rollback stale projection\n", "utf8");
+      writeFileSync(join(root, stalePath), "schemaVersion: archcontext.node/v2\nid: module.cli-rollback-stale\nkind: module\nname: CLI Rollback Stale\nstatus: active\nsummary: CLI rollback stale projection\n", "utf8");
 
       const dryRun = await runTestCli("ledger", ["rollback", "--to-yaml", "--dry-run"], root);
       expect(dryRun.ok).toBe(true);
@@ -2782,7 +2782,7 @@ describe("archctx CLI", () => {
         }
       });
       expect(existsSync((migrated.data as any).backup.backupPath)).toBe(true);
-      expect(JSON.stringify(migrated.data)).not.toContain("schemaVersion: archcontext.node/v1");
+      expect(JSON.stringify(migrated.data)).not.toContain("schemaVersion: archcontext.node/v2");
       const state = await runTestCli("ledger", ["state"], root);
       expect((state.data as any).ledger.entityCount).toBeGreaterThan(0);
       expect((state.data as any).drift.ok).toBe(true);
@@ -3192,7 +3192,7 @@ describe("archctx CLI", () => {
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
         stableYaml({
-          schemaVersion: "archcontext.node/v1",
+          schemaVersion: "archcontext.node/v2",
           id: "capability.runtime-harness.hook-adapters",
           kind: "capability",
           name: "Hook Adapters",
@@ -3296,7 +3296,7 @@ describe("archctx CLI", () => {
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.projection-engine.yaml"),
         stableYaml({
-          schemaVersion: "archcontext.node/v1",
+          schemaVersion: "archcontext.node/v2",
           id: "capability.projection-engine",
           kind: "capability",
           name: "Projection Engine",
@@ -3338,7 +3338,7 @@ describe("archctx CLI", () => {
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.shared-a.yaml"),
         stableYaml({
-          schemaVersion: "archcontext.node/v1",
+          schemaVersion: "archcontext.node/v2",
           id: "capability.shared-a",
           kind: "capability",
           name: "Shared A",
@@ -3351,7 +3351,7 @@ describe("archctx CLI", () => {
       writeFileSync(
         join(root, ".archcontext/model/nodes/capability.shared-b.yaml"),
         stableYaml({
-          schemaVersion: "archcontext.node/v1",
+          schemaVersion: "archcontext.node/v2",
           id: "capability.shared-b",
           kind: "capability",
           name: "Shared B",

@@ -404,7 +404,7 @@ function fixtureFiles(size: FixtureSize, entityCount: number): ArchitectureLedge
   for (let index = 0; index < entityCount; index += 1) {
     const id = `module.al7-${size}-${index}`;
     files.push(modelFile(`.archcontext/model/nodes/${id}.yaml`, [
-      'schemaVersion: "archcontext.node/v1"',
+      'schemaVersion: "archcontext.node/v2"',
       `id: "${id}"`,
       'kind: "module"',
       `name: "AL7 ${size} module ${index}"`,

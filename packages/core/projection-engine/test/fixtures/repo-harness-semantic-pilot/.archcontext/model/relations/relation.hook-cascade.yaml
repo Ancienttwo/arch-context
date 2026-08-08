@@ -1,0 +1,6 @@
+schemaVersion: "archcontext.relation/v1"
+id: "relation.hook-cascade"
+kind: "calls"
+source: "capability.runtime-harness.hook-adapters"
+target: "component.architecture-cascade"
+intent: "run architecture queue and context helpers"

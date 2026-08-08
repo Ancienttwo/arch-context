@@ -1,0 +1,52 @@
+schemaVersion: "archcontext.flow/v1"
+id: "flow.runtime-harness.hook-adapters.stop"
+capabilityId: "capability.runtime-harness.hook-adapters"
+name: "Stop hook architecture refresh"
+applicability: "required"
+participants:
+  - id: "hook"
+    nodeId: "capability.runtime-harness.hook-adapters"
+  - id: "journal"
+    nodeId: "datastore.architecture-event-journal"
+  - id: "cascade"
+    nodeId: "component.architecture-cascade"
+steps:
+  - id: "persist-event"
+    from: "hook"
+    to: "journal"
+    label: "Persist or coalesce refresh event"
+    evidence:
+      entrypointId: "entrypoint.hook.persist"
+      sourceSymbol: "writeOrCoalesceJournalEvent"
+      sinkId: "sink.hook.journal"
+outcomes:
+  - id: "completed"
+    kind: "success"
+    label: "Cascade completed"
+    steps:
+      - id: "run-cascade"
+        from: "hook"
+        to: "cascade"
+        label: "Run architecture queue and context helpers"
+        evidence:
+          entrypointId: "entrypoint.hook.consume"
+          sourceSymbol: "consumePendingPostEditEvents"
+          sinkId: "sink.hook.cascade"
+    terminal:
+      participant: "hook"
+      label: "Delete acknowledged journal event"
+  - id: "raised"
+    kind: "error"
+    label: "Cascade raised"
+    steps:
+      - id: "propagate-failure"
+        from: "hook"
+        to: "cascade"
+        label: "Propagate unexpected cascade failure"
+        evidence:
+          entrypointId: "entrypoint.hook.consume"
+          sourceSymbol: "consumePendingPostEditEvents"
+          sinkId: "sink.hook.cascade"
+    terminal:
+      participant: "hook"
+      label: "Count error and keep event pending"

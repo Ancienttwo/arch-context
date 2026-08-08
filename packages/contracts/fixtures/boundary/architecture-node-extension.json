@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "archcontext.node/v1",
+  "schemaVersion": "archcontext.node/v2",
   "id": "interface.payment-api",
   "kind": "interface",
   "name": "Payment API",

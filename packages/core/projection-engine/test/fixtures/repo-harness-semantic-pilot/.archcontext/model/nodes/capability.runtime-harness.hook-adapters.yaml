@@ -1,0 +1,26 @@
+schemaVersion: "archcontext.node/v2"
+id: "capability.runtime-harness.hook-adapters"
+kind: "capability"
+name: "Runtime Hook Adapters"
+status: "active"
+summary: "Persists changed paths and runs the current Stop-stage architecture helper cascade."
+source:
+  include:
+    - "src/cli/hook/**"
+  entrypoints:
+    - id: "entrypoint.hook.persist"
+      path: "src/cli/hook/mutation-observed.ts"
+      symbols:
+        - name: "writeOrCoalesceJournalEvent"
+          sinks:
+            - id: "sink.hook.journal"
+              path: "src/cli/hook/mutation-observed.ts"
+              symbol: "writeJournalEventAtomic"
+    - id: "entrypoint.hook.consume"
+      path: "src/cli/hook/mutation-observed.ts"
+      symbols:
+        - name: "consumePendingPostEditEvents"
+          sinks:
+            - id: "sink.hook.cascade"
+              path: "src/cli/hook/mutation-observed.ts"
+              symbol: "processArchitectureCascade"

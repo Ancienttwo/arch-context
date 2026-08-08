@@ -117,7 +117,7 @@ describe("@archcontext/core/reconcile-engine", () => {
         reasonCodes: ["projection-file-missing", "semantic-drift", "unsupported-yaml-file"],
         unsupportedFiles: [{
           path: ".archcontext/model/nodes/module.bad.yaml",
-          schemaVersion: "archcontext.node/v1",
+          schemaVersion: "archcontext.node/v2",
           reasonCode: "parse-error",
           message: "expected object"
         }],

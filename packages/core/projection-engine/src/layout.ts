@@ -268,15 +268,14 @@ function record(value: unknown): Record<string, Json> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, Json> : {};
 }
 
-function projectionNodeSource(node: ProjectionLayoutNode): { include?: string[]; exclude?: string[]; entrypoints?: string[] } | undefined {
+function projectionNodeSource(node: ProjectionLayoutNode): { include?: string[]; exclude?: string[] } | undefined {
   const source = record(node.source);
   const strings = (value: Json | undefined) => Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : undefined;
   return {
     include: strings(source.include),
-    exclude: strings(source.exclude),
-    entrypoints: strings(source.entrypoints)
+    exclude: strings(source.exclude)
   };
 }
 

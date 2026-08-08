@@ -145,7 +145,7 @@ try {
             path: ".archcontext/model/nodes/module.packaged-mcp.yaml",
             expectedHash: "missing",
             body: [
-              "schemaVersion: archcontext.node/v1",
+              "schemaVersion: archcontext.node/v2",
               "id: module.packaged-mcp",
               "kind: module",
               "name: Packaged MCP",
@@ -217,7 +217,7 @@ try {
             path: ".archcontext/model/nodes/module.packaged-mcp-restart.yaml",
             expectedHash: "missing",
             body: [
-              "schemaVersion: archcontext.node/v1",
+              "schemaVersion: archcontext.node/v2",
               "id: module.packaged-mcp-restart",
               "kind: module",
               "name: Packaged MCP Restart",

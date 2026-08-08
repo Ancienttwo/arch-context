@@ -1,0 +1,6 @@
+schemaVersion: "archcontext.relation/v1"
+id: "relation.codegraph-readiness-report"
+kind: "reads"
+source: "capability.verification.codegraph-readiness"
+target: "datastore.codegraph-tooling-report"
+intent: "read selected runtime version and readiness facts"

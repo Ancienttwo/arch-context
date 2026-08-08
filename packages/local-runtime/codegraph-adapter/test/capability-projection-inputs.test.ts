@@ -3,12 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
-import {
-  CODEGRAPH_ENTRYPOINT_CALL_BUDGET,
-  CODEGRAPH_ENTRYPOINT_SEED_BUDGET,
-  codeGraphIndexAvailable,
-  loadCapabilityCodeGraphProjectionInputs
-} from "../src/index";
+import { codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs } from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -19,7 +14,14 @@ const model: NativeModel = {
       source: {
         include: ["packages/docs/**"],
         exclude: ["packages/docs/test/**"],
-        entrypoints: ["packages/docs/src/main.ts"]
+        entrypoints: [{
+          id: "entrypoint.docs.render",
+          path: "packages/docs/src/main.ts",
+          symbols: [{
+            name: "renderMain",
+            sinks: [{ id: "sink.docs.render-block", path: "packages/docs/src/render.ts", symbol: "renderBlock" }]
+          }]
+        }]
       }
     },
     { id: "module.undeclared", kind: "module", name: "Undeclared" }
@@ -98,10 +100,10 @@ function seedWorkspace(options: { withIndex: boolean }): { root: string; log: st
 }
 
 // The loader shells out once per index query, so the happy path is measured with a single load
-// shared by the import-graph and call-graph assertions: spawning it per assertion made the
+// shared by the import-graph and exact-selector assertions: spawning it per assertion made the
 // neighbouring adapter suite time out under parallel test execution.
 describe("capability documentation projection inputs from the code index", () => {
-  test("measures import edges and entrypoint call trails in one index pass", () => {
+  test("measures import edges and exact node-v2 selector evidence in one index pass", () => {
     const { root, binary, log } = seedWorkspace({ withIndex: true });
     try {
       const inputs = loadCapabilityCodeGraphProjectionInputs(root, model, { binary });
@@ -125,40 +127,27 @@ describe("capability documentation projection inputs from the code index", () =>
       ]);
       expect(graph.truncated).toBe(false);
 
-      expect(inputs.entrypointCallGraphs).toEqual([
+      expect(inputs.selectorEvidence).toEqual([
         {
           nodeId: "capability.docs",
-          entrypoints: [
-            {
-              path: "packages/docs/src/main.ts",
-              seedsTruncated: false,
-              seeds: [
-                {
-                  symbol: "renderMain",
-                  line: 9,
-                  calls: [
-                    { symbol: "renderBlock", path: "packages/docs/src/render.ts", line: 12 },
-                    { symbol: "digestJson", path: "packages/shared/util.ts", line: 88 }
-                  ],
-                  callsTruncated: true
-                },
-                { symbol: "run", line: 24, calls: [{ symbol: "renderMain", path: "packages/docs/src/main.ts", line: 9 }], callsTruncated: false },
-                { symbol: "helperLocal", line: 40, calls: [], callsTruncated: false }
-              ]
-            }
-          ]
+          entrypointId: "entrypoint.docs.render",
+          sourcePath: "packages/docs/src/main.ts",
+          sourceSymbol: "renderMain",
+          sinkId: "sink.docs.render-block",
+          sinkPath: "packages/docs/src/render.ts",
+          sinkSymbol: "renderBlock",
+          matched: true,
+          truncated: true,
+          callSites: [{ path: "packages/docs/src/render.ts", line: 12 }]
         }
       ]);
 
-      // One import dump, one symbol map, one trail per seed — constants and classes are not
-      // seeded, so the loader stays inside its documented budget.
+      // One import dump and one exact source-symbol query. No symbol enumeration/top-five lane.
       const invocations = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-      expect(invocations).toHaveLength(5);
+      expect(invocations).toHaveLength(2);
       expect(invocations[0].slice(0, 2)).toEqual(["query", "-p"]);
-      expect(invocations[1]).toContain("--symbols-only");
-      expect(invocations.slice(2).map((argv) => argv[3])).toEqual(["renderMain", "run", "helperLocal"]);
-      expect(CODEGRAPH_ENTRYPOINT_SEED_BUDGET).toBe(5);
-      expect(CODEGRAPH_ENTRYPOINT_CALL_BUDGET).toBe(8);
+      expect(invocations[1][3]).toBe("renderMain");
+      expect(invocations.flat()).not.toContain("--symbols-only");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -170,7 +159,7 @@ describe("capability documentation projection inputs from the code index", () =>
     try {
       const inputs = loadCapabilityCodeGraphProjectionInputs(root, footprintOnly, { binary, importNodeLimit: 6 });
       expect(inputs.importGraphs[0].truncated).toBe(true);
-      expect(inputs.entrypointCallGraphs).toEqual([]);
+      expect(inputs.selectorEvidence).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -182,7 +171,7 @@ describe("capability documentation projection inputs from the code index", () =>
       expect(codeGraphIndexAvailable(root)).toBe(false);
       expect(loadCapabilityCodeGraphProjectionInputs(root, model, { binary })).toEqual({
         importGraphs: [],
-        entrypointCallGraphs: []
+        selectorEvidence: []
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -197,7 +186,7 @@ describe("capability documentation projection inputs from the code index", () =>
         { nodes: [{ id: "module.undeclared", kind: "module", name: "Undeclared" }], relations: [] },
         { binary: join(root, "does-not-exist.js") }
       );
-      expect(inputs).toEqual({ importGraphs: [], entrypointCallGraphs: [] });
+      expect(inputs).toEqual({ importGraphs: [], selectorEvidence: [] });
       expect(statSync(log).size).toBe(0);
     } finally {
       rmSync(root, { recursive: true, force: true });

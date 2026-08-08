@@ -7,6 +7,8 @@ import {
   PROJECTION_TARGET_SCHEMA_VERSION,
   digestJson,
   stableId,
+  type ArchitectureFlowV1,
+  type ArchitectureNodeSourceV2,
   type Json,
   type ModelExportResult,
   type ProjectionTargetV1
@@ -23,20 +25,24 @@ import {
   type ArchitectureProjectionProfile,
   type ProjectionLayoutTargetDraft
 } from "./layout";
+import {
+  compileSemanticCapabilityDiagrams,
+  type ArchitectureSelectorEvidenceV1,
+  type SemanticCapabilityDiagramCompilation
+} from "./semantic-diagrams";
 
 export * from "./adoption";
 export * from "./layout";
+export * from "./semantic-diagrams";
 
-export interface NativeNodeSource {
-  include?: string[];
-  exclude?: string[];
-  entrypoints?: string[];
-}
+export type NativeNodeSource = ArchitectureNodeSourceV2;
 
 export interface NativeNode extends Record<string, Json | undefined> {
+  schemaVersion?: "archcontext.node/v2";
   id: string;
   kind: string;
   name: string;
+  parent?: string;
   status?: string;
   summary?: string;
   // Typed as Json (not NativeNodeSource) so this interface still satisfies its own
@@ -64,6 +70,7 @@ export interface NativeRelation extends Record<string, Json> {
 export interface NativeModel {
   nodes: NativeNode[];
   relations: NativeRelation[];
+  flows?: ArchitectureFlowV1[];
 }
 
 export interface ArchitectureDecisionRecord {
@@ -213,9 +220,9 @@ export interface CapabilityImportEdge {
 /**
  * One node's measured import footprint: the files `source.include` (minus `source.exclude`)
  * selects, plus the real `imports` edges the code index resolved out of those files. Produced
- * outside `@archcontext/core` because the index query needs a child process. The renderer draws
- * exactly these edges — it never synthesises one, and it never promotes a call trail into a P1
- * edge, because that trail mixes real calls with type references.
+ * outside `@archcontext/core` because the index query needs a child process. This remains an
+ * explicitly measured diagnostic surface; semantic P1 comes only from accepted nodes and
+ * relations and never promotes these raw path edges into architecture truth.
  */
 export interface CapabilityImportGraph {
   nodeId: string;
@@ -225,40 +232,6 @@ export interface CapabilityImportGraph {
   edges: CapabilityImportEdge[];
   /** The index dump hit its budget, so `edges` may be incomplete. Printed, never hidden. */
   truncated: boolean;
-}
-
-/** One call site the index attributed to a seed symbol. Best-effort: may be a type reference. */
-export interface CapabilityEntrypointCall {
-  symbol: string;
-  path: string;
-  line?: number;
-}
-
-/** One top-level symbol of a declared entrypoint, with the call trail the index reported for it. */
-export interface CapabilityEntrypointSeed {
-  symbol: string;
-  line?: number;
-  calls: CapabilityEntrypointCall[];
-  /** The index truncated this symbol's call trail. */
-  callsTruncated: boolean;
-}
-
-export interface CapabilityEntrypointTrace {
-  path: string;
-  seeds: CapabilityEntrypointSeed[];
-  /** The entrypoint declares more top-level functions than the seed budget covered. */
-  seedsTruncated: boolean;
-}
-
-/**
- * Call trails out of one node's declared `source.entrypoints`. Unlike the import graph, a node
- * that declares entrypoints and has no call graph is a hard failure (`assertCapabilityEntrypointCallGraphs`):
- * the P2 handshake is either derived from a live index or it is not rendered at all — it never
- * degrades into an empty template.
- */
-export interface CapabilityEntrypointCallGraph {
-  nodeId: string;
-  entrypoints: CapabilityEntrypointTrace[];
 }
 
 /** Git values that the local adapters emit when the read failed; never valid projection provenance. */
@@ -283,34 +256,7 @@ export function assertArchitectureProjectionVerifiedAgainst(
   return { branch, commit, committedAt };
 }
 
-/**
- * Fail-closed gate for the P2 handshake diagram: a node that declares `source.entrypoints` must
- * arrive with a call graph produced against a live index. A missing or partial graph throws
- * instead of rendering an empty diagram, and the traced entrypoint set must match the declared
- * one exactly so half-collected data cannot pass as a complete trace.
- */
-export function assertCapabilityEntrypointCallGraphs(
-  model: NativeModel,
-  graphs: CapabilityEntrypointCallGraph[] | undefined
-): Map<string, CapabilityEntrypointCallGraph> {
-  const byNodeId = new Map((graphs ?? []).map((graph) => [graph.nodeId, graph]));
-  for (const node of model.nodes) {
-    const declared = nativeNodeSource(node)?.entrypoints ?? [];
-    if (declared.length === 0) continue;
-    const graph = byNodeId.get(node.id);
-    if (!graph) throw new Error(`architecture-docs-projection-call-graph-missing: ${node.id}`);
-    const traced = graph.entrypoints.map((entry) => entry.path);
-    const missing = declared.filter((entry) => !traced.includes(entry));
-    const unexpected = traced.filter((entry) => !declared.includes(entry));
-    if (missing.length > 0 || unexpected.length > 0) {
-      throw new Error(
-        `architecture-docs-projection-call-graph-entrypoint-mismatch: ${node.id} (missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"})`
-      );
-    }
-  }
-  return byNodeId;
-}
-
+/** Compiles accepted node/relation/flow authority against an exact CodeGraph evidence snapshot. */
 export function renderArchitectureDocumentationProjection(input: {
   model: NativeModel;
   profile?: ArchitectureProjectionProfile;
@@ -326,7 +272,7 @@ export function renderArchitectureDocumentationProjection(input: {
   sourceChangesSinceStamp: CapabilitySourceChangeSinceStamp[];
   sourceScaleSignals: CapabilitySourceScaleSignal[];
   importGraphs: CapabilityImportGraph[];
-  entrypointCallGraphs: CapabilityEntrypointCallGraph[];
+  selectorEvidence: ArchitectureSelectorEvidenceV1[];
   generatedAt?: string;
   decisions?: ArchitectureDecisionRecord[];
   timeline?: ArchitectureDocumentationTimelineEntry[];
@@ -345,10 +291,21 @@ export function renderArchitectureDocumentationProjection(input: {
   );
   const generatedAt = input.generatedAt ?? "1970-01-01T00:00:00.000Z";
   const scaleSignalsByNodeId = new Map((input.sourceScaleSignals ?? []).map((signal) => [signal.nodeId, signal]));
-  const importGraphsByNodeId = new Map((input.importGraphs ?? []).map((graph) => [graph.nodeId, graph]));
-  const callGraphsByNodeId = assertCapabilityEntrypointCallGraphs(model, input.entrypointCallGraphs);
-  // The measured scale signal, the measured import graph, and the entrypoint call graph are all
-  // render inputs of the entity-summary body, so they belong to the digest those targets record in
+  const semanticCompilationsByNodeId = new Map(model.nodes.map((node) => [node.id, compileSemanticCapabilityDiagrams({
+    capabilityId: node.id,
+    nodes: model.nodes.map((entry) => ({
+      id: entry.id,
+      kind: entry.kind,
+      name: entry.name,
+      ...(entry.parent ? { parent: entry.parent } : {}),
+      ...(nativeNodeSource(entry) ? { source: nativeNodeSource(entry) } : {})
+    })),
+    relations: model.relations,
+    flows: model.flows ?? [],
+    evidence: input.selectorEvidence
+  })]));
+  // The measured scale signal and semantic proof digest are render inputs of the entity-summary
+  // body, so they belong to the digest those targets record in
   // their marker. Folding them in per target (instead of into the plan-wide sourceDigest) keeps a
   // re-measured footprint reported as `projection-generated-region-stale` on the docs that actually
   // carry it, instead of being mis-reported as a manual edit — and leaves
@@ -361,8 +318,9 @@ export function renderArchitectureDocumentationProjection(input: {
   const entitySourceDigest = digestJson({
     sourceDigest: input.sourceDigest,
     sourceScaleSignals: [...scaleSignalsByNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
-    importGraphs: [...importGraphsByNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
-    entrypointCallGraphs: [...callGraphsByNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId))
+    semanticProofs: [...semanticCompilationsByNodeId.values()]
+      .map((compilation) => ({ capabilityId: compilation.capabilityId, proofDigest: compilation.proofDigest }))
+      .sort((left, right) => left.capabilityId.localeCompare(right.capabilityId))
   } as unknown as Json);
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
   const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
@@ -393,8 +351,7 @@ export function renderArchitectureDocumentationProjection(input: {
       generatedAt,
       verifiedAgainst: targetVerifiedAgainst ?? verifiedAgainst,
       scaleSignalsByNodeId,
-      importGraphsByNodeId,
-      callGraphsByNodeId,
+      semanticCompilationsByNodeId,
       decisions: input.decisions ?? [],
       timeline: input.timeline ?? [],
       layout
@@ -1153,7 +1110,8 @@ export function loadArchitectureProjectionManifestVerifiedAgainst(
 export function normalizeNativeModel(model: NativeModel): NativeModel {
   return {
     nodes: [...model.nodes].sort((a, b) => a.id.localeCompare(b.id)),
-    relations: [...model.relations].sort((a, b) => a.id.localeCompare(b.id))
+    relations: [...model.relations].sort((a, b) => a.id.localeCompare(b.id)),
+    flows: [...(model.flows ?? [])].sort((a, b) => a.id.localeCompare(b.id))
   };
 }
 
@@ -1235,10 +1193,128 @@ export function exportDocumentationStructurizrWorkspace(model: NativeModel): Mod
 }
 
 export function loadNativeModelFromArchContext(root: string): NativeModel {
+  const nodes = readYamlObjects(resolve(root, ".archcontext/model/nodes")) as NativeNode[];
+  for (const node of nodes) {
+    if (node.schemaVersion !== "archcontext.node/v2") {
+      throw new Error(`architecture-node-schema-version-unsupported: ${node.id || "unknown"} (${String(node.schemaVersion)})`);
+    }
+    assertArchitectureNodeSourceV2(node);
+  }
+  const flows = readYamlObjects(resolve(root, ".archcontext/model/flows"));
+  for (const flow of flows) assertArchitectureFlowV1(flow);
   return {
-    nodes: readYamlObjects(resolve(root, ".archcontext/model/nodes")) as NativeNode[],
-    relations: readYamlObjects(resolve(root, ".archcontext/model/relations")) as NativeRelation[]
+    nodes,
+    relations: readYamlObjects(resolve(root, ".archcontext/model/relations")) as NativeRelation[],
+    flows: flows as unknown as ArchitectureFlowV1[]
   };
+}
+
+function assertArchitectureNodeSourceV2(node: NativeNode): void {
+  if (node.source === undefined) return;
+  const source = architectureRecord(node.source, `architecture-node-source-invalid: ${node.id}`);
+  architectureExactKeys(source, ["include", "exclude", "entrypoints"], `architecture-node-source-invalid: ${node.id}`);
+  for (const key of ["include", "exclude"] as const) {
+    if (source[key] !== undefined) architectureStringArray(source[key], `architecture-node-source-invalid: ${node.id}.${key}`);
+  }
+  if (source.entrypoints === undefined) return;
+  const entrypoints = architectureArray(source.entrypoints, `architecture-node-source-invalid: ${node.id}.entrypoints`);
+  for (const [entrypointIndex, value] of entrypoints.entries()) {
+    const entrypoint = architectureRecord(value, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}]`);
+    architectureExactKeys(entrypoint, ["id", "path", "symbols"], `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}]`);
+    architectureNonEmptyString(entrypoint.id, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].id`);
+    architectureNonEmptyString(entrypoint.path, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].path`);
+    const symbols = architectureArray(entrypoint.symbols, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols`, true);
+    for (const [symbolIndex, symbolValue] of symbols.entries()) {
+      const symbol = architectureRecord(symbolValue, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}]`);
+      architectureExactKeys(symbol, ["name", "sinks"], `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}]`);
+      architectureNonEmptyString(symbol.name, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}].name`);
+      const sinks = architectureArray(symbol.sinks, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}].sinks`, true);
+      for (const [sinkIndex, sinkValue] of sinks.entries()) {
+        const sink = architectureRecord(sinkValue, `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}].sinks[${sinkIndex}]`);
+        architectureExactKeys(sink, ["id", "path", "symbol"], `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}].sinks[${sinkIndex}]`);
+        for (const key of ["id", "path", "symbol"] as const) {
+          architectureNonEmptyString(sink[key], `architecture-node-source-invalid: ${node.id}.entrypoints[${entrypointIndex}].symbols[${symbolIndex}].sinks[${sinkIndex}].${key}`);
+        }
+      }
+    }
+  }
+}
+
+function assertArchitectureFlowV1(value: Record<string, Json>): void {
+  const flow = architectureRecord(value, "architecture-flow-invalid");
+  if (flow.schemaVersion !== "archcontext.flow/v1") {
+    throw new Error(`architecture-flow-schema-version-unsupported: ${String(flow.id ?? "unknown")} (${String(flow.schemaVersion)})`);
+  }
+  for (const key of ["id", "capabilityId", "name", "applicability"] as const) {
+    architectureNonEmptyString(flow[key], `architecture-flow-invalid: ${String(flow.id ?? "unknown")}.${key}`);
+  }
+  const flowId = String(flow.id);
+  if (flow.applicability === "not-applicable") {
+    architectureExactKeys(flow, ["schemaVersion", "id", "capabilityId", "name", "applicability", "rationale"], `architecture-flow-invalid: ${flowId}`);
+    architectureNonEmptyString(flow.rationale, `architecture-flow-invalid: ${flowId}.rationale`);
+    return;
+  }
+  if (flow.applicability !== "required") throw new Error(`architecture-flow-invalid: ${flowId}.applicability`);
+  architectureExactKeys(flow, ["schemaVersion", "id", "capabilityId", "name", "applicability", "participants", "steps", "outcomes"], `architecture-flow-invalid: ${flowId}`);
+  const participants = architectureArray(flow.participants, `architecture-flow-invalid: ${flowId}.participants`, true);
+  for (const [index, participantValue] of participants.entries()) {
+    const participant = architectureRecord(participantValue, `architecture-flow-invalid: ${flowId}.participants[${index}]`);
+    architectureExactKeys(participant, ["id", "nodeId"], `architecture-flow-invalid: ${flowId}.participants[${index}]`);
+    architectureNonEmptyString(participant.id, `architecture-flow-invalid: ${flowId}.participants[${index}].id`);
+    architectureNonEmptyString(participant.nodeId, `architecture-flow-invalid: ${flowId}.participants[${index}].nodeId`);
+  }
+  const steps = architectureArray(flow.steps, `architecture-flow-invalid: ${flowId}.steps`, true);
+  steps.forEach((step, index) => assertArchitectureFlowStep(step, `${flowId}.steps[${index}]`));
+  const outcomes = architectureArray(flow.outcomes, `architecture-flow-invalid: ${flowId}.outcomes`, true);
+  if (!outcomes.some((value) => architectureRecord(value, `architecture-flow-invalid: ${flowId}.outcomes`).kind === "success")
+    || !outcomes.some((value) => architectureRecord(value, `architecture-flow-invalid: ${flowId}.outcomes`).kind === "error")) {
+    throw new Error(`architecture-flow-invalid: ${flowId}.outcomes requires success and error`);
+  }
+  for (const [index, outcomeValue] of outcomes.entries()) {
+    const outcome = architectureRecord(outcomeValue, `architecture-flow-invalid: ${flowId}.outcomes[${index}]`);
+    architectureExactKeys(outcome, ["id", "kind", "label", "steps", "terminal"], `architecture-flow-invalid: ${flowId}.outcomes[${index}]`);
+    architectureNonEmptyString(outcome.id, `architecture-flow-invalid: ${flowId}.outcomes[${index}].id`);
+    architectureNonEmptyString(outcome.label, `architecture-flow-invalid: ${flowId}.outcomes[${index}].label`);
+    if (outcome.kind !== "success" && outcome.kind !== "error") throw new Error(`architecture-flow-invalid: ${flowId}.outcomes[${index}].kind`);
+    architectureArray(outcome.steps, `architecture-flow-invalid: ${flowId}.outcomes[${index}].steps`, true)
+      .forEach((step, stepIndex) => assertArchitectureFlowStep(step, `${flowId}.outcomes[${index}].steps[${stepIndex}]`));
+    const terminal = architectureRecord(outcome.terminal, `architecture-flow-invalid: ${flowId}.outcomes[${index}].terminal`);
+    architectureExactKeys(terminal, ["participant", "label"], `architecture-flow-invalid: ${flowId}.outcomes[${index}].terminal`);
+    architectureNonEmptyString(terminal.participant, `architecture-flow-invalid: ${flowId}.outcomes[${index}].terminal.participant`);
+    architectureNonEmptyString(terminal.label, `architecture-flow-invalid: ${flowId}.outcomes[${index}].terminal.label`);
+  }
+}
+
+function assertArchitectureFlowStep(value: unknown, path: string): void {
+  const step = architectureRecord(value, `architecture-flow-invalid: ${path}`);
+  architectureExactKeys(step, ["id", "from", "to", "label", "evidence"], `architecture-flow-invalid: ${path}`);
+  for (const key of ["id", "from", "to", "label"] as const) architectureNonEmptyString(step[key], `architecture-flow-invalid: ${path}.${key}`);
+  const evidence = architectureRecord(step.evidence, `architecture-flow-invalid: ${path}.evidence`);
+  architectureExactKeys(evidence, ["entrypointId", "sourceSymbol", "sinkId"], `architecture-flow-invalid: ${path}.evidence`);
+  for (const key of ["entrypointId", "sourceSymbol", "sinkId"] as const) architectureNonEmptyString(evidence[key], `architecture-flow-invalid: ${path}.evidence.${key}`);
+}
+
+function architectureRecord(value: unknown, message: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(message);
+  return value as Record<string, unknown>;
+}
+
+function architectureArray(value: unknown, message: string, nonEmpty = false): unknown[] {
+  if (!Array.isArray(value) || (nonEmpty && value.length === 0)) throw new Error(message);
+  return value;
+}
+
+function architectureStringArray(value: unknown, message: string): void {
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) throw new Error(message);
+}
+
+function architectureNonEmptyString(value: unknown, message: string): void {
+  if (typeof value !== "string" || value.length === 0) throw new Error(message);
+}
+
+function architectureExactKeys(value: Record<string, unknown>, allowed: string[], message: string): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) throw new Error(`${message}.unknown-field:${unknown.sort().join(",")}`);
 }
 
 export function mermaidId(id: string): string {
@@ -1306,8 +1382,7 @@ function renderTargetGeneratedBody(
     generatedAt: string;
     verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
     scaleSignalsByNodeId: Map<string, CapabilitySourceScaleSignal>;
-    importGraphsByNodeId: Map<string, CapabilityImportGraph>;
-    callGraphsByNodeId: Map<string, CapabilityEntrypointCallGraph>;
+    semanticCompilationsByNodeId: Map<string, SemanticCapabilityDiagramCompilation>;
     decisions: ArchitectureDecisionRecord[];
     timeline: ArchitectureDocumentationTimelineEntry[];
     layout: ArchitectureDocumentationLayout;
@@ -1319,8 +1394,7 @@ function renderTargetGeneratedBody(
     return renderEntitySummary(node, model, {
       verifiedAgainst: input.verifiedAgainst,
       scaleSignal: input.scaleSignalsByNodeId.get(node.id),
-      importGraph: input.importGraphsByNodeId.get(node.id),
-      callGraph: input.callGraphsByNodeId.get(node.id)
+      semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!
     });
   }
   if (target.type === "relation-summary") return renderRelationSummary(model.relations.find((relation) => relation.id === target.scope.id)!, model);
@@ -1375,8 +1449,7 @@ function renderEntitySummary(
   input: {
     verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
     scaleSignal?: CapabilitySourceScaleSignal;
-    importGraph?: CapabilityImportGraph;
-    callGraph?: CapabilityEntrypointCallGraph;
+    semanticCompilation: SemanticCapabilityDiagramCompilation;
   }
 ): string {
   const source = nativeNodeSource(node);
@@ -1401,7 +1474,7 @@ function renderEntitySummary(
     "",
     "### 1.1 架構圖",
     "",
-    ...renderCapabilityArchitectureFlowchart(node, input.importGraph),
+    ...renderSemanticP1Section(input.semanticCompilation),
     "",
     "### 1.2 模組職責表",
     "",
@@ -1409,7 +1482,9 @@ function renderEntitySummary(
       ? [
         "| 宣告入口 | 錨點 | 職責 |",
         "| --- | --- | --- |",
-        ...entrypoints.map((entry) => `| \`${entry}\` | \`${entry}\` | 尚未生成(需符號索引提供行錨點) |`)
+        ...entrypoints.flatMap((entry) => entry.symbols.map((symbol) =>
+          `| \`${entry.id}\` | \`${entry.path}#${symbol.name}\` | ${symbol.sinks.map((sink) => `\`${sink.id}\` → \`${sink.path}#${sink.symbol}\``).join("、")} |`
+        ))
       ]
       : ["- 未宣告 `source.entrypoints`,入口清單無法從架構模型推導。"]),
     "",
@@ -1439,144 +1514,44 @@ function renderEntitySummary(
     "",
     "## 2. P2:端到端數據流",
     "",
-    ...renderCapabilityDataFlowSequence(node, input.callGraph)
+    ...renderSemanticP2Section(input.semanticCompilation)
   ];
   return `${lines.join("\n")}\n`;
 }
 
-/**
- * `### 1.1` body. Every drawn edge is the directory projection of at least one real `imports`
- * edge the index resolved to an existing file, and every real cross-directory edge in the input
- * is drawn — nothing is inferred, ranked, or filled in. When the footprint or the index data is
- * missing the section states which one is missing instead of emitting an empty mermaid fence.
- */
-function renderCapabilityArchitectureFlowchart(node: NativeNode, graph: CapabilityImportGraph | undefined): string[] {
-  const source = nativeNodeSource(node);
-  const include = source?.include ?? [];
-  const entrypoints = source?.entrypoints ?? [];
-  if (include.length === 0) return ["尚未生成:未宣告 `source.include`,無法界定模組範圍,架構圖省略。"];
-  if (!graph) return ["尚未生成:未取得倉庫匯入邊索引,架構圖省略——本版投影不輸出未經驗證的圖表。"];
-
-  const footprint = new Set(graph.files);
-  const entrypointDirectories = new Set(entrypoints.map(repoDirectoryOf));
-  const drawnEdges = new Map<string, CapabilityImportEdge>();
-  for (const edge of [...graph.edges].sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to))) {
-    const from = repoDirectoryOf(edge.from);
-    const to = repoDirectoryOf(edge.to);
-    if (from === to) continue;
-    drawnEdges.set(`${from}\0${to}`, { from, to });
+function renderSemanticP1Section(compilation: SemanticCapabilityDiagramCompilation): string[] {
+  if (compilation.p1.status === "proven") {
+    return [
+      compilation.p1.mermaid!,
+      "",
+      `- Proof: \`proven\` (\`${compilation.proofDigest}\`).`,
+      `- Semantic nodes: \`${compilation.p1.nodes.length}\`; declared relations: \`${compilation.p1.edges.length}\`.`
+    ];
   }
-  if (drawnEdges.size === 0) {
-    return [`尚未生成:匯入邊索引在本能力的 \`${graph.files.length}\` 個檔案上未解析出跨目錄 \`import\` 邊,架構圖省略。`];
-  }
-
-  const directories = [...new Set([...drawnEdges.values()].flatMap((edge) => [edge.from, edge.to]))].sort();
-  for (const directory of [...entrypointDirectories].sort()) {
-    if (!directories.includes(directory)) directories.push(directory);
-  }
-  const idByDirectory = new Map(directories.map((directory) => [directory, mermaidPathId("cap", directory)]));
-  const lines = [
-    "```mermaid",
-    "flowchart TD",
-    ...directories.map((directory) => {
-      const id = idByDirectory.get(directory)!;
-      const label = escapeMermaidLabel(directory);
-      if (entrypointDirectories.has(directory)) return `  ${id}(["${label}"])`;
-      const inFootprint = [...footprint].some((file) => repoDirectoryOf(file) === directory);
-      return inFootprint ? `  ${id}["${label}"]` : `  ${id}[["${label}"]]`;
-    }),
-    ...[...drawnEdges.values()]
-      .sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to))
-      .map((edge) => `  ${idByDirectory.get(edge.from)!} --> ${idByDirectory.get(edge.to)!}`),
-    "```",
-    "",
-    "- 圖例:`([...])` 宣告入口所在目錄、`[...]` 能力範圍內目錄、`[[...]]` 能力範圍外的匯入目標目錄。",
-    `- 邊:倉庫匯入邊索引解析到真實檔案的 \`import\` 邊,按目錄聚合去重後 \`${drawnEdges.size}\` 條(檔案級原始邊 \`${graph.edges.length}\` 條);同目錄內部的匯入不畫。`,
-    `- 節點:僅含參與上述邊的目錄與宣告入口所在目錄;能力範圍共 \`${graph.files.length}\` 個檔案。`,
-    "- 不含呼叫關係:呼叫索引的軌跡混入型別引用,不作為 P1 邊來源。"
-  ];
-  if (graph.truncated) lines.push("- 注意:匯入邊索引本次查詢達到上限,邊集可能不完整。");
-  return lines;
-}
-
-/**
- * `## 2` body. A candidate handshake diagram: participants are the machine-readable file paths,
- * messages are the index's call trail out of each declared entrypoint. The trail mixes real calls
- * with type references, so the section labels itself as semi-automatic instead of claiming a
- * verified data flow. A node that declares entrypoints without a call graph never reaches here —
- * `assertCapabilityEntrypointCallGraphs` already threw.
- */
-function renderCapabilityDataFlowSequence(node: NativeNode, graph: CapabilityEntrypointCallGraph | undefined): string[] {
-  const entrypoints = nativeNodeSource(node)?.entrypoints ?? [];
-  if (entrypoints.length === 0) return ["尚未生成:未宣告 `source.entrypoints`,端到端握手圖省略。"];
-  if (!graph) throw new Error(`architecture-docs-projection-call-graph-missing: ${node.id}`);
-
-  const participants: string[] = [];
-  const remember = (path: string) => {
-    if (!participants.includes(path)) participants.push(path);
-  };
-  const messages = new Map<string, { from: string; to: string; label: string }>();
-  for (const trace of graph.entrypoints) {
-    remember(trace.path);
-    for (const seed of trace.seeds) {
-      for (const call of seed.calls) {
-        remember(call.path);
-        const label = `${seed.symbol} → ${call.symbol}()`;
-        messages.set(`${trace.path}\0${call.path}\0${label}`, { from: trace.path, to: call.path, label });
-      }
-    }
-  }
-  if (messages.size === 0) {
-    return [`尚未生成:呼叫索引未在 \`${entrypoints.length}\` 個宣告入口上取得呼叫軌跡,端到端握手圖省略。`];
-  }
-
-  const idByPath = new Map(participants.map((path) => [path, mermaidPathId("seq", path)]));
-  const seedLines = graph.entrypoints.flatMap((trace) => [
-    `- 入口 \`${trace.path}\`:種子符號 ${trace.seeds.length > 0
-      ? trace.seeds.map((seed) => `\`${seed.symbol}\`${seed.line ? `(:${seed.line})` : ""}`).join("、")
-      : "無(索引未回報頂層函式)"}${trace.seedsTruncated ? ";另有頂層函式超出種子預算未列入" : ""}`
-  ]);
-  const truncatedSeeds = graph.entrypoints.flatMap((trace) => trace.seeds.filter((seed) => seed.callsTruncated).map((seed) => `\`${seed.symbol}\``));
   return [
-    "> **半自動生成的候選圖**:participant 名稱直接取機器可得的檔案路徑,本版無語義命名覆寫機制;呼叫索引的呼叫軌跡混入型別引用,可能多列或漏列。修訂意見寫在 §3,本區每次投影都會被覆寫。",
-    "",
-    "```mermaid",
-    "sequenceDiagram",
-    "  autonumber",
-    ...participants.map((path) => `  participant ${idByPath.get(path)!} as ${escapeMermaidLabel(path)}`),
-    ...[...messages.values()].map((message) => `  ${idByPath.get(message.from)!}->>${idByPath.get(message.to)!}: ${escapeMermaidLabel(message.label)}`),
-    "```",
-    "",
-    ...seedLines,
-    `- 訊息:\`${messages.size}\` 條,全部來自呼叫索引對種子符號回報的呼叫軌跡。`,
-    "- 錯誤路徑:呼叫索引未提供 throw/error 分支資訊,本圖不列錯誤分支,也不編造。",
-    ...(truncatedSeeds.length > 0 ? [`- 注意:${truncatedSeeds.join("、")} 的呼叫軌跡被索引截斷,訊息可能不完整。`] : [])
+    "> **human-action-required**: P1 semantic authority is unprovable; no diagram was generated.",
+    ...compilation.p1.diagnostics.map((diagnostic) => `- \`${diagnostic.code}\`: ${diagnostic.detail}`)
   ];
 }
 
-/** Directory of a repo-relative POSIX path; `.` for a file at the repository root. */
-function repoDirectoryOf(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index === -1 ? "." : path.slice(0, index);
-}
-
-/**
- * Collision-free mermaid node id for a repo path: readable slug plus a digest suffix, so `a/b`
- * and `a-b` never collapse onto the same node and the id never starts with a digit.
- */
-function mermaidPathId(prefix: string, path: string): string {
-  const slug = path.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return `${prefix}_${slug === "" ? "root" : slug}_${digestJson(path as unknown as Json).slice(7, 15)}`;
-}
-
-/**
- * Single-pass mermaid label escape. `"` closes a quoted flowchart label; `#` and `;` delimit
- * entity codes; `,` terminates a sequence-diagram participant alias. One pass, so an escape
- * never re-enters the matcher.
- */
-function escapeMermaidLabel(value: string): string {
-  const codes: Record<string, string> = { "\"": "'", "#": "#35;", ";": "#59;", ",": "#44;" };
-  return value.replace(/["#;,]/g, (char) => codes[char]);
+function renderSemanticP2Section(compilation: SemanticCapabilityDiagramCompilation): string[] {
+  if (compilation.p2.status === "proven") {
+    return [
+      `> **Proof**: \`proven\` (\`${compilation.proofDigest}\`); selectors \`${compilation.evidenceCoverage.provenSelectors}/${compilation.evidenceCoverage.requiredSelectors}\`.`,
+      "",
+      ...compilation.p2.mermaid.flatMap((diagram, index) => [
+        ...(index === 0 ? [] : [""]),
+        diagram
+      ])
+    ];
+  }
+  if (compilation.p2.status === "not-applicable") {
+    return [`> **not-applicable**: ${compilation.p2.rationale}`];
+  }
+  return [
+    "> **human-action-required**: P2 flow evidence is unprovable; no sequence diagram was generated.",
+    ...compilation.p2.diagnostics.map((diagnostic) => `- \`${diagnostic.code}\`: ${diagnostic.detail}`)
+  ];
 }
 
 /**

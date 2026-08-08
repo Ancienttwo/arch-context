@@ -1674,12 +1674,12 @@ export function projectArchitectureLedgerStateToYamlFiles(state: ArchitectureLed
   const canonical = canonicalArchitectureLedgerState(state);
   const files: ArchitectureLedgerProjectionFile[] = [
     ...canonical.entities.map((entity) => {
-      const declared = declaredProjectionRecord(entity.metadata, ["archcontext.node/v1"], `entity ${entity.entityId}`);
+      const declared = declaredProjectionRecord(entity.metadata, ["archcontext.node/v2"], `entity ${entity.entityId}`);
       const summary = entity.summary;
       if (!summary) throw new Error(`architecture-ledger-projection-invalid: entity ${entity.entityId} requires summary`);
       const body = canonicalArchitectureYaml({
         ...declared,
-        schemaVersion: "archcontext.node/v1",
+        schemaVersion: "archcontext.node/v2",
         id: entity.entityId,
         kind: entity.kind,
         name: entity.canonicalName,
@@ -1910,7 +1910,7 @@ function yamlRecordToLedgerOperation(value: Record<string, Json>, path: string, 
   targetKind: "entity" | "relation" | "constraint";
   targetId: string;
 } | undefined {
-  if (schemaVersion === "archcontext.node/v1") {
+  if (schemaVersion === "archcontext.node/v2") {
     const entityId = requireStringField(value, "id", path);
     const entity: ArchitectureLedgerEntityRecord = {
       entityId,

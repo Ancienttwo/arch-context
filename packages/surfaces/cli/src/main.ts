@@ -1085,7 +1085,7 @@ function buildArchitectureDocsProjection(
     sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
     sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
     importGraphs: codeGraphInputs.importGraphs,
-    entrypointCallGraphs: codeGraphInputs.entrypointCallGraphs,
+    selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
     generatedAt

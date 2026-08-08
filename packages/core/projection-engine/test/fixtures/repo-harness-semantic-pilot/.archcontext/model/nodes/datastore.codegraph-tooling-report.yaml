@@ -1,0 +1,7 @@
+schemaVersion: "archcontext.node/v2"
+id: "datastore.codegraph-tooling-report"
+kind: "datastore"
+name: "Agent Tooling Report"
+status: "active"
+parent: "capability.verification.codegraph-readiness"
+summary: "Version and readiness facts for the selected CodeGraph runtime."

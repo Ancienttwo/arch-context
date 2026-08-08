@@ -88,6 +88,7 @@
     "readback:fg6:rollback-compat": "bun scripts/fg6-rollback-compat-readback.ts run --out docs/verification/fg6-rollback-compat-readback.json --json",
     "readback:fg6:npm-release-dry-run": "bun scripts/fg6-npm-release-dry-run.ts run --out docs/verification/fg6-npm-release-dry-run.json --json",
     "verify:architecture-mermaid": "node scripts/verify-architecture-mermaid.mjs",
+    "verify:axr3-semantic-pilot": "bun scripts/architecture-projection-axr3-semantic-pilot-readback.ts",
     "readback:fg6:local-product-tarball": "node scripts/local-product-tarball-smoke.mjs --out docs/verification/fg6-local-product-tarball-smoke.json",
     "readback:fg6:release-distribution": "bun scripts/fg6-release-distribution-readback.ts run --out docs/verification/fg6-release-distribution-readback.json --json",
     "preflight:contracts:npm": "node scripts/publish-archcontext-contracts.mjs preflight",

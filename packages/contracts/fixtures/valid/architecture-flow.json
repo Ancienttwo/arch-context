@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "archcontext.flow/v1",
+  "id": "flow.subscriptions.create",
+  "capabilityId": "capability.subscriptions",
+  "name": "Create subscription",
+  "applicability": "required",
+  "participants": [
+    { "id": "client", "nodeId": "external.client" },
+    { "id": "api", "nodeId": "module.subscription" },
+    { "id": "store", "nodeId": "datastore.subscription" }
+  ],
+  "steps": [
+    {
+      "id": "request",
+      "from": "client",
+      "to": "api",
+      "label": "Create subscription",
+      "evidence": { "entrypointId": "entrypoint.subscription.create", "sourceSymbol": "createSubscription", "sinkId": "sink.subscription.persist" }
+    }
+  ],
+  "outcomes": [
+    {
+      "id": "accepted",
+      "kind": "success",
+      "label": "Subscription accepted",
+      "steps": [
+        {
+          "id": "persist",
+          "from": "api",
+          "to": "store",
+          "label": "Persist subscription",
+          "evidence": { "entrypointId": "entrypoint.subscription.create", "sourceSymbol": "createSubscription", "sinkId": "sink.subscription.persist" }
+        }
+      ],
+      "terminal": { "participant": "api", "label": "Return subscription ID" }
+    },
+    {
+      "id": "rejected",
+      "kind": "error",
+      "label": "Subscription rejected",
+      "steps": [
+        {
+          "id": "reject",
+          "from": "api",
+          "to": "client",
+          "label": "Return validation error",
+          "evidence": { "entrypointId": "entrypoint.subscription.create", "sourceSymbol": "createSubscription", "sinkId": "sink.subscription.persist" }
+        }
+      ],
+      "terminal": { "participant": "client", "label": "Handle validation error" }
+    }
+  ]
+}

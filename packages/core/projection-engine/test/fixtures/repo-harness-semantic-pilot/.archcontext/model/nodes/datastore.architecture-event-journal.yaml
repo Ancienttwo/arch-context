@@ -1,0 +1,7 @@
+schemaVersion: "archcontext.node/v2"
+id: "datastore.architecture-event-journal"
+kind: "datastore"
+name: "Architecture Event Journal"
+status: "active"
+parent: "capability.runtime-harness.hook-adapters"
+summary: "Durable pending refresh events consumed across Stop attempts."

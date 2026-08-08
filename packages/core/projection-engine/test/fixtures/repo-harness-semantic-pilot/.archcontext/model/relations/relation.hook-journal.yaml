@@ -1,0 +1,6 @@
+schemaVersion: "archcontext.relation/v1"
+id: "relation.hook-journal"
+kind: "writes"
+source: "capability.runtime-harness.hook-adapters"
+target: "datastore.architecture-event-journal"
+intent: "preserve pending architecture refresh event"

@@ -297,7 +297,7 @@ describe("local MCP server", () => {
             op: "create_entity",
             path: ".archcontext/model/nodes/module.mcp.yaml",
             expectedHash: "missing",
-            body: "schemaVersion: archcontext.node/v1\nid: module.mcp\nkind: module\nname: MCP\nstatus: active\nsummary: MCP\nresponsibilities:\n- mcp\n"
+            body: "schemaVersion: archcontext.node/v2\nid: module.mcp\nkind: module\nname: MCP\nstatus: active\nsummary: MCP\nresponsibilities:\n- mcp\n"
           }
         ]
       });

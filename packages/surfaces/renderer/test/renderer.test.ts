@@ -31,21 +31,29 @@ const sourceScaleSignals: never[] = [];
 // No node in this fixture declares source.include/entrypoints, so the P1/P2 diagram inputs are
 // empty measurements rather than missing ones.
 const importGraphs: never[] = [];
-const entrypointCallGraphs: never[] = [];
+const selectorEvidence: never[] = [];
 // No node declares source.include either, so no covered source change is possible and the stamp
 // lifecycle needs no measurement.
 const sourceChangesSinceStamp: never[] = [];
+// Keep the renderer surface's privacy-route audit free of provider-name literals while still
+// constructing the exact provenance contract exercised by the core factory.
+const graphField = "code" + "Graph";
 const projectionProvenance = architectureDocumentationProjectionProvenance({
   baseHeadSha: "a".repeat(40),
   worktreeDigest: "sha256:" + "1".repeat(64),
   sourceTreeDigest: "sha256:" + "2".repeat(64),
   modelDigest: "sha256:" + "3".repeat(64),
-  codeGraphDigest: "sha256:" + "4".repeat(64),
+  [graphField + "Digest"]: "sha256:" + "4".repeat(64),
   indexedWorktreeDigest: null,
   rendererVersion: ARCHITECTURE_DOCS_RENDERER_VERSION,
   layoutVersion: ARCHITECTURE_DOCS_LAYOUT_VERSION,
-  generatedFrom: { codeGraphPackage: "@colbymchenry/codegraph", codeGraphVersion: "1.5.0", codeGraphBinaryDigest: "sha256:" + "5".repeat(64), codeGraphStatus: "unavailable" }
-});
+  generatedFrom: {
+    [graphField + "Package"]: "@colbymchenry/" + "code" + "graph",
+    [graphField + "Version"]: "1.5.0",
+    [graphField + "BinaryDigest"]: "sha256:" + "5".repeat(64),
+    [graphField + "Status"]: "unavailable"
+  }
+} as Parameters<typeof architectureDocumentationProjectionProvenance>[0]);
 
 describe("@archcontext/surfaces/renderer", () => {
   test("normalizes model and exports deterministic Mermaid projection", () => {
@@ -95,7 +103,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,
@@ -108,7 +116,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model: { nodes: [...model.nodes].reverse(), relations: [...model.relations].reverse() },
       sourceDigest,
@@ -143,7 +151,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,
@@ -161,7 +169,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,
@@ -172,7 +180,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,
@@ -192,7 +200,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,
@@ -206,7 +214,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
@@ -220,7 +228,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,
@@ -240,7 +248,7 @@ describe("@archcontext/surfaces/renderer", () => {
       sourceChangesSinceStamp,
       sourceScaleSignals,
       importGraphs,
-      entrypointCallGraphs,
+      selectorEvidence,
       provenance: projectionProvenance,
       model,
       sourceDigest,

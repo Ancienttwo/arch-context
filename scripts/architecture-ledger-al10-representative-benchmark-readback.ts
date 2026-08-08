@@ -515,7 +515,7 @@ function writeRepresentativeSourceFiles(root: string, config: RepresentativeFixt
 function writeRepresentativeArchitectureModel(root: string, config: RepresentativeFixtureConfig): void {
   for (let index = 0; index < config.entityCount; index += 1) {
     writeModelFile(root, `.archcontext/model/nodes/${moduleId(config, index)}.yaml`, [
-      'schemaVersion: "archcontext.node/v1"',
+      'schemaVersion: "archcontext.node/v2"',
       `id: "${moduleId(config, index)}"`,
       'kind: "module"',
       `name: "${config.label} module ${index}"`,

@@ -1,0 +1,6 @@
+schemaVersion: "archcontext.relation/v1"
+id: "relation.codegraph-readiness-cli"
+kind: "calls"
+source: "capability.verification.codegraph-readiness"
+target: "external-system.codegraph-cli"
+intent: "run bounded status or remediation command"

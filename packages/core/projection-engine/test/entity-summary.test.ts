@@ -11,7 +11,7 @@ import {
   loadCapabilitySourceScaleSignals,
   renderArchitectureDocumentationProjection,
   type ArchitectureDocumentationProjectionPlan,
-  type CapabilityEntrypointCallGraph,
+  type ArchitectureSelectorEvidenceV1,
   type CapabilityImportGraph,
   type CapabilitySourceChangeSinceStamp,
   type CapabilitySourceScaleSignal,
@@ -39,7 +39,18 @@ const model: NativeModel = {
       source: {
         include: ["packages/core/projection-engine/**"],
         exclude: ["packages/core/projection-engine/test/**"],
-        entrypoints: ["packages/core/projection-engine/src/index.ts"]
+        entrypoints: [{
+          id: "entrypoint.docs.render",
+          path: "packages/core/projection-engine/src/index.ts",
+          symbols: [{
+            name: "renderArchitectureDocumentationProjection",
+            sinks: [{
+              id: "sink.docs.normalize",
+              path: "packages/core/projection-engine/src/index.ts",
+              symbol: "normalizeNativeModel"
+            }]
+          }]
+        }]
       },
       extensions: {
         localContracts: ["packages/core/projection-engine/CLAUDE.md"]
@@ -49,6 +60,7 @@ const model: NativeModel = {
       id: "module.no-source",
       kind: "module",
       name: "No Source Module",
+      parent: "capability.docs.projection",
       summary: "A module with no declared source paths."
     }
   ],
@@ -60,7 +72,39 @@ const model: NativeModel = {
       target: "module.no-source",
       intent: "read model nodes"
     }
-  ]
+  ],
+  flows: [{
+    schemaVersion: "archcontext.flow/v1",
+    id: "flow.docs.projection.render",
+    capabilityId: "capability.docs.projection",
+    name: "Render architecture documentation",
+    applicability: "required",
+    participants: [
+      { id: "renderer", nodeId: "capability.docs.projection" },
+      { id: "model", nodeId: "module.no-source" }
+    ],
+    steps: [{
+      id: "normalize",
+      from: "renderer",
+      to: "model",
+      label: "Normalize accepted model",
+      evidence: { entrypointId: "entrypoint.docs.render", sourceSymbol: "renderArchitectureDocumentationProjection", sinkId: "sink.docs.normalize" }
+    }],
+    outcomes: [
+      {
+        id: "rendered", kind: "success", label: "Model proven", steps: [{
+          id: "write", from: "renderer", to: "model", label: "Render semantic projection",
+          evidence: { entrypointId: "entrypoint.docs.render", sourceSymbol: "renderArchitectureDocumentationProjection", sinkId: "sink.docs.normalize" }
+        }], terminal: { participant: "renderer", label: "Return projection plan" }
+      },
+      {
+        id: "rejected", kind: "error", label: "Model unprovable", steps: [{
+          id: "reject", from: "renderer", to: "model", label: "Report proof diagnostics",
+          evidence: { entrypointId: "entrypoint.docs.render", sourceSymbol: "renderArchitectureDocumentationProjection", sinkId: "sink.docs.normalize" }
+        }], terminal: { participant: "renderer", label: "Keep documentation unchanged" }
+      }
+    ]
+  }]
 };
 
 const scaleSignals: CapabilitySourceScaleSignal[] = [
@@ -92,26 +136,18 @@ const importGraphs: CapabilityImportGraph[] = [
   }
 ];
 
-const entrypointCallGraphs: CapabilityEntrypointCallGraph[] = [
+const selectorEvidence: ArchitectureSelectorEvidenceV1[] = [
   {
     nodeId: "capability.docs.projection",
-    entrypoints: [
-      {
-        path: "packages/core/projection-engine/src/index.ts",
-        seedsTruncated: false,
-        seeds: [
-          {
-            symbol: "renderArchitectureDocumentationProjection",
-            line: 164,
-            callsTruncated: true,
-            calls: [
-              { symbol: "normalizeNativeModel", path: "packages/core/projection-engine/src/index.ts", line: 403 },
-              { symbol: "digestJson", path: "packages/contracts/src/schema.ts", line: 88 }
-            ]
-          }
-        ]
-      }
-    ]
+    entrypointId: "entrypoint.docs.render",
+    sourcePath: "packages/core/projection-engine/src/index.ts",
+    sourceSymbol: "renderArchitectureDocumentationProjection",
+    sinkId: "sink.docs.normalize",
+    sinkPath: "packages/core/projection-engine/src/index.ts",
+    sinkSymbol: "normalizeNativeModel",
+    matched: true,
+    truncated: false,
+    callSites: [{ path: "packages/core/projection-engine/src/index.ts", line: 403 }]
   }
 ];
 
@@ -132,7 +168,7 @@ function render(overrides: Partial<Parameters<typeof renderArchitectureDocumenta
     sourceChangesSinceStamp,
     sourceScaleSignals: scaleSignals,
     importGraphs,
-    entrypointCallGraphs,
+    selectorEvidence,
     generatedAt,
     ...overrides
   });
@@ -181,7 +217,7 @@ describe("entity-summary capability documentation projection", () => {
     expect(body).toContain("> **事實優先級**:倉庫當前狀態 > 本文檔機器區");
 
     expect(body).toContain("## 1. P1:能力架構地圖");
-    expect(body).toContain("| `packages/core/projection-engine/src/index.ts` |");
+    expect(body).toContain("| `entrypoint.docs.render` | `packages/core/projection-engine/src/index.ts#renderArchitectureDocumentationProjection`");
     expect(body).toContain("- 文件數:`3`");
     expect(body).toContain("- 總行數:`1200`");
     expect(body).toContain("- 排除前綴:`packages/core/projection-engine/test/**`");
@@ -189,11 +225,15 @@ describe("entity-summary capability documentation projection", () => {
     expect(body).toContain("- `calls` → `module.no-source` — read model nodes");
     expect(body).toContain("## 2. P2:端到端數據流");
 
-    // Diagram slots carry real measurements, and the P2 slot declares its candidate status.
+    // Diagram slots carry accepted semantic authority and exact selector proof.
     expect(body).toContain("### 1.1 架構圖");
-    expect(body).toContain("```mermaid\nflowchart TD");
+    expect(body).toContain("```mermaid\nflowchart LR");
     expect(body).toContain("```mermaid\nsequenceDiagram");
-    expect(body).toContain("> **半自動生成的候選圖**");
+    expect(body).toContain("- Proof: `proven`");
+    expect(body).toContain("> **Proof**: `proven`");
+    expect(body).toContain("alt Model proven");
+    expect(body).toContain("else Model unprovable");
+    expect(body).not.toContain("半自動生成的候選圖");
 
     // Human-owned sections exist as empty headings in the generated skeleton.
     expect(body).toContain("## 3. P3:設計決策與不變量");
@@ -209,8 +249,9 @@ describe("entity-summary capability documentation projection", () => {
     expect(body).toContain("> **Local Contracts**:未宣告(`extensions.localContracts` 缺失)");
     expect(body).toContain("- 未宣告 `source.entrypoints`,入口清單無法從架構模型推導。");
     expect(body).toContain("- 未宣告 `source.include`,規模信號無法推導。");
-    expect(body).toContain("尚未生成:未宣告 `source.include`,無法界定模組範圍,架構圖省略。");
-    expect(body).toContain("尚未生成:未宣告 `source.entrypoints`,端到端握手圖省略。");
+    expect(body).toContain("human-action-required");
+    expect(body).toContain("`semantic-edge-missing`");
+    expect(body).toContain("`flow-missing`");
     expect(body).not.toContain("文件數:`0`");
     expect(body).not.toContain("```mermaid");
   });
@@ -549,184 +590,33 @@ describe("entity-summary capability documentation projection", () => {
   });
 });
 
-describe("P1 flowchart generation", () => {
-  test("draws exactly the directory projection of the measured import edges — no synthesised edge", () => {
-    const body = entityFile(render(), "capability.docs.projection").body;
-    const labels = flowchartLabels(body);
-    const drawn = flowchartEdgeLines(body).map((line) => {
-      const [from, to] = line.trim().split(" --> ");
-      return `${labels.get(from)} -> ${labels.get(to)}`;
-    });
-
-    // Directory projection of the three input edges, with the same-directory edge dropped.
-    expect(drawn.sort()).toEqual([
-      "packages/core/projection-engine/src -> packages/contracts/src",
-      "packages/core/projection-engine/src -> packages/core/architecture-domain/src"
-    ]);
-    // Every drawn edge traces back to at least one measured import edge.
-    for (const line of drawn) {
-      const [from, to] = line.split(" -> ");
-      expect(importGraphs[0].edges.some((edge) =>
-        edge.from.startsWith(`${from}/`) && edge.to.startsWith(`${to}/`)
-      )).toBe(true);
-    }
-    // Every cross-directory measured edge is drawn: no silent dropping either.
-    for (const edge of importGraphs[0].edges) {
-      const from = edge.from.slice(0, edge.from.lastIndexOf("/"));
-      const to = edge.to.slice(0, edge.to.lastIndexOf("/"));
-      if (from === to) continue;
-      expect(drawn).toContain(`${from} -> ${to}`);
-    }
-
-    expect(body).toContain("- 邊:倉庫匯入邊索引解析到真實檔案的 `import` 邊,按目錄聚合去重後 `2` 條(檔案級原始邊 `3` 條)");
-    expect(body).toContain("- 不含呼叫關係:呼叫索引的軌跡混入型別引用,不作為 P1 邊來源。");
-    expect(body).not.toContain("- 注意:匯入邊索引本次查詢達到上限");
-  });
-
-  test("marks entrypoint directories, in-footprint directories, and out-of-footprint targets apart", () => {
-    const body = entityFile(render(), "capability.docs.projection").body;
-    const labels = flowchartLabels(body);
-    const idOf = (label: string) => [...labels.entries()].find(([, value]) => value === label)![0];
-
-    expect(body).toContain(`  ${idOf("packages/core/projection-engine/src")}(["packages/core/projection-engine/src"])`);
-    expect(body).toContain(`  ${idOf("packages/contracts/src")}[["packages/contracts/src"]]`);
-    expect(body).toContain(`  ${idOf("packages/core/architecture-domain/src")}[["packages/core/architecture-domain/src"]]`);
-    expect(body).toContain("- 圖例:`([...])` 宣告入口所在目錄、`[...]` 能力範圍內目錄、`[[...]]` 能力範圍外的匯入目標目錄。");
-  });
-
-  test("omits the flowchart with a stated reason when the import index produced nothing", () => {
-    const withoutIndex = entityFile(render({ importGraphs: [] }), "capability.docs.projection").body;
-    expect(withoutIndex).toContain("尚未生成:未取得倉庫匯入邊索引,架構圖省略——本版投影不輸出未經驗證的圖表。");
-    expect(withoutIndex).not.toContain("```mermaid\nflowchart TD");
-
-    const noCrossDirectoryEdges = entityFile(
-      render({
-        importGraphs: [{
-          nodeId: "capability.docs.projection",
-          files: ["packages/core/projection-engine/src/index.ts", "packages/core/projection-engine/src/mermaid.ts"],
-          edges: [{ from: "packages/core/projection-engine/src/index.ts", to: "packages/core/projection-engine/src/mermaid.ts" }],
-          truncated: false
-        }]
-      }),
-      "capability.docs.projection"
-    ).body;
-    expect(noCrossDirectoryEdges).toContain("尚未生成:匯入邊索引在本能力的 `2` 個檔案上未解析出跨目錄 `import` 邊,架構圖省略。");
-    expect(noCrossDirectoryEdges).not.toContain("```mermaid\nflowchart TD");
-  });
-
-  test("reports a truncated index dump instead of presenting a partial edge set as complete", () => {
-    const body = entityFile(
-      render({ importGraphs: [{ ...importGraphs[0], truncated: true }] }),
-      "capability.docs.projection"
-    ).body;
-    expect(body).toContain("- 注意:匯入邊索引本次查詢達到上限,邊集可能不完整。");
-  });
-
-  test("emits parseable mermaid ids for paths carrying /, ., -, @ and #", () => {
-    const specialModel: NativeModel = {
-      nodes: [{
-        id: "capability.special",
-        kind: "capability",
-        name: "Special",
-        source: { include: ["packages/**"], entrypoints: [] }
-      }],
-      relations: []
-    };
-    const body = entityFile(
-      renderArchitectureDocumentationProjection({
-        model: specialModel,
-        sourceDigest,
-        provenance,
-        verifiedAgainst,
-        sourceChangesSinceStamp: [],
-        generatedAt,
-        sourceScaleSignals: [{ nodeId: "capability.special", fileCount: 4, lineCount: 40, includePatterns: ["packages/**"], excludePatterns: [] }],
-        entrypointCallGraphs: [],
-        importGraphs: [{
-          nodeId: "capability.special",
-          files: [
-            "packages/@scope/ui-kit.v2/src/index.ts",
-            "packages/ui#1/src/index.ts",
-            "packages/a/b/x.ts",
-            "packages/a-b/x.ts"
-          ],
-          edges: [
-            { from: "packages/@scope/ui-kit.v2/src/index.ts", to: "packages/ui#1/src/index.ts" },
-            { from: "packages/a/b/x.ts", to: "packages/a-b/x.ts" }
-          ],
-          truncated: false
-        }]
-      }),
-      "capability.special"
-    ).body;
-
-    const labels = flowchartLabels(body);
-    // Ids are mermaid-safe identifiers, and `a/b` never collapses onto `a-b`.
-    expect(labels.size).toBe(4);
-    for (const id of labels.keys()) expect(id).toMatch(/^[A-Za-z][A-Za-z0-9_]*$/);
-    expect(new Set(labels.keys()).size).toBe(4);
-    // Labels stay quoted, and `#` is escaped so mermaid does not read it as an entity code.
-    expect(body).toContain('"packages/@scope/ui-kit.v2/src"');
-    expect(body).toContain('"packages/ui#35;1/src"');
-    expect(body).not.toMatch(/\["packages\/ui#1\/src"\]/);
-    // Every fence line is either the header, a node declaration, or an edge — nothing else.
-    const fence = body.slice(body.indexOf("```mermaid\nflowchart TD"));
-    for (const line of fence.slice(0, fence.indexOf("\n```")).split("\n").slice(2)) {
-      expect(line).toMatch(/^ {2}[A-Za-z][A-Za-z0-9_]*(?:\["[^"]*"\]|\(\["[^"]*"\]\)|\[\["[^"]*"\]\]| --> [A-Za-z][A-Za-z0-9_]*)$/);
-    }
-  });
-});
-
-describe("P2 sequenceDiagram generation", () => {
-  test("renders a candidate handshake diagram from the entrypoint call trail", () => {
-    const body = entityFile(render(), "capability.docs.projection").body;
-    const fence = body.slice(body.indexOf("```mermaid\nsequenceDiagram"));
-    const lines = fence.slice(0, fence.indexOf("\n```")).split("\n");
-
-    expect(lines[1]).toBe("sequenceDiagram");
-    expect(lines[2]).toBe("  autonumber");
-    const participants = lines.filter((line) => line.startsWith("  participant "));
-    expect(participants.map((line) => line.split(" as ")[1])).toEqual([
-      "packages/core/projection-engine/src/index.ts",
-      "packages/contracts/src/schema.ts"
-    ]);
-    const messages = lines.filter((line) => line.includes("->>"));
-    expect(messages).toHaveLength(2);
-    expect(messages.every((line) => line.includes("renderArchitectureDocumentationProjection → "))).toBe(true);
-
-    expect(body).toContain("> **半自動生成的候選圖**");
-    expect(body).toContain("本版無語義命名覆寫機制");
-    expect(body).toContain("- 入口 `packages/core/projection-engine/src/index.ts`:種子符號 `renderArchitectureDocumentationProjection`(:164)");
-    expect(body).toContain("- 訊息:`2` 條,全部來自呼叫索引對種子符號回報的呼叫軌跡。");
-    expect(body).toContain("- 錯誤路徑:呼叫索引未提供 throw/error 分支資訊,本圖不列錯誤分支,也不編造。");
-    expect(body).toContain("- 注意:`renderArchitectureDocumentationProjection` 的呼叫軌跡被索引截斷,訊息可能不完整。");
-  });
-
-  test("fails closed when a node declares entrypoints but no call graph was measured", () => {
-    expect(() => render({ entrypointCallGraphs: [] }))
-      .toThrow("architecture-docs-projection-call-graph-missing: capability.docs.projection");
-  });
-
-  test("fails closed when the measured call graph does not cover the declared entrypoints", () => {
-    expect(() => render({
-      entrypointCallGraphs: [{
+describe("semantic P1/P2 entity integration", () => {
+  test("raw import graphs do not affect the verified semantic diagram", () => {
+    const baseline = entityFile(render(), "capability.docs.projection").body;
+    const changedRawGraph = entityFile(render({
+      importGraphs: [{
         nodeId: "capability.docs.projection",
-        entrypoints: [{ path: "packages/core/projection-engine/src/other.ts", seedsTruncated: false, seeds: [] }]
+        files: ["invented/path.ts"],
+        edges: [{ from: "invented/path.ts", to: "invented/other.ts" }],
+        truncated: true
       }]
-    })).toThrow("architecture-docs-projection-call-graph-entrypoint-mismatch");
+    }), "capability.docs.projection").body;
+    expect(changedRawGraph).toBe(baseline);
+    expect(changedRawGraph).not.toContain("invented/path.ts");
   });
 
-  test("omits the diagram with a stated reason when the index returned no call trail", () => {
-    const body = entityFile(
-      render({
-        entrypointCallGraphs: [{
-          nodeId: "capability.docs.projection",
-          entrypoints: [{ path: "packages/core/projection-engine/src/index.ts", seedsTruncated: true, seeds: [] }]
-        }]
-      }),
-      "capability.docs.projection"
-    ).body;
-    expect(body).toContain("尚未生成:呼叫索引未在 `1` 個宣告入口上取得呼叫軌跡,端到端握手圖省略。");
+  test("missing exact selector evidence is human-action-required and emits no P2 fence", () => {
+    const body = entityFile(render({ selectorEvidence: [] }), "capability.docs.projection").body;
+    expect(body).toContain("human-action-required");
+    expect(body).toContain("`selector-evidence-missing`");
     expect(body).not.toContain("```mermaid\nsequenceDiagram");
+  });
+
+  test("truncated selector evidence cannot be upgraded to proven", () => {
+    const body = entityFile(render({
+      selectorEvidence: selectorEvidence.map((entry) => ({ ...entry, truncated: true }))
+    }), "capability.docs.projection").body;
+    expect(body).toContain("`selector-evidence-truncated`");
+    expect(body).not.toContain("> **Proof**: `proven`");
   });
 });

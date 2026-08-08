@@ -972,7 +972,7 @@ describe("@archcontext/core/practice-engine", () => {
     try {
       mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
       writeFileSync(join(root, ".archcontext/model/nodes/component.checkout.yaml"), [
-        "schemaVersion: archcontext.node/v1",
+        "schemaVersion: archcontext.node/v2",
         "id: component.checkout",
         "kind: component",
         "name: Checkout",
@@ -983,7 +983,7 @@ describe("@archcontext/core/practice-engine", () => {
         ""
       ].join("\n"), "utf8");
       writeFileSync(join(root, ".archcontext/model/nodes/module.billing.yaml"), [
-        "schemaVersion: archcontext.node/v1",
+        "schemaVersion: archcontext.node/v2",
         "id: module.billing",
         "kind: module",
         "name: Billing",
@@ -992,7 +992,7 @@ describe("@archcontext/core/practice-engine", () => {
         ""
       ].join("\n"), "utf8");
       writeFileSync(join(root, ".archcontext/model/nodes/component.split.yaml"), [
-        "schemaVersion: archcontext.node/v1",
+        "schemaVersion: archcontext.node/v2",
         "id: component.split",
         "kind: component",
         "name: Split",
@@ -1365,7 +1365,7 @@ describe("@archcontext/core/practice-engine", () => {
       mkdirSync(join(root, ".archcontext/model/nodes"), { recursive: true });
       mkdirSync(join(root, ".archcontext/waivers"), { recursive: true });
       writeFileSync(join(root, ".archcontext/model/nodes/module.billing.yaml"), [
-        "schemaVersion: archcontext.node/v1",
+        "schemaVersion: archcontext.node/v2",
         "id: module.billing",
         "kind: module",
         "name: Billing",
