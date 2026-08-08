@@ -111,8 +111,8 @@ Land PR #96, then publish the existing repo-harness 0.13.2 refresh as a separate
 ## Task Breakdown
 - [x] Audit and commit the local 25-file repo-harness refresh on an isolated branch.
 - [x] Verify PR #96 CI and merge it into main.
-- [ ] Rebase the harness refresh onto merged main and resolve only the .gitignore authority overlap.
-- [ ] Run strict workflow checks and full bun run verify on the combined tree.
+- [x] Rebase the harness refresh onto merged main and resolve only the .gitignore authority overlap.
+- [x] Run strict workflow checks and full bun run verify on the combined tree.
 - [ ] Push, open, verify, and merge the harness refresh PR.
 - [ ] Clean safe branches/worktrees and read back final main.
 
@@ -127,7 +127,7 @@ Land PR #96, then publish the existing repo-harness 0.13.2 refresh as a separate
 ## Task Breakdown
 - [x] Audit and commit the local 25-file repo-harness refresh on an isolated branch.
 - [x] Verify PR #96 CI and merge it into main.
-- [ ] Rebase the harness refresh onto merged main and resolve only the .gitignore authority overlap.
-- [ ] Run strict workflow checks and full bun run verify on the combined tree.
+- [x] Rebase the harness refresh onto merged main and resolve only the .gitignore authority overlap.
+- [x] Run strict workflow checks and full bun run verify on the combined tree.
 - [ ] Push, open, verify, and merge the harness refresh PR.
 - [ ] Clean safe branches/worktrees and read back final main.

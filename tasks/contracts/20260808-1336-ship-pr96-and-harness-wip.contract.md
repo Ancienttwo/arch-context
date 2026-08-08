@@ -100,7 +100,7 @@ exit_criteria:
     - tasks/notes/20260808-1336-ship-pr96-and-harness-wip.notes.md
     - tasks/reviews/20260808-1336-ship-pr96-and-harness-wip.review.md
     - .claude/templates/design-brief.template.md
-    - docs/reference-configs/architecture-boundaries.md
+    - docs/reference-configs/design-options.md
   artifacts_exist:
     - .ai/harness/checks/latest.json
     - tasks/notes/20260808-1336-ship-pr96-and-harness-wip.notes.md
