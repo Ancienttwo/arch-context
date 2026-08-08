@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:b352c69eaa822785ef3318e84a007d86668b6a53b200bfdb9cd4a58e4818e579" rendererVersion="archcontext.docs-renderer/v1" outputDigest="sha256:173b0aa60e59cee2295dba4dfff0feff8df8ced64f56f241b0c8854d0f143402" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.decision.index" sourceDigest="sha256:da8c8840ebf02a9fc6bfcccea5a904709d6858115f481f285ca37d3043cd5b08" rendererVersion="archcontext.docs-renderer/v1" outputDigest="sha256:bae3c36e4277d0a3a0885141f1ba8ddc5762f45d12bd9b675d8ee19f5075ba8b" -->
 # Architecture Decision Index
 
 - [Context](../../docs/adr/ADR-0001-agentic-architecture-control-loop.md) — accepted
@@ -41,4 +41,9 @@
 - [Context](../../docs/adr/ADR-0038-versioned-architecture-practice-assets.md) — accepted
 - [Context](../../docs/adr/ADR-0039-external-documentation-advisory-untrusted.md) — accepted
 - [Context](../../docs/adr/ADR-0040-hybrid-architecture-ledger.md) — accepted
+- [Context](../../docs/adr/ADR-0041-native-local-audit.md) — accepted
+- [Context](../../docs/adr/ADR-0042-local-github-issue-publishing.md) — accepted
+- [Context](../../docs/adr/ADR-0043-agent-context-provider.md) — accepted
+- [Context](../../docs/adr/ADR-0044-authority-aware-explorer-view-compiler.md) — accepted
+- [ADR-0045: Authority-Separated Data Engine](../../docs/adr/ADR-0045-authority-separated-data-engine.md) — accepted
 <!-- END ARCHCONTEXT:generated target="projection_target.decision.index" -->
