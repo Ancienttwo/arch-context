@@ -1,7 +1,13 @@
+> **Archived**: 2026-08-08 19:19
+> **Related Plan**: plans/archive/plan-20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260808-1919
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: (archive-workflow)
+> **Updated**: 2026-08-08 18:24
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.

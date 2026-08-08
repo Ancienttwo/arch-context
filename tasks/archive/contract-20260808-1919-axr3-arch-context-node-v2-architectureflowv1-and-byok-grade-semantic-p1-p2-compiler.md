@@ -1,3 +1,9 @@
+> **Archived**: 2026-08-08 19:19
+> **Related Plan**: plans/archive/plan-20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260808-1919
+
 # Task Contract: axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler
 
 > **Status**: Fulfilled

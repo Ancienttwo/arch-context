@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR3 [arch-context] node v2, ArchitectureFlowV1, and BYOK-grade semantic P1/P2 compiler
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260808-1817
 > **Slug**: axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler
 > **Planning Source**: repo-harness-sprint
