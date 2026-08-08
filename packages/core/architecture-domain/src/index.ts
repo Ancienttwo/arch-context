@@ -450,8 +450,9 @@ export function listRepoFiles(root: string, ignore: Set<string> = DEFAULT_IGNORE
   }
 }
 
-function shouldIgnorePath(entryName: string, relativePath: string, ignore: Set<string>): boolean {
-  if (ignore.has(entryName) || ignore.has(relativePath) || ignore.has(relativePath.split("/")[0])) return true;
+function shouldIgnorePath(_entryName: string, relativePath: string, ignore: Set<string>): boolean {
+  const rootSegment = relativePath.split("/")[0];
+  if (ignore.has(relativePath) || ignore.has(rootSegment)) return true;
   for (const pattern of ignore) {
     if (relativePath.startsWith(`${pattern}/`)) return true;
   }

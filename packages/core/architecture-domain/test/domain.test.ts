@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -64,6 +64,23 @@ describe("@archcontext/core/architecture-domain", () => {
       expect(computeWorktreeDigest(root, { ignore: ["ignored.txt"] })).toBe(first);
       writeFileSync(join(root, "tracked.txt"), "two");
       expect(computeWorktreeDigest(root, { ignore: ["ignored.txt"] })).not.toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("default ignores apply only at repository roots, not to nested source directories with the same basename", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
+    try {
+      mkdirSync(join(root, "node_modules"), { recursive: true });
+      mkdirSync(join(root, "src", "node_modules"), { recursive: true });
+      writeFileSync(join(root, "node_modules", "root-install.js"), "ignored");
+      writeFileSync(join(root, "src", "node_modules", "source.ts"), "one");
+      const first = computeWorktreeDigest(root);
+      writeFileSync(join(root, "node_modules", "root-install.js"), "still ignored");
+      expect(computeWorktreeDigest(root)).toBe(first);
+      writeFileSync(join(root, "src", "node_modules", "source.ts"), "two");
+      expect(computeWorktreeDigest(root)).not.toBe(first);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
