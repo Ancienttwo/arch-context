@@ -1629,7 +1629,7 @@ function renderSemanticP1Section(compilation: SemanticCapabilityDiagramCompilati
   }
   return [
     "> **human-action-required**: P1 semantic authority is unprovable; no diagram was generated.",
-    ...compilation.p1.diagnostics.map((diagnostic) => `- \`${diagnostic.code}\`: ${diagnostic.detail}`)
+    ...compilation.p1.diagnostics.map((diagnostic) => `- \`${diagnostic.code}\`: ${renderDiagnosticDetail(diagnostic.detail)}`)
   ];
 }
 
@@ -1649,8 +1649,12 @@ function renderSemanticP2Section(compilation: SemanticCapabilityDiagramCompilati
   }
   return [
     "> **human-action-required**: P2 flow evidence is unprovable; no sequence diagram was generated.",
-    ...compilation.p2.diagnostics.map((diagnostic) => `- \`${diagnostic.code}\`: ${diagnostic.detail}`)
+    ...compilation.p2.diagnostics.map((diagnostic) => `- \`${diagnostic.code}\`: ${renderDiagnosticDetail(diagnostic.detail)}`)
   ];
+}
+
+function renderDiagnosticDetail(detail: string): string {
+  return detail.replaceAll("\0", " :: ");
 }
 
 /**
