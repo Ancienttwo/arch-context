@@ -1,6 +1,6 @@
 # Implementation Notes: axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption
 
-> **Status**: Active
+> **Status**: Done
 > **Plan**: plans/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
 > **Contract**: tasks/contracts/20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.contract.md
 > **Review**: tasks/reviews/20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.review.md

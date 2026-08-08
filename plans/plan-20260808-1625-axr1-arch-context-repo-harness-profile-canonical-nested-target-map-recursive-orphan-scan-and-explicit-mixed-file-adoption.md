@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR1 [arch-context] repo-harness profile, canonical nested target map, recursive orphan scan, and explicit mixed-file adoption
 
-> **Status**: Executing
+> **Status**: Done
 > **Created**: 20260808-1625
 > **Slug**: axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption
 > **Planning Source**: repo-harness-sprint
@@ -185,7 +185,7 @@ Before editing code, use `$think` to expand this sprint row into a decision-comp
 
 - [x] Run `$think` for backlog task `AXR1 [arch-context] repo-harness profile, canonical nested target map, recursive orphan scan, and explicit mixed-file adoption` using sprint `plans/sprints/20260808-1433-archctx-repo-harness-projection-runtime-integration.sprint.md` and acceptance: nested fixture resolves exact module/index/contract paths; unmarked mixed file writes zero bytes; approved adoption preserves all marker-external hashes; second apply is noop
 - [x] Capture the approved `$think` output with `repo-harness run capture-plan --source waza-think --source-ref sprint:plans/sprints/20260808-1433-archctx-repo-harness-projection-runtime-integration.sprint.md#AXR1 [arch-context] repo-harness profile, canonical nested target map, recursive orphan scan, and explicit mixed-file adoption`
-- [ ] Verify acceptance: nested fixture resolves exact module/index/contract paths; unmarked mixed file writes zero bytes; approved adoption preserves all marker-external hashes; second apply is noop
+- [x] Verify acceptance: nested fixture resolves exact module/index/contract paths; unmarked mixed file writes zero bytes; approved adoption preserves all marker-external hashes; second apply is noop
 
 ## Annotations
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
@@ -197,5 +197,5 @@ Before editing code, use `$think` to expand this sprint row into a decision-comp
 - [x] T2 implement exact target loader plus recursive fail-closed orphan discovery
 - [x] T3 implement explicit adoption preview/range/hash protocol and normal-apply rejection
 - [x] T4 wire CLI/daemon ChangeSet flow with approval, preview ID and worktree/preimage gates
-- [ ] T5 run targeted/full verification and external acceptance review
-- [ ] Verify acceptance: nested fixture resolves exact module/index/contract paths; unmarked mixed file writes zero bytes; approved adoption preserves all marker-external hashes; second apply is noop
+- [x] T5 run targeted/full verification and external acceptance review
+- [x] Verify acceptance: nested fixture resolves exact module/index/contract paths; unmarked mixed file writes zero bytes; approved adoption preserves all marker-external hashes; second apply is noop
