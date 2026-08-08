@@ -2,12 +2,33 @@
   "version": 1,
   "active_plan": {
     "marker_file": ".ai/harness/active-plan",
-    "legacy_marker_file": ".claude/.active-plan",
     "directory": "plans",
     "archive_directory": "plans/archive",
     "glob": "plan-*.md",
     "active_worktree_marker_file": ".ai/harness/active-worktree",
-    "source_of_truth": "per-worktree explicit marker with active-worktree owner; legacy Claude marker fallback only"
+    "source_of_truth": "per-worktree explicit marker with active-worktree owner; legacy Claude marker fallback only",
+    "lifecycle": {
+      "annotation_end": "Annotating",
+      "approved": "Approved",
+      "executing": "Executing",
+      "terminal_start": "Complete"
+    },
+    "statuses": [
+      "Draft",
+      "Annotating",
+      "Approved",
+      "Executing",
+      "Blocked",
+      "Review",
+      "Complete",
+      "Completed",
+      "Done",
+      "Fulfilled",
+      "Archived",
+      "Abandoned",
+      "Superseded"
+    ],
+    "legacy_marker_file": ".claude/.active-plan"
   },
   "tasks": {
     "todo_file": "tasks/todos.md",
@@ -18,6 +39,221 @@
     "contracts_dir": "tasks/contracts",
     "reviews_dir": "tasks/reviews",
     "notes_dir": "tasks/notes"
+  },
+  "context": {
+    "map_file": ".ai/context/context-map.json",
+    "capability_registry_file": ".ai/context/capabilities.json",
+    "capability_match_rule": "longest-prefix; same-length ambiguity fails",
+    "profile": "stable-root-progressive-subdir",
+    "capability_resolver": "repo-harness run capability-resolver",
+    "capability_config": "repo-harness run capability-config",
+    "functional_block_selector": {
+      "script": "repo-harness run select-agent-context-blocks",
+      "config_file": ".ai/context/agent-context-blocks.txt",
+      "env": "REPO_HARNESS_CONTEXT_BLOCKS",
+      "rule": "compatibility selector; capability registry is the source of truth"
+    }
+  },
+  "worktree_strategy": {
+    "base_branch": "main",
+    "review_base": "main",
+    "merge_back": {
+      "target": "main",
+      "requires_clean_check": true,
+      "preserve_unrelated_changes": true
+    },
+    "auto_on_conflict": true,
+    "auto_for_contract_tasks": true,
+    "branch_prefix": "codex/",
+    "worktree_dir_template": "../{{repo}}-wt-{{slug}}",
+    "start_script": "repo-harness run contract-worktree start --plan <plan-file>",
+    "finish_script": "repo-harness run contract-worktree finish",
+    "cleanup_script": "repo-harness run contract-worktree cleanup --slug <slug>",
+    "conflict_signals": [
+      "dirty_worktree_overlaps_task_files",
+      "current_branch_not_suitable_for_task",
+      "existing_changes_unrelated_but_would_block_review",
+      "task_requires_clean_validation_surface"
+    ],
+    "validation_route": "waza:check"
+  },
+  "harness": {
+    "policy_file": ".ai/harness/policy.json",
+    "checks_file": ".ai/harness/checks/latest.json",
+    "handoff_file": ".ai/harness/handoff/current.md",
+    "helper_runtime_dir": ".ai/harness/scripts",
+    "helper_source": "package",
+    "failure_log_file": ".ai/harness/failures/latest.jsonl",
+    "events_file": ".ai/harness/events.jsonl",
+    "architecture_events_file": ".ai/harness/architecture/events.jsonl",
+    "runs_dir": ".ai/harness/runs",
+    "helper_compat_dir": "scripts",
+    "helper_package_dir": "assets/templates/helpers"
+  },
+  "operations": {
+    "dir": "deploy",
+    "private_dir": "_ops",
+    "rule": "commit deployment runbooks, submission materials, release checklists, helper scripts, ordered SQL files, and env examples under deploy/; keep deploy SQL in deploy/sql/ with 4-digit ascending prefixes; keep keys, tokens, real env values, provider state, artifacts, logs, and scratch files in ignored _ops/ only",
+    "tracked": [
+      "deploy/README.md",
+      "deploy/scripts/",
+      "deploy/submissions/",
+      "deploy/runbooks/",
+      "deploy/release-checklists/",
+      "deploy/sql/",
+      "deploy/*.md",
+      "deploy/env/.env.example"
+    ],
+    "ignored": [
+      "_ops/"
+    ]
+  },
+  "documentation": {
+    "profile": "minimal-agentic",
+    "reference_source": "user-level-runtime-docs",
+    "reference_stub_marker": "<!-- repo-harness: reference-config-stub v1 -->",
+    "reference_resolver": "repo-harness docs path <doc-id>",
+    "required": [
+      "docs/spec.md",
+      "docs/architecture/index.md"
+    ],
+    "on_demand": [
+      "docs/brief.md",
+      "docs/tech-stack.md",
+      "docs/decisions.md",
+      "docs/architecture.md",
+      "docs/packages.md"
+    ],
+    "reference_configs": [
+      "harness-overview.md",
+      "agentic-development-flow.md",
+      "external-tooling.md",
+      "sprint-contracts.md",
+      "heartbeat-triage.md",
+      "handoff-protocol.md",
+      "document-generation.md",
+      "global-working-rules.md"
+    ],
+    "rule": "create optional docs only when the agent has concrete repo evidence or the user asks; docs/reference-configs contains repo-local pointer stubs while full generic runtime docs live in the user-level/package repo-harness install"
+  },
+  "external_tooling": {
+    "routing": {
+      "simple": "waza"
+    },
+    "hosts": [
+      "claude-code",
+      "codex"
+    ],
+    "mode": "agent-readiness-required",
+    "detection": "init-migrate",
+    "readiness_gate": "repo-harness run check-agent-tooling --host codex --strict-readiness",
+    "waza": {
+      "source_repo": "tw93/Waza",
+      "source_url": "https://github.com/tw93/Waza.git",
+      "managed_skills": [
+        "think",
+        "hunt",
+        "check",
+        "health"
+      ],
+      "primary_host": "codex",
+      "codex_primary_path": "~/.codex/skills",
+      "staging_cache_path": "~/.agents/skills",
+      "sync_mode": "stage-upstream-then-copy-to-codex",
+      "host_drift_policy": "report-per-host-version-staging-and-upstream-drift"
+    },
+    "codex_automation_profile": {
+      "required_skills": [
+        "health",
+        "check",
+        "mermaid"
+      ],
+      "optional_skills": [],
+      "mode": "codex-runtime-reference",
+      "source": "~/.codex/skills",
+      "routes": {
+        "workflow_health": "waza:health",
+        "review_gate": "waza:check",
+        "architecture_diagram": "mermaid"
+      },
+      "vendoring_policy": "do-not-vendor-skill-body"
+    },
+    "diagram_design": {
+      "skill_name": "mermaid",
+      "primary_host": "codex",
+      "codex_primary_path": "~/.codex/skills/mermaid",
+      "sync_mode": "external-installed-skill",
+      "vendoring_policy": "do-not-vendor"
+    },
+    "codegraph": {
+      "package": "@colbymchenry/codegraph",
+      "primary_host": "both",
+      "install_mode": "target-aware-mcp",
+      "codex_config_path": "~/.codex/config.toml",
+      "claude_config_path": "~/.claude.json",
+      "index_dir": ".codegraph",
+      "readiness": "required-for-agent-code-navigation",
+      "hook_policy": "do-not-block-hooks",
+      "install_command": "bun add -g @colbymchenry/codegraph && repo-harness tools configure codegraph --target codex --location global",
+      "project_init_command": "codegraph init -i .",
+      "sync_command": "codegraph sync .",
+      "vendoring_policy": "do-not-add-package-dependency"
+    }
+  },
+  "agentic_development": {
+    "routing": {
+      "product_discovery": "parent-agent:geju",
+      "complex_engineering_plan": "parent-agent:geju",
+      "design_plan": "parent-agent:geju",
+      "design_options_choice": "convention:design-options",
+      "small_or_medium_plan": "waza:think",
+      "bug_or_regression": "waza:hunt",
+      "post_implementation_review": "waza:check"
+    },
+    "due_diligence": {
+      "levels": [
+        "P1_GLOBAL_ARCHITECTURE",
+        "P2_DATA_FLOW_TRACE",
+        "P3_DESIGN_DECISION"
+      ],
+      "explicit_report_required_for": [
+        "complex_engineering_plan",
+        "hunt",
+        "risky_refactor",
+        "deployment",
+        "auth_payment_data",
+        "shared_contract"
+      ]
+    }
+  },
+  "upgrade": {
+    "strategy_version": 1,
+    "remove_only_ownership": "known_generated",
+    "unknown_files": "preserve-or-archive",
+    "supported_legacy_versions": [
+      "pre-tasks-first",
+      "tasks-first-without-contract-manifest",
+      "current-v1"
+    ],
+    "action_classes": {
+      "preserve": "keep user-authored hooks, ignored reference material, private operations state, secrets, and local env files unchanged",
+      "archive": "move user-authored legacy workflow documents or checklists into archive/research surfaces before refresh",
+      "reconfigure": "merge managed config defaults without overwriting explicit repo overrides",
+      "remove": "delete only workflow-contract actions marked ownership=known_generated"
+    },
+    "cleanup": {
+      "source": ".ai/harness/workflow-contract.json#migrations.upgrade.actions",
+      "remove_only_ownership": "known_generated",
+      "unknown_files": "preserve-or-archive",
+      "custom_hooks": "preserve",
+      "ignored_reference_material": "preserve",
+      "local_operations_state": "preserve",
+      "local_secrets": "preserve"
+    },
+    "reporting": {
+      "inspector_field": "upgrade_plan",
+      "dry_run_required": true
+    }
   },
   "prds": {
     "dir": "plans/prds",
@@ -48,51 +284,6 @@
     "mode": "external-ignored",
     "commit_policy": "never commit _ref contents",
     "rule": "use _ref as an occasional ignored external reference checkout cache for upstream/source comparison only; refresh from external sources instead of editing as product code; when it influences a decision, cite the source repo plus commit/tag and path in tasks/notes/ or docs/researches/"
-  },
-  "operations": {
-    "dir": "deploy",
-    "private_dir": "_ops",
-    "tracked": [
-      "deploy/README.md",
-      "deploy/scripts/",
-      "deploy/submissions/",
-      "deploy/runbooks/",
-      "deploy/release-checklists/",
-      "deploy/sql/",
-      "deploy/*.md",
-      "deploy/env/.env.example"
-    ],
-    "ignored": [
-      "_ops/"
-    ],
-    "rule": "commit deployment runbooks, submission materials, release checklists, helper scripts, ordered SQL files, and env examples under deploy/; keep deploy SQL in deploy/sql/ with 4-digit ascending prefixes; keep keys, tokens, real env values, provider state, artifacts, logs, and scratch files in ignored _ops/ only"
-  },
-  "context": {
-    "profile": "stable-root-progressive-subdir",
-    "map_file": ".ai/context/context-map.json",
-    "capability_registry_file": ".ai/context/capabilities.json",
-    "capability_resolver": "repo-harness run capability-resolver",
-    "capability_config": "repo-harness run capability-config",
-    "capability_match_rule": "longest-prefix; same-length ambiguity fails",
-    "functional_block_selector": {
-      "script": "repo-harness run select-agent-context-blocks",
-      "config_file": ".ai/context/agent-context-blocks.txt",
-      "env": "REPO_HARNESS_CONTEXT_BLOCKS",
-      "rule": "compatibility selector; capability registry is the source of truth"
-    }
-  },
-  "harness": {
-    "policy_file": ".ai/harness/policy.json",
-    "checks_file": ".ai/harness/checks/latest.json",
-    "handoff_file": ".ai/harness/handoff/current.md",
-    "failure_log_file": ".ai/harness/failures/latest.jsonl",
-    "events_file": ".ai/harness/events.jsonl",
-    "architecture_events_file": ".ai/harness/architecture/events.jsonl",
-    "runs_dir": ".ai/harness/runs",
-    "helper_runtime_dir": ".ai/harness/scripts",
-    "helper_compat_dir": "scripts",
-    "helper_source": "package",
-    "helper_package_dir": "assets/templates/helpers"
   },
   "architecture": {
     "index_file": "docs/architecture/index.md",
@@ -201,87 +392,10 @@
     "fallback_runner": "main-thread trace",
     "main_thread_policy": "if spawning is not worthwhile or no sidecar runner is callable, perform bounded research in the main thread; consume conclusions and evidence paths, not raw logs"
   },
-  "documentation": {
-    "profile": "minimal-agentic",
-    "reference_source": "user-level-runtime-docs",
-    "reference_stub_marker": "<!-- repo-harness: reference-config-stub v1 -->",
-    "reference_resolver": "repo-harness docs path <doc-id>",
-    "required": [
-      "docs/spec.md",
-      "docs/architecture/index.md"
-    ],
-    "on_demand": [
-      "docs/brief.md",
-      "docs/tech-stack.md",
-      "docs/decisions.md",
-      "docs/architecture.md",
-      "docs/packages.md"
-    ],
-    "reference_configs": [
-      "harness-overview.md",
-      "agentic-development-flow.md",
-      "external-tooling.md",
-      "sprint-contracts.md",
-      "heartbeat-triage.md",
-      "handoff-protocol.md",
-      "document-generation.md",
-      "global-working-rules.md"
-    ],
-    "rule": "create optional docs only when the agent has concrete repo evidence or the user asks; docs/reference-configs contains repo-local pointer stubs while full generic runtime docs live in the user-level/package repo-harness install"
-  },
   "lsp_profiles": {
     "default": "typescript-lsp",
     "selection": "functional-block-first",
     "rule": "use block-level LSP/tooling hints before broad repo assumptions"
-  },
-  "worktree_strategy": {
-    "auto_on_conflict": true,
-    "auto_for_contract_tasks": true,
-    "branch_prefix": "codex/",
-    "base_branch": "main",
-    "worktree_dir_template": "../{{repo}}-wt-{{slug}}",
-    "start_script": "repo-harness run contract-worktree start --plan <plan-file>",
-    "finish_script": "repo-harness run contract-worktree finish",
-    "cleanup_script": "repo-harness run contract-worktree cleanup --slug <slug>",
-    "conflict_signals": [
-      "dirty_worktree_overlaps_task_files",
-      "current_branch_not_suitable_for_task",
-      "existing_changes_unrelated_but_would_block_review",
-      "task_requires_clean_validation_surface"
-    ],
-    "validation_route": "waza:check",
-    "merge_back": {
-      "target": "main",
-      "requires_clean_check": true,
-      "preserve_unrelated_changes": true
-    }
-  },
-  "upgrade": {
-    "strategy_version": 1,
-    "supported_legacy_versions": [
-      "pre-tasks-first",
-      "tasks-first-without-contract-manifest",
-      "current-v1"
-    ],
-    "action_classes": {
-      "preserve": "keep user-authored hooks, ignored reference material, private operations state, secrets, and local env files unchanged",
-      "archive": "move user-authored legacy workflow documents or checklists into archive/research surfaces before refresh",
-      "reconfigure": "merge managed config defaults without overwriting explicit repo overrides",
-      "remove": "delete only workflow-contract actions marked ownership=known_generated"
-    },
-    "cleanup": {
-      "source": ".ai/harness/workflow-contract.json#migrations.upgrade.actions",
-      "remove_only_ownership": "known_generated",
-      "unknown_files": "preserve-or-archive",
-      "custom_hooks": "preserve",
-      "ignored_reference_material": "preserve",
-      "local_operations_state": "preserve",
-      "local_secrets": "preserve"
-    },
-    "reporting": {
-      "inspector_field": "upgrade_plan",
-      "dry_run_required": true
-    }
   },
   "profiles": {
     "orchestration": "shared-long-running-harness",
@@ -289,100 +403,6 @@
     "handoff": "artifact-aware",
     "recovery": "hybrid",
     "state": "file-backed"
-  },
-  "external_tooling": {
-    "routing": {
-      "complex": "gstack",
-      "simple": "waza",
-      "knowledge": "gbrain"
-    },
-    "hosts": [
-      "claude-code",
-      "codex"
-    ],
-    "mode": "agent-readiness-required",
-    "detection": "init-migrate",
-    "readiness_gate": "repo-harness run check-agent-tooling --host codex --strict-readiness",
-    "waza": {
-      "source_repo": "tw93/Waza",
-      "source_url": "https://github.com/tw93/Waza.git",
-      "managed_skills": [
-        "think",
-        "hunt",
-        "check",
-        "health"
-      ],
-      "primary_host": "codex",
-      "codex_primary_path": "~/.codex/skills",
-      "staging_cache_path": "~/.agents/skills",
-      "sync_mode": "stage-upstream-then-copy-to-codex",
-      "host_drift_policy": "report-per-host-version-staging-and-upstream-drift"
-    },
-    "codex_automation_profile": {
-      "required_skills": [
-        "health",
-        "check",
-        "mermaid"
-      ],
-      "optional_skills": [],
-      "mode": "codex-runtime-reference",
-      "source": "~/.codex/skills",
-      "routes": {
-        "workflow_health": "waza:health",
-        "review_gate": "waza:check",
-        "architecture_diagram": "mermaid"
-      },
-      "vendoring_policy": "do-not-vendor-skill-body"
-    },
-    "diagram_design": {
-      "skill_name": "mermaid",
-      "primary_host": "codex",
-      "codex_primary_path": "~/.codex/skills/mermaid",
-      "sync_mode": "external-installed-skill",
-      "vendoring_policy": "do-not-vendor"
-    },
-    "gbrain": {
-      "mcp": "candidate-disabled"
-    },
-    "codegraph": {
-      "package": "@colbymchenry/codegraph",
-      "primary_host": "both",
-      "install_mode": "target-aware-mcp",
-      "codex_config_path": "~/.codex/config.toml",
-      "claude_config_path": "~/.claude.json",
-      "index_dir": ".codegraph",
-      "readiness": "required-for-agent-code-navigation",
-      "hook_policy": "do-not-block-hooks",
-      "install_command": "bun add -g @colbymchenry/codegraph && repo-harness tools configure codegraph --target codex --location global",
-      "project_init_command": "codegraph init -i .",
-      "sync_command": "codegraph sync .",
-      "vendoring_policy": "do-not-add-package-dependency"
-    }
-  },
-  "agentic_development": {
-    "routing": {
-      "product_discovery": "gstack:office-hours",
-      "complex_engineering_plan": "gstack:plan-eng-review",
-      "design_plan": "gstack:plan-design-review",
-      "small_or_medium_plan": "waza:think",
-      "bug_or_regression": "waza:hunt",
-      "post_implementation_review": "waza:check"
-    },
-    "due_diligence": {
-      "levels": [
-        "P1_GLOBAL_ARCHITECTURE",
-        "P2_DATA_FLOW_TRACE",
-        "P3_DESIGN_DECISION"
-      ],
-      "explicit_report_required_for": [
-        "plan-eng-review",
-        "hunt",
-        "risky_refactor",
-        "deployment",
-        "auth_payment_data",
-        "shared_contract"
-      ]
-    }
   },
   "enforcement": {
     "worktree_guard": "warn-by-default",

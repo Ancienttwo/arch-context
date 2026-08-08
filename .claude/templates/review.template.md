@@ -7,15 +7,18 @@
 > **Checks File**: {{CHECKS_FILE}}
 > **Last Updated**: {{TIMESTAMP}}
 > **Recommendation**: fail
+> **Review Rubric Version**: 2
+> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject Scope**: normalized-final-content
+> **Reviewed Target Revision**: pending
 
 ## Human Review Card
 
 - Verdict: pending
-- Change type: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run
+- Change type: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | frontend
 - Intended files changed:
 - Actual files changed:
 - Commands passed:
-- External acceptance: unavailable
 - Residual risks:
 - Reviewer action required: inspect diff and card
 - Rollback:
@@ -35,17 +38,29 @@
 - Implementation notes reviewed:
 - Run snapshot:
 
-## External Acceptance Advice
+## Manual Check Evidence
 
-> **External Acceptance**: unavailable
-> **External Reviewer**:
-> **External Source**:
-> **External Started**:
-> **External Completed**:
+Copy each non-built-in contract `manual_checks` requirement exactly. Check it only after
+the observation is complete and replace the placeholder with concrete command output,
+screenshot/artifact path, or reviewer observation.
 
-- P1 blockers:
-- P2 advisories:
-- Acceptance checklist:
+- [ ] Exact manual_checks requirement
+  - Evidence: concrete observation, command output, screenshot path, or reviewer note
+
+## Acceptance Receipt Projection
+
+> **Disposition**: unavailable
+> **Reviewer**: unavailable
+> **Source**: unavailable
+> **Actor**: not-applicable
+> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject Scope**: normalized-final-content
+> **Reviewed Target Revision**: pending
+> **Verification Evidence SHA256**: pending
+> **Issued At**: pending
+
+- Summary: No AcceptanceReceipt has been recorded.
+- Findings: none
 
 ## Behavior Diff Notes
 
