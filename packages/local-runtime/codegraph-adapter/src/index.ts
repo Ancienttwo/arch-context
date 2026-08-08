@@ -29,6 +29,8 @@ const DEFAULT_CODEGRAPH_BINARY = "codegraph";
 const requireFromAdapter = createRequire(import.meta.url);
 
 type MutableEnv = Record<string, string | undefined>;
+const CODEGRAPH_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
+const CODEGRAPH_QUERY_TIMEOUT_MS = 30_000;
 
 export function disableCodeGraphTelemetryByDefault(env: MutableEnv = process.env): string {
   env[CODEGRAPH_TELEMETRY_ENV] ??= CODEGRAPH_TELEMETRY_DISABLED_VALUE;
@@ -129,7 +131,9 @@ export class CodeGraphCliProvider implements CodeGraphProvider {
       return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
         cwd: this.workspaceRoot,
         encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"]
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
+        timeout: CODEGRAPH_QUERY_TIMEOUT_MS
       });
     } catch (error) {
       const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
@@ -909,6 +913,7 @@ function runProjectionCodeGraph(
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
       timeout
     });
   } catch (error) {
@@ -1040,7 +1045,9 @@ function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[]):
     return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
       cwd: workspaceRoot,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: CODEGRAPH_OUTPUT_MAX_BYTES,
+      timeout: CODEGRAPH_QUERY_TIMEOUT_MS
     });
   } catch (error) {
     const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
