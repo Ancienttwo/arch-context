@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR0 [arch-context] projection protocol, renderer v2 identity, and Mermaid release validator
 
-> **Status**: Done
+> **Status**: Archived
 > **Created**: 20260808-1504
 > **Slug**: axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator
 > **Planning Source**: repo-harness-sprint
