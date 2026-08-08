@@ -1,4 +1,4 @@
-import type { Json } from "./schema";
+import { canonicalize, type Json } from "./schema";
 
 export interface ValidationIssue {
   path: string;
@@ -23,9 +23,13 @@ type JsonSchema = {
   oneOf?: JsonSchema[];
   anyOf?: JsonSchema[];
   allOf?: JsonSchema[];
+  if?: JsonSchema;
+  then?: JsonSchema;
+  else?: JsonSchema;
   not?: JsonSchema;
   additionalProperties?: boolean | JsonSchema;
   minItems?: number;
+  uniqueItems?: boolean;
   minLength?: number;
   maxLength?: number;
   minimum?: number;
@@ -68,6 +72,12 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
     if (!matched) issues.push({ path, message: "expected at least one matching schema" });
   }
   for (const candidate of schema.allOf ?? []) visit(candidate, value, path, issues, root);
+  if (schema.if) {
+    const conditionIssues: ValidationIssue[] = [];
+    visit(schema.if, value, path, conditionIssues, root);
+    const branch = conditionIssues.length === 0 ? schema.then : schema.else;
+    if (branch) visit(branch, value, path, issues, root);
+  }
   if (schema.not) {
     const candidateIssues: ValidationIssue[] = [];
     visit(schema.not, value, path, candidateIssues, root);
@@ -100,6 +110,9 @@ function visit(schema: JsonSchema, value: Json, path: string, issues: Validation
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) {
       issues.push({ path, message: `expected at least ${schema.minItems} items` });
+    }
+    if (schema.uniqueItems && new Set(value.map(canonicalize)).size !== value.length) {
+      issues.push({ path, message: "expected unique items" });
     }
     if (schema.items) value.forEach((item, index) => visit(schema.items!, item, `${path}[${index}]`, issues, root));
   }

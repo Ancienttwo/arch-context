@@ -57,6 +57,15 @@ import {
 import { digestJson, errorEnvelope, okEnvelope, stableId, stableYaml, type Json } from "../src/schema";
 import { validateJsonSchema } from "../src/validator";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
+import {
+  ARCHCTX_FEATURES,
+  archctxCapabilities,
+  projectionRequestInvariantIssues,
+  projectionResultReceiptDigest,
+  projectionResultInvariantIssues,
+  type ProjectionRequestV1,
+  type ProjectionResultV1
+} from "../src/projection";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 
@@ -116,6 +125,10 @@ const schemaByFixture: Record<string, string> = {
   "architecture-candidate-delta": "schemas/runtime/architecture-candidate-delta.schema.json",
   "architecture-candidate-delta-policy": "schemas/runtime/architecture-candidate-delta-policy.schema.json",
   "projection-target": "schemas/runtime/projection-target.schema.json",
+  "projection-request": "schemas/runtime/projection-request.schema.json",
+  "projection-result": "schemas/runtime/projection-result.schema.json",
+  "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
+  "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
   "evidence-binding": "schemas/runtime/evidence-binding.schema.json",
   "recommendation-run": "schemas/runtime/recommendation-run.schema.json",
@@ -148,6 +161,45 @@ const schemaByFixture: Record<string, string> = {
   "org-runner-identity": "schemas/cloud/org-runner-identity.schema.json",
   "entitlement": "schemas/cloud/entitlement.schema.json"
 };
+
+test("projection request contract enforces adopt binding, unique arrays, and canonical ordering", () => {
+  const schema = readJson("schemas/runtime/projection-request.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  expect(projectionRequestInvariantIssues(valid)).toEqual([]);
+  expect(validateJsonSchema(schema as any, { ...valid, mode: "adopt" } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...valid, adoptionPlanId: "adoption_plan.example" } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...valid, changedPaths: [valid.changedPaths[0], valid.changedPaths[0]] } as any).valid).toBe(false);
+  expect(projectionRequestInvariantIssues({ ...valid, changedPaths: [...valid.changedPaths].reverse() })).toEqual([
+    "changedPaths must be sorted and unique"
+  ]);
+});
+
+test("JSON schema uniqueItems compares canonical JSON rather than object insertion order", () => {
+  const result = validateJsonSchema(
+    { type: "array", uniqueItems: true } as any,
+    [{ a: 1, b: 2 }, { b: 2, a: 1 }]
+  );
+  expect(result.valid).toBe(false);
+});
+
+test("projection result contract denies raw bodies and keeps deterministic result arrays", () => {
+  const schema = readJson("schemas/runtime/projection-result.schema.json");
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV1;
+  expect(projectionResultInvariantIssues(valid)).toEqual([]);
+  const withRawBody = {
+    ...valid,
+    files: [{ ...valid.files[0], body: "forbidden raw projection body" }]
+  };
+  expect(validateJsonSchema(schema as any, withRawBody as any).valid).toBe(false);
+  const { receiptDigest, ...receiptPayload } = valid;
+  expect(projectionResultReceiptDigest(receiptPayload)).toBe(receiptDigest);
+});
+
+test("capabilities fixture is the exact static handshake advertised by contracts", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
+  expect(archctxCapabilities("0.3.0")).toEqual(fixture);
+  expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
+});
 
 function readJson(path: string): Json {
   return JSON.parse(readFileSync(join(root, path), "utf8"));

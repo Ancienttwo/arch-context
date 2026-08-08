@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "archcontext.projection-request/v1",
+  "requestId": "projection_request.repo_main",
+  "profile": "repo-harness/v1",
+  "mode": "apply",
+  "targets": ["agent-context", "architecture-docs"],
+  "changedPaths": ["packages/core/src/index.ts", "src/cli/main.ts"],
+  "expected": {
+    "repositoryId": "repo.example",
+    "workspaceId": "ws.example",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

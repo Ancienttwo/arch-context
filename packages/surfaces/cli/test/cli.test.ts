@@ -12,9 +12,9 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, stableYaml } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, stableYaml } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
-import { resolveCommandExitCode, runCli } from "../src/main";
+import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
 const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
@@ -69,6 +69,15 @@ function isIgnorableWindowsCleanupError(error: unknown): boolean {
   const code = (error as { code?: string }).code;
   return process.platform === "win32" && (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY");
 }
+
+test("CLI capabilities exposes the exact local protocol and renderer handshake without daemon access", async () => {
+  const capabilities = runCapabilitiesCommand();
+  expect(capabilities).toEqual(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION));
+  expect(capabilities.features).toEqual([...ARCHCTX_FEATURES]);
+  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v2");
+  const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
+  expect(JSON.parse(processOutput)).toEqual(capabilities);
+});
 
 async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
   for (const path of [localStorePath, `${localStorePath}-wal`, `${localStorePath}-shm`]) {

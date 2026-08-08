@@ -132,6 +132,67 @@ describe("fg6 npm release dry-run", () => {
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("dry-run must be verified ok");
   });
+
+  test("rejects Mermaid or Chromium tooling from the production manifest and tarball", () => {
+    const stageDir = createReleaseStageFixture();
+    const recording = buildNpmReleaseDryRunReadback({
+      rootManifest: {
+        name: "archcontext",
+        version: "0.1.5",
+        engines: { node: ">=24 <26" },
+        dependencies: { "@colbymchenry/codegraph": "1.4.0" }
+      },
+      packageJson: {
+        name: "archctx",
+        version: "0.1.5",
+        private: false,
+        homepage: "https://archcontext.repoharness.com",
+        license: "Apache-2.0",
+        engines: { node: ">=24 <26" },
+        bin: { archctx: "./bin/archctx.mjs" },
+        dependencies: {
+          "@colbymchenry/codegraph": "1.4.0",
+          "@mermaid-js/mermaid-cli": "11.16.0",
+          "@node-rs/jieba": "^2.0.1"
+        },
+        publishConfig: { registry: "https://registry.npmjs.org/" }
+      },
+      stageDir,
+      artifactDir: "/tmp/archctx-artifact",
+      pack: [{ filename: "archctx-0.1.5.tgz" }],
+      publishDryRun: {
+        id: "archctx@0.1.5",
+        name: "archctx",
+        version: "0.1.5",
+        filename: "archctx-0.1.5.tgz",
+        files: [
+          { path: "bin/archctx.mjs" },
+          { path: "assets/catalog.yaml" },
+          { path: "assets/practices/s6-expanded.yaml" },
+          { path: "assets/profiles/s6.yaml" },
+          { path: "assets/sources/core.yaml" },
+          { path: "assets/sources/s6.yaml" },
+          { path: "schemas/repo/practices/practice.schema.json" },
+          { path: "schemas/repo/practices/practice-source.schema.json" },
+          { path: "schemas/repo/practices/practice-profile.schema.json" },
+          { path: "schemas/runtime/practice-catalog-manifest.schema.json" },
+          { path: "schemas/runtime/practice-match.schema.json" },
+          { path: "schemas/runtime/practice-guidance.schema.json" },
+          { path: "schemas/runtime/practice-checkpoint.schema.json" },
+          { path: "NOTICE.md" },
+          { path: "README.md" },
+          { path: "vendor/chromium/chrome-headless" },
+          { path: "package.json" }
+        ]
+      },
+      generatedAt: "2026-06-22T00:00:00.000Z"
+    });
+
+    expect(recording.assertions.mermaidChromiumRuntimeAbsent).toBe(false);
+    expect(recording.assertions.mermaidChromiumFilesAbsent).toBe(false);
+    expect(inspectNpmReleaseDryRun(recording).ok).toBe(false);
+    rmSync(stageDir, { recursive: true, force: true });
+  });
 });
 
 function createReleaseStageFixture() {

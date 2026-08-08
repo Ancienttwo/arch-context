@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-result.schema.json",
+  "title": "ProjectionResultV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "requestId", "status", "inputSnapshot", "outputSnapshot", "affectedNodeIds", "files", "humanActions", "refreshSignals", "receiptDigest"],
+  "properties": {
+    "schemaVersion": { "const": "archcontext.projection-result/v1" },
+    "requestId": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["adoption-required", "applied", "blocked", "human-action-required", "noop", "permanent-failure", "planned", "retryable-failure"] },
+    "inputSnapshot": { "$ref": "#/$defs/snapshot" },
+    "outputSnapshot": { "$ref": "#/$defs/snapshot" },
+    "affectedNodeIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+    "humanActions": { "type": "array", "items": { "$ref": "#/$defs/humanAction" } },
+    "refreshSignals": { "type": "array", "items": { "$ref": "#/$defs/refreshSignal" } },
+    "receiptDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "nullableDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "workspaceId", "headSha", "worktreeDigest", "sourceTreeDigest", "modelDigest", "codeGraphDigest", "projectionInputDigest"],
+      "properties": {
+        "repositoryId": { "type": "string", "minLength": 1 },
+        "workspaceId": { "type": "string", "minLength": 1 },
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "$ref": "#/$defs/digest" },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "modelDigest": { "$ref": "#/$defs/digest" },
+        "codeGraphDigest": { "$ref": "#/$defs/digest" },
+        "projectionInputDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "action", "preimageDigest", "outputDigest"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "anyOf": [{ "pattern": "^/" }, { "pattern": "\\\\" }, { "pattern": "(^|/)\\.\\.(/|$)" }] }
+        },
+        "action": { "enum": ["create", "delete", "unchanged", "update"] },
+        "preimageDigest": { "$ref": "#/$defs/nullableDigest" },
+        "outputDigest": { "$ref": "#/$defs/nullableDigest" }
+      }
+    },
+    "humanAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode", "affectedNodeIds", "requestPayloadDigest"],
+      "properties": {
+        "reasonCode": { "enum": ["adoption-required", "manual-region-conflict", "target-collision", "unprovable-required-flow", "unresolved-major-change"] },
+        "affectedNodeIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "requestPayloadDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "digestSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelDigest", "sourceTreeDigest", "flowProofDigest", "projectionDigest"],
+      "properties": {
+        "modelDigest": { "$ref": "#/$defs/digest" },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "flowProofDigest": { "$ref": "#/$defs/digest" },
+        "projectionDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "refreshSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "signalId", "idempotencyKey", "mode", "repository", "worktree", "cause", "reasonCodes", "affectedNodeIds", "refreshTargets", "baseDigests", "resultingDigests", "projectionReceiptDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v1" },
+        "signalId": { "$ref": "#/$defs/digest" },
+        "idempotencyKey": { "$ref": "#/$defs/digest" },
+        "mode": { "enum": ["human-action-required", "refresh-required"] },
+        "repository": { "type": "object", "additionalProperties": false, "required": ["repositoryId"], "properties": { "repositoryId": { "type": "string", "minLength": 1 } } },
+        "worktree": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspaceId", "headSha", "worktreeDigest"],
+          "properties": {
+            "workspaceId": { "type": "string", "minLength": 1 },
+            "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+            "worktreeDigest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "cause": { "enum": ["accepted-semantic-delta", "unresolved-major-candidate", "verified-flow-proof-delta"] },
+        "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"] } },
+        "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "refreshTargets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["architecture-contract-context", "architecture-readiness", "architecture-request-index", "capability-context", "capability-index"] } },
+        "baseDigests": { "$ref": "#/$defs/digestSet" },
+        "resultingDigests": { "$ref": "#/$defs/digestSet" },
+        "projectionReceiptDigest": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

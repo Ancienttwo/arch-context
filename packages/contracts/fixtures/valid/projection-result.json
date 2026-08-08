@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "archcontext.projection-result/v1",
+  "requestId": "projection_request.repo_main",
+  "status": "applied",
+  "inputSnapshot": {
+    "repositoryId": "repo.example",
+    "workspaceId": "ws.example",
+    "headSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "worktreeDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "sourceTreeDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "modelDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "codeGraphDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+    "projectionInputDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+  },
+  "outputSnapshot": {
+    "repositoryId": "repo.example",
+    "workspaceId": "ws.example",
+    "headSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "worktreeDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+    "sourceTreeDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+    "modelDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+    "codeGraphDigest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "projectionInputDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "affectedNodeIds": ["capability.api"],
+  "files": [
+    {
+      "path": "docs/architecture/modules/api.md",
+      "action": "update",
+      "preimageDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "outputDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ],
+  "humanActions": [],
+  "refreshSignals": [],
+  "receiptDigest": "sha256:c32fa2cbb4950e8325c73d85a2924e092aeb2c444cf93317f9af2356ffeb142f"
+}

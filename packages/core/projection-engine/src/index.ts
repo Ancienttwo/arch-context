@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import {
+  AGENT_CONTEXT_RENDERER_VERSION as CONTRACT_AGENT_CONTEXT_RENDERER_VERSION,
+  ARCHITECTURE_DOCS_RENDERER_VERSION as CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION,
   PROJECTION_TARGET_SCHEMA_VERSION,
   digestJson,
   stableId,
@@ -135,7 +137,7 @@ export interface ArchitectureDocumentationProjectionPlan {
   notices: ArchitectureDocumentationProjectionNotice[];
 }
 
-export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v1" as const;
+export const ARCHITECTURE_DOCS_RENDERER_VERSION = CONTRACT_ARCHITECTURE_DOCS_RENDERER_VERSION;
 export const ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT:generated";
 export const ARCHITECTURE_DOCS_GENERATED_END_PREFIX = "<!-- END ARCHCONTEXT:generated";
 
@@ -1861,7 +1863,7 @@ function escapeRegExp(value: string): string {
 // import the strict `ProjectionTargetV1`/`ProjectionTargetType` TS union from
 // @archcontext/contracts, whose `packages/contracts/src` is out of scope for this change.
 
-export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
+export const AGENT_CONTEXT_RENDERER_VERSION = CONTRACT_AGENT_CONTEXT_RENDERER_VERSION;
 export const AGENT_CONTEXT_BEGIN_PREFIX = "<!-- BEGIN ARCHCONTEXT AGENT CONTEXT";
 export const AGENT_CONTEXT_END_PREFIX = "<!-- END ARCHCONTEXT AGENT CONTEXT";
 

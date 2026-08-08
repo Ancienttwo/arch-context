@@ -1,0 +1,215 @@
+import { digestJson, type Json } from "./schema";
+
+export const PROJECTION_REQUEST_SCHEMA_VERSION = "archcontext.projection-request/v1" as const;
+export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v1" as const;
+export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
+export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
+export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v2" as const;
+export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
+
+export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
+export const PROJECTION_TARGETS = ["agent-context", "architecture-docs"] as const;
+export const PROJECTION_RESULT_STATUSES = [
+  "adoption-required",
+  "applied",
+  "blocked",
+  "human-action-required",
+  "noop",
+  "permanent-failure",
+  "planned",
+  "retryable-failure"
+] as const;
+export const PROJECTION_HUMAN_ACTION_REASON_CODES = [
+  "adoption-required",
+  "manual-region-conflict",
+  "target-collision",
+  "unprovable-required-flow",
+  "unresolved-major-change"
+] as const;
+export const ARCHITECTURE_MAJOR_CHANGE_REASON_CODES = [
+  "constraint-changed",
+  "entrypoint-changed",
+  "interface-changed",
+  "lifecycle-changed",
+  "node-added",
+  "node-moved",
+  "node-removed",
+  "node-renamed",
+  "ownership-changed",
+  "relation-changed",
+  "responsibility-changed",
+  "risk-boundary-changed",
+  "verified-flow-proof-changed"
+] as const;
+export const ARCHITECTURE_REFRESH_TARGETS = [
+  "architecture-contract-context",
+  "architecture-readiness",
+  "architecture-request-index",
+  "capability-context",
+  "capability-index"
+] as const;
+export const ARCHCTX_FEATURES = [
+  "architecture-docs-renderer-v2",
+  "architecture-refresh-signal-v1",
+  "projection-protocol-v1"
+] as const;
+
+export type ProjectionMode = (typeof PROJECTION_MODES)[number];
+export type ProjectionTarget = (typeof PROJECTION_TARGETS)[number];
+export type ProjectionResultStatus = (typeof PROJECTION_RESULT_STATUSES)[number];
+export type ProjectionHumanActionReasonCode = (typeof PROJECTION_HUMAN_ACTION_REASON_CODES)[number];
+export type ArchitectureMajorChangeReasonCode = (typeof ARCHITECTURE_MAJOR_CHANGE_REASON_CODES)[number];
+export type ArchitectureRefreshTarget = (typeof ARCHITECTURE_REFRESH_TARGETS)[number];
+export type ArchctxFeature = (typeof ARCHCTX_FEATURES)[number];
+export type Sha256Digest = `sha256:${string}`;
+
+export interface ProjectionExpectedSnapshotV1 {
+  repositoryId: string;
+  workspaceId: string;
+  headSha: string;
+  worktreeDigest: Sha256Digest;
+}
+
+export interface ProjectionRequestV1 {
+  schemaVersion: typeof PROJECTION_REQUEST_SCHEMA_VERSION;
+  requestId: string;
+  profile: "repo-harness/v1";
+  mode: ProjectionMode;
+  targets: ProjectionTarget[];
+  changedPaths: string[];
+  expected: ProjectionExpectedSnapshotV1;
+  adoptionPlanId?: string;
+}
+
+export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
+  sourceTreeDigest: Sha256Digest;
+  modelDigest: Sha256Digest;
+  codeGraphDigest: Sha256Digest;
+  projectionInputDigest: Sha256Digest;
+}
+
+export interface ProjectionFileResultV1 {
+  path: string;
+  action: "create" | "delete" | "unchanged" | "update";
+  preimageDigest: Sha256Digest | null;
+  outputDigest: Sha256Digest | null;
+}
+
+export interface ProjectionHumanActionV1 {
+  reasonCode: ProjectionHumanActionReasonCode;
+  affectedNodeIds: string[];
+  requestPayloadDigest: Sha256Digest;
+}
+
+export interface ArchitectureDigestSetV1 {
+  modelDigest: Sha256Digest;
+  sourceTreeDigest: Sha256Digest;
+  flowProofDigest: Sha256Digest;
+  projectionDigest: Sha256Digest;
+}
+
+export interface ArchitectureRefreshSignalV1 {
+  schemaVersion: typeof ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION;
+  signalId: Sha256Digest;
+  idempotencyKey: Sha256Digest;
+  mode: "human-action-required" | "refresh-required";
+  repository: { repositoryId: string };
+  worktree: { workspaceId: string; headSha: string; worktreeDigest: Sha256Digest };
+  cause: "accepted-semantic-delta" | "unresolved-major-candidate" | "verified-flow-proof-delta";
+  reasonCodes: ArchitectureMajorChangeReasonCode[];
+  affectedNodeIds: string[];
+  refreshTargets: ArchitectureRefreshTarget[];
+  baseDigests: ArchitectureDigestSetV1;
+  resultingDigests: ArchitectureDigestSetV1;
+  projectionReceiptDigest: Sha256Digest;
+}
+
+export interface ProjectionResultV1 {
+  schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
+  requestId: string;
+  status: ProjectionResultStatus;
+  inputSnapshot: ProjectionSnapshotV1;
+  outputSnapshot: ProjectionSnapshotV1;
+  affectedNodeIds: string[];
+  files: ProjectionFileResultV1[];
+  humanActions: ProjectionHumanActionV1[];
+  refreshSignals: ArchitectureRefreshSignalV1[];
+  receiptDigest: Sha256Digest;
+}
+
+export interface ArchctxCapabilitiesV1 {
+  schemaVersion: typeof ARCHCTX_CAPABILITIES_SCHEMA_VERSION;
+  package: {
+    name: "archctx";
+    version: string;
+  };
+  protocols: {
+    projectionRequest: typeof PROJECTION_REQUEST_SCHEMA_VERSION;
+    projectionResult: typeof PROJECTION_RESULT_SCHEMA_VERSION;
+    architectureRefreshSignal: typeof ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION;
+  };
+  renderers: {
+    architectureDocs: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+    agentContext: typeof AGENT_CONTEXT_RENDERER_VERSION;
+  };
+  features: ArchctxFeature[];
+}
+
+export function archctxCapabilities(packageVersion: string): ArchctxCapabilitiesV1 {
+  return {
+    schemaVersion: ARCHCTX_CAPABILITIES_SCHEMA_VERSION,
+    package: { name: "archctx", version: packageVersion },
+    protocols: {
+      projectionRequest: PROJECTION_REQUEST_SCHEMA_VERSION,
+      projectionResult: PROJECTION_RESULT_SCHEMA_VERSION,
+      architectureRefreshSignal: ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION
+    },
+    renderers: {
+      architectureDocs: ARCHITECTURE_DOCS_RENDERER_VERSION,
+      agentContext: AGENT_CONTEXT_RENDERER_VERSION
+    },
+    features: [...ARCHCTX_FEATURES]
+  };
+}
+
+export function projectionRequestInvariantIssues(input: ProjectionRequestV1): string[] {
+  const issues = [
+    ...sortedUniqueIssues("targets", input.targets),
+    ...sortedUniqueIssues("changedPaths", input.changedPaths)
+  ];
+  if (input.mode === "adopt" && !input.adoptionPlanId) issues.push("adoptionPlanId is required when mode=adopt");
+  if (input.mode !== "adopt" && input.adoptionPlanId !== undefined) issues.push("adoptionPlanId is only allowed when mode=adopt");
+  return issues;
+}
+
+export function projectionResultInvariantIssues(input: ProjectionResultV1): string[] {
+  const issues = [
+    ...sortedUniqueIssues("affectedNodeIds", input.affectedNodeIds),
+    ...sortedUniqueIssues("files.path", input.files.map((file) => file.path)),
+    ...sortedUniqueIssues("refreshSignals.signalId", input.refreshSignals.map((signal) => signal.signalId)),
+    ...input.humanActions.flatMap((action, index) => sortedUniqueIssues(`humanActions[${index}].affectedNodeIds`, action.affectedNodeIds)),
+    ...input.refreshSignals.flatMap((signal, index) => architectureRefreshSignalInvariantIssues(signal, `refreshSignals[${index}]`))
+  ];
+  if (input.inputSnapshot.repositoryId !== input.outputSnapshot.repositoryId) issues.push("outputSnapshot.repositoryId must match inputSnapshot.repositoryId");
+  if (input.inputSnapshot.workspaceId !== input.outputSnapshot.workspaceId) issues.push("outputSnapshot.workspaceId must match inputSnapshot.workspaceId");
+  return issues;
+}
+
+export function projectionResultReceiptDigest(input: Omit<ProjectionResultV1, "receiptDigest">): Sha256Digest {
+  return digestJson(input as unknown as Json) as Sha256Digest;
+}
+
+export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefreshSignalV1, prefix = "signal"): string[] {
+  return [
+    ...sortedUniqueIssues(`${prefix}.reasonCodes`, input.reasonCodes),
+    ...sortedUniqueIssues(`${prefix}.affectedNodeIds`, input.affectedNodeIds),
+    ...sortedUniqueIssues(`${prefix}.refreshTargets`, input.refreshTargets)
+  ];
+}
+
+function sortedUniqueIssues(label: string, values: readonly string[]): string[] {
+  const expected = [...new Set(values)].sort();
+  return expected.length === values.length && expected.every((value, index) => value === values[index])
+    ? []
+    : [`${label} must be sorted and unique`];
+}

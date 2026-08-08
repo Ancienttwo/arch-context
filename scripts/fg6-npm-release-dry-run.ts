@@ -111,6 +111,10 @@ export function buildNpmReleaseDryRunReadback(input: {
   const publish = dryRunEntries[0] ?? {};
   const publishFiles = readArray(publish.files).map(readRecord);
   const packageFiles = publishFiles.map((file) => String(file.path ?? ""));
+  const runtimePackageNames = [
+    ...Object.keys(readRecord(input.packageJson.dependencies)),
+    ...Object.keys(readRecord(input.packageJson.optionalDependencies))
+  ].map((name) => name.toLowerCase());
   const tarballName = String(packEntry.filename ?? publish.filename ?? "");
   const releaseAssets = inspectReleaseAssetStage(input.stageDir, packageFiles);
   const assertions = {
@@ -142,6 +146,8 @@ export function buildNpmReleaseDryRunReadback(input: {
       && releaseAssets.sourcesMissingLicense.length === 0,
     context7OptionalNotRequired: !Object.keys(readRecord(input.packageJson.dependencies)).some((name) => name.toLowerCase().includes("context7"))
       && !Object.keys(readRecord(input.packageJson.optionalDependencies)).some((name) => name.toLowerCase().includes("context7")),
+    mermaidChromiumRuntimeAbsent: !runtimePackageNames.some(isMermaidOrBrowserPackage),
+    mermaidChromiumFilesAbsent: !packageFiles.some((path) => isMermaidOrBrowserPackage(path.toLowerCase())),
     packageContentsBounded: packageFiles.includes("bin/archctx.mjs")
       && !packageFiles.includes("bin/codegraph.mjs")
       && packageFiles.includes("README.md")
@@ -189,6 +195,14 @@ export function buildNpmReleaseDryRunReadback(input: {
     assertions,
     failures
   };
+}
+
+function isMermaidOrBrowserPackage(value: string): boolean {
+  return value.includes("mermaid")
+    || value.includes("puppeteer")
+    || value.includes("playwright")
+    || value.includes("chromium")
+    || value.includes("chrome-headless");
 }
 
 export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; failures: string[] } {

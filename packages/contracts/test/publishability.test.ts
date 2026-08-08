@@ -35,6 +35,11 @@ describe("@archcontext/contracts publishability", () => {
     const files = entry.files.map((file) => file.path).sort();
 
     expect(files).toContain("package.json");
+    expect(files).toContain("src/projection.ts");
+    expect(files).toContain("fixtures/valid/projection-request.json");
+    expect(files).toContain("fixtures/valid/projection-result.json");
+    expect(files).toContain("fixtures/valid/architecture-refresh-signal.json");
+    expect(files).toContain("fixtures/valid/archctx-capabilities.json");
     expect(files.some((file) => file.startsWith("src/"))).toBe(true);
     expect(files.some((file) => file.startsWith("fixtures/valid/"))).toBe(true);
     expect(files.some((file) => file.startsWith("test/"))).toBe(false);
