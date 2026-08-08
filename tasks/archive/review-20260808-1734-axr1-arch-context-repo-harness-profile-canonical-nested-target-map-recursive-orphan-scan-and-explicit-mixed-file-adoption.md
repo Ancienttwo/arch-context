@@ -1,3 +1,9 @@
+> **Archived**: 2026-08-08 17:34
+> **Related Plan**: plans/archive/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
+> **Outcome**: Completed
+> **Lifecycle**: review
+> **Parent Run ID**: run-20260808-1734
+
 # Task Review: axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption
 
 > **Status**: Done

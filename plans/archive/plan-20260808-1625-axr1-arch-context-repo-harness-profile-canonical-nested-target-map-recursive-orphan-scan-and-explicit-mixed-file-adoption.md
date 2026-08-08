@@ -1,6 +1,6 @@
 # Plan: Sprint task: AXR1 [arch-context] repo-harness profile, canonical nested target map, recursive orphan scan, and explicit mixed-file adoption
 
-> **Status**: Done
+> **Status**: Archived
 > **Created**: 20260808-1625
 > **Slug**: axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption
 > **Planning Source**: repo-harness-sprint

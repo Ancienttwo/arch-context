@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-08-08T16:24:58+0800 -->
+<!-- updated_at: 2026-08-08T17:34:16+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: Idle
-> **Updated At**: 2026-08-08T16:24:58+0800
-> **Source Branch**: codex/axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator
-> **Source Commit**: f378bfa
+> **Updated At**: 2026-08-08T17:34:16+0800
+> **Source Branch**: codex/axr1-archive
+> **Source Commit**: bc94cd3
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -40,7 +40,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - (none)
 ## Handoff
 
-- Exact Next Step: Stage the completed module diff first; then run /check and let canonical workflow gates determine whether review, external acceptance, verification, or worktree finish is next. Command: /check
+- Exact Next Step: (none)
 
 ## Checks
 
@@ -51,16 +51,16 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md
- D tasks/contracts/20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.contract.md
- D tasks/notes/20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.notes.md
- D tasks/reviews/20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.review.md
+ D plans/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
+ D tasks/contracts/20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.contract.md
+ D tasks/notes/20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.notes.md
+ D tasks/reviews/20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260808-1504-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md
-?? tasks/archive/contract-20260808-1624-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md
-?? tasks/archive/notes-20260808-1624-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md
-?? tasks/archive/review-20260808-1624-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md
-?? tasks/archive/todo-20260808-1624-axr0-arch-context-projection-protocol-renderer-v2-identity-and-mermaid-release-validator.md
+?? plans/archive/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
+?? tasks/archive/contract-20260808-1734-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
+?? tasks/archive/notes-20260808-1734-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
+?? tasks/archive/review-20260808-1734-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
+?? tasks/archive/todo-20260808-1734-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
 ```
 
 ## Source Artifacts
