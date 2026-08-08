@@ -8,9 +8,14 @@ import {
   type Json
 } from "@archcontext/contracts";
 import {
+  assertArchitectureProjectionVerifiedAgainst,
   loadArchitectureDocumentationInputs,
-  renderArchitectureDocumentationProjection
+  loadCapabilitySourceScaleSignals,
+  renderArchitectureDocumentationProjection,
+  type ArchitectureProjectionVerifiedAgainst
 } from "@archcontext/surfaces/renderer";
+import { loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
+import { loadCapabilitySourceChangesSinceStamps } from "@archcontext/local-runtime/runtime-daemon";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const DEFAULT_OUT = "docs/verification/architecture-ledger-al9-doc-projections-readback.json";
@@ -93,6 +98,10 @@ function currentRepoProjectionReadback() {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    verifiedAgainst: projectionVerifiedAgainst(REPO_ROOT),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(REPO_ROOT, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(REPO_ROOT, loaded.model),
+    ...loadCapabilityCodeGraphProjectionInputs(REPO_ROOT, loaded.model),
     sourceDigest
   });
   const projectionManifest = JSON.parse(readFileSync(resolve(REPO_ROOT, "docs/architecture/.projection-manifest.json"), "utf8"));
@@ -198,9 +207,21 @@ function ambiguousOwnershipIsRejected(root: string): boolean {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: withoutMarker,
+    verifiedAgainst: projectionVerifiedAgainst(root),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: projectionSourceDigest(loaded)
   });
   return plan.rejected.some((diff) => diff.path === generatedDiagramPath && diff.reasonCode === "projection-ambiguous-ownership");
+}
+
+/** Fail-closed Git provenance for the projection under readback; no placeholder branch/commit. */
+function projectionVerifiedAgainst(root: string): ArchitectureProjectionVerifiedAgainst {
+  const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const committedAt = execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  return assertArchitectureProjectionVerifiedAgainst({ branch: branch === "HEAD" ? "detached" : branch, commit, committedAt });
 }
 
 function runCli(root: string, env: NodeJS.ProcessEnv, args: string[]) {

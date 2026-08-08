@@ -15,7 +15,8 @@ import {
   assertAllowedArchContextPath,
   evaluateArchitectureCandidateDeltaPolicy,
   evaluateChangeSetPaths,
-  validateCompatibilityContract
+  validateCompatibilityContract,
+  type ArchContextPathScope
 } from "../src/index";
 
 describe("@archcontext/core/policy-engine", () => {
@@ -64,6 +65,68 @@ describe("@archcontext/core/policy-engine", () => {
       rmSync(root, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
     }
+  });
+
+  describe("agent-context scoped widening", () => {
+    const scoped = (...paths: string[]): ArchContextPathScope => ({
+      operation: "agent-context",
+      agentContextPaths: new Set(paths)
+    });
+
+    test("widens only for the agent-context operation, and only for the derived path set", () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-policy-agent-context-"));
+      const target = "packages/core/policy-engine/CLAUDE.md";
+      try {
+        // No scope at all, and the default operation, stay on the base allowlist.
+        expect(() => assertAllowedArchContextPath(root, target)).toThrow("Path is outside ArchContext write allowlist");
+        expect(() => assertAllowedArchContextPath(root, target, { operation: "default", agentContextPaths: new Set([target]) }))
+          .toThrow("Path is outside ArchContext write allowlist");
+        // Scoped, and inside the derived set: allowed.
+        expect(() => assertAllowedArchContextPath(root, target, scoped(target))).not.toThrow();
+        // Scoped, but outside the derived set: still denied.
+        expect(() => assertAllowedArchContextPath(root, "packages/core/changeset-engine/CLAUDE.md", scoped(target)))
+          .toThrow("Path is outside ArchContext write allowlist");
+        // The base allowlist is untouched by a scope.
+        expect(evaluateChangeSetPaths(root, ["src/app.ts"], scoped(target))[0].id).toBe("path-denied:src/app.ts");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    test("never widens the repository-root contract files, nor a neighbour that merely sits in the same directory", () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-policy-agent-context-guard-"));
+      try {
+        // Even a derivation that wrongly yields the repo-root routing contract cannot write it.
+        expect(() => assertAllowedArchContextPath(root, "CLAUDE.md", scoped("CLAUDE.md")))
+          .toThrow("Path is outside ArchContext write allowlist");
+        expect(() => assertAllowedArchContextPath(root, "AGENTS.md", scoped("AGENTS.md")))
+          .toThrow("Path is outside ArchContext write allowlist");
+        // A scoped set that names a non-contract file in an allowed directory is still denied.
+        expect(() => assertAllowedArchContextPath(root, "packages/core/policy-engine/NOTES.md", scoped("packages/core/policy-engine/NOTES.md")))
+          .toThrow("Path is outside ArchContext write allowlist");
+        expect(() => assertAllowedArchContextPath(root, "packages/core/policy-engine/CLAUDE.md.bak", scoped("packages/core/policy-engine/CLAUDE.md.bak")))
+          .toThrow("Path is outside ArchContext write allowlist");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    test("a scoped path still fails the symlink escape check", () => {
+      const root = mkdtempSync(join(tmpdir(), "archctx-policy-agent-context-symlink-"));
+      const outside = mkdtempSync(join(tmpdir(), "archctx-policy-agent-context-outside-"));
+      const target = "packages/core/policy-engine/CLAUDE.md";
+      try {
+        mkdirSync(join(root, "packages/core"), { recursive: true });
+        symlinkSync(outside, join(root, "packages/core/policy-engine"), "dir");
+        expect(() => assertAllowedArchContextPath(root, target, scoped(target)))
+          .toThrow("Path escapes repository through symlink");
+        expect(() => assertAllowedArchContextPath(root, "../escape/CLAUDE.md", scoped("../escape/CLAUDE.md")))
+          .toThrow("Repository path");
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
   });
 
   test("classifies candidate architecture deltas before ChangeSet promotion", () => {

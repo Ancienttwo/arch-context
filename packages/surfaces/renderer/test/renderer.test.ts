@@ -23,6 +23,17 @@ const model: NativeModel = {
   ]
 };
 
+// Fail-closed Git provenance required by renderArchitectureDocumentationProjection.
+const verifiedAgainst = { branch: "main", commit: "7415329", committedAt: "2026-08-08T00:00:00Z" };
+const sourceScaleSignals: never[] = [];
+// No node in this fixture declares source.include/entrypoints, so the P1/P2 diagram inputs are
+// empty measurements rather than missing ones.
+const importGraphs: never[] = [];
+const entrypointCallGraphs: never[] = [];
+// No node declares source.include either, so no covered source change is possible and the stamp
+// lifecycle needs no measurement.
+const sourceChangesSinceStamp: never[] = [];
+
 describe("@archcontext/surfaces/renderer", () => {
   test("normalizes model and exports deterministic Mermaid projection", () => {
     const first = exportMermaidModel(model);
@@ -67,6 +78,11 @@ describe("@archcontext/surfaces/renderer", () => {
   test("renders deterministic architecture documentation projection targets", () => {
     const sourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
     const first = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -74,6 +90,11 @@ describe("@archcontext/surfaces/renderer", () => {
       timeline: [{ eventId: "architecture_event.test", timestamp: "2026-06-26T00:00:00.000Z", title: "Added payment module", affectedSubjects: ["module.payment"] }]
     });
     const second = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model: { nodes: [...model.nodes].reverse(), relations: [...model.relations].reverse() },
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -97,12 +118,17 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(first.files.find((file) => file.path === "docs/architecture/index.md")?.body).toContain("BEGIN ARCHCONTEXT:generated");
     expect(first.files.find((file) => file.path.endsWith("architecture.structurizr.json"))?.body).toContain("archcontext.structurizr-export/v1");
     expect(first.files.find((file) => file.path.endsWith("architecture.likec4"))?.body).toContain("specification");
-    expect(first.files.find((file) => file.path.endsWith("module-payment.md"))?.body).toContain("Outgoing Relations");
+    expect(first.files.find((file) => file.path.endsWith("module-payment.md"))?.body).toContain("### 1.4 依賴邊界");
   });
 
   test("preserves human-authored regions and detects projection drift classes", () => {
     const sourceDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
     const initial = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -114,6 +140,11 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(initial.drift.reasonCodes).toContain("projection-generated-region-missing");
 
     const clean = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -122,6 +153,11 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(clean.drift.ok).toBe(true);
 
     const stale = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model,
       sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -130,6 +166,11 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(stale.drift.reasonCodes).toContain("projection-generated-region-stale");
 
     const edited = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",
@@ -144,6 +185,11 @@ describe("@archcontext/surfaces/renderer", () => {
     expect(edited.drift.reasonCodes).toContain("projection-generated-region-manually-edited");
 
     const orphaned = renderArchitectureDocumentationProjection({
+      verifiedAgainst,
+      sourceChangesSinceStamp,
+      sourceScaleSignals,
+      importGraphs,
+      entrypointCallGraphs,
       model,
       sourceDigest,
       generatedAt: "2026-06-26T00:00:00.000Z",

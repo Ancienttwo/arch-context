@@ -300,6 +300,106 @@ describe("@archcontext/core/changeset-engine", () => {
     })).toThrow("architecture-candidate-delta-agent-proposal-requires-deterministic-validation");
   });
 
+  describe("render_agent_context write scope", () => {
+    const agentContextPath = "packages/core/projection-engine/CLAUDE.md";
+
+    function scopedEngine(journal?: ChangeSetJournalPort): ChangeSetEngine {
+      return new ChangeSetEngine({
+        modelStore: new YamlModelStore(),
+        projection: { planGeneratedProjection },
+        journal,
+        agentContextScope: { derive: () => new Set([agentContextPath]) }
+      });
+    }
+
+    test("allows the derived path only under render_agent_context, never under render_projection", () => {
+      const engine = scopedEngine();
+      const base = { headSha: "abc", worktreeDigest: digest, modelDigest: digest };
+      const reason = { taskSessionId: "task.agent-context" };
+      const projectionFiles = [{ path: agentContextPath, expectedHash: "missing", body: "x\n" }];
+
+      const scoped = engine.plan({
+        id: "changeset.agent-context",
+        base,
+        reason,
+        operations: [{ op: "render_agent_context", expectedHash: "missing", projectionFiles }]
+      });
+      expect(engine.preview("/tmp/repo", scoped)).toMatchObject({ allowed: true, paths: [agentContextPath] });
+
+      // Same path, wrong operation kind: the widening belongs to the operation, not to the draft.
+      const misKinded = engine.plan({
+        id: "changeset.agent-context-mis-kinded",
+        base,
+        reason,
+        operations: [{ op: "render_projection", expectedHash: "missing", projectionFiles }]
+      });
+      const preview = engine.preview("/tmp/repo", misKinded);
+      expect(preview.allowed).toBe(false);
+      expect(preview.findings[0]).toContain("Path is outside ArchContext write allowlist");
+
+      // A draft that mixes a legitimate widening with a mis-kinded one is denied as a whole.
+      const mixed = engine.plan({
+        id: "changeset.agent-context-mixed",
+        base,
+        reason,
+        operations: [
+          { op: "render_agent_context", expectedHash: "missing", projectionFiles },
+          { op: "render_projection", expectedHash: "missing", projectionFiles }
+        ]
+      });
+      expect(engine.preview("/tmp/repo", mixed).allowed).toBe(false);
+
+      // Without a scope port the widening does not exist at all.
+      const unscoped = yamlChangeSetEngine();
+      expect(unscoped.preview("/tmp/repo", unscoped.plan({
+        id: "changeset.agent-context-unscoped",
+        base,
+        reason,
+        operations: [{ op: "render_agent_context", expectedHash: "missing", projectionFiles }]
+      })).allowed).toBe(false);
+    });
+
+    test("apply writes the scoped path and refuses any other operation aimed at it", async () => {
+      const modelRoot = tempModelRoot();
+      try {
+        const journal = new RecordingChangeSetJournal();
+        const engine = scopedEngine(journal);
+        const base = { headSha: "abc", worktreeDigest: digest, modelDigest: digest };
+        const reason = { taskSessionId: "task.agent-context" };
+
+        await engine.apply(modelRoot, engine.approve(engine.plan({
+          id: "changeset.agent-context-apply",
+          base,
+          reason,
+          operations: [{
+            op: "render_agent_context",
+            expectedHash: "missing",
+            projectionFiles: [{ path: agentContextPath, expectedHash: "missing", body: "# Agent Context\n" }]
+          }]
+        })));
+        expect(readFileSync(join(modelRoot, agentContextPath), "utf8")).toBe("# Agent Context\n");
+        expect(journal.records[0].files[0]).toMatchObject({ path: agentContextPath, operation: "render_agent_context" });
+
+        // A delete aimed at the same file is a different operation kind, so the scope does not
+        // cover it: the file survives.
+        const deletion = engine.approve(engine.plan({
+          id: "changeset.agent-context-delete",
+          base,
+          reason,
+          operations: [{
+            op: "delete_entity",
+            path: agentContextPath,
+            expectedHash: digestJson({ body: "# Agent Context\n" } as any)
+          }]
+        }));
+        await expect(engine.apply(modelRoot, deletion)).rejects.toThrow("Path is outside ArchContext write allowlist");
+        expect(existsSync(join(modelRoot, agentContextPath))).toBe(true);
+      } finally {
+        rmSync(modelRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
   test("applies approved changes and rebuilds generated projection", async () => {
     const modelRoot = tempModelRoot();
     try {

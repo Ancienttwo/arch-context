@@ -4,13 +4,14 @@ import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, ope
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AgentJobV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, ReviewChallengeV2 } from "@archcontext/contracts";
+import type { AgentJobV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
 import { completeRuntimeStateRecovery, defaultLocalStorePath, inspectLegacyLocalStoreMigration, inspectRuntimeStateRecovery, migrateLegacyLocalStoreIfNeeded, recoverRuntimeStateTarget, runtimeStatePaths, runtimeStateRecoveryWorktreeDigest } from "@archcontext/local-runtime/local-store-sqlite";
 import { findRepositoryRoot, readHeadSha } from "@archcontext/local-runtime/git-adapter";
+import { loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
 import {
   ArchctxRuntimeRpcServer,
   AUDIT_RUN_DEFAULT_TIMEOUT_MS,
@@ -20,6 +21,7 @@ import {
   createStartedProductionDaemon,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
+  loadCapabilitySourceChangesSinceStamps,
   readRuntimeRpcConnectionFile,
   recoverStaleDaemonControlFiles,
   runtimeRpcCompatibilityIssue,
@@ -34,11 +36,17 @@ import { exportLikeC4Model, importLikeC4InitialModel } from "@archcontext/surfac
 import { exportStructurizrWorkspace, importStructurizrInitialModel } from "@archcontext/surfaces/adapter-structurizr";
 import { runStdioMcpLoop } from "@archcontext/surfaces/mcp-local";
 import {
+  assertArchitectureProjectionVerifiedAgainst,
   exportMermaidModel,
+  loadAgentContextProjectionFiles,
   loadArchitectureDocumentationInputs,
+  loadCapabilitySourceScaleSignals,
   loadNativeModelFromArchContext,
+  renderAgentContextProjection,
   renderArchitectureDocumentationProjection,
-  resolveArchitectureOwnerForPath
+  resolveArchitectureOwnerForPath,
+  type ArchitectureDocumentationProjectionNotice,
+  type ArchitectureProjectionVerifiedAgainst
 } from "@archcontext/surfaces/renderer";
 
 const [, , command, ...args] = process.argv;
@@ -310,6 +318,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "docs":
       return runDocsCommand(args, cwd, await runtime());
+    case "agent-context":
+      return runAgentContextProjectionCommand(args, cwd, await runtime());
     case "practices":
       return runPracticesCommand(args, cwd, await runtime());
     case "checkpoint":
@@ -928,7 +938,8 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       targetCount: projection.plan.targets.length,
       fileCount: projection.plan.files.length,
       drift: projection.plan.drift,
-      rejected: projection.plan.rejected
+      rejected: projection.plan.rejected,
+      notices: projection.plan.notices
     } as unknown as Json);
   }
   if (subcommand === "clean") {
@@ -954,11 +965,12 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
   if (!plan.ok) return plan;
   if (subcommand === "apply") {
     const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(root);
-    return daemon.applyUpdate(root, {
+    const applied = await daemon.applyUpdate(root, {
       id: changeSetId,
       approved: args.includes("--approved"),
       expectedWorktreeDigest
     });
+    return withProjectionNotices(applied, projection.plan.notices);
   }
   return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
     schemaVersion: "archcontext.docs-projection-change-set/v1",
@@ -968,10 +980,25 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
     targetCount: projection.plan.targets.length,
     fileCount: projection.files.length,
     drift: projection.plan.drift,
+    notices: projection.plan.notices,
     manifestPath: projection.manifest.path,
     draft: (plan.data as any).draft,
     preview: (plan.data as any).preview
   } as unknown as Json);
+}
+
+/**
+ * Carries the renderer's non-blocking notices onto the `apply` envelope, which otherwise comes
+ * straight from the daemon and would swallow them. A re-stamp the renderer could not corroborate
+ * (rebased or missing stamp commit) must be visible on the surface that wrote the files, not only
+ * on `plan`.
+ */
+function withProjectionNotices(envelope: JsonEnvelope, notices: ArchitectureDocumentationProjectionNotice[]): JsonEnvelope {
+  if (notices.length === 0 || !envelope.ok) return envelope;
+  return {
+    ...envelope,
+    data: { ...(envelope.data as Record<string, Json>), notices: notices as unknown as Json }
+  };
 }
 
 function buildArchitectureDocsProjection(root: string, generatedAt: string) {
@@ -980,10 +1007,16 @@ function buildArchitectureDocsProjection(root: string, generatedAt: string) {
     model: loaded.model,
     decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
   } as unknown as Json);
+  const codeGraphInputs = loadCapabilityCodeGraphProjectionInputs(root, loaded.model);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    verifiedAgainst: readArchitectureProjectionVerifiedAgainst(root),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    importGraphs: codeGraphInputs.importGraphs,
+    entrypointCallGraphs: codeGraphInputs.entrypointCallGraphs,
     sourceDigest,
     generatedAt
   });
@@ -991,6 +1024,84 @@ function buildArchitectureDocsProjection(root: string, generatedAt: string) {
     plan,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest]
+  };
+}
+
+/**
+ * `archctx agent-context plan|preview|apply` — the ADR-0043 capability contract files, projected
+ * through the same ChangeSet path as `docs`. `plan` and `preview` are pure reads: they render, plan
+ * the ChangeSet, and report it; only `apply` writes.
+ *
+ * Every write goes through `render_agent_context`, the one operation kind whose write allowlist is
+ * widened by the model-derived path set, so a plan can never reach a file the model does not
+ * designate — and a mistakenly-kinded operation carrying the same path is still denied.
+ */
+async function runAgentContextProjectionCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+  const subcommand = args[0] ?? "plan";
+  if (!["plan", "preview", "apply"].includes(subcommand)) {
+    return errorEnvelope("agent-context", "AC_SCHEMA_INVALID", "agent-context requires plan|preview|apply");
+  }
+  const channel = `agent-context.${subcommand}`;
+  const root = findRepositoryRoot(cwd);
+  let projection: ReturnType<typeof buildAgentContextProjection>;
+  try {
+    projection = buildAgentContextProjection(root);
+  } catch (error) {
+    return errorEnvelope(channel, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+  }
+  const changeSetId = readFlag(args, "--id")
+    ?? `changeset.agent-context-${projection.sourceDigest.replace(/^sha256:/, "").slice(0, 16)}`;
+  const plan = await daemon.planUpdate(root, {
+    id: changeSetId,
+    reason: { taskSessionId: readFlag(args, "--task-session-id") ?? "task_agent_context_projection" },
+    operations: [{
+      op: "render_agent_context" as const,
+      expectedHash: "missing",
+      projectionFiles: projection.plan.files.map((file) => ({
+        path: file.path,
+        expectedHash: currentBodyHash(root, file.path),
+        body: file.body
+      }))
+    }]
+  });
+  if (!plan.ok) return plan;
+  if (subcommand === "apply") {
+    return daemon.applyUpdate(root, {
+      id: changeSetId,
+      approved: args.includes("--approved"),
+      expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest") ?? computeWorktreeDigest(root)
+    });
+  }
+  return okEnvelope(channel, {
+    schemaVersion: "archcontext.agent-context-projection-change-set/v1",
+    sourceDigest: projection.plan.sourceDigest,
+    rendererVersion: projection.plan.rendererVersion,
+    targetCount: projection.plan.targets.length,
+    fileCount: projection.plan.files.length,
+    targets: projection.plan.targets.map((target) => ({
+      targetId: target.targetId,
+      nodeId: target.scope.id,
+      path: target.path,
+      outputDigest: target.outputDigest
+    })),
+    draft: (plan.data as any).draft,
+    preview: (plan.data as any).preview
+  } as unknown as Json);
+}
+
+function buildAgentContextProjection(root: string) {
+  const model = loadNativeModelFromArchContext(root);
+  // Model-only digest: an ADR edit changes the architecture documentation projection, but it does
+  // not change what a capability's contract file says about that capability.
+  const sourceDigest = digestJson({ model } as unknown as Json);
+  return {
+    model,
+    sourceDigest,
+    plan: renderAgentContextProjection({
+      model,
+      sourceDigest,
+      existingFiles: loadAgentContextProjectionFiles(root, model)
+    })
   };
 }
 
@@ -3194,6 +3305,32 @@ function readCurrentBranch(root: string): string {
     return branch === "HEAD" ? "detached" : branch;
   } catch {
     return "unknown";
+  }
+}
+
+/**
+ * Git provenance stamped into the documentation projection. `readCurrentBranch`/`readHeadSha`
+ * return placeholder strings when the read fails; the projection validator rejects those, so an
+ * unreadable Git state surfaces as an error instead of a document claiming a fake commit.
+ */
+function readArchitectureProjectionVerifiedAgainst(root: string): ArchitectureProjectionVerifiedAgainst {
+  return assertArchitectureProjectionVerifiedAgainst({
+    branch: readCurrentBranch(root),
+    commit: readHeadSha(root),
+    committedAt: readHeadCommittedAt(root)
+  });
+}
+
+/** Committer date of HEAD (ISO 8601); an empty string here is rejected by the validator above. */
+function readHeadCommittedAt(root: string): string {
+  try {
+    return execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return "";
   }
 }
 
