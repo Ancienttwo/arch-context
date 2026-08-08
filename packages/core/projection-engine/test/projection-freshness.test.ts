@@ -76,7 +76,7 @@ describe("architecture projection freshness", () => {
         id: "capability.docs.runtime",
         kind: "capability",
         name: "Docs Runtime",
-        source: { include: ["packages/docs-runtime/**"] }
+        source: { include: ["packages/docs-runtime/**", "docs/architecture/**"] }
       }],
       relations: []
     };

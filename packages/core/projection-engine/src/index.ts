@@ -556,8 +556,10 @@ function architectureProjectionSemanticBaseline(body: string | undefined): Archi
 }
 
 export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel): string {
+  const agentContextOutputs = new Set(agentContextTargetPaths(model.nodes).map((target) => target.path));
   const files = loadCapabilitySourceFootprints(root, model)
     .flatMap((footprint) => footprint.files)
+    .filter((path) => path !== "docs/architecture" && !path.startsWith("docs/architecture/") && !agentContextOutputs.has(path))
     .filter((path, index, all) => all.indexOf(path) === index)
     .sort((left, right) => left.localeCompare(right));
   return digestJson(files.map((path) => ({
