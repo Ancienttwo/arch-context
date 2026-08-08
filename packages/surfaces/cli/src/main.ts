@@ -3,8 +3,8 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ReviewChallengeV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionRequestV1, ProjectionResultV1, ProjectionSnapshotV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -48,6 +48,7 @@ import {
   renderAgentContextProjection,
   renderArchitectureDocumentationProjection,
   resolveArchitectureOwnerForPath,
+  architectureDocumentationProjectionWorktreeDigest,
   type ArchitectureProjectionProfile,
   type ArchitectureMajorChangeClassificationV1,
   type ArchitectureDocumentationProjectionNotice,
@@ -263,6 +264,8 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     }
     case "status":
       return (await runtime()).runtimeStatus(cwd);
+    case "projection":
+      return runProjectionProtocolCommand(args, cwd, await runtime());
     case "repo": {
       const subcommand = args[0] ?? "list";
       if (subcommand === "add") {
@@ -511,7 +514,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         ok: true,
         requestId: "help",
         data: {
-          commands: ["capabilities", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
+          commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
           examples: ["archctx init --name MyApp", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<owner/repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
@@ -1235,6 +1238,242 @@ async function runArchitectureDocsAdoptionCommand(
     ...architectureAdoptionReceipt(adoption),
     apply: applied.data
   } as unknown as Json);
+}
+
+/**
+ * Stable cross-repository projection protocol. Unlike the human-oriented `docs` surface, this
+ * command accepts one ProjectionRequestV1 and returns one ProjectionResultV1. The request snapshot
+ * is checked before any ChangeSet is planned, and every successful response is validated against
+ * the contracts package before it crosses the process boundary.
+ */
+async function runProjectionProtocolCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient): Promise<JsonEnvelope> {
+  if ((args[0] ?? "run") !== "run") {
+    return errorEnvelope("projection", "AC_SCHEMA_INVALID", "projection requires run --request-json <ProjectionRequestV1>");
+  }
+  const raw = readFlag(args, "--request-json");
+  if (!raw) return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", "projection run requires --request-json");
+
+  let request: ProjectionRequestV1;
+  try {
+    request = parseProjectionProtocolRequest(raw);
+  } catch (error) {
+    return errorEnvelope("projection.run", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+  }
+
+  const root = findRepositoryRoot(cwd);
+  const generatedAt = new Date(0).toISOString();
+  let projection: ReturnType<typeof buildArchitectureDocsProjection>;
+  try {
+    projection = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+    assertProjectionExpectedSnapshot(request, root, projection);
+  } catch (error) {
+    return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+  }
+
+  const blocked = projectionProtocolHumanStatus(request, projection);
+  if (blocked) return projectionProtocolEnvelope(request, projection, blocked);
+
+  if (request.mode === "adopt") {
+    const expectedWorktreeDigest = computeWorktreeDigest(root);
+    const adopted = await runArchitectureDocsAdoptionCommand([
+      "adopt",
+      "--profile", REPO_HARNESS_PROJECTION_PROFILE,
+      "--approved",
+      "--adoption-plan-id", request.adoptionPlanId!,
+      "--expected-worktree-digest", expectedWorktreeDigest,
+      "--task-session-id", request.requestId
+    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt);
+    if (!adopted.ok) return adopted;
+    let output: ReturnType<typeof buildArchitectureDocsProjection>;
+    try {
+      output = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+      if (!output.plan.drift.ok || output.plan.rejected.length > 0) {
+        return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection adoption did not reach the architecture-docs fixed point");
+      }
+    } catch (error) {
+      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    }
+    return projectionProtocolEnvelope(request, projection, "applied", output);
+  }
+
+  if (request.mode === "apply" && !projection.plan.drift.ok) {
+    const changeSetId = `changeset.docs-projection-${projection.plan.projectionDigest.replace(/^sha256:/, "").slice(0, 16)}`;
+    const planned = await daemon.planUpdate(root, {
+      id: changeSetId,
+      reason: { taskSessionId: request.requestId },
+      operations: [architectureDocsRenderProjectionOperation(root, projection.files)]
+    });
+    if (!planned.ok) return planned;
+    const applied = await daemon.applyUpdate(root, {
+      id: changeSetId,
+      approved: true,
+      expectedWorktreeDigest: computeWorktreeDigest(root)
+    });
+    if (!applied.ok) return applied;
+    return projectionProtocolEnvelope(request, projection, "applied");
+  }
+
+  const status: ProjectionResultV1["status"] = projection.plan.drift.ok ? "noop" : "planned";
+  return projectionProtocolEnvelope(request, projection, status);
+}
+
+function parseProjectionProtocolRequest(raw: string): ProjectionRequestV1 {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("projection request is not valid JSON");
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("projection request must be an object");
+  const input = value as Record<string, unknown>;
+  const expected = input.expected;
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) throw new Error("projection request.expected must be an object");
+  const snapshot = expected as Record<string, unknown>;
+  if (input.schemaVersion !== PROJECTION_REQUEST_SCHEMA_VERSION) throw new Error("projection request schemaVersion mismatch");
+  if (input.profile !== REPO_HARNESS_PROJECTION_PROFILE) throw new Error(`projection request profile must be ${REPO_HARNESS_PROJECTION_PROFILE}`);
+  if (typeof input.mode !== "string" || !(PROJECTION_MODES as readonly string[]).includes(input.mode)) throw new Error("projection request mode is invalid");
+  if (!Array.isArray(input.targets) || input.targets.some((target) => typeof target !== "string" || !(PROJECTION_TARGETS as readonly string[]).includes(target))) throw new Error("projection request targets are invalid");
+  if (!Array.isArray(input.changedPaths) || input.changedPaths.some((path) => typeof path !== "string" || !isRepoRelativePosixPath(path))) throw new Error("projection request changedPaths must be repository-relative POSIX paths");
+  if (typeof input.requestId !== "string") throw new Error("projection request requestId is required");
+  if (typeof snapshot.repositoryId !== "string" || typeof snapshot.workspaceId !== "string") throw new Error("projection request repository/workspace identity is required");
+  if (typeof snapshot.headSha !== "string" || !/^[a-f0-9]{40}$/.test(snapshot.headSha)) throw new Error("projection request expected.headSha is invalid");
+  if (typeof snapshot.worktreeDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(snapshot.worktreeDigest)) throw new Error("projection request expected.worktreeDigest is invalid");
+  const request = input as unknown as ProjectionRequestV1;
+  const issues = projectionRequestInvariantIssues(request);
+  if (issues.length > 0) throw new Error(`projection request invariant failed: ${issues.join("; ")}`);
+  return request;
+}
+
+function assertProjectionExpectedSnapshot(
+  request: ProjectionRequestV1,
+  root: string,
+  projection: ReturnType<typeof buildArchitectureDocsProjection>
+): void {
+  const workspaceId = `workspace.${digestJson({ root } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`;
+  const actual = {
+    repositoryId: repositoryFingerprint(root),
+    workspaceId,
+    headSha: readHeadSha(root),
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, projection.loaded.model)
+  };
+  for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
+    if (request.expected[field] !== actual[field]) throw new Error(`projection request expected snapshot mismatch: ${field}`);
+  }
+}
+
+function projectionProtocolHumanStatus(
+  request: ProjectionRequestV1,
+  projection: ReturnType<typeof buildArchitectureDocsProjection>
+): ProjectionResultV1["status"] | null {
+  const humanSignal = projection.plan.refreshSignals.some((signal) => signal.mode === "human-action-required");
+  const adoption = projection.plan.rejected.some((diff) => diff.reasonCode === "projection-adoption-required");
+  const otherRejection = projection.plan.rejected.some((diff) => diff.reasonCode !== "projection-adoption-required");
+  if (request.mode === "adopt") {
+    if (!adoption) return projection.plan.drift.ok ? "noop" : otherRejection || humanSignal ? "human-action-required" : null;
+    return otherRejection || humanSignal ? "human-action-required" : null;
+  }
+  if (adoption) return "adoption-required";
+  return otherRejection || humanSignal ? "human-action-required" : null;
+}
+
+function projectionProtocolEnvelope(
+  request: ProjectionRequestV1,
+  input: ReturnType<typeof buildArchitectureDocsProjection>,
+  status: ProjectionResultV1["status"],
+  output: ReturnType<typeof buildArchitectureDocsProjection> = input
+): JsonEnvelope {
+  const inputSnapshot = projectionProtocolSnapshot(request, input.plan.provenance);
+  const outputSnapshot = projectionProtocolSnapshot(request, output.plan.provenance);
+  const files = projectionProtocolFiles(input);
+  const affectedNodeIds = projectionProtocolAffectedNodes(input);
+  const requestPayloadDigest = digestJson(request as unknown as Json) as Sha256Digest;
+  const humanActions: ProjectionResultV1["humanActions"] = [];
+  if (status === "adoption-required") {
+    humanActions.push({ reasonCode: "adoption-required", affectedNodeIds, requestPayloadDigest });
+  } else if (status === "human-action-required") {
+    humanActions.push({
+      reasonCode: input.plan.refreshSignals.some((signal) => signal.mode === "human-action-required")
+        ? "unresolved-major-change"
+        : "manual-region-conflict",
+      affectedNodeIds,
+      requestPayloadDigest
+    });
+  }
+  const refreshSignals = [...output.plan.refreshSignals].sort((left, right) => left.signalId < right.signalId ? -1 : left.signalId > right.signalId ? 1 : 0);
+  const withoutReceipt: Omit<ProjectionResultV1, "receiptDigest"> = {
+    schemaVersion: "archcontext.projection-result/v1",
+    requestId: request.requestId,
+    status,
+    inputSnapshot,
+    outputSnapshot,
+    affectedNodeIds,
+    files,
+    humanActions,
+    refreshSignals
+  };
+  const receiptDigest = projectionResultReceiptDigest(withoutReceipt);
+  const result: ProjectionResultV1 = {
+    ...withoutReceipt,
+    refreshSignals: refreshSignals.map((signal) => ({ ...signal, projectionReceiptDigest: receiptDigest })),
+    receiptDigest
+  };
+  const issues = projectionResultInvariantIssues(result);
+  return issues.length === 0
+    ? okEnvelope("projection.run", result as unknown as Json)
+    : errorEnvelope("projection.run", "AC_SCHEMA_INVALID", `projection result invariant failed: ${issues.join("; ")}`);
+}
+
+function projectionProtocolSnapshot(
+  request: ProjectionRequestV1,
+  provenance: ArchitectureDocumentationProjectionProvenanceV1
+): ProjectionSnapshotV1 {
+  return {
+    ...request.expected,
+    baseHeadSha: provenance.baseHeadSha,
+    sourceTreeDigest: provenance.sourceTreeDigest as Sha256Digest,
+    modelDigest: provenance.modelDigest as Sha256Digest,
+    codeGraphDigest: provenance.codeGraphDigest as Sha256Digest,
+    indexedWorktreeDigest: provenance.indexedWorktreeDigest as Sha256Digest | null,
+    projectionInputDigest: provenance.projectionInputDigest as Sha256Digest,
+    rendererVersion: provenance.rendererVersion,
+    layoutVersion: provenance.layoutVersion,
+    generatedFrom: provenance.generatedFrom as ProjectionSnapshotV1["generatedFrom"]
+  };
+}
+
+function projectionProtocolFiles(
+  projection: ReturnType<typeof buildArchitectureDocsProjection>
+): ProjectionResultV1["files"] {
+  return projection.plan.drift.diffs.flatMap<ProjectionResultV1["files"][number]>((diff) => {
+    const expected = projectionDigestOrNull(diff.expectedDigest);
+    const actual = projectionDigestOrNull(diff.actualDigest);
+    if ((diff.reasonCode === "projection-file-missing" || diff.reasonCode === "projection-manifest-missing") && expected) {
+      return [{ path: diff.path, action: "create", preimageDigest: null, outputDigest: expected }];
+    }
+    if (diff.reasonCode === "projection-orphaned" && actual) {
+      return [{ path: diff.path, action: "delete", preimageDigest: actual, outputDigest: null }];
+    }
+    if (expected && actual && expected !== actual) {
+      return [{ path: diff.path, action: "update", preimageDigest: actual, outputDigest: expected }];
+    }
+    return [];
+  }).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+}
+
+function projectionProtocolAffectedNodes(
+  projection: ReturnType<typeof buildArchitectureDocsProjection>
+): string[] {
+  const targetNodes = new Map(projection.plan.targets.flatMap((target) =>
+    target.scope.kind === "entity" ? [[target.targetId, target.scope.id] as const] : []
+  ));
+  return [...new Set([
+    ...projection.plan.refreshSignals.flatMap((signal) => signal.affectedNodeIds),
+    ...projection.plan.drift.diffs.flatMap((diff) => diff.targetId && targetNodes.has(diff.targetId) ? [targetNodes.get(diff.targetId)!] : [])
+  ])].sort();
+}
+
+function projectionDigestOrNull(value: string | undefined): Sha256Digest | null {
+  return typeof value === "string" && /^sha256:[a-f0-9]{64}$/.test(value) ? value as Sha256Digest : null;
 }
 
 /**

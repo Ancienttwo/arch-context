@@ -12,7 +12,7 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, stableYaml } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionResultV1 } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -81,6 +81,71 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   const invalid = await runCli("capabilities", ["unexpected"], "/path/that/does/not/exist");
   expect("ok" in invalid && invalid.ok).toBe(false);
 });
+
+test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV1", async () => {
+  const root = createInitializedGitRepo();
+  try {
+    nodeRmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+    writeFileSync(join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"), stableYaml({
+      schemaVersion: "archcontext.node/v2",
+      id: "capability.runtime-harness.hook-adapters",
+      kind: "capability",
+      name: "Hook Adapters",
+      status: "active",
+      summary: "Routes runtime hook events.",
+      responsibilities: ["Own hook routing."],
+      source: { include: ["README.md"] },
+      extensions: { contractFiles: { agents: "AGENTS.md", claude: "CLAUDE.md" } }
+    }), "utf8");
+    mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+    writeFileSync(join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"), stableYaml({
+      schemaVersion: "archcontext.flow/v1",
+      id: "flow.hook-adapters",
+      capabilityId: "capability.runtime-harness.hook-adapters",
+      name: "Hook routing",
+      applicability: "not-applicable",
+      rationale: "The protocol fixture only validates the projection transport."
+    }), "utf8");
+    writeFileSync(join(root, "AGENTS.md"), "# Agent context\n", "utf8");
+    writeFileSync(join(root, "CLAUDE.md"), "# Agent context\n", "utf8");
+    git(root, "add", ".");
+    git(root, "commit", "-m", "projection protocol fixture");
+    const plan = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
+    expect(plan.ok, JSON.stringify(plan)).toBe(true);
+    const provenance = (plan.data as any).provenance;
+    const request = {
+      schemaVersion: "archcontext.projection-request/v1",
+      requestId: "projection_request.cli_contract",
+      profile: "repo-harness/v1",
+      mode: "check",
+      targets: ["architecture-docs"],
+      changedPaths: ["README.md"],
+      expected: {
+        repositoryId: repositoryFingerprint(root),
+        workspaceId: `workspace.${digestJson({ root: realpathSync(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+        headSha: gitOut(root, "rev-parse", "HEAD"),
+        worktreeDigest: provenance.worktreeDigest
+      }
+    };
+    const result = await runTestCli("projection", ["run", "--request-json", JSON.stringify(request)], root);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    const projection = result.data as unknown as ProjectionResultV1;
+    expect(projection.schemaVersion).toBe("archcontext.projection-result/v1");
+    expect(projection.requestId).toBe(request.requestId);
+    expect(projection.inputSnapshot).not.toBe(projection.outputSnapshot);
+    expect(projectionResultInvariantIssues(projection)).toEqual([]);
+
+    const stale = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+      ...request,
+      expected: { ...request.expected, worktreeDigest: `sha256:${"f".repeat(64)}` }
+    })], root);
+    expect(stale.ok).toBe(false);
+    expect((stale as any).error?.code).toBe("AC_PRECONDITION_FAILED");
+    expect((stale as any).error?.message).toContain("worktreeDigest");
+  } finally {
+    removeTempRoot(root);
+  }
+}, CLI_DOCS_TEST_TIMEOUT_MS);
 
 async function removeRuntimeSqliteFiles(localStorePath: string): Promise<void> {
   for (const path of [localStorePath, `${localStorePath}-wal`, `${localStorePath}-shm`]) {
