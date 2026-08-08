@@ -3,7 +3,9 @@ import {
   AGENT_CONTEXT_BEGIN_PREFIX,
   AGENT_CONTEXT_END_PREFIX,
   AGENT_CONTEXT_RENDERER_VERSION,
+  agentContextProjectionTargetPaths,
   primarySourceDirectoryFromInclude,
+  projectionOwnedPaths,
   renderAgentContextProjection,
   type NativeModel
 } from "../src/index";
@@ -176,6 +178,59 @@ describe("renderAgentContextProjection (ADR-0043)", () => {
     }));
     expect(() => renderAgentContextProjection({ model, sourceDigest, existingFiles: files }))
       .toThrow("agent-context-marker-output-digest-mismatch");
+  });
+
+  test("agentContextProjectionTargetPaths is the single derivation the renderer consumes", () => {
+    // Drift lock: the ChangeSet write scope is built from the derivation, the files come from the
+    // renderer. If these two ever disagree, either the write surface is too wide or a legitimate
+    // write is denied — so they are pinned to be the same set.
+    const derived = agentContextProjectionTargetPaths(model);
+    const rendered = renderAgentContextProjection({ model, sourceDigest }).files.map((file) => file.path);
+    expect([...new Set(derived.map((target) => target.path))].sort()).toEqual([...rendered].sort());
+    expect(derived).toContainEqual({
+      nodeId: "capability.projection.agent-context",
+      primarySourceDir: "packages/core/projection-engine",
+      path: "packages/core/projection-engine/CLAUDE.md"
+    });
+
+    // The same derivation is what freshness subtracts, alongside the documentation tree.
+    expect(projectionOwnedPaths(model)).toEqual([
+      "docs/architecture/**",
+      "packages/core/projection-engine/AGENTS.md",
+      "packages/core/projection-engine/CLAUDE.md",
+      "scripts/AGENTS.md",
+      "scripts/CLAUDE.md"
+    ]);
+  });
+
+  test("refuses to derive a target at the repository root", () => {
+    const rootGlob: NativeModel = {
+      nodes: [{ id: "capability.everything", kind: "capability", name: "Everything", source: { include: ["**/*.ts"] } }],
+      relations: []
+    };
+    expect(() => agentContextProjectionTargetPaths(rootGlob))
+      .toThrow("agent-context-primary-source-dir-is-repository-root: capability.everything");
+    expect(() => renderAgentContextProjection({ model: rootGlob, sourceDigest }))
+      .toThrow("agent-context-primary-source-dir-is-repository-root: capability.everything");
+    expect(() => projectionOwnedPaths(rootGlob))
+      .toThrow("agent-context-primary-source-dir-is-repository-root: capability.everything");
+  });
+
+  test("names the file, the node and both digests when a marker no longer matches its region", () => {
+    const initial = renderAgentContextProjection({ model, sourceDigest });
+    const files = initial.files.map(({ path, body }) => ({
+      path,
+      body: path === "scripts/CLAUDE.md" ? body.replace("Inspection Migration", "Tampered Content") : body
+    }));
+    try {
+      renderAgentContextProjection({ model, sourceDigest, existingFiles: files });
+      throw new Error("expected a digest mismatch");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain("agent-context-marker-output-digest-mismatch: scripts/CLAUDE.md");
+      expect(message).toContain("node capability.workflow-engine.inspection-migration");
+      expect(message).toMatch(/marker records sha256:[0-9a-f]{64}, region body digests to sha256:[0-9a-f]{64}/);
+    }
   });
 
   test("does not project non-capability nodes even when they declare a source", () => {

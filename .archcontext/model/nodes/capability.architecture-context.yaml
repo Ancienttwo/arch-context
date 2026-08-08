@@ -2,5 +2,13 @@ id: "capability.architecture-context"
 kind: "capability"
 name: "Architecture Context"
 schemaVersion: "archcontext.node/v1"
+source:
+  entrypoints:
+    - "packages/local-runtime/runtime-daemon/src/index.ts"
+    - "packages/surfaces/cli/src/main.ts"
+  exclude:
+    - "packages/**/test/**"
+  include:
+    - "packages/**/src/**"
 status: "active"
 summary: "Keeps product and architecture intent available to coding agents."

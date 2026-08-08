@@ -28,6 +28,7 @@ export interface CompleteTaskInput {
   practiceEnforcement?: PracticeEnforcementEvaluationV1;
   recommendations?: RecommendationV2[];
   projectionDrift?: CompleteTaskProjectionDriftInput;
+  projectionFreshness?: CompleteTaskProjectionFreshnessInput;
 }
 
 export interface CompleteTaskProjectionDriftInput {
@@ -41,6 +42,27 @@ export interface CompleteTaskProjectionDriftInput {
   driftCount: number;
   rejectedCount: number;
   reasonCodes: string[];
+}
+
+/**
+ * Structural mirror of `ArchitectureProjectionFreshnessEvaluation`
+ * (`@archcontext/core/projection-engine`). Declared here rather than imported for the same reason
+ * `CompleteTaskProjectionDriftInput` is: the review gate grades a measurement the caller already
+ * produced, and stays free of the projection renderer's filesystem module graph.
+ */
+export interface CompleteTaskProjectionFreshnessInput {
+  schemaVersion: "archcontext.projection-freshness/v1";
+  ok: boolean;
+  reasonCodes: string[];
+  detail: string;
+  changedPathCount: number;
+  staleNodes: {
+    nodeId: string;
+    verifiedAgainst: { branch: string; commit: string; committedAt: string };
+    changedPathCount: number;
+    changedPaths: string[];
+    changedPathsTruncated: boolean;
+  }[];
 }
 
 export interface ReviewArchitectureCandidateChangeSetInput {
@@ -126,7 +148,8 @@ export function completeTaskGate(input: CompleteTaskInput) {
   }));
   const recommendationGateFindings = staleContext ? [] : reviewRecommendationCompleteGateEligibility(input.recommendations ?? []);
   const projectionDriftFindings = staleContext ? [] : reviewProjectionDrift(input.projectionDrift);
-  findings.push(...practiceFindings, ...advisoryPracticeFindings, ...recommendationGateFindings, ...projectionDriftFindings);
+  const projectionFreshnessFindings = staleContext ? [] : reviewProjectionFreshness(input.projectionFreshness);
+  findings.push(...practiceFindings, ...advisoryPracticeFindings, ...recommendationGateFindings, ...projectionDriftFindings, ...projectionFreshnessFindings);
   const errors = findings.filter((finding) => finding.severity === "error").length;
   const warnings = findings.filter((finding) => finding.severity === "warning").length;
   const outcome = errors > 0 ? ("fail_action_required" as const) : warnings > 0 ? ("pass_with_warnings" as const) : ("pass" as const);
@@ -167,10 +190,12 @@ export function completeTaskGate(input: CompleteTaskInput) {
     extensions: {
       digest: digestJson(result as unknown as Json),
       ...(staleContext && input.practiceEnforcement !== undefined ? { practiceChecksSkipped: "stale-context" } : {}),
+      ...(staleContext && input.projectionFreshness !== undefined ? { projectionFreshnessChecksSkipped: "stale-context" } : {}),
       ...(nonBlockingPracticeViolations.length === 0 ? {} : { nonBlockingPracticeViolations }),
       ...(suppressedPracticeFindings.length === 0 ? {} : { suppressedPracticeFindings }),
       ...(recommendationGateFindings.length === 0 ? {} : { recommendationGateFindings }),
-      ...(projectionDriftFindings.length === 0 ? {} : { projectionDriftGate: input.projectionDrift })
+      ...(projectionDriftFindings.length === 0 ? {} : { projectionDriftGate: input.projectionDrift }),
+      ...(projectionFreshnessFindings.length === 0 ? {} : { projectionFreshnessGate: input.projectionFreshness })
     }
   };
 }
@@ -182,6 +207,24 @@ function reviewProjectionDrift(projectionDrift: CompleteTaskProjectionDriftInput
     type: "projection-drift",
     severity: "error",
     message: `Architecture documentation projection drift must be reconciled before completion: ${projectionDrift.reasonCodes.join(",") || "unknown"}`
+  }];
+}
+
+/**
+ * Second trigger source for the `stale-context` finding. The id is fixed by the published review
+ * policy contract (`review.failOn: stale-context`), so a stale projection blocks completion through
+ * the same policy switch as a stale task snapshot. `id` and `type` stay on that contract; the
+ * message and `extensions.projectionFreshnessGate` carry the discriminator. The HEAD-snapshot check
+ * above and this one never both fire: like every other downstream check, freshness is skipped while
+ * the task snapshot itself is stale.
+ */
+function reviewProjectionFreshness(projectionFreshness: CompleteTaskProjectionFreshnessInput | undefined): PolicyFinding[] {
+  if (!projectionFreshness || projectionFreshness.ok) return [];
+  return [{
+    id: "stale-context",
+    type: "stale-context",
+    severity: "error",
+    message: `Architecture documentation projection is stale against current HEAD (${projectionFreshness.reasonCodes.join(",") || "unknown"}): ${projectionFreshness.detail}`
   }];
 }
 

@@ -4,6 +4,17 @@ import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
+import {
+  loadCapabilitySourceFootprints,
+  nativeNodeSource,
+  type CapabilityEntrypointCall,
+  type CapabilityEntrypointCallGraph,
+  type CapabilityEntrypointSeed,
+  type CapabilityEntrypointTrace,
+  type CapabilityImportEdge,
+  type CapabilityImportGraph,
+  type NativeModel
+} from "@archcontext/core/projection-engine";
 import { digestJson, type ArchitectureCandidateDeltaV1, type ArchitectureRepositoryIdentityV1, type ArchitectureWorktreeIdentityV1, type CodeFactsPort, type CodeFactsSnapshot, type ImpactQuery, type Json, type NormalizedCodeContext, type NormalizedEdge, type NormalizedImpact, type NormalizedSymbol, type ObservedEvidence, type SourceSelector, type SymbolQuery, type WorkspaceRef } from "@archcontext/contracts";
 
 export const REQUIRED_CODEGRAPH_PACKAGE = "@colbymchenry/codegraph";
@@ -452,17 +463,25 @@ function importQuery(changedPaths: string[]): string | undefined {
 }
 
 function importEdgesFromQueryNodes(workspaceRoot: string, nodes: CodeGraphCliNode[]): NormalizedEdge[] {
+  return resolvedImportPairs(workspaceRoot, nodes).map((pair) => ({
+    source: fileSymbolId(pair.from),
+    target: fileSymbolId(pair.to),
+    kind: "imports" as const,
+    confidence: "high" as const
+  }));
+}
+
+/**
+ * Import nodes whose specifier resolved to a file that exists on disk. A specifier the resolver
+ * cannot pin to a real file (bare package name, workspace alias, missing target) yields no pair:
+ * the caller gets fewer edges, never a guessed one.
+ */
+function resolvedImportPairs(workspaceRoot: string, nodes: CodeGraphCliNode[]): { from: string; to: string }[] {
   return nodes
     .filter((node) => node.kind === "import")
     .flatMap((node) => {
       const target = resolveImportTarget(workspaceRoot, node.filePath, node.name);
-      if (!target) return [];
-      return [{
-        source: fileSymbolId(node.filePath),
-        target: fileSymbolId(target),
-        kind: "imports" as const,
-        confidence: "high" as const
-      }];
+      return target ? [{ from: node.filePath, to: target }] : [];
     });
 }
 
@@ -512,7 +531,7 @@ function parseNodeTrail(output: string, symbolId: string): { callers: Normalized
   return { callers: uniqueEdges(callers), callees: uniqueEdges(callees) };
 }
 
-function trailEntries(output: string, marker: string): { name: string; path: string }[] {
+function trailEntries(output: string, marker: string): { name: string; path: string; line: number }[] {
   const line = output.split("\n").find((candidate) => candidate.includes(marker));
   if (!line) return [];
   const rest = line.slice(line.indexOf(marker) + marker.length);
@@ -521,7 +540,7 @@ function trailEntries(output: string, marker: string): { name: string; path: str
     .flatMap((entry) => {
       const match = entry.match(/^(.+)\s\(([^()]+):(\d+)\)$/);
       if (!match) return [];
-      return [{ name: match[1].trim(), path: match[2].trim() }];
+      return [{ name: match[1].trim(), path: match[2].trim(), line: Number(match[3]) }];
     });
 }
 
@@ -562,6 +581,156 @@ function architectureDeltaTask(git: ArchitectureDeltaGitChangeMetadata): string 
     git.source,
     ...git.paths.flatMap((change) => [change.path, change.previousPath ?? ""])
   ].filter(Boolean)).join(" ");
+}
+
+// --- Capability documentation projection inputs (P1 import graph / P2 call graph) ---
+//
+// A thin read-only query surface over the same CodeGraph CLI the provider uses. It exists so the
+// documentation projection stays a pure function in @archcontext/core: the child process lives
+// here, the renderer only receives measured facts. Nothing below invents an edge — a specifier
+// the resolver cannot pin to a real file simply produces no edge.
+
+/** Import-node dump budget for one repository. Hitting it marks the graph `truncated`. */
+export const CODEGRAPH_IMPORT_NODE_QUERY_LIMIT = 5000;
+/** Top-level symbols traced per declared entrypoint. Overflow is reported, never silently cut. */
+export const CODEGRAPH_ENTRYPOINT_SEED_BUDGET = 5;
+/** Call-trail entries kept per seed symbol. Overflow is reported as a truncated trail. */
+export const CODEGRAPH_ENTRYPOINT_CALL_BUDGET = 8;
+
+const ENTRYPOINT_SEED_KINDS = new Set(["function", "method"]);
+
+export interface CapabilityCodeGraphProjectionInputs {
+  importGraphs: CapabilityImportGraph[];
+  entrypointCallGraphs: CapabilityEntrypointCallGraph[];
+}
+
+/** True when this workspace carries a CodeGraph index the CLI can be pointed at. */
+export function codeGraphIndexAvailable(workspaceRoot: string): boolean {
+  return existsSync(join(workspaceRoot, ".codegraph"));
+}
+
+/**
+ * Measures the P1 import graph and the P2 entrypoint call graph for every node that declares a
+ * source footprint or entrypoints.
+ *
+ * With no index present this returns empty sets on purpose: the renderer then annotates the P1
+ * section as "not generated" (an omitted diagram is honest), while a node that declares
+ * `source.entrypoints` makes `assertCapabilityEntrypointCallGraphs` throw — P2 is fail-closed and
+ * never degrades into an empty template.
+ */
+export function loadCapabilityCodeGraphProjectionInputs(
+  root: string,
+  model: NativeModel,
+  options: { binary?: string; importNodeLimit?: number } = {}
+): CapabilityCodeGraphProjectionInputs {
+  const footprints = loadCapabilitySourceFootprints(root, model);
+  const entrypointNodes = model.nodes
+    .map((node) => ({ nodeId: node.id, entrypoints: nativeNodeSource(node)?.entrypoints ?? [] }))
+    .filter((entry) => entry.entrypoints.length > 0)
+    .sort((left, right) => left.nodeId.localeCompare(right.nodeId));
+  if (footprints.length === 0 && entrypointNodes.length === 0) return { importGraphs: [], entrypointCallGraphs: [] };
+  if (!codeGraphIndexAvailable(root)) return { importGraphs: [], entrypointCallGraphs: [] };
+
+  disableCodeGraphTelemetryByDefault();
+  const binary = options.binary ?? DEFAULT_CODEGRAPH_BINARY;
+  const importGraphs = footprints.length > 0
+    ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT)
+    : [];
+  const entrypointCallGraphs = entrypointNodes.map((entry) => ({
+    nodeId: entry.nodeId,
+    entrypoints: entry.entrypoints.map((path) => capabilityEntrypointTrace(root, binary, path))
+  }));
+  return { importGraphs, entrypointCallGraphs };
+}
+
+function capabilityImportGraphs(
+  root: string,
+  binary: string,
+  footprints: { nodeId: string; files: string[] }[],
+  limit: number
+): CapabilityImportGraph[] {
+  const nodes = codeGraphImportNodes(root, binary, limit);
+  const pairs = resolvedImportPairs(root, nodes.imports);
+  return footprints.map((footprint) => {
+    const scope = new Set(footprint.files);
+    const edges = new Map<string, CapabilityImportEdge>();
+    for (const pair of pairs) {
+      if (!scope.has(pair.from)) continue;
+      edges.set(`${pair.from} ${pair.to}`, pair);
+    }
+    return {
+      nodeId: footprint.nodeId,
+      files: footprint.files,
+      edges: [...edges.values()].sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to)),
+      truncated: nodes.truncated
+    };
+  });
+}
+
+/**
+ * Dumps the repository's import nodes. `-k import` restricts the kind and every import node's
+ * text carries the `import` token, so one query enumerates the population; reaching the limit is
+ * reported rather than silently accepted as a complete answer.
+ */
+function codeGraphImportNodes(root: string, binary: string, limit: number): { imports: CodeGraphCliNode[]; truncated: boolean } {
+  const output = runCodeGraphCli(binary, root, ["query", "-p", root, "-j", "-l", String(limit), "-k", "import", "import"]);
+  const parsed = JSON.parse(output) as { node: CodeGraphCliNode }[];
+  return { imports: parsed.map(({ node }) => node), truncated: parsed.length >= limit };
+}
+
+function capabilityEntrypointTrace(root: string, binary: string, path: string): CapabilityEntrypointTrace {
+  const symbols = entrypointSeedSymbols(runCodeGraphCli(binary, root, ["node", "-p", root, "-f", path, "--symbols-only"]));
+  const budgeted = symbols.slice(0, CODEGRAPH_ENTRYPOINT_SEED_BUDGET);
+  const seeds: CapabilityEntrypointSeed[] = budgeted.map((symbol) => {
+    const trail = runCodeGraphCli(binary, root, ["node", "-p", root, symbol.name, "-f", path]);
+    const calls = entrypointTrailCalls(trail);
+    return {
+      symbol: symbol.name,
+      ...(symbol.line === undefined ? {} : { line: symbol.line }),
+      calls: calls.entries.slice(0, CODEGRAPH_ENTRYPOINT_CALL_BUDGET),
+      callsTruncated: calls.truncated || calls.entries.length > CODEGRAPH_ENTRYPOINT_CALL_BUDGET
+    };
+  });
+  return { path, seeds, seedsTruncated: symbols.length > budgeted.length };
+}
+
+/** Top-level function/method symbols from `codegraph node --symbols-only`, in declaration order. */
+function entrypointSeedSymbols(output: string): { name: string; line?: number }[] {
+  const out: { name: string; line?: number }[] = [];
+  for (const line of output.split("\n")) {
+    const head = /^-\s+`([^`]+)`\s+\(([a-z_]+)\)/.exec(line.trim());
+    if (!head || !ENTRYPOINT_SEED_KINDS.has(head[2])) continue;
+    const lineNumber = /—\s*:(\d+)\s*$/.exec(line);
+    out.push({ name: head[1], ...(lineNumber ? { line: Number(lineNumber[1]) } : {}) });
+  }
+  return out;
+}
+
+/** `Calls →` trail entries for one symbol; a `+N more` suffix marks the trail as truncated. */
+function entrypointTrailCalls(output: string): { entries: CapabilityEntrypointCall[]; truncated: boolean } {
+  const line = output.split("\n").find((candidate) => candidate.includes("**Calls →**"));
+  if (!line) return { entries: [], truncated: false };
+  const entries = trailEntries(output, "**Calls →**").map((entry) => ({
+    symbol: entry.name,
+    path: entry.path,
+    ...(entry.line === undefined ? {} : { line: entry.line })
+  }));
+  return { entries, truncated: /\+\s*\d+\s+more\s*$/.test(line.trimEnd()) };
+}
+
+function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[]): string {
+  const invocation = codeGraphCliInvocation(binary, workspaceRoot);
+  try {
+    return execFileSync(invocation.command, [...invocation.argsPrefix, ...args], {
+      cwd: workspaceRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    const stderr = error && typeof error === "object" && "stderr" in error ? String((error as { stderr?: unknown }).stderr ?? "") : "";
+    const message = stderr.trim() || (error instanceof Error ? error.message : String(error));
+    throw new Error(`CodeGraph CLI failed: ${message}`);
+  }
 }
 
 function parseExploreSymbols(output: string, maxSymbols: number): NormalizedSymbol[] {

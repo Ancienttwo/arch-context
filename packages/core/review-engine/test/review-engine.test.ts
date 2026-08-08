@@ -331,6 +331,98 @@ describe("@archcontext/core/review-engine", () => {
     expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
   });
 
+  test("a stale projection blocks complete_task through the stale-context failOn switch", () => {
+    const freshness = {
+      schemaVersion: "archcontext.projection-freshness/v1" as const,
+      ok: false,
+      reasonCodes: ["projection-source-changed-since-verified-commit"],
+      detail: "1 node(s) changed after their verified commit: capability.docs.projection(2@7415329)",
+      changedPathCount: 5,
+      staleNodes: [{
+        nodeId: "capability.docs.projection",
+        verifiedAgainst: { branch: "main", commit: "7415329", committedAt: "2026-08-08T09:30:00+08:00" },
+        changedPathCount: 2,
+        changedPaths: ["packages/core/projection-engine/src/index.ts"],
+        changedPathsTruncated: true
+      }]
+    };
+    const result = completeTaskGate({
+      taskSessionId: "task.projection-freshness",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      projectionFreshness: freshness
+    });
+
+    expect(result.result).toBe("fail_action_required");
+    const finding = result.findings.find((entry) => entry.id === "stale-context")!;
+    // The published policy contract keys on the finding id, so the id and type stay on
+    // `stale-context`; only the message and the gate extension name the trigger source.
+    expect(finding.type).toBe("stale-context");
+    expect(finding.severity).toBe("error");
+    expect(finding.message).toContain("projection-source-changed-since-verified-commit");
+    expect(finding.message).toContain("capability.docs.projection(2@7415329)");
+    expect(finding.message).not.toContain("Task snapshot HEAD");
+    expect(result.extensions.projectionFreshnessGate).toMatchObject({ ok: false, changedPathCount: 5 });
+    expect(validateJsonSchema(readJson("schemas/runtime/review-result.schema.json") as any, result as any).valid).toBe(true);
+  });
+
+  test("a fresh projection adds no finding and no gate extension", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.projection-freshness",
+      posture: "structural",
+      headSha: "abc",
+      currentHeadSha: "abc",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      projectionFreshness: {
+        schemaVersion: "archcontext.projection-freshness/v1",
+        ok: true,
+        reasonCodes: [],
+        detail: "no declared capability source changed since the commit its documentation was verified against",
+        changedPathCount: 3,
+        staleNodes: []
+      }
+    });
+
+    expect(result.result).toBe("pass");
+    expect(result.findings).toEqual([]);
+    expect(result.extensions.projectionFreshnessGate).toBeUndefined();
+  });
+
+  test("a stale task snapshot skips the projection freshness check and keeps the HEAD-mismatch semantics", () => {
+    const result = completeTaskGate({
+      taskSessionId: "task.projection-freshness",
+      posture: "structural",
+      headSha: "old",
+      currentHeadSha: "new",
+      worktreeDigest: sha,
+      modelDigest: sha,
+      codeFactsDigest: sha,
+      projectionFreshness: {
+        schemaVersion: "archcontext.projection-freshness/v1",
+        ok: false,
+        reasonCodes: ["projection-change-set-unavailable"],
+        detail: "changed-path set could not be measured: fatal: bad object 7415329",
+        changedPathCount: 0,
+        staleNodes: []
+      }
+    });
+
+    expect(result.findings).toEqual([{
+      id: "stale-context",
+      type: "stale-context",
+      severity: "error",
+      message: "Task snapshot HEAD does not match current HEAD."
+    }]);
+    expect(result.extensions.projectionFreshnessChecksSkipped).toBe("stale-context");
+    expect(result.extensions.projectionFreshnessGate).toBeUndefined();
+  });
+
   test("stale context suppresses practice enforcement conclusions", () => {
     const result = completeTaskGate({
       taskSessionId: "task.test",

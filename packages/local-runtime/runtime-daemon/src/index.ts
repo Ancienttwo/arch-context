@@ -79,13 +79,25 @@ import { evaluatePracticeEnforcement, loadPracticeEnforcementPolicy, loadPractic
 import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-engine";
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import {
+  agentContextProjectionTargetPaths,
   architectureDocumentationSourceDigest,
+  assertArchitectureProjectionVerifiedAgainst,
+  capabilitySourceChangesSinceStamps,
+  evaluateArchitectureProjectionFreshness,
   loadArchitectureDocumentationInputs,
-  renderArchitectureDocumentationProjection
+  loadArchitectureProjectionManifestVerifiedAgainst,
+  loadCapabilitySourceScaleSignals,
+  loadNativeModelFromArchContext,
+  renderArchitectureDocumentationProjection,
+  type ArchitectureProjectionManifestVerifiedAgainstReadback,
+  type CapabilitySourceChangeSet,
+  type CapabilitySourceChangeSetForCommit,
+  type CapabilitySourceChangeSinceStamp,
+  type NativeModel
 } from "@archcontext/core/projection-engine";
 import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
-import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput } from "@archcontext/core/review-engine";
-import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
+import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
+import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, loadCapabilityCodeGraphProjectionInputs, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
@@ -947,7 +959,16 @@ export class ArchctxDaemon {
     this.changeSetEngine = deps.changeSetEngine ?? new ChangeSetEngine({
       modelStore: this.modelStore,
       projection: { planGeneratedProjection },
-      journal: this.localStore
+      journal: this.localStore,
+      // The ChangeSet write scope for `render_agent_context` is derived from the model on disk at
+      // preview/apply time, never carried in the draft: the renderer and the write allowlist read
+      // the same single derivation, so a ChangeSet can only ever touch the contract files the
+      // current model actually designates.
+      agentContextScope: {
+        derive: (root) => new Set(
+          agentContextProjectionTargetPaths(loadNativeModelFromArchContext(root)).map((target) => target.path)
+        )
+      }
     });
     this.devicePrivateKeySigner = deps.devicePrivateKeySigner;
     this.investigationTransport = deps.investigationTransport ?? createNodeInvestigationTransport();
@@ -2351,6 +2372,7 @@ export class ArchctxDaemon {
       })
       : undefined;
     const projectionDrift = this.completeTaskProjectionDrift(session.workspace.root);
+    const projectionFreshness = this.completeTaskProjectionFreshness(session.workspace.root);
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
@@ -2360,6 +2382,7 @@ export class ArchctxDaemon {
       modelDigest: model.modelDigest,
       codeFactsDigest: codeFactsDigest(codeFacts),
       ...(projectionDrift === undefined ? {} : { projectionDrift }),
+      ...(projectionFreshness === undefined ? {} : { projectionFreshness }),
       ...(input.compatibilityContract === undefined ? {} : { compatibilityContract: input.compatibilityContract }),
       ...(input.compatibilityPathIntroduced === undefined ? {} : { compatibilityPathIntroduced: input.compatibilityPathIntroduced }),
       ...(input.cleanupRequired === undefined ? {} : { cleanupRequired: input.cleanupRequired }),
@@ -2373,6 +2396,10 @@ export class ArchctxDaemon {
 
   private completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
     return completeTaskProjectionDrift(root);
+  }
+
+  private completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
+    return completeTaskProjectionFreshness(root);
   }
 
   private manualExternalDocumentation(): ExternalDocumentationPort {
@@ -6313,6 +6340,47 @@ function architectureLedgerWriteAppendsEvents(mode: RuntimeArchitectureLedgerWri
   return mode === "dual" || mode === "ledger-with-projection";
 }
 
+/** Committer date of HEAD (ISO 8601); an unreadable value is rejected by the projection validator. */
+function readHeadCommittedAt(root: string): string {
+  try {
+    return execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Repo-relative paths that changed between `commit` and HEAD. Fails closed: a shallow clone, an
+ * unknown commit, or a missing Git binary returns `unavailable` with the Git error, so the
+ * freshness gate reports "could not measure" instead of reading an unmeasurable range as "nothing
+ * changed". Only committed history is compared — an uncommitted edit is work in progress, not a
+ * projection that fell behind a commit.
+ */
+function readChangedPathsSince(root: string, commit: string): CapabilitySourceChangeSet {
+  try {
+    const output = execFileSync("git", ["diff", "--name-only", `${commit}..HEAD`], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    return {
+      status: "measured",
+      paths: output.split("\n").map((line) => line.trim()).filter((line) => line.length > 0)
+    };
+  } catch (error) {
+    const stderr = (error as { stderr?: Buffer | string }).stderr;
+    const reason = (typeof stderr === "string" ? stderr : stderr?.toString("utf8"))?.trim();
+    return {
+      status: "unavailable",
+      reason: reason && reason.length > 0 ? reason : error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 function readCurrentBranch(root: string): string {
   try {
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -6573,10 +6641,20 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     model: loaded.model,
     decisions: loaded.decisions
   });
+  const codeGraphInputs = loadCapabilityCodeGraphProjectionInputs(root, loaded.model);
   const plan = renderArchitectureDocumentationProjection({
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({
+      branch: readCurrentBranch(root),
+      commit: readHeadSha(root),
+      committedAt: readHeadCommittedAt(root)
+    }),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    importGraphs: codeGraphInputs.importGraphs,
+    entrypointCallGraphs: codeGraphInputs.entrypointCallGraphs,
     sourceDigest
   });
   return {
@@ -6591,6 +6669,60 @@ function completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftI
     rejectedCount: plan.rejected.length,
     reasonCodes: [...new Set([...plan.drift.reasonCodes, ...plan.rejected.map((diff) => diff.reasonCode)])].sort()
   };
+}
+
+/**
+ * Freshness half of the projection gate: the drift check above asks whether the rendered files
+ * still match the model, this one asks whether the code those files describe moved after the commit
+ * the projection recorded. A repository with no projection manifest has no projection to keep
+ * fresh, which is why the missing-manifest case returns `undefined` here — the same short-circuit
+ * `completeTaskProjectionDrift` uses — rather than a blocking finding.
+ */
+function completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
+  const manifest = loadArchitectureProjectionManifestVerifiedAgainst(root);
+  if (manifest.status === "manifest-missing") return undefined;
+  return evaluateArchitectureProjectionFreshness({
+    model: loadNativeModelFromArchContext(root),
+    manifest,
+    changeSets: measureChangeSetsForManifestStamps(root, manifest)
+  });
+}
+
+/**
+ * Documents are stamped per target, so the diff baseline is per stamped commit: one
+ * `git diff <commit>..HEAD` per distinct commit recorded in the manifest, never a single
+ * repository-wide baseline that would judge a freshly re-verified document against an old one.
+ */
+function measureChangeSetsForManifestStamps(
+  root: string,
+  manifest: ArchitectureProjectionManifestVerifiedAgainstReadback
+): CapabilitySourceChangeSetForCommit[] {
+  if (manifest.status !== "present") return [];
+  return [...new Set(manifest.nodes
+    .map((entry) => (entry.verifiedAgainst as { commit?: unknown } | undefined)?.commit)
+    .filter((commit): commit is string => typeof commit === "string" && commit.length > 0))]
+    .sort((left, right) => left.localeCompare(right))
+    .map((commit) => ({ commit, changeSet: readChangedPathsSince(root, commit) }));
+}
+
+/**
+ * Stamp-lifecycle input for `renderArchitectureDocumentationProjection`: per node, did its declared
+ * source change after the commit its projected document is stamped with? The renderer keeps a stamp
+ * only where this says `unchanged`, so a covered source edit that happens to leave every rendered
+ * assertion identical still re-verifies the document instead of pinning it to a commit it was never
+ * checked against — which is what the freshness gate would otherwise be unable to clear.
+ *
+ * The Git read lives here because `@archcontext/core` does not spawn processes; every caller that
+ * renders the documentation projection (daemon drift gate, CLI `docs`, readback scripts) goes
+ * through this one function so the measurement can never differ between them.
+ */
+export function loadCapabilitySourceChangesSinceStamps(root: string, model: NativeModel): CapabilitySourceChangeSinceStamp[] {
+  const manifest = loadArchitectureProjectionManifestVerifiedAgainst(root);
+  return capabilitySourceChangesSinceStamps({
+    model,
+    manifest,
+    changeSets: measureChangeSetsForManifestStamps(root, manifest)
+  });
 }
 
 function validateRuntimeAgentProposalPlan(input: {

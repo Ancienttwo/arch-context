@@ -108,3 +108,11 @@ scripts/prepare-codex-handoff.sh
 scripts/codex-handoff-resume.sh
 scripts/repo-harness/
 # END: claude-runtime-temp
+
+# Repo-local override: this repo IS the archcontext product; .archcontext/ is
+# Git-visible architecture truth (see CLAUDE.md), only .local/ is runtime state.
+# Keep this block after the repo-harness managed block so a regenerated managed
+# block that ignores .archcontext/ wholesale cannot silently swallow model nodes.
+!.archcontext/
+!.archcontext/**
+.archcontext/.local/

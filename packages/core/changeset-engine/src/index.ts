@@ -14,10 +14,17 @@ import {
   type Json,
   type ModelStorePort
 } from "@archcontext/contracts";
-import { assertAllowedArchContextPath, evaluateChangeSetPaths } from "@archcontext/core/policy-engine";
+import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
-export type ChangeOperationKind = "create_entity" | "update_entity_fields" | "delete_entity" | "write_policy" | "write_waiver" | "render_projection";
+export type ChangeOperationKind =
+  | "create_entity"
+  | "update_entity_fields"
+  | "delete_entity"
+  | "write_policy"
+  | "write_waiver"
+  | "render_projection"
+  | "render_agent_context";
 
 export interface ChangeSetBase {
   headSha: string;
@@ -114,10 +121,21 @@ export interface ChangeSetJournalPort {
   recoverPendingChangeSets(): number;
 }
 
+/**
+ * Derives the exact repo paths a `render_agent_context` operation may write, from the model on
+ * disk at the moment of the preview or apply. Re-deriving per call (rather than trusting a path set
+ * carried in the ChangeSet) means a model change between plan and apply narrows the write surface
+ * instead of leaving a stale widening in place.
+ */
+export interface AgentContextScopePort {
+  derive(root: string): ReadonlySet<string>;
+}
+
 export interface ChangeSetEngineDeps {
   modelStore: ModelStorePort;
   projection: ProjectionRebuilderPort;
   journal?: ChangeSetJournalPort;
+  agentContextScope?: AgentContextScopePort;
 }
 
 export interface ArchitectureCandidateDeferredChange {
@@ -180,13 +198,33 @@ export class ChangeSetEngine {
     return draft;
   }
 
+  /**
+   * Path check is per operation, not per ChangeSet: the agent-context widening belongs to the
+   * `render_agent_context` operation kind alone, so a `render_projection` operation carrying an
+   * agent-context path is still denied even when the same draft legitimately widens elsewhere.
+   */
   preview(root: string, draft: ChangeSetDraft): { digest: string; paths: string[]; allowed: boolean; findings: string[] } {
-    const paths = draft.operations.flatMap((operation) => [
-      ...(operation.path ? [operation.path] : []),
-      ...(operation.projectionFiles?.map((file) => file.path) ?? [])
-    ]);
-    const findings = evaluateChangeSetPaths(root, paths).map((finding) => finding.message);
+    const agentContextPaths = this.agentContextPathsFor(root, draft);
+    const paths: string[] = [];
+    const findings: string[] = [];
+    for (const operation of draft.operations) {
+      const operationPaths = operationTargetPaths(operation);
+      paths.push(...operationPaths);
+      findings.push(
+        ...evaluateChangeSetPaths(root, operationPaths, pathScope(operation.op, agentContextPaths)).map((finding) => finding.message)
+      );
+    }
     return { digest: digestJson(draft as unknown as Json), paths, allowed: findings.length === 0, findings };
+  }
+
+  /**
+   * Derived once per preview/apply, and only when the draft actually carries a
+   * `render_agent_context` operation: a repository whose model cannot produce an agent-context
+   * scope must not have every unrelated ChangeSet fail with its derivation error.
+   */
+  private agentContextPathsFor(root: string, draft: ChangeSetDraft): ReadonlySet<string> {
+    if (!draft.operations.some((operation) => operation.op === "render_agent_context")) return EMPTY_PATH_SET;
+    return this.deps?.agentContextScope?.derive(root) ?? EMPTY_PATH_SET;
   }
 
   approve(draft: ChangeSetDraft): ChangeSetDraft {
@@ -200,16 +238,17 @@ export class ChangeSetEngine {
     if (!approved) throw new Error("ChangeSet must be approved before apply");
     const deps = this.requireDeps();
     await this.validateModel(root, draft, deps, "before");
+    const agentContextPaths = this.agentContextPathsFor(root, draft);
     const backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[] = [];
     const journalId = await deps.journal?.beginChangeSet(root, draft);
     let journalCommitted = false;
     let applied = 0;
     try {
       for (const operation of draft.operations) {
-        if (operation.op === "render_projection") {
+        if (operation.op === "render_projection" || operation.op === "render_agent_context") {
           if (operation.projectionFiles && operation.projectionFiles.length > 0) {
             for (const file of operation.projectionFiles) {
-              await this.applyFileOperation(root, file.path, file.expectedHash, file.body, operation.op, backups, journalId, applied + 1);
+              await this.applyFileOperation(root, file.path, file.expectedHash, file.body, operation.op, backups, journalId, applied + 1, agentContextPaths);
               applied += 1;
               if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
             }
@@ -220,7 +259,7 @@ export class ChangeSetEngine {
           continue;
         }
         if (!operation.path) throw new Error(`Change operation requires path: ${operation.op}`);
-        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.body ?? "", operation.op, backups, journalId, applied + 1);
+        await this.applyFileOperation(root, operation.path, operation.expectedHash, operation.body ?? "", operation.op, backups, journalId, applied + 1, agentContextPaths);
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
@@ -233,7 +272,8 @@ export class ChangeSetEngine {
           projection.operation,
           backups,
           journalId,
-          applied + 1
+          applied + 1,
+          agentContextPaths
         );
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
@@ -285,9 +325,10 @@ export class ChangeSetEngine {
     operation: ChangeOperationKind,
     backups: { path: string; backupPath: string; tempPath?: string; existed: boolean }[],
     journalId: string | undefined,
-    sequence: number
+    sequence: number,
+    agentContextPaths: ReadonlySet<string> = EMPTY_PATH_SET
   ): Promise<void> {
-    assertSafeTarget(root, path);
+    assertSafeTarget(root, path, pathScope(operation, agentContextPaths));
     const deps = this.requireDeps();
     const absolute = resolve(root, path);
     const existed = existsSync(absolute);
@@ -582,8 +623,24 @@ function shortDigest(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
 }
 
-function assertSafeTarget(root: string, path: string): void {
-  assertAllowedArchContextPath(root, path);
+const EMPTY_PATH_SET: ReadonlySet<string> = new Set<string>();
+
+function operationTargetPaths(operation: ChangeOperation): string[] {
+  return [
+    ...(operation.path ? [operation.path] : []),
+    ...(operation.projectionFiles?.map((file) => file.path) ?? [])
+  ];
+}
+
+function pathScope(operation: ChangeOperationKind, agentContextPaths: ReadonlySet<string>): ArchContextPathScope {
+  return {
+    operation: operation === "render_agent_context" ? "agent-context" : "default",
+    agentContextPaths
+  };
+}
+
+function assertSafeTarget(root: string, path: string, scope?: ArchContextPathScope): void {
+  assertAllowedArchContextPath(root, path, scope);
   const absolute = resolve(root, path);
   if (existsSync(absolute) && lstatSync(absolute).isSymbolicLink()) {
     throw new Error(`Refusing to write symlink target: ${path}`);

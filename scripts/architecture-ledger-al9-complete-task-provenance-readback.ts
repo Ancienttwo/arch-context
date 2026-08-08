@@ -11,14 +11,17 @@ import {
 } from "@archcontext/core/agent-orchestrator";
 import {
   architectureDocumentationSourceDigest,
+  assertArchitectureProjectionVerifiedAgainst,
   loadArchitectureDocumentationInputs,
+  loadCapabilitySourceScaleSignals,
   renderArchitectureDocumentationProjection,
-  type ArchitectureDocumentationProjectionPlan
+  type ArchitectureDocumentationProjectionPlan,
+  type ArchitectureProjectionVerifiedAgainst
 } from "@archcontext/core/projection-engine";
-import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
+import { CodeGraphAdapter, loadCapabilityCodeGraphProjectionInputs } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
-import { createStartedDaemon } from "@archcontext/local-runtime/runtime-daemon";
+import { createStartedDaemon, loadCapabilitySourceChangesSinceStamps } from "@archcontext/local-runtime/runtime-daemon";
 import { digestJson, type AgentJobV1, type InvestigationReportV1, type Json } from "@archcontext/contracts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
@@ -152,30 +155,18 @@ function writeArchitectureDocsProjection(root: string): void {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    verifiedAgainst: projectionVerifiedAgainst(root),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest
   });
-  const manifestBody = `${JSON.stringify({
-    schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
-    rendererVersion: plan.rendererVersion,
-    sourceDigest: plan.sourceDigest,
-    projectionDigest: plan.projectionDigest,
-    targetCount: plan.targets.length,
-    fileCount: plan.files.length,
-    targets: plan.targets.map((target) => ({
-      targetId: target.targetId,
-      type: target.type,
-      scope: target.scope,
-      path: target.path,
-      ownership: target.ownership,
-      rendererVersion: target.rendererVersion,
-      format: target.format,
-      sourceDigest: target.sourceDigest,
-      outputDigest: target.outputDigest
-    }))
-  }, null, 2)}\n`;
+  // The manifest is the renderer's own output, not a shape re-derived here: a local copy silently
+  // falls behind whenever the manifest gains a field (it did — per-target `verifiedAgainst`), and
+  // the readback then reports manifest drift that the real projection path does not have.
   for (const file of [
     ...plan.files.map((file) => ({ path: file.path, body: file.body })),
-    { path: "docs/architecture/.projection-manifest.json", body: manifestBody }
+    { path: plan.manifest.path, body: plan.manifest.body }
   ]) {
     const absolute = resolve(root, file.path);
     execFileSync("mkdir", ["-p", dirname(absolute)]);
@@ -189,12 +180,24 @@ function docsProjectionDriftOk(root: string): boolean {
     model: loaded.model,
     decisions: loaded.decisions,
     existingFiles: loaded.existingFiles,
+    verifiedAgainst: projectionVerifiedAgainst(root),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    ...loadCapabilityCodeGraphProjectionInputs(root, loaded.model),
     sourceDigest: architectureDocumentationSourceDigest({
       model: loaded.model,
       decisions: loaded.decisions
     })
   });
   return plan.drift.ok && plan.rejected.length === 0;
+}
+
+/** Fail-closed Git provenance for the projection under readback; no placeholder branch/commit. */
+function projectionVerifiedAgainst(root: string): ArchitectureProjectionVerifiedAgainst {
+  const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const committedAt = execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  return assertArchitectureProjectionVerifiedAgainst({ branch: branch === "HEAD" ? "detached" : branch, commit, committedAt });
 }
 
 function runAgentDocumentationDraftReadback() {
