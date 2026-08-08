@@ -3,7 +3,7 @@
 > **Status**: Approved
 > **Slug**: archctx-repo-harness-projection-runtime-integration
 > **Created**: 2026-08-08 14:33 +08:00
-> **Updated**: 2026-08-08 20:10
+> **Updated**: 2026-08-09 11:30
 > **Goal Mode**: incremental
 > **Primary Repository**: `/Users/ancienttwo/Projects/arch-context`
 > **Consumer Repository**: `/Users/ancienttwo/Projects/repo-harness`
@@ -547,7 +547,7 @@ row never lands.
 | 4 | [x] | AXR3 [arch-context] node v2, ArchitectureFlowV1, and BYOK-grade semantic P1/P2 compiler | contract | v1 dual reader absent; proven/not-applicable/unprovable matrix passes; semantic P1 and success/error P2 render; raw path/top-five heuristic cannot produce verified diagram | `plans/archive/plan-20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md` |
 | 5 | [x] | AXR4 [arch-context] major-change classifier and ArchitectureRefreshSignalV1 producer | contract | accepted semantic/proof changes emit one stable signal; refactor/generated/layout-only changes emit none; unresolved candidates emit human-action signal; duplicate run preserves signalId | `plans/archive/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md` |
 | 6 | [x] | AXR5 [repo-harness] package-local archctx provider, node v2 reader/exporter, orthogonal config, readiness, and manual command lane | contract | disposable consumer installs integrity-verified 0.4.0 tarballs with no registry lookup; feature handshake passes; canonical mapper and helper projections accept v2/reject v1; PATH mismatch is irrelevant; provider disabled preserves current behavior | `repo-harness:plans/archive/plan-20260808-2015-axr5-archctx-provider-node-v2-readiness.md` |
-| 7 | [ ] | AXR6 [repo-harness] durable Stop aggregation, bounded drain, retry/dead-letter, refresh consumer, receipt, and loop suppression | contract | 10 paths coalesce to one projection process; 150-second managed Stop timeout exceeds the 120-second drain and passes a real host cycle; exit 1/timeout/stale worktree retain events; retry/dead-letter, refresh, and loop gates pass | (pending) |
+| 7 | [ ] | AXR6 [repo-harness] durable Stop aggregation, bounded drain, retry/dead-letter, refresh consumer, receipt, and loop suppression | contract | 10 paths coalesce to one projection process; 150-second managed Stop timeout exceeds the 120-second drain and passes a real host cycle; exit 1/timeout/stale worktree retain events; retry/dead-letter, refresh, and loop gates pass | `repo-harness:plans/plan-20260808-2311-axr6-durable-architecture-projection-runtime.md` |
 | 8 | [ ] | AXR7 [both] consumer-driven E2E, 10-document fidelity adoption, completion gate, and advisory dogfood | contract | cross-repo packed-tarball E2E passes; 10/10 nested docs adopt without external-byte drift; three named cycles produce receipts; second apply zero diff; gate accurately reports pending/adoption/human action | (pending) |
 | 9 | [ ] | AXR8 [both] npm release, selected-runtime readback, strict gate, and final capability authority cutover | contract | 0.4.0/0.14.0 registry + tarball readbacks pass; selected Bun-global runtime reports exact versions/features; strict Stop/readiness clean; capability authority cutover is 10/10 and no fallback/sync job remains | (pending) |
 
@@ -821,3 +821,10 @@ registry authority and no fallback.
 | 2026-08-08 18:13 | AXR2 [arch-context] dirty-worktree provenance and CodeGraph 1.5.0 snapshot handshake | `plans/plan-20260808-1735-axr2-arch-context-dirty-worktree-provenance-and-codegraph-1-5-0-snapshot-handshake.md` | done |
 | 2026-08-08 19:19 | AXR3 [arch-context] node v2, ArchitectureFlowV1, and BYOK-grade semantic P1/P2 compiler | `plans/archive/plan-20260808-1817-axr3-arch-context-node-v2-architectureflowv1-and-byok-grade-semantic-p1-p2-compiler.md` | done |
 | 2026-08-08 20:10 | AXR4 [arch-context] major-change classifier and ArchitectureRefreshSignalV1 producer | `plans/archive/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md` | done |
+| 2026-08-08 23:11 | AXR5 [repo-harness] package-local provider, node v2 authority reader, readiness and manual lane | `repo-harness:plans/archive/plan-20260808-2015-axr5-archctx-provider-node-v2-readiness.md` | done |
+| 2026-08-09 11:30 | AXR6 [repo-harness] durable runtime orchestration and refresh | `repo-harness:plans/plan-20260808-2311-axr6-durable-architecture-projection-runtime.md` | implementation and all machine gates done at `repo-harness@8dd36953`; frozen Claude AcceptanceReceipt unavailable because the provider weekly limit was reached; final `verify-sprint` fails only on the missing host-owned receipt |
+
+### Current Execution Note
+
+- The repository's pre-Sprint mainline already selected `context.capability_source=archcontext` and carries ten node-v2 capability records. AXR8 must therefore verify and simplify that existing authority state; it must not perform a second cutover or recreate a registry/node dual-reader migration window.
+- AXR7 remains sequentially blocked behind AXR6 acceptance. Opening a second repo-harness writer while the AXR6 contract worktree owns the active plan would violate the Sprint's merge-unit and writer-ownership boundaries.
