@@ -3,8 +3,8 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
-import type { AgentJobV1, ArchctxCapabilitiesV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ReviewChallengeV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ReviewChallengeV2 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -49,6 +49,7 @@ import {
   renderArchitectureDocumentationProjection,
   resolveArchitectureOwnerForPath,
   type ArchitectureProjectionProfile,
+  type ArchitectureMajorChangeClassificationV1,
   type ArchitectureDocumentationProjectionNotice,
   type ArchitectureDocumentationProjectionProvenanceV1,
   type ArchitectureProjectionVerifiedAgainst
@@ -960,7 +961,7 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
     profile = architectureProjectionProfile(args);
-    projection = buildArchitectureDocsProjection(root, generatedAt, profile);
+    projection = buildArchitectureDocsProjection(root, generatedAt, profile, undefined, acceptedArchitectureChange(args));
   } catch (error) {
     return errorEnvelope(`docs.${subcommand}`, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
   }
@@ -976,6 +977,9 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       fileCount: projection.plan.files.length,
       drift: projection.plan.drift,
       rejected: projection.plan.rejected,
+      majorChange: projection.plan.majorChange,
+      refreshSignals: projection.plan.refreshSignals,
+      receiptDigest: projection.plan.receiptDigest,
       notices: projection.plan.notices
     } as unknown as Json);
   }
@@ -1003,6 +1007,9 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       sourceDigest: projection.plan.sourceDigest,
       projectionDigest: projection.plan.projectionDigest,
       provenance: projection.plan.provenance,
+      majorChange: projection.plan.majorChange,
+      refreshSignals: projection.plan.refreshSignals,
+      receiptDigest: projection.plan.receiptDigest,
       ...(projection.plan.notices.length === 0 ? {} : { notices: projection.plan.notices })
     } as unknown as Json);
   }
@@ -1021,7 +1028,14 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
       approved: args.includes("--approved"),
       expectedWorktreeDigest
     });
-    return withProjectionMetadata(applied, projection.plan.notices, projection.plan.provenance);
+    return withProjectionMetadata(
+      applied,
+      projection.plan.notices,
+      projection.plan.provenance,
+      projection.plan.majorChange,
+      projection.plan.refreshSignals,
+      projection.plan.receiptDigest
+    );
   }
   return okEnvelope(subcommand === "preview" ? "docs.preview" : "docs.plan", {
     schemaVersion: "archcontext.docs-projection-change-set/v1",
@@ -1033,6 +1047,9 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
     drift: projection.plan.drift,
     notices: projection.plan.notices,
     provenance: projection.plan.provenance,
+    majorChange: projection.plan.majorChange,
+    refreshSignals: projection.plan.refreshSignals,
+    receiptDigest: projection.plan.receiptDigest,
     manifestPath: projection.manifest.path,
     draft: (plan.data as any).draft,
     preview: (plan.data as any).preview
@@ -1048,7 +1065,10 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
 function withProjectionMetadata(
   envelope: JsonEnvelope,
   notices: ArchitectureDocumentationProjectionNotice[],
-  provenance: ArchitectureDocumentationProjectionProvenanceV1
+  provenance: ArchitectureDocumentationProjectionProvenanceV1,
+  majorChange: ArchitectureMajorChangeClassificationV1,
+  refreshSignals: ArchitectureRefreshSignalV1[],
+  receiptDigest: string
 ): JsonEnvelope {
   if (!envelope.ok) return envelope;
   return {
@@ -1056,6 +1076,9 @@ function withProjectionMetadata(
     data: {
       ...(envelope.data as Record<string, Json>),
       provenance: provenance as unknown as Json,
+      majorChange: majorChange as unknown as Json,
+      refreshSignals: refreshSignals as unknown as Json,
+      receiptDigest,
       ...(notices.length === 0 ? {} : { notices: notices as unknown as Json })
     }
   };
@@ -1065,7 +1088,8 @@ function buildArchitectureDocsProjection(
   root: string,
   generatedAt: string,
   profile: ArchitectureProjectionProfile = "default",
-  existingFilesOverride?: { path: string; body: string }[]
+  existingFilesOverride?: { path: string; body: string }[],
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   const loadedFromDisk = loadArchitectureDocumentationInputs(root, profile);
   const loaded = { ...loadedFromDisk, existingFiles: existingFilesOverride ?? loadedFromDisk.existingFiles };
@@ -1088,13 +1112,46 @@ function buildArchitectureDocsProjection(
     selectorEvidence: codeGraphInputs.selectorEvidence,
     provenance,
     sourceDigest,
-    generatedAt
+    generatedAt,
+    refreshContext: {
+      repositoryId: repositoryFingerprint(root),
+      workspaceId: `workspace.${digestJson({ root } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`,
+      headSha: provenance.baseHeadSha,
+      worktreeDigest: provenance.worktreeDigest,
+      ...(acceptedChange ? { acceptedChange } : {})
+    }
   });
   return {
     loaded,
     plan,
     manifest: plan.manifest,
     files: [...plan.files, plan.manifest]
+  };
+}
+
+function acceptedArchitectureChange(args: string[]): AcceptedArchitectureChangeReferenceV1 | undefined {
+  const changeSetId = readFlag(args, "--accepted-change-set-id");
+  const eventId = readFlag(args, "--accepted-event-id");
+  const reasonCodes = readRepeatedFlag(args, "--major-reason")
+    .flatMap((value) => value.split(","))
+    .filter((value) => value !== "")
+    .sort() as ArchitectureMajorChangeReasonCode[];
+  const affectedNodeIds = readRepeatedFlag(args, "--affected-node")
+    .flatMap((value) => value.split(","))
+    .filter((value) => value !== "")
+    .sort();
+  if (!changeSetId && !eventId && reasonCodes.length === 0 && affectedNodeIds.length === 0) return undefined;
+  if (!changeSetId || !eventId || reasonCodes.length === 0 || affectedNodeIds.length === 0) {
+    throw new Error("architecture-major-change-accepted-reference-incomplete");
+  }
+  const allowed = new Set<string>(ARCHITECTURE_MAJOR_CHANGE_REASON_CODES);
+  const unsupported = reasonCodes.find((reason) => !allowed.has(reason));
+  if (unsupported) throw new Error(`architecture-major-change-reason-unsupported: ${unsupported}`);
+  return {
+    changeSetId,
+    eventId,
+    reasonCodes: [...new Set(reasonCodes)],
+    affectedNodeIds: [...new Set(affectedNodeIds)]
   };
 }
 

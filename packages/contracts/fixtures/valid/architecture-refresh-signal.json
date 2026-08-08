@@ -10,6 +10,12 @@
     "worktreeDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
   },
   "cause": "accepted-semantic-delta",
+  "acceptedChange": {
+    "changeSetId": "changeset.architecture-api-v2",
+    "eventId": "architecture_event.changeset_apply.api-v2",
+    "reasonCodes": ["entrypoint-changed", "responsibility-changed"],
+    "affectedNodeIds": ["capability.api", "capability.runtime"]
+  },
   "reasonCodes": ["entrypoint-changed", "responsibility-changed"],
   "affectedNodeIds": ["capability.api", "capability.runtime"],
   "refreshTargets": ["architecture-contract-context", "architecture-readiness", "capability-context", "capability-index"],

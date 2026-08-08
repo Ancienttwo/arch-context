@@ -118,6 +118,13 @@ export interface ArchitectureDigestSetV1 {
   projectionDigest: Sha256Digest;
 }
 
+export interface AcceptedArchitectureChangeReferenceV1 {
+  changeSetId: string;
+  eventId: string;
+  reasonCodes: ArchitectureMajorChangeReasonCode[];
+  affectedNodeIds: string[];
+}
+
 export interface ArchitectureRefreshSignalV1 {
   schemaVersion: typeof ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION;
   signalId: Sha256Digest;
@@ -126,6 +133,7 @@ export interface ArchitectureRefreshSignalV1 {
   repository: { repositoryId: string };
   worktree: { workspaceId: string; headSha: string; worktreeDigest: Sha256Digest };
   cause: "accepted-semantic-delta" | "unresolved-major-candidate" | "verified-flow-proof-delta";
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1;
   reasonCodes: ArchitectureMajorChangeReasonCode[];
   affectedNodeIds: string[];
   refreshTargets: ArchitectureRefreshTarget[];
@@ -253,6 +261,20 @@ export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefr
     ...sortedUniqueIssues(`${prefix}.affectedNodeIds`, input.affectedNodeIds),
     ...sortedUniqueIssues(`${prefix}.refreshTargets`, input.refreshTargets)
   ];
+  if (input.acceptedChange) {
+    issues.push(
+      ...sortedUniqueIssues(`${prefix}.acceptedChange.reasonCodes`, input.acceptedChange.reasonCodes),
+      ...sortedUniqueIssues(`${prefix}.acceptedChange.affectedNodeIds`, input.acceptedChange.affectedNodeIds)
+    );
+    if (input.acceptedChange.changeSetId.trim() === "") issues.push(`${prefix}.acceptedChange.changeSetId must not be empty`);
+    if (input.acceptedChange.eventId.trim() === "") issues.push(`${prefix}.acceptedChange.eventId must not be empty`);
+    if (input.acceptedChange.reasonCodes.join("\u0000") !== input.reasonCodes.join("\u0000")) {
+      issues.push(`${prefix}.acceptedChange.reasonCodes must match signal reasonCodes`);
+    }
+    if (input.acceptedChange.affectedNodeIds.join("\u0000") !== input.affectedNodeIds.join("\u0000")) {
+      issues.push(`${prefix}.acceptedChange.affectedNodeIds must match signal affectedNodeIds`);
+    }
+  }
   if (input.reasonCodes.length === 0) issues.push(`${prefix}.reasonCodes must contain at least one reason`);
   if (input.affectedNodeIds.length === 0) issues.push(`${prefix}.affectedNodeIds must contain at least one node`);
   if (input.refreshTargets.length === 0) issues.push(`${prefix}.refreshTargets must contain at least one target`);
@@ -261,6 +283,12 @@ export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefr
   }
   if (input.cause !== "unresolved-major-candidate" && input.mode !== "refresh-required") {
     issues.push(`${prefix}.${input.cause} requires refresh-required mode`);
+  }
+  if (input.mode === "refresh-required" && !input.acceptedChange) {
+    issues.push(`${prefix}.refresh-required requires acceptedChange`);
+  }
+  if (input.mode === "human-action-required" && input.acceptedChange) {
+    issues.push(`${prefix}.human-action-required forbids acceptedChange`);
   }
   return issues;
 }

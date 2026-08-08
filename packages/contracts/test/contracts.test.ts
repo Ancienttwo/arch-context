@@ -59,6 +59,7 @@ import { validateJsonSchema } from "../src/validator";
 import { EXPLORER_PROJECTION_CACHE_POLICY_SCHEMA_VERSION, EXPLORER_VIEW_IDS, type ExplorerProjectionCachePolicyV1 } from "../src/ports";
 import {
   ARCHCTX_FEATURES,
+  architectureRefreshSignalInvariantIssues,
   archctxCapabilities,
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
@@ -264,6 +265,18 @@ test("projection result keeps its embedded refresh signal schema synchronized", 
   const standalone = readJson("schemas/runtime/architecture-refresh-signal.schema.json") as any;
   const { $schema: _schema, $id: _id, title: _title, $defs: _defs, ...standaloneShape } = standalone;
   expect(resultSchema.$defs.refreshSignal).toEqual(standaloneShape);
+});
+
+test("refresh-required signals bind the exact accepted ChangeSet event and taxonomy", () => {
+  const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
+  expect(architectureRefreshSignalInvariantIssues(fixture)).toEqual([]);
+  const { acceptedChange: _acceptedChange, ...unaccepted } = fixture;
+  expect(architectureRefreshSignalInvariantIssues(unaccepted as ArchitectureRefreshSignalV1))
+    .toContain("signal.refresh-required requires acceptedChange");
+  expect(architectureRefreshSignalInvariantIssues({
+    ...fixture,
+    acceptedChange: { ...fixture.acceptedChange!, reasonCodes: ["node-renamed"] }
+  })).toContain("signal.acceptedChange.reasonCodes must match signal reasonCodes");
 });
 
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {

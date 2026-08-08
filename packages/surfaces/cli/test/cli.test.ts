@@ -3207,6 +3207,32 @@ describe("archctx CLI", () => {
         }),
         "utf8"
       );
+      mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+      writeFileSync(
+        join(root, ".archcontext/model/relations/relation.hook-journal.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.relation/v1",
+          id: "relation.hook-journal",
+          kind: "writes",
+          source: "capability.runtime-harness.hook-adapters",
+          target: "capability.runtime-harness.hook-adapters",
+          intent: "Persist hook event in the owned journal"
+        }),
+        "utf8"
+      );
+      mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+      writeFileSync(
+        join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.flow/v1",
+          id: "flow.hook-adapters",
+          capabilityId: "capability.runtime-harness.hook-adapters",
+          name: "Hook projection",
+          applicability: "not-applicable",
+          rationale: "This fixture verifies static journal ownership only."
+        }),
+        "utf8"
+      );
       mkdirSync(dirname(join(root, modulePath)), { recursive: true });
       writeFileSync(join(root, modulePath), original, "utf8");
 
@@ -3263,6 +3289,23 @@ describe("archctx CLI", () => {
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
       const manifest = JSON.parse(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8"));
       expect(manifest.provenance).toEqual((second.data as any).provenance);
+
+      const nodePath = join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml");
+      writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Routes runtime hook events.", "Routes and validates runtime hook events."), "utf8");
+      const signalArgs = [
+        "plan", "--profile", "repo-harness/v1",
+        "--accepted-change-set-id", "changeset.hook-adapters-major",
+        "--accepted-event-id", "architecture_event.hook-adapters-major",
+        "--major-reason", "responsibility-changed",
+        "--affected-node", "capability.runtime-harness.hook-adapters"
+      ];
+      const signalPlan = await runTestCli("docs", signalArgs, root);
+      const duplicateSignalPlan = await runTestCli("docs", signalArgs, root);
+      expect(signalPlan.ok).toBe(true);
+      expect((signalPlan.data as any).majorChange.mode).toBe("refresh-required");
+      expect((signalPlan.data as any).refreshSignals).toHaveLength(1);
+      expect((duplicateSignalPlan.data as any).refreshSignals[0].signalId)
+        .toBe((signalPlan.data as any).refreshSignals[0].signalId);
     } finally {
       removeTempRoot(root);
     }

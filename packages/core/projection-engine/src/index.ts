@@ -7,8 +7,11 @@ import {
   PROJECTION_TARGET_SCHEMA_VERSION,
   digestJson,
   stableId,
+  type AcceptedArchitectureChangeReferenceV1,
+  type ArchitectureDigestSetV1,
   type ArchitectureFlowV1,
   type ArchitectureNodeSourceV2,
+  type ArchitectureRefreshSignalV1,
   type Json,
   type ModelExportResult,
   type ProjectionTargetV1
@@ -30,9 +33,18 @@ import {
   type ArchitectureSelectorEvidenceV1,
   type SemanticCapabilityDiagramCompilation
 } from "./semantic-diagrams";
+import {
+  classifyArchitectureMajorChange,
+  compileArchitectureSemanticState,
+  produceArchitectureRefreshSignals,
+  type ArchitectureMajorChangeClassificationV1,
+  type ArchitectureProjectionSemanticBaselineV1,
+  type ArchitectureSemanticStateV1
+} from "./major-change";
 
 export * from "./adoption";
 export * from "./layout";
+export * from "./major-change";
 export * from "./semantic-diagrams";
 
 export type NativeNodeSource = ArchitectureNodeSourceV2;
@@ -149,6 +161,11 @@ export interface ArchitectureDocumentationProjectionPlan {
   projectionDigest: string;
   profile: ArchitectureProjectionProfile;
   provenance: ArchitectureDocumentationProjectionProvenanceV1;
+  semanticState: ArchitectureSemanticStateV1;
+  architectureDigests: ArchitectureDigestSetV1;
+  majorChange: ArchitectureMajorChangeClassificationV1;
+  refreshSignals: ArchitectureRefreshSignalV1[];
+  receiptDigest: string;
   targets: ProjectionTargetV1[];
   files: ArchitectureDocumentationProjectionFile[];
   manifest: ArchitectureDocumentationExistingFile & { digest: string };
@@ -278,6 +295,14 @@ export function renderArchitectureDocumentationProjection(input: {
   timeline?: ArchitectureDocumentationTimelineEntry[];
   existingFiles?: ArchitectureDocumentationExistingFile[];
   rendererVersion?: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+  refreshContext?: {
+    repositoryId: string;
+    workspaceId: string;
+    headSha: string;
+    worktreeDigest: string;
+    acceptedChange?: AcceptedArchitectureChangeReferenceV1;
+    expected?: { repositoryId: string; workspaceId: string; headSha: string; worktreeDigest: string };
+  };
 }): ArchitectureDocumentationProjectionPlan {
   const rendererVersion = input.rendererVersion ?? ARCHITECTURE_DOCS_RENDERER_VERSION;
   assertArchitectureDocumentationProjectionProvenance(input.provenance, rendererVersion);
@@ -304,6 +329,18 @@ export function renderArchitectureDocumentationProjection(input: {
     flows: model.flows ?? [],
     evidence: input.selectorEvidence
   })]));
+  const semanticState = compileArchitectureSemanticState({
+    model,
+    compilations: [...semanticCompilationsByNodeId.values()]
+  });
+  const previousSemanticBaseline = architectureProjectionSemanticBaseline(
+    existingByPath.get("docs/architecture/.projection-manifest.json")
+  );
+  const majorChange = classifyArchitectureMajorChange({
+    base: previousSemanticBaseline?.semanticState,
+    resulting: semanticState,
+    acceptedChange: input.refreshContext?.acceptedChange
+  });
   // The measured scale signal and semantic proof digest are render inputs of the entity-summary
   // body, so they belong to the digest those targets record in
   // their marker. Folding them in per target (instead of into the plan-wide sourceDigest) keeps a
@@ -389,6 +426,34 @@ export function renderArchitectureDocumentationProjection(input: {
       generatedBodyDigest: file.generatedBodyDigest
     })).sort((left, right) => left.path.localeCompare(right.path))
   } as unknown as Json);
+  const architectureDigests: ArchitectureDigestSetV1 = {
+    modelDigest: provenance.modelDigest as ArchitectureDigestSetV1["modelDigest"],
+    sourceTreeDigest: provenance.sourceTreeDigest as ArchitectureDigestSetV1["sourceTreeDigest"],
+    flowProofDigest: semanticState.flowProofFingerprint as ArchitectureDigestSetV1["flowProofDigest"],
+    projectionDigest: projectionDigest as ArchitectureDigestSetV1["projectionDigest"]
+  };
+  const baseDigests = previousSemanticBaseline?.digests ?? architectureDigests;
+  const receiptDigest = digestJson({
+    schemaVersion: "archcontext.architecture-docs-projection-receipt/v1",
+    rendererVersion,
+    profile: layout.profile,
+    provenance,
+    architectureDigests,
+    majorChange
+  } as unknown as Json);
+  const refreshSignals = input.refreshContext
+    ? produceArchitectureRefreshSignals({
+      classification: majorChange,
+      repositoryId: input.refreshContext.repositoryId,
+      workspaceId: input.refreshContext.workspaceId,
+      headSha: input.refreshContext.headSha,
+      worktreeDigest: input.refreshContext.worktreeDigest,
+      expected: input.refreshContext.expected,
+      baseDigests,
+      resultingDigests: architectureDigests,
+      projectionReceiptDigest: receiptDigest
+    })
+    : [];
   const manifestValue = {
     schemaVersion: "archcontext.architecture-docs-projection-manifest/v1",
     rendererVersion,
@@ -396,6 +461,12 @@ export function renderArchitectureDocumentationProjection(input: {
     sourceDigest: input.sourceDigest,
     provenance,
     projectionDigest,
+    semanticBaseline: {
+      semanticState,
+      digests: architectureDigests
+    },
+    receiptDigest,
+    refreshSignalIds: refreshSignals.map((signal) => signal.signalId),
     targetCount: targets.length,
     fileCount: rendered.length,
     // Machine-readable copy of the `Verified against` line each entity-summary intro prints, one
@@ -443,6 +514,11 @@ export function renderArchitectureDocumentationProjection(input: {
     projectionDigest,
     profile: layout.profile,
     provenance,
+    semanticState,
+    architectureDigests,
+    majorChange,
+    refreshSignals,
+    receiptDigest,
     targets,
     files: rendered.filter((file) => !rejected.some((diff) => diff.path === file.path && diff.targetId === file.target.targetId)),
     manifest,
@@ -457,6 +533,25 @@ export function renderArchitectureDocumentationProjection(input: {
     adoptionCandidates,
     notices
   };
+}
+
+function architectureProjectionSemanticBaseline(body: string | undefined): ArchitectureProjectionSemanticBaselineV1 | undefined {
+  if (body === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const baseline = (parsed as Record<string, unknown>).semanticBaseline;
+  if (baseline === undefined) return undefined;
+  if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) {
+    throw new Error("architecture-major-change-semantic-baseline-invalid");
+  }
+  const value = baseline as ArchitectureProjectionSemanticBaselineV1;
+  if (!value.semanticState || !value.digests) throw new Error("architecture-major-change-semantic-baseline-invalid");
+  return value;
 }
 
 export function architectureDocumentationSourceTreeDigest(root: string, model: NativeModel): string {
