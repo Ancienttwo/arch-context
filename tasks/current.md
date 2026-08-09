@@ -1,27 +1,27 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-08-09T23:08:04+0800 -->
+<!-- updated_at: 2026-08-09T23:11:40+0800 -->
 <!-- stale_after: 24h -->
 
-> **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-08-09T23:08:04+0800
+> **Status**: Idle
+> **Updated At**: 2026-08-09T23:11:40+0800
 > **Source Branch**: codex/axr8-release-closeout
-> **Source Commit**: 29bbbaf
+> **Source Commit**: 39a0f2f
 > **Target Branch**: main
 > **Stale After**: 24h
-> **Reason**: archive-workflow
+> **Reason**: axr8-closeout-final
 > **Derived From**: active-plan, active-sprint, workstreams, handoff, checks, git status
 
 This file is a tracked mainline snapshot derived from repo artifacts. It is not a live lock, not a kanban board, and not an implementation gate. If it is stale, read the source artifacts below.
 
 ## Current Focus
 
-- Status: ManualClearedWithActiveWork
+- Status: Idle
 - Active Plan: (none)
 - Plan Status: (none)
-- Next Task: inspect active worktree marker(s)
-- Clear Note: Manual clear requested, but active work markers still exist. Idle was not written.
+- Next Task: (none)
+- Clear Note: (none)
 
 ## Mainline Snapshot Reading
 
@@ -31,10 +31,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 
 ## Active Work
 
-- /Users/ancienttwo/Projects/arch-context-wt-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption: plans/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
-- /Users/ancienttwo/Projects/arch-context-wt-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption: active-worktree owner -> /Users/ancienttwo/Projects/arch-context-wt-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption
-- /Users/ancienttwo/Projects/arch-context-wt-axr8-release-authority-cutover: plans/plan-20260809-0555-axr8-release-authority-cutover.md
-- /Users/ancienttwo/Projects/arch-context-wt-axr8-release-authority-cutover: active-worktree owner -> /Users/ancienttwo/Projects/arch-context-wt-axr8-release-authority-cutover
+- (none)
 ## Active Sprint
 
 - Sprint: `plans/sprints/20260712-0258-authority-aware-architecture-reading-completion.sprint.md`
@@ -54,19 +51,10 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 
 ## Git Status
 
-- Summary: 10 changed/untracked path(s)
+- Summary: clean
 
 ```
- D plans/plan-20260809-0555-axr8-release-authority-cutover.md
- D tasks/contracts/20260809-0555-axr8-release-authority-cutover.contract.md
- D tasks/notes/20260809-0555-axr8-release-authority-cutover.notes.md
- D tasks/reviews/20260809-0555-axr8-release-authority-cutover.review.md
- M tasks/todos.md
-?? plans/archive/plan-20260809-0555-axr8-release-authority-cutover.md
-?? tasks/archive/contract-20260809-2308-axr8-release-authority-cutover.md
-?? tasks/archive/notes-20260809-2308-axr8-release-authority-cutover.md
-?? tasks/archive/review-20260809-2308-axr8-release-authority-cutover.md
-?? tasks/archive/todo-20260809-2308-axr8-release-authority-cutover.md
+(none)
 ```
 
 ## Source Artifacts
