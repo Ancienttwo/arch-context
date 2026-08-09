@@ -4,7 +4,7 @@
 > **Plan**: plans/plan-20260809-0555-axr8-release-authority-cutover.md
 > **Contract**: tasks/contracts/20260809-0555-axr8-release-authority-cutover.contract.md
 > **Review**: tasks/reviews/20260809-0555-axr8-release-authority-cutover.review.md
-> **Last Updated**: 2026-08-09 09:00
+> **Last Updated**: 2026-08-09 23:02
 > **Lifecycle**: notes
 
 ## Design Decisions
@@ -53,6 +53,12 @@
 - Public Node 24 smoke passed: 41-command help surface, `doctor` product/CLI/daemon/MCP `0.4.0`, exact package-local CodeGraph `1.5.0`, and `update --check` current at `0.4.0`.
 - `bun run readback:fg6:release-distribution` and `bun run readback:release` are verified with no failures.
 - Clean-room product proof: `docs/verification/fg6-local-product-tarball-smoke.json`.
+- Registry `latest` is `repo-harness@0.14.0`; shasum `df3a2e665ab827e0069cd5f2fa6968170c195f8f`, integrity `sha512-8BRgyMIyR+JCCVofrHTlWLDfMIRlFyhWeJlUUcmpubyq9xKPeuIj7KIlSABg9N2bcFcor3+vRA5Dx6Oa5vLjVw==`.
+- `bun run check:release-published` passed after the annotated `v0.14.0` tag and GitHub release were published.
+- The selected Bun-global executable reports `repo-harness 0.14.0`; its package-local provider resolved `archctx 0.4.0` and passed the exact protocol/renderer/refresh-signal handshake.
+- Strict architecture sync reports `pending=0`, `running=0`, `dead_letters=0`, `human_actions=0`, `adoption_required=0`, and `blocking=0`.
+- The ArchContext capability authority validates with 10 entries and no errors; `capability_source=archcontext`, `projection_provider=archctx`, and both projection/freshness gates are strict.
+- The owner explicitly authorized the contract's typed `user_waiver` route and the AXR8 closeout on 2026-08-09; no Claude review is required.
 
 ## Promotion Filter
 

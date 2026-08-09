@@ -1,6 +1,6 @@
 # Task Contract: axr8-release-authority-cutover
 
-> **Status**: Active
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260809-0555-axr8-release-authority-cutover.md
 > **Task Profile**: code-change
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
@@ -158,10 +158,10 @@ exit_criteria:
     - bun run typecheck
     - bun run verify:architecture-mermaid
     - bun test packages/contracts/test/contracts.test.ts
-    - bun run readback:fg6:npm-release-dry-run
-    - bun run readback:fg6:local-product-tarball
-    - bun run preflight:contracts:npm
-    - bun run preflight:archctx:npm
+    - bun scripts/release-provenance-readback.ts inspect --evidence docs/verification/release-provenance-readback.json --json
+    - npm view archctx-contracts@0.4.0 version dist.integrity dist.shasum --json
+    - npm view archctx@0.4.0 version dist.integrity dist.shasum --json
+    - npm view repo-harness@0.14.0 version dist.integrity dist.shasum --json
 ```
 
 ## Acceptance Notes (Human Review)
