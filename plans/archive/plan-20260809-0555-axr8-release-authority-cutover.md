@@ -1,6 +1,6 @@
 # Plan: AXR8 Release and Authority Cutover
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260809-0555
 > **Slug**: axr8-release-authority-cutover
 > **Planning Source**: repo-harness-sprint
@@ -122,7 +122,7 @@ Release archctx-contracts@0.4.0, archctx@0.4.0, and repo-harness@0.14.0 in depen
 - [x] Run producer verification, package dry-runs, and compare AXR7 integrities; refresh the release baseline for the two pre-publish correctness fixes recorded in implementation notes.
 - [x] Publish and read back `archctx-contracts@0.4.0`.
 - [x] Publish and read back `archctx@0.4.0`.
-- [ ] Cut and publish `repo-harness@0.14.0` with exact public dependencies.
-- [ ] Install the selected Bun-global `repo-harness@0.14.0` runtime.
-- [ ] Promote architecture projection/freshness gates to strict and prove clean Stop/readiness.
-- [ ] Record typed user waiver, close AXR8, push both repositories, and read back final state.
+- [x] Cut and publish `repo-harness@0.14.0` with exact public dependencies.
+- [x] Install the selected Bun-global `repo-harness@0.14.0` runtime.
+- [x] Promote architecture projection/freshness gates to strict and prove clean Stop/readiness.
+- [x] Record typed user waiver, close AXR8, push both repositories, and read back final state.
