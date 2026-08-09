@@ -962,9 +962,11 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
   const generatedAt = readFlag(args, "--generated-at") ?? new Date(0).toISOString();
   let profile: ArchitectureProjectionProfile;
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
+  let acceptedChange: AcceptedArchitectureChangeReferenceV1 | undefined;
   try {
     profile = architectureProjectionProfile(args);
-    projection = buildArchitectureDocsProjection(root, generatedAt, profile, undefined, acceptedArchitectureChange(args));
+    acceptedChange = acceptedArchitectureChange(args);
+    projection = buildArchitectureDocsProjection(root, generatedAt, profile, undefined, acceptedChange);
   } catch (error) {
     return errorEnvelope(`docs.${subcommand}`, "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
   }
@@ -997,7 +999,7 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
     } as unknown as Json);
   }
   if (subcommand === "adopt") {
-    return runArchitectureDocsAdoptionCommand(args, root, daemon, projection, profile, generatedAt);
+    return runArchitectureDocsAdoptionCommand(args, root, daemon, projection, profile, generatedAt, acceptedChange);
   }
   if (projection.plan.rejected.length > 0) {
     return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`);
@@ -1172,7 +1174,8 @@ async function runArchitectureDocsAdoptionCommand(
   daemon: RuntimeDaemonClient,
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
   profile: ArchitectureProjectionProfile,
-  generatedAt: string
+  generatedAt: string,
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1
 ) {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
@@ -1213,10 +1216,10 @@ async function runArchitectureDocsAdoptionCommand(
   }
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
   for (const file of [...projection.plan.files, ...adoption.files]) simulatedByPath.set(file.path, file);
-  const canonicalFirst = buildArchitectureDocsProjection(root, generatedAt, profile, [...simulatedByPath.values()]);
+  const canonicalFirst = buildArchitectureDocsProjection(root, generatedAt, profile, [...simulatedByPath.values()], acceptedChange);
   const canonicalExistingByPath = new Map(simulatedByPath);
   for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, file);
-  const canonical = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()]);
+  const canonical = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()], acceptedChange);
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-fixed-point-unproven");
   }
@@ -1264,7 +1267,7 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
   const generatedAt = new Date(0).toISOString();
   let projection: ReturnType<typeof buildArchitectureDocsProjection>;
   try {
-    projection = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+    projection = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
     assertProjectionExpectedSnapshot(request, root, projection);
   } catch (error) {
     return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
@@ -1282,11 +1285,11 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
       "--adoption-plan-id", request.adoptionPlanId!,
       "--expected-worktree-digest", expectedWorktreeDigest,
       "--task-session-id", request.requestId
-    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt);
+    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request.acceptedChange);
     if (!adopted.ok) return adopted;
     let output: ReturnType<typeof buildArchitectureDocsProjection>;
     try {
-      output = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE);
+      output = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
       if (!output.plan.drift.ok || output.plan.rejected.length > 0) {
         return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection adoption did not reach the architecture-docs fixed point");
       }
@@ -1338,10 +1341,30 @@ function parseProjectionProtocolRequest(raw: string): ProjectionRequestV1 {
   if (typeof snapshot.repositoryId !== "string" || typeof snapshot.workspaceId !== "string") throw new Error("projection request repository/workspace identity is required");
   if (typeof snapshot.headSha !== "string" || !/^[a-f0-9]{40}$/.test(snapshot.headSha)) throw new Error("projection request expected.headSha is invalid");
   if (typeof snapshot.worktreeDigest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(snapshot.worktreeDigest)) throw new Error("projection request expected.worktreeDigest is invalid");
+  if (input.acceptedChange !== undefined) validateProjectionAcceptedChange(input.acceptedChange);
   const request = input as unknown as ProjectionRequestV1;
   const issues = projectionRequestInvariantIssues(request);
   if (issues.length > 0) throw new Error(`projection request invariant failed: ${issues.join("; ")}`);
   return request;
+}
+
+function validateProjectionAcceptedChange(value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("projection request acceptedChange must be an object");
+  }
+  const accepted = value as Record<string, unknown>;
+  const supportedKeys = new Set(["changeSetId", "eventId", "reasonCodes", "affectedNodeIds"]);
+  const unsupportedKey = Object.keys(accepted).find((key) => !supportedKeys.has(key));
+  if (unsupportedKey) throw new Error(`projection request acceptedChange contains unsupported property: ${unsupportedKey}`);
+  if (typeof accepted.changeSetId !== "string" || typeof accepted.eventId !== "string") {
+    throw new Error("projection request acceptedChange changeSetId and eventId are required");
+  }
+  if (!Array.isArray(accepted.reasonCodes) || accepted.reasonCodes.some((reason) => typeof reason !== "string")) {
+    throw new Error("projection request acceptedChange reasonCodes must be a string array");
+  }
+  if (!Array.isArray(accepted.affectedNodeIds) || accepted.affectedNodeIds.some((nodeId) => typeof nodeId !== "string")) {
+    throw new Error("projection request acceptedChange affectedNodeIds must be a string array");
+  }
 }
 
 function assertProjectionExpectedSnapshot(

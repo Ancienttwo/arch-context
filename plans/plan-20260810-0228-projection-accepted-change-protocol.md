@@ -1,6 +1,6 @@
 # Plan: Projection accepted-change protocol
 
-> **Status**: Approved
+> **Status**: Executing
 > **Created**: 20260810-0228
 > **Slug**: projection-accepted-change-protocol
 > **Planning Source**: codex-plan-or-waza-think
@@ -109,10 +109,10 @@ Thread an explicit typed accepted semantic change through ProjectionRequestV1 so
 - Publish archctx and archctx-contracts patch versions, then update repo-harness exact dependencies.
 
 ## Task Breakdown
-- [ ] Extend ProjectionRequestV1, schema, and invariants.
-- [ ] Forward and validate acceptedChange in the projection CLI protocol.
-- [ ] Add regression tests for unresolved and accepted major-change paths.
-- [ ] Run release gates and publish exact patch artifacts.
+- [x] Extend ProjectionRequestV1, schema, and invariants.
+- [x] Forward and validate acceptedChange in the projection CLI protocol.
+- [x] Add regression tests for unresolved and accepted major-change paths.
+- [x] Run release gates and prepare exact patch artifacts for post-merge publication.
 
 ## Out of scope
 - No heuristic classification of raw source edits.
@@ -123,7 +123,7 @@ Thread an explicit typed accepted semantic change through ProjectionRequestV1 so
 <!-- [NOTE]: prefixed inline. Claude processes all and revises. -->
 
 ## Task Breakdown
-- [ ] Extend ProjectionRequestV1, schema, and invariants.
-- [ ] Forward and validate acceptedChange in the projection CLI protocol.
-- [ ] Add regression tests for unresolved and accepted major-change paths.
-- [ ] Run release gates and publish exact patch artifacts.
+- [x] Extend ProjectionRequestV1, schema, and invariants.
+- [x] Forward and validate acceptedChange in the projection CLI protocol.
+- [x] Add regression tests for unresolved and accepted major-change paths.
+- [x] Run release gates and prepare exact patch artifacts for post-merge publication.
