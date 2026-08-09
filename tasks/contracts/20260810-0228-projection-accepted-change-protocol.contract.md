@@ -51,7 +51,7 @@ allowed_paths:
   - bun.lock
   - packages/contracts/package.json
   - packages/contracts/src/projection.ts
-  - packages/contracts/schemas/runtime/projection-request.schema.json
+  - schemas/runtime/projection-request.schema.json
   - packages/contracts/fixtures/
   - packages/contracts/test/
   - packages/surfaces/cli/package.json
@@ -74,7 +74,7 @@ evidence_requirements:
 exit_criteria:
   files_exist:
     - packages/contracts/src/projection.ts
-    - packages/contracts/schemas/runtime/projection-request.schema.json
+    - schemas/runtime/projection-request.schema.json
   artifacts_exist:
     - .ai/harness/checks/latest.json
   tests_pass:
