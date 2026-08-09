@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest } from "@archcontext/contracts";
 import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionRequestV1, ProjectionResultV1, ProjectionSnapshotV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
 import { dependencyAudit, diagnostics, installMarker, secretScan, uninstallMarker } from "@archcontext/cloud/hardening";
@@ -1118,7 +1118,7 @@ function buildArchitectureDocsProjection(
     generatedAt,
     refreshContext: {
       repositoryId: repositoryFingerprint(root),
-      workspaceId: `workspace.${digestJson({ root } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`,
+      workspaceId: projectionWorkspaceId(root),
       headSha: provenance.baseHeadSha,
       worktreeDigest: provenance.worktreeDigest,
       ...(acceptedChange ? { acceptedChange } : {})
@@ -1349,7 +1349,7 @@ function assertProjectionExpectedSnapshot(
   root: string,
   projection: ReturnType<typeof buildArchitectureDocsProjection>
 ): void {
-  const workspaceId = `workspace.${digestJson({ root } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`;
+  const workspaceId = projectionWorkspaceId(root);
   const actual = {
     repositoryId: repositoryFingerprint(root),
     workspaceId,
@@ -1359,6 +1359,11 @@ function assertProjectionExpectedSnapshot(
   for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
     if (request.expected[field] !== actual[field]) throw new Error(`projection request expected snapshot mismatch: ${field}`);
   }
+}
+
+function projectionWorkspaceId(root: string): string {
+  const canonicalRoot = canonicalRepositoryRoot(root);
+  return `workspace.${digestJson({ root: canonicalRoot } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`;
 }
 
 function projectionProtocolHumanStatus(
