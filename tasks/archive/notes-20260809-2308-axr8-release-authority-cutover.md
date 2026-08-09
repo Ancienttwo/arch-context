@@ -1,3 +1,9 @@
+> **Archived**: 2026-08-09 23:08
+> **Related Plan**: plans/archive/plan-20260809-0555-axr8-release-authority-cutover.md
+> **Outcome**: Completed
+> **Lifecycle**: notes
+> **Parent Run ID**: run-20260809-2308
+
 # Implementation Notes: axr8-release-authority-cutover
 
 > **Status**: Active

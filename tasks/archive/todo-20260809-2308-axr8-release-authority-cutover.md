@@ -1,7 +1,13 @@
+> **Archived**: 2026-08-09 23:08
+> **Related Plan**: plans/archive/plan-20260809-0555-axr8-release-authority-cutover.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260809-2308
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: 2026-08-09 23:08
+> **Updated**: 2026-08-09 05:55
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.

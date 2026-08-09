@@ -1,6 +1,6 @@
 # Plan: AXR8 Release and Authority Cutover
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260809-0555
 > **Slug**: axr8-release-authority-cutover
 > **Planning Source**: repo-harness-sprint

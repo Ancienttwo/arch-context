@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-08-08T20:10:36+0800 -->
+<!-- updated_at: 2026-08-09T23:08:04+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-08-08T20:10:36+0800
-> **Source Branch**: codex/axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer
-> **Source Commit**: 55b992a
+> **Updated At**: 2026-08-09T23:08:04+0800
+> **Source Branch**: codex/axr8-release-closeout
+> **Source Commit**: 29bbbaf
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -33,15 +33,20 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 
 - /Users/ancienttwo/Projects/arch-context-wt-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption: plans/plan-20260808-1625-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption.md
 - /Users/ancienttwo/Projects/arch-context-wt-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption: active-worktree owner -> /Users/ancienttwo/Projects/arch-context-wt-axr1-arch-context-repo-harness-profile-canonical-nested-target-map-recursive-orphan-scan-and-explicit-mixed-file-adoption
+- /Users/ancienttwo/Projects/arch-context-wt-axr8-release-authority-cutover: plans/plan-20260809-0555-axr8-release-authority-cutover.md
+- /Users/ancienttwo/Projects/arch-context-wt-axr8-release-authority-cutover: active-worktree owner -> /Users/ancienttwo/Projects/arch-context-wt-axr8-release-authority-cutover
 ## Active Sprint
 
-- Sprint: (none)
+- Sprint: `plans/sprints/20260712-0258-authority-aware-architecture-reading-completion.sprint.md`
+- Sprint Status: Done
+- Backlog: 5/5
+- Next Sprint Task: (none)
 ## Workstreams
 
 - (none)
 ## Handoff
 
-- Exact Next Step: Stage the completed module diff first; then run /check and let canonical workflow gates determine whether review, external acceptance, verification, or worktree finish is next. Command: /check
+- Exact Next Step: (none)
 
 ## Checks
 
@@ -52,16 +57,16 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
- D tasks/contracts/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.contract.md
- D tasks/notes/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.notes.md
- D tasks/reviews/20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.review.md
+ D plans/plan-20260809-0555-axr8-release-authority-cutover.md
+ D tasks/contracts/20260809-0555-axr8-release-authority-cutover.contract.md
+ D tasks/notes/20260809-0555-axr8-release-authority-cutover.notes.md
+ D tasks/reviews/20260809-0555-axr8-release-authority-cutover.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260808-1921-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
-?? tasks/archive/contract-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
-?? tasks/archive/notes-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
-?? tasks/archive/review-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
-?? tasks/archive/todo-20260808-2010-axr4-arch-context-major-change-classifier-and-architecturerefreshsignalv1-producer.md
+?? plans/archive/plan-20260809-0555-axr8-release-authority-cutover.md
+?? tasks/archive/contract-20260809-2308-axr8-release-authority-cutover.md
+?? tasks/archive/notes-20260809-2308-axr8-release-authority-cutover.md
+?? tasks/archive/review-20260809-2308-axr8-release-authority-cutover.md
+?? tasks/archive/todo-20260809-2308-axr8-release-authority-cutover.md
 ```
 
 ## Source Artifacts
