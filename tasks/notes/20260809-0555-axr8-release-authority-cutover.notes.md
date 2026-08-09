@@ -4,7 +4,7 @@
 > **Plan**: plans/plan-20260809-0555-axr8-release-authority-cutover.md
 > **Contract**: tasks/contracts/20260809-0555-axr8-release-authority-cutover.contract.md
 > **Review**: tasks/reviews/20260809-0555-axr8-release-authority-cutover.review.md
-> **Last Updated**: 2026-08-09 05:55
+> **Last Updated**: 2026-08-09 09:00
 > **Lifecycle**: notes
 
 ## Design Decisions
@@ -48,6 +48,10 @@
 - Full producer gate: `bun run verify` — 1218 pass, 0 fail; all downstream audits and evals PASS.
 - `archctx@0.4.0` dry-run integrity: `sha512-LFl8PqYv6Yu/VUbQHKJR00v2VZerRiyEvTlPXZVYEVjh1DzD37QmvlCq6zTUgZE3+wVLJJRpKe69u1vj2P4N7w==`.
 - `archctx-contracts@0.4.0` preflight integrity: `sha512-yV7mOuKqEDgW5NVVCpaBSqKehC1VasBbxHNVGWa3EaQ3JjOVzX+gwqJ4e+l1T8Li60qp3Mb1bDOU2N4MMZnpiQ==`.
+- Registry readback confirms `archctx-contracts@0.4.0` at that exact integrity and a clean-room import smoke passed.
+- Registry `latest` is `archctx@0.4.0`; shasum `ea6cacb33353272d01989f7bdbacf852187ac55b`, integrity `sha512-LFl8PqYv6Yu/VUbQHKJR00v2VZerRiyEvTlPXZVYEVjh1DzD37QmvlCq6zTUgZE3+wVLJJRpKe69u1vj2P4N7w==`, downloaded SHA256 `d4a165d1599bf303bce79d9cbe58a0879571d2d0483cd2622e8087ccd5a532be`.
+- Public Node 24 smoke passed: 41-command help surface, `doctor` product/CLI/daemon/MCP `0.4.0`, exact package-local CodeGraph `1.5.0`, and `update --check` current at `0.4.0`.
+- `bun run readback:fg6:release-distribution` and `bun run readback:release` are verified with no failures.
 - Clean-room product proof: `docs/verification/fg6-local-product-tarball-smoke.json`.
 
 ## Promotion Filter
