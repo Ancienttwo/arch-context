@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
@@ -122,7 +122,7 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
       changedPaths: ["README.md"],
       expected: {
         repositoryId: repositoryFingerprint(root),
-        workspaceId: `workspace.${digestJson({ root: realpathSync(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+        workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
         headSha: gitOut(root, "rev-parse", "HEAD"),
         worktreeDigest: provenance.worktreeDigest
       }

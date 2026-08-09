@@ -25,12 +25,19 @@ export function verifyArchitectureMermaid() {
   const invocation = resolveMmdcInvocation(installed);
   const temporaryRoot = mkdtempSync(join(tmpdir(), "archctx-mermaid-render-"));
   try {
+    const puppeteerConfigPath = githubActionsPuppeteerConfig(temporaryRoot);
     for (const [index, source] of sources.entries()) {
       const stem = `${String(index + 1).padStart(3, "0")}-${safeStem(source.path)}`;
       const inputPath = join(temporaryRoot, `${stem}.mmd`);
       const outputPath = join(temporaryRoot, `${stem}.svg`);
       writeFileSync(inputPath, `${source.body.trimEnd()}\n`, "utf8");
-      const rendered = spawnSync(invocation.command, [...invocation.prefixArgs, "--input", inputPath, "--output", outputPath, "--quiet"], {
+      const rendered = spawnSync(invocation.command, [
+        ...invocation.prefixArgs,
+        "--input", inputPath,
+        "--output", outputPath,
+        "--quiet",
+        ...(puppeteerConfigPath ? ["--puppeteerConfigFile", puppeteerConfigPath] : [])
+      ], {
         cwd: root,
         encoding: "utf8",
         timeout: 60_000,
@@ -48,6 +55,13 @@ export function verifyArchitectureMermaid() {
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
+}
+
+function githubActionsPuppeteerConfig(temporaryRoot) {
+  if (process.platform !== "linux" || process.env.GITHUB_ACTIONS !== "true") return undefined;
+  const path = join(temporaryRoot, "puppeteer.json");
+  writeFileSync(path, `${JSON.stringify({ args: ["--no-sandbox", "--disable-setuid-sandbox"] })}\n`, "utf8");
+  return path;
 }
 
 export function collectMermaidSources(directory) {
