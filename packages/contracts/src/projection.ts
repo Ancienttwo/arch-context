@@ -79,6 +79,7 @@ export interface ProjectionRequestV1 {
   changedPaths: string[];
   expected: ProjectionExpectedSnapshotV1;
   adoptionPlanId?: string;
+  acceptedChange?: AcceptedArchitectureChangeReferenceV1;
 }
 
 export interface ProjectionSnapshotV1 extends ProjectionExpectedSnapshotV1 {
@@ -193,12 +194,31 @@ export function archctxCapabilities(packageVersion: string): ArchctxCapabilities
 export function projectionRequestInvariantIssues(input: ProjectionRequestV1): string[] {
   const issues = [
     ...sortedUniqueIssues("targets", input.targets),
-    ...sortedUniqueIssues("changedPaths", input.changedPaths)
+    ...sortedUniqueIssues("changedPaths", input.changedPaths),
+    ...(input.acceptedChange
+      ? [
+          ...sortedUniqueIssues("acceptedChange.reasonCodes", input.acceptedChange.reasonCodes),
+          ...sortedUniqueIssues("acceptedChange.affectedNodeIds", input.acceptedChange.affectedNodeIds)
+        ]
+      : [])
   ];
   if (input.targets.length === 0) issues.push("targets must contain at least one projection target");
   if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("requestId must use the stable identifier character set");
   if (input.mode === "adopt" && !input.adoptionPlanId) issues.push("adoptionPlanId is required when mode=adopt");
   if (input.mode !== "adopt" && input.adoptionPlanId !== undefined) issues.push("adoptionPlanId is only allowed when mode=adopt");
+  if (input.acceptedChange) {
+    if (input.acceptedChange.changeSetId.trim() === "") issues.push("acceptedChange.changeSetId must not be empty");
+    if (input.acceptedChange.eventId.trim() === "") issues.push("acceptedChange.eventId must not be empty");
+    if (input.acceptedChange.reasonCodes.length === 0) issues.push("acceptedChange.reasonCodes must contain at least one reason");
+    if (input.acceptedChange.affectedNodeIds.length === 0) issues.push("acceptedChange.affectedNodeIds must contain at least one node");
+    const allowedReasons = new Set<string>(ARCHITECTURE_MAJOR_CHANGE_REASON_CODES);
+    for (const reason of input.acceptedChange.reasonCodes) {
+      if (!allowedReasons.has(reason)) issues.push(`acceptedChange.reasonCodes contains unsupported reason: ${reason}`);
+    }
+    for (const nodeId of input.acceptedChange.affectedNodeIds) {
+      if (nodeId.trim() === "") issues.push("acceptedChange.affectedNodeIds must not contain empty node ids");
+    }
+  }
   return issues;
 }
 

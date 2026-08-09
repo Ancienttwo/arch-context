@@ -12,7 +12,7 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionResultV1 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, projectionResultInvariantIssues, stableYaml, type ProjectionRequestV1, type ProjectionResultV1 } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -144,6 +144,25 @@ test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-vali
     expect(stale.ok).toBe(false);
     expect((stale as any).error?.code).toBe("AC_PRECONDITION_FAILED");
     expect((stale as any).error?.message).toContain("worktreeDigest");
+
+    const partialAcceptance = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+      ...request,
+      acceptedChange: { changeSetId: "changeset.partial" }
+    })], root);
+    expect(partialAcceptance.ok).toBe(false);
+    expect((partialAcceptance as any).error?.code).toBe("AC_SCHEMA_INVALID");
+
+    const nonCanonicalAcceptance = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+      ...request,
+      acceptedChange: {
+        changeSetId: "changeset.noncanonical",
+        eventId: "architecture_event.noncanonical",
+        reasonCodes: ["responsibility-changed", "ownership-changed"],
+        affectedNodeIds: ["capability.z", "capability.a"]
+      }
+    })], root);
+    expect(nonCanonicalAcceptance.ok).toBe(false);
+    expect((nonCanonicalAcceptance as any).error?.message).toContain("sorted and unique");
   } finally {
     removeTempRoot(root);
   }
@@ -3359,6 +3378,47 @@ describe("archctx CLI", () => {
 
       const nodePath = join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml");
       writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Routes runtime hook events.", "Routes and validates runtime hook events."), "utf8");
+      const unresolvedPlan = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
+      expect(unresolvedPlan.ok).toBe(true);
+      expect((unresolvedPlan.data as any).majorChange.mode).toBe("human-action-required");
+      const unresolvedProvenance = (unresolvedPlan.data as any).provenance;
+      const protocolRequest: ProjectionRequestV1 = {
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId: "projection_request.hook_adapters_major",
+        profile: "repo-harness/v1",
+        mode: "plan",
+        targets: ["agent-context", "architecture-docs"],
+        changedPaths: [".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"],
+        expected: {
+          repositoryId: repositoryFingerprint(root),
+          workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+          headSha: gitOut(root, "rev-parse", "HEAD"),
+          worktreeDigest: unresolvedProvenance.worktreeDigest
+        }
+      };
+      const unresolvedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify(protocolRequest)], root);
+      expect(unresolvedProtocol.ok).toBe(true);
+      expect((unresolvedProtocol.data as ProjectionResultV1).status).toBe("human-action-required");
+      expect((unresolvedProtocol.data as ProjectionResultV1).refreshSignals[0]?.mode).toBe("human-action-required");
+
+      const acceptedChange = {
+        changeSetId: "changeset.hook-adapters-major",
+        eventId: "architecture_event.hook-adapters-major",
+        reasonCodes: ["responsibility-changed"] as const,
+        affectedNodeIds: ["capability.runtime-harness.hook-adapters"]
+      };
+      const acceptedProtocol = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+        ...protocolRequest,
+        requestId: "projection_request.hook_adapters_major_accepted",
+        acceptedChange
+      })], root);
+      expect(acceptedProtocol.ok).toBe(true);
+      expect((acceptedProtocol.data as ProjectionResultV1).status).toBe("planned");
+      expect((acceptedProtocol.data as ProjectionResultV1).refreshSignals[0]).toMatchObject({
+        mode: "refresh-required",
+        acceptedChange
+      });
+
       const signalArgs = [
         "plan", "--profile", "repo-harness/v1",
         "--accepted-change-set-id", "changeset.hook-adapters-major",

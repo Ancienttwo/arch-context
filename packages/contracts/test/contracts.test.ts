@@ -168,13 +168,31 @@ const schemaByFixture: Record<string, string> = {
 test("projection request contract enforces adopt binding, unique arrays, and canonical ordering", () => {
   const schema = readJson("schemas/runtime/projection-request.schema.json");
   const valid = readJson("packages/contracts/fixtures/valid/projection-request.json") as unknown as ProjectionRequestV1;
+  const acceptedChange = {
+    changeSetId: "changeset.runtime-major",
+    eventId: "architecture_event.runtime-major",
+    reasonCodes: ["ownership-changed", "responsibility-changed"] as const,
+    affectedNodeIds: ["capability.runtime-harness.hook-adapters"]
+  };
   expect(projectionRequestInvariantIssues(valid)).toEqual([]);
+  expect(projectionRequestInvariantIssues({ ...valid, acceptedChange: { ...acceptedChange, reasonCodes: [...acceptedChange.reasonCodes] } })).toEqual([]);
+  expect(validateJsonSchema(schema as any, { ...valid, acceptedChange } as any).valid).toBe(true);
   expect(validateJsonSchema(schema as any, { ...valid, mode: "adopt" } as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, { ...valid, adoptionPlanId: "adoption_plan.example" } as any).valid).toBe(false);
   expect(validateJsonSchema(schema as any, { ...valid, changedPaths: [valid.changedPaths[0], valid.changedPaths[0]] } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...valid, acceptedChange: { ...acceptedChange, eventId: "" } } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...valid, acceptedChange: { ...acceptedChange, reasonCodes: ["not-supported"] } } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, { ...valid, acceptedChange: { ...acceptedChange, untyped: true } } as any).valid).toBe(false);
   expect(projectionRequestInvariantIssues({ ...valid, changedPaths: [...valid.changedPaths].reverse() })).toEqual([
     "changedPaths must be sorted and unique"
   ]);
+  expect(projectionRequestInvariantIssues({
+    ...valid,
+    acceptedChange: {
+      ...acceptedChange,
+      reasonCodes: [...acceptedChange.reasonCodes].reverse()
+    }
+  })).toEqual(["acceptedChange.reasonCodes must be sorted and unique"]);
 });
 
 test("JSON schema uniqueItems compares canonical JSON rather than object insertion order", () => {
@@ -281,7 +299,7 @@ test("refresh-required signals bind the exact accepted ChangeSet event and taxon
 
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
-  expect(archctxCapabilities("0.4.0")).toEqual(fixture);
+  expect(archctxCapabilities("0.4.1")).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
