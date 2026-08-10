@@ -69,6 +69,24 @@ describe("@archcontext/core/architecture-domain", () => {
     }
   });
 
+  test("worktree digest ignores Claude runtime trace files without ignoring Claude configuration", () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
+    try {
+      mkdirSync(join(root, ".claude"), { recursive: true });
+      writeFileSync(join(root, ".claude", ".session-id"), "session-one");
+      writeFileSync(join(root, ".claude", ".trace.jsonl"), "trace-one\n");
+      writeFileSync(join(root, ".claude", "settings.json"), "{}\n");
+      const first = computeWorktreeDigest(root);
+      writeFileSync(join(root, ".claude", ".session-id"), "session-two");
+      writeFileSync(join(root, ".claude", ".trace.jsonl"), "trace-two\n");
+      expect(computeWorktreeDigest(root)).toBe(first);
+      writeFileSync(join(root, ".claude", "settings.json"), "{\"hooks\":{}}\n");
+      expect(computeWorktreeDigest(root)).not.toBe(first);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("default ignores apply only at repository roots, not to nested source directories with the same basename", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-domain-"));
     try {

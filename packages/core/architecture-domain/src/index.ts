@@ -155,6 +155,8 @@ const DEFAULT_IGNORES = new Set([
   "_ops",
   "_ref",
   ".archcontext/.local",
+  ".claude/.session-id",
+  ".claude/.trace.jsonl",
   ".DS_Store"
 ]);
 
