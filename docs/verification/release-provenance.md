@@ -1,10 +1,10 @@
 # Release Provenance Readback
 
 - Status: verified
-- Generated At: 2026-08-09T00:59:44.159Z
-- Root source package: `archcontext` 0.4.0, private=true
-- Generated npm package: `archctx` 0.4.0
-- npm latest: 0.4.0
+- Generated At: 2026-08-11T13:25:01.856Z
+- Root source package: `archcontext` 0.4.2, private=true
+- Generated npm package: `archctx` 0.4.2
+- npm latest: 0.4.2
 - Source help commands: 41
 - Published help commands: 41
 - Official release smoke help commands: 41
