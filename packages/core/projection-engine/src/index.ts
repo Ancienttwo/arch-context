@@ -342,21 +342,30 @@ export function renderArchitectureDocumentationProjection(input: {
     resulting: semanticState,
     acceptedChange: input.refreshContext?.acceptedChange
   });
-  // Each entity-summary target keys its marker on the inputs of its *own* node: the measured scale
-  // signal and the semantic proof digest (which already folds the model-wide relations that touch
-  // this node's diagrams). Those are the only render inputs of the entity body besides the stamp,
-  // so a node-scoped digest is exactly the "body would be byte-identical" predicate the sticky
-  // stamp needs. A re-measured footprint is then reported as `projection-generated-region-stale`
-  // on the one document that carries it instead of every entity target, and a commit that touches
-  // nothing under a node's footprint no longer invalidates it.
+  // Each entity-summary target keys its marker on a *canonical render of its own body*: the body
+  // rendered once with the fixed placeholder stamp `CANONICAL_STICKY_STAMP`, then digested. The
+  // placeholder stands in for the one body input the key must not depend on — the stamp itself —
+  // so the digest is a total function of every other render input of the entity body: status,
+  // summary, `extensions.localContracts`, `source.include`/`source.entrypoints`, both relation
+  // lists, the measured scale signal, and the semantic P1/P2 compilation. Because the key is the
+  // rendered string rather than an enumeration of inputs, a future body input is covered
+  // automatically instead of having to be remembered. The key is therefore exactly the
+  // "body would be byte-identical" predicate the sticky stamp needs: a status flip that moves the
+  // body moves the digest, so a stamp can never be silently reused against a commit that never
+  // rendered the body it now names, and a re-measured footprint is still reported as
+  // `projection-generated-region-stale` on the one document that carries it instead of every
+  // entity target.
   //
-  // The plan-wide `input.sourceDigest` (the moving tree) and `verifiedAgainst` are deliberately
-  // *not* inputs here. Folding the tree digest in would couple every entity document to unrelated
-  // commits; and `verifiedAgainst` is a sticky stamp (see `stickyVerifiedAgainst` below), not a
-  // render input: folding a moving HEAD into the digest would leave the projection without a fixed
-  // point — every commit would invalidate the document that the previous commit had just
-  // re-projected. Index/diagram/decision/relation targets render no per-node measurement, so they
-  // keep recording `input.sourceDigest` and stay byte-identical to their pre-change output.
+  // The plan-wide `input.sourceDigest` (the moving tree) and the real `verifiedAgainst` are
+  // deliberately *not* folded in beyond the placeholder. Folding the tree digest in would couple
+  // every entity document to unrelated commits; and `verifiedAgainst` is a sticky stamp (see
+  // `stickyVerifiedAgainst` below), not a render input: folding a moving HEAD into the digest
+  // would leave the projection without a fixed point — every commit would invalidate the document
+  // that the previous commit had just re-projected. `generatedAt` does not enter entity bodies
+  // (only architecture-index prints it), so it cannot perturb the canonical digest.
+  // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
+  // recording the plan-wide `input.sourceDigest` and stay byte-identical to their pre-change
+  // output.
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
   const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
   const changeSinceStampByNodeId = new Map(input.sourceChangesSinceStamp.map((entry) => [entry.nodeId, entry]));
@@ -365,15 +374,25 @@ export function renderArchitectureDocumentationProjection(input: {
     const existing = existingByPath.get(draft.path);
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
     // Targets that render no per-node measurement key on the plan-wide digest; an entity-summary
-    // target keys on its own node's inputs (see the comment above the render loop).
+    // target keys on the canonical digest of its own rendered body (see the comment above the
+    // render loop).
     let targetSourceDigest = input.sourceDigest;
     let targetVerifiedAgainst: ArchitectureProjectionVerifiedAgainst | undefined;
     if (nodeId !== undefined) {
-      const compilation = semanticCompilationsByNodeId.get(nodeId)!;
-      targetSourceDigest = digestJson({
-        sourceScaleSignal: scaleSignalsByNodeId.get(nodeId) ?? null,
-        semanticProof: { capabilityId: compilation.capabilityId, proofDigest: compilation.proofDigest }
-      } as unknown as Json);
+      // Canonical render: the same body this run would emit, stamped with the placeholder instead
+      // of the decided stamp. Rendering the body (rather than enumerating its inputs) also keeps
+      // the fail-closed error paths in front of the stamp decision — a node that declares
+      // `source.include` with no measured scale signal throws
+      // `architecture-docs-projection-scale-signal-missing` here.
+      targetSourceDigest = digestJson(renderTargetGeneratedBody(draft, model, {
+        generatedAt,
+        verifiedAgainst: CANONICAL_STICKY_STAMP,
+        scaleSignalsByNodeId,
+        semanticCompilationsByNodeId,
+        decisions: input.decisions ?? [],
+        timeline: input.timeline ?? [],
+        layout
+      }));
       const decision = stickyVerifiedAgainst(existing, draft.targetId, targetSourceDigest, {
         nodeDeclaresSource: declaresSourceByNodeId.get(nodeId) === true,
         measurement: changeSinceStampByNodeId.get(nodeId)
@@ -1834,10 +1853,11 @@ function architectureDocumentationProjectionDrift(input: {
       continue;
     }
     if (metadata.outputDigest !== expected.generatedBodyDigest) {
-      // Internally consistent, but not what this run renders. Entity targets record a node-scoped
-      // key (scale signal + semantic proof), so a body input outside that key — a node name or
-      // status flip, a relation re-wording — lands here: a document awaiting re-verification, a
-      // stale projection, not a hand edit.
+      // Internally consistent, but not what this run renders. Entity targets key their marker on
+      // the canonical body digest, so a moved body input (status flip, summary edit, re-measured
+      // footprint) is already caught by the sourceDigest check above; what survives to here is a
+      // region whose inputs match but whose stamp decision moved the body. Either way this is a
+      // document awaiting re-verification, a stale projection, not a hand edit.
       diffs.push({
         path: expected.path,
         targetId: expected.target.targetId,
@@ -1936,6 +1956,20 @@ function parseMarkerVerifiedAgainst(value: string | undefined): ArchitectureProj
   }
 }
 
+/**
+ * Fixed placeholder stamp for the canonical render each entity-summary target keys its sticky
+ * marker digest on (`targetSourceDigest`): the digest must be a function of every body input
+ * *except* the stamp, so the canonical render pins the stamp to this constant. The value itself is
+ * never validated, written to a marker, or compared against a real ref — only the digest of the
+ * body rendered under it is used. Any constant would do; this one is fixed forever so the key stays
+ * stable across renderer runs.
+ */
+const CANONICAL_STICKY_STAMP: ArchitectureProjectionVerifiedAgainst = {
+  branch: "__sticky-canonical__",
+  commit: "0000000",
+  committedAt: "1970-01-01T00:00:00.000Z"
+};
+
 type StickyVerifiedAgainstDecision =
   | { kind: "reuse"; verifiedAgainst: ArchitectureProjectionVerifiedAgainst }
   | { kind: "restamp" }
@@ -1949,8 +1983,9 @@ type StickyVerifiedAgainstDecision =
  *
  * A stamp sticks when **both** hold:
  *
- * 1. The region was rendered from the inputs this run computed (`nodeSourceDigest` — the target's
- *    own node's scale signal and proof digest — matches, so the body would be byte-identical), and
+ * 1. The region was rendered from the body this run computes (`nodeSourceDigest` — the digest of
+ *    the canonical placeholder-stamped render of the target's own body — matches, so the body
+ *    would be byte-identical but for the stamp line and marker attributes), and
  * 2. no file inside the node's declared `source.include` footprint changed after the stamped
  *    commit — as measured by the caller.
  *
