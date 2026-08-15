@@ -708,3 +708,88 @@ describe("node-scoped sticky key", () => {
     }
   });
 });
+
+describe("canonical body digest sticky key", () => {
+  const nodeA = "capability.docs.projection";
+  const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
+
+  /** The default model with only model-level fields flipped: status, summary, local contracts. */
+  const statusFlippedModel: NativeModel = {
+    nodes: model.nodes.map((node) => node.id === nodeA ? {
+      ...node,
+      status: "deprecated",
+      summary: "Projects capability facts into module documentation. Superseded by the ledger.",
+      extensions: {
+        localContracts: ["packages/core/projection-engine/CLAUDE.md", "packages/core/projection-engine/AGENTS.md"]
+      }
+    } : node),
+    relations: model.relations,
+    flows: model.flows
+  };
+
+  test("a model-level status flip re-stamps even when every footprint measurement is unchanged", () => {
+    const run1 = render();
+    const existingFiles = [...run1.files.map(({ path, body }) => ({ path, body })), run1.manifest];
+
+    // Only model-level fields outside any source footprint move: the node's status flips, its
+    // summary is reworded, and a contract file is added. The global tree digest is unchanged and
+    // the per-node measurement still reports nothing changed under the footprint — exactly the
+    // edit a key over scale signal + proof digest alone would let slip through with a stale stamp.
+    const run2 = render({ model: statusFlippedModel, verifiedAgainst: nextRef, existingFiles });
+
+    // The rendered body moved, so the node re-stamps with the ref that rendered the new body;
+    // reusing run 1's stamp would attribute the new prose to a commit that never rendered it.
+    expect(entityFile(run2, nodeA).verifiedAgainst).toEqual(nextRef);
+    expect(entityFile(run2, nodeA).body).toContain("> **狀態**:`deprecated`");
+    expect(entityFile(run2, nodeA).body).toContain("packages/core/projection-engine/AGENTS.md");
+    expect(entityFile(run2, nodeA).body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
+    expect(entityFile(run2, nodeA).body).not.toContain("`main@7415329`");
+  });
+
+  test("once a status-flip re-render lands, the honest stamp holds as the new fixed point", () => {
+    const run3Ref = { branch: "main", commit: "feedface", committedAt: "2026-08-10T09:30:00+08:00" };
+    const reapply = (base: ArchitectureDocumentationProjectionPlan, verifiedAgainst: typeof nextRef) => render({
+      model: statusFlippedModel,
+      verifiedAgainst,
+      // The measurement is keyed to the commit the on-disk document is actually stamped with.
+      sourceChangesSinceStamp: [{ nodeId: nodeA, commit: nextRef.commit, status: "unchanged" }],
+      existingFiles: [...base.files.map(({ path, body }) => ({ path, body })), base.manifest]
+    });
+
+    const run1 = render();
+    const run2 = render({
+      model: statusFlippedModel,
+      verifiedAgainst: nextRef,
+      existingFiles: [...run1.files.map(({ path, body }) => ({ path, body })), run1.manifest]
+    });
+    expect(entityFile(run2, nodeA).verifiedAgainst).toEqual(nextRef);
+
+    // Run 2's output is what sits on disk after `docs apply`; HEAD has moved on again. This is
+    // the state a false stamp used to hide in: once the marker's outputDigest matched the new
+    // body, the stale stamp read clean. Now every document holds with run 2's stamp — never
+    // run 1's. The manifest is the one file still stale: its receipt digests the major-change
+    // classification, which settles only after the semantic delta has been consumed by the first
+    // post-apply render — a property of the baseline machinery, identical with or without this
+    // fix, and orthogonal to stamps.
+    const run3 = reapply(run2, run3Ref);
+    expect(run3.drift.diffs).toEqual([expect.objectContaining({
+      path: "docs/architecture/.projection-manifest.json",
+      reasonCode: "projection-manifest-stale"
+    })]);
+    expect(run3.notices).toEqual([]);
+    for (const file of run2.files) {
+      expect(run3.files.find((entry) => entry.path === file.path)?.body).toBe(file.body);
+    }
+    expect(entityFile(run3, nodeA).verifiedAgainst).toEqual(nextRef);
+    expect(entityFile(run3, nodeA).body).toContain("`main@0badc0de`");
+    expect(entityFile(run3, nodeA).body).not.toContain("`main@7415329`");
+
+    // And the settle completes on the next apply: re-projecting run 3's output with identical
+    // inputs is fully clean — documents and manifest — still carrying run 2's stamp.
+    const run4 = reapply(run3, run3Ref);
+    expect(run4.drift.ok).toBe(true);
+    expect(run4.drift.diffs).toEqual([]);
+    expect(run4.files.map((file) => file.body)).toEqual(run3.files.map((file) => file.body));
+    expect(entityFile(run4, nodeA).verifiedAgainst).toEqual(nextRef);
+  });
+});
