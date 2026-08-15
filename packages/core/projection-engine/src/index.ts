@@ -342,24 +342,21 @@ export function renderArchitectureDocumentationProjection(input: {
     resulting: semanticState,
     acceptedChange: input.refreshContext?.acceptedChange
   });
-  // The measured scale signal and semantic proof digest are render inputs of the entity-summary
-  // body, so they belong to the digest those targets record in
-  // their marker. Folding them in per target (instead of into the plan-wide sourceDigest) keeps a
-  // re-measured footprint reported as `projection-generated-region-stale` on the docs that actually
-  // carry it, instead of being mis-reported as a manual edit — and leaves
-  // index/diagram/decision/relation targets byte-identical to their pre-change output.
+  // Each entity-summary target keys its marker on the inputs of its *own* node: the measured scale
+  // signal and the semantic proof digest (which already folds the model-wide relations that touch
+  // this node's diagrams). Those are the only render inputs of the entity body besides the stamp,
+  // so a node-scoped digest is exactly the "body would be byte-identical" predicate the sticky
+  // stamp needs. A re-measured footprint is then reported as `projection-generated-region-stale`
+  // on the one document that carries it instead of every entity target, and a commit that touches
+  // nothing under a node's footprint no longer invalidates it.
   //
-  // `verifiedAgainst` is deliberately *not* an input here. It is a sticky stamp (see
-  // `stickyVerifiedAgainst` below), not a render input: folding a moving HEAD into the digest would
-  // leave the projection without a fixed point — every commit would invalidate the document that
-  // the previous commit had just re-projected.
-  const entitySourceDigest = digestJson({
-    sourceDigest: input.sourceDigest,
-    sourceScaleSignals: [...scaleSignalsByNodeId.values()].sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
-    semanticProofs: [...semanticCompilationsByNodeId.values()]
-      .map((compilation) => ({ capabilityId: compilation.capabilityId, proofDigest: compilation.proofDigest }))
-      .sort((left, right) => left.capabilityId.localeCompare(right.capabilityId))
-  } as unknown as Json);
+  // The plan-wide `input.sourceDigest` (the moving tree) and `verifiedAgainst` are deliberately
+  // *not* inputs here. Folding the tree digest in would couple every entity document to unrelated
+  // commits; and `verifiedAgainst` is a sticky stamp (see `stickyVerifiedAgainst` below), not a
+  // render input: folding a moving HEAD into the digest would leave the projection without a fixed
+  // point — every commit would invalidate the document that the previous commit had just
+  // re-projected. Index/diagram/decision/relation targets render no per-node measurement, so they
+  // keep recording `input.sourceDigest` and stay byte-identical to their pre-change output.
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
   const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
   const changeSinceStampByNodeId = new Map(input.sourceChangesSinceStamp.map((entry) => [entry.nodeId, entry]));
@@ -367,9 +364,17 @@ export function renderArchitectureDocumentationProjection(input: {
   const rendered = targetDrafts.map((draft) => {
     const existing = existingByPath.get(draft.path);
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
+    // Targets that render no per-node measurement key on the plan-wide digest; an entity-summary
+    // target keys on its own node's inputs (see the comment above the render loop).
+    let targetSourceDigest = input.sourceDigest;
     let targetVerifiedAgainst: ArchitectureProjectionVerifiedAgainst | undefined;
     if (nodeId !== undefined) {
-      const decision = stickyVerifiedAgainst(existing, draft.targetId, entitySourceDigest, {
+      const compilation = semanticCompilationsByNodeId.get(nodeId)!;
+      targetSourceDigest = digestJson({
+        sourceScaleSignal: scaleSignalsByNodeId.get(nodeId) ?? null,
+        semanticProof: { capabilityId: compilation.capabilityId, proofDigest: compilation.proofDigest }
+      } as unknown as Json);
+      const decision = stickyVerifiedAgainst(existing, draft.targetId, targetSourceDigest, {
         nodeDeclaresSource: declaresSourceByNodeId.get(nodeId) === true,
         measurement: changeSinceStampByNodeId.get(nodeId)
       });
@@ -398,7 +403,7 @@ export function renderArchitectureDocumentationProjection(input: {
     const target = projectionTarget({
       ...draft,
       rendererVersion,
-      sourceDigest: draft.type === "entity-summary" ? entitySourceDigest : input.sourceDigest,
+      sourceDigest: targetSourceDigest,
       outputDigest: generatedBodyDigest,
       ...(targetVerifiedAgainst ? { verifiedAgainst: targetVerifiedAgainst } : {})
     });
@@ -1829,8 +1834,9 @@ function architectureDocumentationProjectionDrift(input: {
       continue;
     }
     if (metadata.outputDigest !== expected.generatedBodyDigest) {
-      // Internally consistent, but not what this run renders. The only render input outside
-      // `sourceDigest` is the sticky stamp, so this is a document awaiting re-verification — a
+      // Internally consistent, but not what this run renders. Entity targets record a node-scoped
+      // key (scale signal + semantic proof), so a body input outside that key — a node name or
+      // status flip, a relation re-wording — lands here: a document awaiting re-verification, a
       // stale projection, not a hand edit.
       diffs.push({
         path: expected.path,
@@ -1943,8 +1949,8 @@ type StickyVerifiedAgainstDecision =
  *
  * A stamp sticks when **both** hold:
  *
- * 1. The region was rendered from the inputs this run computed (`entitySourceDigest` matches, so
- *    the body would be byte-identical), and
+ * 1. The region was rendered from the inputs this run computed (`nodeSourceDigest` — the target's
+ *    own node's scale signal and proof digest — matches, so the body would be byte-identical), and
  * 2. no file inside the node's declared `source.include` footprint changed after the stamped
  *    commit — as measured by the caller.
  *
@@ -1963,14 +1969,14 @@ type StickyVerifiedAgainstDecision =
 function stickyVerifiedAgainst(
   existing: string | undefined,
   targetId: string,
-  entitySourceDigest: string,
+  nodeSourceDigest: string,
   node: { nodeDeclaresSource: boolean; measurement: CapabilitySourceChangeSinceStamp | undefined }
 ): StickyVerifiedAgainstDecision {
   if (!existing) return { kind: "restamp" };
   const region = findGeneratedRegion(existing, targetId);
   if (!region) return { kind: "restamp" };
   const metadata = parseGeneratedRegionMetadata(region.startMarker);
-  if (metadata.sourceDigest !== entitySourceDigest) return { kind: "restamp" };
+  if (metadata.sourceDigest !== nodeSourceDigest) return { kind: "restamp" };
   const stamp = parseMarkerVerifiedAgainst(metadata.verifiedAgainst);
   if (!stamp) return { kind: "restamp" };
   // A node that declares no source footprint has nothing that can change under it, so its stamp

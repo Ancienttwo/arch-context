@@ -103,7 +103,7 @@ function entityTarget(): ProjectionTargetV1 {
       startMarker: "<!-- BEGIN ARCHCONTEXT:generated target=hook -->",
       endMarker: "<!-- END ARCHCONTEXT:generated target=hook -->"
     },
-    rendererVersion: "archcontext.docs-renderer/v2",
+    rendererVersion: "archcontext.docs-renderer/v3",
     format: "markdown",
     sourceDigest: "sha256:source",
     outputDigest: "sha256:output"
