@@ -468,9 +468,11 @@ describe("entity-summary capability documentation projection", () => {
     expect(index.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
 
     const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
+    // The entity key is scoped to the node's own inputs, so a changed global tree digest alone no
+    // longer re-stamps it; the node's measured scale signal is the render input that moves here.
     const changed = render({
       existingFiles: [...first.files.map(({ path, body }) => ({ path, body })), first.manifest],
-      sourceDigest: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 4 }],
       verifiedAgainst: nextRef
     });
     expect(entityFile(changed, "capability.docs.projection").verifiedAgainst).toEqual(nextRef);
@@ -618,5 +620,91 @@ describe("semantic P1/P2 entity integration", () => {
     }), "capability.docs.projection").body;
     expect(body).toContain("`selector-evidence-truncated`");
     expect(body).not.toContain("> **Proof**: `proven`");
+  });
+});
+
+describe("node-scoped sticky key", () => {
+  const nodeB = "capability.docs.qa";
+
+  /** The default model plus a second capability with its own declared `source.include` footprint. */
+  const twoFootprintModel: NativeModel = {
+    nodes: [
+      ...model.nodes,
+      {
+        id: nodeB,
+        kind: "capability",
+        name: "Docs QA",
+        status: "active",
+        summary: "Checks projected documentation.",
+        source: { include: ["packages/core/docs-qa/**"] }
+      }
+    ],
+    relations: model.relations,
+    flows: model.flows
+  };
+
+  const scaleSignalB = {
+    nodeId: nodeB,
+    fileCount: 515,
+    lineCount: 9000,
+    includePatterns: ["packages/core/docs-qa/**"],
+    excludePatterns: []
+  } satisfies CapabilitySourceScaleSignal;
+
+  test("an unrelated commit and a sibling node's re-measurement leave the untouched node byte-identical and stamped", () => {
+    const nodeA = "capability.docs.projection";
+    const run1 = render({ model: twoFootprintModel, sourceScaleSignals: [...scaleSignals, scaleSignalB] });
+    const existingFiles = [...run1.files.map(({ path, body }) => ({ path, body })), run1.manifest];
+    const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
+
+    // An unrelated commit moved the whole tree (new global digest), and sibling B's footprint was
+    // re-measured plus measured changed. Node A's own inputs are identical and measured unchanged.
+    const run2 = render({
+      model: twoFootprintModel,
+      sourceDigest: "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      verifiedAgainst: nextRef,
+      existingFiles,
+      sourceScaleSignals: [...scaleSignals, { ...scaleSignalB, fileCount: 517 }],
+      sourceChangesSinceStamp: [
+        { nodeId: nodeA, commit: verifiedAgainst.commit, status: "unchanged" },
+        { nodeId: nodeB, commit: verifiedAgainst.commit, status: "changed", changedPathCount: 2 }
+      ]
+    });
+
+    // A is byte-identical and keeps the commit it was verified against.
+    expect(entityFile(run2, nodeA).body).toBe(entityFile(run1, nodeA).body);
+    expect(entityFile(run2, nodeA).verifiedAgainst).toEqual(verifiedAgainst);
+    // B re-rendered and re-stamped with the current ref.
+    expect(entityFile(run2, nodeB).verifiedAgainst).toEqual(nextRef);
+    expect(entityFile(run2, nodeB).body).toContain("- 文件數:`517`");
+    expect(entityFile(run2, nodeB).body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
+  });
+
+  test("documents carrying v2 markers and the old digest shape re-render wholesale under v3", () => {
+    const current = render();
+    // Simulate files left behind by the previous renderer: v2 marker attributes and the old
+    // plan-wide digest shape. The one-time full re-render is the accepted migration cost.
+    const legacyFiles = current.files.map(({ path, body }) => ({
+      path,
+      body: body
+        .replaceAll('rendererVersion="archcontext.docs-renderer/v3"', 'rendererVersion="archcontext.docs-renderer/v2"')
+        .replace(/sourceDigest="sha256:[a-f0-9]+"/g, 'sourceDigest="sha256:0000000000000000000000000000000000000000000000000000000000000000"')
+    }));
+    const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
+
+    const upgraded = render({ existingFiles: [...legacyFiles, current.manifest], verifiedAgainst: nextRef });
+
+    expect(upgraded.files).toHaveLength(current.files.length);
+    for (const file of upgraded.files) {
+      expect(file.target.generatedRegion.startMarker).toContain('rendererVersion="archcontext.docs-renderer/v3"');
+      expect(file.body).not.toBe(legacyFiles.find((entry) => entry.path === file.path)!.body);
+    }
+    // Every legacy target is awaiting re-render — stale, never accused of a manual edit — and every
+    // entity summary re-stamps with the current ref.
+    expect(upgraded.drift.reasonCodes).toContain("projection-generated-region-stale");
+    expect(upgraded.drift.reasonCodes).not.toContain("projection-generated-region-manually-edited");
+    for (const file of current.files.filter((entry) => entry.target.type === "entity-summary")) {
+      expect(upgraded.files.find((entry) => entry.path === file.path)?.verifiedAgainst).toEqual(nextRef);
+    }
   });
 });

@@ -42,7 +42,7 @@
         "codeGraphDigest": { "$ref": "#/$defs/digest" },
         "indexedWorktreeDigest": { "$ref": "#/$defs/nullableDigest" },
         "projectionInputDigest": { "$ref": "#/$defs/digest" },
-        "rendererVersion": { "const": "archcontext.docs-renderer/v2" },
+        "rendererVersion": { "const": "archcontext.docs-renderer/v3" },
         "layoutVersion": { "const": "archcontext.docs-layout/v1" },
         "generatedFrom": {
           "type": "object",
