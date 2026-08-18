@@ -26,10 +26,10 @@ Script ownership and cleanup rules are frozen in
 ## Pending Requests
 
 <!-- BEGIN ARCHITECTURE PENDING REQUESTS -->
-- (none)
+- [ ] 2026-08-18T11:58:19+0800 [medium] `package.json` -> [root](requests/root.md)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:da8c8840ebf02a9fc6bfcccea5a904709d6858115f481f285ca37d3043cd5b08" rendererVersion="archcontext.docs-renderer/v1" outputDigest="sha256:d8befba2f9694135b102da8a06b26fef2dac710eec54390c84a88121525d698b" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:a7a60d4526dcea34f28ba6a690e5c834ac8027b82e80f653030eeda17f80b583" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:dae139ef4a635bf2b5331f4f9de2582f23dba75fcbfca0560bc0ebc89bde5efa" -->
 # Architecture Index
 
 Generated: 1970-01-01T00:00:00.000Z
@@ -37,10 +37,11 @@ Generated: 1970-01-01T00:00:00.000Z
 ## Entities
 
 - [Architecture Context](modules/capability-architecture-context.md) — capability / active
+- [Architecture Documentation Renderer](modules/component-architecture-context-projection-renderer.md) — component / active
 
 ## Relations
 
-- No architecture relations recorded.
+- [capability.architecture-context -> component.architecture-context.projection-renderer](relations/relation-architecture-context-projection-renderer.md) — calls
 
 ## Projections
 

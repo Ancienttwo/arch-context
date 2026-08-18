@@ -1,0 +1,50 @@
+schemaVersion: archcontext.flow/v1
+id: flow.architecture-context.projection-render
+capabilityId: capability.architecture-context
+name: "Project the accepted architecture model into documentation"
+applicability: required
+participants:
+  - id: trigger
+    nodeId: capability.architecture-context
+  - id: renderer
+    nodeId: component.architecture-context.projection-renderer
+steps:
+  - id: render-from-cli
+    from: trigger
+    to: renderer
+    label: "Render the projection for an operator-run docs command"
+    evidence:
+      entrypointId: entrypoint.architecture-context.cli
+      sourceSymbol: "buildArchitectureDocsProjection"
+      sinkId: sink.architecture-context.render
+outcomes:
+  - id: projected
+    kind: success
+    label: "The projection plan is renderable"
+    steps:
+      - id: emit-plan
+        from: trigger
+        to: renderer
+        label: "Emit the projection plan and its per-target stamps"
+        evidence:
+          entrypointId: entrypoint.architecture-context.cli
+          sourceSymbol: "buildArchitectureDocsProjection"
+          sinkId: sink.architecture-context.render
+    terminal:
+      participant: trigger
+      label: "Return the projection plan"
+  - id: unprovable
+    kind: error
+    label: "A declared footprint has no measured scale signal"
+    steps:
+      - id: fail-closed
+        from: trigger
+        to: renderer
+        label: "Refuse to project rather than print an unmeasured guess"
+        evidence:
+          entrypointId: entrypoint.architecture-context.cli
+          sourceSymbol: "buildArchitectureDocsProjection"
+          sinkId: sink.architecture-context.render
+    terminal:
+      participant: trigger
+      label: "Return a typed projection failure"

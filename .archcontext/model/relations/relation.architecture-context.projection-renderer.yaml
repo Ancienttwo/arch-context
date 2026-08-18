@@ -1,0 +1,6 @@
+schemaVersion: archcontext.relation/v1
+id: relation.architecture-context.projection-renderer
+kind: calls
+source: capability.architecture-context
+target: component.architecture-context.projection-renderer
+intent: "Project the accepted architecture model into documentation"

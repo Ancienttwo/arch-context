@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:da8c8840ebf02a9fc6bfcccea5a904709d6858115f481f285ca37d3043cd5b08" rendererVersion="archcontext.docs-renderer/v1" outputDigest="sha256:73dacc1be73cb7217763a768252bc55c52ec9ec8341f16d017c8b17909c4cba3" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:a7a60d4526dcea34f28ba6a690e5c834ac8027b82e80f653030eeda17f80b583" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:1c0af2be30664c6a28100fc077043baabeb39de0b376ae3efd8e2aeed3b35722" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -11,15 +11,31 @@
         "tags": [
           "capability"
         ]
+      },
+      {
+        "id": "component.architecture-context.projection-renderer",
+        "name": "Architecture Documentation Renderer",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
       }
     ],
-    "relationships": []
+    "relationships": [
+      {
+        "id": "relation.architecture-context.projection-renderer",
+        "sourceId": "capability.architecture-context",
+        "destinationId": "component.architecture-context.projection-renderer",
+        "description": "calls"
+      }
+    ]
   },
   "views": {
     "systemLandscape": {
       "key": "archcontext-landscape",
       "include": [
-        "capability.architecture-context"
+        "capability.architecture-context",
+        "component.architecture-context.projection-renderer"
       ]
     }
   }
