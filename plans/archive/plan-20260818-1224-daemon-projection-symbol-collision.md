@@ -1,6 +1,6 @@
 # Plan: Remove the duplicate completeTaskProjection* symbols in the runtime daemon
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260818-1224
 > **Slug**: daemon-projection-symbol-collision
 > **Artifact Level**: work-package

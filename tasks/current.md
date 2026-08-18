@@ -1,16 +1,16 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-08-09T23:11:40+0800 -->
+<!-- updated_at: 2026-08-18T16:13:10+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: Idle
-> **Updated At**: 2026-08-09T23:11:40+0800
-> **Source Branch**: codex/axr8-release-closeout
-> **Source Commit**: 39a0f2f
+> **Updated At**: 2026-08-18T16:13:10+0800
+> **Source Branch**: codex/daemon-projection-symbol-collision
+> **Source Commit**: 78bbf98
 > **Target Branch**: main
 > **Stale After**: 24h
-> **Reason**: axr8-closeout-final
+> **Reason**: archive-workflow
 > **Derived From**: active-plan, active-sprint, workstreams, handoff, checks, git status
 
 This file is a tracked mainline snapshot derived from repo artifacts. It is not a live lock, not a kanban board, and not an implementation gate. If it is stale, read the source artifacts below.
@@ -34,10 +34,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - (none)
 ## Active Sprint
 
-- Sprint: `plans/sprints/20260712-0258-authority-aware-architecture-reading-completion.sprint.md`
-- Sprint Status: Done
-- Backlog: 5/5
-- Next Sprint Task: (none)
+- Sprint: (none)
 ## Workstreams
 
 - (none)
@@ -51,10 +48,19 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 
 ## Git Status
 
-- Summary: clean
+- Summary: 10 changed/untracked path(s)
 
 ```
-(none)
+ D plans/plan-20260818-1224-daemon-projection-symbol-collision.md
+ D tasks/contracts/20260818-1224-daemon-projection-symbol-collision.contract.md
+ D tasks/notes/20260818-1224-daemon-projection-symbol-collision.notes.md
+ D tasks/reviews/20260818-1224-daemon-projection-symbol-collision.review.md
+ M tasks/todos.md
+?? plans/archive/plan-20260818-1224-daemon-projection-symbol-collision.md
+?? tasks/archive/contract-20260818-1613-daemon-projection-symbol-collision.md
+?? tasks/archive/notes-20260818-1613-daemon-projection-symbol-collision.md
+?? tasks/archive/review-20260818-1613-daemon-projection-symbol-collision.md
+?? tasks/archive/todo-20260818-1613-daemon-projection-symbol-collision.md
 ```
 
 ## Source Artifacts
