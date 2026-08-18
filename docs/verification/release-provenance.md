@@ -1,10 +1,10 @@
 # Release Provenance Readback
 
-- Status: failed
-- Generated At: 2026-08-18T08:38:56.333Z
+- Status: verified
+- Generated At: 2026-08-18T12:24:20.829Z
 - Root source package: `archcontext` 0.4.4, private=true
 - Generated npm package: `archctx` 0.4.4
-- npm latest: 0.4.3
+- npm latest: 0.4.4
 - Source help commands: 41
 - Published help commands: 41
 - Official release smoke help commands: 41
@@ -15,11 +15,7 @@ The root workspace package and private workspace packages are source manifests. 
 
 ## Result
 
-FAILED:
-- distributionReadbackVerified
-- officialNpmReadbackVerified
-- registryLatestMatchesRoot
-- registryMetadataMatchesOfficialRelease
+PASS: release, source manifests, help surface, docs, and npm registry agree.
 
 ## Boundary
 
