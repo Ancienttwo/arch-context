@@ -26,7 +26,7 @@ Script ownership and cleanup rules are frozen in
 ## Pending Requests
 
 <!-- BEGIN ARCHITECTURE PENDING REQUESTS -->
-- [ ] 2026-08-18T11:58:19+0800 [medium] `package.json` -> [root](requests/root.md)
+- (none)
 <!-- END ARCHITECTURE PENDING REQUESTS -->
 
 <!-- BEGIN ARCHCONTEXT:generated target="projection_target.architecture.index" sourceDigest="sha256:2268c81bf95b9756e3ac65b914e5c914af8e5a738edd49b908b68c8332ff1f53" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:dae139ef4a635bf2b5331f4f9de2582f23dba75fcbfca0560bc0ebc89bde5efa" -->

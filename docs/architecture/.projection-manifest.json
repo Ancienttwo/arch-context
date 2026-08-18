@@ -21,7 +21,7 @@
     },
     "projectionInputDigest": "sha256:c4d11a1e910003e5daf9ea225d907ee0a72766740f6a1e10df4de98e347dd05f"
   },
-  "projectionDigest": "sha256:576271ac5c5ab2d1362f8be36912151bc6060595596379f0eec825789816ec0e",
+  "projectionDigest": "sha256:3ec5d44c3c048cdf4d7f4269162e7b63e5e42f5b34d093cb1ea6d45fd4fc43bc",
   "semanticBaseline": {
     "semanticState": {
       "schemaVersion": "archcontext.architecture-semantic-state/v1",
@@ -59,10 +59,10 @@
       "modelDigest": "sha256:534641d290297646cececf96f9902f95cbfb6080f1916d3d06744b094b4fc22d",
       "sourceTreeDigest": "sha256:674558c29bf618493241ceca130986789e5ad84953783ba09db682b7e0a78765",
       "flowProofDigest": "sha256:3ef5fc73b53d045408b156b68ca22c1312b86fd545305b404f06f399370dfca4",
-      "projectionDigest": "sha256:576271ac5c5ab2d1362f8be36912151bc6060595596379f0eec825789816ec0e"
+      "projectionDigest": "sha256:3ec5d44c3c048cdf4d7f4269162e7b63e5e42f5b34d093cb1ea6d45fd4fc43bc"
     }
   },
-  "receiptDigest": "sha256:b23de507e8aae47c6c57feee314f64b319f52af68af51669eff05735bc0aeaa7",
+  "receiptDigest": "sha256:3b38b7db6e4c75775ff6da93f51f4026a5fb429491e7a93bf87c8d8dc8956f31",
   "refreshSignalIds": [],
   "targetCount": 9,
   "fileCount": 9,
@@ -96,8 +96,8 @@
       "outputDigest": "sha256:81bdd30469e7d21bf5320c6464e32c45f90e05d56216bb772d2f1477924e4b13",
       "verifiedAgainst": {
         "branch": "codex/daemon-projection-symbol-collision",
-        "commit": "34f5dc0219f6ab6ee4e50638289f7779d8751d68",
-        "committedAt": "2026-08-18T12:23:58+08:00"
+        "commit": "116844b369aafb4c5d70c7378b693e47eb1daf04",
+        "committedAt": "2026-08-18T12:49:45+08:00"
       }
     },
     {
