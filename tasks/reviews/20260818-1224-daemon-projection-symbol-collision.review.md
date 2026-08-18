@@ -53,13 +53,13 @@ screenshot/artifact path, or reviewer observation.
 > **Reviewer**: Claude
 > **Source**: claude-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: sha256:c7b310ce602fad788cf59aaa4b64cff1c2a5f299d17a6f0d3b1cb40bca66c47f
+> **Reviewed Subject SHA256**: sha256:7cdb428e58c025b56cd0665a55b49901f5341e3263f323d4e2b2c1ba5dafda12
 > **Reviewed Subject Scope**: normalized-final-content
 > **Reviewed Target Revision**: 34f5dc0219f6ab6ee4e50638289f7779d8751d68
-> **Verification Evidence SHA256**: sha256:3f45b6f884d76f47d248e7b6ea0f5d1bd518fa17a4de6fb8823e6a78c0323a3d
-> **Issued At**: 2026-08-18T04:49:22.260Z
+> **Verification Evidence SHA256**: sha256:4f8863fe348f3a1053468c86193df44c06214e42ab7401e5284a0483ac1c811b
+> **Issued At**: 2026-08-18T04:52:26.174Z
 
-- Summary: Implementation matches contract scope exactly: two behaviourless private delegates deleted, their two call sites rewritten to the module-level functions, and the daemon step restored in the flow. The rendered P2 reports proven with selectors 2/2, which is the contract's acceptance rubric, and the sibling entity document did not move at all — the node-scoped key held. Full suite 1225 pass / 0 fail (the 10-test delta against main is _ref/ reference material a linked worktree does not carry); typecheck exits 0.
+- Summary: Re-reviewed after the architecture queue reindex, which cleared the pending-request line this branch does not carry and moved the subject. The implementation is unchanged and still matches contract scope exactly: two behaviourless private delegates deleted, their call sites rewritten to the module-level functions, the daemon step restored in the flow. Rendered P2 reports proven with selectors 2/2; the sibling entity document did not move. Suite 1225 pass / 0 fail; typecheck exits 0; docs drift clean.
 - Findings: none
 
 ## Behavior Diff Notes
