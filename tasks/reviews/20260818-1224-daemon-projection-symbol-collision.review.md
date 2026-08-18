@@ -49,17 +49,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Claude
+> **Source**: claude-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:c7b310ce602fad788cf59aaa4b64cff1c2a5f299d17a6f0d3b1cb40bca66c47f
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: 34f5dc0219f6ab6ee4e50638289f7779d8751d68
+> **Verification Evidence SHA256**: sha256:3f45b6f884d76f47d248e7b6ea0f5d1bd518fa17a4de6fb8823e6a78c0323a3d
+> **Issued At**: 2026-08-18T04:49:22.260Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Implementation matches contract scope exactly: two behaviourless private delegates deleted, their two call sites rewritten to the module-level functions, and the daemon step restored in the flow. The rendered P2 reports proven with selectors 2/2, which is the contract's acceptance rubric, and the sibling entity document did not move at all — the node-scoped key held. Full suite 1225 pass / 0 fail (the 10-test delta against main is _ref/ reference material a linked worktree does not carry); typecheck exits 0.
 - Findings: none
 
 ## Behavior Diff Notes
