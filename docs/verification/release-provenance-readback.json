@@ -1,14 +1,14 @@
 {
   "schemaVersion": "archcontext.release-provenance-readback/v1",
   "taskId": "release-source-truth-cleanup",
-  "status": "verified",
-  "ok": true,
-  "generatedAt": "2026-08-11T13:25:01.856Z",
+  "status": "failed",
+  "ok": false,
+  "generatedAt": "2026-08-18T08:38:56.333Z",
   "packageRelationship": {
     "rootWorkspacePackage": {
       "path": "package.json",
       "name": "archcontext",
-      "version": "0.4.2",
+      "version": "0.4.4",
       "private": true,
       "role": "workspace-source-manifest"
     },
@@ -16,28 +16,28 @@
       {
         "path": "packages/contracts/package.json",
         "name": "@archcontext/contracts",
-        "version": "0.4.2",
+        "version": "0.4.4",
         "private": false,
         "binNames": []
       },
       {
         "path": "packages/core/package.json",
         "name": "@archcontext/core",
-        "version": "0.4.2",
+        "version": "0.4.4",
         "private": true,
         "binNames": []
       },
       {
         "path": "packages/local-runtime/package.json",
         "name": "@archcontext/local-runtime",
-        "version": "0.4.2",
+        "version": "0.4.4",
         "private": true,
         "binNames": []
       },
       {
         "path": "packages/surfaces/package.json",
         "name": "@archcontext/surfaces",
-        "version": "0.4.2",
+        "version": "0.4.4",
         "private": true,
         "binNames": [
           "archctx"
@@ -46,52 +46,52 @@
       {
         "path": "packages/cloud/package.json",
         "name": "@archcontext/cloud",
-        "version": "0.4.2",
+        "version": "0.4.4",
         "private": true,
         "binNames": []
       }
     ],
     "generatedNpmPackage": {
       "name": "archctx",
-      "version": "0.4.2",
+      "version": "0.4.4",
       "private": false,
       "sourceEvidence": "docs/verification/fg6-npm-release-dry-run.json",
       "publishedEvidence": "docs/verification/architecture-ledger-al10-npm-release-readback.json"
     }
   },
   "versions": {
-    "product": "0.4.2",
-    "root": "0.4.2",
+    "product": "0.4.4",
+    "root": "0.4.4",
     "sourcePackages": [
       {
         "path": "package.json",
-        "version": "0.4.2"
+        "version": "0.4.4"
       },
       {
         "path": "packages/contracts/package.json",
-        "version": "0.4.2"
+        "version": "0.4.4"
       },
       {
         "path": "packages/core/package.json",
-        "version": "0.4.2"
+        "version": "0.4.4"
       },
       {
         "path": "packages/local-runtime/package.json",
-        "version": "0.4.2"
+        "version": "0.4.4"
       },
       {
         "path": "packages/surfaces/package.json",
-        "version": "0.4.2"
+        "version": "0.4.4"
       },
       {
         "path": "packages/cloud/package.json",
-        "version": "0.4.2"
+        "version": "0.4.4"
       }
     ],
-    "npmLatest": "0.4.2",
+    "npmLatest": "0.4.3",
     "distTags": {
       "beta": "0.1.4-beta.0",
-      "latest": "0.4.2"
+      "latest": "0.4.3"
     }
   },
   "helpSurface": {
@@ -199,7 +199,7 @@
       "ok": true,
       "package": {
         "name": "archctx",
-        "version": "0.4.2",
+        "version": "0.4.4",
         "private": false,
         "bin": {
           "archctx": "./bin/archctx.mjs"
@@ -213,8 +213,8 @@
         "ready": true,
         "packageName": "archctx",
         "installCommand": "npm install -g archctx",
-        "postPublishInstallCommand": "npm install -g archctx@0.4.2",
-        "version": "0.4.2",
+        "postPublishInstallCommand": "npm install -g archctx@0.4.3",
+        "version": "0.4.3",
         "blockers": []
       }
     },
@@ -263,7 +263,7 @@
     "registry": {
       "package": {
         "name": "archctx",
-        "version": "0.4.2",
+        "version": "0.4.3",
         "bin": {
           "archctx": "bin/archctx.mjs"
         },
@@ -272,13 +272,13 @@
         },
         "homepage": "https://archcontext.repoharness.com",
         "license": "Apache-2.0",
-        "dist.tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.2.tgz",
-        "dist.shasum": "d249a726be28ea673ff677cd239f327093446327",
-        "dist.integrity": "sha512-mDsl6fKZ5sg4tZrt+cN3ym0oHJOcYWQsRPzAu9eNbUez79qRgq7aA8moRpYWMTBGQUlq78QmyQHE0r14cZq51w=="
+        "dist.tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.3.tgz",
+        "dist.shasum": "2ef16ca1f86cd90846fd3aee7ea7a196e4f40b69",
+        "dist.integrity": "sha512-a99QRejFw3mIj/O5/+m6em3c88pjghIKa2nFqRlHQrbcptQli7QyOvwbR9aZ9sjD9Kzf0ehyu2zz/zPqwEWO5g=="
       },
       "tags": {
         "beta": "0.1.4-beta.0",
-        "latest": "0.4.2"
+        "latest": "0.4.3"
       },
       "versions": [
         "0.0.0",
@@ -296,7 +296,8 @@
         "0.3.0",
         "0.4.0",
         "0.4.1",
-        "0.4.2"
+        "0.4.2",
+        "0.4.3"
       ]
     }
   },
@@ -310,10 +311,10 @@
     "sourceRuntimePackagesRemainPrivate": true,
     "productManifestMatchesRoot": true,
     "generatedPackageMatchesRoot": true,
-    "distributionReadbackVerified": true,
-    "officialNpmReadbackVerified": true,
-    "registryLatestMatchesRoot": true,
-    "registryMetadataMatchesOfficialRelease": true,
+    "distributionReadbackVerified": false,
+    "officialNpmReadbackVerified": false,
+    "registryLatestMatchesRoot": false,
+    "registryMetadataMatchesOfficialRelease": false,
     "sourceHelpSucceeded": true,
     "publishedHelpSucceeded": true,
     "sourceHelpMatchesPublishedHelp": true,
@@ -325,5 +326,10 @@
     "readbackScriptInstalled": true,
     "authorityPromotionNotImplied": true
   },
-  "failures": []
+  "failures": [
+    "distributionReadbackVerified",
+    "officialNpmReadbackVerified",
+    "registryLatestMatchesRoot",
+    "registryMetadataMatchesOfficialRelease"
+  ]
 }
