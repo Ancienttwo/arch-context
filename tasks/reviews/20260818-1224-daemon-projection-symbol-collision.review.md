@@ -53,13 +53,13 @@ screenshot/artifact path, or reviewer observation.
 > **Reviewer**: Claude
 > **Source**: claude-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: sha256:7cdb428e58c025b56cd0665a55b49901f5341e3263f323d4e2b2c1ba5dafda12
+> **Reviewed Subject SHA256**: sha256:d5c4f3c73e4827c4484eb03bd441cfe503268ca4c6fb42278094feaa593e899a
 > **Reviewed Subject Scope**: normalized-final-content
 > **Reviewed Target Revision**: 34f5dc0219f6ab6ee4e50638289f7779d8751d68
-> **Verification Evidence SHA256**: sha256:4f8863fe348f3a1053468c86193df44c06214e42ab7401e5284a0483ac1c811b
-> **Issued At**: 2026-08-18T04:52:26.174Z
+> **Verification Evidence SHA256**: sha256:2d6be55d8306a846261d3a3c0b9ea767e0c2f9a534e17b9bd136a288458113d8
+> **Issued At**: 2026-08-18T08:12:55.478Z
 
-- Summary: Re-reviewed after the architecture queue reindex, which cleared the pending-request line this branch does not carry and moved the subject. The implementation is unchanged and still matches contract scope exactly: two behaviourless private delegates deleted, their call sites rewritten to the module-level functions, the daemon step restored in the flow. Rendered P2 reports proven with selectors 2/2; the sibling entity document did not move. Suite 1225 pass / 0 fail; typecheck exits 0; docs drift clean.
+- Summary: Re-reviewed after the closeout-time scope widening, which is recorded in the contract with its reason. Core change unchanged and still exactly in scope: two behaviourless private delegates deleted, their call sites rewritten, the daemon step restored in the flow, P2 proven with selectors 2/2. The widening registers the renderer component as an architecture module and declares its real footprint in both the archcontext node and the capability registry, so the two authorities agree rather than one claiming a prefix the other lacks; capability-resolver reports OK. Suite 1225 pass / 0 fail, typecheck exits 0, docs drift clean.
 - Findings: none
 
 ## Behavior Diff Notes
