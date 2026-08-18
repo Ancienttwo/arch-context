@@ -82,6 +82,12 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 {"protocol":1,"reviewer":"Claude","user_waiver":"allowed"}
 ```
 
+## Change Assessment
+
+```json
+{"protocol":1,"oracles":[{"id":"daemon-suite","kind":"deterministic_test","paths":["*"]},{"id":"projection-p2-selectors","kind":"runtime_readback","paths":["*"]}]}
+```
+
 ## Allowed Paths
 
 ```yaml

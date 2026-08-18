@@ -2372,8 +2372,8 @@ export class ArchctxDaemon {
         now: this.clock()
       })
       : undefined;
-    const projectionDrift = this.completeTaskProjectionDrift(session.workspace.root);
-    const projectionFreshness = this.completeTaskProjectionFreshness(session.workspace.root);
+    const projectionDrift = completeTaskProjectionDrift(session.workspace.root);
+    const projectionFreshness = completeTaskProjectionFreshness(session.workspace.root);
     const reviewInput: CompleteTaskInput = {
       taskSessionId,
       posture: input.posture ?? "normal",
@@ -2393,14 +2393,6 @@ export class ArchctxDaemon {
     const review = completeTaskGate(reviewInput);
     await this.localStore.saveReviewResult(review.reviewId, review);
     return okEnvelope("complete_task", review as unknown as Json);
-  }
-
-  private completeTaskProjectionDrift(root: string): CompleteTaskProjectionDriftInput | undefined {
-    return completeTaskProjectionDrift(root);
-  }
-
-  private completeTaskProjectionFreshness(root: string): CompleteTaskProjectionFreshnessInput | undefined {
-    return completeTaskProjectionFreshness(root);
   }
 
   private manualExternalDocumentation(): ExternalDocumentationPort {

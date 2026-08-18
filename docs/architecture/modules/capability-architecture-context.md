@@ -1,6 +1,6 @@
 # Architecture Context 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:0d5abd439c7ed63e2b0c4ccdb55bf09937598c880c70f3624b647d61e3ed3c15" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:acbfad5813dfe6378a0e693e95c437aa5e9df1d1844a6f78ff2bfa2a92ee419c" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.capability-architecture-context" sourceDigest="sha256:e1ed11fd46afe4f5549eea22344d7afc318ddfbad9b727f8171cdb07f492e6d8" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:81bdd30469e7d21bf5320c6464e32c45f90e05d56216bb772d2f1477924e4b13" -->
 > **狀態**:`active`
 > **Capability ID**:`capability.architecture-context`(kind `capability`)
 > **Matched Prefixes**:`packages/**/src/**`
@@ -24,7 +24,7 @@ flowchart LR
   classDef external fill:#7c2d12,color:#ffffff,stroke:#fed7aa,stroke-width:2px
 ```
 
-- Proof: `proven` (`sha256:0e5cec93979df1540b487ecf353b22e79d7ef91572629389070854899892d73a`).
+- Proof: `proven` (`sha256:6b20327dd8d4d6d540d6a488ceccb312e0c5556f4db3e1d514ed49747df9dd9e`).
 - Semantic nodes: `2`; declared relations: `1`.
 
 ### 1.2 模組職責表
@@ -53,7 +53,7 @@ flowchart LR
 
 ## 2. P2:端到端數據流
 
-> **Proof**: `proven` (`sha256:0e5cec93979df1540b487ecf353b22e79d7ef91572629389070854899892d73a`); selectors `1/1`.
+> **Proof**: `proven` (`sha256:6b20327dd8d4d6d540d6a488ceccb312e0c5556f4db3e1d514ed49747df9dd9e`); selectors `2/2`.
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"background":"#0d1117","actorBkg":"#312e81","actorBorder":"#c4b5fd","actorTextColor":"#ffffff","signalColor":"#e5e7eb","signalTextColor":"#e5e7eb","labelBoxBkgColor":"#4c1d95","labelBoxBorderColor":"#c4b5fd","labelTextColor":"#ffffff","noteBkgColor":"#78350f","noteBorderColor":"#fcd34d","noteTextColor":"#ffffff","sequenceNumberColor":"#ffffff"}}}%%
@@ -62,6 +62,7 @@ sequenceDiagram
   participant p2_trigger_9140ba4a as Architecture Context
   participant p2_renderer_178bc931 as Architecture Documentation Renderer
   p2_trigger_9140ba4a->>p2_renderer_178bc931: Render the projection for an operator-run docs command
+  p2_trigger_9140ba4a->>p2_renderer_178bc931: Render the projection for a daemon-measured stamp lifecycle
   alt The projection plan is renderable
   p2_trigger_9140ba4a->>p2_renderer_178bc931: Emit the projection plan and its per-target stamps
     Note over p2_trigger_9140ba4a: Return the projection plan
