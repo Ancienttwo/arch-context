@@ -191,11 +191,16 @@ function flowchartLabels(body: string): Map<string, string> {
   return out;
 }
 
-/** Blanks the two places a stamp shows up (marker attributes, intro line) for byte comparison. */
-function stripStampLines(body: string): string {
-  return body
-    .replace(/<!-- BEGIN ARCHCONTEXT:generated[^\n]*-->/, "<!-- BEGIN -->")
-    .replace(/^> \*\*Verified against\*\*.*$/m, "> **Verified against**");
+/**
+ * Every commit-shaped value any test in this file feeds the renderer. Since renderer v4 no document
+ * body or marker may contain one: provenance lives only in the projection manifest.
+ */
+const EVERY_TEST_COMMIT = ["7415329", "0badc0de", "feedface", "cafe1234"];
+
+function expectNoProvenanceInBody(body: string): void {
+  expect(body).not.toContain("Verified against");
+  expect(body).not.toContain("verifiedAgainst");
+  for (const commit of EVERY_TEST_COMMIT) expect(body).not.toContain(commit);
 }
 
 function entityFile(plan: ArchitectureDocumentationProjectionPlan, nodeId: string) {
@@ -205,23 +210,25 @@ function entityFile(plan: ArchitectureDocumentationProjectionPlan, nodeId: strin
 }
 
 describe("entity-summary capability documentation projection", () => {
-  test("renders the handoff intro block and the §1 machine sections from model + Git ref", () => {
+  test("renders the handoff intro block and the §1 machine sections from model + measured footprint", () => {
     const body = entityFile(render(), "capability.docs.projection").body;
 
     expect(body).toContain("# docs/projection 架構文檔");
     expect(body).toContain("> **狀態**:`active`");
-    expect(body).toContain("> **Verified against**:`main@7415329`(2026-08-08)");
     expect(body).toContain("> **Capability ID**:`capability.docs.projection`(kind `capability`)");
     expect(body).toContain("> **Matched Prefixes**:`packages/core/projection-engine/**`");
     expect(body).toContain("> **Local Contracts**:`packages/core/projection-engine/CLAUDE.md`");
     expect(body).toContain("> **事實優先級**:倉庫當前狀態 > 本文檔機器區");
+    // The body is not a function of the repository ref; the manifest is where provenance lives.
+    expectNoProvenanceInBody(body);
+    expect(body).toContain("`docs/architecture/.projection-manifest.json`");
 
     expect(body).toContain("## 1. P1:能力架構地圖");
     expect(body).toContain("| `entrypoint.docs.render` | `packages/core/projection-engine/src/index.ts#renderArchitectureDocumentationProjection`");
-    expect(body).toContain("- 文件數:`3`");
-    expect(body).toContain("- 總行數:`1200`");
+    // 3 files / 1200 lines, printed as the 1–2–5 buckets that contain them.
+    expect(body).toContain("- 規模量級:`2–5` 個文件 / `1000–2000` 行");
     expect(body).toContain("- 排除前綴:`packages/core/projection-engine/test/**`");
-    expect(body).toContain("- 復算:`archctx docs plan --json`");
+    expect(body).toContain("- 推導:掃描 `source.include` 減 `source.exclude`");
     expect(body).toContain("- `calls` → `module.no-source` — read model nodes");
     expect(body).toContain("## 2. P2:端到端數據流");
 
@@ -252,7 +259,7 @@ describe("entity-summary capability documentation projection", () => {
     expect(body).toContain("human-action-required");
     expect(body).toContain("`semantic-edge-missing`");
     expect(body).toContain("`flow-missing`");
-    expect(body).not.toContain("文件數:`0`");
+    expect(body).not.toContain("規模量級:`0`");
     expect(body).not.toContain("```mermaid");
   });
 
@@ -354,9 +361,10 @@ describe("entity-summary capability documentation projection", () => {
       expect(moved.files.find((entry) => entry.path === file.path)?.body).toBe(file.body);
     }
     expect(moved.manifest.body).toBe(first.manifest.body);
-    // The document keeps naming the commit it was actually verified against, not the moved HEAD.
-    expect(entityFile(moved, "capability.docs.projection").body).toContain("> **Verified against**:`main@7415329`");
-    expect(entityFile(moved, "capability.docs.projection").body).not.toContain("0badc0de");
+    // The manifest keeps naming the commit the projection was actually verified against, not the
+    // moved HEAD — and the document itself names no commit at all.
+    expect(entityFile(moved, "capability.docs.projection").verifiedAgainst).toEqual(verifiedAgainst);
+    expectNoProvenanceInBody(entityFile(moved, "capability.docs.projection").body);
 
     // And it keeps holding across a third commit, so the fixed point is not a one-shot.
     const movedAgain = render({
@@ -367,12 +375,13 @@ describe("entity-summary capability documentation projection", () => {
     expect(movedAgain.files.map((file) => file.body)).toEqual(moved.files.map((file) => file.body));
   });
 
-  test("a covered source change re-stamps even when it moves no rendered assertion", () => {
-    // The narrow deadlock this input exists to close: an edit inside the capability's footprint that
-    // changes nothing the document asserts (same files, same line count, same import edges, same call
-    // trail) leaves every digest identical. Stickiness driven by digests alone would pin the stamp to
-    // a commit the document was never re-verified against, and the freshness gate would then be
-    // impossible to clear by re-projecting.
+  test("a covered source change re-stamps in the manifest and leaves the document byte-identical", () => {
+    // The churn this split exists to kill. An edit inside the capability's footprint that changes
+    // nothing the document asserts must still re-stamp: the stamp records that this render read the
+    // current tree, and a stamp pinned to a commit the document was never re-verified against would
+    // make the freshness gate impossible to clear by re-projecting. But that re-stamp must not
+    // rewrite the document — for a capability covering `tests/**` that is a stamp-only commit every
+    // time anyone touches a test. So the stamp advances in the manifest and the `.md` does not move.
     const first = render();
     const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
     const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
@@ -390,10 +399,13 @@ describe("entity-summary capability documentation projection", () => {
     const before = entityFile(first, "capability.docs.projection");
     const after = entityFile(reverified, "capability.docs.projection");
     expect(after.verifiedAgainst).toEqual(nextRef);
-    expect(after.body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
     expect(reverified.notices).toEqual([]);
-    // Nothing else in the document moved: only the stamp line and the marker attributes it feeds.
-    expect(stripStampLines(after.body)).toBe(stripStampLines(before.body));
+    // Byte-identical, marker attributes included: the stamp is not a body input at all.
+    expect(after.body).toBe(before.body);
+    expect(after.target.generatedRegion.startMarker).toBe(before.target.generatedRegion.startMarker);
+    // The manifest is the one file that moved, and it moved because the stamp did.
+    expect(reverified.manifest.body).not.toBe(first.manifest.body);
+    expect(reverified.manifest.body).toContain("0badc0de");
     // The node that declares no source keeps its stamp: nothing can change under it.
     expect(entityFile(reverified, "module.no-source").verifiedAgainst).toEqual(verifiedAgainst);
   });
@@ -441,7 +453,7 @@ describe("entity-summary capability documentation projection", () => {
     expect(unmeasured.notices).toHaveLength(1);
   });
 
-  test("a stamp-only re-render reports stale, not a manual edit", () => {
+  test("a re-stamp alone leaves every document clean and moves only the manifest", () => {
     const first = render();
     const stamped = render({
       existingFiles: [...first.files.map(({ path, body }) => ({ path, body })), first.manifest],
@@ -453,48 +465,97 @@ describe("entity-summary capability documentation projection", () => {
         changedPathCount: 1
       }]
     });
-    const diff = stamped.drift.diffs.find((entry) => entry.path === entityFile(first, "capability.docs.projection").path);
-    expect(diff?.reasonCode).toBe("projection-generated-region-stale");
+    // No document is stale and none is accused of a hand edit: none of them changed.
+    expect(stamped.drift.diffs).toEqual([expect.objectContaining({
+      path: "docs/architecture/.projection-manifest.json",
+      reasonCode: "projection-manifest-stale"
+    })]);
   });
 
   test("the first render stamps the caller's ref, and re-stamps once a render input actually changes", () => {
     const first = render();
     expect(entityFile(first, "capability.docs.projection").verifiedAgainst).toEqual(verifiedAgainst);
-    expect(entityFile(first, "capability.docs.projection").target.generatedRegion.startMarker)
-      .toContain('verifiedAgainst="main@7415329@2026-08-08T09:30:00+08:00"');
-    // Non-entity targets carry no stamp: they print no Git ref, so they have nothing to stick to.
-    const index = first.files.find((file) => file.path === "docs/architecture/index.md")!;
-    expect(index.verifiedAgainst).toBeUndefined();
-    expect(index.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
+    // No marker carries the stamp any more — not on an entity target, not anywhere.
+    for (const file of first.files) {
+      expect(file.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
+    }
+    // Non-entity targets carry no stamp at all: they assert nothing about a footprint.
+    expect(first.files.find((file) => file.path === "docs/architecture/index.md")!.verifiedAgainst).toBeUndefined();
 
     const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
     // The entity key is scoped to the node's own inputs, so a changed global tree digest alone no
-    // longer re-stamps it; the node's measured scale signal is the render input that moves here.
+    // longer re-stamps it; here the footprint grows across a bucket boundary (3 files → 6), which is
+    // a rendered assertion moving, so the body genuinely changes and the node re-stamps with it.
     const changed = render({
       existingFiles: [...first.files.map(({ path, body }) => ({ path, body })), first.manifest],
-      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 4 }],
+      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 6 }],
       verifiedAgainst: nextRef
     });
     expect(entityFile(changed, "capability.docs.projection").verifiedAgainst).toEqual(nextRef);
-    expect(entityFile(changed, "capability.docs.projection").body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
+    expect(entityFile(changed, "capability.docs.projection").body).toContain("- 規模量級:`5–10` 個文件");
   });
 
-  test("a malformed or absent marker stamp re-stamps instead of leaking a bad value into the prose", () => {
+  test("a footprint that grows within its bucket moves nothing a reader or a diff can see", () => {
+    // The other half of the churn fix: a precise count in the body rewrote the document on every
+    // edit under the footprint. Buckets hold, so only a change of magnitude reaches the document.
+    const first = render();
+    const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
+    const withinBucket = render({
+      existingFiles,
+      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 4, lineCount: 1999 }]
+    });
+
+    expect(entityFile(withinBucket, "capability.docs.projection").body).toBe(entityFile(first, "capability.docs.projection").body);
+    expect(withinBucket.drift.ok).toBe(true);
+    expect(withinBucket.drift.diffs).toEqual([]);
+  });
+
+  test("scale buckets label the 1–2–5 range that contains the count, in one unit", () => {
+    const label = (fileCount: number, lineCount: number) => {
+      const body = entityFile(render({ sourceScaleSignals: [{ ...scaleSignals[0], fileCount, lineCount }] }), "capability.docs.projection").body;
+      return body.split("\n").find((line) => line.startsWith("- 規模量級:"))!;
+    };
+
+    expect(label(1, 1)).toBe("- 規模量級:`1–2` 個文件 / `1–2` 行");
+    expect(label(3, 537)).toBe("- 規模量級:`2–5` 個文件 / `500–1000` 行");
+    expect(label(5, 5000)).toBe("- 規模量級:`5–10` 個文件 / `5000–10000` 行");
+    // The two counts that produced six stamp-only commits in one day now land in the same bucket.
+    expect(label(537, 172275)).toBe(label(538, 172396));
+    expect(label(537, 172275)).toBe("- 規模量級:`500–1000` 個文件 / `100k–200k` 行");
+    expect(label(2_500_000, 3_000_000)).toBe("- 規模量級:`2M–5M` 個文件 / `2M–5M` 行");
+    // A footprint that resolves to no files is reported as measured-zero, never bucketed.
+    expect(label(0, 0)).toBe("- 規模量級:`0` 個文件 / `0` 行");
+    expect(() => label(-1, 0)).toThrow("architecture-docs-projection-scale-signal-not-a-count");
+    expect(() => label(1.5, 0)).toThrow("architecture-docs-projection-scale-signal-not-a-count");
+  });
+
+  test("a malformed, absent, or unreadable manifest stamp re-stamps instead of trusting it", () => {
     const first = render();
     const seeded = entityFile(first, "capability.docs.projection");
     const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
+    const documents = first.files.map(({ path, body }) => ({ path, body }));
 
-    for (const corruption of ['verifiedAgainst="not-a-stamp"', 'verifiedAgainst="main@zzzz@nope"', ""]) {
-      const corrupted = seeded.body.replace(/ verifiedAgainst="[^"]*"/, corruption === "" ? "" : ` ${corruption}`);
+    const corruptions = [
+      // A stamp that is not provenance at all, one with a placeholder commit, one absent.
+      first.manifest.body.replaceAll(/"verifiedAgainst": \{[^}]*\}/g, '"verifiedAgainst": "not-a-stamp"'),
+      first.manifest.body.replaceAll(`"commit": "${verifiedAgainst.commit}"`, '"commit": "unborn"'),
+      first.manifest.body.replaceAll(/"verifiedAgainst": \{[^}]*\},?\n/g, ""),
+      // A manifest that cannot be parsed at all must not deadlock the projection that replaces it.
+      "{ not json",
+      // And a manifest whose stamps outlive the documents they describe cannot launder one back on.
+      first.manifest.body
+    ];
+
+    for (const [index, body] of corruptions.entries()) {
       const replan = render({
-        existingFiles: [{ path: seeded.path, body: corrupted }],
+        // The last case drops the documents; every other case keeps them intact.
+        existingFiles: [...(index === corruptions.length - 1 ? [] : documents), { path: first.manifest.path, body }],
         verifiedAgainst: nextRef
       });
       const reprojected = entityFile(replan, "capability.docs.projection");
       expect(reprojected.verifiedAgainst).toEqual(nextRef);
-      expect(reprojected.body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
+      expect(reprojected.body).toBe(seeded.body);
       expect(reprojected.body).not.toContain("not-a-stamp");
-      expect(reprojected.body).not.toContain("zzzz");
     }
   });
 
@@ -502,18 +563,19 @@ describe("entity-summary capability documentation projection", () => {
     const first = render();
     const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
 
-    // Same model, same Git ref, but the capability grew: the digest inputs moved, so the region is
-    // stale — reporting it as a manual edit would accuse a human of an edit the measurement made.
+    // Same model, same Git ref, but the capability grew past its bucket: the digest inputs moved, so
+    // the region is stale — reporting it as a manual edit would accuse a human of an edit the
+    // measurement made.
     const grown = render({
       existingFiles,
-      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 4, lineCount: 1500 }]
+      sourceScaleSignals: [{ ...scaleSignals[0], fileCount: 6, lineCount: 3000 }]
     });
     expect(grown.drift.reasonCodes).toContain("projection-generated-region-stale");
     expect(grown.drift.reasonCodes).not.toContain("projection-generated-region-manually-edited");
 
     // A genuine hand edit inside the machine region is still caught.
     const seeded = entityFile(first, "capability.docs.projection");
-    const tampered = seeded.body.replace("- 文件數:`3`", "- 文件數:`999`");
+    const tampered = seeded.body.replace("- 規模量級:`2–5` 個文件", "- 規模量級:`999–1000` 個文件");
     expect(tampered).not.toBe(seeded.body);
     const edited = render({ existingFiles: [{ path: seeded.path, body: tampered }] });
     expect(edited.drift.diffs.some((diff) =>
@@ -674,20 +736,24 @@ describe("node-scoped sticky key", () => {
     // A is byte-identical and keeps the commit it was verified against.
     expect(entityFile(run2, nodeA).body).toBe(entityFile(run1, nodeA).body);
     expect(entityFile(run2, nodeA).verifiedAgainst).toEqual(verifiedAgainst);
-    // B re-rendered and re-stamped with the current ref.
+    // B re-stamped with the current ref. Its footprint grew inside its bucket (515 → 517 files), so
+    // the stamp is the only thing that moved and B's document is byte-identical too — the isolation
+    // being asserted is per-node stamp lifetime, not per-node rewriting.
     expect(entityFile(run2, nodeB).verifiedAgainst).toEqual(nextRef);
-    expect(entityFile(run2, nodeB).body).toContain("- 文件數:`517`");
-    expect(entityFile(run2, nodeB).body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
+    expect(entityFile(run2, nodeB).body).toBe(entityFile(run1, nodeB).body);
+    expect(entityFile(run2, nodeB).body).toContain("- 規模量級:`500–1000` 個文件");
+    expectNoProvenanceInBody(entityFile(run2, nodeB).body);
   });
 
-  test("documents carrying v2 markers and the old digest shape re-render wholesale under v3", () => {
+  test("documents carrying pre-v4 markers and the old digest shape re-render wholesale under v4", () => {
     const current = render();
-    // Simulate files left behind by the previous renderer: v2 marker attributes and the old
-    // plan-wide digest shape. The one-time full re-render is the accepted migration cost.
+    // Simulate files left behind by the previous renderer: v3 marker attributes (including the
+    // provenance attribute v4 drops) and the old plan-wide digest shape. The one-time full re-render
+    // is the accepted migration cost of moving the stamp out of every document.
     const legacyFiles = current.files.map(({ path, body }) => ({
       path,
       body: body
-        .replaceAll('rendererVersion="archcontext.docs-renderer/v3"', 'rendererVersion="archcontext.docs-renderer/v2"')
+        .replaceAll('rendererVersion="archcontext.docs-renderer/v4"', 'rendererVersion="archcontext.docs-renderer/v3" verifiedAgainst="main@7415329@2026-08-08T09:30:00+08:00"')
         .replace(/sourceDigest="sha256:[a-f0-9]+"/g, 'sourceDigest="sha256:0000000000000000000000000000000000000000000000000000000000000000"')
     }));
     const nextRef = { branch: "main", commit: "0badc0de", committedAt: "2026-08-09T09:30:00+08:00" };
@@ -696,7 +762,8 @@ describe("node-scoped sticky key", () => {
 
     expect(upgraded.files).toHaveLength(current.files.length);
     for (const file of upgraded.files) {
-      expect(file.target.generatedRegion.startMarker).toContain('rendererVersion="archcontext.docs-renderer/v3"');
+      expect(file.target.generatedRegion.startMarker).toContain('rendererVersion="archcontext.docs-renderer/v4"');
+      expect(file.target.generatedRegion.startMarker).not.toContain("verifiedAgainst=");
       expect(file.body).not.toBe(legacyFiles.find((entry) => entry.path === file.path)!.body);
     }
     // Every legacy target is awaiting re-render — stale, never accused of a manual edit — and every
@@ -742,8 +809,7 @@ describe("canonical body digest sticky key", () => {
     expect(entityFile(run2, nodeA).verifiedAgainst).toEqual(nextRef);
     expect(entityFile(run2, nodeA).body).toContain("> **狀態**:`deprecated`");
     expect(entityFile(run2, nodeA).body).toContain("packages/core/projection-engine/AGENTS.md");
-    expect(entityFile(run2, nodeA).body).toContain("> **Verified against**:`main@0badc0de`(2026-08-09)");
-    expect(entityFile(run2, nodeA).body).not.toContain("`main@7415329`");
+    expectNoProvenanceInBody(entityFile(run2, nodeA).body);
   });
 
   test("once a status-flip re-render lands, the honest stamp holds as the new fixed point", () => {
@@ -781,8 +847,10 @@ describe("canonical body digest sticky key", () => {
       expect(run3.files.find((entry) => entry.path === file.path)?.body).toBe(file.body);
     }
     expect(entityFile(run3, nodeA).verifiedAgainst).toEqual(nextRef);
-    expect(entityFile(run3, nodeA).body).toContain("`main@0badc0de`");
-    expect(entityFile(run3, nodeA).body).not.toContain("`main@7415329`");
+    // `module.no-source` declares no footprint, so nothing can change under it and its original
+    // stamp is still the honest one; only nodeA's advanced.
+    expect(entityFile(run3, "module.no-source").verifiedAgainst).toEqual(verifiedAgainst);
+    expectNoProvenanceInBody(entityFile(run3, nodeA).body);
 
     // And the settle completes on the next apply: re-projecting run 3's output with identical
     // inputs is fully clean — documents and manifest — still carrying run 2's stamp.

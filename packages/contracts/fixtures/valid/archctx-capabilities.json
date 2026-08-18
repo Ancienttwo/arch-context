@@ -7,7 +7,7 @@
     "architectureRefreshSignal": "archcontext.architecture-refresh-signal/v1"
   },
   "renderers": {
-    "architectureDocs": "archcontext.docs-renderer/v3",
+    "architectureDocs": "archcontext.docs-renderer/v4",
     "agentContext": "archcontext.agent-context-renderer/v1"
   },
   "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "projection-protocol-v1"]

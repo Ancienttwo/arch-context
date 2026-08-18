@@ -342,58 +342,59 @@ export function renderArchitectureDocumentationProjection(input: {
     resulting: semanticState,
     acceptedChange: input.refreshContext?.acceptedChange
   });
-  // Each entity-summary target keys its marker on a *canonical render of its own body*: the body
-  // rendered once with the fixed placeholder stamp `CANONICAL_STICKY_STAMP`, then digested. The
-  // placeholder stands in for the one body input the key must not depend on — the stamp itself —
-  // so the digest is a total function of every other render input of the entity body: status,
-  // summary, `extensions.localContracts`, `source.include`/`source.entrypoints`, both relation
-  // lists, the measured scale signal, and the semantic P1/P2 compilation. Because the key is the
-  // rendered string rather than an enumeration of inputs, a future body input is covered
-  // automatically instead of having to be remembered. The key is therefore exactly the
-  // "body would be byte-identical" predicate the sticky stamp needs: a status flip that moves the
-  // body moves the digest, so a stamp can never be silently reused against a commit that never
-  // rendered the body it now names, and a re-measured footprint is still reported as
+  // Each entity-summary target keys its marker on the digest of *its own rendered body*, so the key
+  // is a total function of every render input of that body: status, summary,
+  // `extensions.localContracts`, `source.include`/`source.entrypoints`, both relation lists, the
+  // bucketed scale signal, and the semantic P1/P2 compilation. Because the key is the rendered
+  // string rather than an enumeration of inputs, a future body input is covered automatically
+  // instead of having to be remembered. The key is therefore exactly the "body would be
+  // byte-identical" predicate the sticky stamp needs: a status flip that moves the body moves the
+  // digest, so a stamp can never be silently reused against a commit that never rendered the body
+  // it now names, and a re-measured footprint is still reported as
   // `projection-generated-region-stale` on the one document that carries it instead of every
   // entity target.
   //
-  // The plan-wide `input.sourceDigest` (the moving tree) and the real `verifiedAgainst` are
-  // deliberately *not* folded in beyond the placeholder. Folding the tree digest in would couple
-  // every entity document to unrelated commits; and `verifiedAgainst` is a sticky stamp (see
-  // `stickyVerifiedAgainst` below), not a render input: folding a moving HEAD into the digest
-  // would leave the projection without a fixed point — every commit would invalidate the document
-  // that the previous commit had just re-projected. `generatedAt` does not enter entity bodies
-  // (only architecture-index prints it), so it cannot perturb the canonical digest.
+  // `verifiedAgainst` is not a body input at all: the stamp lives in the projection manifest and
+  // never reaches the rendered document or its marker attributes. Provenance is a moving global
+  // (the repository HEAD), and a document body that prints it churns whenever anything under the
+  // node's footprint moves even though no architecture assertion changed — six stamp-only commits
+  // in one working day, in a repository whose capabilities cover `tests/**`. Keeping the stamp in
+  // the manifest gives one machine-owned file the churn and lets every `.md` diff mean "the
+  // architecture this document asserts changed". The freshness gate already reads the stamp from
+  // the manifest (`loadArchitectureProjectionManifestVerifiedAgainst`), so no reader loses it.
+  //
+  // The plan-wide `input.sourceDigest` (the moving tree) is deliberately not folded into the
+  // per-entity key either: it would couple every entity document to unrelated commits. `generatedAt`
+  // does not enter entity bodies (only architecture-index prints it), so it cannot perturb the key.
   // Index/diagram/decision/relation/changelog targets render no per-node measurement, so they keep
-  // recording the plan-wide `input.sourceDigest` and stay byte-identical to their pre-change
-  // output.
+  // recording the plan-wide `input.sourceDigest`.
   const targetDrafts = architectureDocumentationTargetDrafts(model, layout);
   const declaresSourceByNodeId = new Map(model.nodes.map((node) => [node.id, (nativeNodeSource(node)?.include ?? []).length > 0]));
   const changeSinceStampByNodeId = new Map(input.sourceChangesSinceStamp.map((entry) => [entry.nodeId, entry]));
+  const priorStampByNodeId = previousProjectionManifestStamps(existingByPath.get("docs/architecture/.projection-manifest.json"));
   const notices: ArchitectureDocumentationProjectionNotice[] = [];
   const rendered = targetDrafts.map((draft) => {
     const existing = existingByPath.get(draft.path);
     const nodeId = draft.type === "entity-summary" ? draft.scope.id : undefined;
+    // Rendering the body up front also keeps the fail-closed error paths in front of the stamp
+    // decision — a node that declares `source.include` with no measured scale signal throws
+    // `architecture-docs-projection-scale-signal-missing` here.
+    const generatedBody = renderTargetGeneratedBody(draft, model, {
+      generatedAt,
+      scaleSignalsByNodeId,
+      semanticCompilationsByNodeId,
+      decisions: input.decisions ?? [],
+      timeline: input.timeline ?? [],
+      layout
+    });
     // Targets that render no per-node measurement key on the plan-wide digest; an entity-summary
-    // target keys on the canonical digest of its own rendered body (see the comment above the
-    // render loop).
+    // target keys on the digest of its own rendered body (see the comment above the render loop).
     let targetSourceDigest = input.sourceDigest;
     let targetVerifiedAgainst: ArchitectureProjectionVerifiedAgainst | undefined;
     if (nodeId !== undefined) {
-      // Canonical render: the same body this run would emit, stamped with the placeholder instead
-      // of the decided stamp. Rendering the body (rather than enumerating its inputs) also keeps
-      // the fail-closed error paths in front of the stamp decision — a node that declares
-      // `source.include` with no measured scale signal throws
-      // `architecture-docs-projection-scale-signal-missing` here.
-      targetSourceDigest = digestJson(renderTargetGeneratedBody(draft, model, {
-        generatedAt,
-        verifiedAgainst: CANONICAL_STICKY_STAMP,
-        scaleSignalsByNodeId,
-        semanticCompilationsByNodeId,
-        decisions: input.decisions ?? [],
-        timeline: input.timeline ?? [],
-        layout
-      }));
+      targetSourceDigest = digestJson(generatedBody);
       const decision = stickyVerifiedAgainst(existing, draft.targetId, targetSourceDigest, {
+        priorStamp: priorStampByNodeId.get(nodeId),
         nodeDeclaresSource: declaresSourceByNodeId.get(nodeId) === true,
         measurement: changeSinceStampByNodeId.get(nodeId)
       });
@@ -409,22 +410,12 @@ export function renderArchitectureDocumentationProjection(input: {
       }
       targetVerifiedAgainst = decision.kind === "reuse" ? decision.verifiedAgainst : verifiedAgainst;
     }
-    const generatedBody = renderTargetGeneratedBody(draft, model, {
-      generatedAt,
-      verifiedAgainst: targetVerifiedAgainst ?? verifiedAgainst,
-      scaleSignalsByNodeId,
-      semanticCompilationsByNodeId,
-      decisions: input.decisions ?? [],
-      timeline: input.timeline ?? [],
-      layout
-    });
     const generatedBodyDigest = digestJson({ targetId: draft.targetId, body: generatedBody } as unknown as Json);
     const target = projectionTarget({
       ...draft,
       rendererVersion,
       sourceDigest: targetSourceDigest,
-      outputDigest: generatedBodyDigest,
-      ...(targetVerifiedAgainst ? { verifiedAgainst: targetVerifiedAgainst } : {})
+      outputDigest: generatedBodyDigest
     });
     const wrapped = wrapGeneratedRegion(target, generatedBody);
     const body = mergeGeneratedRegion(target, wrapped, existing, draft.skeleton);
@@ -558,6 +549,45 @@ export function renderArchitectureDocumentationProjection(input: {
     adoptionCandidates,
     notices
   };
+}
+
+/**
+ * The stamps of record for the sticky-stamp decision, read out of the previous projection manifest
+ * that `existingFiles` already carries. Since renderer v4 the stamp lives only here, so this is the
+ * only place a prior stamp can come from; an entry that is absent or not usable provenance simply
+ * yields no stamp and the target re-stamps, exactly as a missing marker stamp used to.
+ *
+ * A manifest that cannot be parsed yields no stamps rather than throwing: the same run is about to
+ * rewrite it, and refusing to project because the file it replaces is corrupt would be a deadlock.
+ */
+function previousProjectionManifestStamps(body: string | undefined): Map<string, ArchitectureProjectionVerifiedAgainst> {
+  const stamps = new Map<string, ArchitectureProjectionVerifiedAgainst>();
+  if (body === undefined) return stamps;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return stamps;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return stamps;
+  const targets = (parsed as Record<string, unknown>).targets;
+  if (!Array.isArray(targets)) return stamps;
+  for (const entry of targets as unknown[]) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+    if (record.type !== "entity-summary") continue;
+    const scope = record.scope;
+    const nodeId = scope && typeof scope === "object" && !Array.isArray(scope)
+      ? (scope as Record<string, unknown>).id
+      : undefined;
+    if (typeof nodeId !== "string" || nodeId === "") continue;
+    try {
+      stamps.set(nodeId, assertArchitectureProjectionVerifiedAgainst(record.verifiedAgainst as ArchitectureProjectionVerifiedAgainst));
+    } catch {
+      continue;
+    }
+  }
+  return stamps;
 }
 
 function architectureProjectionSemanticBaseline(body: string | undefined): ArchitectureProjectionSemanticBaselineV1 | undefined {
@@ -761,6 +791,45 @@ function countFileLines(absolute: string): number {
   if (content === "") return 0;
   const newlines = content.split("\n").length - 1;
   return content.endsWith("\n") ? newlines : newlines + 1;
+}
+
+/**
+ * Renders a measured count as the 1–2–5 magnitude bucket that contains it (`537` → `500–1000`,
+ * `172275` → `100k–200k`).
+ *
+ * The projection prints the bucket, never the count. A capability's declared footprint is measured
+ * against the working tree, so an exact count in a Git-tracked document rewrites that document on
+ * every edit anywhere under the footprint — for a capability covering `tests/**` that is several
+ * stamp-only commits a day, and it drowns the diffs that mean an architecture assertion changed.
+ * The bucket carries the whole decision the signal exists to support ("how big is this capability")
+ * at a resolution ordinary edits cannot move.
+ *
+ * A bucket is a half-open range `[lower, upper)`; rendering both ends states the resolution instead
+ * of implying a point estimate the renderer does not have.
+ */
+function scaleMagnitudeBucketLabel(value: number): string {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`architecture-docs-projection-scale-signal-not-a-count: ${value}`);
+  }
+  if (value === 0) return "0";
+  const mantissas = [1, 2, 5];
+  let index = 0;
+  let magnitude = 1;
+  let lower = 1;
+  for (;;) {
+    const nextIndex = (index + 1) % mantissas.length;
+    const nextMagnitude = nextIndex === 0 ? magnitude * 10 : magnitude;
+    const upper = mantissas[nextIndex] * nextMagnitude;
+    if (upper > value) {
+      // Both ends share the unit chosen from the lower bound, so a label never mixes `500–1k`.
+      const unit = lower >= 1_000_000 ? 1_000_000 : lower >= 10_000 ? 1_000 : 1;
+      const suffix = unit === 1_000_000 ? "M" : unit === 1_000 ? "k" : "";
+      return `${lower / unit}${suffix}–${upper / unit}${suffix}`;
+    }
+    index = nextIndex;
+    magnitude = nextMagnitude;
+    lower = upper;
+  }
 }
 
 export function architectureDocumentationSourceDigest(input: {
@@ -1478,7 +1547,6 @@ function projectionTarget(input: ProjectionTargetDraft & {
   rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
   sourceDigest: string;
   outputDigest: string;
-  verifiedAgainst?: ArchitectureProjectionVerifiedAgainst;
 }): ProjectionTargetV1 {
   return {
     schemaVersion: PROJECTION_TARGET_SCHEMA_VERSION,
@@ -1488,7 +1556,7 @@ function projectionTarget(input: ProjectionTargetDraft & {
     path: input.path,
     ownership: input.ownership,
     generatedRegion: {
-      startMarker: generatedStartMarker(input.targetId, input.sourceDigest, input.rendererVersion, input.outputDigest, input.verifiedAgainst),
+      startMarker: generatedStartMarker(input.targetId, input.sourceDigest, input.rendererVersion, input.outputDigest),
       endMarker: generatedEndMarker(input.targetId)
     },
     rendererVersion: input.rendererVersion,
@@ -1503,7 +1571,6 @@ function renderTargetGeneratedBody(
   model: NativeModel,
   input: {
     generatedAt: string;
-    verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
     scaleSignalsByNodeId: Map<string, CapabilitySourceScaleSignal>;
     semanticCompilationsByNodeId: Map<string, SemanticCapabilityDiagramCompilation>;
     decisions: ArchitectureDecisionRecord[];
@@ -1515,7 +1582,6 @@ function renderTargetGeneratedBody(
   if (target.type === "entity-summary") {
     const node = model.nodes.find((entry) => entry.id === target.scope.id)!;
     return renderEntitySummary(node, model, {
-      verifiedAgainst: input.verifiedAgainst,
       scaleSignal: input.scaleSignalsByNodeId.get(node.id),
       semanticCompilation: input.semanticCompilationsByNodeId.get(node.id)!
     });
@@ -1564,15 +1630,19 @@ function renderArchitectureIndex(model: NativeModel, generatedAt: string, layout
 
 /**
  * Machine-owned region of a capability module document: the intro block plus `## 1` and the
- * `## 2` structural slot. Everything the renderer cannot derive from the model, the measured
- * scale signal, or the Git ref is printed as an explicit "not derivable" note — never as an
- * empty diagram fence, a synthesised edge, or an invented line anchor.
+ * `## 2` structural slot. Everything the renderer cannot derive from the model or the measured
+ * scale signal is printed as an explicit "not derivable" note — never as an empty diagram fence, a
+ * synthesised edge, or an invented line anchor.
+ *
+ * Nothing here is a function of the repository ref. Every value printed is derived from the
+ * architecture model or from a measurement bucketed coarsely enough that ordinary edits under the
+ * node's footprint do not move it, so a diff on this document means an architecture assertion
+ * changed. Provenance (`verifiedAgainst`) lives in the projection manifest for exactly this reason.
  */
 function renderEntitySummary(
   node: NativeNode,
   model: NativeModel,
   input: {
-    verifiedAgainst: ArchitectureProjectionVerifiedAgainst;
     scaleSignal?: CapabilitySourceScaleSignal;
     semanticCompilation: SemanticCapabilityDiagramCompilation;
   }
@@ -1588,11 +1658,10 @@ function renderEntitySummary(
   const localContracts = contractFilesForNode(node);
   const lines = [
     `> **狀態**:${node.status ? `\`${node.status}\`` : "未宣告(`status` 缺失)"}`,
-    `> **Verified against**:\`${input.verifiedAgainst.branch}@${input.verifiedAgainst.commit}\`(${input.verifiedAgainst.committedAt.slice(0, 10)})`,
     `> **Capability ID**:\`${node.id}\`(kind \`${node.kind}\`)`,
     `> **Matched Prefixes**:${include.length > 0 ? include.map((pattern) => `\`${pattern}\``).join("、") : "未宣告(`source.include` 缺失)"}`,
     `> **Local Contracts**:${localContracts.length > 0 ? localContracts.map((entry) => `\`${entry}\``).join("、") : "未宣告(`extensions.localContracts` 缺失)"}`,
-    "> **事實優先級**:倉庫當前狀態 > 本文檔機器區 > 本文檔人工區。機器區(引言、§1、§2)由 ArchContext 從架構模型與 Git 狀態投影生成,手改會在下次投影被覆蓋。",
+    "> **事實優先級**:倉庫當前狀態 > 本文檔機器區 > 本文檔人工區。機器區(引言、§1、§2)由 ArchContext 從架構模型與源碼度量投影生成,手改會在下次投影被覆蓋。本文檔不記錄出處;本次投影所驗證的 commit 見 `docs/architecture/.projection-manifest.json`。",
     ...(node.summary ? ["", node.summary] : []),
     "",
     "## 1. P1:能力架構地圖",
@@ -1617,13 +1686,12 @@ function renderEntitySummary(
     "",
     ...(input.scaleSignal
       ? [
-        `- 文件數:\`${input.scaleSignal.fileCount}\``,
-        `- 總行數:\`${input.scaleSignal.lineCount}\``,
+        `- 規模量級:\`${scaleMagnitudeBucketLabel(input.scaleSignal.fileCount)}\` 個文件 / \`${scaleMagnitudeBucketLabel(input.scaleSignal.lineCount)}\` 行`,
         `- 匹配前綴:${input.scaleSignal.includePatterns.map((pattern) => `\`${pattern}\``).join("、")}`,
         ...(input.scaleSignal.excludePatterns.length > 0
           ? [`- 排除前綴:${input.scaleSignal.excludePatterns.map((pattern) => `\`${pattern}\``).join("、")}`]
           : []),
-        "- 復算:`archctx docs plan --json`(掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`)"
+        "- 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。"
       ]
       : ["- 未宣告 `source.include`,規模信號無法推導。"]),
     "",
@@ -1908,67 +1976,28 @@ function parseGeneratedRegionMetadata(marker: string): {
   sourceDigest?: string;
   rendererVersion?: string;
   outputDigest?: string;
-  verifiedAgainst?: string;
 } {
   return {
     sourceDigest: marker.match(/sourceDigest="([^"]+)"/)?.[1],
     rendererVersion: marker.match(/rendererVersion="([^"]+)"/)?.[1],
-    outputDigest: marker.match(/outputDigest="([^"]+)"/)?.[1],
-    verifiedAgainst: marker.match(/verifiedAgainst="([^"]+)"/)?.[1]
+    outputDigest: marker.match(/outputDigest="([^"]+)"/)?.[1]
   };
 }
 
+/**
+ * Marker attributes are limited to what identifies the region and what a reader can verify against
+ * the body in front of them. `verifiedAgainst` is deliberately absent: it is a moving global, and a
+ * marker that carries it rewrites the document every time the repository moves under the node's
+ * footprint. The stamp of record is the projection manifest.
+ */
 function generatedStartMarker(
   targetId: string,
   sourceDigest: string,
   rendererVersion: string,
-  outputDigest: string,
-  verifiedAgainst?: ArchitectureProjectionVerifiedAgainst
+  outputDigest: string
 ): string {
-  const stamp = verifiedAgainst ? serializeMarkerVerifiedAgainst(verifiedAgainst) : undefined;
-  return `${ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX} target="${targetId}" sourceDigest="${sourceDigest}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}"${stamp ? ` verifiedAgainst="${stamp}"` : ""} -->`;
+  return `${ARCHITECTURE_DOCS_GENERATED_BEGIN_PREFIX} target="${targetId}" sourceDigest="${sourceDigest}" rendererVersion="${rendererVersion}" outputDigest="${outputDigest}" -->`;
 }
-
-/**
- * Marker encoding of the sticky stamp: `<branch>@<commit>@<committedAt>`. Neither a commit sha nor
- * an ISO timestamp can contain `@`, so the branch is recovered by taking everything before the last
- * two segments. A branch carrying `"` or `>` would break the HTML comment marker, so it is not
- * serialised at all: the target simply re-stamps on every render instead of writing a marker the
- * region scanner can no longer parse.
- */
-function serializeMarkerVerifiedAgainst(value: ArchitectureProjectionVerifiedAgainst): string | undefined {
-  const stamp = `${value.branch}@${value.commit}@${value.committedAt}`;
-  return /["<>]/.test(stamp) ? undefined : stamp;
-}
-
-function parseMarkerVerifiedAgainst(value: string | undefined): ArchitectureProjectionVerifiedAgainst | undefined {
-  if (!value) return undefined;
-  const parts = value.split("@");
-  if (parts.length < 3) return undefined;
-  try {
-    return assertArchitectureProjectionVerifiedAgainst({
-      branch: parts.slice(0, -2).join("@"),
-      commit: parts[parts.length - 2],
-      committedAt: parts[parts.length - 1]
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Fixed placeholder stamp for the canonical render each entity-summary target keys its sticky
- * marker digest on (`targetSourceDigest`): the digest must be a function of every body input
- * *except* the stamp, so the canonical render pins the stamp to this constant. The value itself is
- * never validated, written to a marker, or compared against a real ref — only the digest of the
- * body rendered under it is used. Any constant would do; this one is fixed forever so the key stays
- * stable across renderer runs.
- */
-const CANONICAL_STICKY_STAMP: ArchitectureProjectionVerifiedAgainst = {
-  branch: "__sticky-canonical__",
-  commit: "0000000",
-  committedAt: "1970-01-01T00:00:00.000Z"
-};
 
 type StickyVerifiedAgainstDecision =
   | { kind: "reuse"; verifiedAgainst: ArchitectureProjectionVerifiedAgainst }
@@ -1983,11 +2012,16 @@ type StickyVerifiedAgainstDecision =
  *
  * A stamp sticks when **both** hold:
  *
- * 1. The region was rendered from the body this run computes (`nodeSourceDigest` — the digest of
- *    the canonical placeholder-stamped render of the target's own body — matches, so the body
- *    would be byte-identical but for the stamp line and marker attributes), and
+ * 1. The region on disk was rendered from the body this run computes (`nodeSourceDigest` — the
+ *    digest of the target's own rendered body — matches the digest its marker records, so the body
+ *    would be byte-identical), and
  * 2. no file inside the node's declared `source.include` footprint changed after the stamped
  *    commit — as measured by the caller.
+ *
+ * The stamp itself comes from `priorStamp` (the previous projection manifest), not from the document:
+ * since renderer v4 the document carries no provenance. The on-disk region is still required to
+ * exist and to match, so a manifest whose stamps outlive the documents they describe cannot launder
+ * a stale stamp onto a body that was never rendered under it.
  *
  * Condition 2 is what keeps the stamp honest. A covered source edit that changes no rendered
  * assertion (same line count, same files, same import edges) leaves the digest identical, so
@@ -2005,14 +2039,18 @@ function stickyVerifiedAgainst(
   existing: string | undefined,
   targetId: string,
   nodeSourceDigest: string,
-  node: { nodeDeclaresSource: boolean; measurement: CapabilitySourceChangeSinceStamp | undefined }
+  node: {
+    priorStamp: ArchitectureProjectionVerifiedAgainst | undefined;
+    nodeDeclaresSource: boolean;
+    measurement: CapabilitySourceChangeSinceStamp | undefined;
+  }
 ): StickyVerifiedAgainstDecision {
   if (!existing) return { kind: "restamp" };
   const region = findGeneratedRegion(existing, targetId);
   if (!region) return { kind: "restamp" };
   const metadata = parseGeneratedRegionMetadata(region.startMarker);
   if (metadata.sourceDigest !== nodeSourceDigest) return { kind: "restamp" };
-  const stamp = parseMarkerVerifiedAgainst(metadata.verifiedAgainst);
+  const stamp = node.priorStamp;
   if (!stamp) return { kind: "restamp" };
   // A node that declares no source footprint has nothing that can change under it, so its stamp
   // sticks without a measurement — the caller has nothing to measure.

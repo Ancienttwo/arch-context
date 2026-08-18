@@ -74,7 +74,7 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   const capabilities = runCapabilitiesCommand();
   expect(capabilities).toEqual(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION));
   expect(capabilities.features).toEqual([...ARCHCTX_FEATURES]);
-  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v3");
+  expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v4");
   const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
   expect(JSON.parse(processOutput)).toEqual(capabilities);
   expect(await runCli("capabilities", [], "/path/that/does/not/exist")).toEqual(capabilities);
@@ -3364,7 +3364,7 @@ describe("archctx CLI", () => {
       expect((second.data as any).provenance).toMatchObject({
         schemaVersion: "archcontext.architecture-docs-projection-provenance/v1",
         baseHeadSha: expect.stringMatching(/^[a-f0-9]{40}$/),
-        rendererVersion: "archcontext.docs-renderer/v3",
+        rendererVersion: "archcontext.docs-renderer/v4",
         layoutVersion: "archcontext.docs-layout/v1",
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",

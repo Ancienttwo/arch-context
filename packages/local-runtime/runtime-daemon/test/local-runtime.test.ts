@@ -205,10 +205,15 @@ async function applyArchitectureDocsProjection(
 }
 
 /** Blanks the two places a stamp appears (marker attributes, intro line) for byte comparison. */
-function stripProjectionStamp(body: string): string {
-  return body
-    .replace(/<!-- BEGIN ARCHCONTEXT:generated[^\n]*-->/, "<!-- BEGIN -->")
-    .replace(/^> \*\*Verified against\*\*.*$/m, "> **Verified against**");
+/**
+ * The commit one node's documentation is stamped with. Since renderer v4 the stamp lives only in
+ * the projection manifest — no document body or marker carries provenance — so this is where the
+ * stamp lifecycle is observed.
+ */
+function projectionStampCommit(root: string, nodeId: string): string | undefined {
+  const manifest = JSON.parse(readText(join(root, "docs/architecture/.projection-manifest.json")));
+  const target = (manifest.targets as any[]).find((entry) => entry.type === "entity-summary" && entry.scope?.id === nodeId);
+  return target?.verifiedAgainst?.commit;
 }
 
 /** The `render_agent_context` operation `archctx agent-context plan|apply` builds. */
@@ -2502,9 +2507,11 @@ describe("local runtime foundation", () => {
       expect((complete.data as any).findings).toEqual([]);
       expect((complete.data as any).result).toBe("pass");
 
-      // The document still names the commit it was generated against, not the projection commit.
+      // The manifest still names the commit the content was generated against, not the projection
+      // commit — and the document itself names no commit at all.
+      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(appliedAtCommit);
       expect(readText(join(root, "docs/architecture/modules/capability-architecture-context.md")))
-        .toContain(`@${appliedAtCommit}\``);
+        .not.toContain(appliedAtCommit);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
@@ -2537,7 +2544,7 @@ describe("local runtime foundation", () => {
       gitCommitAll(root, "project architecture documentation");
       const docPath = join(root, "docs/architecture/modules/capability-architecture-context.md");
       const beforeDoc = readText(docPath);
-      expect(beforeDoc).toContain(`@${verifiedCommit}\``);
+      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(verifiedCommit);
 
       // Same line, same line count, same files, same imports: no rendered assertion moves.
       writeFileSync(join(root, "src/app.ts"), "export const app = 2;\n", "utf8");
@@ -2555,10 +2562,11 @@ describe("local runtime foundation", () => {
 
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-deadlock-reverify");
       const afterDoc = readText(docPath);
-      expect(afterDoc).toContain(`@${reverifiedCommit}\``);
-      expect(afterDoc).not.toContain(verifiedCommit);
-      // Everything except the stamp — marker attributes and the intro line — is byte-identical.
-      expect(stripProjectionStamp(afterDoc)).toBe(stripProjectionStamp(beforeDoc));
+      // The re-verification advanced the stamp in the manifest and left the document untouched —
+      // byte-identical, marker attributes included. This is the churn fix: re-verifying a capability
+      // whose footprint moved no longer produces a documentation diff to commit.
+      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(reverifiedCommit);
+      expect(afterDoc).toBe(beforeDoc);
 
       gitCommitAll(root, "re-verify the architecture documentation");
       const complete = await daemon.completeTask(root, {
@@ -2600,12 +2608,12 @@ describe("local runtime foundation", () => {
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-initial");
       gitCommitAll(root, "project architecture documentation");
 
-      // Rewrite every recorded stamp to a commit that is not in this repository.
+      // Rewrite the recorded stamp to a commit that is not in this repository. The manifest is the
+      // only place it lives, so this is the whole rewrite.
       const orphanedCommit = "0".repeat(40);
       const appliedCommit = gitOut(root, "rev-parse", "HEAD~1");
-      for (const path of ["docs/architecture/modules/capability-architecture-context.md", "docs/architecture/.projection-manifest.json"]) {
-        writeFileSync(join(root, path), readText(join(root, path)).replaceAll(appliedCommit, orphanedCommit), "utf8");
-      }
+      const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+      writeFileSync(manifestPath, readText(manifestPath).replaceAll(appliedCommit, orphanedCommit), "utf8");
 
       const loaded = loadArchitectureDocumentationInputs(root);
       const measured = loadCapabilitySourceChangesSinceStamps(root, loaded.model);
@@ -2617,9 +2625,8 @@ describe("local runtime foundation", () => {
       }]);
 
       await applyArchitectureDocsProjection(root, daemon, "changeset.docs-rebase-reverify");
-      const doc = readText(join(root, "docs/architecture/modules/capability-architecture-context.md"));
-      expect(doc).toContain(`@${gitOut(root, "rev-parse", "HEAD")}\``);
-      expect(doc).not.toContain(orphanedCommit);
+      expect(projectionStampCommit(root, "capability.architecture-context")).toBe(gitOut(root, "rev-parse", "HEAD"));
+      expect(readText(manifestPath)).not.toContain(orphanedCommit);
     } finally {
       await daemon?.stop();
       removeTempRepo(root);
