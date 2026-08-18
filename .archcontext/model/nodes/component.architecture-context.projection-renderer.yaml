@@ -5,3 +5,6 @@ name: "Architecture Documentation Renderer"
 status: active
 parent: capability.architecture-context
 summary: "Renders the accepted architecture model into documentation projections and decides each target's provenance stamp."
+source:
+  include:
+    - "packages/core/projection-engine/src/**"

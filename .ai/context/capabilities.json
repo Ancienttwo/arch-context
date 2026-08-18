@@ -19,6 +19,25 @@
         "bun run verify",
         "bun run typecheck"
       ]
+    },
+    {
+      "id": "component-architecture-context-projection-renderer",
+      "domain": "architecture-context",
+      "name": "projection-renderer",
+      "prefixes": [
+        "packages/core/projection-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-projection-renderer.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/projection-renderer",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
     }
   ]
 }

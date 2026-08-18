@@ -37,6 +37,14 @@ the renderer, restore the `render-from-daemon` step in
   resulting re-projection output.
 - Out of scope: the projection engine, the stamp lifecycle, the CLI surface, and the renderer
   contract — all landed in `fa0a165`/`34f5dc0`. No behaviour change to the daemon.
+- Scope widened during closeout: `.ai/context/capabilities.json`. Adding the renderer component
+  node in `34f5dc0` projected a new module document that no capability claims, and the capability
+  resolver rejects any unclaimed `docs/architecture/modules/**.md`. That leaves `main` failing
+  `check-architecture-sync` and blocks this contract's own closeout, so registering the component
+  is a prerequisite for finishing rather than new work. The registry rejects an empty `prefixes`
+  list, so the component declares its real footprint — `packages/core/projection-engine/src/**` —
+  in both the archcontext node and the registry, rather than one authority claiming a prefix the
+  other does not have.
 - Taste constraints: no rename-around; remove the shadowing symbol rather than preserving an
   indirection that carries no behaviour.
 
@@ -99,7 +107,9 @@ allowed_paths:
   - tasks/notes/20260818-1224-daemon-projection-symbol-collision.notes.md
   - packages/local-runtime/runtime-daemon/src/index.ts
   - .archcontext/model/flows/
+  - .archcontext/model/nodes/
   - docs/architecture/
+  - .ai/context/capabilities.json
 ```
 
 ## Evidence Requirements

@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.relation.relation-architecture-context-projection-renderer" sourceDigest="sha256:2268c81bf95b9756e3ac65b914e5c914af8e5a738edd49b908b68c8332ff1f53" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:d82efcdae6c6c0796d5e21fe532e40c682d80370f0eaf1d081f52a665ec54577" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.relation.relation-architecture-context-projection-renderer" sourceDigest="sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:d82efcdae6c6c0796d5e21fe532e40c682d80370f0eaf1d081f52a665ec54577" -->
 # capability.architecture-context -> component.architecture-context.projection-renderer
 
 - ID: `relation.architecture-context.projection-renderer`
