@@ -5,7 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import { codeGraphCliInvocation, codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, type CodeGraphSelectorIndex } from "../src/index";
+import {
+  CODEGRAPH_TELEMETRY_DISABLED_VALUE,
+  CODEGRAPH_TELEMETRY_ENV,
+  codeGraphCliInvocation,
+  codeGraphIndexAvailable,
+  loadCapabilityCodeGraphProjectionInputs,
+  type CodeGraphSelectorIndex
+} from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -289,6 +296,7 @@ describe("capability documentation projection inputs from the code index", () =>
       const indexed = spawnSync(invocation.command, [...invocation.argsPrefix, "init", root], {
         cwd: root,
         encoding: "utf8",
+        env: { ...process.env, [CODEGRAPH_TELEMETRY_ENV]: CODEGRAPH_TELEMETRY_DISABLED_VALUE },
         stdio: ["ignore", "pipe", "pipe"]
       });
       expect({ status: indexed.status, stderr: indexed.stderr }).toEqual({ status: 0, stderr: "" });
