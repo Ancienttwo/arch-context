@@ -13,7 +13,7 @@ import { SqliteLocalStore, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths } 
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { DevicePrivateKeyStore, InMemoryCredentialSecretStore, KeychainTokenStore } from "@archcontext/cloud/control-plane-client";
 import { createReviewChallengeV2 } from "@archcontext/cloud/attestation";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, digestJson, productVersionManifest, projectionApplyLookupKey, projectionResultInvariantIssues, stableYaml, type AcceptedArchitectureChangeReferenceV1, type ProjectionRequestV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
@@ -1641,6 +1641,74 @@ describe("archctx CLI", () => {
       stopped = true;
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI fails closed when a healthy daemon advertises a different product version", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-product-mismatch-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    const previousStateDir = process.env.ARCHCONTEXT_STATE_DIR;
+    process.env.ARCHCONTEXT_STATE_DIR = testStateRoot(root);
+    const daemon = await createStartedDaemon({
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+      localStore: new TestLocalStore()
+    });
+    const currentProduct = productVersionManifest();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "product-mismatch-token",
+      productManifest: () => ({
+        ...currentProduct,
+        product: { ...currentProduct.product, version: "0.4.4" },
+        surfaces: {
+          cli: { ...currentProduct.surfaces.cli, version: "0.4.4" },
+          daemon: { ...currentProduct.surfaces.daemon, version: "0.4.4" },
+          mcp: { ...currentProduct.surfaces.mcp, version: "0.4.4" }
+        },
+        schemas: { ...currentProduct.schemas, contractsPackageVersion: "0.4.4" }
+      } as any)
+    });
+    try {
+      await rpc.start();
+      const status = await runCli("status", [], root);
+      expect(status).toMatchObject({
+        ok: false,
+        error: {
+          code: "AC_RUNTIME_VERSION_UNSUPPORTED",
+          action: "upgrade-archctx-runtime"
+        }
+      });
+      expect((status as any).error.message).toContain(`product version 0.4.4 does not exactly match this CLI (${ARCHCONTEXT_PRODUCT_VERSION})`);
+
+      const daemonStatus = await runCli("daemon", ["status"], root);
+      expect(daemonStatus).toMatchObject({
+        ok: true,
+        data: {
+          running: true,
+          rpcVersionCompatible: true,
+          productVersionCompatible: false,
+          versionUnsupported: {
+            reason: "product-version-mismatch",
+            expected: ARCHCONTEXT_PRODUCT_VERSION,
+            received: "0.4.4",
+            action: "upgrade-archctx-runtime",
+            command: "archctx daemon upgrade"
+          }
+        }
+      });
+
+      const doctor = await runCli("doctor", [], root);
+      expect((doctor.data as any).daemon).toMatchObject({
+        productVersionCompatible: false,
+        versionUnsupported: { reason: "product-version-mismatch" }
+      });
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      if (previousStateDir === undefined) delete process.env.ARCHCONTEXT_STATE_DIR;
+      else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
   });
@@ -3606,6 +3674,122 @@ describe("archctx CLI", () => {
     expect(stderrOutput).not.toContain("projection post-apply verification failed");
     expect(stderrOutput).not.toContain("accepted-reference-without-semantic-delta");
     expect(stderrOutput).not.toContain("projection post-apply worktree digest diverged");
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("projection apply over real RPC ignores concurrent .ai/harness runtime churn", async () => {
+    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario();
+    const daemon = await createStartedDaemon({
+      localStorePath: testRuntimePaths(root).localStorePath,
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider()
+    });
+    const paths = testRuntimePaths(root);
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "projection-runtime-churn-token",
+      connectionPath: paths.daemonConnectionPath,
+      lockPath: paths.daemonLockPath
+    });
+    try {
+      const client = new RuntimeRpcClient(await rpc.start());
+      let injected = false;
+      const racingClient = new Proxy(client, {
+        get(target, property, receiver) {
+          if (property === "planUpdate") {
+            return async (...args: Parameters<RuntimeDaemonClient["planUpdate"]>) => {
+              const planned = await target.planUpdate(...args);
+              if (planned.ok && !injected) {
+                injected = true;
+                const runtimeEvidence = join(root, ".ai/harness/runs/live-projection.json");
+                mkdirSync(dirname(runtimeEvidence), { recursive: true });
+                writeFileSync(runtimeEvidence, "{\"status\":\"running\"}\n", "utf8");
+              }
+              return planned;
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      }) as RuntimeDaemonClient;
+      const request: ProjectionRequestV1 = {
+        ...protocolRequest,
+        requestId: "projection_request.rpc_runtime_churn",
+        mode: "apply",
+        acceptedChange
+      };
+      const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: racingClient });
+      expect(injected).toBe(true);
+      expect(applied.ok, JSON.stringify(applied)).toBe(true);
+      expect(applied.data as ProjectionResultV2).toMatchObject({
+        status: "applied",
+        refreshSignals: [{ signalId: (signalPlan.data as any).refreshSignals[0].signalId, acceptedChange }],
+        applyReceipt: { acceptedChange }
+      });
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("projection apply over real RPC rejects concurrent authority-input mutation without a receipt", async () => {
+    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario();
+    const daemon = await createStartedDaemon({
+      localStorePath: testRuntimePaths(root).localStorePath,
+      codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+      codeGraphProviderFactory: () => new MockCodeGraphProvider()
+    });
+    const paths = testRuntimePaths(root);
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "projection-authority-race-token",
+      connectionPath: paths.daemonConnectionPath,
+      lockPath: paths.daemonLockPath
+    });
+    const manifestPath = join(root, "docs/architecture/.projection-manifest.json");
+    const manifestBefore = readFileSync(manifestPath, "utf8");
+    try {
+      const client = new RuntimeRpcClient(await rpc.start());
+      let injected = false;
+      const racingClient = new Proxy(client, {
+        get(target, property, receiver) {
+          if (property === "planUpdate") {
+            return async (...args: Parameters<RuntimeDaemonClient["planUpdate"]>) => {
+              const planned = await target.planUpdate(...args);
+              if (planned.ok && !injected) {
+                injected = true;
+                writeFileSync(join(root, "README.md"), "# concurrent authority input mutation\n", "utf8");
+              }
+              return planned;
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      }) as RuntimeDaemonClient;
+      const request: ProjectionRequestV1 = {
+        ...protocolRequest,
+        requestId: "projection_request.rpc_authority_race",
+        mode: "apply",
+        acceptedChange
+      };
+      const stale = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: racingClient });
+      expect(injected).toBe(true);
+      expect(stale.ok).toBe(false);
+      expect(JSON.stringify(stale)).toContain("Worktree digest changed before apply");
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
+
+      const receipt = await client.reconcileProjectionApply(root, projectionApplyLookupKey({
+        repositoryId: request.expected.repositoryId,
+        workspaceId: request.expected.workspaceId,
+        acceptedChange
+      }));
+      expect(receipt).toMatchObject({ ok: true, data: { found: false } });
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRoot(root);
+    }
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI process exit code reflects the final envelope ok value", async () => {

@@ -80,6 +80,7 @@ import { reconcileArchitectureLedgerDrift } from "@archcontext/core/reconcile-en
 import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
 import {
   agentContextProjectionTargetPaths,
+  architectureDocumentationProjectionWorktreeDigest,
   architectureDocumentationSourceDigest,
   architectureDocumentationSourceTreeDigest,
   assertArchitectureProjectionVerifiedAgainst,
@@ -101,7 +102,7 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -661,7 +662,7 @@ export interface RuntimeRpcConnectionFile {
 }
 
 export interface RuntimeRpcCompatibilityIssue {
-  reason: "rpc-version-mismatch" | "stale-daemon-entry";
+  reason: "rpc-version-mismatch" | "product-version-mismatch" | "stale-daemon-entry";
   expected: string;
   received: string;
   connectionPath: string;
@@ -698,6 +699,28 @@ export interface RuntimeRpcServerOptions {
   /** Injectable for tests only: called instead of `process.exit` when the idle timer decides to
    * exit, so an in-process test can observe the call without terminating the test runner. */
   exit?: (code: number) => void;
+  /** Test-only health manifest override. Production always advertises productVersionManifest(). */
+  productManifest?: () => ProductVersionManifest;
+}
+
+export type RuntimeWorktreeDigestProfile = "repository" | "architecture-documentation-projection";
+
+export interface RuntimePlanUpdateInput {
+  id: string;
+  operations: ChangeOperation[];
+  reason?: { taskSessionId: string; interventionId?: string };
+  worktreeDigestPrecondition?: {
+    profile: "architecture-documentation-projection";
+    expectedDigest: string;
+  };
+}
+
+export interface RuntimeApplyUpdateInput {
+  id: string;
+  approved: boolean;
+  expectedWorktreeDigest: string;
+  worktreeDigestProfile?: RuntimeWorktreeDigestProfile;
+  projectionApplyReceipt?: ProjectionApplyReceiptV1;
 }
 
 export interface RuntimeDaemonClient {
@@ -723,9 +746,9 @@ export interface RuntimeDaemonClient {
   practices(root: string, input: PracticeCatalogCommandInput): Promise<JsonEnvelope> | JsonEnvelope;
   practiceWaivers(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   planPracticeWaiver(root: string, input: RuntimePracticeWaiverInput): Promise<JsonEnvelope> | JsonEnvelope;
-  planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }): Promise<JsonEnvelope> | JsonEnvelope;
+  planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
-  applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string; projectionApplyReceipt?: ProjectionApplyReceiptV1 }): Promise<JsonEnvelope> | JsonEnvelope;
+  applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
   reconcileProjectionApply(root: string, lookupKey: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -940,6 +963,7 @@ export class ArchctxDaemon {
   private readonly checkpointBaselines = new Map<string, PracticeCheckpointSnapshotV1>();
   private readonly checkpointCoalesced = new Map<string, CheckpointCoalesceEntry>();
   private readonly changesets = new Map<string, ChangeSetDraft>();
+  private readonly changeSetWorktreeDigestProfiles = new Map<string, RuntimeWorktreeDigestProfile>();
   private readonly deferredArchitectureChangeFeedFailures = new Map<string, string>();
   // Tracks the AbortController for every audit job's in-flight (foreground or detached
   // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
@@ -2313,25 +2337,27 @@ export class ArchctxDaemon {
     return okEnvelope("resource.read", result as unknown as Json);
   }
 
-  async planUpdate(root: string, input: {
-    id: string;
-    operations: ChangeOperation[];
-    reason?: { taskSessionId: string; interventionId?: string };
-  }): Promise<JsonEnvelope> {
+  async planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
     this.assertRunning();
     const session = await this.openSession(root);
     const model = await this.readModelStore.validateModel(session.workspace);
+    const worktreeDigestProfile: RuntimeWorktreeDigestProfile = input.worktreeDigestPrecondition?.profile ?? "repository";
+    const worktreeDigest = runtimeWorktreeDigest(root, worktreeDigestProfile);
+    if (input.worktreeDigestPrecondition && input.worktreeDigestPrecondition.expectedDigest !== worktreeDigest) {
+      throw new Error("Worktree digest changed before plan");
+    }
     const draft = this.changeSetEngine.plan({
       id: input.id,
       base: {
         headSha: session.workspace.headSha,
-        worktreeDigest: session.snapshot.worktreeDigest,
+        worktreeDigest,
         modelDigest: model.modelDigest
       },
       reason: input.reason ?? { taskSessionId: "task_runtime" },
       operations: input.operations
     });
     this.changesets.set(draft.id, draft);
+    this.changeSetWorktreeDigestProfiles.set(draft.id, worktreeDigestProfile);
     return okEnvelope("plan_update", {
       draft,
       preview: this.changeSetEngine.preview(root, draft)
@@ -2467,20 +2493,18 @@ export class ArchctxDaemon {
     }
   }
 
-  async applyUpdate(root: string, input: {
-    id: string;
-    approved: boolean;
-    expectedWorktreeDigest: string;
-    projectionApplyReceipt?: ProjectionApplyReceiptV1;
-  }): Promise<JsonEnvelope> {
+  async applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
     this.assertRunning();
     return this.withWriter(async () => {
       if (!input.expectedWorktreeDigest) throw new Error("apply_update requires expectedWorktreeDigest");
-      const current = computeWorktreeDigest(root);
-      if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
-      const session = await this.openSession(root);
       const draft = this.changesets.get(input.id);
       if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
+      const plannedProfile = this.changeSetWorktreeDigestProfiles.get(input.id) ?? "repository";
+      const requestedProfile = input.worktreeDigestProfile ?? "repository";
+      if (requestedProfile !== plannedProfile) throw new Error("ChangeSet worktree digest profile changed before apply");
+      const current = runtimeWorktreeDigest(root, plannedProfile);
+      if (current !== input.expectedWorktreeDigest) throw new Error("Worktree digest changed before apply");
+      const session = await this.openSession(root);
       if (draft.base.headSha !== session.workspace.headSha) throw new Error("ChangeSet HEAD changed before apply");
       if (draft.base.worktreeDigest !== current) throw new Error("ChangeSet worktree digest changed before apply");
       const currentModel = await this.readModelStore.validateModel(session.workspace);
@@ -4872,7 +4896,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("planPracticeWaiver", [root, input]);
   }
 
-  planUpdate(root: string, input: { id: string; operations: ChangeOperation[]; reason?: { taskSessionId: string; interventionId?: string } }) {
+  planUpdate(root: string, input: RuntimePlanUpdateInput) {
     return this.call("planUpdate", [root, input]);
   }
 
@@ -4880,7 +4904,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("completeTask", [root, input]);
   }
 
-  applyUpdate(root: string, input: { id: string; approved: boolean; expectedWorktreeDigest: string; projectionApplyReceipt?: ProjectionApplyReceiptV1 }) {
+  applyUpdate(root: string, input: RuntimeApplyUpdateInput) {
     return this.call("applyUpdate", [root, input]);
   }
 
@@ -5166,7 +5190,7 @@ export class ArchctxRuntimeRpcServer {
         pid: process.pid,
         protocol: "http-loopback",
         version: 1,
-        product: productVersionManifest(),
+        product: this.options.productManifest?.() ?? productVersionManifest(),
         composition: this.daemon.compositionReport()
       });
       return;
@@ -5500,6 +5524,11 @@ function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: Ru
 function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedgerScope): boolean {
   return job.worktree.headSha !== scope.worktree.headSha
     || job.worktree.worktreeDigest !== scope.worktree.worktreeDigest;
+}
+
+function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {
+  if (profile === "repository") return computeWorktreeDigest(root);
+  return architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root));
 }
 
 function isArchContextGeneratedProjectionPath(path: string): boolean {
