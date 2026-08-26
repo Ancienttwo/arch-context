@@ -34,6 +34,8 @@ export interface ArchitectureSelectorEvidenceV1 {
   sinkPath: string;
   sinkSymbol: string;
   matched: boolean;
+  /** More than one indexed source or exact sink identity matched the selector. */
+  ambiguous?: boolean;
   truncated: boolean;
   callSites: Array<{ path: string; line?: number }>;
 }
@@ -323,6 +325,10 @@ function validateStep(input: {
     return;
   }
   if (evidence.length > 1) {
+    input.diagnostics.push({ code: "selector-evidence-ambiguous", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
+    return;
+  }
+  if (evidence[0].ambiguous) {
     input.diagnostics.push({ code: "selector-evidence-ambiguous", flowId: input.flowId, stepId: input.step.id, detail: selectorKey });
     return;
   }

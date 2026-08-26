@@ -15,6 +15,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 
 const DEFAULT_OUTPUT = "docs/verification/fg6-npm-release-dry-run.json";
 const DEFAULT_ARTIFACT_DIR = "_ops/npm/fg6-release-dry-run";
@@ -230,7 +231,9 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (pkg.license !== "Apache-2.0") failures.push("release package license must be Apache-2.0");
   if (pkg.homepage !== HOME_URL) failures.push("homepage must be archcontext.repoharness.com");
   if (pkg.packageManager !== null) failures.push("release package must not declare packageManager runtime");
-  if (readRecord(pkg.engines).node !== ">=24 <26") failures.push("engines.node must be declared");
+  if (readRecord(pkg.engines).node !== ARCHCONTEXT_NODE_RANGE) {
+    failures.push(`engines.node must equal ${ARCHCONTEXT_NODE_RANGE}`);
+  }
   if ("bun" in readRecord(pkg.engines)) failures.push("engines.bun must not be declared");
   if (readRecord(pkg.dependencies)["@node-rs/jieba"] !== "^2.0.1") failures.push("release package must declare native tokenizer dependency");
   const packageBin = readRecord(pkg.bin);

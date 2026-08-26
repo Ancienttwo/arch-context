@@ -3,10 +3,11 @@ import { resolve } from "node:path";
 import { crossRepoImpact, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { attestationLabel, deviceIntegritySignals } from "@archcontext/cloud/attestation";
 import { CODEGRAPH_TELEMETRY_DISABLED_VALUE, CODEGRAPH_TELEMETRY_ENV, REQUIRED_CODEGRAPH_VERSION } from "@archcontext/local-runtime/codegraph-adapter";
-import { controlPlaneRouteDigest } from "@archcontext/contracts";
+import { ARCHCONTEXT_NODE_RANGE, controlPlaneRouteDigest } from "@archcontext/contracts";
 import { describeEntitlementScope, isOfflineEntitlementActive, type OfflineEntitlement } from "@archcontext/cloud/control-plane-client";
 
 export const NODE_SUPPORT_MATRIX = [
+  { runtime: "node", version: "22.22.x", status: "minimum-supported" },
   { runtime: "node", version: "24.x", status: "target-lts" },
   { runtime: "node", version: "25.x", status: "dev-compatible" }
 ] as const;
@@ -21,12 +22,20 @@ export function diagnostics() {
   const egress = localEgressStatus();
   return {
     node: process.version,
-    supportedNode: /^v(24|25)\./.test(process.version),
+    supportedNode: isSupportedNodeVersion(process.version),
     codeGraphVersion: REQUIRED_CODEGRAPH_VERSION,
     privacyRouteDigest: controlPlaneRouteDigest(),
     secureDefaults: secureDefaults(),
     egress
   };
+}
+
+export function isSupportedNodeVersion(version: string): boolean {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major < 26 && (major > 22 || (major === 22 && minor >= 22));
 }
 
 export function secureDefaults() {
@@ -77,7 +86,9 @@ export function uninstallMarker(content: string, host: "codex" | "claude" | "gen
 export function dependencyAudit(root: string) {
   const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
   const issues: string[] = [];
-  if (!packageJson.engines?.node?.includes(">=24")) issues.push("node engine must include >=24");
+  if (packageJson.engines?.node !== ARCHCONTEXT_NODE_RANGE) {
+    issues.push(`node engine must equal ${ARCHCONTEXT_NODE_RANGE}`);
+  }
   return { ok: issues.length === 0, issues };
 }
 

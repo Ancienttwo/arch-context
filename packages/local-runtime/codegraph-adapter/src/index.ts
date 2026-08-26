@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { accessSync, closeSync, constants as fsConstants, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, delimiter, dirname, isAbsolute, join, posix, resolve } from "node:path";
+import { CodeGraph, type Edge as CodeGraphEdge, type Node as CodeGraphNode } from "@colbymchenry/codegraph";
 import { buildArchitectureCandidateDelta, type ArchitectureDeltaDeclaredGraph, type ArchitectureDeltaGitChangeMetadata } from "@archcontext/core/architecture-delta";
 import { repoScopedArchitectureId, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import {
@@ -655,6 +656,13 @@ export interface CapabilityCodeGraphProjectionInputs {
   selectorEvidence: ArchitectureSelectorEvidenceV1[];
 }
 
+export interface CodeGraphSelectorIndex {
+  getNodesByName(name: string): CodeGraphNode[];
+  getOutgoingEdges(nodeId: string): CodeGraphEdge[];
+  getNode(nodeId: string): CodeGraphNode | null;
+  close(): void;
+}
+
 export interface CodeGraphProjectionStatusV1 {
   initialized: boolean;
   version: string;
@@ -946,7 +954,11 @@ export function codeGraphIndexAvailable(workspaceRoot: string): boolean {
 export function loadCapabilityCodeGraphProjectionInputs(
   root: string,
   model: NativeModel,
-  options: { binary?: string; importNodeLimit?: number } = {}
+  options: {
+    binary?: string;
+    importNodeLimit?: number;
+    selectorIndexFactory?: (root: string) => CodeGraphSelectorIndex;
+  } = {}
 ): CapabilityCodeGraphProjectionInputs {
   const footprints = loadCapabilitySourceFootprints(root, model);
   const entrypointNodes = model.nodes
@@ -961,16 +973,24 @@ export function loadCapabilityCodeGraphProjectionInputs(
   const importGraphs = footprints.length > 0
     ? capabilityImportGraphs(root, binary, footprints, options.importNodeLimit ?? CODEGRAPH_IMPORT_NODE_QUERY_LIMIT)
     : [];
-  const selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
-    entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(root, binary, {
-      nodeId: entry.nodeId,
-      entrypointId: entrypoint.id,
-      sourcePath: entrypoint.path,
-      sourceSymbol: source.name,
-      sinkId: sink.id,
-      sinkPath: sink.path,
-      sinkSymbol: sink.symbol
-    })))));
+  const selectorIndex = entrypointNodes.length > 0
+    ? options.selectorIndexFactory?.(root) ?? CodeGraph.openSync(root)
+    : undefined;
+  let selectorEvidence: ArchitectureSelectorEvidenceV1[];
+  try {
+    selectorEvidence = entrypointNodes.flatMap((entry) => entry.entrypoints.flatMap((entrypoint) =>
+      entrypoint.symbols.flatMap((source) => source.sinks.map((sink) => exactSelectorEvidence(selectorIndex!, {
+        nodeId: entry.nodeId,
+        entrypointId: entrypoint.id,
+        sourcePath: entrypoint.path,
+        sourceSymbol: source.name,
+        sinkId: sink.id,
+        sinkPath: sink.path,
+        sinkSymbol: sink.symbol
+      })))));
+  } finally {
+    selectorIndex?.close();
+  }
   return { importGraphs, selectorEvidence };
 }
 
@@ -1010,33 +1030,41 @@ function codeGraphImportNodes(root: string, binary: string, limit: number): { im
 }
 
 function exactSelectorEvidence(
-  root: string,
-  binary: string,
+  index: CodeGraphSelectorIndex,
   selector: Omit<ArchitectureSelectorEvidenceV1, "matched" | "truncated" | "callSites">
 ): ArchitectureSelectorEvidenceV1 {
-  const output = runCodeGraphCli(binary, root, ["node", "-p", root, selector.sourceSymbol, "-f", selector.sourcePath]);
-  const calls = entrypointTrailCalls(output);
-  const callSites = calls.entries
-    .filter((entry) => entry.symbol === selector.sinkSymbol && entry.path === selector.sinkPath)
-    .map((entry) => ({ path: entry.path, ...(entry.line === undefined ? {} : { line: entry.line }) }));
+  const sources = index.getNodesByName(selector.sourceSymbol)
+    .filter((node) => normalizedIndexPath(node.filePath) === normalizedIndexPath(selector.sourcePath));
+  const exactCalls = sources.flatMap((source) => index.getOutgoingEdges(source.id)
+    .filter((edge) => edge.kind === "calls")
+    .flatMap((edge) => {
+      const target = index.getNode(edge.target);
+      return target
+        && target.name === selector.sinkSymbol
+        && normalizedIndexPath(target.filePath) === normalizedIndexPath(selector.sinkPath)
+        ? [{ edge, target }]
+        : [];
+    }));
+  const sinkIdentities = new Set(exactCalls.map(({ target }) => target.id));
+  const ambiguous = sources.length > 1 || sinkIdentities.size > 1;
+  const callSites = [...new Map(exactCalls.map(({ edge }) => {
+    const callSite = { path: selector.sourcePath, ...(edge.line === undefined ? {} : { line: edge.line }) };
+    return [`${callSite.path}\0${callSite.line ?? ""}`, callSite] as const;
+  })).values()].sort((left, right) => left.path.localeCompare(right.path) || (left.line ?? 0) - (right.line ?? 0));
   return {
     ...selector,
-    matched: callSites.length > 0,
-    truncated: calls.truncated,
+    matched: !ambiguous && sinkIdentities.size === 1,
+    ambiguous,
+    // The structured SDK queries above are uncapped index lookups (name index plus the full
+    // outgoing-edge set of each source), so this producer enumerates the whole population and
+    // can never drop a match; only the CLI-backed import query has a limit to report.
+    truncated: false,
     callSites
   };
 }
 
-/** Exact call-trail entries for one explicitly named source symbol. */
-function entrypointTrailCalls(output: string): { entries: Array<{ symbol: string; path: string; line?: number }>; truncated: boolean } {
-  const line = output.split("\n").find((candidate) => candidate.includes("**Calls →**"));
-  if (!line) return { entries: [], truncated: false };
-  const entries = trailEntries(output, "**Calls →**").map((entry) => ({
-    symbol: entry.name,
-    path: entry.path,
-    ...(entry.line === undefined ? {} : { line: entry.line })
-  }));
-  return { entries, truncated: /\+\s*\d+\s+more\s*$/.test(line.trimEnd()) };
+function normalizedIndexPath(path: string): string {
+  return path.replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
 function runCodeGraphCli(binary: string, workspaceRoot: string, args: string[]): string {

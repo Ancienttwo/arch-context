@@ -10,26 +10,27 @@
 
 | State | From applied | To applied | Latest migration | Integrity | Result |
 | --- | ---: | ---: | --- | --- | --- |
-| fresh-empty | 0 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
-| pre-ledger-0005 | 5 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
-| ledger-v1-0006 | 6 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
-| pre-search-fts-0008 | 8 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
-| current-0017 | 17 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
-| current-0018 | 18 | 18 | 0018_immutable_evidence_checkpoints | ok | pass |
+| fresh-empty | 0 | 19 | 0019_projection_apply_receipts | ok | pass |
+| pre-ledger-0005 | 5 | 19 | 0019_projection_apply_receipts | ok | pass |
+| ledger-v1-0006 | 6 | 19 | 0019_projection_apply_receipts | ok | pass |
+| pre-search-fts-0008 | 8 | 19 | 0019_projection_apply_receipts | ok | pass |
+| current-0017 | 17 | 19 | 0019_projection_apply_receipts | ok | pass |
+| current-0018 | 18 | 19 | 0019_projection_apply_receipts | ok | pass |
+| current-0019 | 19 | 19 | 0019_projection_apply_receipts | ok | pass |
 
 ## Package Bundle
 
-- Package: archctx@0.3.0
-- Tarball: archctx-0.3.0.tgz
-- Package files: 81
-- CLI bytes: 1757543
-- CLI digest: sha256:2d39fe1846fc8b6cdc3612fb9676e2f3f3b913cc5df626151161b86bbede331d
+- Package: archctx@0.4.7
+- Tarball: archctx-0.4.7.tgz
+- Package files: 86
+- CLI bytes: 1737713
+- CLI digest: sha256:c290e551d9b06b97451e4674337ad66dd6f2c707ce3c8d98c743d0b907fc66ad
 
 ## Bundle Signatures
 
 | Group | Present | Required | Missing |
 | --- | ---: | ---: | --- |
-| migrations | 26 | 26 | - |
+| migrations | 28 | 28 | - |
 | hooks | 5 | 5 | - |
 | renderers | 5 | 5 | - |
 | agent-adapter-contracts | 7 | 7 | - |

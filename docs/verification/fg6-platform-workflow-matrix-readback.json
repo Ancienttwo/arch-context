@@ -4,26 +4,28 @@
   "environment": "staging-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-06-22T16:26:45.862Z",
+  "generatedAt": "2026-08-26T19:21:04.698Z",
   "sources": {
     "workflowPath": ".github/workflows/verify.yml",
     "platformReadbackScript": "scripts/platform-ipc-permission-readback.mjs",
     "fg1Gate": "docs/verification/fg1-local-product-gate.md",
     "githubHostedRunnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
-    "selfHostedRunnerSource": "docs/verification/fg4-self-hosted-runner-execution-readback.json"
+    "selfHostedRunnerSource": "docs/verification/fg4-self-hosted-runner-execution-readback.json",
+    "hostedArtifactDirectory": "archctx-047-hosted-33003178348"
   },
   "evidence": {
     "workflowMatrix": {
       "os": [
         "ubuntu-latest",
-        "macos-latest",
+        "macos-15",
         "windows-latest"
       ],
       "nodeVersions": [
+        "22.22.x",
         "24.x",
         "25.x"
       ],
-      "targetCount": 6,
+      "targetCount": 9,
       "failFastFalse": true,
       "verifyCommand": true,
       "platformReadbackCommand": true,
@@ -42,24 +44,111 @@
       "checksLifecycle": true
     },
     "hostedCi": {
-      "runId": 27967560199,
-      "headSha": "05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6",
-      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/27967560199",
+      "runId": 33003178348,
+      "headSha": "d3f14a0bb595c19089febc2221061cb3eb9d48f1",
+      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/33003178348",
       "runConclusion": "PASS",
       "downloadedArtifactsVerified": true,
       "artifactNames": [
+        "platform-ipc-permission-ubuntu-latest-node-22.22.x",
         "platform-ipc-permission-ubuntu-latest-node-24.x",
         "platform-ipc-permission-ubuntu-latest-node-25.x",
-        "platform-ipc-permission-macos-latest-node-24.x",
-        "platform-ipc-permission-macos-latest-node-25.x",
+        "platform-ipc-permission-macos-15-node-22.22.x",
+        "platform-ipc-permission-macos-15-node-24.x",
+        "platform-ipc-permission-macos-15-node-25.x",
+        "platform-ipc-permission-windows-latest-node-22.22.x",
         "platform-ipc-permission-windows-latest-node-24.x",
         "platform-ipc-permission-windows-latest-node-25.x"
       ],
-      "artifactCount": 6,
+      "artifactCount": 9,
+      "artifacts": [
+        {
+          "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
+          "sha256": "sha256:44dc12da6324773607251b86da4109c660fc4de0a69d25eb8756097a2ee9a94b",
+          "platform": "linux",
+          "node": "v22.22.3",
+          "bun": "1.3.10",
+          "connectionMode": "600",
+          "lockMode": "600"
+        },
+        {
+          "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
+          "sha256": "sha256:3e9a3d7ca442c48866f3c2ee8cf02c3f41fb8c37e037b8bb196e891e9b1fe6e0",
+          "platform": "linux",
+          "node": "v24.19.0",
+          "bun": "1.3.10",
+          "connectionMode": "600",
+          "lockMode": "600"
+        },
+        {
+          "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
+          "sha256": "sha256:856ec9f6614e6666f69f88e6d3e7cebb893d6ea757d85f27ab76fcadbe176236",
+          "platform": "linux",
+          "node": "v25.9.0",
+          "bun": "1.3.10",
+          "connectionMode": "600",
+          "lockMode": "600"
+        },
+        {
+          "name": "platform-ipc-permission-macos-15-node-22.22.x",
+          "sha256": "sha256:8be788fb3565beb4b36d529796638bc059a87cbb97505c284b6915058f4aefb8",
+          "platform": "darwin",
+          "node": "v22.22.3",
+          "bun": "1.3.10",
+          "connectionMode": "600",
+          "lockMode": "600"
+        },
+        {
+          "name": "platform-ipc-permission-macos-15-node-24.x",
+          "sha256": "sha256:eed80f73f9439c41b89e512884cfd18f9dd8d608697c167e16daff1f012953e3",
+          "platform": "darwin",
+          "node": "v24.18.0",
+          "bun": "1.3.10",
+          "connectionMode": "600",
+          "lockMode": "600"
+        },
+        {
+          "name": "platform-ipc-permission-macos-15-node-25.x",
+          "sha256": "sha256:5c5b9071c0da188590caf40baa514a19d6b0f7c65e8210fea02c5a6140ba9a2f",
+          "platform": "darwin",
+          "node": "v25.9.0",
+          "bun": "1.3.10",
+          "connectionMode": "600",
+          "lockMode": "600"
+        },
+        {
+          "name": "platform-ipc-permission-windows-latest-node-22.22.x",
+          "sha256": "sha256:f2ba92f61721703fa9c14b65dde0322aff5f28c04dcedc8ae270cc0e072f2e16",
+          "platform": "win32",
+          "node": "v22.22.3",
+          "bun": "1.3.10",
+          "connectionMode": "win32-acl",
+          "lockMode": "win32-acl"
+        },
+        {
+          "name": "platform-ipc-permission-windows-latest-node-24.x",
+          "sha256": "sha256:e0388e1966086e240faf7abedad9a8dcb9e4a25e1a57c815fe796c6169a5a839",
+          "platform": "win32",
+          "node": "v24.19.0",
+          "bun": "1.3.10",
+          "connectionMode": "win32-acl",
+          "lockMode": "win32-acl"
+        },
+        {
+          "name": "platform-ipc-permission-windows-latest-node-25.x",
+          "sha256": "sha256:99f9979591bc0379a023bea82673fbfb1b454588ba0f21a21e05f53d5aee4018",
+          "platform": "win32",
+          "node": "v25.9.0",
+          "bun": "1.3.10",
+          "connectionMode": "win32-acl",
+          "lockMode": "win32-acl"
+        }
+      ],
+      "artifactFailures": [],
       "posixModeVerified": true,
       "windowsAclVerified": true
     },
-    "currentHeadSha": "05c555f8a7d561a5e47a9e5d11bf462e9b96c1d6",
+    "currentHeadSha": "d3f14a0bb595c19089febc2221061cb3eb9d48f1",
     "githubWorkflowRuns": {
       "githubHosted": {
         "workflow": {
@@ -132,7 +221,7 @@
       }
     },
     "assertions": {
-      "localRuntimeMatrixSixTargets": true,
+      "localRuntimeMatrixNineTargets": true,
       "installedBinIpcReadbackUploaded": true,
       "hostedCiArtifactsVerified": true,
       "hostedCiMatchesCurrentHead": true,

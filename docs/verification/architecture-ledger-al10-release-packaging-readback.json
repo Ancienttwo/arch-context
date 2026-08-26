@@ -58,6 +58,11 @@
       "id": "current-0018",
       "from": "0018_immutable_evidence_checkpoints",
       "applyCount": 18
+    },
+    {
+      "id": "current-0019",
+      "from": "0019_projection_apply_receipts",
+      "applyCount": 19
     }
   ],
   "migrationIds": [
@@ -78,16 +83,17 @@
     "0015_snapshot_anchor_v2",
     "0016_manifest_addressed_projection_cache",
     "0017_explorer_cache_lifecycle",
-    "0018_immutable_evidence_checkpoints"
+    "0018_immutable_evidence_checkpoints",
+    "0019_projection_apply_receipts"
   ],
   "migrationMatrix": [
     {
       "id": "fresh-empty",
       "from": "empty local store",
       "fromAppliedCount": 0,
-      "toAppliedCount": 18,
+      "toAppliedCount": 19,
       "fromLatestMigrationId": null,
-      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "toLatestMigrationId": "0019_projection_apply_receipts",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -99,9 +105,9 @@
       "id": "pre-ledger-0005",
       "from": "0005_external_docs_cache",
       "fromAppliedCount": 5,
-      "toAppliedCount": 18,
+      "toAppliedCount": 19,
       "fromLatestMigrationId": "0005_external_docs_cache",
-      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "toLatestMigrationId": "0019_projection_apply_receipts",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -113,9 +119,9 @@
       "id": "ledger-v1-0006",
       "from": "0006_architecture_ledger",
       "fromAppliedCount": 6,
-      "toAppliedCount": 18,
+      "toAppliedCount": 19,
       "fromLatestMigrationId": "0006_architecture_ledger",
-      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "toLatestMigrationId": "0019_projection_apply_receipts",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -127,9 +133,9 @@
       "id": "pre-search-fts-0008",
       "from": "0008_runtime_job_queue_hardening",
       "fromAppliedCount": 8,
-      "toAppliedCount": 18,
+      "toAppliedCount": 19,
       "fromLatestMigrationId": "0008_runtime_job_queue_hardening",
-      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "toLatestMigrationId": "0019_projection_apply_receipts",
       "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -141,10 +147,10 @@
       "id": "current-0017",
       "from": "0017_explorer_cache_lifecycle",
       "fromAppliedCount": 17,
-      "toAppliedCount": 18,
+      "toAppliedCount": 19,
       "fromLatestMigrationId": "0017_explorer_cache_lifecycle",
-      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
-      "fromHasLedgerTables": true,
+      "toLatestMigrationId": "0019_projection_apply_receipts",
+      "fromHasLedgerTables": false,
       "toHasLedgerTables": true,
       "missingTables": [],
       "missingMigrations": [],
@@ -155,9 +161,23 @@
       "id": "current-0018",
       "from": "0018_immutable_evidence_checkpoints",
       "fromAppliedCount": 18,
-      "toAppliedCount": 18,
+      "toAppliedCount": 19,
       "fromLatestMigrationId": "0018_immutable_evidence_checkpoints",
-      "toLatestMigrationId": "0018_immutable_evidence_checkpoints",
+      "toLatestMigrationId": "0019_projection_apply_receipts",
+      "fromHasLedgerTables": false,
+      "toHasLedgerTables": true,
+      "missingTables": [],
+      "missingMigrations": [],
+      "integrity": "ok",
+      "passed": true
+    },
+    {
+      "id": "current-0019",
+      "from": "0019_projection_apply_receipts",
+      "fromAppliedCount": 19,
+      "toAppliedCount": 19,
+      "fromLatestMigrationId": "0019_projection_apply_receipts",
+      "toLatestMigrationId": "0019_projection_apply_receipts",
       "fromHasLedgerTables": true,
       "toHasLedgerTables": true,
       "missingTables": [],
@@ -175,30 +195,30 @@
     },
     "package": {
       "name": "archctx",
-      "version": "0.3.0",
+      "version": "0.4.7",
       "private": false,
       "bin": {
         "archctx": "./bin/archctx.mjs"
       },
       "engines": {
-        "node": ">=24 <26"
+        "node": ">=22.22 <26"
       },
       "dependencies": {
-        "@colbymchenry/codegraph": "1.4.0",
+        "@colbymchenry/codegraph": "1.5.0",
         "@node-rs/jieba": "^2.0.1"
       }
     },
     "artifact": {
       "artifactDir": "_ops/npm/al10-release-packaging",
-      "tarball": "archctx-0.3.0.tgz",
-      "tarballSha256": "sha256:04e020e34b141ddec14dd6f9ad6cb85f07c51cbf04f17420a03f2857bca43cdb",
-      "tarballBytes": 386928,
-      "unpackedBytes": 2056216
+      "tarball": "archctx-0.4.7.tgz",
+      "tarballSha256": "sha256:5a49e48848cd32f0e3ae47e4408ae7e4cf65123b75305a1ecbc9532e17625109",
+      "tarballBytes": 388147,
+      "unpackedBytes": 2061927
     },
     "bin": {
       "path": "bin/archctx.mjs",
-      "bytes": 1757543,
-      "sha256": "sha256:2d39fe1846fc8b6cdc3612fb9676e2f3f3b913cc5df626151161b86bbede331d",
+      "bytes": 1737713,
+      "sha256": "sha256:c290e551d9b06b97451e4674337ad66dd6f2c707ce3c8d98c743d0b907fc66ad",
       "shebang": "#!/usr/bin/env node"
     },
     "packageFiles": [
@@ -238,6 +258,7 @@
       "schemas/integrations/chatgpt-ga-tool.schema.json",
       "schemas/integrations/likec4-mapping.schema.json",
       "schemas/integrations/structurizr-mapping.schema.json",
+      "schemas/repo/architecture-flow.schema.json",
       "schemas/repo/architecture-intervention.schema.json",
       "schemas/repo/architecture-node.schema.json",
       "schemas/repo/architecture-relation.schema.json",
@@ -251,9 +272,11 @@
       "schemas/repo/practices/practice-waiver.schema.json",
       "schemas/repo/practices/practice.schema.json",
       "schemas/runtime/agent-job.schema.json",
+      "schemas/runtime/archctx-capabilities.schema.json",
       "schemas/runtime/architecture-candidate-delta-policy.schema.json",
       "schemas/runtime/architecture-candidate-delta.schema.json",
       "schemas/runtime/architecture-event.schema.json",
+      "schemas/runtime/architecture-refresh-signal.schema.json",
       "schemas/runtime/architecture-snapshot.schema.json",
       "schemas/runtime/architecture-subject-selector.schema.json",
       "schemas/runtime/changeset.schema.json",
@@ -274,6 +297,8 @@
       "schemas/runtime/practice-guidance.schema.json",
       "schemas/runtime/practice-match.schema.json",
       "schemas/runtime/product-version-manifest.schema.json",
+      "schemas/runtime/projection-request.schema.json",
+      "schemas/runtime/projection-result.schema.json",
       "schemas/runtime/projection-target.schema.json",
       "schemas/runtime/recommendation-feedback.schema.json",
       "schemas/runtime/recommendation-run.schema.json",
@@ -288,8 +313,8 @@
       {
         "id": "migrations",
         "description": "SQLite architecture ledger migrations and current tables",
-        "requiredCount": 26,
-        "presentCount": 26,
+        "requiredCount": 28,
+        "presentCount": 28,
         "missing": [],
         "passed": true
       },
@@ -329,7 +354,7 @@
       "noSourceFilesPackaged": true
     }
   },
-  "readbackDigest": "sha256:00661da7947f56648a759b60091847ced7956826e5cac5a0569ea32a3abf2a7a",
+  "readbackDigest": "sha256:8245224a9b30623f9afadf2b7411d559da3f4fb87dabee2eaeab4153a7651fe0",
   "assertions": {
     "AL10-10": true,
     "AL10-11": true,

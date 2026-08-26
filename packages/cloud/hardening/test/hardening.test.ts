@@ -6,6 +6,7 @@ import {
   dependencyAudit,
   auditPacketCapture,
   diagnostics,
+  isSupportedNodeVersion,
   installMarker,
   largeRepoPerfEstimate,
   launchGateReport,
@@ -30,6 +31,13 @@ describe("@archcontext/cloud/hardening", () => {
     });
     expect(diagnostics().privacyRouteDigest).toMatch(/^sha256:/);
     expect(diagnostics().egress.ok).toBe(true);
+    expect(isSupportedNodeVersion("v22.21.1")).toBe(false);
+    expect(isSupportedNodeVersion("v22.22.0")).toBe(true);
+    expect(isSupportedNodeVersion("v23.11.1")).toBe(true);
+    expect(isSupportedNodeVersion("v24.18.0")).toBe(true);
+    expect(isSupportedNodeVersion("v25.8.1")).toBe(true);
+    expect(isSupportedNodeVersion("v26.0.0")).toBe(false);
+    expect(isSupportedNodeVersion("22.22")).toBe(false);
     expect(localEgressStatus({}).codeGraph).toMatchObject({
       telemetry: "disabled",
       envVar: "DO_NOT_TRACK",
@@ -61,8 +69,13 @@ describe("@archcontext/cloud/hardening", () => {
   test("audits dependencies and local secret patterns", () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-hardening-"));
     try {
-      writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=24 <26" } }), "utf8");
+      writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=22.22 <26" } }), "utf8");
       expect(dependencyAudit(root)).toEqual({ ok: true, issues: [] });
+      writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=22 <26" } }), "utf8");
+      expect(dependencyAudit(root)).toEqual({
+        ok: false,
+        issues: ["node engine must equal >=22.22 <26"]
+      });
       writeFileSync(join(root, "leak.md"), "sk-12345678901234567890", "utf8");
       expect(secretScan(root)).toEqual({ ok: false, findings: ["leak.md"] });
     } finally {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { productVersionManifest } from "@archcontext/contracts";
+import { ARCHCONTEXT_NODE_RANGE, productVersionManifest } from "@archcontext/contracts";
 import {
   buildReleaseProvenanceReadback,
   inspectReleaseProvenanceReadback
@@ -100,7 +100,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
           archctx: "bin/archctx.mjs"
         },
         engines: {
-          node: ">=24 <26"
+          node: ARCHCONTEXT_NODE_RANGE
         }
       },
       smoke: {
@@ -123,7 +123,7 @@ function validInput(): Parameters<typeof buildReleaseProvenanceReadback>[0] {
         archctx: "bin/archctx.mjs"
       },
       engines: {
-        node: ">=24 <26"
+        node: ARCHCONTEXT_NODE_RANGE
       }
     },
     registryTags: {

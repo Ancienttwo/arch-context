@@ -66,7 +66,7 @@ import {
   projectionResultInvariantIssues,
   type ArchitectureRefreshSignalV1,
   type ProjectionRequestV1,
-  type ProjectionResultV1
+  type ProjectionResultV2
 } from "../src/projection";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -205,7 +205,7 @@ test("JSON schema uniqueItems compares canonical JSON rather than object inserti
 
 test("projection result contract denies raw bodies and keeps deterministic result arrays", () => {
   const schema = readJson("schemas/runtime/projection-result.schema.json");
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV1;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
   expect(projectionResultInvariantIssues(valid)).toEqual([]);
   const withRawBody = {
     ...valid,
@@ -222,6 +222,33 @@ test("projection result contract denies raw bodies and keeps deterministic resul
     files: [{ ...valid.files[0], action: "unchanged", outputDigest: `sha256:${"d".repeat(64)}` }]
   })).toContain("files[0] unchanged requires equal non-null digests");
   expect(validateJsonSchema(schema as any, { ...valid, status: "human-action-required" } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    status: "applied-reconcile-required",
+    refreshSignals: [],
+    applyReceipt: undefined
+  } as any).valid).toBe(false);
+  expect(validateJsonSchema(schema as any, {
+    ...valid,
+    status: "applied-reconcile-required",
+    refreshSignals: [],
+    applyReceipt: {
+      schemaVersion: "archcontext.projection-apply-identity/v1",
+      applyId: `sha256:${"a".repeat(64)}`,
+      lookupKey: `sha256:${"b".repeat(64)}`,
+      repositoryId: valid.outputSnapshot.repositoryId,
+      workspaceId: valid.outputSnapshot.workspaceId,
+      acceptedChange: {
+        changeSetId: "changeset.accepted",
+        eventId: "event.accepted",
+        reasonCodes: ["node-added"],
+        affectedNodeIds: ["capability.api"]
+      },
+      semanticCommit: { changeSetId: "changeset.projection", idempotencyKey: "projection.apply" },
+      ownedFilesDigest: `sha256:${"c".repeat(64)}`,
+      refreshSignalsDigest: `sha256:${"d".repeat(64)}`
+    }
+  } as any).valid).toBe(true);
   expect(validateJsonSchema(schema as any, {
     ...valid,
     inputSnapshot: {
@@ -251,7 +278,7 @@ test("projection result contract denies raw bodies and keeps deterministic resul
 });
 
 test("projection result receipt binds refresh signals without a circular hash", () => {
-  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV1;
+  const valid = readJson("packages/contracts/fixtures/valid/projection-result.json") as unknown as ProjectionResultV2;
   const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
   const unboundSignal: ArchitectureRefreshSignalV1 = {
     ...fixture,
@@ -266,7 +293,7 @@ test("projection result receipt binds refresh signals without a circular hash", 
   const { receiptDigest: _fixtureReceipt, ...basePayload } = valid;
   const payload = { ...basePayload, refreshSignals: [unboundSignal] };
   const receiptDigest = projectionResultReceiptDigest(payload);
-  const result: ProjectionResultV1 = {
+  const result: ProjectionResultV2 = {
     ...payload,
     refreshSignals: [{ ...unboundSignal, projectionReceiptDigest: receiptDigest }],
     receiptDigest
@@ -299,7 +326,7 @@ test("refresh-required signals bind the exact accepted ChangeSet event and taxon
 
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
-  expect(archctxCapabilities("0.4.4")).toEqual(fixture);
+  expect(archctxCapabilities("0.4.7")).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);

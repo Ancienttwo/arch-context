@@ -4,16 +4,16 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-08-18T08:33:18.447Z",
+  "generatedAt": "2026-08-26T18:15:01.813Z",
   "package": {
     "name": "archctx",
-    "version": "0.4.4",
+    "version": "0.4.7",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
     "packageManager": null,
     "engines": {
-      "node": ">=24 <26"
+      "node": ">=22.22 <26"
     },
     "bin": {
       "archctx": "./bin/archctx.mjs"
@@ -31,12 +31,12 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.4.4.tgz",
-    "publishDryRunId": "archctx@0.4.4",
-    "integrity": "sha512-uKM9Gzm28+aJcmLgZip1+nF8HropIihUOfoidNQ6bJFggDByd578chKX9EDuqGvx/3YmuZb3MSjubOzdXh58hw==",
-    "shasum": "b28ae62c1a0dbb08ae81857c7ba1be08026f045f",
-    "size": 427738,
-    "unpackedSize": 2254111,
+    "tarball": "archctx-0.4.7.tgz",
+    "publishDryRunId": "archctx@0.4.7",
+    "integrity": "sha512-lVqXAX2amA3IixgfuZTaICvU+YTE9Lzu/Kn5HS8Ng+QNV/P896Fb2grAlAbHGcyL+tDhPMXPbRiHKyF9l9jgYQ==",
+    "shasum": "7c352f49482a194aa1410dbfca4ba248233858fa",
+    "size": 388147,
+    "unpackedSize": 2061927,
     "entryCount": 86,
     "files": [
       "NOTICE.md",
@@ -206,7 +206,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.4.4",
+    "postPublishInstallCommand": "npm install -g archctx@0.4.7",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {

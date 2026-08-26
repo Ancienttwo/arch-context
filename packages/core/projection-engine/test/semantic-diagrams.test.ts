@@ -154,6 +154,7 @@ describe("semantic architecture compiler", () => {
       evidence.slice(1),
       evidence.map((entry, index) => index === 0 ? { ...entry, matched: false, callSites: [] } : entry),
       [...evidence, evidence[0]],
+      evidence.map((entry, index) => index === 0 ? { ...entry, ambiguous: true } : entry),
       evidence.map((entry, index) => index === 0 ? { ...entry, truncated: true } : entry)
     ]) {
       const result = compileSemanticCapabilityDiagrams({ capabilityId, nodes, relations, flows: [flow], evidence: changedEvidence });

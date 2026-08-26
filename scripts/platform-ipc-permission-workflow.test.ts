@@ -9,7 +9,7 @@ describe("platform IPC permission workflow", () => {
     for (const os of ["ubuntu-latest", "macos-15", "windows-latest"]) {
       expect(WORKFLOW).toContain(os);
     }
-    for (const nodeVersion of ["24.x", "25.x"]) {
+    for (const nodeVersion of ["22.22.x", "24.x", "25.x"]) {
       expect(WORKFLOW).toContain(nodeVersion);
     }
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { inspectFg4GithubHostedRunnerReadback } from "./fg4-github-hosted-runner-readback";
 
 const DEFAULT_WORKFLOW = ".github/workflows/verify.yml";
@@ -10,12 +11,13 @@ const DEFAULT_FG1_GATE = "docs/verification/fg1-local-product-gate.md";
 const DEFAULT_GITHUB_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-github-hosted-runner-readback.json";
 const DEFAULT_SELF_HOSTED_RUNNER_SOURCE = "docs/verification/fg4-self-hosted-runner-execution-readback.json";
 const DEFAULT_OUTPUT = "docs/verification/fg6-platform-workflow-matrix-readback.json";
+const PLATFORM_ARTIFACT_FILENAME = "platform-ipc-permission-readback.json";
 const REQUIRED_OS = ["ubuntu-latest", "macos-15", "windows-latest"] as const;
 const SUPPORTED_OS_SETS = [
   REQUIRED_OS,
   ["ubuntu-latest", "macos-latest", "windows-latest"] as const
 ] as const;
-const REQUIRED_NODE = ["24.x", "25.x"] as const;
+const REQUIRED_NODE = ["22.22.x", "24.x", "25.x"] as const;
 const REQUIRED_ARTIFACTS = REQUIRED_OS.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`));
 const SUPPORTED_ARTIFACT_SETS = SUPPORTED_OS_SETS.map((osSet) => osSet.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`)));
 const SECRET_PATTERNS = [
@@ -40,7 +42,7 @@ if (import.meta.main) {
     process.stdout.write(`${args.includes("--json") ? JSON.stringify(result, null, 2) : renderInspectHuman(result)}\n`);
     if (!result.ok) process.exit(1);
   } else {
-    console.error("[fg6-platform-workflow-matrix-readback] usage: run|inspect [--out path] [--json]");
+    console.error("[fg6-platform-workflow-matrix-readback] usage: run|inspect [--hosted-artifact-dir path] [--out path] [--json]");
     process.exit(2);
   }
 }
@@ -53,6 +55,7 @@ export function buildFg6PlatformWorkflowMatrixConfig(env: NodeJS.ProcessEnv = pr
     fg1Gate: readFlag(args, "--fg1-gate") ?? env.ARCHCONTEXT_FG6_FG1_GATE ?? DEFAULT_FG1_GATE,
     githubHostedRunnerSource: readFlag(args, "--github-hosted-runner-source") ?? env.ARCHCONTEXT_FG6_GITHUB_HOSTED_RUNNER_SOURCE ?? DEFAULT_GITHUB_HOSTED_RUNNER_SOURCE,
     selfHostedRunnerSource: readFlag(args, "--self-hosted-runner-source") ?? env.ARCHCONTEXT_FG6_SELF_HOSTED_RUNNER_SOURCE ?? DEFAULT_SELF_HOSTED_RUNNER_SOURCE,
+    hostedArtifactDir: readFlag(args, "--hosted-artifact-dir") ?? env.ARCHCONTEXT_FG6_HOSTED_ARTIFACT_DIR ?? "",
     outputPath: readFlag(args, "--out") ?? env.ARCHCONTEXT_FG6_PLATFORM_WORKFLOW_MATRIX_OUTPUT ?? DEFAULT_OUTPUT,
     json: args.includes("--json"),
     generatedAt: () => new Date().toISOString()
@@ -60,6 +63,7 @@ export function buildFg6PlatformWorkflowMatrixConfig(env: NodeJS.ProcessEnv = pr
 }
 
 export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof buildFg6PlatformWorkflowMatrixConfig>) {
+  if (!config.hostedArtifactDir) throw new Error("--hosted-artifact-dir is required for hosted matrix evidence");
   const [workflowText, platformReadbackScript, fg1Gate, githubHostedRunnerSource, selfHostedRunnerSource] = await Promise.all([
     readFile(resolve(config.root, config.workflowPath), "utf8"),
     readFile(resolve(config.root, config.platformReadbackScript), "utf8"),
@@ -69,7 +73,8 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
   ]);
   const hostedInspection = inspectFg4GithubHostedRunnerReadback(githubHostedRunnerSource);
   const selfHostedInspection = inspectFg4GithubHostedRunnerReadback(selfHostedRunnerSource);
-  const hostedCi = extractHostedCiEvidence(fg1Gate);
+  const hostedArtifacts = await verifyHostedArtifacts(resolve(config.root, config.hostedArtifactDir));
+  const hostedCi = extractHostedCiEvidence(fg1Gate, hostedArtifacts);
   const currentHeadSha = currentGitHead(config.root);
   const workflowMatrix = inspectWorkflowText(workflowText);
   const platformIpcContract = inspectPlatformReadbackScript(platformReadbackScript);
@@ -85,7 +90,8 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
       platformReadbackScript: config.platformReadbackScript,
       fg1Gate: config.fg1Gate,
       githubHostedRunnerSource: config.githubHostedRunnerSource,
-      selfHostedRunnerSource: config.selfHostedRunnerSource
+      selfHostedRunnerSource: config.selfHostedRunnerSource,
+      hostedArtifactDirectory: basename(resolve(config.root, config.hostedArtifactDir))
     },
     evidence: {
       workflowMatrix,
@@ -101,7 +107,7 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
         selfHosted: selfHostedInspection
       },
       assertions: {
-        localRuntimeMatrixSixTargets: workflowMatrix.targetCount === 6 && hostedCi.artifactNames.length === 6,
+        localRuntimeMatrixNineTargets: workflowMatrix.targetCount === 9 && hostedCi.artifactNames.length === 9,
         installedBinIpcReadbackUploaded: workflowMatrix.uploadArtifact === true && platformIpcContract.usesInstalledBin === true,
         hostedCiArtifactsVerified: hostedCi.runConclusion === "PASS" && hostedCi.downloadedArtifactsVerified === true,
         hostedCiMatchesCurrentHead: hostedCi.headSha === currentHeadSha,
@@ -149,7 +155,7 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
     if (readRecord(inspection).ok !== true) failures.push(`${name} source inspection must pass`);
   }
   for (const key of [
-    "localRuntimeMatrixSixTargets",
+    "localRuntimeMatrixNineTargets",
     "installedBinIpcReadbackUploaded",
     "hostedCiArtifactsVerified",
     "hostedCiMatchesCurrentHead",
@@ -195,20 +201,80 @@ function inspectPlatformReadbackScript(text: string) {
   };
 }
 
-function extractHostedCiEvidence(text: string) {
+function extractHostedCiEvidence(text: string, hostedArtifacts: Awaited<ReturnType<typeof verifyHostedArtifacts>>) {
   const runMatch = text.match(/Verify run `(\d+)`, head `([a-f0-9]{40})`/);
-  const artifactNames = REQUIRED_ARTIFACTS.filter((name) => text.includes(`\`${name}\``));
   return {
     runId: runMatch ? Number(runMatch[1]) : 0,
     headSha: runMatch?.[2] ?? "",
     runUrl: runMatch ? `https://github.com/Ancienttwo/arch-context/actions/runs/${runMatch[1]}` : "",
     runConclusion: runMatch && text.includes(`GitHub Actions Verify run \`${runMatch[1]}\`: PASS`) ? "PASS" : "unknown",
-    downloadedArtifactsVerified: text.includes("Downloaded hosted IPC artifacts: PASS"),
-    artifactNames,
-    artifactCount: artifactNames.length,
+    downloadedArtifactsVerified: hostedArtifacts.verified,
+    artifactNames: hostedArtifacts.artifacts.map((artifact) => artifact.name),
+    artifactCount: hostedArtifacts.artifacts.length,
+    artifacts: hostedArtifacts.artifacts,
+    artifactFailures: hostedArtifacts.failures,
     posixModeVerified: text.includes("Linux/macOS connection and lock modes are `600`"),
     windowsAclVerified: text.includes("Windows connection and lock modes are `win32-acl`")
   };
+}
+
+async function verifyHostedArtifacts(root: string) {
+  const failures: string[] = [];
+  const artifacts = [] as Array<{
+    name: string;
+    sha256: string;
+    platform: string;
+    node: string;
+    bun: string;
+    connectionMode: string;
+    lockMode: string;
+  }>;
+  for (const name of REQUIRED_ARTIFACTS) {
+    const path = join(root, name, PLATFORM_ARTIFACT_FILENAME);
+    let raw: string;
+    try {
+      raw = await readFile(path, "utf8");
+    } catch {
+      failures.push(`${name}: artifact file missing`);
+      continue;
+    }
+    let artifact: Record<string, unknown>;
+    try {
+      artifact = readRecord(JSON.parse(raw));
+    } catch {
+      failures.push(`${name}: artifact JSON invalid`);
+      continue;
+    }
+    const install = readRecord(artifact.install);
+    const transport = readRecord(artifact.transport);
+    const controlFiles = readRecord(artifact.controlFiles);
+    const lifecycle = readRecord(artifact.lifecycle);
+    const expectedPlatform = name.includes("ubuntu-latest") ? "linux" : name.includes("macos-") ? "darwin" : "win32";
+    const expectedNode = name.match(/-node-(22\.22|24|25)\.x$/)?.[1] ?? "";
+    const node = String(artifact.node ?? "");
+    const expectedMode = expectedPlatform === "win32" ? "win32-acl" : "600";
+    const checks = [
+      [artifact.schemaVersion === "archcontext.platform-ipc-permission-readback/v1", "schemaVersion mismatch"],
+      [artifact.platform === expectedPlatform, `platform must be ${expectedPlatform}`],
+      [node.startsWith(`v${expectedNode}.`), `node must match ${expectedNode}.x`],
+      [install.helpOk === true && install.hasDaemonCommand === true && install.hasMcpCommand === true && install.hasDoctorCommand === true, "installed-bin help contract failed"],
+      [transport.protocol === "http-loopback" && transport.bindHost === "127.0.0.1" && transport.loopbackOnly === true, "loopback transport contract failed"],
+      [controlFiles.connectionMode === expectedMode && controlFiles.lockMode === expectedMode, `control-file mode must be ${expectedMode}`],
+      [controlFiles.tokenRedactedFromStatus === true, "daemon status token was not redacted"],
+      [lifecycle.started === true && lifecycle.statusRunning === true && lifecycle.stopped === true, "daemon lifecycle failed"]
+    ] as const;
+    for (const [passed, message] of checks) if (!passed) failures.push(`${name}: ${message}`);
+    artifacts.push({
+      name,
+      sha256: `sha256:${createHash("sha256").update(raw).digest("hex")}`,
+      platform: String(artifact.platform ?? ""),
+      node,
+      bun: String(artifact.bun ?? ""),
+      connectionMode: String(controlFiles.connectionMode ?? ""),
+      lockMode: String(controlFiles.lockMode ?? "")
+    });
+  }
+  return { verified: failures.length === 0 && artifacts.length === REQUIRED_ARTIFACTS.length, artifacts, failures };
 }
 
 function summarizeRunner(recording: unknown) {
@@ -253,7 +319,7 @@ function inspectWorkflowMatrix(workflowMatrix: Record<string, unknown>, failures
     for (const value of REQUIRED_OS) if (!os.includes(value)) failures.push(`workflow matrix missing OS ${value}`);
   }
   for (const value of REQUIRED_NODE) if (!nodeVersions.includes(value)) failures.push(`workflow matrix missing Node ${value}`);
-  if (Number(workflowMatrix.targetCount ?? 0) !== 6) failures.push("workflow matrix targetCount must be 6");
+  if (Number(workflowMatrix.targetCount ?? 0) !== 9) failures.push("workflow matrix targetCount must be 9");
   for (const key of ["failFastFalse", "verifyCommand", "platformReadbackCommand", "uploadArtifact", "artifactNamePattern", "governanceVerifySeparateJob"]) {
     if (workflowMatrix[key] !== true) failures.push(`workflowMatrix.${key} must be true`);
   }
@@ -281,8 +347,24 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
   if (!String(hostedCi.runUrl ?? "").startsWith("https://github.com/")) failures.push("hostedCi.runUrl must be GitHub");
   if (hostedCi.runConclusion !== "PASS") failures.push("hostedCi.runConclusion must be PASS");
   if (hostedCi.downloadedArtifactsVerified !== true) failures.push("hostedCi downloaded artifacts must be verified");
-  if (Number(hostedCi.artifactCount ?? 0) !== 6) failures.push("hostedCi artifactCount must be 6");
+  if (Number(hostedCi.artifactCount ?? 0) !== 9) failures.push("hostedCi artifactCount must be 9");
   const artifactNames = Array.isArray(hostedCi.artifactNames) ? hostedCi.artifactNames.map(String) : [];
+  const artifacts = Array.isArray(hostedCi.artifacts) ? hostedCi.artifacts.map(readRecord) : [];
+  if (artifacts.length !== 9) failures.push("hostedCi artifacts must contain 9 digest records");
+  for (const artifact of artifacts) {
+    const name = String(artifact.name ?? "");
+    if (!/^sha256:[a-f0-9]{64}$/.test(String(artifact.sha256 ?? ""))) failures.push("hostedCi artifact sha256 invalid");
+    if (!artifactNames.includes(name)) failures.push(`hostedCi artifact digest record has unknown name ${name}`);
+    const expectedPlatform = name.includes("ubuntu-latest") ? "linux" : name.includes("macos-") ? "darwin" : name.includes("windows-latest") ? "win32" : "";
+    const expectedNode = name.match(/-node-(22\.22|24|25)\.x$/)?.[1] ?? "";
+    const expectedMode = expectedPlatform === "win32" ? "win32-acl" : "600";
+    if (artifact.platform !== expectedPlatform) failures.push(`hostedCi artifact ${name} platform mismatch`);
+    if (!String(artifact.node ?? "").startsWith(`v${expectedNode}.`)) failures.push(`hostedCi artifact ${name} node mismatch`);
+    if (artifact.bun !== "1.3.10") failures.push(`hostedCi artifact ${name} bun mismatch`);
+    if (artifact.connectionMode !== expectedMode || artifact.lockMode !== expectedMode) failures.push(`hostedCi artifact ${name} mode mismatch`);
+  }
+  if (new Set(artifacts.map((artifact) => String(artifact.name ?? ""))).size !== artifacts.length) failures.push("hostedCi artifact digest record names must be unique");
+  if (Array.isArray(hostedCi.artifactFailures) && hostedCi.artifactFailures.length > 0) failures.push("hostedCi artifact failures must be empty");
   const hasSupportedArtifactSet = SUPPORTED_ARTIFACT_SETS.some((artifactSet) => artifactSet.every((name) => artifactNames.includes(name)));
   if (!hasSupportedArtifactSet) {
     for (const name of REQUIRED_ARTIFACTS) {

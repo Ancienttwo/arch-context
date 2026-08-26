@@ -31,6 +31,23 @@
 - Completed At: 2026-06-20
 - Reviewer: Codex execution under user goal
 
+## 0.4.7 Nine-target hosted matrix readback
+
+- Verify run `33003178348`, head `d3f14a0bb595c19089febc2221061cb3eb9d48f1`: https://github.com/Ancienttwo/arch-context/actions/runs/33003178348
+- GitHub Actions Verify run `33003178348`: PASS for all nine matrix jobs; Governance remained fail-closed on the pre-0.4.7 deterministic evidence and is regenerated separately.
+- Downloaded hosted IPC artifacts: PASS, all nine `platform-ipc-permission-readback.json` files verified for schema, installed-bin help, HTTP loopback binding, token redaction, and daemon lifecycle.
+- Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
+- Artifact names verified from that run:
+  - `platform-ipc-permission-ubuntu-latest-node-22.22.x`
+  - `platform-ipc-permission-ubuntu-latest-node-24.x`
+  - `platform-ipc-permission-ubuntu-latest-node-25.x`
+  - `platform-ipc-permission-macos-15-node-22.22.x`
+  - `platform-ipc-permission-macos-15-node-24.x`
+  - `platform-ipc-permission-macos-15-node-25.x`
+  - `platform-ipc-permission-windows-latest-node-22.22.x`
+  - `platform-ipc-permission-windows-latest-node-24.x`
+  - `platform-ipc-permission-windows-latest-node-25.x`
+
 ## Scope
 
 This evidence covers FG1-01 through FG1-18 and closes FG1-EG1 through FG1-EG6.

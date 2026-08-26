@@ -6,28 +6,30 @@ describe("fg6 platform workflow matrix readback evidence", () => {
     expect(inspectFg6PlatformWorkflowMatrix(verifiedRecording())).toEqual({ ok: true, failures: [] });
   });
 
-  test("rejects missing matrix targets, weak IPC contract, missing artifacts, and failed runner workflows", () => {
+  test("rejects missing matrix targets, weak IPC contract, invalid artifacts, and failed runner workflows", () => {
     const recording: any = verifiedRecording();
     recording.evidence.workflowMatrix.os = ["ubuntu-latest", "macos-15"];
     recording.evidence.workflowMatrix.targetCount = 4;
     recording.evidence.platformIpcContract.usesInstalledBin = false;
     recording.evidence.hostedCi.artifactNames.pop();
-    recording.evidence.hostedCi.artifactCount = 5;
+    recording.evidence.hostedCi.artifactCount = 8;
+    recording.evidence.hostedCi.artifacts[0].platform = "darwin";
     recording.evidence.githubWorkflowRuns.githubHosted.workflow.conclusion = "failure";
     recording.evidence.sourceInspections.selfHosted.ok = false;
-    recording.evidence.assertions.localRuntimeMatrixSixTargets = false;
+    recording.evidence.assertions.localRuntimeMatrixNineTargets = false;
 
     const result = inspectFg6PlatformWorkflowMatrix(recording);
 
     expect(result.ok).toBe(false);
     expect(result.failures).toContain("workflow matrix missing OS windows-latest");
-    expect(result.failures).toContain("workflow matrix targetCount must be 6");
+    expect(result.failures).toContain("workflow matrix targetCount must be 9");
     expect(result.failures).toContain("platformIpcContract.usesInstalledBin must be true");
-    expect(result.failures).toContain("hostedCi artifactCount must be 6");
+    expect(result.failures).toContain("hostedCi artifactCount must be 9");
+    expect(result.failures).toContain("hostedCi artifact platform-ipc-permission-ubuntu-latest-node-22.22.x platform mismatch");
     expect(result.failures).toContain("hostedCi missing artifact platform-ipc-permission-windows-latest-node-25.x");
     expect(result.failures).toContain("githubHosted workflow conclusion must be success");
     expect(result.failures).toContain("selfHosted source inspection must pass");
-    expect(result.failures).toContain("assertion localRuntimeMatrixSixTargets must be true");
+    expect(result.failures).toContain("assertion localRuntimeMatrixNineTargets must be true");
   });
 });
 
@@ -49,8 +51,8 @@ function verifiedRecording() {
     evidence: {
       workflowMatrix: {
         os: ["ubuntu-latest", "macos-15", "windows-latest"],
-        nodeVersions: ["24.x", "25.x"],
-        targetCount: 6,
+        nodeVersions: ["22.22.x", "24.x", "25.x"],
+        targetCount: 9,
         failFastFalse: true,
         verifyCommand: true,
         platformReadbackCommand: true,
@@ -74,15 +76,18 @@ function verifiedRecording() {
         runUrl: "https://github.com/Ancienttwo/arch-context/actions/runs/27871833633",
         runConclusion: "PASS",
         downloadedArtifactsVerified: true,
-        artifactNames: [
-          "platform-ipc-permission-ubuntu-latest-node-24.x",
-          "platform-ipc-permission-ubuntu-latest-node-25.x",
-          "platform-ipc-permission-macos-15-node-24.x",
-          "platform-ipc-permission-macos-15-node-25.x",
-          "platform-ipc-permission-windows-latest-node-24.x",
-          "platform-ipc-permission-windows-latest-node-25.x"
-        ],
-        artifactCount: 6,
+        artifactNames: hostedArtifactNames(),
+        artifactCount: 9,
+        artifacts: hostedArtifactNames().map((name) => ({
+          name,
+          sha256: `sha256:${"a".repeat(64)}`,
+          platform: name.includes("ubuntu-latest") ? "linux" : name.includes("macos-") ? "darwin" : "win32",
+          node: name.includes("22.22.x") ? "v22.22.3" : name.includes("24.x") ? "v24.19.0" : "v25.9.0",
+          bun: "1.3.10",
+          connectionMode: name.includes("windows-latest") ? "win32-acl" : "600",
+          lockMode: name.includes("windows-latest") ? "win32-acl" : "600"
+        })),
+        artifactFailures: [],
         posixModeVerified: true,
         windowsAclVerified: true
       },
@@ -96,7 +101,7 @@ function verifiedRecording() {
         selfHosted: { ok: true, failures: [] }
       },
       assertions: {
-        localRuntimeMatrixSixTargets: true,
+        localRuntimeMatrixNineTargets: true,
         installedBinIpcReadbackUploaded: true,
         hostedCiArtifactsVerified: true,
         hostedCiMatchesCurrentHead: true,
@@ -107,6 +112,20 @@ function verifiedRecording() {
     },
     failures: []
   };
+}
+
+function hostedArtifactNames(): string[] {
+  return [
+    "platform-ipc-permission-ubuntu-latest-node-22.22.x",
+    "platform-ipc-permission-ubuntu-latest-node-24.x",
+    "platform-ipc-permission-ubuntu-latest-node-25.x",
+    "platform-ipc-permission-macos-15-node-22.22.x",
+    "platform-ipc-permission-macos-15-node-24.x",
+    "platform-ipc-permission-macos-15-node-25.x",
+    "platform-ipc-permission-windows-latest-node-22.22.x",
+    "platform-ipc-permission-windows-latest-node-24.x",
+    "platform-ipc-permission-windows-latest-node-25.x"
+  ];
 }
 
 function runnerSummary(input: { runnerOs: string; kind: string; runId: number }) {
