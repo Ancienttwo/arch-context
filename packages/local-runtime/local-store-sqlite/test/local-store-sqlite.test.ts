@@ -16,7 +16,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureEventV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
@@ -73,7 +73,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0015_snapshot_anchor_v2",
       "0016_manifest_addressed_projection_cache",
       "0017_explorer_cache_lifecycle",
-      "0018_immutable_evidence_checkpoints"
+      "0018_immutable_evidence_checkpoints",
+      "0019_projection_apply_receipts"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -1507,7 +1508,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0015_snapshot_anchor_v2",
       "0016_manifest_addressed_projection_cache",
       "0017_explorer_cache_lifecycle",
-      "0018_immutable_evidence_checkpoints"
+      "0018_immutable_evidence_checkpoints",
+      "0019_projection_apply_receipts"
     ]);
 
     const snapshot = {
@@ -1863,6 +1865,39 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("projection apply receipts become visible only after commit and deliver refresh signals exactly once", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-projection-apply-receipt-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const receipt = projectionApplyReceiptFixture();
+    try {
+      const first = new SqliteLocalStore(dbPath);
+      await first.migrate();
+      const journalId = await first.beginChangeSet(root, changeSetDraft(receipt.identity.semanticCommit.changeSetId, "docs/architecture/index.md"));
+      await first.recordProjectionApplyReceipt(journalId, receipt);
+      expect(await first.consumeProjectionApplyReceipt(receipt.identity.lookupKey)).toBeUndefined();
+      await first.commitChangeSet(journalId);
+      first.close();
+
+      const restarted = new SqliteLocalStore(dbPath);
+      await restarted.migrate();
+      expect(await restarted.consumeProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({
+        receipt,
+        refreshSignalsDelivered: true
+      });
+      restarted.close();
+
+      const duplicate = new SqliteLocalStore(dbPath);
+      await duplicate.migrate();
+      expect(await duplicate.consumeProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({
+        receipt,
+        refreshSignalsDelivered: false
+      });
+      duplicate.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   test("sqlite changeset journal recovers pending temp writes after reopen", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-changeset-journal-"));
@@ -3840,4 +3875,38 @@ function changeSetDraft(id: string, path: string) {
     requiresConfirmation: true,
     idempotencyKey: `idem_${id}`
   };
+}
+
+function projectionApplyReceiptFixture(): ProjectionApplyReceiptV1 {
+  const base = JSON.parse(readFileSync(join(process.cwd(), "packages/contracts/fixtures/valid/projection-result.json"), "utf8")) as ProjectionResultV2;
+  const fixture = JSON.parse(readFileSync(join(process.cwd(), "packages/contracts/fixtures/valid/architecture-refresh-signal.json"), "utf8")) as ArchitectureRefreshSignalV1;
+  const acceptedChange = fixture.acceptedChange!;
+  const signal = {
+    ...fixture,
+    repository: { repositoryId: base.outputSnapshot.repositoryId },
+    worktree: {
+      workspaceId: base.outputSnapshot.workspaceId,
+      headSha: base.outputSnapshot.headSha,
+      worktreeDigest: base.outputSnapshot.worktreeDigest
+    },
+    projectionReceiptDigest: `sha256:${"0".repeat(64)}` as const
+  };
+  const identity = createProjectionApplyIdentity({
+    repositoryId: base.outputSnapshot.repositoryId,
+    workspaceId: base.outputSnapshot.workspaceId,
+    acceptedChange,
+    changeSetId: "changeset.docs-projection-test",
+    idempotencyKey: "idem_changeset.docs-projection-test",
+    files: base.files,
+    refreshSignals: [signal]
+  });
+  const { receiptDigest: _receiptDigest, ...basePayload } = base;
+  const payload = { ...basePayload, status: "applied" as const, refreshSignals: [signal], applyReceipt: identity };
+  const receiptDigest = projectionResultReceiptDigest(payload);
+  const result: ProjectionResultV2 = {
+    ...payload,
+    refreshSignals: [{ ...signal, projectionReceiptDigest: receiptDigest }],
+    receiptDigest
+  };
+  return { schemaVersion: "archcontext.projection-apply-receipt/v1", identity, result };
 }

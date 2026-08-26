@@ -47,7 +47,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, projectionApplyReceiptInvariantIssues, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionApplyReceiptV1, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
 import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -72,6 +72,7 @@ const REQUIRED_LOCAL_STORE_TABLES = [
   "landscapes",
   "cross_repo_edges",
   "changeset_journal",
+  "projection_apply_receipts",
   "external_docs_cache",
   "architecture_events",
   "architecture_snapshots",
@@ -855,6 +856,22 @@ export const LOCAL_SQLITE_MIGRATIONS = [
           SELECT RAISE(ABORT, 'architecture-evidence-state-checkpoints-immutable');
         END`
     ]
+  },
+  {
+    id: "0019_projection_apply_receipts",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS projection_apply_receipts (
+        lookup_key TEXT PRIMARY KEY,
+        apply_id TEXT NOT NULL UNIQUE,
+        journal_id TEXT NOT NULL UNIQUE,
+        receipt_json TEXT NOT NULL,
+        refresh_consumed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(journal_id) REFERENCES changeset_journal(journal_id)
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_projection_apply_receipts_journal ON projection_apply_receipts(journal_id)"
+    ]
   }
 ] as const;
 
@@ -1503,6 +1520,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   purgeExternalDocumentation(input: { provider?: ExternalDocumentationProvider; libraryId?: string; all?: boolean }): Promise<number>;
   recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
+  recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
+  consumeProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   appendArchitectureEventsAndCommitChangeSet(
     journalId: string,
@@ -1544,6 +1563,11 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
+}
+
+export interface ProjectionApplyReceiptConsumption {
+  receipt: ProjectionApplyReceiptV1;
+  refreshSignalsDelivered: boolean;
 }
 
 export type ExplorerProjectionPinReason = "delta-base" | "delta-head";
@@ -2123,6 +2147,59 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         append: changeSetLedgerAppendSummary(input.result) as unknown as Json,
         appendedAt: nowIso()
       })), nowIso(), journalId);
+  }
+
+  async recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void> {
+    const issues = projectionApplyReceiptInvariantIssues(receipt);
+    if (issues.length > 0) throw new Error(`projection-apply-receipt-invalid: ${issues.join("; ")}`);
+    const db = await this.database();
+    const row = db.prepare("SELECT status FROM changeset_journal WHERE journal_id = ?").get(journalId);
+    if (!row) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    if (String(row.status) !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+    db.prepare(
+      `DELETE FROM projection_apply_receipts
+        WHERE lookup_key = ? AND journal_id IN (
+          SELECT journal_id FROM changeset_journal WHERE status IN ('aborted', 'recovered')
+        )`
+    ).run(receipt.identity.lookupKey);
+    const createdAt = nowIso();
+    db.prepare(
+      `INSERT INTO projection_apply_receipts
+        (lookup_key, apply_id, journal_id, receipt_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(receipt.identity.lookupKey, receipt.identity.applyId, journalId, stableJson(receipt), createdAt, createdAt);
+  }
+
+  async consumeProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptConsumption | undefined> {
+    const db = await this.database();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db.prepare(
+        `SELECT receipt.receipt_json, receipt.refresh_consumed_at
+          FROM projection_apply_receipts receipt
+          JOIN changeset_journal journal ON journal.journal_id = receipt.journal_id
+          WHERE receipt.lookup_key = ? AND journal.status = 'committed'`
+      ).get(lookupKey);
+      if (!row?.receipt_json) {
+        db.exec("COMMIT");
+        return undefined;
+      }
+      const receipt = JSON.parse(String(row.receipt_json)) as ProjectionApplyReceiptV1;
+      const issues = projectionApplyReceiptInvariantIssues(receipt);
+      if (issues.length > 0) throw new Error(`projection-apply-receipt-invalid: ${issues.join("; ")}`);
+      const refreshSignalsDelivered = row.refresh_consumed_at === null;
+      if (refreshSignalsDelivered) {
+        const consumedAt = nowIso();
+        db.prepare(
+          "UPDATE projection_apply_receipts SET refresh_consumed_at = ?, updated_at = ? WHERE lookup_key = ? AND refresh_consumed_at IS NULL"
+        ).run(consumedAt, consumedAt, lookupKey);
+      }
+      db.exec("COMMIT");
+      return { receipt, refreshSignalsDelivered };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   async commitChangeSet(journalId: string): Promise<void> {

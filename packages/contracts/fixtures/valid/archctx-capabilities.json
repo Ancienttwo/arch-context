@@ -3,12 +3,12 @@
   "package": { "name": "archctx", "version": "0.4.4" },
   "protocols": {
     "projectionRequest": "archcontext.projection-request/v1",
-    "projectionResult": "archcontext.projection-result/v1",
+    "projectionResult": "archcontext.projection-result/v2",
     "architectureRefreshSignal": "archcontext.architecture-refresh-signal/v1"
   },
   "renderers": {
     "architectureDocs": "archcontext.docs-renderer/v4",
     "agentContext": "archcontext.agent-context-renderer/v1"
   },
-  "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "projection-protocol-v1"]
+  "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "projection-apply-receipt-v1", "projection-protocol-v2"]
 }

@@ -1,20 +1,21 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://archcontext.dev/schemas/runtime/projection-result.schema.json",
-  "title": "ProjectionResultV1",
+  "title": "ProjectionResultV2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "requestId", "status", "inputSnapshot", "outputSnapshot", "affectedNodeIds", "files", "humanActions", "refreshSignals", "receiptDigest"],
   "properties": {
-    "schemaVersion": { "const": "archcontext.projection-result/v1" },
+    "schemaVersion": { "const": "archcontext.projection-result/v2" },
     "requestId": { "type": "string", "pattern": "^[a-zA-Z0-9_.:-]+$", "minLength": 1 },
-    "status": { "enum": ["adoption-required", "applied", "blocked", "human-action-required", "noop", "permanent-failure", "planned", "retryable-failure"] },
+    "status": { "enum": ["adoption-required", "applied", "applied-reconcile-required", "blocked", "human-action-required", "noop", "permanent-failure", "planned", "retryable-failure"] },
     "inputSnapshot": { "$ref": "#/$defs/snapshot" },
     "outputSnapshot": { "$ref": "#/$defs/snapshot" },
     "affectedNodeIds": { "type": "array", "uniqueItems": true, "description": "Canonical wire order is lexicographic and is enforced by projectionResultInvariantIssues.", "items": { "type": "string", "minLength": 1 } },
     "files": { "type": "array", "description": "Canonical wire order is by path and is enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/file" } },
     "humanActions": { "type": "array", "items": { "$ref": "#/$defs/humanAction" } },
     "refreshSignals": { "type": "array", "description": "Canonical wire order is by signalId and cross-object receipt/snapshot bindings are enforced by projectionResultInvariantIssues.", "items": { "$ref": "#/$defs/refreshSignal" } },
+    "applyReceipt": { "$ref": "#/$defs/applyIdentity" },
     "receiptDigest": { "$ref": "#/$defs/digest" }
   },
   "allOf": [
@@ -22,6 +23,13 @@
       "if": { "properties": { "status": { "enum": ["adoption-required", "human-action-required"] } }, "required": ["status"] },
       "then": { "properties": { "humanActions": { "minItems": 1 } } },
       "else": { "properties": { "humanActions": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "applied-reconcile-required" } }, "required": ["status"] },
+      "then": {
+        "required": ["applyReceipt"],
+        "properties": { "refreshSignals": { "maxItems": 0 } }
+      }
     }
   ],
   "$defs": {
@@ -156,6 +164,30 @@
         "eventId": { "type": "string", "minLength": 1 },
         "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
         "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "applyIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "applyId", "lookupKey", "repositoryId", "workspaceId", "acceptedChange", "semanticCommit", "ownedFilesDigest", "refreshSignalsDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-apply-identity/v1" },
+        "applyId": { "$ref": "#/$defs/digest" },
+        "lookupKey": { "$ref": "#/$defs/digest" },
+        "repositoryId": { "type": "string", "minLength": 1 },
+        "workspaceId": { "type": "string", "minLength": 1 },
+        "acceptedChange": { "$ref": "#/$defs/acceptedChange" },
+        "semanticCommit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["changeSetId", "idempotencyKey"],
+          "properties": {
+            "changeSetId": { "type": "string", "minLength": 1 },
+            "idempotencyKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "ownedFilesDigest": { "$ref": "#/$defs/digest" },
+        "refreshSignalsDigest": { "$ref": "#/$defs/digest" }
       }
     }
   }

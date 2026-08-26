@@ -22,7 +22,7 @@
       "required": ["projectionRequest", "projectionResult", "architectureRefreshSignal"],
       "properties": {
         "projectionRequest": { "const": "archcontext.projection-request/v1" },
-        "projectionResult": { "const": "archcontext.projection-result/v1" },
+        "projectionResult": { "const": "archcontext.projection-result/v2" },
         "architectureRefreshSignal": { "const": "archcontext.architecture-refresh-signal/v1" }
       }
     },
@@ -39,7 +39,7 @@
       "type": "array",
       "minItems": 3,
       "uniqueItems": true,
-      "items": { "enum": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "projection-protocol-v1"] }
+      "items": { "enum": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "projection-apply-receipt-v1", "projection-protocol-v2"] }
     }
   }
 }

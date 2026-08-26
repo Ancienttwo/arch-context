@@ -1,7 +1,9 @@
 import { digestJson, type Json } from "./schema";
 
 export const PROJECTION_REQUEST_SCHEMA_VERSION = "archcontext.projection-request/v1" as const;
-export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v1" as const;
+export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v2" as const;
+export const PROJECTION_APPLY_IDENTITY_SCHEMA_VERSION = "archcontext.projection-apply-identity/v1" as const;
+export const PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION = "archcontext.projection-apply-receipt/v1" as const;
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v4" as const;
@@ -12,6 +14,7 @@ export const PROJECTION_TARGETS = ["agent-context", "architecture-docs"] as cons
 export const PROJECTION_RESULT_STATUSES = [
   "adoption-required",
   "applied",
+  "applied-reconcile-required",
   "blocked",
   "human-action-required",
   "noop",
@@ -51,7 +54,8 @@ export const ARCHITECTURE_REFRESH_TARGETS = [
 export const ARCHCTX_FEATURES = [
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
-  "projection-protocol-v1"
+  "projection-apply-receipt-v1",
+  "projection-protocol-v2"
 ] as const;
 
 export type ProjectionMode = (typeof PROJECTION_MODES)[number];
@@ -112,6 +116,21 @@ export interface ProjectionHumanActionV1 {
   requestPayloadDigest: Sha256Digest;
 }
 
+export interface ProjectionApplyIdentityV1 {
+  schemaVersion: typeof PROJECTION_APPLY_IDENTITY_SCHEMA_VERSION;
+  applyId: Sha256Digest;
+  lookupKey: Sha256Digest;
+  repositoryId: string;
+  workspaceId: string;
+  acceptedChange: AcceptedArchitectureChangeReferenceV1;
+  semanticCommit: {
+    changeSetId: string;
+    idempotencyKey: string;
+  };
+  ownedFilesDigest: Sha256Digest;
+  refreshSignalsDigest: Sha256Digest;
+}
+
 export interface ArchitectureDigestSetV1 {
   modelDigest: Sha256Digest;
   sourceTreeDigest: Sha256Digest;
@@ -143,7 +162,7 @@ export interface ArchitectureRefreshSignalV1 {
   projectionReceiptDigest: Sha256Digest;
 }
 
-export interface ProjectionResultV1 {
+export interface ProjectionResultV2 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
   status: ProjectionResultStatus;
@@ -153,7 +172,14 @@ export interface ProjectionResultV1 {
   files: ProjectionFileResultV1[];
   humanActions: ProjectionHumanActionV1[];
   refreshSignals: ArchitectureRefreshSignalV1[];
+  applyReceipt?: ProjectionApplyIdentityV1;
   receiptDigest: Sha256Digest;
+}
+
+export interface ProjectionApplyReceiptV1 {
+  schemaVersion: typeof PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION;
+  identity: ProjectionApplyIdentityV1;
+  result: ProjectionResultV2;
 }
 
 export interface ArchctxCapabilitiesV1 {
@@ -222,7 +248,7 @@ export function projectionRequestInvariantIssues(input: ProjectionRequestV1): st
   return issues;
 }
 
-export function projectionResultInvariantIssues(input: ProjectionResultV1): string[] {
+export function projectionResultInvariantIssues(input: ProjectionResultV2): string[] {
   const issues = [
     ...sortedUniqueIssues("affectedNodeIds", input.affectedNodeIds),
     ...sortedUniqueIssues("files.path", input.files.map((file) => file.path)),
@@ -237,6 +263,10 @@ export function projectionResultInvariantIssues(input: ProjectionResultV1): stri
   const statusRequiresHumanAction = input.status === "adoption-required" || input.status === "human-action-required";
   if (statusRequiresHumanAction && input.humanActions.length === 0) issues.push(`${input.status} status requires at least one human action`);
   if (!statusRequiresHumanAction && input.humanActions.length > 0) issues.push(`human actions are not allowed when status=${input.status}`);
+  if (input.status === "applied-reconcile-required") {
+    if (!input.applyReceipt) issues.push("applied-reconcile-required status requires applyReceipt");
+    if (input.refreshSignals.length > 0) issues.push("applied-reconcile-required status cannot deliver refreshSignals");
+  }
   for (const [index, file] of input.files.entries()) {
     const prefix = `files[${index}]`;
     if (file.action === "create" && (file.preimageDigest !== null || file.outputDigest === null)) {
@@ -270,9 +300,72 @@ export function projectionResultInvariantIssues(input: ProjectionResultV1): stri
  * receipt payload to avoid a circular hash; every signal must then bind that receipt via
  * projectionReceiptDigest, which projectionResultInvariantIssues verifies.
  */
-export function projectionResultReceiptDigest(input: Omit<ProjectionResultV1, "receiptDigest">): Sha256Digest {
+export function projectionResultReceiptDigest(input: Omit<ProjectionResultV2, "receiptDigest">): Sha256Digest {
   const refreshSignals = input.refreshSignals.map(({ projectionReceiptDigest: _projectionReceiptDigest, ...signal }) => signal);
   return digestJson({ ...input, refreshSignals } as unknown as Json) as Sha256Digest;
+}
+
+export function projectionApplyLookupKey(input: {
+  repositoryId: string;
+  workspaceId: string;
+  acceptedChange: AcceptedArchitectureChangeReferenceV1;
+}): Sha256Digest {
+  return digestJson({
+    schemaVersion: "archcontext.projection-apply-lookup/v1",
+    repositoryId: input.repositoryId,
+    workspaceId: input.workspaceId,
+    acceptedChange: input.acceptedChange
+  } as unknown as Json) as Sha256Digest;
+}
+
+export function createProjectionApplyIdentity(input: {
+  repositoryId: string;
+  workspaceId: string;
+  acceptedChange: AcceptedArchitectureChangeReferenceV1;
+  changeSetId: string;
+  idempotencyKey: string;
+  files: ProjectionFileResultV1[];
+  refreshSignals: ArchitectureRefreshSignalV1[];
+}): ProjectionApplyIdentityV1 {
+  const lookupKey = projectionApplyLookupKey(input);
+  const ownedFilesDigest = digestJson(input.files as unknown as Json) as Sha256Digest;
+  const refreshSignals = input.refreshSignals.map(({ projectionReceiptDigest: _receipt, ...signal }) => signal);
+  const refreshSignalsDigest = digestJson(refreshSignals as unknown as Json) as Sha256Digest;
+  const withoutApplyId = {
+    schemaVersion: PROJECTION_APPLY_IDENTITY_SCHEMA_VERSION,
+    lookupKey,
+    repositoryId: input.repositoryId,
+    workspaceId: input.workspaceId,
+    acceptedChange: input.acceptedChange,
+    semanticCommit: { changeSetId: input.changeSetId, idempotencyKey: input.idempotencyKey },
+    ownedFilesDigest,
+    refreshSignalsDigest
+  };
+  return {
+    ...withoutApplyId,
+    applyId: digestJson(withoutApplyId as unknown as Json) as Sha256Digest
+  };
+}
+
+export function projectionApplyReceiptInvariantIssues(input: ProjectionApplyReceiptV1): string[] {
+  const identity = createProjectionApplyIdentity({
+    repositoryId: input.identity.repositoryId,
+    workspaceId: input.identity.workspaceId,
+    acceptedChange: input.identity.acceptedChange,
+    changeSetId: input.identity.semanticCommit.changeSetId,
+    idempotencyKey: input.identity.semanticCommit.idempotencyKey,
+    files: input.result.files,
+    refreshSignals: input.result.refreshSignals
+  });
+  const issues = projectionResultInvariantIssues(input.result);
+  if (digestJson(identity as unknown as Json) !== digestJson(input.identity as unknown as Json)) {
+    issues.push("projection apply identity must bind the committed files and original refresh signals");
+  }
+  if (input.result.status !== "applied") issues.push("projection apply receipt result status must be applied");
+  if (digestJson(input.result.applyReceipt as unknown as Json) !== digestJson(input.identity as unknown as Json)) {
+    issues.push("projection apply receipt result must carry the same apply identity");
+  }
+  return issues;
 }
 
 export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefreshSignalV1, prefix = "signal"): string[] {

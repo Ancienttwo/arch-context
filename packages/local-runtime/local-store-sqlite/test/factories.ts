@@ -25,7 +25,7 @@ import {
   type ArchitectureLedgerSnapshotInput,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { canonicalProjectionReadPlanV1, digestJson, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
 import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -48,6 +48,8 @@ export class TestLocalStore implements RuntimeLocalStore {
       plannedEvent?: ArchitectureEventV1;
       append?: ArchitectureLedgerAppendResult;
     };
+    projectionApplyReceipt?: ProjectionApplyReceiptV1;
+    projectionRefreshConsumed?: boolean;
   }>();
   readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
   readonly architectureEvents: ArchitectureEventV1[] = [];
@@ -378,6 +380,36 @@ export class TestLocalStore implements RuntimeLocalStore {
     const record = this.changeSetJournals.get(journalId);
     if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
     record.ledger = { ...record.ledger, append: input.result };
+  }
+
+  async recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void> {
+    const record = this.changeSetJournals.get(journalId);
+    if (!record) throw new Error(`ChangeSet journal not found: ${journalId}`);
+    if (record.status !== "pending") throw new Error(`ChangeSet journal is not pending: ${journalId}`);
+    const issues = projectionApplyReceiptInvariantIssues(receipt);
+    if (issues.length > 0) throw new Error(`projection-apply-receipt-invalid: ${issues.join("; ")}`);
+    for (const entry of this.changeSetJournals.values()) {
+      if (
+        (entry.status === "aborted" || entry.status === "recovered")
+        && entry.projectionApplyReceipt?.identity.lookupKey === receipt.identity.lookupKey
+      ) {
+        delete entry.projectionApplyReceipt;
+        delete entry.projectionRefreshConsumed;
+      }
+    }
+    if ([...this.changeSetJournals.values()].some((entry) => entry.projectionApplyReceipt?.identity.lookupKey === receipt.identity.lookupKey)) {
+      throw new Error("projection-apply-receipt-lookup-key-conflict");
+    }
+    record.projectionApplyReceipt = structuredClone(receipt);
+  }
+
+  async consumeProjectionApplyReceipt(lookupKey: string) {
+    const record = [...this.changeSetJournals.values()].find((entry) =>
+      entry.status === "committed" && entry.projectionApplyReceipt?.identity.lookupKey === lookupKey);
+    if (!record?.projectionApplyReceipt) return undefined;
+    const refreshSignalsDelivered = record.projectionRefreshConsumed !== true;
+    record.projectionRefreshConsumed = true;
+    return { receipt: structuredClone(record.projectionApplyReceipt), refreshSignalsDelivered };
   }
 
   async commitChangeSet(journalId: string): Promise<void> {

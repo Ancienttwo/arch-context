@@ -48,7 +48,8 @@ const REQUIRED_LEDGER_TABLES = [
   "architecture_change_feed",
   "architecture_change_feed_consumers",
   "architecture_change_feed_backfill_state",
-  "architecture_evidence_state_checkpoints"
+  "architecture_evidence_state_checkpoints",
+  "projection_apply_receipts"
 ] as const;
 
 const MIGRATION_CASES = [
@@ -57,7 +58,8 @@ const MIGRATION_CASES = [
   { id: "ledger-v1-0006", from: "0006_architecture_ledger", applyCount: 6 },
   { id: "pre-search-fts-0008", from: "0008_runtime_job_queue_hardening", applyCount: 8 },
   { id: "current-0017", from: "0017_explorer_cache_lifecycle", applyCount: 17 },
-  { id: "current-0018", from: "0018_immutable_evidence_checkpoints", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
+  { id: "current-0018", from: "0018_immutable_evidence_checkpoints", applyCount: 18 },
+  { id: "current-0019", from: "0019_projection_apply_receipts", applyCount: LOCAL_SQLITE_MIGRATIONS.length }
 ] as const;
 
 const BUNDLE_SIGNATURES = [
@@ -74,6 +76,7 @@ const BUNDLE_SIGNATURES = [
       "0016_manifest_addressed_projection_cache",
       "0017_explorer_cache_lifecycle",
       "0018_immutable_evidence_checkpoints",
+      "0019_projection_apply_receipts",
       "source_storage_workspace_id",
       "manifest_digest",
       "body_bytes",
@@ -85,6 +88,7 @@ const BUNDLE_SIGNATURES = [
       "architecture_evidence_state_checkpoints",
       "architecture_evidence_state_checkpoints_immutable_update",
       "architecture_evidence_state_checkpoints_immutable_delete",
+      "projection_apply_receipts",
       "explorer_projection_cache",
       "explorer_runtime_metrics",
       "evidence_state_digest",
