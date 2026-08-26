@@ -2,10 +2,115 @@
   "repository": "Ancienttwo/repo-harness",
   "revision": "1eaf6301",
   "evidence": [
-    { "nodeId": "capability.verification.codegraph-readiness", "entrypointId": "entrypoint.codegraph.ensure", "sourcePath": "src/cli/tools/codegraph.ts", "sourceSymbol": "ensureCodegraph", "sinkId": "sink.codegraph.report", "sinkPath": "src/cli/tools/codegraph.ts", "sinkSymbol": "readToolingReport", "matched": true, "truncated": false, "callSites": [{ "path": "src/cli/tools/codegraph.ts", "line": 112 }] },
-    { "nodeId": "capability.verification.codegraph-readiness", "entrypointId": "entrypoint.codegraph.ensure", "sourcePath": "src/cli/tools/codegraph.ts", "sourceSymbol": "ensureCodegraph", "sinkId": "sink.codegraph.check", "sinkPath": "src/cli/tools/codegraph.ts", "sinkSymbol": "checkCodegraph", "matched": true, "truncated": false, "callSites": [{ "path": "src/cli/tools/codegraph.ts", "line": 160 }] },
-    { "nodeId": "capability.verification.codegraph-readiness", "entrypointId": "entrypoint.codegraph.ensure", "sourcePath": "src/cli/tools/codegraph.ts", "sourceSymbol": "ensureCodegraph", "sinkId": "sink.codegraph.run", "sinkPath": "src/cli/tools/codegraph.ts", "sinkSymbol": "run", "matched": true, "truncated": false, "callSites": [{ "path": "src/cli/tools/codegraph.ts", "line": 87 }] },
-    { "nodeId": "capability.runtime-harness.hook-adapters", "entrypointId": "entrypoint.hook.persist", "sourcePath": "src/cli/hook/mutation-observed.ts", "sourceSymbol": "writeOrCoalesceJournalEvent", "sinkId": "sink.hook.journal", "sinkPath": "src/cli/hook/mutation-observed.ts", "sinkSymbol": "writeJournalEventAtomic", "matched": true, "truncated": false, "callSites": [{ "path": "src/cli/hook/mutation-observed.ts", "line": 573 }] },
-    { "nodeId": "capability.runtime-harness.hook-adapters", "entrypointId": "entrypoint.hook.consume", "sourcePath": "src/cli/hook/mutation-observed.ts", "sourceSymbol": "consumePendingPostEditEvents", "sinkId": "sink.hook.cascade", "sinkPath": "src/cli/hook/mutation-observed.ts", "sinkSymbol": "processArchitectureCascade", "matched": true, "truncated": false, "callSites": [{ "path": "src/cli/hook/mutation-observed.ts", "line": 783 }] }
+    {
+      "nodeId": "capability.runtime-harness.hook-adapters",
+      "entrypointId": "entrypoint.hook.consume",
+      "sourcePath": "src/cli/hook/mutation-observed.ts",
+      "sourceSymbol": "consumePendingPostEditEvents",
+      "sinkId": "sink.hook.cascade",
+      "sinkPath": "src/cli/hook/mutation-observed.ts",
+      "sinkSymbol": "processArchitectureCascade",
+      "matched": true,
+      "ambiguous": false,
+      "truncated": false,
+      "callSites": [
+        {
+          "path": "src/cli/hook/mutation-observed.ts",
+          "line": 877
+        }
+      ]
+    },
+    {
+      "nodeId": "capability.runtime-harness.hook-adapters",
+      "entrypointId": "entrypoint.hook.persist",
+      "sourcePath": "src/cli/hook/mutation-observed.ts",
+      "sourceSymbol": "writeOrCoalesceJournalEvent",
+      "sinkId": "sink.hook.journal",
+      "sinkPath": "src/cli/hook/mutation-observed.ts",
+      "sinkSymbol": "writeJournalEventAtomic",
+      "matched": true,
+      "ambiguous": false,
+      "truncated": false,
+      "callSites": [
+        {
+          "path": "src/cli/hook/mutation-observed.ts",
+          "line": 632
+        }
+      ]
+    },
+    {
+      "nodeId": "capability.verification.codegraph-readiness",
+      "entrypointId": "entrypoint.codegraph.ensure",
+      "sourcePath": "src/cli/tools/codegraph.ts",
+      "sourceSymbol": "ensureCodegraph",
+      "sinkId": "sink.codegraph.check",
+      "sinkPath": "src/cli/tools/codegraph.ts",
+      "sinkSymbol": "checkCodegraph",
+      "matched": true,
+      "ambiguous": false,
+      "truncated": false,
+      "callSites": [
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 173
+        }
+      ]
+    },
+    {
+      "nodeId": "capability.verification.codegraph-readiness",
+      "entrypointId": "entrypoint.codegraph.ensure",
+      "sourcePath": "src/cli/tools/codegraph.ts",
+      "sourceSymbol": "ensureCodegraph",
+      "sinkId": "sink.codegraph.report",
+      "sinkPath": "src/cli/tools/codegraph.ts",
+      "sinkSymbol": "readToolingReport",
+      "matched": true,
+      "ambiguous": false,
+      "truncated": false,
+      "callSites": [
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 180
+        },
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 183
+        },
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 189
+        },
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 195
+        }
+      ]
+    },
+    {
+      "nodeId": "capability.verification.codegraph-readiness",
+      "entrypointId": "entrypoint.codegraph.ensure",
+      "sourcePath": "src/cli/tools/codegraph.ts",
+      "sourceSymbol": "ensureCodegraph",
+      "sinkId": "sink.codegraph.run",
+      "sinkPath": "src/cli/tools/codegraph.ts",
+      "sinkSymbol": "run",
+      "matched": true,
+      "ambiguous": false,
+      "truncated": false,
+      "callSites": [
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 182
+        },
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 188
+        },
+        {
+          "path": "src/cli/tools/codegraph.ts",
+          "line": 194
+        }
+      ]
+    }
   ]
 }
