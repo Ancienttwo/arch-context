@@ -326,7 +326,7 @@ test("refresh-required signals bind the exact accepted ChangeSet event and taxon
 
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
-  expect(archctxCapabilities("0.4.4")).toEqual(fixture);
+  expect(archctxCapabilities("0.4.5")).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
