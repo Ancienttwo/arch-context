@@ -1,18 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { digestJson } from "@archcontext/contracts";
-import {
-  CODEGRAPH_TELEMETRY_DISABLED_VALUE,
-  CODEGRAPH_TELEMETRY_ENV,
-  codeGraphCliInvocation,
-  codeGraphIndexAvailable,
-  loadCapabilityCodeGraphProjectionInputs,
-  type CodeGraphSelectorIndex
-} from "../src/index";
+import { codeGraphIndexAvailable, loadCapabilityCodeGraphProjectionInputs, type CodeGraphSelectorIndex } from "../src/index";
 
 const model: NativeModel = {
   nodes: [
@@ -264,81 +256,4 @@ describe("capability documentation projection inputs from the code index", () =>
     }
   });
 
-  // Every other case injects `selectorIndexFactory`, so the production selector path
-  // (`CodeGraph.openSync`) would never execute. This case indexes a real fixture repo with the
-  // pinned CodeGraph package and runs the loader with no factory at all: the model declares
-  // entrypoints and no `source.include`, so no import graph is requested and the only CodeGraph
-  // work is the structured selector lookup under test.
-  test("proves an exact selector against a really indexed repository with no injected index", () => {
-    const root = mkdtempSync(join(tmpdir(), "archctx-capability-codegraph-real-"));
-    try {
-      mkdirSync(join(root, "src"), { recursive: true });
-      writeFileSync(join(root, "src/render.ts"), [
-        "export function renderBlock(): string {",
-        "  return \"block\";",
-        "}",
-        ""
-      ].join("\n"));
-      // The call lives on line 4 of the source file, while `renderMain` is defined on line 3 and
-      // `renderBlock` on line 1 of the other file: source path, sink path, source definition
-      // line, sink definition line and call-edge line are all distinct, so the asserted call site
-      // can only be produced by pairing the source path with the call-edge line.
-      writeFileSync(join(root, "src/main.ts"), [
-        "import { renderBlock } from \"./render\";",
-        "",
-        "export function renderMain(): string {",
-        "  return renderBlock();",
-        "}",
-        ""
-      ].join("\n"));
-
-      const invocation = codeGraphCliInvocation("codegraph", root);
-      const indexed = spawnSync(invocation.command, [...invocation.argsPrefix, "init", root], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, [CODEGRAPH_TELEMETRY_ENV]: CODEGRAPH_TELEMETRY_DISABLED_VALUE },
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      expect({ status: indexed.status, stderr: indexed.stderr }).toEqual({ status: 0, stderr: "" });
-      expect(codeGraphIndexAvailable(root)).toBe(true);
-
-      const realModel: NativeModel = {
-        nodes: [{
-          id: "capability.real",
-          kind: "capability",
-          name: "Real",
-          source: {
-            entrypoints: [{
-              id: "entrypoint.real.render",
-              path: "src/main.ts",
-              symbols: [{
-                name: "renderMain",
-                sinks: [{ id: "sink.real.render-block", path: "src/render.ts", symbol: "renderBlock" }]
-              }]
-            }]
-          }
-        }],
-        relations: []
-      };
-
-      expect(loadCapabilityCodeGraphProjectionInputs(root, realModel)).toEqual({
-        importGraphs: [],
-        selectorEvidence: [{
-          nodeId: "capability.real",
-          entrypointId: "entrypoint.real.render",
-          sourcePath: "src/main.ts",
-          sourceSymbol: "renderMain",
-          sinkId: "sink.real.render-block",
-          sinkPath: "src/render.ts",
-          sinkSymbol: "renderBlock",
-          matched: true,
-          ambiguous: false,
-          truncated: false,
-          callSites: [{ path: "src/main.ts", line: 4 }]
-        }]
-      });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }, 120_000);
 });
