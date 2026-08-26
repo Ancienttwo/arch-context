@@ -296,8 +296,8 @@ function runCleanRoomSmoke(name, version, env) {
   const workspace = mkdtempSync(join(tmpdir(), "archctx-contracts-consume."));
   try {
     writeFileSync(join(workspace, "package.json"), "{\"type\":\"module\"}\n", "utf8");
-    const add = run("bun", ["add", `${name}@${version}`], { cwd: workspace, env });
-    if (add.status !== 0) return { ok: false, skipped: false, reason: summarizeFailure(add), workspace: keepTemp ? workspace : null };
+    const install = run("npm", ["install", "--ignore-scripts", "--registry", registry, `${name}@${version}`], { cwd: workspace, env });
+    if (install.status !== 0) return { ok: false, skipped: false, reason: summarizeFailure(install), workspace: keepTemp ? workspace : null };
     writeFileSync(join(workspace, "smoke.ts"), [
       "import { readFileSync } from \"node:fs\";",
       "import { createRequire } from \"node:module\";",

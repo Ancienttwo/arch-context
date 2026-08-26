@@ -9,11 +9,12 @@ Scope: publish projection-result/v2 with durable apply receipts and exact select
 - [x] repo-harness accepted local tarball SHA-256 `16fa6ba0c9b61f3f1dabc6bcfc5961ebccf243a591f737bffc988c94b866556b` through its provider path; the v2 fields are sufficient and no schema revision is requested.
 - [x] The exact-subject external AcceptanceReceipt verifies against subject `sha256:8c015580f1e0507be1e44e9b5511fee337e23a0d66994b3317bde890db5be696`.
 - [x] `archctx` and `archctx-contracts` package versions are exactly `0.4.5`; npm dry-run, AL10 packaging, migration matrix, and both registry preflights pass.
-- [ ] Publish `archctx-contracts@0.4.5` and read back version, integrity, shasum, and clean-room import.
-- [ ] Publish `archctx@0.4.5` and read back version, integrity, shasum, Node engine, exact CodeGraph dependency, and v2 capabilities handshake.
-- [ ] Record the official npm artifact digest and close `bun run readback:release` with `failures: []`.
+- [x] Publish `archctx-contracts@0.4.5` and read back version, integrity, shasum, and clean-room import.
+- [x] Publish `archctx@0.4.5` and read back version, integrity, shasum, Node engine, exact CodeGraph dependency, and v2 capabilities handshake.
+- [x] Record the official npm artifact digest and close `bun run readback:release` with `failures: []`.
 
 ## Known non-blocking evidence
 
 - `verify:axr3-semantic-pilot` remains revision-pin blocked on this checkout and main: fixture revision `1eaf6301` does not match the local repo-harness checkout. The pin must not be weakened for release.
 - Release and CI environments must provide the `codegraph` 1.5.0 binary because the real-index selector integration test runs `codegraph init` without network access.
+- Bun's package resolver had not observed `archctx-contracts@0.4.5` immediately after npm exposed the version. The release smoke now installs with npm from the authoritative registry and executes the imported TypeScript surface with Bun; the resulting clean-room import passed.
