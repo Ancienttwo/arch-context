@@ -723,6 +723,90 @@ export interface RuntimeApplyUpdateInput {
   projectionApplyReceipt?: ProjectionApplyReceiptV1;
 }
 
+class RuntimeUpdateInputError extends Error {}
+
+function decodeRuntimeWorktreeDigestProfile(value: unknown, field: string): RuntimeWorktreeDigestProfile {
+  switch (value) {
+    case "repository":
+    case "architecture-documentation-projection":
+      return value;
+    default:
+      throw new RuntimeUpdateInputError(`${field} must be repository or architecture-documentation-projection`);
+  }
+}
+
+function decodeRuntimePlanUpdateInput(value: unknown): RuntimePlanUpdateInput {
+  const input = runtimeUpdateInputRecord(value, "plan_update input");
+  if (typeof input.id !== "string" || input.id.length === 0) {
+    throw new RuntimeUpdateInputError("plan_update id must be a non-empty string");
+  }
+  if (!Array.isArray(input.operations)) {
+    throw new RuntimeUpdateInputError("plan_update operations must be an array");
+  }
+  let worktreeDigestPrecondition: RuntimePlanUpdateInput["worktreeDigestPrecondition"];
+  if (input.worktreeDigestPrecondition !== undefined) {
+    const precondition = runtimeUpdateInputRecord(
+      input.worktreeDigestPrecondition,
+      "plan_update worktreeDigestPrecondition"
+    );
+    const profile = decodeRuntimeWorktreeDigestProfile(
+      precondition.profile,
+      "plan_update worktreeDigestPrecondition.profile"
+    );
+    if (profile !== "architecture-documentation-projection") {
+      throw new RuntimeUpdateInputError(
+        "plan_update worktreeDigestPrecondition.profile must be architecture-documentation-projection"
+      );
+    }
+    if (typeof precondition.expectedDigest !== "string" || precondition.expectedDigest.length === 0) {
+      throw new RuntimeUpdateInputError(
+        "plan_update worktreeDigestPrecondition.expectedDigest must be a non-empty string"
+      );
+    }
+    worktreeDigestPrecondition = { profile, expectedDigest: precondition.expectedDigest };
+  }
+  return {
+    id: input.id,
+    operations: input.operations as ChangeOperation[],
+    ...(input.reason === undefined
+      ? {}
+      : { reason: input.reason as RuntimePlanUpdateInput["reason"] }),
+    ...(worktreeDigestPrecondition === undefined ? {} : { worktreeDigestPrecondition })
+  };
+}
+
+function decodeRuntimeApplyUpdateInput(value: unknown): RuntimeApplyUpdateInput {
+  const input = runtimeUpdateInputRecord(value, "apply_update input");
+  if (typeof input.id !== "string" || input.id.length === 0) {
+    throw new RuntimeUpdateInputError("apply_update id must be a non-empty string");
+  }
+  if (typeof input.approved !== "boolean") {
+    throw new RuntimeUpdateInputError("apply_update approved must be a boolean");
+  }
+  if (typeof input.expectedWorktreeDigest !== "string" || input.expectedWorktreeDigest.length === 0) {
+    throw new RuntimeUpdateInputError("apply_update expectedWorktreeDigest must be a non-empty string");
+  }
+  const worktreeDigestProfile = input.worktreeDigestProfile === undefined
+    ? undefined
+    : decodeRuntimeWorktreeDigestProfile(input.worktreeDigestProfile, "apply_update worktreeDigestProfile");
+  return {
+    id: input.id,
+    approved: input.approved,
+    expectedWorktreeDigest: input.expectedWorktreeDigest,
+    ...(worktreeDigestProfile === undefined ? {} : { worktreeDigestProfile }),
+    ...(input.projectionApplyReceipt === undefined
+      ? {}
+      : { projectionApplyReceipt: input.projectionApplyReceipt as ProjectionApplyReceiptV1 })
+  };
+}
+
+function runtimeUpdateInputRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RuntimeUpdateInputError(`${field} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
 export interface RuntimeDaemonClient {
   init(root: string, productName?: string): Promise<JsonEnvelope> | JsonEnvelope;
   sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope> | JsonEnvelope;
@@ -2170,6 +2254,7 @@ export class ArchctxDaemon {
       operations: [{ op: "write_waiver", path, expectedHash, body }]
     });
     this.changesets.set(draft.id, draft);
+    this.changeSetWorktreeDigestProfiles.set(draft.id, "repository");
     return okEnvelope("practices.waive", {
       schemaVersion: "archcontext.practice-waiver-plan/v1",
       waiver,
@@ -2337,8 +2422,17 @@ export class ArchctxDaemon {
     return okEnvelope("resource.read", result as unknown as Json);
   }
 
-  async planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
+  async planUpdate(root: string, rawInput: RuntimePlanUpdateInput): Promise<JsonEnvelope> {
     this.assertRunning();
+    let input: RuntimePlanUpdateInput;
+    try {
+      input = decodeRuntimePlanUpdateInput(rawInput);
+    } catch (error) {
+      if (error instanceof RuntimeUpdateInputError) {
+        return errorEnvelope("plan_update", "AC_SCHEMA_INVALID", error.message);
+      }
+      throw error;
+    }
     const session = await this.openSession(root);
     const model = await this.readModelStore.validateModel(session.workspace);
     const worktreeDigestProfile: RuntimeWorktreeDigestProfile = input.worktreeDigestPrecondition?.profile ?? "repository";
@@ -2493,13 +2587,22 @@ export class ArchctxDaemon {
     }
   }
 
-  async applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
+  async applyUpdate(root: string, rawInput: RuntimeApplyUpdateInput): Promise<JsonEnvelope> {
     this.assertRunning();
+    let input: RuntimeApplyUpdateInput;
+    try {
+      input = decodeRuntimeApplyUpdateInput(rawInput);
+    } catch (error) {
+      if (error instanceof RuntimeUpdateInputError) {
+        return errorEnvelope("apply_update", "AC_SCHEMA_INVALID", error.message);
+      }
+      throw error;
+    }
     return this.withWriter(async () => {
-      if (!input.expectedWorktreeDigest) throw new Error("apply_update requires expectedWorktreeDigest");
       const draft = this.changesets.get(input.id);
       if (!draft) throw new Error(`Unknown ChangeSet: ${input.id}`);
-      const plannedProfile = this.changeSetWorktreeDigestProfiles.get(input.id) ?? "repository";
+      const plannedProfile = this.changeSetWorktreeDigestProfiles.get(input.id);
+      if (!plannedProfile) throw new Error("ChangeSet worktree digest profile missing before apply");
       const requestedProfile = input.worktreeDigestProfile ?? "repository";
       if (requestedProfile !== plannedProfile) throw new Error("ChangeSet worktree digest profile changed before apply");
       const current = runtimeWorktreeDigest(root, plannedProfile);
@@ -5272,11 +5375,11 @@ export class ArchctxRuntimeRpcServer {
       case "planPracticeWaiver":
         return this.daemon.planPracticeWaiver(params[0] as string, params[1] as RuntimePracticeWaiverInput);
       case "planUpdate":
-        return this.daemon.planUpdate(params[0] as string, params[1] as any);
+        return this.daemon.planUpdate(params[0] as string, params[1] as RuntimePlanUpdateInput);
       case "completeTask":
         return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
       case "applyUpdate":
-        return this.daemon.applyUpdate(params[0] as string, params[1] as any);
+        return this.daemon.applyUpdate(params[0] as string, params[1] as RuntimeApplyUpdateInput);
       case "reconcileProjectionApply":
         return this.daemon.reconcileProjectionApply(params[0] as string, params[1] as string);
       case "ledgerState":
@@ -5527,8 +5630,14 @@ function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedger
 }
 
 function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {
-  if (profile === "repository") return computeWorktreeDigest(root);
-  return architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root));
+  switch (profile) {
+    case "repository":
+      return computeWorktreeDigest(root);
+    case "architecture-documentation-projection":
+      return architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root));
+    default:
+      throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
+  }
 }
 
 function isArchContextGeneratedProjectionPath(path: string): boolean {

@@ -26,6 +26,7 @@ import {
 } from "../src/github-issue-executor";
 import {
   architectureDocumentationSourceDigest,
+  architectureDocumentationProjectionWorktreeDigest,
   loadAgentContextProjectionFiles,
   loadArchitectureDocumentationInputs,
   loadCapabilitySourceScaleSignals,
@@ -4581,6 +4582,106 @@ describe("local runtime foundation", () => {
       expect(existsSync(connection.lockPath)).toBe(false);
     } finally {
       if (!stopped) await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  });
+
+  test("runtime RPC rejects untrusted worktree digest profiles before plan or apply state", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await createStartedTestDaemon({ localStore: store });
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "runtime-profile-test-token",
+      clock: () => "2026-08-27T00:00:00.000Z"
+    });
+    try {
+      const connection = await rpc.start();
+      const client = new RuntimeRpcClient(connection);
+      expect((await client.init(root, "RPC Profile Validation App")).ok).toBe(true);
+      const repositoryDigest = computeWorktreeDigest(root);
+      const projectionDigest = architectureDocumentationProjectionWorktreeDigest(
+        root,
+        loadNativeModelFromArchContext(root)
+      );
+      const invalidPlanProfiles = [
+        { label: "unknown", profile: "not-a-real-profile", expectedDigest: projectionDigest },
+        { label: "null", profile: null, expectedDigest: projectionDigest },
+        { label: "malformed", profile: 7, expectedDigest: projectionDigest },
+        { label: "repository", profile: "repository", expectedDigest: repositoryDigest }
+      ];
+
+      for (const { label, profile, expectedDigest } of invalidPlanProfiles) {
+        const id = `changeset.invalid-profile-${label}`;
+        const plan = await (client as any).planUpdate(root, {
+          id,
+          operations: [],
+          worktreeDigestPrecondition: { profile, expectedDigest }
+        });
+        expect(plan).toMatchObject({
+          schemaVersion: "archcontext.envelope/v1",
+          ok: false,
+          requestId: "plan_update",
+          error: { code: "AC_SCHEMA_INVALID" }
+        });
+
+        const sameProfileApply = await (client as any).applyUpdate(root, {
+          id,
+          approved: true,
+          expectedWorktreeDigest: expectedDigest,
+          worktreeDigestProfile: profile
+        });
+        if (profile === "repository") {
+          expect((sameProfileApply as any).ok).toBe(false);
+          expect(String((sameProfileApply as any).error)).toContain(`Unknown ChangeSet: ${id}`);
+        } else {
+          expect(sameProfileApply).toMatchObject({
+            schemaVersion: "archcontext.envelope/v1",
+            ok: false,
+            requestId: "apply_update",
+            error: { code: "AC_SCHEMA_INVALID" }
+          });
+        }
+
+        const missingDraft = await client.applyUpdate(root, {
+          id,
+          approved: true,
+          expectedWorktreeDigest: repositoryDigest
+        });
+        expect(missingDraft.ok).toBe(false);
+        expect(String((missingDraft as any).error)).toContain(`Unknown ChangeSet: ${id}`);
+      }
+
+      const validPlan = await client.planUpdate(root, {
+        id: "changeset.invalid-apply-profile",
+        operations: []
+      });
+      expect(validPlan.ok).toBe(true);
+      const expectedWorktreeDigest = (validPlan.data as any).draft.base.worktreeDigest;
+      for (const profile of ["not-a-real-profile", null, 7]) {
+        const apply = await (client as any).applyUpdate(root, {
+          id: "changeset.invalid-apply-profile",
+          approved: true,
+          expectedWorktreeDigest,
+          worktreeDigestProfile: profile,
+          projectionApplyReceipt: {
+            schemaVersion: "archcontext.projection-apply-receipt/v1",
+            identity: { lookupKey: "projection_apply_lookup.invalid-profile" }
+          }
+        });
+        expect(apply).toMatchObject({
+          schemaVersion: "archcontext.envelope/v1",
+          ok: false,
+          requestId: "apply_update",
+          error: { code: "AC_SCHEMA_INVALID" }
+        });
+      }
+
+      expect(computeWorktreeDigest(root)).toBe(repositoryDigest);
+      expect(store.changeSetJournals.size).toBe(0);
+    } finally {
+      await rpc.stop().catch(() => undefined);
       removeTempRepo(root);
     }
   });
