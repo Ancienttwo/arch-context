@@ -77,19 +77,29 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 
 ```yaml
 allowed_paths:
+  - actions/review-action/action.yml
+  - deploy/release-checklists/
+  - docs/examples/
+  - docs/runbooks/
+  - package.json
   - plans/
   - tasks/todos.md
   - tasks/contracts/20260826-1359-projection-proof-apply-reconcile.contract.md
   - tasks/reviews/20260826-1359-projection-proof-apply-reconcile.review.md
   - tasks/notes/20260826-1359-projection-proof-apply-reconcile.notes.md
   - packages/contracts/
+  - packages/cloud/package.json
+  - packages/core/package.json
+  - packages/core/practice-catalog/assets/catalog.yaml
   - packages/core/projection-engine/
   - packages/core/projection-engine/test/fixtures/
   - scripts/
   - docs/verification/
   - packages/local-runtime/codegraph-adapter/
   - packages/local-runtime/local-store-sqlite/
+  - packages/local-runtime/package.json
   - packages/local-runtime/runtime-daemon/
+  - packages/surfaces/package.json
   - packages/surfaces/cli/
   - schemas/runtime/
 ```
