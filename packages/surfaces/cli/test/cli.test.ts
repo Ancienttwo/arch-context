@@ -421,7 +421,7 @@ describe("archctx CLI", () => {
       const config = await runTestCli("config", [], root);
       expect((config.data as any).generic.transport).toBe("stdio");
 
-      writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=24 <26" } }), "utf8");
+      writeFileSync(join(root, "package.json"), JSON.stringify({ engines: { node: ">=22.22 <26" } }), "utf8");
       const install = await runTestCli("install", ["--host", "codex"], root);
       expect((install.data as any).marker).toContain("archcontext_prepare_task");
       mkdirSync(join(root, ".git"), { recursive: true });

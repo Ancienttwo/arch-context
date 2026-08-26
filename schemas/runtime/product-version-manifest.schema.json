@@ -22,7 +22,7 @@
       "additionalProperties": false,
       "required": ["node"],
       "properties": {
-        "node": { "const": ">=24 <26" }
+        "node": { "const": ">=22.22 <26" }
       }
     },
     "surfaces": {

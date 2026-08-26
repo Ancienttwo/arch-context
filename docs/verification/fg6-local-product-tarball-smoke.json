@@ -2,14 +2,14 @@
   "schemaVersion": "archcontext.local-product-tarball-smoke/v1",
   "package": {
     "name": "archctx",
-    "version": "0.4.0",
-    "tarball": "archctx-0.4.0.tgz",
-    "stageDir": "$TMPDIR/archctx-local-product-stage-80RXLP"
+    "version": "0.4.7",
+    "tarball": "archctx-0.4.7.tgz",
+    "stageDir": "$TMPDIR/archctx-local-product-stage-e3Ql92"
   },
   "install": {
     "installer": "npm install <local-tarball>",
-    "installDir": "$TMPDIR/archctx-local-product-install-MbiUlu",
-    "bin": "$TMPDIR/archctx-local-product-install-MbiUlu/node_modules/.bin/archctx"
+    "installDir": "$TMPDIR/archctx-local-product-install-hzlCEx",
+    "bin": "$TMPDIR/archctx-local-product-install-hzlCEx/node_modules/.bin/archctx"
   },
   "runtime": {
     "cli": true,
@@ -31,7 +31,7 @@
     },
     "codeGraph": {
       "dependency": "1.5.0",
-      "bin": "$TMPDIR/archctx-local-product-install-MbiUlu/node_modules/.bin/codegraph",
+      "bin": "$TMPDIR/archctx-local-product-install-hzlCEx/node_modules/.bin/codegraph",
       "source": "dependency-provided-local-bin",
       "digest": "sha256:c6fb68221c2ac43672e0093f19b087915943be5d1153c3653f7a7d1fb67029b3"
     },
@@ -41,19 +41,19 @@
       "practiceCount": 41,
       "sourceCount": 19,
       "profileCount": 8,
-      "catalogDigest": "sha256:61835a0efb9c5a19cb4fd16482026918785d01b94b6e60f2c2a06b64a4c713be"
+      "catalogDigest": "sha256:557e42cbb594f7f2244b78847ab8d442f02977d5a08742a5c9576c051b1405b4"
     }
   },
   "product": {
     "distribution": "one-package",
-    "version": "0.4.0",
+    "version": "0.4.7",
     "rpcSchemaVersion": "archcontext.runtime-rpc/v1"
   },
   "lifecycle": {
     "install": "passed",
     "upgrade": "reinstall-retained-state",
     "uninstall": "package-removed-state-retained",
-    "retainedStore": "$TMPDIR/archctx-local-product-state-vDbXYN/repositories/repo.433fe4ee824fe62b/worktrees/ws.ec84e2e7d94da9ce/runtime.sqlite",
-    "stateRoot": "$TMPDIR/archctx-local-product-state-vDbXYN"
+    "retainedStore": "$TMPDIR/archctx-local-product-state-kDgtFU/repositories/repo.1a138fdf74c575bf/worktrees/ws.faae65dfe06dceee/runtime.sqlite",
+    "stateRoot": "$TMPDIR/archctx-local-product-state-kDgtFU"
   }
 }

@@ -15,7 +15,7 @@ const SUPPORTED_OS_SETS = [
   REQUIRED_OS,
   ["ubuntu-latest", "macos-latest", "windows-latest"] as const
 ] as const;
-const REQUIRED_NODE = ["24.x", "25.x"] as const;
+const REQUIRED_NODE = ["22.22.x", "24.x", "25.x"] as const;
 const REQUIRED_ARTIFACTS = REQUIRED_OS.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`));
 const SUPPORTED_ARTIFACT_SETS = SUPPORTED_OS_SETS.map((osSet) => osSet.flatMap((os) => REQUIRED_NODE.map((nodeVersion) => `platform-ipc-permission-${os}-node-${nodeVersion}`)));
 const SECRET_PATTERNS = [
@@ -101,7 +101,7 @@ export async function runFg6PlatformWorkflowMatrix(config: ReturnType<typeof bui
         selfHosted: selfHostedInspection
       },
       assertions: {
-        localRuntimeMatrixSixTargets: workflowMatrix.targetCount === 6 && hostedCi.artifactNames.length === 6,
+        localRuntimeMatrixNineTargets: workflowMatrix.targetCount === 9 && hostedCi.artifactNames.length === 9,
         installedBinIpcReadbackUploaded: workflowMatrix.uploadArtifact === true && platformIpcContract.usesInstalledBin === true,
         hostedCiArtifactsVerified: hostedCi.runConclusion === "PASS" && hostedCi.downloadedArtifactsVerified === true,
         hostedCiMatchesCurrentHead: hostedCi.headSha === currentHeadSha,
@@ -149,7 +149,7 @@ export function inspectFg6PlatformWorkflowMatrix(recording: unknown): { ok: bool
     if (readRecord(inspection).ok !== true) failures.push(`${name} source inspection must pass`);
   }
   for (const key of [
-    "localRuntimeMatrixSixTargets",
+    "localRuntimeMatrixNineTargets",
     "installedBinIpcReadbackUploaded",
     "hostedCiArtifactsVerified",
     "hostedCiMatchesCurrentHead",
@@ -253,7 +253,7 @@ function inspectWorkflowMatrix(workflowMatrix: Record<string, unknown>, failures
     for (const value of REQUIRED_OS) if (!os.includes(value)) failures.push(`workflow matrix missing OS ${value}`);
   }
   for (const value of REQUIRED_NODE) if (!nodeVersions.includes(value)) failures.push(`workflow matrix missing Node ${value}`);
-  if (Number(workflowMatrix.targetCount ?? 0) !== 6) failures.push("workflow matrix targetCount must be 6");
+  if (Number(workflowMatrix.targetCount ?? 0) !== 9) failures.push("workflow matrix targetCount must be 9");
   for (const key of ["failFastFalse", "verifyCommand", "platformReadbackCommand", "uploadArtifact", "artifactNamePattern", "governanceVerifySeparateJob"]) {
     if (workflowMatrix[key] !== true) failures.push(`workflowMatrix.${key} must be true`);
   }
@@ -281,7 +281,7 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
   if (!String(hostedCi.runUrl ?? "").startsWith("https://github.com/")) failures.push("hostedCi.runUrl must be GitHub");
   if (hostedCi.runConclusion !== "PASS") failures.push("hostedCi.runConclusion must be PASS");
   if (hostedCi.downloadedArtifactsVerified !== true) failures.push("hostedCi downloaded artifacts must be verified");
-  if (Number(hostedCi.artifactCount ?? 0) !== 6) failures.push("hostedCi artifactCount must be 6");
+  if (Number(hostedCi.artifactCount ?? 0) !== 9) failures.push("hostedCi artifactCount must be 9");
   const artifactNames = Array.isArray(hostedCi.artifactNames) ? hostedCi.artifactNames.map(String) : [];
   const hasSupportedArtifactSet = SUPPORTED_ARTIFACT_SETS.some((artifactSet) => artifactSet.every((name) => artifactNames.includes(name)));
   if (!hasSupportedArtifactSet) {

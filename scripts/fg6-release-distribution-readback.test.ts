@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 import {
   buildReleaseDistributionReadback,
   inspectReleaseDistributionReadback
@@ -37,7 +38,7 @@ describe("fg6 release distribution readback", () => {
           name: "archctx",
           status: "published",
           version: "0.0.0",
-          engines: { node: ">=24 <26" },
+          engines: { node: ARCHCONTEXT_NODE_RANGE },
           packageManager: null,
           bin: { archctx: "./bin/archctx.mjs" }
         }
@@ -95,7 +96,7 @@ describe("fg6 release distribution readback", () => {
           status: "published",
           version: "0.1.4",
           license: "Apache-2.0",
-          engines: { node: ">=24 <26" },
+          engines: { node: ARCHCONTEXT_NODE_RANGE },
           packageManager: null,
           bin: { archctx: "bin/archctx.mjs" }
         }
@@ -148,7 +149,7 @@ describe("fg6 release distribution readback", () => {
           name: "archctx",
           status: "published",
           version: "0.0.0",
-          engines: { node: ">=24 <26" },
+          engines: { node: ARCHCONTEXT_NODE_RANGE },
           packageManager: null,
           bin: { archctx: "./bin/archctx.mjs" }
         }
@@ -224,7 +225,7 @@ describe("fg6 release distribution readback", () => {
           status: "published",
           version: "0.1.1",
           license: "Apache-2.0",
-          engines: { node: ">=24 <26", bun: ">=1.3.10" },
+          engines: { node: ARCHCONTEXT_NODE_RANGE, bun: ">=1.3.10" },
           packageManager: "bun@1.3.10",
           bin: { archctx: "./bin/archctx.mjs" }
         }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 import { LOCAL_SQLITE_MIGRATIONS } from "@archcontext/local-runtime/local-store-sqlite";
 import { inspectArchitectureLedgerAl10ReleasePackagingReadback } from "./architecture-ledger-al10-release-packaging-readback";
 
@@ -104,7 +105,7 @@ function completePacket(): any {
         bin: {
           archctx: "./bin/archctx.mjs"
         },
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         dependencies: {
           "@colbymchenry/codegraph": "1.4.0",
           "@node-rs/jieba": "^2.0.1"

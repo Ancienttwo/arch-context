@@ -2,6 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 
 const DEFAULT_OUTPUT = "docs/verification/fg6-release-distribution-readback.json";
 const DEFAULT_REPORT = "docs/verification/fg6-release-distribution.md";
@@ -118,7 +119,7 @@ export function buildReleaseDistributionReadback(input: {
     workspaceReleaseManifestPublishable: publishableManifests.some((entry) => entry.binNames.includes("archctx")),
     npmReleasePublished: releaseCandidates.length >= 1,
     publishedRuntimeNodeOnly: releaseCandidates.length >= 1
-      && readRecord(releaseCandidate?.engines).node === ">=24 <26"
+      && readRecord(releaseCandidate?.engines).node === ARCHCONTEXT_NODE_RANGE
       && !("bun" in readRecord(releaseCandidate?.engines))
       && !releaseCandidate?.packageManager
       && isArchctxReleaseBinPath(readRecord(releaseCandidate?.bin).archctx),

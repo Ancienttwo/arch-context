@@ -23,7 +23,7 @@ describe("governance verify workflow", () => {
     expect(WORKFLOW).toContain("governance-verify:");
     expect(WORKFLOW).toContain("name: Governance Verify");
     expect(WORKFLOW).toContain("run: bun run verify:governance");
-    expect(WORKFLOW).toContain("node-version: 24.x");
+    expect(WORKFLOW).toContain("node-version: 22.22.x");
   });
 
   test("keeps governance verify local and evidence-inspection only after full verify", () => {

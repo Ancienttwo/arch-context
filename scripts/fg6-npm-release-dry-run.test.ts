@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 import {
   buildNpmReleaseDryRunReadback,
   inspectNpmReleaseDryRun
@@ -14,7 +15,7 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.5",
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         dependencies: { "@colbymchenry/codegraph": "1.5.0" }
       },
       packageJson: {
@@ -23,7 +24,7 @@ describe("fg6 npm release dry-run", () => {
         private: false,
         homepage: "https://archcontext.repoharness.com",
         license: "Apache-2.0",
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         bin: { archctx: "./bin/archctx.mjs" },
         dependencies: {
           "@colbymchenry/codegraph": "1.5.0",
@@ -84,7 +85,7 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.5",
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         dependencies: { "@colbymchenry/codegraph": "1.5.0" }
       },
       packageJson: {
@@ -93,7 +94,7 @@ describe("fg6 npm release dry-run", () => {
         private: false,
         homepage: "https://github.com/Ancienttwo/arch-context#readme",
         packageManager: "bun@1.3.10",
-        engines: { node: ">=24 <26", bun: ">=1.3.10" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE, bun: ">=1.3.10" },
         repository: { type: "git", url: "git+https://github.com/Ancienttwo/arch-context.git" },
         bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
         dependencies: {
@@ -139,7 +140,7 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.5",
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         dependencies: { "@colbymchenry/codegraph": "1.5.0" }
       },
       packageJson: {
@@ -148,7 +149,7 @@ describe("fg6 npm release dry-run", () => {
         private: false,
         homepage: "https://archcontext.repoharness.com",
         license: "Apache-2.0",
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         bin: { archctx: "./bin/archctx.mjs" },
         dependencies: {
           "@colbymchenry/codegraph": "1.5.0",
@@ -202,7 +203,7 @@ describe("fg6 npm release dry-run", () => {
       private: false,
       homepage: "https://archcontext.repoharness.com",
       license: "Apache-2.0",
-      engines: { node: ">=24 <26" },
+      engines: { node: ARCHCONTEXT_NODE_RANGE },
       bin: { archctx: "./bin/archctx.mjs" },
       dependencies: {
         "@colbymchenry/codegraph": "1.5.0",
@@ -216,7 +217,7 @@ describe("fg6 npm release dry-run", () => {
       rootManifest: {
         name: "archcontext",
         version: "0.1.5",
-        engines: { node: ">=24 <26" },
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
         dependencies: { "@colbymchenry/codegraph": "1.5.0" }
       },
       packageJson: basePackage,

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "archcontext.capabilities/v1",
-  "package": { "name": "archctx", "version": "0.4.6" },
+  "package": { "name": "archctx", "version": "0.4.7" },
   "protocols": {
     "projectionRequest": "archcontext.projection-request/v1",
     "projectionResult": "archcontext.projection-result/v2",
