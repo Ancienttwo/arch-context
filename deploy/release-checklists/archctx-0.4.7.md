@@ -8,8 +8,8 @@ Scope: lower the shared runtime floor to Node 22.22 while preserving the existin
 - [x] Exact Node 22.22 package-local CLI, daemon, MCP, CodeGraph, and `node:sqlite` smoke passes from the generated `archctx@0.4.7` tarball.
 - [x] `bun run typecheck`, 209 focused contract/release tests, npm dry-run, and AL10 release packaging pass.
 - [x] Full verify regression comparison records `1224 pass / 10 fail`; all 10 failures are the independently known SQLite-lock baseline and there are no new failures.
-- [ ] repo-harness independently accepts the candidate tarball and exact Node 22.22 provider integration.
-- [ ] Publish `archctx-contracts@0.4.7` and `archctx@0.4.7`, then record registry and clean-room readback.
+- [x] repo-harness independently accepts the candidate tarball and exact Node 22.22 provider integration.
+- [x] Publish `archctx-contracts@0.4.7` and `archctx@0.4.7`, then record registry and clean-room readback.
 
 ## Required hosted evidence
 
