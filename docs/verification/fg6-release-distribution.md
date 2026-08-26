@@ -3,7 +3,7 @@
 - Task: FG6 release distribution precondition
 - Environment: release-distribution
 - Home URL: https://archcontext.repoharness.com
-- Generated At: 2026-08-26T09:19:20.885Z
+- Generated At: 2026-08-26T17:30:03.184Z
 - Status: verified
 
 ## Decision
@@ -14,14 +14,14 @@ PASS: public install command is `npm install -g archctx`.
 
 - `archcontext`: missing (E404)
 - `@archcontext/cli`: missing (E404)
-- `archctx`: published 0.4.5
+- `archctx`: published 0.4.6
 
 ## Local Manifests
 
-- Root package: `archcontext` 0.4.5, private=true
+- Root package: `archcontext` 0.4.6, private=true
 - Publishable manifests exposing `archctx`: 0
 - Placeholder package: missing
-- Dry-run package: `archctx` 0.4.5, ok=true
+- Dry-run package: `archctx` 0.4.6, ok=true
 
 ## Rollout Implication
 

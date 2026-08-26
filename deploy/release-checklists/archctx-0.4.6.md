@@ -10,9 +10,9 @@ Scope: bind projection apply to the projection authority digest, require the exa
 - [x] Exact-subject external AcceptanceReceipt verifies against subject `sha256:3e88d2e04d564a9de4b90fae189bc01db6406d0ba03c81bba20c282451612ce1`.
 - [x] `archctx` and `archctx-contracts` package versions are exactly `0.4.6`; npm dry-run, AL10 packaging, migration matrix, and both registry preflights pass.
 - [x] The staged `archctx-0.4.6.tgz` has SHA-256 `2cfe47fa2204746452ff9ab24695eeae79823d22ba6b027103d92baf64b121e1`.
-- [ ] Publish `archctx-contracts@0.4.6` and read back version, integrity, shasum, and clean-room import.
-- [ ] Publish `archctx@0.4.6` and read back version, integrity, shasum, Node engine, exact CodeGraph dependency, and capabilities handshake.
-- [ ] Record the official npm artifact digest and close `bun run readback:release` with `failures: []`.
+- [x] Publish `archctx-contracts@0.4.6` and read back version, integrity, shasum, and clean-room import.
+- [x] Publish `archctx@0.4.6` and read back version, integrity, shasum, Node engine, exact CodeGraph dependency, and capabilities handshake.
+- [x] Record the official npm artifact digest and close `bun run readback:release` with `failures: []`.
 
 ## Known non-blocking evidence
 

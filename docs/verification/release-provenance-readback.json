@@ -1,9 +1,9 @@
 {
   "schemaVersion": "archcontext.release-provenance-readback/v1",
   "taskId": "release-source-truth-cleanup",
-  "status": "failed",
-  "ok": false,
-  "generatedAt": "2026-08-26T17:24:49.237Z",
+  "status": "verified",
+  "ok": true,
+  "generatedAt": "2026-08-26T17:36:07.210Z",
   "packageRelationship": {
     "rootWorkspacePackage": {
       "path": "package.json",
@@ -88,10 +88,10 @@
         "version": "0.4.6"
       }
     ],
-    "npmLatest": "0.4.5",
+    "npmLatest": "0.4.6",
     "distTags": {
       "beta": "0.1.4-beta.0",
-      "latest": "0.4.5"
+      "latest": "0.4.6"
     }
   },
   "helpSurface": {
@@ -213,8 +213,8 @@
         "ready": true,
         "packageName": "archctx",
         "installCommand": "npm install -g archctx",
-        "postPublishInstallCommand": "npm install -g archctx@0.4.5",
-        "version": "0.4.5",
+        "postPublishInstallCommand": "npm install -g archctx@0.4.6",
+        "version": "0.4.6",
         "blockers": []
       }
     },
@@ -222,14 +222,14 @@
       "status": "verified",
       "package": {
         "name": "archctx",
-        "version": "0.4.5",
+        "version": "0.4.6",
         "distTag": "latest",
         "installCommand": "npm install -g archctx@latest",
-        "explicitInstallCommand": "npm install -g archctx@0.4.5",
-        "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.5.tgz",
-        "shasum": "3cc40fdf48111f845d1603baa929e54bbaf76582",
-        "sha256": "152143cb6a623f882dd88be7a73d22327dece0b2772d4f828e5748fcbafcd467",
-        "integrity": "sha512-U7yB5WHCmLHreUvrX5ymY1Piuo9VVpOsB9Ctx1h5b9H7Xfzzy7si+j8Gaos0HaC2SKXA9UVmW7pOf7E9+XQukw==",
+        "explicitInstallCommand": "npm install -g archctx@0.4.6",
+        "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.6.tgz",
+        "shasum": "474944fab1e15cc1dac698bb7b9bb71b70494240",
+        "sha256": "2cfe47fa2204746452ff9ab24695eeae79823d22ba6b027103d92baf64b121e1",
+        "integrity": "sha512-qyF1/Fo8OMuCuaoCgruWR1PJ2kiUAgPgZEwN0em90t2HQ/ozg5GjXFWHoQJXS5FSnK9knLuTMRTsMf6wi683yg==",
         "bin": {
           "archctx": "bin/archctx.mjs"
         },
@@ -245,25 +245,25 @@
       },
       "smoke": {
         "nodeVersion": "v24.18.0",
-        "installPackage": "archctx@0.4.5",
+        "installPackage": "archctx@0.4.6",
         "helpOk": true,
         "helpRequestId": "help",
         "helpCommandCount": 41,
         "doctorOk": true,
-        "doctorProductVersion": "0.4.5",
-        "doctorCliVersion": "0.4.5",
-        "doctorDaemonVersion": "0.4.5",
-        "doctorMcpVersion": "0.4.5",
+        "doctorProductVersion": "0.4.6",
+        "doctorCliVersion": "0.4.6",
+        "doctorDaemonVersion": "0.4.6",
+        "doctorMcpVersion": "0.4.6",
         "updateCheckOk": true,
-        "updateCheckCurrentVersion": "0.4.5",
-        "updateCheckLatestVersion": "0.4.5",
+        "updateCheckCurrentVersion": "0.4.6",
+        "updateCheckLatestVersion": "0.4.6",
         "updateCheckStatus": "current"
       }
     },
     "registry": {
       "package": {
         "name": "archctx",
-        "version": "0.4.5",
+        "version": "0.4.6",
         "bin": {
           "archctx": "bin/archctx.mjs"
         },
@@ -272,13 +272,13 @@
         },
         "homepage": "https://archcontext.repoharness.com",
         "license": "Apache-2.0",
-        "dist.tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.5.tgz",
-        "dist.shasum": "3cc40fdf48111f845d1603baa929e54bbaf76582",
-        "dist.integrity": "sha512-U7yB5WHCmLHreUvrX5ymY1Piuo9VVpOsB9Ctx1h5b9H7Xfzzy7si+j8Gaos0HaC2SKXA9UVmW7pOf7E9+XQukw=="
+        "dist.tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.6.tgz",
+        "dist.shasum": "474944fab1e15cc1dac698bb7b9bb71b70494240",
+        "dist.integrity": "sha512-qyF1/Fo8OMuCuaoCgruWR1PJ2kiUAgPgZEwN0em90t2HQ/ozg5GjXFWHoQJXS5FSnK9knLuTMRTsMf6wi683yg=="
       },
       "tags": {
         "beta": "0.1.4-beta.0",
-        "latest": "0.4.5"
+        "latest": "0.4.6"
       },
       "versions": [
         "0.0.0",
@@ -299,7 +299,8 @@
         "0.4.2",
         "0.4.3",
         "0.4.4",
-        "0.4.5"
+        "0.4.5",
+        "0.4.6"
       ]
     }
   },
@@ -313,9 +314,9 @@
     "sourceRuntimePackagesRemainPrivate": true,
     "productManifestMatchesRoot": true,
     "generatedPackageMatchesRoot": true,
-    "distributionReadbackVerified": false,
-    "officialNpmReadbackVerified": false,
-    "registryLatestMatchesRoot": false,
+    "distributionReadbackVerified": true,
+    "officialNpmReadbackVerified": true,
+    "registryLatestMatchesRoot": true,
     "registryMetadataMatchesOfficialRelease": true,
     "sourceHelpSucceeded": true,
     "publishedHelpSucceeded": true,
@@ -328,9 +329,5 @@
     "readbackScriptInstalled": true,
     "authorityPromotionNotImplied": true
   },
-  "failures": [
-    "distributionReadbackVerified",
-    "officialNpmReadbackVerified",
-    "registryLatestMatchesRoot"
-  ]
+  "failures": []
 }
