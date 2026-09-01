@@ -360,7 +360,7 @@ function inspectHostedCi(hostedCi: Record<string, unknown>, currentHeadSha: stri
     const expectedMode = expectedPlatform === "win32" ? "win32-acl" : "600";
     if (artifact.platform !== expectedPlatform) failures.push(`hostedCi artifact ${name} platform mismatch`);
     if (!String(artifact.node ?? "").startsWith(`v${expectedNode}.`)) failures.push(`hostedCi artifact ${name} node mismatch`);
-    if (artifact.bun !== "1.3.10") failures.push(`hostedCi artifact ${name} bun mismatch`);
+    if (artifact.bun !== "1.4.0") failures.push(`hostedCi artifact ${name} bun mismatch`);
     if (artifact.connectionMode !== expectedMode || artifact.lockMode !== expectedMode) failures.push(`hostedCi artifact ${name} mode mismatch`);
   }
   if (new Set(artifacts.map((artifact) => String(artifact.name ?? ""))).size !== artifacts.length) failures.push("hostedCi artifact digest record names must be unique");

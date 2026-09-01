@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 import {
+  buildPublicContractsReleaseDryRunReadback,
   buildNpmReleaseDryRunReadback,
   inspectNpmReleaseDryRun
 } from "./fg6-npm-release-dry-run";
@@ -68,6 +69,7 @@ describe("fg6 npm release dry-run", () => {
           { path: "package.json" }
         ]
       },
+      contracts: createPublicContractsDryRunFixture(),
       generatedAt: "2026-06-22T00:00:00.000Z"
     });
 
@@ -78,6 +80,44 @@ describe("fg6 npm release dry-run", () => {
     expect(recording.rollout.postPublishInstallCommand).toBe("npm install -g archctx@0.1.5");
     expect(inspectNpmReleaseDryRun(recording)).toEqual({ ok: true, failures: [] });
     rmSync(stageDir, { recursive: true, force: true });
+  });
+
+  test("rejects the scoped workspace manifest when it tries to stand in for the public contracts artifact", () => {
+    const sourceManifest = {
+      name: "@archcontext/contracts",
+      version: "0.1.5",
+      private: false,
+      type: "module",
+      license: "Apache-2.0",
+      files: ["src", "fixtures"],
+      publishConfig: { access: "public" },
+      exports: { ".": "./src/index.ts" }
+    };
+    const contracts = buildPublicContractsReleaseDryRunReadback({
+      sourceManifest,
+      packageJson: sourceManifest,
+      pack: [{
+        name: "@archcontext/contracts",
+        version: "0.1.5",
+        filename: "archcontext-contracts-0.1.5.tgz"
+      }],
+      publishDryRun: [{
+        name: "@archcontext/contracts",
+        version: "0.1.5",
+        filename: "archcontext-contracts-0.1.5.tgz",
+        files: [
+          { path: "src/projection.ts" },
+          { path: "fixtures/valid/projection-apply-recovery.json" }
+        ]
+      }]
+    });
+
+    expect(contracts.ok).toBe(false);
+    expect(contracts.assertions.publicNameUnscoped).toBe(false);
+    expect(contracts.assertions.publicFilesMatchPublishedContract).toBe(false);
+    expect(contracts.assertions.publicExportsMatchPublishedContract).toBe(false);
+    expect(contracts.assertions.packageContentsIncludeRecoverySchema).toBe(false);
+    expect(contracts.failures).toContain("public contracts package must be unscoped archctx-contracts");
   });
 
   test("rejects repository source publication and wrong package name", () => {
@@ -93,8 +133,8 @@ describe("fg6 npm release dry-run", () => {
         version: "0.1.5",
         private: false,
         homepage: "https://github.com/Ancienttwo/arch-context#readme",
-        packageManager: "bun@1.3.10",
-        engines: { node: ARCHCONTEXT_NODE_RANGE, bun: ">=1.3.10" },
+        packageManager: "bun@1.4.0",
+        engines: { node: ARCHCONTEXT_NODE_RANGE, bun: ">=1.4.0" },
         repository: { type: "git", url: "git+https://github.com/Ancienttwo/arch-context.git" },
         bin: { archctx: "./bin/archctx.mjs", codegraph: "./bin/codegraph.mjs" },
         dependencies: {
@@ -291,4 +331,54 @@ function createReleaseStageFixture() {
   writeFileSync(join(stageDir, "assets", "sources", "s6.yaml"), "[]\n", "utf8");
   writeFileSync(join(stageDir, "NOTICE.md"), "ArchContext maintainers\n", "utf8");
   return stageDir;
+}
+
+function createPublicContractsDryRunFixture() {
+  return buildPublicContractsReleaseDryRunReadback({
+    sourceManifest: {
+      name: "@archcontext/contracts",
+      version: "0.1.5",
+      private: false,
+      type: "module",
+      license: "Apache-2.0",
+      files: ["src", "fixtures"],
+      publishConfig: { access: "public" },
+      exports: { ".": "./src/index.ts" }
+    },
+    packageJson: {
+      name: "archctx-contracts",
+      version: "0.1.5",
+      private: false,
+      type: "module",
+      license: "Apache-2.0",
+      files: ["src", "fixtures", "schemas"],
+      publishConfig: { access: "public" },
+      exports: {
+        ".": "./src/index.ts",
+        "./schemas/*": "./schemas/*"
+      }
+    },
+    pack: [{
+      name: "archctx-contracts",
+      version: "0.1.5",
+      filename: "archctx-contracts-0.1.5.tgz"
+    }],
+    publishDryRun: [{
+      id: "archctx-contracts@0.1.5",
+      name: "archctx-contracts",
+      version: "0.1.5",
+      filename: "archctx-contracts-0.1.5.tgz",
+      integrity: "sha512-contracts-test",
+      shasum: "contracts-test",
+      size: 100,
+      unpackedSize: 200,
+      entryCount: 4,
+      files: [
+        { path: "src/projection.ts" },
+        { path: "fixtures/valid/projection-apply-recovery.json" },
+        { path: "schemas/runtime/projection-apply-recovery.schema.json" },
+        { path: "package.json" }
+      ]
+    }]
+  });
 }

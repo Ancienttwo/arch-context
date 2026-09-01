@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://archcontext.dev/schemas/runtime/projection-apply-recovery.schema.json",
+  "title": "ProjectionApplyRecoveryV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": { "enum": ["archcontext.projection-apply-recovery-intent/v1", "archcontext.projection-apply-recovery-proof/v1", "archcontext.projection-apply-recovery-result/v1"] },
+    "requestId": {},
+    "profile": {},
+    "acceptedChange": {},
+    "receipt": {},
+    "requestDigest": {},
+    "proofDigest": {},
+    "deliveryStatus": {},
+    "expectedResultingDigests": {},
+    "current": {},
+    "proof": {},
+    "refreshSignals": {}
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-intent/v1" } }, "required": ["schemaVersion"] },
+      "then": { "$ref": "#/$defs/intent" }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-proof/v1" } }, "required": ["schemaVersion"] },
+      "then": { "$ref": "#/$defs/proof" }
+    },
+    {
+      "if": { "properties": { "schemaVersion": { "const": "archcontext.projection-apply-recovery-result/v1" } }, "required": ["schemaVersion"] },
+      "then": { "$ref": "#/$defs/result" }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "generatedFrom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codeGraphPackage", "codeGraphVersion", "codeGraphBinaryDigest", "codeGraphStatus"],
+      "properties": {
+        "codeGraphPackage": { "const": "@colbymchenry/codegraph" },
+        "codeGraphVersion": { "const": "1.5.0" },
+        "codeGraphBinaryDigest": { "$ref": "#/$defs/digest" },
+        "codeGraphStatus": { "enum": ["ready", "unavailable"] }
+      }
+    },
+    "readyGeneratedFrom": {
+      "allOf": [
+        { "$ref": "#/$defs/generatedFrom" },
+        { "properties": { "codeGraphStatus": { "const": "ready" } }, "required": ["codeGraphStatus"] }
+      ]
+    },
+    "digestSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelDigest", "sourceTreeDigest", "flowProofDigest", "projectionDigest"],
+      "properties": {
+        "modelDigest": { "$ref": "#/$defs/digest" },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "flowProofDigest": { "$ref": "#/$defs/digest" },
+        "projectionDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "reasonCode": {
+      "enum": ["constraint-changed", "entrypoint-changed", "interface-changed", "lifecycle-changed", "node-added", "node-moved", "node-removed", "node-renamed", "ownership-changed", "relation-changed", "responsibility-changed", "risk-boundary-changed", "verified-flow-proof-changed"]
+    },
+    "acceptedChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changeSetId", "eventId", "reasonCodes", "affectedNodeIds"],
+      "properties": {
+        "changeSetId": { "type": "string", "minLength": 1 },
+        "eventId": { "type": "string", "minLength": 1 },
+        "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
+        "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "intentReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lookupKey", "applyId"],
+      "properties": {
+        "lookupKey": { "$ref": "#/$defs/digest" },
+        "applyId": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "requestId", "profile", "receipt"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-apply-recovery-intent/v1" },
+        "requestId": { "type": "string", "pattern": "^[a-zA-Z0-9_.:-]+$", "minLength": 1 },
+        "profile": { "const": "repo-harness/v1" },
+        "receipt": { "$ref": "#/$defs/intentReceipt" }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositoryId", "workspaceId", "headSha", "baseHeadSha", "worktreeDigest", "sourceTreeDigest", "modelDigest", "codeGraphDigest", "indexedWorktreeDigest", "projectionInputDigest", "rendererVersion", "layoutVersion", "generatedFrom"],
+      "properties": {
+        "repositoryId": { "type": "string", "minLength": 1 },
+        "workspaceId": { "type": "string", "minLength": 1 },
+        "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "baseHeadSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "worktreeDigest": { "$ref": "#/$defs/digest" },
+        "sourceTreeDigest": { "$ref": "#/$defs/digest" },
+        "modelDigest": { "$ref": "#/$defs/digest" },
+        "codeGraphDigest": { "$ref": "#/$defs/digest" },
+        "indexedWorktreeDigest": { "type": ["string", "null"], "pattern": "^sha256:[a-f0-9]{64}$" },
+        "projectionInputDigest": { "$ref": "#/$defs/digest" },
+        "rendererVersion": { "const": "archcontext.docs-renderer/v4" },
+        "layoutVersion": { "const": "archcontext.docs-layout/v1" },
+        "generatedFrom": { "$ref": "#/$defs/readyGeneratedFrom" }
+      }
+    },
+    "proofReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lookupKey", "applyId", "receiptDigest"],
+      "properties": {
+        "lookupKey": { "$ref": "#/$defs/digest" },
+        "applyId": { "$ref": "#/$defs/digest" },
+        "receiptDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "requestId", "requestDigest", "proofDigest", "deliveryStatus", "receipt", "acceptedChange", "expectedResultingDigests", "current"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-apply-recovery-proof/v1" },
+        "requestId": { "type": "string", "pattern": "^[a-zA-Z0-9_.:-]+$", "minLength": 1 },
+        "requestDigest": { "$ref": "#/$defs/digest" },
+        "proofDigest": { "$ref": "#/$defs/digest" },
+        "deliveryStatus": { "enum": ["delivered", "already-delivered"] },
+        "receipt": { "$ref": "#/$defs/proofReceipt" },
+        "acceptedChange": { "$ref": "#/$defs/acceptedChange" },
+        "expectedResultingDigests": { "$ref": "#/$defs/digestSet" },
+        "current": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["snapshot", "resultingDigests", "ownedOutputDigest", "fixedPointDigest"],
+          "properties": {
+            "snapshot": { "$ref": "#/$defs/snapshot" },
+            "resultingDigests": { "$ref": "#/$defs/digestSet" },
+            "ownedOutputDigest": { "$ref": "#/$defs/digest" },
+            "fixedPointDigest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      }
+    },
+    "refreshSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "signalId", "idempotencyKey", "mode", "repository", "worktree", "cause", "reasonCodes", "affectedNodeIds", "refreshTargets", "baseDigests", "resultingDigests", "projectionReceiptDigest"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.architecture-refresh-signal/v1" },
+        "signalId": { "$ref": "#/$defs/digest" },
+        "idempotencyKey": { "$ref": "#/$defs/digest" },
+        "mode": { "enum": ["human-action-required", "refresh-required"] },
+        "repository": { "type": "object", "additionalProperties": false, "required": ["repositoryId"], "properties": { "repositoryId": { "type": "string", "minLength": 1 } } },
+        "worktree": { "type": "object", "additionalProperties": false, "required": ["workspaceId", "headSha", "worktreeDigest"], "properties": { "workspaceId": { "type": "string", "minLength": 1 }, "headSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" }, "worktreeDigest": { "$ref": "#/$defs/digest" } } },
+        "cause": { "enum": ["accepted-semantic-delta", "unresolved-major-candidate", "verified-flow-proof-delta"] },
+        "acceptedChange": { "$ref": "#/$defs/acceptedChange" },
+        "reasonCodes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/reasonCode" } },
+        "affectedNodeIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "refreshTargets": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["architecture-contract-context", "architecture-readiness", "architecture-request-index", "capability-context", "capability-index"] } },
+        "baseDigests": { "$ref": "#/$defs/digestSet" },
+        "resultingDigests": { "$ref": "#/$defs/digestSet" },
+        "projectionReceiptDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "proof", "refreshSignals"],
+      "properties": {
+        "schemaVersion": { "const": "archcontext.projection-apply-recovery-result/v1" },
+        "proof": { "$ref": "#/$defs/proof" },
+        "refreshSignals": { "type": "array", "items": { "$ref": "#/$defs/refreshSignal" } }
+      }
+    }
+  }
+}

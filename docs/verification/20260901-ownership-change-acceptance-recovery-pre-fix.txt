@@ -1,0 +1,24 @@
+bun test v1.4.0 (34cbb9a40)
+
+tests/ownership-change-acceptance-recovery.test.ts:
+warning: projection post-apply worktree digest diverged from the accepted snapshot; refresh delivery deferred to reconcile
+180 |         ...request.expected,
+181 |         worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+182 |       }
+183 |     })], root, racingClient);
+184 |
+185 |     expect(retry.ok, "semantic recovery proof must reject drift before receipt consumption").toBe(false);
+                                                                                                   ^
+error: semantic recovery proof must reject drift before receipt consumption
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-ownership-change-acceptance-recovery/tests/ownership-change-acceptance-recovery.test.ts:185:94)
+(fail) committed reconcile receipt is not consumed when a later semantic model state differs from its accepted result [1649.80ms]
+
+ 0 pass
+ 1 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [1.78s]
+PRE_FIX_EXIT=1

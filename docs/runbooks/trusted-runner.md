@@ -48,8 +48,9 @@ jobs:
           trust-level: organization
           fail-on: blocking
           fork-pr-mode: unsupported
-          runtime-version: "0.4.7"
-          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.4.7.tgz
+          # 0.4.8 is unreleased; runner preflight must fail until this exact artifact is published.
+          runtime-version: "0.4.8"
+          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.4.8.tgz
           runtime-artifact-digest: sha256:<release-digest>
           expected-repository: <owner/name from Challenge>
           expected-head-sha: <head SHA from Challenge>

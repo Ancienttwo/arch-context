@@ -16,6 +16,14 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
+import {
+  CONTRACTS_PUBLIC_EXPORTS,
+  CONTRACTS_PUBLIC_FILES,
+  CONTRACTS_PUBLIC_PACKAGE_NAME,
+  cleanupPublicContractsReleaseStage,
+  preparePublicContractsReleaseStage,
+  publicContractsReleaseManifestIssues
+} from "./contracts-release-stage.mjs";
 
 const DEFAULT_OUTPUT = "docs/verification/fg6-npm-release-dry-run.json";
 const DEFAULT_ARTIFACT_DIR = "_ops/npm/fg6-release-dry-run";
@@ -71,14 +79,24 @@ export function buildNpmReleaseDryRunConfig(env: NodeJS.ProcessEnv = process.env
 export async function runNpmReleaseDryRun(config: ReturnType<typeof buildNpmReleaseDryRunConfig>) {
   const rootManifest = JSON.parse(readFileSync(resolve(config.root, "package.json"), "utf8")) as Record<string, unknown>;
   const coreManifest = JSON.parse(readFileSync(resolve(config.root, "packages/core/package.json"), "utf8")) as Record<string, unknown>;
+  const contractsManifest = JSON.parse(readFileSync(resolve(config.root, "packages/contracts/package.json"), "utf8")) as Record<string, unknown>;
   const artifactDir = resolve(config.root, config.artifactDir);
   mkdirSync(artifactDir, { recursive: true });
   const stageDir = mkdtempSync(join(tmpdir(), "archctx-npm-release-stage-"));
+  const contractsStage = preparePublicContractsReleaseStage({ root: config.root, sourceManifest: contractsManifest });
   try {
     const packageJson = buildReleaseManifest(rootManifest, coreManifest);
     buildReleaseStage(config.root, stageDir, packageJson);
     const pack = runJsonCommand("npm", ["pack", "--json", "--pack-destination", artifactDir], stageDir);
     const publishDryRun = runJsonCommand("npm", ["pack", "--dry-run", "--json"], stageDir);
+    const contractsPack = runJsonCommand("npm", ["pack", "--json", "--pack-destination", artifactDir], contractsStage.workspace);
+    const contractsPublishDryRun = runJsonCommand("npm", ["pack", "--dry-run", "--json"], contractsStage.workspace);
+    const contracts = buildPublicContractsReleaseDryRunReadback({
+      sourceManifest: contractsManifest,
+      packageJson: contractsStage.packageJson,
+      pack: contractsPack,
+      publishDryRun: contractsPublishDryRun
+    });
     const recording = buildNpmReleaseDryRunReadback({
       rootManifest,
       packageJson,
@@ -86,13 +104,82 @@ export async function runNpmReleaseDryRun(config: ReturnType<typeof buildNpmRele
       artifactDir,
       pack,
       publishDryRun,
+      contracts,
       generatedAt: config.generatedAt()
     });
     await writeJson(config.root, config.outputPath, recording);
     return recording;
   } finally {
     if (!config.keepTemp) rmSync(stageDir, { recursive: true, force: true });
+    if (!config.keepTemp) cleanupPublicContractsReleaseStage(contractsStage.workspace);
   }
+}
+
+export function buildPublicContractsReleaseDryRunReadback(input: {
+  sourceManifest: Record<string, unknown>;
+  packageJson: Record<string, unknown>;
+  pack: unknown;
+  publishDryRun: unknown;
+}) {
+  const packEntry = firstNpmPackEntry(input.pack);
+  const publish = firstNpmPackEntry(input.publishDryRun);
+  const packageFiles = readArray(publish.files).map(readRecord).map((file) => String(file.path ?? ""));
+  const manifestIssues = publicContractsReleaseManifestIssues(input.sourceManifest, input.packageJson);
+  const assertions = {
+    sourceWorkspaceIsInternal: input.sourceManifest.name === "@archcontext/contracts",
+    publicNameUnscoped: input.packageJson.name === CONTRACTS_PUBLIC_PACKAGE_NAME,
+    publicVersionMatchesSource: input.packageJson.version === input.sourceManifest.version,
+    publicFilesMatchPublishedContract: JSON.stringify(input.packageJson.files ?? []) === JSON.stringify(CONTRACTS_PUBLIC_FILES),
+    publicExportsMatchPublishedContract: JSON.stringify(input.packageJson.exports ?? {}) === JSON.stringify(CONTRACTS_PUBLIC_EXPORTS),
+    publicAccessDeclared: readRecord(input.packageJson.publishConfig).access === "public",
+    packNameMatchesPublicContract: packEntry.name === CONTRACTS_PUBLIC_PACKAGE_NAME,
+    packVersionMatchesPublicContract: packEntry.version === input.packageJson.version,
+    packFilenameMatchesPublicContract: packEntry.filename === `${CONTRACTS_PUBLIC_PACKAGE_NAME}-${input.packageJson.version}.tgz`,
+    publishDryRunMatchesPublicContract: publish.name === CONTRACTS_PUBLIC_PACKAGE_NAME
+      && publish.version === input.packageJson.version,
+    packageContentsIncludeSource: packageFiles.some((path) => path.startsWith("src/")),
+    packageContentsIncludeFixtures: packageFiles.some((path) => path.startsWith("fixtures/valid/")),
+    packageContentsIncludeSchemas: packageFiles.some((path) => path.startsWith("schemas/")),
+    packageContentsIncludeRecoverySchema: packageFiles.includes("schemas/runtime/projection-apply-recovery.schema.json"),
+    packageContentsExcludeTests: !packageFiles.some((path) => path.startsWith("test/"))
+  };
+  const failures = [
+    ...manifestIssues,
+    ...Object.entries(assertions)
+      .filter(([, ok]) => ok !== true)
+      .map(([key]) => key)
+  ];
+  return {
+    schemaVersion: "archcontext.fg6-public-contracts-dry-run/v1",
+    status: failures.length === 0 ? "verified" : "failed",
+    ok: failures.length === 0,
+    source: {
+      name: String(input.sourceManifest.name ?? ""),
+      version: String(input.sourceManifest.version ?? ""),
+      files: readArray(input.sourceManifest.files).map(String),
+      exports: readRecord(input.sourceManifest.exports)
+    },
+    package: {
+      name: String(input.packageJson.name ?? ""),
+      version: String(input.packageJson.version ?? ""),
+      private: input.packageJson.private === true,
+      files: readArray(input.packageJson.files).map(String),
+      exports: readRecord(input.packageJson.exports),
+      publishConfig: readRecord(input.packageJson.publishConfig)
+    },
+    artifact: {
+      tarball: String(packEntry.filename ?? publish.filename ?? ""),
+      publishDryRunId: String(publish.id ?? `${input.packageJson.name}@${input.packageJson.version}`),
+      integrity: String(publish.integrity ?? ""),
+      shasum: String(publish.shasum ?? ""),
+      size: Number(publish.size ?? 0),
+      unpackedSize: Number(publish.unpackedSize ?? 0),
+      entryCount: Number(publish.entryCount ?? 0),
+      files: packageFiles
+    },
+    assertions,
+    failures
+  };
 }
 
 export function buildNpmReleaseDryRunReadback(input: {
@@ -102,6 +189,7 @@ export function buildNpmReleaseDryRunReadback(input: {
   artifactDir: string;
   pack: unknown;
   publishDryRun: unknown;
+  contracts?: ReturnType<typeof buildPublicContractsReleaseDryRunReadback>;
   generatedAt: string;
 }) {
   const packEntries = Array.isArray(input.pack) ? input.pack.map(readRecord) : [readRecord(input.pack)];
@@ -115,6 +203,7 @@ export function buildNpmReleaseDryRunReadback(input: {
   const runtimePackageNames = releaseRuntimePackageNames(input.packageJson);
   const tarballName = String(packEntry.filename ?? publish.filename ?? "");
   const releaseAssets = inspectReleaseAssetStage(input.stageDir, packageFiles);
+  const contracts = input.contracts ?? missingPublicContractsReleaseDryRunReadback();
   const assertions = {
     packageNameResolved: input.packageJson.name === RELEASE_PACKAGE_NAME,
     packageVersionMatchesRoot: input.packageJson.version === input.rootManifest.version,
@@ -155,6 +244,7 @@ export function buildNpmReleaseDryRunReadback(input: {
   const failures = Object.entries(assertions)
     .filter(([, ok]) => ok !== true)
     .map(([key]) => key);
+  if (!contracts.ok) failures.push(...contracts.failures.map((failure) => `contracts.${failure}`));
   return {
     schemaVersion: "archcontext.fg6-npm-release-dry-run/v1",
     taskId: "FG6-release-distribution-dry-run",
@@ -188,6 +278,7 @@ export function buildNpmReleaseDryRunReadback(input: {
       entryCount: Number(publish.entryCount ?? 0),
       files: packageFiles
     },
+    contracts,
     releaseAssets,
     rollout: {
       postPublishInstallCommand: `npm install -g ${RELEASE_PACKAGE_NAME}@${input.rootManifest.version}`,
@@ -256,6 +347,38 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   if (!String(rollout.postPublishInstallCommand ?? "").startsWith(`npm install -g ${RELEASE_PACKAGE_NAME}@`)) {
     failures.push("post-publish install command must use archctx");
   }
+  const contracts = readRecord(record.contracts);
+  const contractsPackage = readRecord(contracts.package);
+  const contractsArtifact = readRecord(contracts.artifact);
+  const contractsAssertions = readRecord(contracts.assertions);
+  if (contracts.schemaVersion !== "archcontext.fg6-public-contracts-dry-run/v1") {
+    failures.push("public contracts dry-run schemaVersion mismatch");
+  }
+  if (contracts.status !== "verified" || contracts.ok !== true) {
+    failures.push("public contracts dry-run must be verified ok");
+  }
+  if (contractsPackage.name !== CONTRACTS_PUBLIC_PACKAGE_NAME) {
+    failures.push("public contracts package must be archctx-contracts");
+  }
+  if (contractsPackage.version !== pkg.version) {
+    failures.push("public contracts package version must match archctx release");
+  }
+  if (JSON.stringify(contractsPackage.files ?? []) !== JSON.stringify(CONTRACTS_PUBLIC_FILES)) {
+    failures.push("public contracts package files must include schemas");
+  }
+  if (JSON.stringify(contractsPackage.exports ?? {}) !== JSON.stringify(CONTRACTS_PUBLIC_EXPORTS)) {
+    failures.push("public contracts package exports must expose schemas");
+  }
+  if (contractsArtifact.tarball !== `${CONTRACTS_PUBLIC_PACKAGE_NAME}-${contractsPackage.version}.tgz`) {
+    failures.push("public contracts tarball name is invalid");
+  }
+  if (!readArray(contractsArtifact.files).map(String).includes("schemas/runtime/projection-apply-recovery.schema.json")) {
+    failures.push("public contracts tarball must include projection recovery schema");
+  }
+  for (const [key, value] of Object.entries(contractsAssertions)) {
+    if (value !== true) failures.push(`public contracts assertion ${key} must be true`);
+  }
+  if (Object.keys(contractsAssertions).length === 0) failures.push("public contracts assertions are required");
   for (const [key, value] of Object.entries(assertions)) {
     if (value !== true) failures.push(`assertion ${key} must be true`);
   }
@@ -434,6 +557,24 @@ function readFlag(args: string[], flag: string) {
   const index = args.indexOf(flag);
   if (index === -1) return undefined;
   return args[index + 1];
+}
+
+function firstNpmPackEntry(value: unknown): Record<string, unknown> {
+  const entries = Array.isArray(value) ? value.map(readRecord) : [readRecord(value)];
+  return entries[0] ?? {};
+}
+
+function missingPublicContractsReleaseDryRunReadback() {
+  return {
+    schemaVersion: "archcontext.fg6-public-contracts-dry-run/v1",
+    status: "failed",
+    ok: false,
+    source: {},
+    package: {},
+    artifact: {},
+    assertions: {},
+    failures: ["public contracts release dry-run is required"]
+  };
 }
 
 function readRecord(value: unknown): Record<string, unknown> {

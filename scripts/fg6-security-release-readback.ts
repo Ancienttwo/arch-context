@@ -252,7 +252,7 @@ async function generateSbom(root: string, generatedAt: string) {
     version: 1,
     metadata: {
       timestamp: generatedAt,
-      tools: [{ vendor: "Bun", name: "bun pm ls", version: "1.3.10" }],
+      tools: [{ vendor: "Bun", name: "bun pm ls", version: "1.4.0" }],
       component: {
         type: "application",
         name: String(packageJson.name ?? "arch-context"),

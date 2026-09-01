@@ -61,10 +61,17 @@ import {
   ARCHCTX_FEATURES,
   architectureRefreshSignalInvariantIssues,
   archctxCapabilities,
+  projectionApplyRecoveryProofInvariantIssues,
+  projectionApplyRecoveryProofDigest,
+  projectionApplyRecoveryResultInvariantIssues,
+  projectionApplyRecoveryIntentInvariantIssues,
   projectionRequestInvariantIssues,
   projectionResultReceiptDigest,
   projectionResultInvariantIssues,
   type ArchitectureRefreshSignalV1,
+  type ProjectionApplyRecoveryProofV1,
+  type ProjectionApplyRecoveryIntentV1,
+  type ProjectionApplyRecoveryResultV1,
   type ProjectionRequestV1,
   type ProjectionResultV2
 } from "../src/projection";
@@ -130,6 +137,7 @@ const schemaByFixture: Record<string, string> = {
   "projection-target": "schemas/runtime/projection-target.schema.json",
   "projection-request": "schemas/runtime/projection-request.schema.json",
   "projection-result": "schemas/runtime/projection-result.schema.json",
+  "projection-apply-recovery": "schemas/runtime/projection-apply-recovery.schema.json",
   "architecture-refresh-signal": "schemas/runtime/architecture-refresh-signal.schema.json",
   "archctx-capabilities": "schemas/runtime/archctx-capabilities.schema.json",
   "evidence-item": "schemas/runtime/evidence-item.schema.json",
@@ -312,6 +320,116 @@ test("projection result keeps its embedded refresh signal schema synchronized", 
   expect(resultSchema.$defs.refreshSignal).toEqual(standaloneShape);
 });
 
+test("projection apply recovery schemas require one exact intent, proof, or result shape", () => {
+  const schema = readJson("schemas/runtime/projection-apply-recovery.schema.json") as any;
+  const intent = readJson("packages/contracts/fixtures/valid/projection-apply-recovery.json") as unknown as ProjectionApplyRecoveryIntentV1;
+  expect(projectionApplyRecoveryIntentInvariantIssues(intent)).toEqual([]);
+  expect(validateJsonSchema(schema, intent as unknown as Json).valid).toBe(true);
+  expect(validateJsonSchema(schema, { ...intent, unexpectedField: true } as unknown as Json).valid).toBe(false);
+  expect(validateJsonSchema(schema, {
+    ...intent,
+    receipt: { ...intent.receipt, applyId: "not-a-digest" }
+  } as unknown as Json).valid).toBe(false);
+
+  const proof = recoveryProofFixture(intent);
+  expect(projectionApplyRecoveryProofInvariantIssues(proof)).toEqual([]);
+  expect(validateJsonSchema(schema, proof as unknown as Json).valid).toBe(true);
+  expect(validateJsonSchema(schema, {
+    ...proof,
+    current: { ...proof.current, snapshot: { ...proof.current.snapshot, generatedFrom: { ...proof.current.snapshot.generatedFrom, codeGraphStatus: "unavailable" } } }
+  } as unknown as Json).valid).toBe(false);
+  const digest = `sha256:${"a".repeat(64)}` as const;
+  const delivered: ProjectionApplyRecoveryResultV1 = {
+    schemaVersion: "archcontext.projection-apply-recovery-result/v1",
+    proof,
+    refreshSignals: []
+  };
+  expect(projectionApplyRecoveryResultInvariantIssues(delivered)).toEqual([]);
+  expect(validateJsonSchema(schema, delivered as unknown as Json).valid).toBe(true);
+  expect(projectionApplyRecoveryResultInvariantIssues({
+    ...delivered,
+    proof: { ...proof, deliveryStatus: "already-delivered" },
+    refreshSignals: [{
+      schemaVersion: "archcontext.architecture-refresh-signal/v1",
+      signalId: digest,
+      idempotencyKey: digest,
+      mode: "refresh-required",
+      repository: { repositoryId: "repo.example" },
+      worktree: { workspaceId: "workspace.example", headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", worktreeDigest: digest },
+      cause: "accepted-semantic-delta",
+      acceptedChange: proof.acceptedChange,
+      reasonCodes: proof.acceptedChange.reasonCodes,
+      affectedNodeIds: proof.acceptedChange.affectedNodeIds,
+      refreshTargets: ["architecture-readiness"],
+      baseDigests: proof.expectedResultingDigests,
+      resultingDigests: proof.expectedResultingDigests,
+      projectionReceiptDigest: proof.receipt.receiptDigest
+    }]
+  } as any)).toContain("already-delivered recovery result cannot repeat refreshSignals");
+});
+
+function recoveryProofFixture(intent: ProjectionApplyRecoveryIntentV1): ProjectionApplyRecoveryProofV1 {
+  const digest = `sha256:${"a".repeat(64)}` as const;
+  const snapshot = {
+    repositoryId: "repo.example",
+    workspaceId: "workspace.example",
+    headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    baseHeadSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    worktreeDigest: digest,
+    sourceTreeDigest: digest,
+    modelDigest: digest,
+    codeGraphDigest: digest,
+    indexedWorktreeDigest: digest,
+    projectionInputDigest: digest,
+    rendererVersion: "archcontext.docs-renderer/v4" as const,
+    layoutVersion: "archcontext.docs-layout/v1" as const,
+    generatedFrom: {
+      codeGraphPackage: "@colbymchenry/codegraph" as const,
+      codeGraphVersion: "1.5.0" as const,
+      codeGraphBinaryDigest: digest,
+      codeGraphStatus: "ready" as const
+    }
+  };
+  const payload = {
+    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
+    requestId: intent.requestId,
+    requestDigest: digest,
+    receipt: {
+      lookupKey: intent.receipt.lookupKey,
+      applyId: intent.receipt.applyId,
+      receiptDigest: `sha256:${"d".repeat(64)}` as const
+    },
+    acceptedChange: {
+      changeSetId: "changeset.example",
+      eventId: "architecture_event.example",
+      reasonCodes: ["responsibility-changed"] as ("responsibility-changed")[],
+      affectedNodeIds: ["capability.example"]
+    },
+    expectedResultingDigests: {
+      modelDigest: `sha256:${"e".repeat(64)}` as const,
+      sourceTreeDigest: `sha256:${"f".repeat(64)}` as const,
+      flowProofDigest: `sha256:${"1".repeat(64)}` as const,
+      projectionDigest: `sha256:${"2".repeat(64)}` as const
+    },
+    current: {
+      snapshot,
+      resultingDigests: {
+        modelDigest: `sha256:${"e".repeat(64)}` as const,
+        sourceTreeDigest: `sha256:${"f".repeat(64)}` as const,
+        flowProofDigest: `sha256:${"1".repeat(64)}` as const,
+        projectionDigest: `sha256:${"2".repeat(64)}` as const
+      },
+      ownedOutputDigest: `sha256:${"4".repeat(64)}` as const,
+      fixedPointDigest: digest
+    }
+  };
+  return {
+    ...payload,
+    proofDigest: projectionApplyRecoveryProofDigest(payload),
+    deliveryStatus: "delivered"
+  };
+}
+
 test("refresh-required signals bind the exact accepted ChangeSet event and taxonomy", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/architecture-refresh-signal.json") as unknown as ArchitectureRefreshSignalV1;
   expect(architectureRefreshSignalInvariantIssues(fixture)).toEqual([]);
@@ -326,7 +444,7 @@ test("refresh-required signals bind the exact accepted ChangeSet event and taxon
 
 test("capabilities fixture is the exact static handshake advertised by contracts", () => {
   const fixture = readJson("packages/contracts/fixtures/valid/archctx-capabilities.json") as unknown as ReturnType<typeof archctxCapabilities>;
-  expect(archctxCapabilities("0.4.7")).toEqual(fixture);
+  expect(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION)).toEqual(fixture);
   expect([...ARCHCTX_FEATURES]).toEqual([...ARCHCTX_FEATURES].sort());
   const schema = readJson("schemas/runtime/archctx-capabilities.schema.json");
   expect(validateJsonSchema(schema as any, archctxCapabilities("1.2.3-rc.1+build.5") as any).valid).toBe(true);
@@ -782,17 +900,22 @@ describe("contract utilities", () => {
     const schema = readJson("schemas/runtime/product-version-manifest.schema.json");
     const rootManifest = readJson("package.json") as any;
     const contractManifest = readJson("packages/contracts/package.json") as any;
+    const coreManifest = readJson("packages/core/package.json") as any;
     const runtimeManifest = readJson("packages/local-runtime/package.json") as any;
     const surfacesManifest = readJson("packages/surfaces/package.json") as any;
+    const cloudManifest = readJson("packages/cloud/package.json") as any;
+    const staticCatalogManifest = readJson("packages/core/practice-catalog/assets/catalog.yaml") as any;
 
     expect(validateJsonSchema(schema as any, manifest as unknown as Json).valid).toBe(true);
-    expect(manifest.product.version).toBe(rootManifest.version);
     expect(manifest.product.version).toBe(ARCHCONTEXT_PRODUCT_VERSION);
+    expect([rootManifest, contractManifest, coreManifest, runtimeManifest, surfacesManifest, cloudManifest]
+      .map((candidate) => candidate.version)).toEqual(Array(6).fill(ARCHCONTEXT_PRODUCT_VERSION));
     expect(manifest.packageManager).toBe(ARCHCONTEXT_PACKAGE_MANAGER);
     expect(manifest.schemas.schemaSetVersion).toBe(ARCHCONTEXT_SCHEMA_SET_VERSION);
     expect(manifest.schemas.contractsPackageVersion).toBe(contractManifest.version);
     expect(manifest.surfaces.daemon.version).toBe(runtimeManifest.version);
     expect(manifest.surfaces.cli.version).toBe(surfacesManifest.version);
+    expect(staticCatalogManifest.productVersion).toBe(ARCHCONTEXT_PRODUCT_VERSION);
     expect(manifest.surfaces.mcp.version).toBe(surfacesManifest.version);
     expect(manifest.runtime.localRpc.schemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);
     expect(manifest.surfaces.daemon.rpcSchemaVersion).toBe(LOCAL_RUNTIME_RPC_SCHEMA_VERSION);

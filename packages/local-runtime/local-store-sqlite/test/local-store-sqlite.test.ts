@@ -16,7 +16,7 @@ import {
   replayArchitectureLedgerEvents
 } from "@archcontext/core/architecture-ledger";
 import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
-import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionResultV2 } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, createProjectionApplyIdentity, digestJson, projectionApplyRecoveryProofDigest, projectionResultReceiptDigest, type AgentJobV1, type ArchitectureEventV1, type ArchitectureRefreshSignalV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceLifecycleOperationV1, type ExplorerProjectionV2, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionResultV2 } from "@archcontext/contracts";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "@archcontext/local-runtime/model-store-yaml";
 import {
   DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY,
@@ -74,7 +74,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0016_manifest_addressed_projection_cache",
       "0017_explorer_cache_lifecycle",
       "0018_immutable_evidence_checkpoints",
-      "0019_projection_apply_receipts"
+      "0019_projection_apply_receipts",
+      "0020_projection_apply_recovery_proof"
     ]);
     expect(sql.some((statement) => statement.includes("cross_repo_edges"))).toBe(true);
     expect(sql.some((statement) => statement.includes("changeset_journal"))).toBe(true);
@@ -1509,7 +1510,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       "0016_manifest_addressed_projection_cache",
       "0017_explorer_cache_lifecycle",
       "0018_immutable_evidence_checkpoints",
-      "0019_projection_apply_receipts"
+      "0019_projection_apply_receipts",
+      "0020_projection_apply_recovery_proof"
     ]);
 
     const snapshot = {
@@ -1866,7 +1868,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
-  test("projection apply receipts become visible only after commit and deliver refresh signals exactly once", async () => {
+  test("projection apply receipts become visible only after commit and legacy receipts remain non-consumingly inspectable", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-projection-apply-receipt-"));
     const dbPath = join(root, "runtime.sqlite");
     const receipt = projectionApplyReceiptFixture();
@@ -1875,25 +1877,51 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       await first.migrate();
       const journalId = await first.beginChangeSet(root, changeSetDraft(receipt.identity.semanticCommit.changeSetId, "docs/architecture/index.md"));
       await first.recordProjectionApplyReceipt(journalId, receipt);
-      expect(await first.consumeProjectionApplyReceipt(receipt.identity.lookupKey)).toBeUndefined();
+      expect(await first.inspectProjectionApplyReceipt(receipt.identity.lookupKey)).toBeUndefined();
       await first.commitChangeSet(journalId);
       first.close();
 
       const restarted = new SqliteLocalStore(dbPath);
       await restarted.migrate();
-      expect(await restarted.consumeProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({
+      expect(await restarted.inspectProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({
         receipt,
-        refreshSignalsDelivered: true
+        deliveryStatus: "pending"
       });
       restarted.close();
 
       const duplicate = new SqliteLocalStore(dbPath);
       await duplicate.migrate();
-      expect(await duplicate.consumeProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({
+      expect(await duplicate.inspectProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({
         receipt,
-        refreshSignalsDelivered: false
+        deliveryStatus: "pending"
       });
       duplicate.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("projection apply recovery proof is atomically consumed once and remains inspectable", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-projection-apply-recovery-"));
+    const dbPath = join(root, "runtime.sqlite");
+    const receipt = projectionApplyRecoveryReceiptFixture();
+    const proof = projectionApplyRecoveryProofFixture(receipt);
+    try {
+      const store = new SqliteLocalStore(dbPath);
+      await store.migrate();
+      const journalId = await store.beginChangeSet(root, changeSetDraft(receipt.identity.semanticCommit.changeSetId, "docs/architecture/index.md"));
+      await store.recordProjectionApplyReceipt(journalId, receipt);
+      await store.commitChangeSet(journalId);
+
+      expect(await store.inspectProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({ receipt, deliveryStatus: "pending" });
+      expect(await store.consumeProjectionApplyReceiptRecovery(proof)).toEqual({ receipt, proof, refreshSignalsDelivered: true });
+      expect(await store.inspectProjectionApplyReceipt(receipt.identity.lookupKey)).toEqual({ receipt, deliveryStatus: "delivered", recoveryProof: proof });
+      expect(await store.consumeProjectionApplyReceiptRecovery(proof)).toEqual({
+        receipt,
+        proof: { ...proof, deliveryStatus: "already-delivered" },
+        refreshSignalsDelivered: false
+      });
+      store.close();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -3909,4 +3937,57 @@ function projectionApplyReceiptFixture(): ProjectionApplyReceiptV1 {
     receiptDigest
   };
   return { schemaVersion: "archcontext.projection-apply-receipt/v1", identity, result };
+}
+
+function projectionApplyRecoveryReceiptFixture(): ProjectionApplyReceiptV1 {
+  const receipt = projectionApplyReceiptFixture();
+  const expectedResultingDigests = receipt.result.refreshSignals[0]!.resultingDigests;
+  return {
+    ...receipt,
+    recovery: {
+      schemaVersion: "archcontext.projection-apply-recovery-binding/v1",
+      targets: ["architecture-docs"],
+      changedPaths: [".archcontext/model/nodes/capability.example.yaml"],
+      originalExpectedSnapshot: {
+        repositoryId: receipt.result.inputSnapshot.repositoryId,
+        workspaceId: receipt.result.inputSnapshot.workspaceId,
+        headSha: receipt.result.inputSnapshot.headSha,
+        worktreeDigest: receipt.result.inputSnapshot.worktreeDigest
+      },
+      expectedResultingDigests,
+      rendererVersion: receipt.result.outputSnapshot.rendererVersion,
+      layoutVersion: receipt.result.outputSnapshot.layoutVersion,
+      generatedFrom: receipt.result.outputSnapshot.generatedFrom,
+      ownedOutputDigest: digestJson({ receipt: receipt.result.receiptDigest, owned: true }) as `sha256:${string}`,
+      receiptDigest: receipt.result.receiptDigest
+    }
+  };
+}
+
+function projectionApplyRecoveryProofFixture(receipt: ProjectionApplyReceiptV1): ProjectionApplyRecoveryProofV1 {
+  const binding = receipt.recovery!;
+  const current = {
+    snapshot: receipt.result.outputSnapshot,
+    resultingDigests: binding.expectedResultingDigests,
+    ownedOutputDigest: binding.ownedOutputDigest,
+    fixedPointDigest: digestJson({ receipt: receipt.result.receiptDigest, fixedPoint: true }) as `sha256:${string}`
+  };
+  const payload = {
+    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
+    requestId: "projection_request.local_store_recovery",
+    requestDigest: digestJson({ receipt: receipt.result.receiptDigest, request: true }) as `sha256:${string}`,
+    receipt: {
+      lookupKey: receipt.identity.lookupKey,
+      applyId: receipt.identity.applyId,
+      receiptDigest: receipt.result.receiptDigest
+    },
+    acceptedChange: receipt.identity.acceptedChange,
+    expectedResultingDigests: binding.expectedResultingDigests,
+    current
+  };
+  return {
+    ...payload,
+    proofDigest: projectionApplyRecoveryProofDigest(payload),
+    deliveryStatus: "delivered"
+  };
 }

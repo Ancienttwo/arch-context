@@ -654,10 +654,13 @@ export function architectureDocumentationProjectionProvenance(
 
 /**
  * HEAD and full-worktree identity describe when a projection was produced; they are not semantic
- * freshness inputs. Preserve that generation snapshot while source/model/CodeGraph/layout inputs
- * are unchanged, otherwise an unrelated commit (or committing the projection itself) would make
- * the manifest permanently chase HEAD. A malformed or internally inconsistent prior provenance is
- * never reused and is surfaced by the ordinary manifest drift check.
+ * freshness inputs. Preserve that generation snapshot while the declared architecture source,
+ * model, CodeGraph runtime, and layout inputs are unchanged, otherwise an unrelated commit (or
+ * committing the projection itself) would make the manifest permanently chase HEAD. CodeGraph's
+ * indexed status digest can legitimately advance when it notices projection-owned docs; that is
+ * not an architecture input and must not make the manifest chase its own output. A malformed or
+ * internally inconsistent prior provenance is never reused and is surfaced by the ordinary
+ * manifest drift check.
  */
 function stickyArchitectureDocumentationProjectionProvenance(
   current: ArchitectureDocumentationProjectionProvenanceV1,
@@ -669,7 +672,7 @@ function stickyArchitectureDocumentationProjectionProvenance(
     const prior = parsed.provenance;
     if (!prior) return current;
     assertArchitectureDocumentationProjectionProvenance(prior, current.rendererVersion);
-    return architectureDocumentationSemanticProvenanceDigest(prior) === architectureDocumentationSemanticProvenanceDigest(current)
+    return architectureDocumentationStickyProvenanceDigest(prior) === architectureDocumentationStickyProvenanceDigest(current)
       ? prior
       : current;
   } catch {
@@ -677,14 +680,15 @@ function stickyArchitectureDocumentationProjectionProvenance(
   }
 }
 
-function architectureDocumentationSemanticProvenanceDigest(
+function architectureDocumentationStickyProvenanceDigest(
   provenance: ArchitectureDocumentationProjectionProvenanceV1
 ): string {
   return digestJson({
+    // `sourceTreeDigest` is the authoritative declared-source boundary. Do not use the full
+    // worktree snapshot here: unrelated files and projection-owned outputs must not invalidate a
+    // renderer fixed point merely because CodeGraph reindexed them.
     sourceTreeDigest: provenance.sourceTreeDigest,
     modelDigest: provenance.modelDigest,
-    codeGraphDigest: provenance.codeGraphDigest,
-    indexedWorktreeDigest: provenance.indexedWorktreeDigest,
     rendererVersion: provenance.rendererVersion,
     layoutVersion: provenance.layoutVersion,
     generatedFrom: provenance.generatedFrom

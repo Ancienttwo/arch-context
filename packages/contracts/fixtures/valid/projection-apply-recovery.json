@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "archcontext.projection-apply-recovery-intent/v1",
+  "requestId": "projection_request.recovery_fixture",
+  "profile": "repo-harness/v1",
+  "receipt": {
+    "lookupKey": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "applyId": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  }
+}

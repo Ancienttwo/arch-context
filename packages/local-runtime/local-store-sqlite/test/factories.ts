@@ -25,7 +25,7 @@ import {
   type ArchitectureLedgerSnapshotInput,
   type ArchitectureLedgerScope
 } from "@archcontext/core/architecture-ledger";
-import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { canonicalProjectionReadPlanV1, digestJson, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, type AgentJobV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type RepositorySnapshot } from "@archcontext/contracts";
 import { DEFAULT_EXPLORER_PROJECTION_CACHE_POLICY, LOCAL_SQLITE_MIGRATIONS, RUNTIME_AGENT_JOB_STATUSES, architectureAffectedSubjects, assertExplorerProjectionCacheIntegrity, rebuildDerivedLandscapeState, type ExplorerProjectionAuthorityResult, type ExplorerProjectionCacheCollectionResultV1, type ExplorerProjectionCacheStatsV1, type ExplorerProjectionMetadataResult, type ExplorerProjectionPinReason, type ExplorerProjectionReadResult, type ExplorerRuntimeMetricSampleV1, type LandscapeRebuildInput, type LandscapeRebuildResult, type PersistedRepositorySession, type RuntimeAgentJobCancelInput, type RuntimeAgentJobClaimInput, type RuntimeAgentJobCompleteInput, type RuntimeAgentJobEnqueueInput, type RuntimeAgentJobEnqueueResult, type RuntimeAgentJobQueueStats, type RuntimeAgentJobRecord, type RuntimeAgentJobRetryInput, type RuntimeAgentJobStaleCancellationInput, type RuntimeAgentJobStatus, type RuntimeLocalStore } from "../src/index";
 
 export class TestLocalStore implements RuntimeLocalStore {
@@ -50,6 +50,7 @@ export class TestLocalStore implements RuntimeLocalStore {
     };
     projectionApplyReceipt?: ProjectionApplyReceiptV1;
     projectionRefreshConsumed?: boolean;
+    projectionRecoveryProof?: ProjectionApplyRecoveryProofV1;
   }>();
   readonly architectureEventAppends: ArchitectureLedgerAppendInput[] = [];
   readonly architectureEvents: ArchitectureEventV1[] = [];
@@ -395,6 +396,7 @@ export class TestLocalStore implements RuntimeLocalStore {
       ) {
         delete entry.projectionApplyReceipt;
         delete entry.projectionRefreshConsumed;
+        delete entry.projectionRecoveryProof;
       }
     }
     if ([...this.changeSetJournals.values()].some((entry) => entry.projectionApplyReceipt?.identity.lookupKey === receipt.identity.lookupKey)) {
@@ -403,13 +405,35 @@ export class TestLocalStore implements RuntimeLocalStore {
     record.projectionApplyReceipt = structuredClone(receipt);
   }
 
-  async consumeProjectionApplyReceipt(lookupKey: string) {
+  async inspectProjectionApplyReceipt(lookupKey: string) {
     const record = [...this.changeSetJournals.values()].find((entry) =>
       entry.status === "committed" && entry.projectionApplyReceipt?.identity.lookupKey === lookupKey);
     if (!record?.projectionApplyReceipt) return undefined;
-    const refreshSignalsDelivered = record.projectionRefreshConsumed !== true;
+    return {
+      receipt: structuredClone(record.projectionApplyReceipt),
+      deliveryStatus: record.projectionRefreshConsumed === true ? "delivered" as const : "pending" as const,
+      ...(record.projectionRecoveryProof ? { recoveryProof: structuredClone(record.projectionRecoveryProof) } : {})
+    };
+  }
+
+  async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1) {
+    const record = [...this.changeSetJournals.values()].find((entry) =>
+      entry.status === "committed" && entry.projectionApplyReceipt?.identity.lookupKey === proof.receipt.lookupKey);
+    if (!record?.projectionApplyReceipt) return undefined;
+    const issues = projectionApplyRecoveryProofReceiptInvariantIssues(proof, record.projectionApplyReceipt);
+    if (issues.length > 0) throw new Error(`projection-apply-recovery-proof-invalid: ${issues.join("; ")}`);
+    if (record.projectionRefreshConsumed === true) {
+      if (!record.projectionRecoveryProof) throw new Error("projection-apply-receipt-delivered-without-recovery-proof");
+      return {
+        receipt: structuredClone(record.projectionApplyReceipt),
+        proof: { ...structuredClone(record.projectionRecoveryProof), deliveryStatus: "already-delivered" as const },
+        refreshSignalsDelivered: false
+      };
+    }
+    const deliveredProof = { ...structuredClone(proof), deliveryStatus: "delivered" as const };
     record.projectionRefreshConsumed = true;
-    return { receipt: structuredClone(record.projectionApplyReceipt), refreshSignalsDelivered };
+    record.projectionRecoveryProof = deliveredProof;
+    return { receipt: structuredClone(record.projectionApplyReceipt), proof: deliveredProof, refreshSignalsDelivered: true };
   }
 
   async commitChangeSet(journalId: string): Promise<void> {

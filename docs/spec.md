@@ -1,7 +1,7 @@
 # Product Spec: ArchContext
 
 > **Status**: Active
-> **Last Updated**: 2026-06-25
+> **Last Updated**: 2026-09-02
 > **Owner**: Planner
 > **Full PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Follow-up PRD**: `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`
@@ -39,6 +39,28 @@ GitHub App is an optional governance bridge. It handles installation, PR metadat
 - **Delivery**: 公开仓库免费；个人 Pro $5/月，覆盖该开发者可访问的全部私有仓库，不按仓库/Seat/Token/调用计费。MVP 以"可闭环的 Agentic Coding 架构 SOP"为完成标准，而非功能数量；里程碑 M0（契约冻结）→ M6（Beta 加固）。
 
 ## Acceptance Scenarios
+
+### Accepted Projection Delivery Recovery
+
+已提交的 accepted projection apply 若在写入后因并发非 owned 变更返回
+`applied-reconcile-required`，其 refresh signal 保持在原始 receipt 中且不被普通
+`projection run apply` 重试消费。唯一恢复入口是 `projection recover --request-json`：客户端只提交
+receipt identity intent；daemon 在 writer 临界区以不消费的方式读取 receipt，再重建当前无
+accepted-change 的 projection fixed point，并严格比对
+原 approval、model/source/flow-proof/projection digest、renderer/layout、CodeGraph ready
+provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一个 store transaction 中复检
+其权威 snapshot 并原子消费原 signal；RPC 不暴露 direct delivery，重复请求只返回
+`already-delivered` proof，不写 projection。
+旧 v0.4.7 receipt 仍可读取，但没有该 immutable binding 时必须拒绝 recovery，绝不猜测或降级。
+
+## Release State
+
+Recovery ships under unreleased `archctx@0.4.8` and `archctx-contracts@0.4.8` public artifact
+identities. The scoped `@archcontext/contracts` workspace remains internal source authority; it
+is never the public contracts artifact. Public npm remains at the previously published `0.4.7`
+release and must not be treated as carrying recovery semantics. Until a separately authorized
+publication records both exact `0.4.8` artifacts and registry readback, installation and
+organization-runner rollout must fail closed on an unavailable or version-mismatched artifact.
 
 - **Given** 一个从单体 Web 演进到含登录/订阅/支付 Webhook 的项目，**When** Agent 实现支付能力，**Then** ArchContext 从 L0 升级到 L1、给出支付数据边界与 Lifecycle Owner，并阻止把付款凭据写入业务数据库。
 - **Given** 任务要统一新旧状态字段且旧字段只有内部消费者，**When** Agent 建议加永久 Mapper，**Then** ArchContext 拒绝无真实契约的兼容层，生成调用方迁移与 Kill List，完成后仓库只剩单一路径。

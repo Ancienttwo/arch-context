@@ -1,6 +1,6 @@
 export const ARCHCONTEXT_PRODUCT_NAME = "archctx";
-export const ARCHCONTEXT_PRODUCT_VERSION = "0.4.7";
-export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.3.10";
+export const ARCHCONTEXT_PRODUCT_VERSION = "0.4.8";
+export const ARCHCONTEXT_PACKAGE_MANAGER = "bun@1.4.0";
 export const ARCHCONTEXT_NODE_RANGE = ">=22.22 <26";
 export const LOCAL_RUNTIME_RPC_SCHEMA_VERSION = "archcontext.runtime-rpc/v1";
 export const ARCHCONTEXT_SCHEMA_SET_VERSION = "2026-07-11.explorer-view-v2";

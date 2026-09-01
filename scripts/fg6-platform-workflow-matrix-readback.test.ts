@@ -83,7 +83,7 @@ function verifiedRecording() {
           sha256: `sha256:${"a".repeat(64)}`,
           platform: name.includes("ubuntu-latest") ? "linux" : name.includes("macos-") ? "darwin" : "win32",
           node: name.includes("22.22.x") ? "v22.22.3" : name.includes("24.x") ? "v24.19.0" : "v25.9.0",
-          bun: "1.3.10",
+          bun: "1.4.0",
           connectionMode: name.includes("windows-latest") ? "win32-acl" : "600",
           lockMode: name.includes("windows-latest") ? "win32-acl" : "600"
         })),

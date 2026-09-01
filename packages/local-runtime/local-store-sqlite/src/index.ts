@@ -47,7 +47,7 @@ import {
   type ArchitectureBookFtsMatchKind
 } from "@archcontext/core/architecture-ledger";
 import type { ChangeSetDraft, ChangeSetJournalFile, ChangeSetJournalPort } from "@archcontext/core/changeset-engine";
-import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, projectionApplyReceiptInvariantIssues, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionApplyReceiptV1, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
+import { architectureEventHash, architectureSnapshotDigest, canonicalProjectionReadPlanV1, digestJson, EXPLORER_VIEW_INPUT_REQUIREMENTS, projectionApplyReceiptInvariantIssues, projectionApplyRecoveryProofReceiptInvariantIssues, validateJsonSchema, type AgentJobV1, type ArchitectureAffectedSubjectV1, type ArchitectureChangeFeedBatchV1, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type ArchitectureSnapshotV2, type AuthorityCursorV1, type EvidenceBindingV1, type EvidenceItemV2, type EvidenceStateAtCursorV1, type ExplorerProjectionCachePolicyV1, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExternalDocumentationCacheEntry, type ExternalDocumentationProvider, type Json, type LocalStorePort, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type ProjectionReadPlanV1, type ProjectionReadSetV1, type RepositorySnapshot } from "@archcontext/contracts";
 import explorerProjectionV2Schema from "../../../../schemas/runtime/explorer-projection-v2.schema.json";
 
 const runtimeRequire = createRequire(import.meta.url);
@@ -872,6 +872,12 @@ export const LOCAL_SQLITE_MIGRATIONS = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_projection_apply_receipts_journal ON projection_apply_receipts(journal_id)"
     ]
+  },
+  {
+    id: "0020_projection_apply_recovery_proof",
+    statements: [
+      "ALTER TABLE projection_apply_receipts ADD COLUMN recovery_proof_json TEXT"
+    ]
   }
 ] as const;
 
@@ -1169,7 +1175,6 @@ export function recoverRuntimeStateTarget(input: {
     ensurePrivateDir(stagingDir);
     assertRuntimeStateRecoveryPrivatePermissions(stagingDir, 0o700);
     migrateSqliteDatabaseSync(stagingPath);
-    compactSqliteDatabase(stagingPath);
     const stagingIntegrity = assertCurrentLocalStore(stagingPath);
 
     receiptPath = join(quarantineDirectory, RUNTIME_STATE_RECOVERY_RECEIPT_FILE);
@@ -1312,7 +1317,6 @@ export function migrateLegacyLocalStoreIfNeeded(root = process.cwd(), env: Recor
     integrityCheck.legacy = vacuumLegacySqliteInto(paths.legacyLocalStorePath, stagingPath);
     makePrivateFile(stagingPath);
     migrateSqliteDatabaseSync(stagingPath);
-    compactSqliteDatabase(stagingPath);
     integrityCheck.staging = assertCurrentLocalStore(stagingPath);
     publishStagedLocalStore(stagingPath, paths.localStorePath);
     integrityCheck.target = assertCurrentLocalStore(paths.localStorePath);
@@ -1337,10 +1341,16 @@ function upgradeExistingLocalStoreTarget(
 ): LegacyLocalStoreMigration {
   const lock = acquireLegacyMigrationLock(paths);
   try {
-    assertUpgradeableLocalStoreTarget(paths.localStorePath);
-    integrityCheck.target = assertSqliteIntegrity(paths.localStorePath);
-    migrateSqliteDatabaseSync(paths.localStorePath);
-    compactSqliteDatabase(paths.localStorePath);
+    const db = openSqliteDatabaseSync(paths.localStorePath);
+    let compacted = false;
+    try {
+      integrityCheck.target = assertUpgradeableLocalStoreTarget(db, paths.localStorePath);
+      migrateOpenedSqliteDatabase(db);
+      compacted = true;
+    } finally {
+      db.close();
+    }
+    if (compacted) removeSqliteSidecars(paths.localStorePath);
     integrityCheck.target = assertCurrentLocalStore(paths.localStorePath);
     delete integrityCheck.error;
     const markerPath = writeLegacyMigrationMarker(paths, integrityCheck, []);
@@ -1521,7 +1531,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordChangeSetLedgerPlan(journalId: string, input: { event: ArchitectureEventV1 }): Promise<void>;
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
-  consumeProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptConsumption | undefined>;
+  inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
+  consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   appendArchitectureEventsAndCommitChangeSet(
     journalId: string,
@@ -1565,8 +1576,15 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   close(): void;
 }
 
-export interface ProjectionApplyReceiptConsumption {
+export interface ProjectionApplyReceiptInspection {
   receipt: ProjectionApplyReceiptV1;
+  deliveryStatus: "pending" | "delivered";
+  recoveryProof?: ProjectionApplyRecoveryProofV1;
+}
+
+export interface ProjectionApplyReceiptRecoveryConsumption {
+  receipt: ProjectionApplyReceiptV1;
+  proof: ProjectionApplyRecoveryProofV1;
   refreshSignalsDelivered: boolean;
 }
 
@@ -1672,6 +1690,7 @@ type SqliteStatement = {
 type SqliteDatabase = {
   exec: (sql: string) => unknown;
   prepare: (sql: string) => SqliteStatement;
+  releaseStatements?: () => void;
   close: () => void;
 };
 
@@ -2170,32 +2189,71 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     ).run(receipt.identity.lookupKey, receipt.identity.applyId, journalId, stableJson(receipt), createdAt, createdAt);
   }
 
-  async consumeProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptConsumption | undefined> {
+  async inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined> {
+    const db = await this.database();
+    const row = db.prepare(
+      `SELECT receipt.receipt_json, receipt.refresh_consumed_at, receipt.recovery_proof_json
+        FROM projection_apply_receipts receipt
+        JOIN changeset_journal journal ON journal.journal_id = receipt.journal_id
+        WHERE receipt.lookup_key = ? AND journal.status = 'committed'`
+    ).get(lookupKey);
+    if (!row?.receipt_json) return undefined;
+    const receipt = parseProjectionApplyReceipt(String(row.receipt_json));
+    const recoveryProof = row.recovery_proof_json === null
+      ? undefined
+      : parseProjectionApplyRecoveryProof(String(row.recovery_proof_json), receipt);
+    return {
+      receipt,
+      deliveryStatus: row.refresh_consumed_at === null ? "pending" : "delivered",
+      ...(recoveryProof ? { recoveryProof } : {})
+    };
+  }
+
+  async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined> {
     const db = await this.database();
     db.exec("BEGIN IMMEDIATE");
     try {
       const row = db.prepare(
-        `SELECT receipt.receipt_json, receipt.refresh_consumed_at
+        `SELECT receipt.receipt_json, receipt.refresh_consumed_at, receipt.recovery_proof_json
           FROM projection_apply_receipts receipt
           JOIN changeset_journal journal ON journal.journal_id = receipt.journal_id
           WHERE receipt.lookup_key = ? AND journal.status = 'committed'`
-      ).get(lookupKey);
+      ).get(proof.receipt.lookupKey);
       if (!row?.receipt_json) {
         db.exec("COMMIT");
         return undefined;
       }
-      const receipt = JSON.parse(String(row.receipt_json)) as ProjectionApplyReceiptV1;
-      const issues = projectionApplyReceiptInvariantIssues(receipt);
-      if (issues.length > 0) throw new Error(`projection-apply-receipt-invalid: ${issues.join("; ")}`);
-      const refreshSignalsDelivered = row.refresh_consumed_at === null;
-      if (refreshSignalsDelivered) {
-        const consumedAt = nowIso();
-        db.prepare(
-          "UPDATE projection_apply_receipts SET refresh_consumed_at = ?, updated_at = ? WHERE lookup_key = ? AND refresh_consumed_at IS NULL"
-        ).run(consumedAt, consumedAt, lookupKey);
+      const receipt = parseProjectionApplyReceipt(String(row.receipt_json));
+      const proofIssues = projectionApplyRecoveryProofReceiptInvariantIssues(proof, receipt);
+      if (proofIssues.length > 0) throw new Error(`projection-apply-recovery-proof-invalid: ${proofIssues.join("; ")}`);
+      if (row.refresh_consumed_at !== null) {
+        const stored = row.recovery_proof_json === null
+          ? undefined
+          : parseProjectionApplyRecoveryProof(String(row.recovery_proof_json), receipt);
+        if (!stored) throw new Error("projection-apply-receipt-delivered-without-recovery-proof");
+        db.exec("COMMIT");
+        return {
+          receipt,
+          proof: { ...stored, deliveryStatus: "already-delivered" },
+          refreshSignalsDelivered: false
+        };
       }
+      const deliveredProof: ProjectionApplyRecoveryProofV1 = { ...proof, deliveryStatus: "delivered" };
+      const updatedAt = nowIso();
+      const update = db.prepare(
+        `UPDATE projection_apply_receipts
+         SET refresh_consumed_at = ?, recovery_proof_json = ?, updated_at = ?
+         WHERE lookup_key = ? AND apply_id = ? AND refresh_consumed_at IS NULL AND recovery_proof_json IS NULL`
+      ).run(
+        updatedAt,
+        stableJson(deliveredProof),
+        updatedAt,
+        proof.receipt.lookupKey,
+        proof.receipt.applyId
+      ) as { changes: number };
+      if (update.changes !== 1) throw new Error("projection-apply-recovery-consume-race");
       db.exec("COMMIT");
-      return { receipt, refreshSignalsDelivered };
+      return { receipt, proof: deliveredProof, refreshSignalsDelivered: true };
     } catch (error) {
       db.exec("ROLLBACK");
       throw error;
@@ -6473,7 +6531,7 @@ export async function rebuildDerivedLandscapeState(store: RuntimeLocalStore, inp
 
 async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase> {
   if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
-  try {
+  if (!process.versions.bun) {
     const nodeSqlite = await import("node:sqlite");
     const db = new (nodeSqlite as any).DatabaseSync(databasePath);
     return {
@@ -6481,20 +6539,24 @@ async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase>
       prepare: (sql) => db.prepare(sql),
       close: () => db.close()
     };
-  } catch {
-    const bunSqlite = await import("bun:sqlite");
-    const db = new (bunSqlite as any).Database(databasePath);
-    return {
-      exec: (sql) => db.exec(sql),
-      prepare: (sql) => db.query(sql),
-      close: () => db.close()
-    };
   }
+  const bunSqlite = await import("bun:sqlite");
+  const db = new (bunSqlite as any).Database(databasePath);
+  const releaseStatements = () => db.clearQueryCache();
+  return {
+    exec: (sql) => db.exec(sql),
+    prepare: (sql) => db.query(sql),
+    releaseStatements,
+    close: () => {
+      releaseStatements();
+      db.close();
+    }
+  };
 }
 
 function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
   if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
-  try {
+  if (!process.versions.bun) {
     const nodeSqlite = runtimeRequire("node:sqlite") as any;
     const db = new (nodeSqlite as any).DatabaseSync(databasePath);
     return {
@@ -6502,17 +6564,18 @@ function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
       prepare: (sql) => db.prepare(sql),
       close: () => db.close()
     };
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ERR_UNKNOWN_BUILTIN_MODULE" && (error as NodeJS.ErrnoException).code !== "MODULE_NOT_FOUND") {
-      throw error;
-    }
   }
   const bunSqlite = runtimeRequire("bun:sqlite");
   const db = new (bunSqlite as any).Database(databasePath);
+  const releaseStatements = () => db.clearQueryCache();
   return {
     exec: (sql) => db.exec(sql),
     prepare: (sql) => db.query(sql),
-    close: () => db.close()
+    releaseStatements,
+    close: () => {
+      releaseStatements();
+      db.close();
+    }
   };
 }
 
@@ -6587,7 +6650,6 @@ function runtimeStateRecoveryStartupProbe(
       makePrivateFile(target);
     }
     migrateSqliteDatabaseSync(probePath);
-    compactSqliteDatabase(probePath);
     assertCurrentLocalStore(probePath);
     return { ok: true };
   } catch (error) {
@@ -6834,19 +6896,15 @@ function assertCurrentLocalStoreSchema(db: SqliteDatabase, path: string): void {
   }
 }
 
-function assertUpgradeableLocalStoreTarget(path: string): void {
-  const db = openSqliteDatabaseSync(path);
-  try {
-    const integrity = sqliteIntegrityCheckOpenDatabase(db, path);
-    const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String(row.name)));
-    const hasArchContextMarker = ["schema_migrations", "task_states", "repository_sessions", "snapshots"].some((table) => tables.has(table));
-    if (!hasArchContextMarker) {
-      throw new Error(`SQLite target is not an ArchContext local store candidate: ${path}`);
-    }
-    if (integrity !== "ok") throw new Error(`SQLite integrity_check failed for ${path}: ${integrity}`);
-  } finally {
-    db.close();
+function assertUpgradeableLocalStoreTarget(db: SqliteDatabase, path: string): string {
+  const integrity = sqliteIntegrityCheckOpenDatabase(db, path);
+  const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String(row.name)));
+  const hasArchContextMarker = ["schema_migrations", "task_states", "repository_sessions", "snapshots"].some((table) => tables.has(table));
+  if (!hasArchContextMarker) {
+    throw new Error(`SQLite target is not an ArchContext local store candidate: ${path}`);
   }
+  if (integrity !== "ok") throw new Error(`SQLite integrity_check failed for ${path}: ${integrity}`);
+  return integrity;
 }
 
 function assertTrustedLegacyLocalStoreSource(paths: RuntimeStatePaths): void {
@@ -6878,24 +6936,33 @@ function vacuumLegacySqliteInto(sourcePath: string, targetPath: string): string 
 
 function migrateSqliteDatabaseSync(databasePath: string): void {
   const db = openSqliteDatabaseSync(databasePath);
+  let compacted = false;
   try {
-    applyLocalSqliteMigrations(db);
-    backfillArchitectureEventDirectScope(db);
-    backfillArchitectureChangeFeed(db);
+    migrateOpenedSqliteDatabase(db);
+    compacted = true;
   } finally {
     db.close();
   }
+  if (compacted) removeSqliteSidecars(databasePath);
 }
 
-function compactSqliteDatabase(databasePath: string): void {
-  const db = openSqliteDatabaseSync(databasePath);
-  try {
-    db.exec("PRAGMA busy_timeout = 5000");
-    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    db.exec("PRAGMA journal_mode = DELETE");
-  } finally {
-    db.close();
-  }
+function migrateOpenedSqliteDatabase(db: SqliteDatabase): void {
+  applyLocalSqliteMigrations(db);
+  backfillArchitectureEventDirectScope(db);
+  backfillArchitectureChangeFeed(db);
+  compactMigratedSqliteDatabase(db);
+}
+
+function compactMigratedSqliteDatabase(db: SqliteDatabase): void {
+  // Migration statements belong to this connection; compact before closing it so
+  // Bun's SQLite statement lifetime cannot leave a second connection locked.
+  db.exec("PRAGMA busy_timeout = 5000");
+  db.releaseStatements?.();
+  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  db.exec("PRAGMA journal_mode = DELETE");
+}
+
+function removeSqliteSidecars(databasePath: string): void {
   for (const suffix of ["-wal", "-shm"] as const) rmSync(`${databasePath}${suffix}`, { force: true });
 }
 
@@ -7287,6 +7354,30 @@ function runtimeAgentJobWithPatch(job: AgentJobV1, patch: {
 
 function nullableString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function parseProjectionApplyReceipt(raw: string): ProjectionApplyReceiptV1 {
+  let receipt: ProjectionApplyReceiptV1;
+  try {
+    receipt = JSON.parse(raw) as ProjectionApplyReceiptV1;
+  } catch (error) {
+    throw new Error(`projection-apply-receipt-invalid-json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const issues = projectionApplyReceiptInvariantIssues(receipt);
+  if (issues.length > 0) throw new Error(`projection-apply-receipt-invalid: ${issues.join("; ")}`);
+  return receipt;
+}
+
+function parseProjectionApplyRecoveryProof(raw: string, receipt: ProjectionApplyReceiptV1): ProjectionApplyRecoveryProofV1 {
+  let proof: ProjectionApplyRecoveryProofV1;
+  try {
+    proof = JSON.parse(raw) as ProjectionApplyRecoveryProofV1;
+  } catch (error) {
+    throw new Error(`projection-apply-recovery-proof-invalid-json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const issues = projectionApplyRecoveryProofReceiptInvariantIssues(proof, receipt);
+  if (issues.length > 0) throw new Error(`projection-apply-recovery-proof-invalid: ${issues.join("; ")}`);
+  return proof;
 }
 
 function nowIso(): string {

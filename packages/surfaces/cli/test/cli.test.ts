@@ -3329,7 +3329,7 @@ describe("archctx CLI", () => {
    * accepted major change produces exactly one deduplicated refresh signal. Two tests
    * need that end state, so the scenario is driven once here and the caller owns cleanup.
    */
-  async function runAdoptedHookAdaptersScenario() {
+  async function runAdoptedHookAdaptersScenario(options: { codeGraphReady?: boolean } = {}) {
     const root = createInitializedGitRepo();
     const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
     const original = [
@@ -3396,6 +3396,9 @@ describe("archctx CLI", () => {
       );
       mkdirSync(dirname(join(root, modulePath)), { recursive: true });
       writeFileSync(join(root, modulePath), original, "utf8");
+      if (options.codeGraphReady) {
+        execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      }
 
       const ordinary = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root);
       expect(ordinary.ok).toBe(false);
@@ -3444,7 +3447,7 @@ describe("archctx CLI", () => {
         generatedFrom: {
           codeGraphPackage: "@colbymchenry/codegraph",
           codeGraphVersion: "1.5.0",
-          codeGraphStatus: "unavailable"
+          codeGraphStatus: options.codeGraphReady ? "ready" : "unavailable"
         }
       });
       expect((second.data as any).provenance.projectionInputDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
@@ -3528,8 +3531,8 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
-  test("projection apply survives a post-write non-owned mutation and reconciles refresh delivery exactly once", async () => {
-    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario();
+  test("projection recovery leaves a post-write non-owned race receipt pending", async () => {
+    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario();
     try {
       const daemon = await createStartedDaemon({
         localStorePath: testRuntimePaths(root).localStorePath,
@@ -3586,43 +3589,32 @@ describe("archctx CLI", () => {
 
         const postRacePlan = await runCli("docs", ["plan", "--profile", "repo-harness/v1"], root, { runtimeClient: racingClient });
         expect(postRacePlan.ok, JSON.stringify(postRacePlan)).toBe(true);
-        const retryRequest: ProjectionRequestV1 = {
+        const receiptInspection = await daemon.inspectProjectionApplyReceipt(root, (raced.data as ProjectionResultV2).applyReceipt!.lookupKey);
+        expect(receiptInspection).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "pending" } });
+        const ordinaryRetry = await runCli("projection", ["run", "--request-json", JSON.stringify({
           ...firstApplyRequest,
-          requestId: "projection_request.hook_adapters_major_reconcile",
+          requestId: "projection_request.hook_adapters_major_ordinary_retry",
           expected: {
             ...firstApplyRequest.expected,
-            worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as ProjectionRequestV1["expected"]["worktreeDigest"]
+            worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
           }
-        };
-        const reconciled = await runCli("projection", ["run", "--request-json", JSON.stringify(retryRequest)], root, { runtimeClient: racingClient });
-        expect(reconciled.ok, JSON.stringify(reconciled)).toBe(true);
-        expect((reconciled.data as ProjectionResultV2)).toMatchObject({
-          requestId: retryRequest.requestId,
-          status: "applied",
-          refreshSignals: [{ signalId: (signalPlan.data as any).refreshSignals[0].signalId, acceptedChange }]
-        });
+        })], root, { runtimeClient: racingClient });
+        expect(ordinaryRetry.ok).toBe(false);
+        expect((ordinaryRetry as any).error.code).toBe("AC_PRECONDITION_FAILED");
         expect(applyCalls).toBe(1);
         expect(readFileSync(join(root, "docs/architecture/.projection-manifest.json"), "utf8")).toBe(committedManifest);
 
-        const duplicateReconcile = await runCli("projection", ["run", "--request-json", JSON.stringify({
-          ...retryRequest,
-          requestId: "projection_request.hook_adapters_major_reconcile_duplicate"
-        })], root, { runtimeClient: racingClient });
-        expect(duplicateReconcile.ok).toBe(true);
-        expect((duplicateReconcile.data as ProjectionResultV2)).toMatchObject({ status: "noop", refreshSignals: [] });
-        expect(applyCalls).toBe(1);
-
         const staleAcceptedChange = { ...acceptedChange, changeSetId: "changeset.stale-before-write", eventId: "architecture_event.stale-before-write" };
         const staleBeforeWrite = await runCli("projection", ["run", "--request-json", JSON.stringify({
-          ...retryRequest,
+          ...firstApplyRequest,
           requestId: "projection_request.stale_before_write",
           acceptedChange: staleAcceptedChange,
-          expected: { ...retryRequest.expected, worktreeDigest: `sha256:${"f".repeat(64)}` }
+          expected: { ...firstApplyRequest.expected, worktreeDigest: `sha256:${"f".repeat(64)}` }
         })], root, { runtimeClient: racingClient });
         expect(staleBeforeWrite.ok).toBe(false);
-        const absentReceipt = await daemon.reconcileProjectionApply(root, projectionApplyLookupKey({
-          repositoryId: retryRequest.expected.repositoryId,
-          workspaceId: retryRequest.expected.workspaceId,
+        const absentReceipt = await daemon.inspectProjectionApplyReceipt(root, projectionApplyLookupKey({
+          repositoryId: firstApplyRequest.expected.repositoryId,
+          workspaceId: firstApplyRequest.expected.workspaceId,
           acceptedChange: staleAcceptedChange
         }));
         expect(absentReceipt).toMatchObject({ ok: true, data: { found: false } });
@@ -3640,7 +3632,7 @@ describe("archctx CLI", () => {
   // accepted apply must deliver its refresh signals immediately, and the post-apply check must
   // stay silent — a reconcile-required here would prove the race test passes for the wrong reason.
   test("an accepted projection apply with no concurrent mutation delivers refresh signals on the first pass", async () => {
-    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario();
+    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -3677,7 +3669,7 @@ describe("archctx CLI", () => {
   }, DAEMON_TEST_TIMEOUT_MS);
 
   test("projection apply over real RPC ignores concurrent .ai/harness runtime churn", async () => {
-    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario();
+    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -3780,7 +3772,7 @@ describe("archctx CLI", () => {
       expect(JSON.stringify(stale)).toContain("Worktree digest changed before apply");
       expect(readFileSync(manifestPath, "utf8")).toBe(manifestBefore);
 
-      const receipt = await client.reconcileProjectionApply(root, projectionApplyLookupKey({
+      const receipt = await client.inspectProjectionApplyReceipt(root, projectionApplyLookupKey({
         repositoryId: request.expected.repositoryId,
         workspaceId: request.expected.workspaceId,
         acceptedChange
