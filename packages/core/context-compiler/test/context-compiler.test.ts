@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
+import { digestJson, validateJsonSchema, type CodeFactsPort, type ModelStorePort, type WorkspaceRef } from "@archcontext/contracts";
 import { MultiRepoCodeGraphAdapter } from "../../../local-runtime/codegraph-adapter/src/index";
 import { MockCodeGraphProvider } from "../../../local-runtime/codegraph-adapter/test/factories";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "../src/index";
@@ -359,4 +359,110 @@ describe("@archcontext/core/context-compiler", () => {
     expect(context.relevantNodes).toEqual(["repo.api::symbol.preparetask", "repo.web::symbol.preparetask"]);
     expect(validateJsonSchema(readJson("schemas/runtime/task-context.schema.json") as any, context as any).valid).toBe(true);
   });
+
+  test("byteLength measures the returned canonical payload including every extension digest", async () => {
+    const context = await compileTaskContext({
+      workspace,
+      task: "Remove duplicate wrapper v1/v2",
+      codeFacts: codeFacts(),
+      modelStore: modelStore(),
+      budget: { maxBytes: 1_048_576, maxItems: 2 }
+    });
+
+    expect(context.extensions.byteLength).toBe(independentCanonicalByteLength(context));
+    expect(context.extensions.budgetExceeded).toBe(false);
+    expect(context.extensions.byteLength).toBeGreaterThan(preExtensionByteLength(context));
+  });
+
+  test("budgetExceeded is true when maxBytes sits between the pre-extension size and the canonical size", async () => {
+    const reference = await compileTaskContext({
+      workspace,
+      task: "Remove duplicate wrapper v1/v2",
+      codeFacts: codeFacts(),
+      modelStore: modelStore(),
+      budget: { maxBytes: 1_048_576, maxItems: 2 }
+    });
+    const intermediate = preExtensionByteLength(reference);
+    const canonical = independentCanonicalByteLength(reference);
+    expect(canonical).toBeGreaterThan(intermediate);
+
+    const context = await compileTaskContext({
+      workspace,
+      task: "Remove duplicate wrapper v1/v2",
+      codeFacts: codeFacts(),
+      modelStore: modelStore(),
+      budget: { maxBytes: intermediate, maxItems: 2 }
+    });
+
+    expect(context.relevantNodes).toEqual(reference.relevantNodes);
+    expect(context.extensions.byteLength).toBe(independentCanonicalByteLength(context));
+    expect(context.extensions.byteLength).toBeGreaterThan(intermediate);
+    expect(context.extensions.budgetExceeded).toBe(true);
+  });
+
+  test("byteLength counts multi-byte UTF-8 bytes rather than characters", async () => {
+    const context = await compileTaskContext({
+      workspace,
+      task: "移除重复的计费包装器 v1/v2 并统一所有者",
+      codeFacts: codeFacts(),
+      modelStore: modelStore(),
+      budget: { maxBytes: 1_048_576, maxItems: 2 }
+    });
+
+    const canonicalJson = JSON.stringify(canonicalMeasurementForm(context));
+    expect(context.extensions.byteLength).toBe(Buffer.byteLength(canonicalJson, "utf8"));
+    expect(context.extensions.byteLength).toBeGreaterThan(canonicalJson.length);
+  });
+
+  test("trimmed contexts still report byteLength for the trimmed canonical payload", async () => {
+    const context = await compileTaskContext({
+      workspace,
+      task: "Remove duplicate wrapper v1/v2",
+      codeFacts: codeFacts(),
+      modelStore: modelStore(),
+      budget: { maxBytes: 1, maxItems: 4 }
+    });
+
+    expect(context.practiceGuidance.matches.length).toBeLessThanOrEqual(2);
+    expect(context.extensions.byteLength).toBe(independentCanonicalByteLength(context));
+    expect(context.extensions.budgetExceeded).toBe(true);
+  });
+
+  test("the context digest is recomputed deterministically over the finalized payload", async () => {
+    const compile = () => compileTaskContext({
+      workspace,
+      task: "Remove duplicate wrapper v1/v2",
+      codeFacts: codeFacts(),
+      modelStore: modelStore(),
+      budget: { maxBytes: 1_048_576, maxItems: 2 }
+    });
+
+    const first = await compile();
+    const second = await compile();
+    expect(first.extensions.digest).toBe(second.extensions.digest);
+    expect(first.extensions.digest).toBe(digestJson(withoutDigest(first) as any));
+  });
 });
+
+const SELF_REFERENTIAL_KEYS = ["byteLength", "budgetExceeded", "digest"] as const;
+
+function canonicalMeasurementForm(context: { extensions: Record<string, unknown> }): unknown {
+  const extensions = { ...context.extensions };
+  for (const key of SELF_REFERENTIAL_KEYS) delete extensions[key];
+  return { ...context, extensions };
+}
+
+function withoutDigest(context: { extensions: Record<string, unknown> }): unknown {
+  const extensions = { ...context.extensions };
+  delete extensions.digest;
+  return { ...context, extensions };
+}
+
+function independentCanonicalByteLength(context: { extensions: Record<string, unknown> }): number {
+  return Buffer.byteLength(JSON.stringify(canonicalMeasurementForm(context)), "utf8");
+}
+
+function preExtensionByteLength(context: { extensions: unknown }): number {
+  const { extensions: _extensions, ...rest } = context;
+  return Buffer.byteLength(JSON.stringify(rest), "utf8");
+}

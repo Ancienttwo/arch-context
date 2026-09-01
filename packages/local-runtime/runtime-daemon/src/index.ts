@@ -101,7 +101,7 @@ import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
+import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -6215,9 +6215,7 @@ function appendExternalDocumentationToContext(
     : [...context.resources, externalResource as any];
   const unknown = `External documentation is advisory and untrusted for ${candidate.packageName}@${candidate.version}: ${candidate.intent}`;
   const unknowns = context.unknowns.includes(unknown) ? context.unknowns : [...context.unknowns, unknown];
-  const extensionWithoutDigest = { ...context.extensions };
-  delete (extensionWithoutDigest as { digest?: string }).digest;
-  const withoutDigest = {
+  const augmented = {
     ...context,
     unknowns,
     resources,
@@ -6236,7 +6234,7 @@ function appendExternalDocumentationToContext(
       }
     },
     extensions: {
-      ...extensionWithoutDigest,
+      ...context.extensions,
       externalDocumentationDigest: digestJson({
         provider: resource.provider,
         libraryId: candidate.libraryId,
@@ -6247,22 +6245,7 @@ function appendExternalDocumentationToContext(
       } as unknown as Json)
     }
   };
-  const byteLength = Buffer.byteLength(JSON.stringify(withoutDigest), "utf8");
-  const withMetadata = {
-    ...withoutDigest,
-    extensions: {
-      ...withoutDigest.extensions,
-      byteLength,
-      budgetExceeded: byteLength > maxBytes
-    }
-  };
-  return {
-    ...withMetadata,
-    extensions: {
-      ...withMetadata.extensions,
-      digest: digestJson(withMetadata as unknown as Json)
-    }
-  };
+  return finalizeContextBudgetMetadata(augmented, maxBytes);
 }
 
 function prepareContextHasVersionRelatedUnknown(context: PreparedTaskContext): boolean {
