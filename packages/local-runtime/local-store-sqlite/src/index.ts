@@ -1439,7 +1439,14 @@ export interface RuntimeAgentJobClaimInput extends ArchitectureLedgerScope {
   jobId?: string;
 }
 
-export interface RuntimeAgentJobCompleteInput {
+/**
+ * Terminal job mutations carry the caller's repository/worktree scope for the same reason
+ * `claim`/`list`/`stats` do: `job_id` is globally unique across every repository sharing one local
+ * store, so a scope-less mutation lets repository A complete, retry, or cancel repository B's job
+ * with a stale, copied, or misrouted job ID. Every lookup and `UPDATE` behind these inputs is
+ * predicated on `(storage_repository_id, storage_workspace_id, job_id)`.
+ */
+export interface RuntimeAgentJobCompleteInput extends ArchitectureLedgerScope {
   jobId: string;
   status: Extract<RuntimeAgentJobStatus, "succeeded" | "failed">;
   now: string;
@@ -1449,13 +1456,13 @@ export interface RuntimeAgentJobCompleteInput {
   error?: string;
 }
 
-export interface RuntimeAgentJobRetryInput {
+export interface RuntimeAgentJobRetryInput extends ArchitectureLedgerScope {
   jobId: string;
   now: string;
   reason?: string;
 }
 
-export interface RuntimeAgentJobCancelInput {
+export interface RuntimeAgentJobCancelInput extends ArchitectureLedgerScope {
   jobId: string;
   status: Extract<RuntimeAgentJobStatus, "cancelled" | "superseded" | "expired">;
   now: string;
@@ -1885,7 +1892,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
         maxAttempts,
         debounceUntil: input.debounceUntil
       });
-      const inserted = runtimeAgentJobById(db, input.job.jobId);
+      const inserted = runtimeAgentJobInScope(db, runtimeAgentJobScope(input.job), input.job.jobId);
       if (!inserted) throw new Error(`runtime-agent-job-insert-failed: ${input.job.jobId}`);
       const backpressure = maxQueuedJobs === undefined ? undefined : {
         schemaVersion: "archcontext.runtime-agent-job-backpressure/v1",
@@ -1987,25 +1994,28 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       const nextAttempt = record.attemptCount + 1;
       if (nextAttempt > record.maxAttempts) {
         const failed = runtimeAgentJobWithPatch(record.job, { status: "failed", updatedAt: input.now });
-        db.prepare(
-          `UPDATE runtime_job_queue
-            SET status = ?, job_json = ?, updated_at = ?, attempt_count = ?, lease_owner = NULL,
-              leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?
-            WHERE job_id = ?`
-        ).run("failed", stableJson(failed), input.now, nextAttempt, "max-attempts-exhausted", input.now, record.job.jobId);
+        updateRuntimeAgentJobInScope(
+          db,
+          input,
+          record.job.jobId,
+          `status = ?, job_json = ?, updated_at = ?, attempt_count = ?, lease_owner = NULL,
+            leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?`,
+          ["failed", stableJson(failed), input.now, nextAttempt, "max-attempts-exhausted", input.now]
+        );
         db.exec("COMMIT");
         return undefined;
       }
 
       const running = runtimeAgentJobWithPatch(record.job, { status: "running", updatedAt: input.now });
-      db.prepare(
-        `UPDATE runtime_job_queue
-          SET status = ?, job_json = ?, updated_at = ?, attempt_count = ?, lease_owner = ?,
-            leased_at = ?, lease_expires_at = ?, last_error = NULL
-          WHERE job_id = ?`
-      ).run("running", stableJson(running), input.now, nextAttempt, input.workerId, input.now, leaseExpiresAt, record.job.jobId);
-      const claimed = runtimeAgentJobById(db, record.job.jobId);
-      if (!claimed) throw new Error(`runtime-agent-job-not-found: ${record.job.jobId}`);
+      updateRuntimeAgentJobInScope(
+        db,
+        input,
+        record.job.jobId,
+        `status = ?, job_json = ?, updated_at = ?, attempt_count = ?, lease_owner = ?,
+          leased_at = ?, lease_expires_at = ?, last_error = NULL`,
+        ["running", stableJson(running), input.now, nextAttempt, input.workerId, input.now, leaseExpiresAt]
+      );
+      const claimed = requireRuntimeAgentJobInScope(db, input, record.job.jobId);
       db.exec("COMMIT");
       return claimed;
     } catch (error) {
@@ -2016,8 +2026,7 @@ export class SqliteLocalStore implements RuntimeLocalStore {
 
   async completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord> {
     const db = await this.database();
-    const record = runtimeAgentJobById(db, input.jobId);
-    if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    const record = requireRuntimeAgentJobInScope(db, input, input.jobId);
     if (record.job.status !== "running") throw new Error(`runtime-agent-job-complete-requires-running: ${input.jobId}`);
     if (input.workerId && record.leaseOwner && record.leaseOwner !== input.workerId) {
       throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
@@ -2029,57 +2038,57 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       outputDigest: input.outputDigest,
       runMetadata: input.runMetadata
     });
-    db.prepare(
-      `UPDATE runtime_job_queue
-        SET status = ?, job_json = ?, updated_at = ?, output_digest = ?, lease_owner = NULL,
-          leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = COALESCE(?, dead_lettered_at)
-        WHERE job_id = ?`
-    ).run(input.status, stableJson(job), input.now, input.outputDigest ?? record.job.outputDigest ?? null, input.error ?? null, deadLetteredAt ?? null, input.jobId);
-    const updated = runtimeAgentJobById(db, input.jobId);
-    if (!updated) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
-    return updated;
+    updateRuntimeAgentJobInScope(
+      db,
+      input,
+      input.jobId,
+      `status = ?, job_json = ?, updated_at = ?, output_digest = ?, lease_owner = NULL,
+        leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = COALESCE(?, dead_lettered_at)`,
+      [input.status, stableJson(job), input.now, input.outputDigest ?? record.job.outputDigest ?? null, input.error ?? null, deadLetteredAt ?? null]
+    );
+    return requireRuntimeAgentJobInScope(db, input, input.jobId);
   }
 
   async retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord> {
     const db = await this.database();
-    const record = runtimeAgentJobById(db, input.jobId);
-    if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    const record = requireRuntimeAgentJobInScope(db, input, input.jobId);
     if (record.attemptCount >= record.maxAttempts) {
       const failed = runtimeAgentJobWithPatch(record.job, { status: "failed", updatedAt: input.now });
-      db.prepare(
-        `UPDATE runtime_job_queue
-          SET status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
-            leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?
-          WHERE job_id = ?`
-      ).run("failed", stableJson(failed), input.now, input.reason ?? "max-attempts-exhausted", input.now, input.jobId);
+      updateRuntimeAgentJobInScope(
+        db,
+        input,
+        input.jobId,
+        `status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
+          leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = ?`,
+        ["failed", stableJson(failed), input.now, input.reason ?? "max-attempts-exhausted", input.now]
+      );
     } else {
       const queued = runtimeAgentJobWithPatch(record.job, { status: "queued", updatedAt: input.now });
-      db.prepare(
-        `UPDATE runtime_job_queue
-          SET status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
-            leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = NULL
-          WHERE job_id = ?`
-      ).run("queued", stableJson(queued), input.now, input.reason ?? null, input.jobId);
+      updateRuntimeAgentJobInScope(
+        db,
+        input,
+        input.jobId,
+        `status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
+          leased_at = NULL, lease_expires_at = NULL, last_error = ?, dead_lettered_at = NULL`,
+        ["queued", stableJson(queued), input.now, input.reason ?? null]
+      );
     }
-    const updated = runtimeAgentJobById(db, input.jobId);
-    if (!updated) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
-    return updated;
+    return requireRuntimeAgentJobInScope(db, input, input.jobId);
   }
 
   async cancelRuntimeAgentJob(input: RuntimeAgentJobCancelInput): Promise<RuntimeAgentJobRecord> {
     const db = await this.database();
-    const record = runtimeAgentJobById(db, input.jobId);
-    if (!record) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
+    const record = requireRuntimeAgentJobInScope(db, input, input.jobId);
     const job = runtimeAgentJobWithPatch(record.job, { status: input.status, updatedAt: input.now });
-    db.prepare(
-      `UPDATE runtime_job_queue
-        SET status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
-          leased_at = NULL, lease_expires_at = NULL, last_error = ?, superseded_by_job_id = COALESCE(?, superseded_by_job_id)
-        WHERE job_id = ?`
-    ).run(input.status, stableJson(job), input.now, input.reason ?? null, input.supersededByJobId ?? null, input.jobId);
-    const updated = runtimeAgentJobById(db, input.jobId);
-    if (!updated) throw new Error(`runtime-agent-job-not-found: ${input.jobId}`);
-    return updated;
+    updateRuntimeAgentJobInScope(
+      db,
+      input,
+      input.jobId,
+      `status = ?, job_json = ?, updated_at = ?, lease_owner = NULL,
+        leased_at = NULL, lease_expires_at = NULL, last_error = ?, superseded_by_job_id = COALESCE(?, superseded_by_job_id)`,
+      [input.status, stableJson(job), input.now, input.reason ?? null, input.supersededByJobId ?? null]
+    );
+    return requireRuntimeAgentJobInScope(db, input, input.jobId);
   }
 
   async cancelStaleRuntimeAgentJobs(input: RuntimeAgentJobStaleCancellationInput): Promise<RuntimeAgentJobRecord[]> {
@@ -2099,6 +2108,8 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     const cancelled: RuntimeAgentJobRecord[] = [];
     for (const record of staleRows) {
       cancelled.push(await this.cancelRuntimeAgentJob({
+        repository: input.repository,
+        worktree: input.worktree,
         jobId: record.job.jobId,
         status: "expired",
         now: input.now,
@@ -7241,9 +7252,46 @@ function insertRuntimeAgentJob(db: SqliteDatabase, input: {
   );
 }
 
-function runtimeAgentJobById(db: SqliteDatabase, jobId: string): RuntimeAgentJobRecord | undefined {
-  const row = db.prepare("SELECT * FROM runtime_job_queue WHERE job_id = ?").get(jobId);
+/**
+ * The only supported way to read a single queued job. Keyed by
+ * `(storage_repository_id, storage_workspace_id, job_id)` rather than the globally unique `job_id`
+ * alone, so no current or future mutation can reach a job owned by another repository or worktree.
+ */
+function runtimeAgentJobInScope(db: SqliteDatabase, scope: ArchitectureLedgerScope, jobId: string): RuntimeAgentJobRecord | undefined {
+  const row = db.prepare(
+    `SELECT * FROM runtime_job_queue
+      WHERE job_id = ?
+        AND storage_repository_id = ?
+        AND storage_workspace_id = ?`
+  ).get(jobId, scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId);
   return row ? runtimeAgentJobRecordFromRow(row) : undefined;
+}
+
+function requireRuntimeAgentJobInScope(db: SqliteDatabase, scope: ArchitectureLedgerScope, jobId: string): RuntimeAgentJobRecord {
+  const record = runtimeAgentJobInScope(db, scope, jobId);
+  if (!record) throw new Error(`runtime-agent-job-not-found-in-scope: ${jobId}`);
+  return record;
+}
+
+/** Companion writer for `runtimeAgentJobInScope`: the scope predicate is part of the `UPDATE`. */
+function updateRuntimeAgentJobInScope(
+  db: SqliteDatabase,
+  scope: ArchitectureLedgerScope,
+  jobId: string,
+  assignments: string,
+  params: unknown[]
+): void {
+  db.prepare(
+    `UPDATE runtime_job_queue
+      SET ${assignments}
+      WHERE job_id = ?
+        AND storage_repository_id = ?
+        AND storage_workspace_id = ?`
+  ).run(...params, jobId, scope.repository.storageRepositoryId, scope.worktree.storageWorkspaceId);
+}
+
+function runtimeAgentJobScope(job: AgentJobV1): ArchitectureLedgerScope {
+  return { repository: job.repository, worktree: job.worktree };
 }
 
 function runtimeAgentJobRecordFromRow(row: Record<string, unknown>): RuntimeAgentJobRecord {

@@ -104,7 +104,7 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import {
@@ -1503,7 +1503,8 @@ export class ArchctxDaemon {
     const scope = await this.architectureLedgerScope(repositoryRoot);
     const jobs = await this.localStore.listRuntimeAgentJobs(scope);
     const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
-    if (record && record.job.status !== "running") {
+    if (!record) return runtimeAgentJobOutOfScopeEnvelope("jobs.complete", input.jobId);
+    if (record.job.status !== "running") {
       return errorEnvelope(
         "jobs.complete",
         "AC_PRECONDITION_FAILED",
@@ -1517,8 +1518,9 @@ export class ArchctxDaemon {
       // .archcontext/ directory changing) must not be silently self-cancelled here either — this
       // check is a second, independent staleness enforcement point from that sweep, and both must
       // agree on the same policy or a stalePolicy override is only half-honored.
-      if (record && record.job.stalePolicy === "cancel-on-head-change" && isRuntimeAgentJobCursorStale(record.job, scope)) {
+      if (record.job.stalePolicy === "cancel-on-head-change" && isRuntimeAgentJobCursorStale(record.job, scope)) {
         await this.localStore.cancelRuntimeAgentJob({
+          ...scope,
           jobId: input.jobId,
           status: "expired",
           now: input.now ?? this.clock(),
@@ -1534,7 +1536,7 @@ export class ArchctxDaemon {
     if (input.proposalPlan) {
       const validation = validateRuntimeAgentProposalPlan({
         proposalPlan: input.proposalPlan,
-        job: record?.job,
+        job: record.job,
         jobId: input.jobId,
         outputDigest: input.outputDigest
       });
@@ -1547,6 +1549,7 @@ export class ArchctxDaemon {
       } as unknown as Json
       : input.runMetadata as unknown as Json | undefined;
     const job = await this.localStore.completeRuntimeAgentJob({
+      ...scope,
       jobId: input.jobId,
       status: input.status,
       workerId: input.workerId,
@@ -1560,8 +1563,12 @@ export class ArchctxDaemon {
 
   async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
-    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
+      return runtimeAgentJobOutOfScopeEnvelope("jobs.retry", input.jobId);
+    }
     const job = await this.localStore.retryRuntimeAgentJob({
+      ...scope,
       jobId: input.jobId,
       reason: input.reason,
       now: input.now ?? this.clock()
@@ -1571,8 +1578,12 @@ export class ArchctxDaemon {
 
   async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
-    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
+      return runtimeAgentJobOutOfScopeEnvelope("jobs.cancel", input.jobId);
+    }
     const job = await this.localStore.cancelRuntimeAgentJob({
+      ...scope,
       jobId: input.jobId,
       status: input.status ?? "cancelled",
       reason: input.reason,
@@ -1580,6 +1591,17 @@ export class ArchctxDaemon {
       now: input.now ?? this.clock()
     });
     return okEnvelope("jobs.cancel", { job } as unknown as Json);
+  }
+
+  /**
+   * Resolves `jobId` inside the caller's own repository/worktree scope. The store rejects
+   * out-of-scope mutations by throwing; resolving first lets the RPC surface answer with an error
+   * envelope instead of an exception, and keeps a cross-repository job ID indistinguishable from an
+   * unknown one.
+   */
+  private async runtimeAgentJobInScope(scope: ArchitectureLedgerScope, jobId: string): Promise<RuntimeAgentJobRecord | undefined> {
+    const jobs = await this.localStore.listRuntimeAgentJobs(scope);
+    return jobs.find((candidate) => candidate.job.jobId === jobId);
   }
 
   async auditRun(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
@@ -5640,6 +5662,21 @@ function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: Ru
 function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedgerScope): boolean {
   return job.worktree.headSha !== scope.worktree.headSha
     || job.worktree.worktreeDigest !== scope.worktree.worktreeDigest;
+}
+
+/**
+ * One reply for "this job ID is not yours" and "this job ID does not exist". Job IDs are unique
+ * across every repository sharing one local store, so a stale, copied, or misrouted ID from another
+ * repository or worktree must not be able to mutate — or even confirm the existence of — that
+ * repository's queue state.
+ */
+function runtimeAgentJobOutOfScopeEnvelope(requestId: string, jobId: string): JsonEnvelope {
+  return errorEnvelope(
+    requestId,
+    "AC_PRECONDITION_FAILED",
+    `runtime agent job does not belong to this repository/worktree: ${jobId}`,
+    "runtime-agent-job-out-of-scope"
+  );
 }
 
 function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {

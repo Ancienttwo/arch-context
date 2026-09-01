@@ -809,6 +809,89 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("runtime jobs refuse completion, retry, and cancellation issued from another repository", async () => {
+    const owner = createGitRepo();
+    const foreign = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:40:00.000Z"
+      });
+      mkdirSync(join(owner, "src"), { recursive: true });
+      writeFileSync(join(owner, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+      mkdirSync(join(foreign, "src"), { recursive: true });
+      writeFileSync(join(foreign, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(owner, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-cross-repository"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(owner, {
+        workerId: "worker.owner",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:40:01.000Z"
+      });
+      expect((claim.data as any).job.job.jobId).toBe(jobId);
+
+      const crossComplete = await daemon.jobsComplete(foreign, {
+        jobId,
+        workerId: "worker.owner",
+        status: "succeeded",
+        outputDigest: digestJson({ workerOutput: "cross-repository" } as any),
+        now: "2026-06-25T02:40:02.000Z"
+      });
+      expect(crossComplete.ok).toBe(false);
+      expect((crossComplete as any).error.code).toBe("AC_PRECONDITION_FAILED");
+      expect((crossComplete as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
+
+      const crossRetry = await daemon.jobsRetry(foreign, {
+        jobId,
+        reason: "cross-repository-retry",
+        now: "2026-06-25T02:40:03.000Z"
+      });
+      expect(crossRetry.ok).toBe(false);
+      expect((crossRetry as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
+
+      const crossCancel = await daemon.jobsCancel(foreign, {
+        jobId,
+        reason: "cross-repository-cancel",
+        now: "2026-06-25T02:40:04.000Z"
+      });
+      expect(crossCancel.ok).toBe(false);
+      expect((crossCancel as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
+
+      const stillRunning = await daemon.jobsList(owner, { statuses: ["running"] });
+      expect((stillRunning.data as any).jobs).toHaveLength(1);
+      expect((stillRunning.data as any).jobs[0]).toMatchObject({
+        job: { jobId, status: "running" },
+        leaseOwner: "worker.owner"
+      });
+
+      const complete = await daemon.jobsComplete(owner, {
+        jobId,
+        workerId: "worker.owner",
+        status: "failed",
+        error: "owner-failure",
+        now: "2026-06-25T02:40:05.000Z"
+      });
+      expect(complete.ok).toBe(true);
+      const retry = await daemon.jobsRetry(owner, { jobId, reason: "owner-retry", now: "2026-06-25T02:40:06.000Z" });
+      expect(retry.ok).toBe(true);
+      const cancel = await daemon.jobsCancel(owner, { jobId, reason: "owner-cancel", now: "2026-06-25T02:40:07.000Z" });
+      expect(cancel.ok).toBe(true);
+      expect((cancel.data as any).job.job.status).toBe("cancelled");
+    } finally {
+      removeTempRepo(owner);
+      removeTempRepo(foreign);
+    }
+  });
+
   test("runtime jobs persist provider run metadata on completion", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();

@@ -289,7 +289,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async completeRuntimeAgentJob(input: RuntimeAgentJobCompleteInput): Promise<RuntimeAgentJobRecord> {
-    const record = this.requiredRuntimeAgentJob(input.jobId);
+    const record = this.requiredRuntimeAgentJobInScope(input, input.jobId);
     if (record.job.status !== "running") throw new Error(`runtime-agent-job-complete-requires-running: ${input.jobId}`);
     if (input.workerId && record.leaseOwner && record.leaseOwner !== input.workerId) {
       throw new Error(`runtime-agent-job-lease-owner-mismatch: ${input.jobId}`);
@@ -308,7 +308,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async retryRuntimeAgentJob(input: RuntimeAgentJobRetryInput): Promise<RuntimeAgentJobRecord> {
-    const record = this.requiredRuntimeAgentJob(input.jobId);
+    const record = this.requiredRuntimeAgentJobInScope(input, input.jobId);
     const maxed = record.attemptCount >= record.maxAttempts;
     const updated = {
       ...record,
@@ -324,7 +324,7 @@ export class TestLocalStore implements RuntimeLocalStore {
   }
 
   async cancelRuntimeAgentJob(input: RuntimeAgentJobCancelInput): Promise<RuntimeAgentJobRecord> {
-    const record = this.requiredRuntimeAgentJob(input.jobId);
+    const record = this.requiredRuntimeAgentJobInScope(input, input.jobId);
     const updated = {
       ...record,
       job: testRuntimeAgentJobWithStatus(record.job, input.status, input.now),
@@ -349,6 +349,8 @@ export class TestLocalStore implements RuntimeLocalStore {
     const cancelled: RuntimeAgentJobRecord[] = [];
     for (const record of stale) {
       cancelled.push(await this.cancelRuntimeAgentJob({
+        repository: input.repository,
+        worktree: input.worktree,
         jobId: record.job.jobId,
         status: "expired",
         now: input.now,
@@ -1279,9 +1281,16 @@ export class TestLocalStore implements RuntimeLocalStore {
     };
   }
 
-  private requiredRuntimeAgentJob(jobId: string): RuntimeAgentJobRecord {
+  /** Mirrors SqliteLocalStore: a job is only reachable from its own repository/worktree scope. */
+  private requiredRuntimeAgentJobInScope(scope: ArchitectureLedgerScope, jobId: string): RuntimeAgentJobRecord {
     const record = this.runtimeAgentJobs.get(jobId);
-    if (!record) throw new Error(`runtime-agent-job-not-found: ${jobId}`);
+    if (
+      !record
+      || record.job.repository.storageRepositoryId !== scope.repository.storageRepositoryId
+      || record.job.worktree.storageWorkspaceId !== scope.worktree.storageWorkspaceId
+    ) {
+      throw new Error(`runtime-agent-job-not-found-in-scope: ${jobId}`);
+    }
     return record;
   }
 
