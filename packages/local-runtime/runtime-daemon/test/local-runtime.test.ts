@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
@@ -4800,6 +4800,142 @@ describe("local runtime foundation", () => {
       removeTempRepo(root);
     }
   });
+
+  // Cleanup/recovery delete real filesystem paths, so a caller-supplied manifest must never be
+  // able to name the deletion target: every target is re-derived from daemon-owned state and
+  // proven with an ownership marker before anything is unlinked.
+  test("developer review cleanup refuses deletion targets outside daemon-owned review roots", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-review-ownership-"));
+    const outside = mkdtempSync(join(tmpdir(), "archctx-not-an-archctx-run-"));
+    const victim = join(outside, "important.txt");
+    writeFileSync(victim, "unrelated\n", "utf8");
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon();
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = daemon.startDeveloperReviewRun({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}"),
+        tempRoot
+      });
+      expect(prepared.accepted).toBe(true);
+      const run = prepared.run!;
+      expect(existsSync(join(run.runRoot, ".archctx-developer-review-run.json"))).toBe(true);
+
+      const detachedRunRoot = (runRoot: string) => ({
+        ...run,
+        status: "preparing" as const,
+        worktree: undefined,
+        runRoot,
+        worktreeTempRoot: join(runRoot, "worktrees"),
+        codeGraphTemporaryState: { root: runRoot, cleanup: "remove-run-root" as const }
+      });
+
+      // Absolute escape: an unrelated directory is not a review run root.
+      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(outside)))
+        .toThrow("developer-review-run-not-owned");
+      // `..` traversal that lands outside the daemon temp parent.
+      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(join(run.runRoot, "..", "..", basename(outside)))))
+        .toThrow("developer-review-run-not-owned");
+      // Manifest/lock are derived from the repository state dir, so a caller-named file is rejected.
+      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, manifestPath: victim }))
+        .toThrow("developer-review-run-not-owned");
+      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, lockPath: victim }))
+        .toThrow("developer-review-run-not-owned");
+      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, manifestPath: join(run.manifestPath, "..", "..", "escaped.json") }))
+        .toThrow("developer-review-run-not-owned");
+
+      // A directory that merely looks like a run root carries no ownership marker.
+      const impostorRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "bbbbbb"));
+      mkdirSync(impostorRunRoot, { recursive: true });
+      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(impostorRunRoot)))
+        .toThrow("developer-review-run-not-owned");
+      expect(existsSync(impostorRunRoot)).toBe(true);
+
+      if (process.platform !== "win32") {
+        const symlinkedRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "aaaaaa"));
+        symlinkSync(outside, symlinkedRunRoot);
+        expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(symlinkedRunRoot)))
+          .toThrow("developer-review-run-not-owned");
+      }
+
+      // None of the rejected requests touched anything.
+      expect(existsSync(victim)).toBe(true);
+      expect(existsSync(run.runRoot)).toBe(true);
+      expect(existsSync(run.manifestPath)).toBe(true);
+      expect(existsSync(run.lockPath)).toBe(true);
+
+      const cleanup = daemon.cleanupDeveloperReviewRun(run);
+      expect(cleanup.cleaned).toBe(true);
+      expect(cleanup.removed).toEqual(expect.arrayContaining(["worktree", "run-root", "manifest", "lock"]));
+      expect(existsSync(run.runRoot)).toBe(false);
+      expect(existsSync(run.manifestPath)).toBe(false);
+      expect(existsSync(run.lockPath)).toBe(false);
+      expect(existsSync(victim)).toBe(true);
+    } finally {
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
+
+  test("runtime RPC rejects caller-selected developer review roots and malformed manifests", async () => {
+    const root = createInitializedGitRepo();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-not-an-archctx-state-"));
+    writeFileSync(join(outside, "stale.json"), "{ not json", "utf8");
+    writeFileSync(join(outside, "stale.lock"), JSON.stringify({ pid: 999999999 }), "utf8");
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "developer-review-ownership-token" });
+    try {
+      const connection = await rpc.start();
+      const challenge = preparedChallenge(gitOut(root, "rev-parse", "HEAD"));
+      const rpcCall = async (method: string, params: unknown[]) => {
+        const response = await fetch(`${connection.url}rpc`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${connection.token}`,
+            "Content-Type": "application/json",
+            "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
+          },
+          body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
+        });
+        return { status: response.status, body: await response.json() as any };
+      };
+
+      const recovered = await rpcCall("recoverDeveloperReviewRuns", [{ repositoryRoot: root, stateDir: outside, force: true }]);
+      expect(recovered.body.ok).toBe(false);
+      expect(String(recovered.body.error)).toContain("runtime-rpc-input-invalid");
+      expect(existsSync(join(outside, "stale.json"))).toBe(true);
+      expect(existsSync(join(outside, "stale.lock"))).toBe(true);
+
+      const started = await rpcCall("startDeveloperReviewRun", [{ repositoryRoot: root, challenge, tempRoot: outside }]);
+      expect(started.body.ok).toBe(false);
+      expect(String(started.body.error)).toContain("runtime-rpc-input-invalid");
+
+      const malformed = await rpcCall("cleanupDeveloperReviewRun", [{
+        schemaVersion: "archcontext.developer-review-run/v1",
+        runId: "forged",
+        challengeId: challenge.challengeId
+      }]);
+      expect(malformed.body.ok).toBe(false);
+      expect(String(malformed.body.error)).toContain("runtime-rpc-input-invalid");
+
+      const wrongChallengeShape = await rpcCall("startDeveloperReviewRun", [{
+        repositoryRoot: root,
+        challenge: { ...challenge, status: "NOT_A_STATUS" }
+      }]);
+      expect(wrongChallengeShape.body.ok).toBe(false);
+      expect(String(wrongChallengeShape.body.error)).toContain("runtime-rpc-input-invalid");
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      rmSync(outside, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
 
   test("daemon signs canonical Attestation v2 without exposing Device private key material", async () => {
     const root = createInitializedGitRepo();

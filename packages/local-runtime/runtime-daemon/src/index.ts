@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   addRepositoryToLandscape,
   bindRepository,
@@ -572,6 +572,8 @@ export interface DeveloperReviewRunRecovery {
   recovered: DeveloperReviewRunCleanup[];
   removedLocks: string[];
   skippedActive: string[];
+  /** State-dir entries left untouched because they failed the daemon-ownership check. */
+  rejected: string[];
 }
 
 export interface RuntimeDeps {
@@ -859,8 +861,6 @@ export interface RuntimeDaemonClient {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
-    tempRoot?: string;
-    stateDir?: string;
   }): Promise<DeveloperReviewRunPreparation> | DeveloperReviewRunPreparation;
   runSignedDeveloperReviewAttestation(input: {
     challenge: ReviewChallengeV2;
@@ -876,7 +876,6 @@ export interface RuntimeDaemonClient {
   cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): Promise<DeveloperReviewRunCleanup> | DeveloperReviewRunCleanup;
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
-    stateDir?: string;
     force?: boolean;
   }): Promise<DeveloperReviewRunRecovery> | DeveloperReviewRunRecovery;
 }
@@ -3687,20 +3686,29 @@ export class ArchctxDaemon {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
+    /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
-    stateDir?: string;
   }): DeveloperReviewRunPreparation {
     this.assertRunning();
     const sourceRoot = findRepositoryRoot(input.repositoryRoot);
     const paths = createDeveloperReviewRunPaths({
       sourceRoot,
       challengeId: input.challenge.challengeId,
-      tempRoot: input.tempRoot,
-      stateDir: input.stateDir
+      tempRoot: input.tempRoot
     });
     mkdirSync(paths.stateDir, { recursive: true });
     mkdirSync(paths.runRoot, { recursive: true });
     mkdirSync(paths.worktreeTempRoot, { recursive: true });
+    const createdAt = this.clock();
+    writeDeveloperReviewRunOwnerMarker({
+      runRoot: paths.runRoot,
+      runId: paths.runId,
+      challengeId: input.challenge.challengeId,
+      stateDir: paths.stateDir,
+      manifestPath: paths.manifestPath,
+      lockPath: paths.lockPath,
+      createdAt
+    });
     const preparing: DeveloperReviewRunManifest = {
       schemaVersion: "archcontext.developer-review-run/v1",
       runId: paths.runId,
@@ -3712,7 +3720,7 @@ export class ArchctxDaemon {
       manifestPath: paths.manifestPath,
       lockPath: paths.lockPath,
       pid: process.pid,
-      createdAt: this.clock(),
+      createdAt,
       status: "preparing",
       codeGraphTemporaryState: {
         root: paths.runRoot,
@@ -3765,8 +3773,8 @@ export class ArchctxDaemon {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
+    /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
-    stateDir?: string;
   }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
     const prepared = this.startDeveloperReviewRun(input);
     if (!prepared.accepted || !prepared.run) {
@@ -3780,22 +3788,25 @@ export class ArchctxDaemon {
   }
 
   cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
+    // Throws before anything is removed when the manifest names a path this daemon does not own.
+    const targets = resolveOwnedDeveloperReviewRunTargets(run);
     const removed: DeveloperReviewRunCleanup["removed"] = [];
     const errors: string[] = [];
-    if (run.worktree) {
+    if (targets.worktree) {
       try {
-        const hadWorktree = existsSync(run.worktree.worktreeRoot);
-        removeDetachedReviewWorktree(run.worktree);
+        const hadWorktree = existsSync(targets.worktree.worktreeRoot);
+        removeDetachedReviewWorktree(targets.worktree);
         if (hadWorktree) removed.push("worktree");
       } catch (error) {
         errors.push(cleanupErrorMessage("worktree", error));
       }
     }
     for (const [kind, path] of [
-      ["run-root", run.runRoot],
-      ["manifest", run.manifestPath],
-      ["lock", run.lockPath]
+      ["run-root", targets.runRoot],
+      ["manifest", targets.manifestPath],
+      ["lock", targets.lockPath]
     ] as const) {
+      if (!path) continue;
       try {
         const existed = existsSync(path);
         removePathWithRetry(path);
@@ -3814,42 +3825,65 @@ export class ArchctxDaemon {
     };
   }
 
+  /**
+   * Crash recovery scans one directory only: the daemon-owned developer-review state dir for the
+   * caller's repository. There is no caller-selected scan root, and every manifest found there is
+   * still re-validated against its own file location before its run is cleaned up.
+   */
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
-    stateDir?: string;
     force?: boolean;
   }): DeveloperReviewRunRecovery {
     this.assertRunning();
     const sourceRoot = findRepositoryRoot(input.repositoryRoot);
-    const stateDir = input.stateDir ? resolve(input.stateDir) : defaultDeveloperReviewRunStateDir(sourceRoot);
+    const stateDir = defaultDeveloperReviewRunStateDir(sourceRoot);
     const recovery: DeveloperReviewRunRecovery = {
       schemaVersion: "archcontext.developer-review-run-recovery/v1",
       sourceRoot,
       stateDir,
       recovered: [],
       removedLocks: [],
-      skippedActive: []
+      skippedActive: [],
+      rejected: []
     };
     if (!existsSync(stateDir)) return recovery;
 
     for (const entry of readdirSync(stateDir).sort()) {
       if (!entry.endsWith(".json")) continue;
       const manifestPath = join(stateDir, entry);
+      const stats = lstatIfExists(manifestPath);
+      if (!stats || !stats.isFile()) {
+        recovery.rejected.push(`${entry}: not-a-regular-file`);
+        continue;
+      }
       const manifest = readDeveloperReviewRunManifest(manifestPath);
       if (!manifest) {
         rmSync(manifestPath, { force: true });
+        continue;
+      }
+      if (resolve(manifest.manifestPath) !== manifestPath) {
+        recovery.rejected.push(`${entry}: manifest-path-mismatch`);
         continue;
       }
       if (!input.force && isDeveloperReviewPidAlive(manifest.pid)) {
         recovery.skippedActive.push(manifest.runId);
         continue;
       }
-      recovery.recovered.push(this.cleanupDeveloperReviewRun(manifest));
+      try {
+        recovery.recovered.push(this.cleanupDeveloperReviewRun(manifest));
+      } catch (error) {
+        recovery.rejected.push(`${entry}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     for (const entry of readdirSync(stateDir).sort()) {
       if (!entry.endsWith(".lock")) continue;
       const lockPath = join(stateDir, entry);
+      const stats = lstatIfExists(lockPath);
+      if (!stats || !stats.isFile()) {
+        recovery.rejected.push(`${entry}: not-a-regular-file`);
+        continue;
+      }
       const lock = readJsonObject(lockPath);
       const pid = typeof lock?.pid === "number" ? lock.pid : undefined;
       const runId = typeof lock?.runId === "string" ? lock.runId : entry;
@@ -5181,8 +5215,6 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
-    tempRoot?: string;
-    stateDir?: string;
   }): Promise<DeveloperReviewRunPreparation> {
     return unwrapRpcData(await this.call("startDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunPreparation;
   }
@@ -5207,7 +5239,6 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
 
   async recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
-    stateDir?: string;
     force?: boolean;
   }): Promise<DeveloperReviewRunRecovery> {
     return unwrapRpcData(await this.call("recoverDeveloperReviewRuns", [input])) as unknown as DeveloperReviewRunRecovery;
@@ -5502,14 +5533,17 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.contextLandscape(params[0] as string, params[1] as number | undefined);
       case "runtimeStatus":
         return this.daemon.runtimeStatus(params[0] as string | undefined);
+      // Developer-review inputs are decoded strictly at the boundary: they carry filesystem paths
+      // and the cleanup/recovery pair deletes real directories, so an unknown field (including the
+      // in-process-only `tempRoot`/`stateDir` overrides) is rejected rather than ignored.
       case "startDeveloperReviewRun":
-        return okEnvelope("developerReview.startRun", this.daemon.startDeveloperReviewRun(params[0] as any) as unknown as Json);
+        return okEnvelope("developerReview.startRun", this.daemon.startDeveloperReviewRun(decodeStartDeveloperReviewRunParams(params)) as unknown as Json);
       case "runSignedDeveloperReviewAttestation":
-        return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(params[0] as any) as unknown as Json);
+        return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(decodeSignedDeveloperReviewAttestationParams(params)) as unknown as Json);
       case "cleanupDeveloperReviewRun":
-        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(params[0] as DeveloperReviewRunManifest) as unknown as Json);
+        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(decodeDeveloperReviewRunManifest(params[0], "cleanupDeveloperReviewRun")) as unknown as Json);
       case "recoverDeveloperReviewRuns":
-        return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(params[0] as any) as unknown as Json);
+        return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(decodeRecoverDeveloperReviewRunsParams(params)) as unknown as Json);
       case "shutdown":
         return okEnvelope("daemon.stop", { stopping: true } as Json);
       default:
@@ -6113,11 +6147,44 @@ function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: Ru
   };
 }
 
+const DEVELOPER_REVIEW_RUN_ROOT_PREFIX = "archctx-developer-review-";
+const DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE = ".archctx-developer-review-run.json";
+const DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION = "archcontext.developer-review-run-owner/v1";
+/** `mkdtempSync` appends exactly six random characters to the requested prefix. */
+const DEVELOPER_REVIEW_RUN_ROOT_SUFFIX = /^[A-Za-z0-9]{6}$/;
+/** `runId` is the safe challenge segment plus `randomBytes(6).toString("hex")`. */
+const DEVELOPER_REVIEW_RUN_ID_SUFFIX = /^[0-9a-f]{12}$/;
+
+interface DeveloperReviewRunOwnerMarkerV1 {
+  schemaVersion: typeof DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION;
+  runId: string;
+  challengeId: string;
+  stateDir: string;
+  manifestPath: string;
+  lockPath: string;
+  pid: number;
+  createdAt: string;
+}
+
+/**
+ * Deletion targets for one developer-review run, re-derived from daemon-owned state instead of
+ * trusted from the caller-supplied manifest. `runRoot`/`worktree` are absent when the run root is
+ * already gone, which leaves manifest and lock removal as the only remaining work — that is the
+ * crash window between removing a run root and removing its manifest, not a caller-controlled
+ * shortcut.
+ */
+interface OwnedDeveloperReviewRunTargets {
+  stateDir: string;
+  manifestPath: string;
+  lockPath: string;
+  runRoot?: string;
+  worktree?: DetachedReviewWorktree;
+}
+
 function createDeveloperReviewRunPaths(input: {
   sourceRoot: string;
   challengeId: string;
   tempRoot?: string;
-  stateDir?: string;
 }): {
   runId: string;
   stateDir: string;
@@ -6128,10 +6195,10 @@ function createDeveloperReviewRunPaths(input: {
 } {
   const safeChallengeId = safeControlFileSegment(input.challengeId);
   const runId = `${safeChallengeId}-${randomBytes(6).toString("hex")}`;
-  const stateDir = input.stateDir ? resolve(input.stateDir) : defaultDeveloperReviewRunStateDir(input.sourceRoot);
+  const stateDir = defaultDeveloperReviewRunStateDir(input.sourceRoot);
   const tempParent = input.tempRoot ? resolve(input.tempRoot) : tmpdir();
   mkdirSync(tempParent, { recursive: true });
-  const runRoot = mkdtempSync(join(tempParent, `archctx-developer-review-${safeChallengeId.slice(0, 32)}-`));
+  const runRoot = mkdtempSync(join(tempParent, `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`));
   return {
     runId,
     stateDir,
@@ -6140,6 +6207,104 @@ function createDeveloperReviewRunPaths(input: {
     manifestPath: join(stateDir, `${safeChallengeId}.json`),
     lockPath: join(stateDir, `${safeChallengeId}.lock`)
   };
+}
+
+/**
+ * Written into a run root the moment the daemon creates it. Cleanup deletes a run root only when
+ * this marker is present and matches the run being cleaned, which is what proves the daemon
+ * created the directory it is about to remove — including after a crash, from a different process.
+ */
+function writeDeveloperReviewRunOwnerMarker(input: {
+  runRoot: string;
+  runId: string;
+  challengeId: string;
+  stateDir: string;
+  manifestPath: string;
+  lockPath: string;
+  createdAt: string;
+}): void {
+  const marker: DeveloperReviewRunOwnerMarkerV1 = {
+    schemaVersion: DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION,
+    runId: input.runId,
+    challengeId: input.challengeId,
+    stateDir: input.stateDir,
+    manifestPath: input.manifestPath,
+    lockPath: input.lockPath,
+    pid: process.pid,
+    createdAt: input.createdAt
+  };
+  writePrivateJson(join(input.runRoot, DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE), marker, "wx");
+}
+
+function readDeveloperReviewRunOwnerMarker(path: string): DeveloperReviewRunOwnerMarkerV1 | undefined {
+  const stats = lstatIfExists(path);
+  if (!stats || !stats.isFile()) return undefined;
+  const parsed = readJsonObject(path);
+  if (!parsed || parsed.schemaVersion !== DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION) return undefined;
+  if (typeof parsed.runId !== "string" || typeof parsed.challengeId !== "string") return undefined;
+  if (typeof parsed.manifestPath !== "string" || typeof parsed.lockPath !== "string") return undefined;
+  return parsed as unknown as DeveloperReviewRunOwnerMarkerV1;
+}
+
+function developerReviewRunNotOwned(reason: string): Error {
+  return new Error(`developer-review-run-not-owned: ${reason}`);
+}
+
+/**
+ * Fail-closed containment check for every developer-review deletion. Nothing here trusts a
+ * caller-supplied path: the state directory comes from `runtimeStatePaths`, manifest and lock
+ * names are re-derived from the challenge id, the run root must carry the daemon's mkdtemp naming
+ * convention plus its ownership marker, and the worktree must sit inside that run root. Any
+ * mismatch throws before a single unlink happens.
+ */
+function resolveOwnedDeveloperReviewRunTargets(run: DeveloperReviewRunManifest): OwnedDeveloperReviewRunTargets {
+  const safeChallengeId = safeControlFileSegment(run.challengeId);
+  const runIdSuffix = run.runId.startsWith(`${safeChallengeId}-`) ? run.runId.slice(safeChallengeId.length + 1) : undefined;
+  if (!runIdSuffix || !DEVELOPER_REVIEW_RUN_ID_SUFFIX.test(runIdSuffix)) throw developerReviewRunNotOwned("run-id");
+
+  const stateDir = defaultDeveloperReviewRunStateDir(run.sourceRoot);
+  const manifestPath = join(stateDir, `${safeChallengeId}.json`);
+  const lockPath = join(stateDir, `${safeChallengeId}.lock`);
+  if (resolve(run.manifestPath) !== manifestPath) throw developerReviewRunNotOwned("manifest-path");
+  if (resolve(run.lockPath) !== lockPath) throw developerReviewRunNotOwned("lock-path");
+
+  const runRoot = resolve(run.runRoot);
+  const runRootPrefix = `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`;
+  const runRootName = basename(runRoot);
+  if (!runRootName.startsWith(runRootPrefix) || !DEVELOPER_REVIEW_RUN_ROOT_SUFFIX.test(runRootName.slice(runRootPrefix.length))) {
+    throw developerReviewRunNotOwned("run-root-name");
+  }
+  const worktreeTempRoot = join(runRoot, "worktrees");
+  if (resolve(run.worktreeTempRoot) !== worktreeTempRoot) throw developerReviewRunNotOwned("worktree-temp-root");
+  if (resolve(run.codeGraphTemporaryState.root) !== runRoot) throw developerReviewRunNotOwned("codegraph-temporary-state-root");
+
+  const runRootStats = lstatIfExists(runRoot);
+  if (!runRootStats) return { stateDir, manifestPath, lockPath };
+  if (!runRootStats.isDirectory()) throw developerReviewRunNotOwned("run-root-not-a-directory");
+  const marker = readDeveloperReviewRunOwnerMarker(join(runRoot, DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE));
+  if (!marker) throw developerReviewRunNotOwned("run-root-owner-marker-missing");
+  if (marker.runId !== run.runId || marker.challengeId !== run.challengeId) throw developerReviewRunNotOwned("run-root-owner-marker-mismatch");
+  if (marker.manifestPath !== manifestPath || marker.lockPath !== lockPath) throw developerReviewRunNotOwned("run-root-owner-marker-mismatch");
+  if (!run.worktree) return { stateDir, manifestPath, lockPath, runRoot };
+
+  const temporaryRoot = resolve(run.worktree.temporaryRoot);
+  const worktreeRoot = resolve(run.worktree.worktreeRoot);
+  if (!isContainedPath(worktreeTempRoot, temporaryRoot)) throw developerReviewRunNotOwned("worktree-temporary-root");
+  if (!isContainedPath(temporaryRoot, worktreeRoot)) throw developerReviewRunNotOwned("worktree-root");
+  if (defaultDeveloperReviewRunStateDir(run.worktree.sourceRoot) !== stateDir) throw developerReviewRunNotOwned("worktree-source-root");
+  return { stateDir, manifestPath, lockPath, runRoot, worktree: { ...run.worktree, temporaryRoot, worktreeRoot } };
+}
+
+function isContainedPath(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
+}
+
+function lstatIfExists(path: string): Stats | undefined {
+  try {
+    return lstatSync(path);
+  } catch {
+    return undefined;
+  }
 }
 
 function safeControlFileSegment(value: string): string {
@@ -6414,15 +6579,169 @@ function writePrivateJson(path: string, value: unknown, flag: "w" | "wx" = "w"):
 }
 
 function readDeveloperReviewRunManifest(path: string): DeveloperReviewRunManifest | undefined {
-  const parsed = readJsonObject(path);
-  if (!parsed || parsed.schemaVersion !== "archcontext.developer-review-run/v1") return undefined;
-  if (typeof parsed.runId !== "string" || typeof parsed.challengeId !== "string") return undefined;
-  if (typeof parsed.repositoryId !== "number" || typeof parsed.sourceRoot !== "string") return undefined;
-  if (typeof parsed.runRoot !== "string" || typeof parsed.worktreeTempRoot !== "string") return undefined;
-  if (typeof parsed.manifestPath !== "string" || typeof parsed.lockPath !== "string") return undefined;
-  if (typeof parsed.pid !== "number" || typeof parsed.createdAt !== "string") return undefined;
-  if (parsed.status !== "preparing" && parsed.status !== "running") return undefined;
-  return parsed as unknown as DeveloperReviewRunManifest;
+  try {
+    return decodeDeveloperReviewRunManifest(readJsonObject(path), "developer-review-run-manifest");
+  } catch {
+    return undefined;
+  }
+}
+
+function rpcInputInvalid(context: string, detail: string): Error {
+  return new Error(`runtime-rpc-input-invalid: ${context} ${detail}`);
+}
+
+function decodeRpcRecord(value: unknown, context: string, label: string, allowedKeys: readonly string[]): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw rpcInputInvalid(context, `${label} must be an object`);
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.includes(key)) throw rpcInputInvalid(context, `${label} has unknown field ${key}`);
+  }
+  return record;
+}
+
+function rpcString(record: Record<string, unknown>, context: string, label: string): string {
+  const value = record[label];
+  if (typeof value !== "string" || value.length === 0) throw rpcInputInvalid(context, `${label} must be a non-empty string`);
+  return value;
+}
+
+function rpcOptionalString(record: Record<string, unknown>, context: string, label: string): string | undefined {
+  return record[label] === undefined ? undefined : rpcString(record, context, label);
+}
+
+function rpcNumber(record: Record<string, unknown>, context: string, label: string): number {
+  const value = record[label];
+  if (typeof value !== "number" || !Number.isFinite(value)) throw rpcInputInvalid(context, `${label} must be a number`);
+  return value;
+}
+
+function rpcLiteral<T extends string>(record: Record<string, unknown>, context: string, label: string, allowed: readonly T[]): T {
+  const value = record[label];
+  if (typeof value !== "string" || !allowed.includes(value as T)) throw rpcInputInvalid(context, `${label} is not an accepted value`);
+  return value as T;
+}
+
+function decodeRpcReviewChallengeV2(value: unknown, context: string): ReviewChallengeV2 {
+  const record = decodeRpcRecord(value, context, "challenge", [
+    "schemaVersion", "challengeId", "installationId", "repositoryId", "pullRequestNumber",
+    "headSha", "baseSha", "nonce", "requiredTrust", "policyProfileId", "createdAt", "expiresAt", "status"
+  ]);
+  return {
+    schemaVersion: rpcLiteral(record, context, "schemaVersion", ["archcontext.review-challenge/v2"] as const),
+    challengeId: rpcString(record, context, "challengeId"),
+    installationId: rpcNumber(record, context, "installationId"),
+    repositoryId: rpcNumber(record, context, "repositoryId"),
+    pullRequestNumber: rpcNumber(record, context, "pullRequestNumber"),
+    headSha: rpcString(record, context, "headSha"),
+    baseSha: rpcString(record, context, "baseSha"),
+    nonce: rpcString(record, context, "nonce"),
+    requiredTrust: rpcLiteral(record, context, "requiredTrust", ["developer", "organization"] as const),
+    policyProfileId: rpcString(record, context, "policyProfileId"),
+    createdAt: rpcString(record, context, "createdAt"),
+    expiresAt: rpcString(record, context, "expiresAt"),
+    status: rpcLiteral(record, context, "status", ["PENDING", "LEASED", "SUBMITTED", "VERIFIED", "REJECTED", "SUPERSEDED", "EXPIRED"] as const)
+  };
+}
+
+function decodeRpcDetachedReviewWorktree(value: unknown, context: string, label = "worktree"): DetachedReviewWorktree {
+  const record = decodeRpcRecord(value, context, label, [
+    "schemaVersion", "sourceRoot", "worktreeRoot", "temporaryRoot", "headSha", "headTreeOid", "detached", "clean"
+  ]);
+  if (record.detached !== true) throw rpcInputInvalid(context, `${label}.detached must be true`);
+  if (record.clean !== true) throw rpcInputInvalid(context, `${label}.clean must be true`);
+  return {
+    schemaVersion: rpcLiteral(record, context, "schemaVersion", ["archcontext.detached-review-worktree/v1"] as const),
+    sourceRoot: rpcString(record, context, "sourceRoot"),
+    worktreeRoot: rpcString(record, context, "worktreeRoot"),
+    temporaryRoot: rpcString(record, context, "temporaryRoot"),
+    headSha: rpcString(record, context, "headSha"),
+    headTreeOid: rpcString(record, context, "headTreeOid"),
+    detached: true,
+    clean: true
+  };
+}
+
+function decodeDeveloperReviewRunManifest(value: unknown, context: string): DeveloperReviewRunManifest {
+  const record = decodeRpcRecord(value, context, "run", [
+    "schemaVersion", "runId", "challengeId", "repositoryId", "sourceRoot", "runRoot", "worktreeTempRoot",
+    "manifestPath", "lockPath", "pid", "createdAt", "status", "codeGraphTemporaryState", "worktree"
+  ]);
+  const codeGraphTemporaryState = decodeRpcRecord(record.codeGraphTemporaryState, context, "run.codeGraphTemporaryState", ["root", "cleanup"]);
+  return {
+    schemaVersion: rpcLiteral(record, context, "schemaVersion", ["archcontext.developer-review-run/v1"] as const),
+    runId: rpcString(record, context, "runId"),
+    challengeId: rpcString(record, context, "challengeId"),
+    repositoryId: rpcNumber(record, context, "repositoryId"),
+    sourceRoot: rpcString(record, context, "sourceRoot"),
+    runRoot: rpcString(record, context, "runRoot"),
+    worktreeTempRoot: rpcString(record, context, "worktreeTempRoot"),
+    manifestPath: rpcString(record, context, "manifestPath"),
+    lockPath: rpcString(record, context, "lockPath"),
+    pid: rpcNumber(record, context, "pid"),
+    createdAt: rpcString(record, context, "createdAt"),
+    status: rpcLiteral(record, context, "status", ["preparing", "running"] as const),
+    codeGraphTemporaryState: {
+      root: rpcString(codeGraphTemporaryState, context, "root"),
+      cleanup: rpcLiteral(codeGraphTemporaryState, context, "cleanup", ["remove-run-root"] as const)
+    },
+    ...(record.worktree === undefined ? {} : { worktree: decodeRpcDetachedReviewWorktree(record.worktree, context, "run.worktree") })
+  };
+}
+
+function decodeStartDeveloperReviewRunParams(params: unknown[]): {
+  repositoryRoot: string;
+  challenge: ReviewChallengeV2;
+  expectedHeadTreeOid?: string;
+} {
+  const context = "startDeveloperReviewRun";
+  const record = decodeRpcRecord(params[0], context, "params[0]", ["repositoryRoot", "challenge", "expectedHeadTreeOid"]);
+  const expectedHeadTreeOid = rpcOptionalString(record, context, "expectedHeadTreeOid");
+  return {
+    repositoryRoot: rpcString(record, context, "repositoryRoot"),
+    challenge: decodeRpcReviewChallengeV2(record.challenge, context),
+    ...(expectedHeadTreeOid === undefined ? {} : { expectedHeadTreeOid })
+  };
+}
+
+function decodeSignedDeveloperReviewAttestationParams(params: unknown[]): {
+  challenge: ReviewChallengeV2;
+  worktree: DetachedReviewWorktree;
+  keyRef: string;
+  principalId: string;
+  publicKeyId: string;
+  taskSessionId?: string;
+  mergeBaseSha?: string;
+  startedAt?: string;
+  completedAt?: string;
+} {
+  const context = "runSignedDeveloperReviewAttestation";
+  const record = decodeRpcRecord(params[0], context, "params[0]", [
+    "challenge", "worktree", "keyRef", "principalId", "publicKeyId", "taskSessionId", "mergeBaseSha", "startedAt", "completedAt"
+  ]);
+  const optional = {
+    taskSessionId: rpcOptionalString(record, context, "taskSessionId"),
+    mergeBaseSha: rpcOptionalString(record, context, "mergeBaseSha"),
+    startedAt: rpcOptionalString(record, context, "startedAt"),
+    completedAt: rpcOptionalString(record, context, "completedAt")
+  };
+  return {
+    challenge: decodeRpcReviewChallengeV2(record.challenge, context),
+    worktree: decodeRpcDetachedReviewWorktree(record.worktree, context),
+    keyRef: rpcString(record, context, "keyRef"),
+    principalId: rpcString(record, context, "principalId"),
+    publicKeyId: rpcString(record, context, "publicKeyId"),
+    ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined))
+  };
+}
+
+function decodeRecoverDeveloperReviewRunsParams(params: unknown[]): { repositoryRoot: string; force?: boolean } {
+  const context = "recoverDeveloperReviewRuns";
+  const record = decodeRpcRecord(params[0], context, "params[0]", ["repositoryRoot", "force"]);
+  if (record.force !== undefined && typeof record.force !== "boolean") throw rpcInputInvalid(context, "force must be a boolean");
+  return {
+    repositoryRoot: rpcString(record, context, "repositoryRoot"),
+    ...(record.force === undefined ? {} : { force: record.force })
+  };
 }
 
 function readJsonObject(path: string): Record<string, unknown> | undefined {
