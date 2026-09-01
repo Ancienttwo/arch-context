@@ -4096,16 +4096,24 @@ export class ArchctxDaemon {
    * `listCrossRepoRelations(landscape)` already filters to the active landscape's relation IDs, so
    * detaching is enough to keep them out of live context. Relation IDs that resolve to no stored
    * relation are left alone — there is nothing to check them against.
+   *
+   * Every rejection is decided before the first write. The post-removal landscape can be invalid
+   * for reasons that have nothing to do with this repository (a relation pointing at an
+   * unregistered endpoint, say), and a removal that answers with an error must leave the in-memory
+   * session map, the persisted session row, and the saved landscape exactly as it found them —
+   * otherwise the daemon reports failure while already having dropped the session.
    */
   async repoRemove(repositoryId: string): Promise<JsonEnvelope> {
     this.assertRunning();
-    const hadOpenSession = this.sessions.delete(repositoryId);
-    const hadPersistedSession = await this.localStore.deleteRepositorySession(repositoryId);
+    const hadOpenSession = this.sessions.has(repositoryId);
+    const hadPersistedSession = (await this.localStore.listRepositorySessions())
+      .some((session) => session.repositoryId === repositoryId);
     const registered = this.landscape?.repositories.some((repo) => repo.repositoryId === repositoryId) ?? false;
     if (!registered && !hadOpenSession && !hadPersistedSession) {
       return errorEnvelope("repo.remove", "AC_REPO_NOT_FOUND", `repository is not registered: ${repositoryId}`);
     }
     let detachedRelationIds: string[] = [];
+    let nextLandscape: Landscape | undefined;
     if (this.landscape) {
       detachedRelationIds = (await this.localStore.listCrossRepoRelations(this.landscape))
         .filter((relation) => relation.source.repositoryId === repositoryId || relation.target.repositoryId === repositoryId)
@@ -4128,8 +4136,13 @@ export class ArchctxDaemon {
       if (!validation.valid) {
         return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", validation.errors.join("; "));
       }
-      this.landscape = next;
-      await this.localStore.saveLandscape(next);
+      nextLandscape = next;
+    }
+    this.sessions.delete(repositoryId);
+    await this.localStore.deleteRepositorySession(repositoryId);
+    if (nextLandscape) {
+      this.landscape = nextLandscape;
+      await this.localStore.saveLandscape(nextLandscape);
     }
     return okEnvelope("repo.remove", {
       repositoryId,

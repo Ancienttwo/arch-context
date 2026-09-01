@@ -5906,6 +5906,55 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("repo remove rejected by landscape validation leaves every session untouched", async () => {
+    const removedRoot = tempRepo();
+    const keptRoot = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      const addedRemoved = await daemon.repoAdd(removedRoot, "web");
+      const addedKept = await daemon.repoAdd(keptRoot, "api");
+      const removedId = (addedRemoved.data as any).repository.repositoryId;
+      const keptId = (addedKept.data as any).repository.repositoryId;
+
+      // A relation between the kept repository and one that was never registered. loadLandscape
+      // validates without relations, so this reaches the saved landscape; repoRemove validates the
+      // post-removal landscape *with* its active relations, so the dangling endpoint surfaces
+      // there. Nothing about it involves the repository being removed.
+      const dangling: CrossRepoRelation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1",
+        id: "relation.dangling",
+        kind: "depends-on",
+        source: { repositoryId: keptId, nodeId: "node.api" },
+        target: { repositoryId: "repo.never-registered", nodeId: "node.ghost" },
+        via: { kind: "interface", id: "interface.ghost" },
+        intent: "api depends on an unregistered repository"
+      };
+      await store.saveCrossRepoRelation(dangling);
+      const registered = (await store.readLandscape("landscape.local"))!;
+      expect((await daemon.loadLandscape({ ...registered, relations: [dangling.id] })).ok).toBe(true);
+
+      const rejected = await daemon.repoRemove(removedId);
+      expect(rejected.ok).toBe(false);
+      expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((rejected as any).error.message).toContain("repo.never-registered");
+
+      expect([...store.repositorySessions.keys()].sort()).toEqual([removedId, keptId].sort());
+      expect((await daemon.repoList()).data).toMatchObject({ activeSessions: [removedId, keptId].sort() });
+      const stillSaved = (await store.readLandscape("landscape.local"))!;
+      expect(stillSaved.repositories.map((repo) => repo.repositoryId).sort()).toEqual([removedId, keptId].sort());
+      expect(stillSaved.relations).toEqual([dangling.id]);
+
+      await daemon.stop();
+      const restarted = await createStartedTestDaemon({ localStore: store });
+      expect((await restarted.repoList()).data).toMatchObject({ activeSessions: [removedId, keptId].sort() });
+      await restarted.stop();
+    } finally {
+      removeTempRepo(removedRoot);
+      removeTempRepo(keptRoot);
+    }
+  });
+
   test("Explorer loopback service is token-gated, read-only, and revocable", async () => {
     const root = tempRepo();
     try {
