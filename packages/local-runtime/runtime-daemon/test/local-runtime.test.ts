@@ -19,10 +19,12 @@ import { createNodeInvestigationTransport } from "../src/investigation-transport
 import {
   createNodeGithubIssueExecutor,
   githubIssueFooterMarker,
+  preflightGithubIssueDrafts,
   withGithubIssueBodyFile,
   type GithubIssueCreatedRecord,
   type GithubIssueExecutorPort,
-  type GithubIssueListedRecord
+  type GithubIssueListedRecord,
+  type GithubIssuePreflightDraft
 } from "../src/github-issue-executor";
 import {
   architectureDocumentationSourceDigest,
@@ -1900,6 +1902,26 @@ describe("local runtime foundation", () => {
         expect((result as any).error.message).toContain("secret-shaped");
       });
       expect(calls.createIssue).toHaveLength(0);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  // Issue #117 end-to-end: a benign JWT/installation-token architecture finding is publishable.
+  test("audit approve publishes benign JWT and installation-token findings instead of aborting the batch", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const draftRecords = [
+      auditDraftRecord({ title: "Validate JWT audience and issuer checks", bodyMarkdown: "## Task\n\nThe jwt verifier never checks the audience claim.\n", labels: ["area/jwt"] }),
+      auditDraftRecord({ title: "Rotate installation-token credentials safely", bodyMarkdown: "## Task\n\nDocument the `installation_token` lifecycle.\n" })
+    ];
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(true);
+        expect((result.data as any).status).toBe("issued");
+      });
+      expect(calls.createIssue).toHaveLength(2);
     } finally {
       removeTempRepo(fixture.root);
     }
@@ -5586,6 +5608,131 @@ describe("github issue executor", () => {
     }
   });
 
+  // Issue #117: the preflight's job is to stop credential *values* from being published, not to
+  // ban the vocabulary a security/architecture audit needs in order to describe them.
+  const preflightDraft = (overrides: Partial<GithubIssuePreflightDraft> = {}): GithubIssuePreflightDraft => ({
+    draftId: "draft_1",
+    draftDigest: `sha256:${"a".repeat(64)}`,
+    title: "Some advisory finding",
+    bodyMarkdown: "## Task\n\nDo the thing.\n",
+    labels: [],
+    ...overrides
+  });
+
+  const benignSecurityProseDrafts: { name: string; draft: GithubIssuePreflightDraft }[] = [
+    { name: "JWT in the title", draft: preflightDraft({ title: "Validate JWT audience and issuer checks" }) },
+    { name: "lowercase jwt in prose", draft: preflightDraft({ bodyMarkdown: "The verifier never checks the jwt expiry claim.\n" }) },
+    { name: "JWT trust-boundary prose", draft: preflightDraft({ bodyMarkdown: "## Task\n\nDocument JWT trust boundaries between the app and the daemon.\n" }) },
+    { name: "installation-token prose", draft: preflightDraft({ title: "Rotate installation-token credentials safely" }) },
+    { name: "installation_token identifier", draft: preflightDraft({ bodyMarkdown: "The `installation_token` field is read from the store and never logged.\n" }) },
+    { name: "jwt label", draft: preflightDraft({ labels: ["area/jwt", "security"] }) },
+    {
+      name: "malformed near-miss token shape",
+      draft: preflightDraft({ bodyMarkdown: "A truncated header-only value such as eyJhbGciOiJIUzI1NiJ9 is not a credential.\n" })
+    },
+    {
+      name: "dotted identifiers that are not a compact token",
+      draft: preflightDraft({ bodyMarkdown: "See packages.local-runtime.runtime-daemon for the handler.\n" })
+    }
+  ];
+
+  for (const { name, draft } of benignSecurityProseDrafts) {
+    test(`preflight publishes benign security prose: ${name}`, () => {
+      const result = preflightGithubIssueDrafts("audit_run.benign", [draft]);
+      expect(result.ok).toBe(true);
+    });
+  }
+
+  const credentialValueDrafts: { name: string; field: string; draft: GithubIssuePreflightDraft }[] = [
+    {
+      name: "compact token value in the body",
+      field: "body",
+      draft: preflightDraft({
+        bodyMarkdown:
+          "Observed value: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU\n"
+      })
+    },
+    {
+      name: "compact token value in the title",
+      field: "title",
+      draft: preflightDraft({
+        title: "Leaked eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU value"
+      })
+    },
+    {
+      name: "compact token value in a label",
+      field: "label",
+      draft: preflightDraft({
+        labels: ["eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU"]
+      })
+    },
+    {
+      name: "github token prefix",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
+    },
+    {
+      name: "bearer credential",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Request header: Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345\n" })
+    },
+    {
+      name: "private key header",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKC\n" })
+    },
+    {
+      name: "webhook secret",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "GITHUB_WEBHOOK_SECRET=hunter2hunter2hunter2\n" })
+    },
+    {
+      name: "installation token assignment",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: 'installation_token = "NOT-A-REAL-INSTALLATION-TOKEN-0000"\n' })
+    },
+    {
+      name: "installation-token assignment in mixed case",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Installation-Token: NOT-A-REAL-INSTALLATION-TOKEN-0000\n" })
+    }
+  ];
+
+  for (const { name, field, draft } of credentialValueDrafts) {
+    test(`preflight rejects a credential value: ${name}`, () => {
+      const result = preflightGithubIssueDrafts("audit_run.credential", [draft]);
+      expect(result.ok).toBe(false);
+      const reason = (result as { ok: false; reason: string }).reason;
+      expect(reason).toContain("secret-shaped");
+      expect(reason).toContain(draft.draftId);
+      expect(reason).toContain(field);
+      // The reason names the detector and the field, never the matched credential text.
+      const scanned = [draft.title, draft.bodyMarkdown, ...draft.labels].join("\n");
+      for (const word of scanned.split(/\s+/).filter((token) => token.length >= 12)) {
+        expect(reason).not.toContain(word);
+      }
+    });
+  }
+
+  test("preflight aborts the whole batch on one credential value and publishes nothing partially", () => {
+    const result = preflightGithubIssueDrafts("audit_run.batch", [
+      preflightDraft({ draftId: "draft_safe_1", title: "Validate JWT audience and issuer checks" }),
+      preflightDraft({ draftId: "draft_bad", bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" }),
+      preflightDraft({ draftId: "draft_safe_2", title: "Document installation-token lifecycle" })
+    ]);
+    expect(result.ok).toBe(false);
+    expect((result as { ok: false; reason: string }).reason).toContain("draft_bad");
+    expect((result as { ok: false; reason: string }).reason).toContain("entire run");
+  });
+
+  test("preflight passes a multi-draft batch of benign security findings", () => {
+    const result = preflightGithubIssueDrafts("audit_run.batch_ok", [
+      preflightDraft({ draftId: "draft_1", title: "Validate JWT audience and issuer checks" }),
+      preflightDraft({ draftId: "draft_2", title: "Rotate installation-token credentials safely", labels: ["area/jwt"] })
+    ]);
+    expect(result.ok).toBe(true);
+    expect((result as { ok: true; bodies: Map<string, string> }).bodies.size).toBe(2);
+  });
 });
 
 function createGitRepo(): string {

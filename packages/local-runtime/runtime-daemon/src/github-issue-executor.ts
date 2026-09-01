@@ -185,18 +185,30 @@ export async function withGithubIssueBodyFile<T>(
 }
 
 /**
- * Inlined rather than shared with `scripts/fg5-retention-staging-readback.ts` (whose
- * `SECRET_PATTERNS` this mirrors byte-for-byte): that script lives outside any package boundary
- * and extracting a shared module for one six-pattern constant would be more indirection than the
- * constant itself, matching this codebase's local-pattern-over-cross-cutting-module preference.
+ * Value-shape detectors for the publish pre-flight. Each carries a stable `id` so a rejection can
+ * name *what* tripped without echoing the matched text (see `preflightGithubIssueDrafts`).
+ *
+ * Deliberately not shared with `scripts/fg5-retention-staging-readback.ts`, whose own
+ * `SECRET_PATTERNS` scans machine-generated retention output rather than human-authored advisory
+ * prose: that script lives outside any package boundary, and the two scanners now have different
+ * false-positive budgets, so a shared module would couple two unrelated tuning decisions.
+ *
+ * The `jwt` / `installation_token` *keywords* are not secrets — an architecture audit has to be
+ * able to say "validate the JWT audience" or "rotate the installation-token" — so those two
+ * detectors match a credential value (compact-token structure, or a value in assignment context)
+ * instead of the vocabulary.
  */
-const SECRET_PATTERNS = [
-  /gh[opsu]_[A-Za-z0-9_]+/,
-  /Bearer\s+[A-Za-z0-9._-]+/i,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /GITHUB_WEBHOOK_SECRET/i,
-  /installation[_-]?token/i,
-  /jwt/i
+const SECRET_DETECTORS = [
+  { id: "github-token-prefix", pattern: /gh[opsu]_[A-Za-z0-9_]+/ },
+  { id: "bearer-credential", pattern: /Bearer\s+[A-Za-z0-9._-]+/i },
+  { id: "private-key-header", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+  { id: "github-webhook-secret", pattern: /GITHUB_WEBHOOK_SECRET/i },
+  // A value in assignment context (`installation_token = <value>`, `Installation-Token: <value>`),
+  // never the bare identifier.
+  { id: "installation-token-value", pattern: /installation[_-]?token["']?\s*[:=]\s*["']?[A-Za-z0-9._-]{16,}/i },
+  // Compact JSON web token: a `{"`-prefixed base64url header (always `eyJ`) plus two more
+  // base64url segments. Structure-based, so the word "JWT" alone never matches.
+  { id: "compact-jwt-value", pattern: /\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/ }
 ] as const;
 
 const GITHUB_ISSUE_BODY_MAX_LENGTH = 65_536;
@@ -224,7 +236,8 @@ export type GithubIssuePreflightResult =
  * Batch pre-flight for an entire approve run: scans every draft's full outbound-or-displayed
  * payload (title + body + footer marker, which are sent to `gh`, plus labels, which `createIssue`
  * never sends to `gh` and which are exposed only via `archctx audit show` — see
- * `GithubIssueExecutorPort.createIssue`'s doc comment) for secret-shaped content, and enforces
+ * `GithubIssueExecutorPort.createIssue`'s doc comment) for secret-shaped content field by field,
+ * so a rejection can name the offending field without quoting its content, and enforces
  * GitHub's issue body length limit over the title/body/footer text that is actually sent to `gh`.
  * Any single draft failing either check aborts the whole batch before any ledger event is
  * appended or any `gh` call is made — this codebase never publishes a partial batch because one
@@ -235,10 +248,19 @@ export function preflightGithubIssueDrafts(runId: string, drafts: GithubIssuePre
   for (const draft of drafts) {
     const footer = githubIssueFooterMarker(runId, draft.draftDigest);
     const body = `${draft.bodyMarkdown.replace(/\s+$/, "")}\n\n${footer}\n`;
-    const payload = [draft.title, body, ...draft.labels].join("\n");
-    for (const pattern of SECRET_PATTERNS) {
-      if (pattern.test(payload)) {
-        return { ok: false, reason: `github issue draft ${draft.draftId} matched a secret-shaped pattern; publishing aborted for the entire run` };
+    const scanned: { field: "title" | "body" | "label"; text: string }[] = [
+      { field: "title", text: draft.title },
+      { field: "body", text: body },
+      ...draft.labels.map((label) => ({ field: "label" as const, text: label }))
+    ];
+    for (const { field, text } of scanned) {
+      for (const detector of SECRET_DETECTORS) {
+        if (detector.pattern.test(text)) {
+          return {
+            ok: false,
+            reason: `github issue draft ${draft.draftId} matched a secret-shaped pattern (detector ${detector.id}) in its ${field}; publishing aborted for the entire run`
+          };
+        }
       }
     }
     if (body.length > GITHUB_ISSUE_BODY_MAX_LENGTH) {
