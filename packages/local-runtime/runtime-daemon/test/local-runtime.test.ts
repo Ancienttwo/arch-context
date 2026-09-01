@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput, type CommandInvestigationRunnerTransportResult } from "@archcontext/core/agent-orchestrator";
@@ -5112,6 +5112,74 @@ describe("local runtime foundation", () => {
       removeTempRepo(first);
       removeTempRepo(second);
       removeTempRepo(third);
+    }
+  });
+
+  test("repo remove survives a daemon restart and detaches dependent landscape state", async () => {
+    const removedRoot = tempRepo();
+    const keptRoot = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      const addedRemoved = await daemon.repoAdd(removedRoot, "web");
+      const addedKept = await daemon.repoAdd(keptRoot, "api");
+      const removedId = (addedRemoved.data as any).repository.repositoryId;
+      const keptId = (addedKept.data as any).repository.repositoryId;
+
+      const outbound: CrossRepoRelation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1",
+        id: "relation.outbound",
+        kind: "calls",
+        source: { repositoryId: removedId, nodeId: "node.web" },
+        target: { repositoryId: keptId, nodeId: "node.api" },
+        via: { kind: "interface", id: "interface.checkout" },
+        intent: "web calls api"
+      };
+      const inbound: CrossRepoRelation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1",
+        id: "relation.inbound",
+        kind: "subscribes",
+        source: { repositoryId: keptId, nodeId: "node.api" },
+        target: { repositoryId: removedId, nodeId: "node.web" },
+        via: { kind: "event", id: "event.checkout-completed" },
+        intent: "api subscribes to web"
+      };
+      await store.saveCrossRepoRelation(outbound);
+      await store.saveCrossRepoRelation(inbound);
+      const registered = (await store.readLandscape("landscape.local"))!;
+      expect(registered.scope?.defaultActiveRepositories).toEqual([removedId, keptId]);
+      const loaded = await daemon.loadLandscape({ ...registered, relations: [inbound.id, outbound.id] });
+      expect(loaded.ok).toBe(true);
+
+      const removal = await daemon.repoRemove(removedId);
+      expect(removal.ok).toBe(true);
+      expect(removal.data).toMatchObject({
+        repositoryId: removedId,
+        removed: true,
+        sessionRemoved: true,
+        detachedRelationIds: [inbound.id, outbound.id]
+      });
+
+      const saved = (await store.readLandscape("landscape.local"))!;
+      expect(saved.repositories.map((repo) => repo.repositoryId)).toEqual([keptId]);
+      expect(saved.scope?.defaultActiveRepositories).toEqual([keptId]);
+      expect(saved.relations).toEqual([]);
+      expect(validateLandscape(saved, await store.listCrossRepoRelations(saved))).toEqual({ valid: true, errors: [] });
+      expect([...store.repositorySessions.keys()]).toEqual([keptId]);
+      expect([...store.crossRepoEdges.keys()].sort()).toEqual([inbound.id, outbound.id]);
+
+      await daemon.stop();
+      const restarted = await createStartedTestDaemon({ localStore: store });
+      expect((await restarted.repoList()).data).toMatchObject({ activeSessions: [keptId] });
+
+      const unknown = await restarted.repoRemove(removedId);
+      expect(unknown.ok).toBe(false);
+      expect((unknown as any).error.code).toBe("AC_REPO_NOT_FOUND");
+      expect([...store.repositorySessions.keys()]).toEqual([keptId]);
+      await restarted.stop();
+    } finally {
+      removeTempRepo(removedRoot);
+      removeTempRepo(keptRoot);
     }
   });
 

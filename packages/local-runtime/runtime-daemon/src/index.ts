@@ -4035,18 +4035,56 @@ export class ArchctxDaemon {
     } as unknown as Json);
   }
 
+  /**
+   * Removal is durable and leaves the saved landscape self-consistent. The persisted
+   * `repository_sessions` row is deleted (otherwise `restoreRepositorySessions` resurrects the
+   * repository on the next daemon start), the repository is dropped from `scope`'s default active
+   * set, and every stored cross-repo relation touching it is detached from `landscape.relations`.
+   * The `cross_repo_edges` rows themselves are kept: they are architectural history, and
+   * `listCrossRepoRelations(landscape)` already filters to the active landscape's relation IDs, so
+   * detaching is enough to keep them out of live context. Relation IDs that resolve to no stored
+   * relation are left alone — there is nothing to check them against.
+   */
   async repoRemove(repositoryId: string): Promise<JsonEnvelope> {
     this.assertRunning();
-    this.sessions.delete(repositoryId);
+    const hadOpenSession = this.sessions.delete(repositoryId);
+    const hadPersistedSession = await this.localStore.deleteRepositorySession(repositoryId);
+    const registered = this.landscape?.repositories.some((repo) => repo.repositoryId === repositoryId) ?? false;
+    if (!registered && !hadOpenSession && !hadPersistedSession) {
+      return errorEnvelope("repo.remove", "AC_REPO_NOT_FOUND", `repository is not registered: ${repositoryId}`);
+    }
+    let detachedRelationIds: string[] = [];
     if (this.landscape) {
-      this.landscape = {
+      detachedRelationIds = (await this.localStore.listCrossRepoRelations(this.landscape))
+        .filter((relation) => relation.source.repositoryId === repositoryId || relation.target.repositoryId === repositoryId)
+        .map((relation) => relation.id)
+        .sort();
+      const detached = new Set(detachedRelationIds);
+      const next: Landscape = {
         ...this.landscape,
         repositories: this.landscape.repositories.filter((repo) => repo.repositoryId !== repositoryId),
-        relations: this.landscape.relations
+        relations: this.landscape.relations.filter((relationId) => !detached.has(relationId)),
+        ...(this.landscape.scope === undefined ? {} : {
+          scope: {
+            ...this.landscape.scope,
+            defaultActiveRepositories: (this.landscape.scope.defaultActiveRepositories ?? [])
+              .filter((activeId) => activeId !== repositoryId)
+          }
+        })
       };
-      await this.localStore.saveLandscape(this.landscape);
+      const validation = validateLandscape(next, await this.localStore.listCrossRepoRelations(next));
+      if (!validation.valid) {
+        return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", validation.errors.join("; "));
+      }
+      this.landscape = next;
+      await this.localStore.saveLandscape(next);
     }
-    return okEnvelope("repo.remove", { repositoryId, removed: true } as Json);
+    return okEnvelope("repo.remove", {
+      repositoryId,
+      removed: true,
+      sessionRemoved: hadOpenSession || hadPersistedSession,
+      detachedRelationIds
+    } as unknown as Json);
   }
 
   async loadLandscape(landscape: Landscape): Promise<JsonEnvelope> {

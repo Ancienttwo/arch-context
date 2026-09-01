@@ -1793,6 +1793,44 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
 
+  test("repository sessions are deleted durably and leave unrelated sessions intact", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-repository-session-delete-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const first = new SqliteLocalStore(databasePath);
+    try {
+      await first.migrate();
+      await first.saveRepositorySession({
+        repositoryId: "repo.removed",
+        root: join(root, "removed"),
+        headSha: "abc123",
+        worktreeDigest: digestJson({ worktree: "removed" } as unknown as Json),
+        updatedAt: "2026-06-25T03:00:00.000Z"
+      });
+      await first.saveRepositorySession({
+        repositoryId: "repo.kept",
+        root: join(root, "kept"),
+        headSha: "def456",
+        worktreeDigest: digestJson({ worktree: "kept" } as unknown as Json),
+        updatedAt: "2026-06-25T03:00:01.000Z"
+      });
+      await expect(first.deleteRepositorySession("repo.removed")).resolves.toBe(true);
+      await expect(first.deleteRepositorySession("repo.removed")).resolves.toBe(false);
+      await expect(first.deleteRepositorySession("repo.never-registered")).resolves.toBe(false);
+      first.close();
+
+      const second = new SqliteLocalStore(databasePath);
+      try {
+        await second.migrate();
+        expect((await second.listRepositorySessions()).map((session) => session.repositoryId)).toEqual(["repo.kept"]);
+      } finally {
+        second.close();
+      }
+    } finally {
+      first.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
   test("runtime job queue applies priority, queue caps, per-repository concurrency, and local stats", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-hardening-"));
     const store = new SqliteLocalStore(join(root, "runtime.sqlite"));

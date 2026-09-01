@@ -117,6 +117,10 @@ export class TestLocalStore implements RuntimeLocalStore {
     );
   }
 
+  async deleteRepositorySession(repositoryId: string): Promise<boolean> {
+    return this.repositorySessions.delete(repositoryId);
+  }
+
   async enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult> {
     if (input.job.status !== "queued") throw new Error("runtime-agent-job-enqueue-requires-queued-status");
     const coalesceKey = input.coalesceKey ?? testRuntimeAgentJobDefaultCoalesceKey(input.job, input.analysisKind);

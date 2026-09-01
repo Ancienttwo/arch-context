@@ -1500,6 +1500,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recoverPendingSnapshots(): number;
   saveRepositorySession(session: PersistedRepositorySession): Promise<void>;
   listRepositorySessions(): Promise<PersistedRepositorySession[]>;
+  /** Resolves to whether a persisted session existed for `repositoryId` before the delete. */
+  deleteRepositorySession(repositoryId: string): Promise<boolean>;
   enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult>;
   listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]>;
   queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats>;
@@ -1750,6 +1752,14 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       worktreeDigest: String(row.worktree_digest),
       updatedAt: String(row.updated_at)
     }));
+  }
+
+  async deleteRepositorySession(repositoryId: string): Promise<boolean> {
+    const db = await this.database();
+    const existing = db.prepare("SELECT repository_id FROM repository_sessions WHERE repository_id = ?").get(repositoryId);
+    if (!existing) return false;
+    db.prepare("DELETE FROM repository_sessions WHERE repository_id = ?").run(repositoryId);
+    return true;
   }
 
   async enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult> {
