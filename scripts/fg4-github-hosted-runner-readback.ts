@@ -514,7 +514,7 @@ jobs:
       - name: Install runtime dependencies
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.10
+          bun-version: 1.4.0
 
       - name: Install workspace
         run: bun install --frozen-lockfile

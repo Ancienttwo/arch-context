@@ -375,6 +375,39 @@ describe("entity-summary capability documentation projection", () => {
     expect(movedAgain.files.map((file) => file.body)).toEqual(moved.files.map((file) => file.body));
   });
 
+  test("projection-owned CodeGraph reindex churn sticks, while source and model authority changes do not", () => {
+    const first = render();
+    const existingFiles = [...first.files.map(({ path, body }) => ({ path, body })), first.manifest];
+    const reproject = (base: typeof provenance, overrides: Partial<typeof provenance>) => {
+      const { schemaVersion: _schemaVersion, projectionInputDigest: _projectionInputDigest, ...payload } = base;
+      return architectureDocumentationProjectionProvenance({ ...payload, ...overrides });
+    };
+    const reindexed = reproject(provenance, {
+      codeGraphDigest: `sha256:${"b".repeat(64)}`,
+      indexedWorktreeDigest: `sha256:${"c".repeat(64)}`
+    });
+    const projectionOwnedChurn = render({ existingFiles, provenance: reindexed });
+    expect(projectionOwnedChurn.drift.ok).toBe(true);
+    expect(projectionOwnedChurn.provenance).toEqual(first.provenance);
+    expect(projectionOwnedChurn.projectionDigest).toBe(first.projectionDigest);
+
+    const sourceChanged = reproject(reindexed, {
+      worktreeDigest: `sha256:${"d".repeat(64)}`,
+      sourceTreeDigest: `sha256:${"e".repeat(64)}`
+    });
+    const sourceDrift = render({ existingFiles, provenance: sourceChanged });
+    expect(sourceDrift.drift.ok).toBe(false);
+    expect(sourceDrift.provenance).toEqual(sourceChanged);
+
+    const modelChanged = reproject(reindexed, {
+      worktreeDigest: `sha256:${"f".repeat(64)}`,
+      modelDigest: `sha256:${"0".repeat(64)}`
+    });
+    const modelDrift = render({ existingFiles, provenance: modelChanged });
+    expect(modelDrift.drift.ok).toBe(false);
+    expect(modelDrift.provenance).toEqual(modelChanged);
+  });
+
   test("a covered source change re-stamps in the manifest and leaves the document byte-identical", () => {
     // The churn this split exists to kill. An edit inside the capability's footprint that changes
     // nothing the document asserts must still re-stamp: the stamp records that this render read the

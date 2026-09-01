@@ -1,18 +1,26 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { withNpmPublishCredentials } from "./npm-publish-credentials-lib.mjs";
+import {
+  CONTRACTS_PUBLIC_EXPORTS,
+  CONTRACTS_PUBLIC_FILES,
+  CONTRACTS_PUBLIC_PACKAGE_NAME,
+  CONTRACTS_SOURCE_FILES,
+  CONTRACTS_SOURCE_PACKAGE_NAME,
+  preparePublicContractsReleaseStage
+} from "./contracts-release-stage.mjs";
 
 const root = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const packageRoot = join(root, "packages/contracts");
 const packageManifestPath = join(packageRoot, "package.json");
 const DEFAULT_ENV_FILE = "_ops/env/archctx.npm.env";
 const registry = readFlag("--registry") ?? "https://registry.npmjs.org/";
-const sourcePackageName = "@archcontext/contracts";
-const publishPackageName = readFlag("--package-name") ?? process.env.ARCHCONTEXT_CONTRACTS_NPM_NAME ?? "archctx-contracts";
+const sourcePackageName = CONTRACTS_SOURCE_PACKAGE_NAME;
+const publishPackageName = readFlag("--package-name") ?? process.env.ARCHCONTEXT_CONTRACTS_NPM_NAME ?? CONTRACTS_PUBLIC_PACKAGE_NAME;
 const envFileFlag = readFlag("--npm-env-file") ?? readFlag("--env-file") ?? process.env.ARCHCTX_CONTRACTS_NPM_ENV_FILE ?? process.env.ARCHCTX_NPM_ENV_FILE ?? DEFAULT_ENV_FILE;
 const otp = readFlag("--otp") ?? process.env.NPM_CONFIG_OTP;
 const json = process.argv.includes("--json");
@@ -121,10 +129,10 @@ function buildContext(env) {
     publishName: publishPackageName,
     version: manifest.version,
     license: "Apache-2.0",
-    sourceFiles: ["src", "fixtures"],
-    publishFiles: ["src", "fixtures", "schemas"],
-    exportRoot: "./src/index.ts",
-    schemaExportRoot: "./schemas/*"
+    sourceFiles: CONTRACTS_SOURCE_FILES,
+    publishFiles: CONTRACTS_PUBLIC_FILES,
+    exportRoot: CONTRACTS_PUBLIC_EXPORTS["."],
+    schemaExportRoot: CONTRACTS_PUBLIC_EXPORTS["./schemas/*"]
   };
   const pack = npmPackDryRun(manifest, env);
   const whoami = run("npm", ["whoami", "--registry", registry], { env });
@@ -249,24 +257,11 @@ function readRegistryPackage(name, version, env) {
 }
 
 function preparePublishPackage(manifest) {
-  const workspace = mkdtempSync(join(tmpdir(), "archctx-contracts-publish."));
-  cpSync(join(packageRoot, "src"), join(workspace, "src"), { recursive: true });
-  cpSync(join(packageRoot, "fixtures"), join(workspace, "fixtures"), { recursive: true });
-  cpSync(join(root, "schemas"), join(workspace, "schemas"), { recursive: true });
-  writeFileSync(join(workspace, "package.json"), `${JSON.stringify({
-    name: publishPackageName,
-    version: manifest.version,
-    private: false,
-    type: manifest.type,
-    license: manifest.license,
-    files: ["src", "fixtures", "schemas"],
-    publishConfig: manifest.publishConfig,
-    exports: {
-      ".": "./src/index.ts",
-      "./schemas/*": "./schemas/*"
-    }
-  }, null, 2)}\n`, "utf8");
-  return workspace;
+  return preparePublicContractsReleaseStage({
+    root,
+    sourceManifest: manifest,
+    packageName: publishPackageName
+  }).workspace;
 }
 
 function cleanupPublishPackage(workspace) {

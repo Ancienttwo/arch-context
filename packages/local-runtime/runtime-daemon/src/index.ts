@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import {
   addRepositoryToLandscape,
   bindRepository,
+  canonicalRepositoryRoot,
   computeReviewWorktreeDigest,
   computeWorktreeDigest,
   createLandscape,
@@ -91,6 +92,7 @@ import {
   loadCapabilitySourceScaleSignals,
   loadNativeModelFromArchContext,
   renderArchitectureDocumentationProjection,
+  REPO_HARNESS_PROJECTION_PROFILE,
   type ArchitectureProjectionManifestVerifiedAgainstReadback,
   type CapabilitySourceChangeSet,
   type CapabilitySourceChangeSetForCommit,
@@ -102,7 +104,8 @@ import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDr
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
-import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
+import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -833,7 +836,8 @@ export interface RuntimeDaemonClient {
   planUpdate(root: string, input: RuntimePlanUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
-  reconcileProjectionApply(root: string, lookupKey: string): Promise<JsonEnvelope> | JsonEnvelope;
+  inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> | JsonEnvelope;
+  recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerProject(root: string, input?: RuntimeLedgerProjectInput): Promise<JsonEnvelope> | JsonEnvelope;
@@ -2652,12 +2656,58 @@ export class ArchctxDaemon {
     });
   }
 
-  async reconcileProjectionApply(root: string, lookupKey: string): Promise<JsonEnvelope> {
+  async inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> {
     this.assertRunning();
+    await this.openSession(root);
+    const inspection = await this.localStore.inspectProjectionApplyReceipt(lookupKey);
+    return okEnvelope("projection.inspect-receipt", {
+      found: inspection !== undefined,
+      ...(inspection ?? {})
+    } as unknown as Json);
+  }
+
+  async recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const intentIssues = projectionApplyRecoveryIntentInvariantIssues(intent);
+    if (intentIssues.length > 0) {
+      return errorEnvelope("projection.recover", "AC_SCHEMA_INVALID", `projection recovery intent invariant failed: ${intentIssues.join("; ")}`);
+    }
     return this.withWriter(async () => {
-      await this.openSession(root);
-      const consumption = await this.localStore.consumeProjectionApplyReceipt(lookupKey);
-      return okEnvelope("projection.reconcile", {
+      const session = await this.openSession(root);
+      const inspection = await this.localStore.inspectProjectionApplyReceipt(intent.receipt.lookupKey);
+      if (!inspection || inspection.receipt.identity.applyId !== intent.receipt.applyId) {
+        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection apply receipt was not found");
+      }
+      if (inspection.deliveryStatus === "delivered") {
+        if (!inspection.recoveryProof) {
+          return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "committed projection receipt was delivered without a recovery proof");
+        }
+        return okEnvelope("projection.recover", {
+          found: true,
+          receipt: inspection.receipt,
+          proof: { ...inspection.recoveryProof, deliveryStatus: "already-delivered" },
+          refreshSignalsDelivered: false
+        } as unknown as Json);
+      }
+      let fixedPoint: RuntimeProjectionRecoveryFixedPoint;
+      try {
+        fixedPoint = buildRuntimeProjectionRecoveryFixedPoint(root);
+      } catch (error) {
+        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+      }
+      const issues = runtimeProjectionRecoveryFixedPointIssues(inspection.receipt, fixedPoint);
+      if (issues.length > 0) {
+        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", `projection recovery proof failed: ${issues.join("; ")}`);
+      }
+      const proof = createRuntimeProjectionRecoveryProof(intent, inspection.receipt, fixedPoint);
+      const currentWorktreeDigest = runtimeWorktreeDigest(root, "architecture-documentation-projection");
+      if (session.workspace.repositoryId !== proof.current.snapshot.repositoryId
+        || session.workspace.headSha !== proof.current.snapshot.headSha
+        || currentWorktreeDigest !== proof.current.snapshot.worktreeDigest) {
+        return errorEnvelope("projection.recover", "AC_PRECONDITION_FAILED", "projection recovery authority changed before delivery");
+      }
+      const consumption = await this.localStore.consumeProjectionApplyReceiptRecovery(proof);
+      return okEnvelope("projection.recover", {
         found: consumption !== undefined,
         ...(consumption ?? {})
       } as unknown as Json);
@@ -5011,8 +5061,12 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("applyUpdate", [root, input]);
   }
 
-  reconcileProjectionApply(root: string, lookupKey: string) {
-    return this.call("reconcileProjectionApply", [root, lookupKey]);
+  inspectProjectionApplyReceipt(root: string, lookupKey: string) {
+    return this.call("inspectProjectionApplyReceipt", [root, lookupKey]);
+  }
+
+  recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1) {
+    return this.call("recoverProjectionApply", [root, intent]);
   }
 
   ledgerState(root: string) {
@@ -5380,8 +5434,10 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.completeTask(params[0] as string, params[1] as RuntimeCompleteTaskInput | undefined);
       case "applyUpdate":
         return this.daemon.applyUpdate(params[0] as string, params[1] as RuntimeApplyUpdateInput);
-      case "reconcileProjectionApply":
-        return this.daemon.reconcileProjectionApply(params[0] as string, params[1] as string);
+      case "inspectProjectionApplyReceipt":
+        return this.daemon.inspectProjectionApplyReceipt(params[0] as string, params[1] as string);
+      case "recoverProjectionApply":
+        return this.daemon.recoverProjectionApply(params[0] as string, params[1] as ProjectionApplyRecoveryIntentV1);
       case "ledgerState":
         return this.daemon.ledgerState(params[0] as string);
       case "ledgerDrift":
@@ -5638,6 +5694,154 @@ function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfi
     default:
       throw new RuntimeUpdateInputError(`unsupported worktree digest profile: ${String(profile)}`);
   }
+}
+
+type RuntimeProjectionRecoveryFixedPoint = {
+  projection: ReturnType<typeof renderArchitectureDocumentationProjection>;
+  snapshot: ProjectionApplyRecoveryProofV1["current"]["snapshot"];
+  ownedOutputDigest: ProjectionApplyRecoveryProofV1["current"]["ownedOutputDigest"];
+};
+
+/** Rebuilds recovery semantics from repository authority while the daemon owns the writer. */
+function buildRuntimeProjectionRecoveryFixedPoint(root: string): RuntimeProjectionRecoveryFixedPoint {
+  const loaded = loadArchitectureDocumentationInputs(root, REPO_HARNESS_PROJECTION_PROFILE);
+  const sourceDigest = digestJson({
+    model: loaded.model,
+    profile: REPO_HARNESS_PROJECTION_PROFILE,
+    decisions: loaded.decisions.map((decision) => ({ id: decision.id, path: decision.path, title: decision.title, status: decision.status }))
+  } as unknown as Json);
+  const codeGraphInputs = prepareArchitectureDocumentationProjectionSnapshot(root, loaded.model);
+  const provenance = codeGraphInputs.provenance;
+  const projection = renderArchitectureDocumentationProjection({
+    model: loaded.model,
+    profile: REPO_HARNESS_PROJECTION_PROFILE,
+    decisions: loaded.decisions,
+    existingFiles: loaded.existingFiles,
+    verifiedAgainst: assertArchitectureProjectionVerifiedAgainst({
+      branch: readCurrentBranch(root),
+      commit: readHeadSha(root),
+      committedAt: readHeadCommittedAt(root)
+    }),
+    sourceChangesSinceStamp: loadCapabilitySourceChangesSinceStamps(root, loaded.model),
+    sourceScaleSignals: loadCapabilitySourceScaleSignals(root, loaded.model),
+    importGraphs: codeGraphInputs.importGraphs,
+    selectorEvidence: codeGraphInputs.selectorEvidence,
+    provenance,
+    sourceDigest,
+    generatedAt: new Date(0).toISOString(),
+    refreshContext: {
+      repositoryId: repositoryFingerprint(root),
+      workspaceId: runtimeProjectionWorkspaceId(root),
+      headSha: provenance.baseHeadSha,
+      worktreeDigest: provenance.worktreeDigest
+    }
+  });
+  const snapshot = {
+    repositoryId: repositoryFingerprint(root),
+    workspaceId: runtimeProjectionWorkspaceId(root),
+    headSha: readHeadSha(root),
+    worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loaded.model),
+    baseHeadSha: projection.provenance.baseHeadSha,
+    sourceTreeDigest: projection.provenance.sourceTreeDigest,
+    modelDigest: projection.provenance.modelDigest,
+    codeGraphDigest: projection.provenance.codeGraphDigest,
+    indexedWorktreeDigest: projection.provenance.indexedWorktreeDigest,
+    projectionInputDigest: projection.provenance.projectionInputDigest,
+    rendererVersion: projection.provenance.rendererVersion,
+    layoutVersion: projection.provenance.layoutVersion,
+    generatedFrom: projection.provenance.generatedFrom
+  } as ProjectionApplyRecoveryProofV1["current"]["snapshot"];
+  return {
+    projection,
+    snapshot,
+    ownedOutputDigest: runtimeProjectionOwnedOutputDigest({ files: [...projection.files, projection.manifest] })
+  };
+}
+
+function runtimeProjectionRecoveryFixedPointIssues(
+  receipt: ProjectionApplyReceiptV1,
+  fixedPoint: RuntimeProjectionRecoveryFixedPoint
+): string[] {
+  const binding = receipt.recovery;
+  if (!binding) return ["committed projection receipt does not support semantic recovery"];
+  const issues: string[] = [];
+  const projection = fixedPoint.projection;
+  if (!projection.drift.ok || projection.rejected.length > 0) issues.push("projection owned outputs are not a clean fixed point");
+  if (projection.majorChange.mode !== "none" || projection.majorChange.reasonCodes.length > 0 || projection.majorChange.affectedNodeIds.length > 0) {
+    issues.push("current architecture state contains an unresolved major change");
+  }
+  if (projection.refreshSignals.length > 0) issues.push("current architecture state has unresolved refresh signals");
+  for (const field of ["repositoryId", "workspaceId", "headSha", "worktreeDigest"] as const) {
+    if (fixedPoint.snapshot[field] !== binding.originalExpectedSnapshot[field]) {
+      issues.push(`current projection snapshot differs from the approved snapshot: ${field}`);
+    }
+  }
+  if (binding.generatedFrom.codeGraphStatus !== "ready") issues.push("approved CodeGraph snapshot is unavailable");
+  if (projection.provenance.generatedFrom.codeGraphStatus !== "ready") issues.push("current CodeGraph snapshot is unavailable");
+  if (digestJson(projection.architectureDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)) {
+    issues.push("current model, source, flow-proof, or projection digest differs from the approved result");
+  }
+  if (projection.provenance.projectionInputDigest !== receipt.result.outputSnapshot.projectionInputDigest
+    || projection.provenance.codeGraphDigest !== receipt.result.outputSnapshot.codeGraphDigest
+    || projection.provenance.rendererVersion !== binding.rendererVersion
+    || projection.provenance.layoutVersion !== binding.layoutVersion
+    || digestJson(projection.provenance.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
+    issues.push("current renderer, layout, or CodeGraph provenance differs from the approved result");
+  }
+  if (fixedPoint.ownedOutputDigest !== binding.ownedOutputDigest) issues.push("current projection-owned output bytes differ from the approved result");
+  if (fixedPoint.snapshot.generatedFrom.codeGraphStatus !== "ready") issues.push("current proof snapshot requires CodeGraph ready");
+  return issues;
+}
+
+function createRuntimeProjectionRecoveryProof(
+  intent: ProjectionApplyRecoveryIntentV1,
+  receipt: ProjectionApplyReceiptV1,
+  fixedPoint: RuntimeProjectionRecoveryFixedPoint
+): ProjectionApplyRecoveryProofV1 {
+  const current = {
+    snapshot: fixedPoint.snapshot,
+    resultingDigests: fixedPoint.projection.architectureDigests,
+    ownedOutputDigest: fixedPoint.ownedOutputDigest,
+    fixedPointDigest: digestJson({
+      schemaVersion: "archcontext.projection-apply-recovery-fixed-point/v1",
+      snapshot: fixedPoint.snapshot,
+      resultingDigests: fixedPoint.projection.architectureDigests,
+      ownedOutputDigest: fixedPoint.ownedOutputDigest,
+      drift: fixedPoint.projection.drift,
+      majorChange: fixedPoint.projection.majorChange,
+      refreshSignalIds: fixedPoint.projection.refreshSignals.map((signal) => signal.signalId)
+    } as unknown as Json)
+  } as ProjectionApplyRecoveryProofV1["current"];
+  const payload = {
+    schemaVersion: "archcontext.projection-apply-recovery-proof/v1" as const,
+    requestId: intent.requestId,
+    requestDigest: digestJson(intent as unknown as Json) as ProjectionApplyRecoveryProofV1["requestDigest"],
+    receipt: {
+      lookupKey: receipt.identity.lookupKey,
+      applyId: receipt.identity.applyId,
+      receiptDigest: receipt.result.receiptDigest
+    },
+    acceptedChange: receipt.identity.acceptedChange,
+    expectedResultingDigests: receipt.recovery!.expectedResultingDigests,
+    current
+  };
+  return {
+    ...payload,
+    proofDigest: projectionApplyRecoveryProofDigest(payload),
+    deliveryStatus: "delivered"
+  };
+}
+
+function runtimeProjectionOwnedOutputDigest(projection: { files: Array<{ path: string; body: string }> }): `sha256:${string}` {
+  return digestJson({
+    schemaVersion: "archcontext.projection-owned-output/v1",
+    files: projection.files.map((file) => ({ path: file.path, body: file.body }))
+      .sort((left, right) => left.path.localeCompare(right.path))
+  } as unknown as Json) as `sha256:${string}`;
+}
+
+function runtimeProjectionWorkspaceId(root: string): string {
+  return `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as unknown as Json).replace(/^sha256:/, "").slice(0, 16)}`;
 }
 
 function isArchContextGeneratedProjectionPath(path: string): boolean {

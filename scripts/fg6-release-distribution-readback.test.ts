@@ -225,8 +225,8 @@ describe("fg6 release distribution readback", () => {
           status: "published",
           version: "0.1.1",
           license: "Apache-2.0",
-          engines: { node: ARCHCONTEXT_NODE_RANGE, bun: ">=1.3.10" },
-          packageManager: "bun@1.3.10",
+          engines: { node: ARCHCONTEXT_NODE_RANGE, bun: ">=1.4.0" },
+          packageManager: "bun@1.4.0",
           bin: { archctx: "./bin/archctx.mjs" }
         }
       ],

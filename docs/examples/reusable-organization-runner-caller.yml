@@ -21,8 +21,9 @@ jobs:
       expected_repository: ${{ github.repository }}
       expected_head_sha: ${{ github.event.pull_request.head.sha }}
       expected_head_tree_oid: <head tree OID from Challenge>
-      runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.4.7.tgz
+      # 0.4.8 remains unreleased; this fails closed until the exact artifact is published.
+      runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.4.8.tgz
       runtime_artifact_digest: sha256:<release-digest>
-      runtime_version: "0.4.7"
+      runtime_version: "0.4.8"
       fail_on: blocking
       fork_pr_mode: unsupported

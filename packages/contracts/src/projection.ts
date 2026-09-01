@@ -4,6 +4,10 @@ export const PROJECTION_REQUEST_SCHEMA_VERSION = "archcontext.projection-request
 export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v2" as const;
 export const PROJECTION_APPLY_IDENTITY_SCHEMA_VERSION = "archcontext.projection-apply-identity/v1" as const;
 export const PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION = "archcontext.projection-apply-receipt/v1" as const;
+export const PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION = "archcontext.projection-apply-recovery-binding/v1" as const;
+export const PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-intent/v1" as const;
+export const PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION = "archcontext.projection-apply-recovery-proof/v1" as const;
+export const PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION = "archcontext.projection-apply-recovery-result/v1" as const;
 export const ARCHITECTURE_REFRESH_SIGNAL_SCHEMA_VERSION = "archcontext.architecture-refresh-signal/v1" as const;
 export const ARCHCTX_CAPABILITIES_SCHEMA_VERSION = "archcontext.capabilities/v1" as const;
 export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v4" as const;
@@ -55,6 +59,7 @@ export const ARCHCTX_FEATURES = [
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
   "projection-apply-receipt-v1",
+  "projection-apply-recovery-v1",
   "projection-protocol-v2"
 ] as const;
 
@@ -180,6 +185,74 @@ export interface ProjectionApplyReceiptV1 {
   schemaVersion: typeof PROJECTION_APPLY_RECEIPT_SCHEMA_VERSION;
   identity: ProjectionApplyIdentityV1;
   result: ProjectionResultV2;
+  /**
+   * Present only on receipts written after recovery protocol v1 shipped. Receipts created by
+   * v0.4.7 remain inspectable, but cannot be recovered because they never recorded this exact
+   * approval binding.
+   */
+  recovery?: ProjectionApplyRecoveryBindingV1;
+}
+
+/** Immutable approval metadata recorded with a new committed apply receipt, never inferred later. */
+export interface ProjectionApplyRecoveryBindingV1 {
+  schemaVersion: typeof PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION;
+  targets: ProjectionTarget[];
+  changedPaths: string[];
+  originalExpectedSnapshot: ProjectionExpectedSnapshotV1;
+  expectedResultingDigests: ArchitectureDigestSetV1;
+  rendererVersion: typeof ARCHITECTURE_DOCS_RENDERER_VERSION;
+  layoutVersion: "archcontext.docs-layout/v1";
+  generatedFrom: ProjectionSnapshotV1["generatedFrom"];
+  ownedOutputDigest: Sha256Digest;
+  receiptDigest: Sha256Digest;
+}
+
+/**
+ * The only client-supplied recovery input. The daemon resolves every semantic field from the
+ * committed receipt and repository authority while it holds the writer boundary.
+ */
+export interface ProjectionApplyRecoveryIntentV1 {
+  schemaVersion: typeof PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION;
+  requestId: string;
+  profile: "repo-harness/v1";
+  receipt: {
+    lookupKey: Sha256Digest;
+    applyId: Sha256Digest;
+  };
+}
+
+export type ProjectionApplyRecoveryDeliveryStatus = "delivered" | "already-delivered";
+
+/**
+ * A semantic proof created only after the CLI has rebuilt the current projection fixed point.
+ * `proofDigest` intentionally excludes deliveryStatus so an idempotent repeat can change only
+ * that explicitly declared field.
+ */
+export interface ProjectionApplyRecoveryProofV1 {
+  schemaVersion: typeof PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION;
+  requestId: string;
+  requestDigest: Sha256Digest;
+  proofDigest: Sha256Digest;
+  deliveryStatus: ProjectionApplyRecoveryDeliveryStatus;
+  receipt: {
+    lookupKey: Sha256Digest;
+    applyId: Sha256Digest;
+    receiptDigest: Sha256Digest;
+  };
+  acceptedChange: AcceptedArchitectureChangeReferenceV1;
+  expectedResultingDigests: ArchitectureDigestSetV1;
+  current: {
+    snapshot: ProjectionSnapshotV1;
+    resultingDigests: ArchitectureDigestSetV1;
+    ownedOutputDigest: Sha256Digest;
+    fixedPointDigest: Sha256Digest;
+  };
+}
+
+export interface ProjectionApplyRecoveryResultV1 {
+  schemaVersion: typeof PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION;
+  proof: ProjectionApplyRecoveryProofV1;
+  refreshSignals: ArchitectureRefreshSignalV1[];
 }
 
 export interface ArchctxCapabilitiesV1 {
@@ -365,7 +438,139 @@ export function projectionApplyReceiptInvariantIssues(input: ProjectionApplyRece
   if (digestJson(input.result.applyReceipt as unknown as Json) !== digestJson(input.identity as unknown as Json)) {
     issues.push("projection apply receipt result must carry the same apply identity");
   }
+  if (input.recovery) issues.push(...projectionApplyRecoveryBindingInvariantIssues(input.recovery, input));
   return issues;
+}
+
+export function projectionApplyRecoveryBindingInvariantIssues(
+  binding: ProjectionApplyRecoveryBindingV1,
+  receipt?: ProjectionApplyReceiptV1
+): string[] {
+  const issues = [
+    ...sortedUniqueIssues("recovery.targets", binding.targets),
+    ...sortedUniqueIssues("recovery.changedPaths", binding.changedPaths)
+  ];
+  if (binding.schemaVersion !== PROJECTION_APPLY_RECOVERY_BINDING_SCHEMA_VERSION) {
+    issues.push("recovery schemaVersion is invalid");
+  }
+  if (binding.targets.length === 0) issues.push("recovery targets must contain at least one projection target");
+  if (receipt) {
+    if (binding.receiptDigest !== receipt.result.receiptDigest) {
+      issues.push("recovery receiptDigest must match the committed result receiptDigest");
+    }
+    if (binding.originalExpectedSnapshot.repositoryId !== receipt.result.inputSnapshot.repositoryId
+      || binding.originalExpectedSnapshot.workspaceId !== receipt.result.inputSnapshot.workspaceId
+      || binding.originalExpectedSnapshot.headSha !== receipt.result.inputSnapshot.headSha
+      || binding.originalExpectedSnapshot.worktreeDigest !== receipt.result.inputSnapshot.worktreeDigest) {
+      issues.push("recovery originalExpectedSnapshot must match the committed input snapshot");
+    }
+    if (binding.rendererVersion !== receipt.result.outputSnapshot.rendererVersion
+      || binding.layoutVersion !== receipt.result.outputSnapshot.layoutVersion
+      || digestJson(binding.generatedFrom as unknown as Json) !== digestJson(receipt.result.outputSnapshot.generatedFrom as unknown as Json)) {
+      issues.push("recovery renderer, layout, and CodeGraph provenance must match the committed output snapshot");
+    }
+    const expectedDigests = projectionApplyReceiptResultingDigests(receipt);
+    if (!expectedDigests || digestJson(binding.expectedResultingDigests as unknown as Json) !== digestJson(expectedDigests as unknown as Json)) {
+      issues.push("recovery expectedResultingDigests must match committed refresh signals");
+    }
+  }
+  return issues;
+}
+
+export function projectionApplyRecoveryIntentInvariantIssues(input: ProjectionApplyRecoveryIntentV1): string[] {
+  const issues: string[] = [];
+  if (input.schemaVersion !== PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION) issues.push("recovery intent schemaVersion is invalid");
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("recovery intent requestId must use the stable identifier character set");
+  if (input.profile !== "repo-harness/v1") issues.push("recovery intent profile is invalid");
+  for (const field of ["lookupKey", "applyId"] as const) {
+    if (!/^sha256:[a-f0-9]{64}$/.test(input.receipt[field])) issues.push(`recovery intent receipt.${field} must be a SHA-256 digest`);
+  }
+  return issues;
+}
+
+export function projectionApplyRecoveryProofDigest(input: Omit<ProjectionApplyRecoveryProofV1, "proofDigest" | "deliveryStatus">): Sha256Digest {
+  return digestJson(input as unknown as Json) as Sha256Digest;
+}
+
+export function projectionApplyRecoveryProofInvariantIssues(input: ProjectionApplyRecoveryProofV1): string[] {
+  const issues = [
+    ...sortedUniqueIssues("acceptedChange.reasonCodes", input.acceptedChange.reasonCodes),
+    ...sortedUniqueIssues("acceptedChange.affectedNodeIds", input.acceptedChange.affectedNodeIds)
+  ];
+  if (input.schemaVersion !== PROJECTION_APPLY_RECOVERY_PROOF_SCHEMA_VERSION) issues.push("recovery proof schemaVersion is invalid");
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(input.requestId)) issues.push("recovery proof requestId must use the stable identifier character set");
+  if (input.current.snapshot.generatedFrom.codeGraphStatus !== "ready") issues.push("recovery proof requires a ready current CodeGraph snapshot");
+  const { proofDigest: _proofDigest, deliveryStatus: _deliveryStatus, ...payload } = input;
+  if (projectionApplyRecoveryProofDigest(payload) !== input.proofDigest) {
+    issues.push("recovery proofDigest must bind the semantic proof payload");
+  }
+  return issues;
+}
+
+export function projectionApplyRecoveryResultInvariantIssues(input: ProjectionApplyRecoveryResultV1): string[] {
+  const issues = [
+    ...projectionApplyRecoveryProofInvariantIssues(input.proof),
+    ...input.refreshSignals.flatMap((signal, index) => architectureRefreshSignalInvariantIssues(signal, `refreshSignals[${index}]`)),
+    ...sortedUniqueIssues("refreshSignals.signalId", input.refreshSignals.map((signal) => signal.signalId))
+  ];
+  if (input.schemaVersion !== PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION) {
+    issues.push("recovery result schemaVersion is invalid");
+  }
+  if (input.proof.deliveryStatus === "already-delivered" && input.refreshSignals.length > 0) {
+    issues.push("already-delivered recovery result cannot repeat refreshSignals");
+  }
+  for (const [index, signal] of input.refreshSignals.entries()) {
+    const prefix = `refreshSignals[${index}]`;
+    if (signal.projectionReceiptDigest !== input.proof.receipt.receiptDigest) {
+      issues.push(`${prefix}.projectionReceiptDigest must match recovery proof receiptDigest`);
+    }
+    if (digestJson(signal.acceptedChange as unknown as Json) !== digestJson(input.proof.acceptedChange as unknown as Json)) {
+      issues.push(`${prefix}.acceptedChange must match recovery proof approval`);
+    }
+    if (digestJson(signal.resultingDigests as unknown as Json) !== digestJson(input.proof.expectedResultingDigests as unknown as Json)) {
+      issues.push(`${prefix}.resultingDigests must match recovery proof`);
+    }
+  }
+  return issues;
+}
+
+/** The durable store uses this before delivery; it can validate immutable bindings but not re-render the current projection. */
+export function projectionApplyRecoveryProofReceiptInvariantIssues(
+  proof: ProjectionApplyRecoveryProofV1,
+  receipt: ProjectionApplyReceiptV1
+): string[] {
+  const issues = [
+    ...projectionApplyRecoveryProofInvariantIssues(proof),
+    ...projectionApplyReceiptInvariantIssues(receipt)
+  ];
+  const binding = receipt.recovery;
+  if (!binding) return [...issues, "committed projection receipt does not support semantic recovery"];
+  if (proof.receipt.lookupKey !== receipt.identity.lookupKey
+    || proof.receipt.applyId !== receipt.identity.applyId
+    || proof.receipt.receiptDigest !== receipt.result.receiptDigest) {
+    issues.push("recovery proof receipt identity must match the committed receipt");
+  }
+  if (digestJson(proof.acceptedChange as unknown as Json) !== digestJson(receipt.identity.acceptedChange as unknown as Json)
+    || digestJson(proof.expectedResultingDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)) {
+    issues.push("recovery proof approval binding must match the committed receipt");
+  }
+  if (digestJson(proof.current.resultingDigests as unknown as Json) !== digestJson(binding.expectedResultingDigests as unknown as Json)
+    || proof.current.ownedOutputDigest !== binding.ownedOutputDigest
+    || proof.current.snapshot.rendererVersion !== binding.rendererVersion
+    || proof.current.snapshot.layoutVersion !== binding.layoutVersion
+    || digestJson(proof.current.snapshot.generatedFrom as unknown as Json) !== digestJson(binding.generatedFrom as unknown as Json)) {
+    issues.push("recovery proof current state must match the committed recovery binding");
+  }
+  return issues;
+}
+
+function projectionApplyReceiptResultingDigests(receipt: ProjectionApplyReceiptV1): ArchitectureDigestSetV1 | undefined {
+  const signals = receipt.result.refreshSignals;
+  if (signals.length === 0) return undefined;
+  const [first] = signals;
+  return signals.every((signal) => digestJson(signal.resultingDigests as unknown as Json) === digestJson(first.resultingDigests as unknown as Json))
+    ? first.resultingDigests
+    : undefined;
 }
 
 export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefreshSignalV1, prefix = "signal"): string[] {
