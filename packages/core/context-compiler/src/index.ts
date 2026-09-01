@@ -54,9 +54,62 @@ export interface CompiledTaskContext {
     landscapeDigest?: string;
     activeRepositories?: string[];
     crossRepoRelations?: string[];
+    /** UTF-8 byte length of the canonical measured form. See {@link finalizeContextBudgetMetadata}. */
     byteLength: number;
     budgetExceeded: boolean;
     digest: string;
+  };
+}
+
+/**
+ * Extension fields that cannot be inside their own measurement or digest.
+ *
+ * They are the only fields excluded from the canonical measured form, and they are always the last
+ * three keys of `extensions`, so removing them from a finalized payload reproduces the exact JSON
+ * that was measured.
+ */
+export const SELF_REFERENTIAL_CONTEXT_EXTENSION_KEYS = ["byteLength", "budgetExceeded", "digest"] as const;
+
+interface ContextWithExtensions {
+  extensions: Record<string, unknown>;
+}
+
+/**
+ * The canonical measured form of a task context: the returned payload with
+ * {@link SELF_REFERENTIAL_CONTEXT_EXTENSION_KEYS} omitted. Everything else the caller receives —
+ * every provenance digest, and any Context7 augmentation appended later — is inside the measurement.
+ */
+export function canonicalContextMeasurementForm<T extends ContextWithExtensions>(context: T): T {
+  const extensions = { ...context.extensions };
+  for (const key of SELF_REFERENTIAL_CONTEXT_EXTENSION_KEYS) delete extensions[key];
+  return { ...context, extensions };
+}
+
+/**
+ * The single finalizer for context budget metadata.
+ *
+ * `byteLength` is the UTF-8 byte length of `JSON.stringify(canonicalContextMeasurementForm(context))`,
+ * `budgetExceeded` is `byteLength > maxBytes` over exactly that form, and `digest` is recomputed last
+ * over the payload that already carries both. Any producer that appends fields to a finalized context
+ * — including Context7 augmentation — must re-run this helper instead of measuring an intermediate.
+ */
+export function finalizeContextBudgetMetadata<T extends ContextWithExtensions>(context: T, maxBytes: number): T {
+  const canonical = canonicalContextMeasurementForm(context);
+  const byteLength = Buffer.byteLength(JSON.stringify(canonical), "utf8");
+  const withMetadata = {
+    ...canonical,
+    extensions: {
+      ...canonical.extensions,
+      byteLength,
+      budgetExceeded: byteLength > maxBytes
+    }
+  };
+  return {
+    ...withMetadata,
+    extensions: {
+      ...withMetadata.extensions,
+      digest: digestJson(withMetadata as unknown as Json)
+    }
   };
 }
 
@@ -346,7 +399,6 @@ function finalizeContext(
     maxBytes: number;
   }
 ): CompiledTaskContext {
-  const byteLength = Buffer.byteLength(JSON.stringify(context), "utf8");
   const withMetadata = {
     ...context,
     extensions: {
@@ -362,18 +414,10 @@ function finalizeContext(
       codeFactsMode: digests.codeFactsMode,
       landscapeDigest: digests.landscapeDigest,
       activeRepositories: digests.activeRepositories,
-      crossRepoRelations: digests.crossRepoRelations,
-      byteLength,
-      budgetExceeded: byteLength > digests.maxBytes
+      crossRepoRelations: digests.crossRepoRelations
     }
   };
-  return {
-    ...withMetadata,
-    extensions: {
-      ...withMetadata.extensions,
-      digest: digestJson(withMetadata as unknown as Json)
-    }
-  };
+  return finalizeContextBudgetMetadata(withMetadata as unknown as CompiledTaskContext, digests.maxBytes);
 }
 
 function trimPracticeGuidance(guidance: PracticeGuidanceResultV1, maxMatches: number): PracticeGuidanceResultV1 {

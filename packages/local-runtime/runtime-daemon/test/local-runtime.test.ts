@@ -1,10 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { once } from "node:events";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, join, resolve } from "node:path";
-import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { basename, delimiter, dirname, join, resolve } from "node:path";
+import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { ARCHITECTURE_DOCS_RENDERER_VERSION, ARCHCONTEXT_PRODUCT_VERSION, canonicalAttestationV2, digestJson, INVESTIGATION_REPORT_SCHEMA_VERSION, type CodeFactsPort, type ExternalDocumentationPort, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { investigationReportProposalValidationDigest, type CommandInvestigationRunnerTransportInput, type CommandInvestigationRunnerTransportResult } from "@archcontext/core/agent-orchestrator";
@@ -19,10 +22,12 @@ import { createNodeInvestigationTransport } from "../src/investigation-transport
 import {
   createNodeGithubIssueExecutor,
   githubIssueFooterMarker,
+  preflightGithubIssueDrafts,
   withGithubIssueBodyFile,
   type GithubIssueCreatedRecord,
   type GithubIssueExecutorPort,
-  type GithubIssueListedRecord
+  type GithubIssueListedRecord,
+  type GithubIssuePreflightDraft
 } from "../src/github-issue-executor";
 import {
   architectureDocumentationSourceDigest,
@@ -41,6 +46,7 @@ import {
   assertProductionRuntimeDeps,
   createStartedProductionDaemon,
   createStartedDaemon,
+  RuntimeRpcTransportError,
   defaultDeveloperReviewRunStateDir,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
@@ -111,6 +117,88 @@ async function waitUntil(predicate: () => boolean, timeoutMs: number, descriptio
   throw new Error(`Timed out waiting for: ${description}`);
 }
 
+/**
+ * Raw HTTP client for the runtime RPC socket. `fetch` cannot express a half-written body, a
+ * chunked upload without `Content-Length`, or a mid-upload disconnect, which are exactly the
+ * request shapes the daemon's body limits and read deadline have to survive.
+ */
+async function rawHttpRequest(input: {
+  url: string;
+  headerLines: string[];
+  chunks?: Array<{ data: string; delayMs?: number }>;
+  destroyAfterChunks?: boolean;
+}): Promise<string> {
+  const url = new URL(input.url);
+  const socket = netConnect({ host: "127.0.0.1", port: Number(url.port) });
+  socket.setNoDelay(true);
+  let received = "";
+  const response = new Promise<string>((resolveResponse) => {
+    socket.on("data", (buffer: Buffer) => {
+      received += buffer.toString("utf8");
+      if (received.includes("\r\n\r\n")) resolveResponse(received);
+    });
+    socket.on("close", () => resolveResponse(received));
+    socket.on("error", () => resolveResponse(received));
+  });
+  await once(socket, "connect");
+  socket.write(`${input.headerLines.join("\r\n")}\r\n\r\n`);
+  for (const chunk of input.chunks ?? []) {
+    if (chunk.delayMs) await sleep(chunk.delayMs);
+    if (socket.destroyed) break;
+    if (chunk.data.length > 0) socket.write(chunk.data);
+  }
+  if (input.destroyAfterChunks) socket.destroy();
+  const raw = await response;
+  socket.destroy();
+  return raw;
+}
+
+function rawHttpStatus(raw: string): number {
+  const match = raw.match(/^HTTP\/1\.\d (\d{3})/);
+  return match ? Number(match[1]) : 0;
+}
+
+function httpChunkFrame(data: string): string {
+  return `${Buffer.byteLength(data).toString(16)}\r\n${data}\r\n`;
+}
+
+function rpcRequestHeaderLines(connection: { url: string; token: string }, extra: string[]): string[] {
+  const url = new URL(connection.url);
+  return [
+    "POST /rpc HTTP/1.1",
+    `Host: 127.0.0.1:${url.port}`,
+    `Authorization: Bearer ${connection.token}`,
+    "Content-Type: application/json",
+    `X-ArchContext-RPC-Version: ${RUNTIME_RPC_VERSION}`,
+    ...extra
+  ];
+}
+
+function loopbackRpcConnection(port: number) {
+  return {
+    schemaVersion: RUNTIME_RPC_VERSION,
+    protocol: "http-loopback",
+    version: 1,
+    root: tmpdir(),
+    url: `http://127.0.0.1:${port}/`,
+    token: "stalled-runtime-rpc-token",
+    pid: process.pid,
+    lockPath: "",
+    connectionPath: "",
+    startedAt: "2026-06-20T00:00:00.000Z"
+  } as const;
+}
+
+async function listenLoopback(server: HttpServer): Promise<number> {
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  return (server.address() as { port: number }).port;
+}
+
+async function closeLoopback(server: HttpServer): Promise<void> {
+  server.closeAllConnections();
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+}
+
 function expectSameExistingPath(actual: string, expected: string): void {
   expect(normalizeExistingPath(actual)).toBe(normalizeExistingPath(expected));
 }
@@ -122,6 +210,44 @@ function normalizeExistingPath(path: string): string {
 
 function readText(path: string): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
+/**
+ * Independent re-serialization of the canonical measured form: the returned context minus the three
+ * self-referential extension fields. Deliberately does not import the compiler helper — the point is
+ * to prove the recorded `byteLength` matches a payload measured by someone other than its producer.
+ */
+function canonicalContextByteLength(context: { extensions: Record<string, unknown> }): number {
+  const extensions = { ...context.extensions };
+  delete extensions.byteLength;
+  delete extensions.budgetExceeded;
+  delete extensions.digest;
+  return Buffer.byteLength(JSON.stringify({ ...context, extensions }), "utf8");
+}
+
+/**
+ * Managed node, relation, and constraint YAML that the ledger does not know about, standing in for
+ * the projection a retired subject leaves behind. The relation and constraint reference
+ * `module.ledger-project` so the model stays valid both before and after the stale files are removed.
+ */
+function writeStaleLedgerProjection(root: string): void {
+  mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+  mkdirSync(join(root, ".archcontext/model/constraints"), { recursive: true });
+  writeFileSync(
+    join(root, ".archcontext/model/nodes/module.project-stale.yaml"),
+    "schemaVersion: archcontext.node/v2\nid: module.project-stale\nkind: module\nname: Stale Project\nstatus: active\nsummary: Stale projection node\n",
+    "utf8"
+  );
+  writeFileSync(
+    join(root, ".archcontext/model/relations/relation.project-stale.yaml"),
+    "schemaVersion: archcontext.relation/v1\nid: relation.project-stale\nkind: calls\nsource: module.ledger-project\ntarget: module.project-stale\nprotocol: HTTP\nintent: Stale projection relation\n",
+    "utf8"
+  );
+  writeFileSync(
+    join(root, ".archcontext/model/constraints/constraint.project-stale.yaml"),
+    "schemaVersion: archcontext.constraint/v1\nid: constraint.project-stale\nname: Stale projection constraint\nseverity: warning\nscope:\n  nodes: [\"module.ledger-project\"]\nrule:\n  type: require-owner\nrationale: Stale projection constraint\n",
+    "utf8"
+  );
 }
 
 function projectionTestProvenance(root: string, model: ReturnType<typeof loadNativeModelFromArchContext>) {
@@ -804,6 +930,89 @@ describe("local runtime foundation", () => {
       expect((succeeded.data as any).jobs[0].job.outputDigest).toBe(outputDigest);
     } finally {
       removeTempRepo(root);
+    }
+  });
+
+  test("runtime jobs refuse completion, retry, and cancellation issued from another repository", async () => {
+    const owner = createGitRepo();
+    const foreign = createGitRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        clock: () => "2026-06-25T02:40:00.000Z"
+      });
+      mkdirSync(join(owner, "src"), { recursive: true });
+      writeFileSync(join(owner, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+      mkdirSync(join(foreign, "src"), { recursive: true });
+      writeFileSync(join(foreign, "src", "changed.ts"), "export const changed = true;\n", "utf8");
+
+      const enqueue = await daemon.jobsEnqueueGitHook(owner, {
+        source: "worktree",
+        event: "post-edit",
+        analysisKind: "architecture-delta",
+        risk: "high",
+        uncertainty: "high",
+        coalesceKey: "coalesce.runtime-cross-repository"
+      });
+      const jobId = (enqueue.data as any).record.job.jobId;
+      const claim = await daemon.jobsClaim(owner, {
+        workerId: "worker.owner",
+        leaseMs: 30_000,
+        now: "2026-06-25T02:40:01.000Z"
+      });
+      expect((claim.data as any).job.job.jobId).toBe(jobId);
+
+      const crossComplete = await daemon.jobsComplete(foreign, {
+        jobId,
+        workerId: "worker.owner",
+        status: "succeeded",
+        outputDigest: digestJson({ workerOutput: "cross-repository" } as any),
+        now: "2026-06-25T02:40:02.000Z"
+      });
+      expect(crossComplete.ok).toBe(false);
+      expect((crossComplete as any).error.code).toBe("AC_PRECONDITION_FAILED");
+      expect((crossComplete as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
+
+      const crossRetry = await daemon.jobsRetry(foreign, {
+        jobId,
+        reason: "cross-repository-retry",
+        now: "2026-06-25T02:40:03.000Z"
+      });
+      expect(crossRetry.ok).toBe(false);
+      expect((crossRetry as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
+
+      const crossCancel = await daemon.jobsCancel(foreign, {
+        jobId,
+        reason: "cross-repository-cancel",
+        now: "2026-06-25T02:40:04.000Z"
+      });
+      expect(crossCancel.ok).toBe(false);
+      expect((crossCancel as any).error.reasonCode).toBe("runtime-agent-job-out-of-scope");
+
+      const stillRunning = await daemon.jobsList(owner, { statuses: ["running"] });
+      expect((stillRunning.data as any).jobs).toHaveLength(1);
+      expect((stillRunning.data as any).jobs[0]).toMatchObject({
+        job: { jobId, status: "running" },
+        leaseOwner: "worker.owner"
+      });
+
+      const complete = await daemon.jobsComplete(owner, {
+        jobId,
+        workerId: "worker.owner",
+        status: "failed",
+        error: "owner-failure",
+        now: "2026-06-25T02:40:05.000Z"
+      });
+      expect(complete.ok).toBe(true);
+      const retry = await daemon.jobsRetry(owner, { jobId, reason: "owner-retry", now: "2026-06-25T02:40:06.000Z" });
+      expect(retry.ok).toBe(true);
+      const cancel = await daemon.jobsCancel(owner, { jobId, reason: "owner-cancel", now: "2026-06-25T02:40:07.000Z" });
+      expect(cancel.ok).toBe(true);
+      expect((cancel.data as any).job.job.status).toBe("cancelled");
+    } finally {
+      removeTempRepo(owner);
+      removeTempRepo(foreign);
     }
   });
 
@@ -1847,7 +2056,7 @@ describe("local runtime foundation", () => {
         const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
         expect(tokenMatch).not.toBeNull();
         const token = tokenMatch![1]!;
-        expect(token).toMatch(/^public:acme\/widgets:[0-9a-f]+:audit_run\./);
+        expect(token).toMatch(/^public:github\.com\/acme\/widgets:[0-9a-f]+:audit_run\./);
 
         const approved = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, confirmPublicToken: token });
         expect(approved.ok).toBe(true);
@@ -1904,6 +2113,78 @@ describe("local runtime foundation", () => {
       removeTempRepo(fixture.root);
     }
   });
+
+  // Issue #117 end-to-end: a benign JWT/installation-token architecture finding is publishable.
+  test("audit approve publishes benign JWT and installation-token findings instead of aborting the batch", async () => {
+    const { executor, calls } = fakeGithubIssueExecutor();
+    const draftRecords = [
+      auditDraftRecord({ title: "Validate JWT audience and issuer checks", bodyMarkdown: "## Task\n\nThe jwt verifier never checks the audience claim.\n", labels: ["area/jwt"] }),
+      auditDraftRecord({ title: "Rotate installation-token credentials safely", bodyMarkdown: "## Task\n\nDocument the `installation_token` lifecycle.\n" })
+    ];
+    const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl: "https://github.com/acme/widgets.git", draftRecords });
+    try {
+      await withAuditApproveToken("gh_pat_test_token", async () => {
+        const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+        expect(result.ok).toBe(true);
+        expect((result.data as any).status).toBe("issued");
+      });
+      expect(calls.createIssue).toHaveLength(2);
+    } finally {
+      removeTempRepo(fixture.root);
+    }
+  });
+
+  // Issue #110: the remote host is part of the publish target's identity. A non-github.com remote
+  // must never be reinterpreted as the same-named repository on github.com.
+  const nonGithubRemotes = [
+    "git@gitlab.com:acme/widgets.git",
+    "https://bitbucket.org/acme/widgets.git",
+    "git@github.acme-corp.com:acme/widgets.git",
+    "ssh://git@localhost:2222/acme/widgets.git"
+  ];
+  for (const remoteUrl of nonGithubRemotes) {
+    test(`audit approve rejects the non-github.com remote ${remoteUrl} before any gh call`, async () => {
+      const { executor, calls } = fakeGithubIssueExecutor();
+      const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl });
+      try {
+        await withAuditApproveToken("gh_pat_test_token", async () => {
+          const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+          expect(result.ok).toBe(false);
+          expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+          expect((result as any).error.message).toContain("github.com");
+        });
+        expect(calls.repoView).toHaveLength(0);
+        expect(calls.listRecentIssues).toHaveLength(0);
+        expect(calls.createIssue).toHaveLength(0);
+      } finally {
+        removeTempRepo(fixture.root);
+      }
+    });
+  }
+
+  const canonicalGithubRemotes = [
+    "https://github.com/acme/widgets.git",
+    "git@github.com:acme/widgets.git",
+    "git@GitHub.COM:acme/widgets.git",
+    "https://github.com:443/acme/widgets"
+  ];
+  for (const remoteUrl of canonicalGithubRemotes) {
+    test(`audit approve resolves ${remoteUrl} to the same canonical github.com target in its confirmation token`, async () => {
+      const { executor } = fakeGithubIssueExecutor({ visibility: "public" });
+      const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl });
+      try {
+        await withAuditApproveToken("gh_pat_test_token", async () => {
+          const rejected = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+          expect(rejected.ok).toBe(false);
+          const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
+          expect(tokenMatch).not.toBeNull();
+          expect(tokenMatch![1]!).toMatch(/^public:github\.com\/acme\/widgets:[0-9a-f]+:audit_run\./);
+        });
+      } finally {
+        removeTempRepo(fixture.root);
+      }
+    });
+  }
 
   test("audit approve rejects a draft whose body exceeds the GitHub issue length limit before any gh call", async () => {
     const { executor, calls } = fakeGithubIssueExecutor();
@@ -2837,6 +3118,87 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("approved docs pin refuses a symlinked lockfile path and leaves the outside target untouched", async () => {
+    const root = tempRepo();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-pin-target-"));
+    const victim = join(outside, "victim.yaml");
+    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    try {
+      await daemon.init(root, "Pin Symlink App");
+      writeFileSync(victim, "do-not-touch\n", { encoding: "utf8", mode: 0o644 });
+      const modeBefore = statSync(victim).mode;
+      mkdirSync(join(root, ".archcontext/integrations"), { recursive: true });
+      symlinkSync(victim, join(root, ".archcontext/integrations/context7.lock.yaml"));
+
+      const pin = await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      expect(pin.ok).toBe(false);
+      expect(JSON.stringify(pin)).toContain("symlink");
+      expect(readText(victim)).toBe("do-not-touch\n");
+      expect(statSync(victim).mode).toBe(modeBefore);
+    } finally {
+      await daemon.stop();
+      removeTempPath(outside);
+      removeTempRepo(root);
+    }
+  });
+
+  test("approved docs pin refuses a symlinked parent of the lockfile path", async () => {
+    const root = tempRepo();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-pin-parent-"));
+    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    try {
+      await daemon.init(root, "Pin Parent Symlink App");
+      symlinkSync(outside, join(root, ".archcontext/integrations"));
+
+      const pin = await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      expect(pin.ok).toBe(false);
+      expect(JSON.stringify(pin)).toContain("symlink");
+      expect(existsSync(join(outside, "context7.lock.yaml"))).toBe(false);
+    } finally {
+      await daemon.stop();
+      removeTempPath(outside);
+      removeTempRepo(root);
+    }
+  });
+
+  test("approved docs pin writes a private lockfile and re-pins over its own previous state", async () => {
+    const root = tempRepo();
+    const lockPath = join(root, ".archcontext/integrations/context7.lock.yaml");
+    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    try {
+      await daemon.init(root, "Pin Rewrite App");
+
+      expect((await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true })).ok).toBe(true);
+      if (process.platform !== "win32") {
+        expect(statSync(lockPath).mode & 0o777).toBe(0o600);
+      }
+
+      const second = await daemon.docs(root, { command: "pin", libraryId: "/vercel/next.js", version: "14.0.0", approved: true });
+      expect(second.ok).toBe(true);
+      expect(((second.data as any).lock.libraries as any[]).map((library) => library.libraryId))
+        .toEqual(["/facebook/react", "/vercel/next.js"]);
+      expect(JSON.parse(readText(lockPath)).libraries).toHaveLength(2);
+      if (process.platform !== "win32") {
+        expect(statSync(lockPath).mode & 0o777).toBe(0o600);
+      }
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
   test("prepare-unknowns adds only advisory external docs resources for exact pinned framework versions", async () => {
     const root = tempRepo();
     writeFileSync(join(root, "package.json"), JSON.stringify({
@@ -2886,6 +3248,48 @@ describe("local runtime foundation", () => {
       expect(second.ok).toBe(true);
       expect(((second.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(true);
       expect(providerCalls).toBe(1);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("Context7 augmentation recomputes byteLength and budgetExceeded over the returned canonical payload", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "react-docs-app",
+      dependencies: { react: "18.2.0" }
+    }, null, 2), "utf8");
+    const daemon = await createStartedTestDaemon({
+      clock: () => "2026-06-24T00:00:00.000Z",
+      externalDocumentation: fakeExternalDocumentation(() => undefined, "prepare-unknowns")
+    });
+    try {
+      await daemon.init(root, "React Docs App");
+      await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
+
+      const plainTask = "Use React state hooks without changing architecture constraints";
+      const docsTask = "Use React state hooks and confirm package version unknowns without changing architecture constraints";
+
+      const plain = ((await daemon.prepare(root, plainTask, 1_048_576, 12, "task_bytes_no_docs")).data as any).context;
+      expect(plain.resources.some((resource: any) => resource.type === "external-docs")).toBe(false);
+      expect(plain.extensions.byteLength).toBe(canonicalContextByteLength(plain));
+      expect(plain.extensions.budgetExceeded).toBe(false);
+
+      const augmented = ((await daemon.prepare(root, docsTask, 1_048_576, 12, "task_bytes_docs")).data as any).context;
+      expect(augmented.resources.some((resource: any) => resource.type === "external-docs")).toBe(true);
+      expect(augmented.extensions.externalDocumentationDigest).toMatch(/^sha256:/);
+      expect(augmented.extensions.byteLength).toBe(canonicalContextByteLength(augmented));
+      expect(augmented.extensions.budgetExceeded).toBe(false);
+
+      // A budget between the compiled size and the augmented size must surface as budgetExceeded:
+      // Context7 is what pushes the returned payload over, and it says so on the payload it returns.
+      const maxBytes = canonicalContextByteLength(augmented) - 1;
+      const tight = ((await daemon.prepare(root, docsTask, maxBytes, 12, "task_bytes_docs_tight")).data as any).context;
+      expect(tight.resources.some((resource: any) => resource.type === "external-docs")).toBe(true);
+      expect(tight.extensions.byteLength).toBe(canonicalContextByteLength(tight));
+      expect(tight.extensions.byteLength).toBeGreaterThan(maxBytes);
+      expect(tight.extensions.budgetExceeded).toBe(true);
     } finally {
       await daemon.stop();
       removeTempRepo(root);
@@ -3693,6 +4097,119 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("ledger project write deletes managed YAML the ledger no longer projects", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:06:00.000Z"
+      });
+      await daemon.init(root, "Ledger Project Removal App");
+      const keptPath = ".archcontext/model/nodes/module.ledger-project.yaml";
+      const staleNodePath = ".archcontext/model/nodes/module.project-stale.yaml";
+      const staleRelationPath = ".archcontext/model/relations/relation.project-stale.yaml";
+      const staleConstraintPath = ".archcontext/model/constraints/constraint.project-stale.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-project-removal-node",
+        operations: [{
+          op: "create_entity",
+          path: keptPath,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-project-removal-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      const manifestBefore = readText(join(root, ".archcontext/manifest.yaml"));
+      writeStaleLedgerProjection(root);
+
+      const dryRun = await daemon.ledgerProject(root, { dryRun: true });
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).drift.ok).toBe(false);
+      expect(existsSync(join(root, staleNodePath))).toBe(true);
+
+      const status = await daemon.runtimeStatus(root);
+      const project = await daemon.ledgerProject(root, {
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writtenPaths).toContain(keptPath);
+      expect(((project.data as any).removedPaths as string[]).slice().sort())
+        .toEqual([staleConstraintPath, staleNodePath, staleRelationPath].slice().sort());
+      expect(existsSync(join(root, staleNodePath))).toBe(false);
+      expect(existsSync(join(root, staleRelationPath))).toBe(false);
+      expect(existsSync(join(root, staleConstraintPath))).toBe(false);
+      expect(readText(join(root, keptPath))).toContain("module.ledger-project");
+      expect(readText(join(root, ".archcontext/manifest.yaml"))).toBe(manifestBefore);
+      expect((project.data as any).drift.ok).toBe(true);
+      expect((project.data as any).reconcile.ok).toBe(true);
+      expect([...store.changeSetJournals.values()].some((journal) =>
+        journal.status === "committed"
+        && journal.files.some((file) => file.path === staleNodePath && file.operation === "delete_entity")
+      )).toBe(true);
+
+      const cleanDrift = await daemon.ledgerDrift(root);
+      expect((cleanDrift.data as any).drift.ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger project write refuses to delete an obsolete target that changed concurrently", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:07:00.000Z"
+      });
+      await daemon.init(root, "Ledger Project Race App");
+      const keptPath = ".archcontext/model/nodes/module.ledger-project.yaml";
+      const staleNodePath = ".archcontext/model/nodes/module.project-stale.yaml";
+      const staleRelationPath = ".archcontext/model/relations/relation.project-stale.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-project-race-node",
+        operations: [{
+          op: "create_entity",
+          path: keptPath,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-project-race-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      writeStaleLedgerProjection(root);
+
+      const status = await daemon.runtimeStatus(root);
+      writeFileSync(
+        join(root, staleNodePath),
+        "schemaVersion: archcontext.node/v2\nid: module.project-stale\nkind: module\nname: Stale Project\nstatus: active\nsummary: Edited after the projection was planned\n",
+        "utf8"
+      );
+
+      await expect(daemon.ledgerProject(root, {
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      })).rejects.toThrow("Worktree digest changed before ledger project --to-git");
+
+      expect(readText(join(root, staleNodePath))).toContain("Edited after the projection was planned");
+      expect(existsSync(join(root, staleRelationPath))).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
   test("ledger rollback restores YAML authority projection from SQLite current state with backup", async () => {
     const root = tempRepo();
     const store = new TestLocalStore();
@@ -4370,6 +4887,142 @@ describe("local runtime foundation", () => {
     }
   });
 
+  // Cleanup/recovery delete real filesystem paths, so a caller-supplied manifest must never be
+  // able to name the deletion target: every target is re-derived from daemon-owned state and
+  // proven with an ownership marker before anything is unlinked.
+  test("developer review cleanup refuses deletion targets outside daemon-owned review roots", async () => {
+    const root = createInitializedGitRepo();
+    const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-review-ownership-"));
+    const outside = mkdtempSync(join(tmpdir(), "archctx-not-an-archctx-run-"));
+    const victim = join(outside, "important.txt");
+    writeFileSync(victim, "unrelated\n", "utf8");
+    let daemon: Awaited<ReturnType<typeof createStartedTestDaemon>> | undefined;
+    try {
+      daemon = await createStartedTestDaemon();
+      const headSha = gitOut(root, "rev-parse", "HEAD");
+      const challenge = preparedChallenge(headSha);
+      const prepared = daemon.startDeveloperReviewRun({
+        repositoryRoot: root,
+        challenge,
+        expectedHeadTreeOid: gitOut(root, "rev-parse", "HEAD^{tree}"),
+        tempRoot
+      });
+      expect(prepared.accepted).toBe(true);
+      const run = prepared.run!;
+      expect(existsSync(join(run.runRoot, ".archctx-developer-review-run.json"))).toBe(true);
+
+      const detachedRunRoot = (runRoot: string) => ({
+        ...run,
+        status: "preparing" as const,
+        worktree: undefined,
+        runRoot,
+        worktreeTempRoot: join(runRoot, "worktrees"),
+        codeGraphTemporaryState: { root: runRoot, cleanup: "remove-run-root" as const }
+      });
+
+      // Absolute escape: an unrelated directory is not a review run root.
+      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(outside)))
+        .toThrow("developer-review-run-not-owned");
+      // `..` traversal that lands outside the daemon temp parent.
+      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(join(run.runRoot, "..", "..", basename(outside)))))
+        .toThrow("developer-review-run-not-owned");
+      // Manifest/lock are derived from the repository state dir, so a caller-named file is rejected.
+      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, manifestPath: victim }))
+        .toThrow("developer-review-run-not-owned");
+      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, lockPath: victim }))
+        .toThrow("developer-review-run-not-owned");
+      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, manifestPath: join(run.manifestPath, "..", "..", "escaped.json") }))
+        .toThrow("developer-review-run-not-owned");
+
+      // A directory that merely looks like a run root carries no ownership marker.
+      const impostorRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "bbbbbb"));
+      mkdirSync(impostorRunRoot, { recursive: true });
+      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(impostorRunRoot)))
+        .toThrow("developer-review-run-not-owned");
+      expect(existsSync(impostorRunRoot)).toBe(true);
+
+      if (process.platform !== "win32") {
+        const symlinkedRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "aaaaaa"));
+        symlinkSync(outside, symlinkedRunRoot);
+        expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(symlinkedRunRoot)))
+          .toThrow("developer-review-run-not-owned");
+      }
+
+      // None of the rejected requests touched anything.
+      expect(existsSync(victim)).toBe(true);
+      expect(existsSync(run.runRoot)).toBe(true);
+      expect(existsSync(run.manifestPath)).toBe(true);
+      expect(existsSync(run.lockPath)).toBe(true);
+
+      const cleanup = daemon.cleanupDeveloperReviewRun(run);
+      expect(cleanup.cleaned).toBe(true);
+      expect(cleanup.removed).toEqual(expect.arrayContaining(["worktree", "run-root", "manifest", "lock"]));
+      expect(existsSync(run.runRoot)).toBe(false);
+      expect(existsSync(run.manifestPath)).toBe(false);
+      expect(existsSync(run.lockPath)).toBe(false);
+      expect(existsSync(victim)).toBe(true);
+    } finally {
+      await daemon?.stop().catch(() => undefined);
+      rmSync(tempRoot, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
+
+  test("runtime RPC rejects caller-selected developer review roots and malformed manifests", async () => {
+    const root = createInitializedGitRepo();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-not-an-archctx-state-"));
+    writeFileSync(join(outside, "stale.json"), "{ not json", "utf8");
+    writeFileSync(join(outside, "stale.lock"), JSON.stringify({ pid: 999999999 }), "utf8");
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "developer-review-ownership-token" });
+    try {
+      const connection = await rpc.start();
+      const challenge = preparedChallenge(gitOut(root, "rev-parse", "HEAD"));
+      const rpcCall = async (method: string, params: unknown[]) => {
+        const response = await fetch(`${connection.url}rpc`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${connection.token}`,
+            "Content-Type": "application/json",
+            "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
+          },
+          body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
+        });
+        return { status: response.status, body: await response.json() as any };
+      };
+
+      const recovered = await rpcCall("recoverDeveloperReviewRuns", [{ repositoryRoot: root, stateDir: outside, force: true }]);
+      expect(recovered.body.ok).toBe(false);
+      expect(String(recovered.body.error)).toContain("runtime-rpc-input-invalid");
+      expect(existsSync(join(outside, "stale.json"))).toBe(true);
+      expect(existsSync(join(outside, "stale.lock"))).toBe(true);
+
+      const started = await rpcCall("startDeveloperReviewRun", [{ repositoryRoot: root, challenge, tempRoot: outside }]);
+      expect(started.body.ok).toBe(false);
+      expect(String(started.body.error)).toContain("runtime-rpc-input-invalid");
+
+      const malformed = await rpcCall("cleanupDeveloperReviewRun", [{
+        schemaVersion: "archcontext.developer-review-run/v1",
+        runId: "forged",
+        challengeId: challenge.challengeId
+      }]);
+      expect(malformed.body.ok).toBe(false);
+      expect(String(malformed.body.error)).toContain("runtime-rpc-input-invalid");
+
+      const wrongChallengeShape = await rpcCall("startDeveloperReviewRun", [{
+        repositoryRoot: root,
+        challenge: { ...challenge, status: "NOT_A_STATUS" }
+      }]);
+      expect(wrongChallengeShape.body.ok).toBe(false);
+      expect(String(wrongChallengeShape.body.error)).toContain("runtime-rpc-input-invalid");
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      rmSync(outside, { recursive: true, force: true });
+      removeTempRepo(root);
+    }
+  }, DEVELOPER_REVIEW_TEST_TIMEOUT_MS);
+
   test("daemon signs canonical Attestation v2 without exposing Device private key material", async () => {
     const root = createInitializedGitRepo();
     const tempRoot = mkdtempSync(join(tmpdir(), "archctx-runtime-signed-attestation-"));
@@ -4585,6 +5238,233 @@ describe("local runtime foundation", () => {
       removeTempRepo(root);
     }
   });
+
+  test("runtime RPC bounds request bodies and applies a body read deadline", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "rpc-body-limit-token",
+      maxRequestBodyBytes: 4096,
+      requestBodyTimeoutMs: 300
+    });
+    try {
+      const connection = await rpc.start();
+      const headers = {
+        "Authorization": `Bearer ${connection.token}`,
+        "Content-Type": "application/json",
+        "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
+      };
+      const envelope = (pad: string) => JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root], pad });
+      const padLength = 4096 - Buffer.byteLength(envelope(""));
+      const exact = envelope("p".repeat(padLength));
+      expect(Buffer.byteLength(exact)).toBe(4096);
+
+      const accepted = await fetch(`${connection.url}rpc`, { method: "POST", headers, body: exact });
+      expect(accepted.status).toBe(200);
+      expect((await accepted.json() as any).ok).toBe(true);
+
+      const oversized = await fetch(`${connection.url}rpc`, { method: "POST", headers, body: envelope("p".repeat(padLength + 1)) });
+      expect(oversized.status).toBe(413);
+      expect((await oversized.json() as any).error).toBe("runtime RPC request body exceeds the configured limit");
+
+      // No Content-Length to pre-check: the streaming byte counter has to stop the upload.
+      const chunkedOverflow = await rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Transfer-Encoding: chunked"]),
+        chunks: [
+          { data: httpChunkFrame("q".repeat(3000)) },
+          { data: httpChunkFrame("q".repeat(3000)), delayMs: 20 }
+        ]
+      });
+      expect(rawHttpStatus(chunkedOverflow)).toBe(413);
+
+      const chunkedAccepted = await rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Transfer-Encoding: chunked"]),
+        chunks: [
+          { data: httpChunkFrame(JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] })) },
+          { data: "0\r\n\r\n" }
+        ]
+      });
+      expect(rawHttpStatus(chunkedAccepted)).toBe(200);
+
+      const slowUpload = await rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Content-Length: 4000"]),
+        chunks: [{ data: "{" }]
+      });
+      expect(rawHttpStatus(slowUpload)).toBe(408);
+
+      const malformed = await fetch(`${connection.url}rpc`, { method: "POST", headers, body: "{ not json" });
+      expect(malformed.status).toBe(400);
+      const malformedBody = await malformed.json() as any;
+      expect(malformedBody.error).toBe("runtime RPC request body is not valid JSON");
+      expect(JSON.stringify(malformedBody)).not.toContain("position");
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 15_000);
+
+  test("idle exit does not start while an accepted RPC request is still reading its body", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "rpc-body-idle-token",
+      idleTimeoutMs: 100,
+      requestBodyTimeoutMs: 5_000,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      const inFlight = () => (rpc as unknown as { inFlightRpcRequests: number }).inFlightRpcRequests;
+      const body = JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] });
+      const slow = rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, [`Content-Length: ${Buffer.byteLength(body)}`]),
+        chunks: [{ data: body.slice(0, 5) }, { data: body.slice(5), delayMs: 400 }]
+      });
+      await waitUntil(() => inFlight() === 1, 1_000, "accepted request counted as in flight while uploading");
+      await sleep(250);
+      // Idle exit "beginning" is observable before the exit callback: it removes the connection
+      // file first, and its own `stop()` then blocks on this still-open upload connection.
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+      expect(rawHttpStatus(await slow)).toBe(200);
+      await waitUntil(() => inFlight() === 0, 1_000, "in-flight released after the response");
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 15_000);
+
+  test("client disconnect during upload releases the RPC body buffers and in-flight slot", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "rpc-body-abort-token",
+      idleTimeoutMs: 0,
+      requestBodyTimeoutMs: 5_000
+    });
+    try {
+      const connection = await rpc.start();
+      const inFlight = () => (rpc as unknown as { inFlightRpcRequests: number }).inFlightRpcRequests;
+      const aborted = rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Content-Length: 4000"]),
+        chunks: [{ data: "{" }, { data: "", delayMs: 300 }],
+        destroyAfterChunks: true
+      });
+      await waitUntil(() => inFlight() === 1, 1_000, "aborted request counted as in flight while uploading");
+      await aborted;
+      await waitUntil(() => inFlight() === 0, 2_000, "in-flight released after client disconnect");
+
+      const recovered = await new RuntimeRpcClient(connection).runtimeStatus(root);
+      expect(recovered.ok).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 15_000);
+
+  test("runtime RPC client fails stalled health and RPC calls within its configured deadline", async () => {
+    let requests = 0;
+    const stalled = createHttpServer((request) => {
+      requests += 1;
+      request.resume();
+    });
+    const port = await listenLoopback(stalled);
+    try {
+      const connection = loopbackRpcConnection(port);
+      const client = new RuntimeRpcClient(connection, { timeouts: { health: 150, short: 150, normal: 150, long: 150 } });
+
+      const startedAt = Date.now();
+      const healthError = await client.health().catch((error: unknown) => error);
+      expect(healthError).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((healthError as RuntimeRpcTransportError).code).toBe("RPC_TIMEOUT");
+      expect((healthError as RuntimeRpcTransportError).method).toBe("health");
+      expect((healthError as RuntimeRpcTransportError).timeoutMs).toBe(150);
+      expect((healthError as RuntimeRpcTransportError).elapsedMs).toBeGreaterThanOrEqual(100);
+      expect(Date.now() - startedAt).toBeLessThan(3_000);
+
+      const rpcError = await client.runtimeStatus(tmpdir()).catch((error: unknown) => error);
+      expect(rpcError).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((rpcError as RuntimeRpcTransportError).code).toBe("RPC_TIMEOUT");
+      expect((rpcError as RuntimeRpcTransportError).method).toBe("runtimeStatus");
+      expect((rpcError as Error).message).not.toContain(connection.token);
+      expect(String((rpcError as Error).stack)).not.toContain(connection.token);
+
+      // A timed-out mutation must not be replayed: the daemon may have already committed it.
+      const before = requests;
+      await client.applyUpdate(tmpdir(), { id: "changeset.timeout", approved: true, expectedWorktreeDigest: `sha256:${"0".repeat(64)}` })
+        .catch(() => undefined);
+      await sleep(300);
+      expect(requests - before).toBe(1);
+
+      const controller = new AbortController();
+      const cancellable = new RuntimeRpcClient(connection, {
+        timeouts: { health: 10_000, short: 10_000, normal: 10_000, long: 10_000 },
+        signal: controller.signal
+      });
+      const cancelStartedAt = Date.now();
+      setTimeout(() => controller.abort(), 50);
+      const cancelled = await cancellable.runtimeStatus(tmpdir()).catch((error: unknown) => error);
+      expect(cancelled).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((cancelled as RuntimeRpcTransportError).code).toBe("RPC_ABORTED");
+      expect(Date.now() - cancelStartedAt).toBeLessThan(3_000);
+    } finally {
+      await closeLoopback(stalled);
+    }
+  }, 15_000);
+
+  test("runtime RPC client separates long running method deadlines from short control calls", async () => {
+    const server = createHttpServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
+      request.on("end", () => {
+        const method = request.url === "/health" ? "health" : (JSON.parse(body || "{}") as { method?: string }).method ?? "unknown";
+        if (method === "validate") {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.write("{\"schemaVersion\":");
+          return;
+        }
+        setTimeout(() => {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ schemaVersion: "archcontext.envelope/v1", ok: true, kind: `test.${method}`, data: {} }));
+        }, 250);
+      });
+    });
+    const port = await listenLoopback(server);
+    try {
+      const connection = loopbackRpcConnection(port);
+      const strict = new RuntimeRpcClient(connection, { timeouts: { health: 900, short: 100, normal: 100, long: 900 } });
+
+      const shortTimeout = await strict.runtimeStatus(tmpdir()).catch((error: unknown) => error);
+      expect(shortTimeout).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((shortTimeout as RuntimeRpcTransportError).method).toBe("runtimeStatus");
+
+      // Delayed headers on a long-running method stay inside its own, explicitly longer deadline.
+      expect((await strict.auditRun(tmpdir())).ok).toBe(true);
+      expect((await strict.health() as any).ok).toBe(true);
+
+      // A response that starts but never finishes still fails on the deadline.
+      const stalledBody = await strict.validate(tmpdir()).catch((error: unknown) => error);
+      expect(stalledBody).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((stalledBody as RuntimeRpcTransportError).code).toBe("RPC_TIMEOUT");
+
+      const relaxed = new RuntimeRpcClient(connection, { timeouts: { health: 900, short: 400, normal: 400, long: 900 } });
+      expect((await relaxed.runtimeStatus(tmpdir())).ok).toBe(true);
+    } finally {
+      await closeLoopback(server);
+    }
+  }, 15_000);
 
   test("runtime RPC rejects untrusted worktree digest profiles before plan or apply state", async () => {
     const root = createGitRepo();
@@ -4955,6 +5835,123 @@ describe("local runtime foundation", () => {
       removeTempRepo(first);
       removeTempRepo(second);
       removeTempRepo(third);
+    }
+  });
+
+  test("repo remove survives a daemon restart and detaches dependent landscape state", async () => {
+    const removedRoot = tempRepo();
+    const keptRoot = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      const addedRemoved = await daemon.repoAdd(removedRoot, "web");
+      const addedKept = await daemon.repoAdd(keptRoot, "api");
+      const removedId = (addedRemoved.data as any).repository.repositoryId;
+      const keptId = (addedKept.data as any).repository.repositoryId;
+
+      const outbound: CrossRepoRelation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1",
+        id: "relation.outbound",
+        kind: "calls",
+        source: { repositoryId: removedId, nodeId: "node.web" },
+        target: { repositoryId: keptId, nodeId: "node.api" },
+        via: { kind: "interface", id: "interface.checkout" },
+        intent: "web calls api"
+      };
+      const inbound: CrossRepoRelation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1",
+        id: "relation.inbound",
+        kind: "subscribes",
+        source: { repositoryId: keptId, nodeId: "node.api" },
+        target: { repositoryId: removedId, nodeId: "node.web" },
+        via: { kind: "event", id: "event.checkout-completed" },
+        intent: "api subscribes to web"
+      };
+      await store.saveCrossRepoRelation(outbound);
+      await store.saveCrossRepoRelation(inbound);
+      const registered = (await store.readLandscape("landscape.local"))!;
+      expect(registered.scope?.defaultActiveRepositories).toEqual([removedId, keptId]);
+      const loaded = await daemon.loadLandscape({ ...registered, relations: [inbound.id, outbound.id] });
+      expect(loaded.ok).toBe(true);
+
+      const removal = await daemon.repoRemove(removedId);
+      expect(removal.ok).toBe(true);
+      expect(removal.data).toMatchObject({
+        repositoryId: removedId,
+        removed: true,
+        sessionRemoved: true,
+        detachedRelationIds: [inbound.id, outbound.id]
+      });
+
+      const saved = (await store.readLandscape("landscape.local"))!;
+      expect(saved.repositories.map((repo) => repo.repositoryId)).toEqual([keptId]);
+      expect(saved.scope?.defaultActiveRepositories).toEqual([keptId]);
+      expect(saved.relations).toEqual([]);
+      expect(validateLandscape(saved, await store.listCrossRepoRelations(saved))).toEqual({ valid: true, errors: [] });
+      expect([...store.repositorySessions.keys()]).toEqual([keptId]);
+      expect([...store.crossRepoEdges.keys()].sort()).toEqual([inbound.id, outbound.id]);
+
+      await daemon.stop();
+      const restarted = await createStartedTestDaemon({ localStore: store });
+      expect((await restarted.repoList()).data).toMatchObject({ activeSessions: [keptId] });
+
+      const unknown = await restarted.repoRemove(removedId);
+      expect(unknown.ok).toBe(false);
+      expect((unknown as any).error.code).toBe("AC_REPO_NOT_FOUND");
+      expect([...store.repositorySessions.keys()]).toEqual([keptId]);
+      await restarted.stop();
+    } finally {
+      removeTempRepo(removedRoot);
+      removeTempRepo(keptRoot);
+    }
+  });
+
+  test("repo remove rejected by landscape validation leaves every session untouched", async () => {
+    const removedRoot = tempRepo();
+    const keptRoot = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({ localStore: store });
+      const addedRemoved = await daemon.repoAdd(removedRoot, "web");
+      const addedKept = await daemon.repoAdd(keptRoot, "api");
+      const removedId = (addedRemoved.data as any).repository.repositoryId;
+      const keptId = (addedKept.data as any).repository.repositoryId;
+
+      // A relation between the kept repository and one that was never registered. loadLandscape
+      // validates without relations, so this reaches the saved landscape; repoRemove validates the
+      // post-removal landscape *with* its active relations, so the dangling endpoint surfaces
+      // there. Nothing about it involves the repository being removed.
+      const dangling: CrossRepoRelation = {
+        schemaVersion: "archcontext.cross-repo-relation/v1",
+        id: "relation.dangling",
+        kind: "depends-on",
+        source: { repositoryId: keptId, nodeId: "node.api" },
+        target: { repositoryId: "repo.never-registered", nodeId: "node.ghost" },
+        via: { kind: "interface", id: "interface.ghost" },
+        intent: "api depends on an unregistered repository"
+      };
+      await store.saveCrossRepoRelation(dangling);
+      const registered = (await store.readLandscape("landscape.local"))!;
+      expect((await daemon.loadLandscape({ ...registered, relations: [dangling.id] })).ok).toBe(true);
+
+      const rejected = await daemon.repoRemove(removedId);
+      expect(rejected.ok).toBe(false);
+      expect((rejected as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((rejected as any).error.message).toContain("repo.never-registered");
+
+      expect([...store.repositorySessions.keys()].sort()).toEqual([removedId, keptId].sort());
+      expect((await daemon.repoList()).data).toMatchObject({ activeSessions: [removedId, keptId].sort() });
+      const stillSaved = (await store.readLandscape("landscape.local"))!;
+      expect(stillSaved.repositories.map((repo) => repo.repositoryId).sort()).toEqual([removedId, keptId].sort());
+      expect(stillSaved.relations).toEqual([dangling.id]);
+
+      await daemon.stop();
+      const restarted = await createStartedTestDaemon({ localStore: store });
+      expect((await restarted.repoList()).data).toMatchObject({ activeSessions: [removedId, keptId].sort() });
+      await restarted.stop();
+    } finally {
+      removeTempRepo(removedRoot);
+      removeTempRepo(keptRoot);
     }
   });
 
@@ -5532,6 +6529,132 @@ describe("github issue executor", () => {
     } finally {
       rmSync(binDir, { recursive: true, force: true });
     }
+  });
+
+  // Issue #117: the preflight's job is to stop credential *values* from being published, not to
+  // ban the vocabulary a security/architecture audit needs in order to describe them.
+  const preflightDraft = (overrides: Partial<GithubIssuePreflightDraft> = {}): GithubIssuePreflightDraft => ({
+    draftId: "draft_1",
+    draftDigest: `sha256:${"a".repeat(64)}`,
+    title: "Some advisory finding",
+    bodyMarkdown: "## Task\n\nDo the thing.\n",
+    labels: [],
+    ...overrides
+  });
+
+  const benignSecurityProseDrafts: { name: string; draft: GithubIssuePreflightDraft }[] = [
+    { name: "JWT in the title", draft: preflightDraft({ title: "Validate JWT audience and issuer checks" }) },
+    { name: "lowercase jwt in prose", draft: preflightDraft({ bodyMarkdown: "The verifier never checks the jwt expiry claim.\n" }) },
+    { name: "JWT trust-boundary prose", draft: preflightDraft({ bodyMarkdown: "## Task\n\nDocument JWT trust boundaries between the app and the daemon.\n" }) },
+    { name: "installation-token prose", draft: preflightDraft({ title: "Rotate installation-token credentials safely" }) },
+    { name: "installation_token identifier", draft: preflightDraft({ bodyMarkdown: "The `installation_token` field is read from the store and never logged.\n" }) },
+    { name: "jwt label", draft: preflightDraft({ labels: ["area/jwt", "security"] }) },
+    {
+      name: "malformed near-miss token shape",
+      draft: preflightDraft({ bodyMarkdown: "A truncated header-only value such as eyJhbGciOiJIUzI1NiJ9 is not a credential.\n" })
+    },
+    {
+      name: "dotted identifiers that are not a compact token",
+      draft: preflightDraft({ bodyMarkdown: "See packages.local-runtime.runtime-daemon for the handler.\n" })
+    }
+  ];
+
+  for (const { name, draft } of benignSecurityProseDrafts) {
+    test(`preflight publishes benign security prose: ${name}`, () => {
+      const result = preflightGithubIssueDrafts("audit_run.benign", [draft]);
+      expect(result.ok).toBe(true);
+    });
+  }
+
+  const credentialValueDrafts: { name: string; field: string; draft: GithubIssuePreflightDraft }[] = [
+    {
+      name: "compact token value in the body",
+      field: "body",
+      draft: preflightDraft({
+        bodyMarkdown:
+          "Observed value: eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU\n"
+      })
+    },
+    {
+      name: "compact token value in the title",
+      field: "title",
+      draft: preflightDraft({
+        title: "Leaked eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU value"
+      })
+    },
+    {
+      name: "compact token value in a label",
+      field: "label",
+      draft: preflightDraft({
+        labels: ["eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIxMjM0NSIsImV4cCI6OTk5OTk5fQ.c2lnbmF0dXJlLXZhbHVlLWhlcmU"]
+      })
+    },
+    {
+      name: "github token prefix",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
+    },
+    {
+      name: "bearer credential",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Request header: Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345\n" })
+    },
+    {
+      name: "private key header",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKC\n" })
+    },
+    {
+      name: "webhook secret",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "GITHUB_WEBHOOK_SECRET=hunter2hunter2hunter2\n" })
+    },
+    {
+      name: "installation token assignment",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: 'installation_token = "NOT-A-REAL-INSTALLATION-TOKEN-0000"\n' })
+    },
+    {
+      name: "installation-token assignment in mixed case",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Installation-Token: NOT-A-REAL-INSTALLATION-TOKEN-0000\n" })
+    }
+  ];
+
+  for (const { name, field, draft } of credentialValueDrafts) {
+    test(`preflight rejects a credential value: ${name}`, () => {
+      const result = preflightGithubIssueDrafts("audit_run.credential", [draft]);
+      expect(result.ok).toBe(false);
+      const reason = (result as { ok: false; reason: string }).reason;
+      expect(reason).toContain("secret-shaped");
+      expect(reason).toContain(draft.draftId);
+      expect(reason).toContain(field);
+      // The reason names the detector and the field, never the matched credential text.
+      const scanned = [draft.title, draft.bodyMarkdown, ...draft.labels].join("\n");
+      for (const word of scanned.split(/\s+/).filter((token) => token.length >= 12)) {
+        expect(reason).not.toContain(word);
+      }
+    });
+  }
+
+  test("preflight aborts the whole batch on one credential value and publishes nothing partially", () => {
+    const result = preflightGithubIssueDrafts("audit_run.batch", [
+      preflightDraft({ draftId: "draft_safe_1", title: "Validate JWT audience and issuer checks" }),
+      preflightDraft({ draftId: "draft_bad", bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" }),
+      preflightDraft({ draftId: "draft_safe_2", title: "Document installation-token lifecycle" })
+    ]);
+    expect(result.ok).toBe(false);
+    expect((result as { ok: false; reason: string }).reason).toContain("draft_bad");
+    expect((result as { ok: false; reason: string }).reason).toContain("entire run");
+  });
+
+  test("preflight passes a multi-draft batch of benign security findings", () => {
+    const result = preflightGithubIssueDrafts("audit_run.batch_ok", [
+      preflightDraft({ draftId: "draft_1", title: "Validate JWT audience and issuer checks" }),
+      preflightDraft({ draftId: "draft_2", title: "Rotate installation-token credentials safely", labels: ["area/jwt"] })
+    ]);
+    expect(result.ok).toBe(true);
+    expect((result as { ok: true; bodies: Map<string, string> }).bodies.size).toBe(2);
   });
 });
 
