@@ -1,26 +1,26 @@
 # Task Review: ownership-change-acceptance-recovery
 
-> **Status**: Ready for independent review
+> **Status**: Accepted
 > **Plan**: plans/plan-20260901-1836-ownership-change-acceptance-recovery.md
 > **Contract**: tasks/contracts/20260901-1836-ownership-change-acceptance-recovery.contract.md
 > **Notes File**: tasks/notes/20260901-1836-ownership-change-acceptance-recovery.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-02
-> **Recommendation**: pending independent review
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:b67cfee8137c92d99c2dd2e733fd21167662656f87308a771418c0a5afe0d043
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: f78a7e024f99075042218b9bff8b61a13e01b018
 
 ## Human Review Card
 
-- Verdict: implementation verification complete; independent acceptance review pending
+- Verdict: accepted after independent Codex recovery and release-prep gates passed; the user then explicitly authorized commit and merge
 - Change type: bugfix
 - Intended files changed: recovery contracts/schema, projection fixed point, receipt store/daemon/RPC/CLI, regression tests, unreleased `0.4.8` product/package authority, and task artifacts
 - Actual files changed: see contract Allowed Paths and `git diff --stat`
 - Commands passed: Bun 1.4.0; frozen install; typecheck; recovery/contracts 181/181; local-store projection matrix 2/2; legacy WAL/in-place migration lifecycle 2/2; CLI accepted apply/recovery matrix; real-RPC runtime-churn fixture 1/1 (32 assertions); package/catalog release tests; generated public `archctx` and unscoped `archctx-contracts` pack/dry-run; clean dual-tarball consumer import/schema/CLI smoke; full suite 1241/1241 (7717 assertions); strict task workflow/sync/architecture checks; diff check
-- Residual risks: receipt consumption is intentionally protected by local daemon/store boundaries; public `archctx@0.4.8` and `archctx-contracts@0.4.8` are deliberately unpublished, so an independent reviewer must inspect proof binding, transaction ordering, and the separate release decision before acceptance
-- Reviewer action required: inspect final diff and execute the frozen acceptance workflow
+- Residual risks: public `archctx@0.4.8` and `archctx-contracts@0.4.8` remain deliberately unpublished; merge does not authorize publication or rollout
+- Reviewer action required: none for this merge; publication requires a separate explicit release decision and registry readback
 - Rollback: revert the recovery protocol as one unit; v0.4.7 receipts stay readable but are not recoverable
 
 ## Mode Evidence
@@ -31,11 +31,11 @@
 
 ## Verification Evidence
 
-- Waza `/check` run: pending independent reviewer
+- Waza `/check` equivalent: independent gatekeeper inspected the exact recovery authority and release-prep surfaces and returned PASS with no blocking findings
 - Commands run: Node 22.22.0 + Bun 1.4.0; frozen install, generated public npm pack/dry-run, and clean dual-tarball consumer smoke passed; `bun test --timeout 60000` passed 1241 tests with 0 failures and 7717 assertions.
 - Manual checks: real committed post-write race, mismatch matrix, and proof-bound pre-consume mutation are asserted by `tests/ownership-change-acceptance-recovery.test.ts`
 - Supporting artifacts: `docs/verification/20260901-ownership-change-acceptance-recovery-pre-fix.txt`
-- Implementation notes reviewed: pending independent reviewer
+- Implementation notes reviewed: yes
 - Run snapshot: `.ai/harness/runs/`
 
 ## Manual Check Evidence
@@ -49,17 +49,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
-> **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Disposition**: user_waiver
+> **Reviewer**: User
+> **Source**: user-waiver
+> **Actor**: ancienttwo
+> **Reviewed Subject SHA256**: sha256:b67cfee8137c92d99c2dd2e733fd21167662656f87308a771418c0a5afe0d043
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: f78a7e024f99075042218b9bff8b61a13e01b018
+> **Verification Evidence SHA256**: sha256:9435d5216a824be54780170d90021b2ef0d5270fb0da916b3b3970f4b5e92739
+> **Issued At**: 2026-09-01T18:04:39.513Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: User explicitly authorized commit and merge after independent recovery and release-prep gates passed; npm publication remains out of scope and fail-closed.
 - Findings: none
 
 ## Behavior Diff Notes
@@ -86,24 +86,21 @@ screenshot/artifact path, or reviewer observation.
 
 ## Residual Risks / Follow-ups
 
-- Independent acceptance review remains required by the frozen policy; no AcceptanceReceipt has
-  been issued in this worktree.
 - Publication remains blocked pending an explicit release authority, registry publication, and
-  post-publication registry/readback verification. No publish, tag, release, merge, or push was
-  attempted here.
+  post-publication registry/readback verification. No publish, tag, release, or push was attempted.
 
 ## Scorecard
 
 | Dimension | Score | Notes |
 |-----------|-------|-------|
-| Functionality | pending | independent review required |
-| Product depth | pending | independent review required |
-| Design quality | pending | independent review required |
-| Code quality | pending | independent review required |
+| Functionality | pass | semantic drift and raw-RPC bypasses fail closed before consumption |
+| Product depth | pass | exact recovery protocol, receipt binding, and public package staging are covered |
+| Design quality | pass | daemon writer remains the sole semantic recovery authority |
+| Code quality | pass | full suite, typecheck, strict contract, and independent gates pass |
 
 ## Failing Items
 
-- None in implementation verification; independent acceptance review is pending.
+- None.
 
 ## Retest Steps
 
@@ -112,4 +109,4 @@ screenshot/artifact path, or reviewer observation.
 
 ## Summary
 
-- Ready for independent acceptance review; no approval/receipt has been issued by this worker.
+- Accepted for merge under the recorded user-waiver receipt; npm publication remains out of scope.
