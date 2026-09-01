@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -3026,6 +3026,87 @@ describe("local runtime foundation", () => {
       await daemon.prepare(root, "Use React state hooks", 12_288, 12, "task_docs");
       await daemon.completeTask(root, { taskSessionId: "task_docs", headSha: "abc123" });
       expect(providerCalls).toBe(1);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("approved docs pin refuses a symlinked lockfile path and leaves the outside target untouched", async () => {
+    const root = tempRepo();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-pin-target-"));
+    const victim = join(outside, "victim.yaml");
+    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    try {
+      await daemon.init(root, "Pin Symlink App");
+      writeFileSync(victim, "do-not-touch\n", { encoding: "utf8", mode: 0o644 });
+      const modeBefore = statSync(victim).mode;
+      mkdirSync(join(root, ".archcontext/integrations"), { recursive: true });
+      symlinkSync(victim, join(root, ".archcontext/integrations/context7.lock.yaml"));
+
+      const pin = await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      expect(pin.ok).toBe(false);
+      expect(JSON.stringify(pin)).toContain("symlink");
+      expect(readText(victim)).toBe("do-not-touch\n");
+      expect(statSync(victim).mode).toBe(modeBefore);
+    } finally {
+      await daemon.stop();
+      removeTempPath(outside);
+      removeTempRepo(root);
+    }
+  });
+
+  test("approved docs pin refuses a symlinked parent of the lockfile path", async () => {
+    const root = tempRepo();
+    const outside = mkdtempSync(join(tmpdir(), "archctx-pin-parent-"));
+    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    try {
+      await daemon.init(root, "Pin Parent Symlink App");
+      symlinkSync(outside, join(root, ".archcontext/integrations"));
+
+      const pin = await daemon.docs(root, {
+        command: "pin",
+        libraryId: "/facebook/react",
+        version: "18.2.0",
+        approved: true
+      });
+
+      expect(pin.ok).toBe(false);
+      expect(JSON.stringify(pin)).toContain("symlink");
+      expect(existsSync(join(outside, "context7.lock.yaml"))).toBe(false);
+    } finally {
+      await daemon.stop();
+      removeTempPath(outside);
+      removeTempRepo(root);
+    }
+  });
+
+  test("approved docs pin writes a private lockfile and re-pins over its own previous state", async () => {
+    const root = tempRepo();
+    const lockPath = join(root, ".archcontext/integrations/context7.lock.yaml");
+    const daemon = await createStartedTestDaemon({ clock: () => "2026-06-24T00:00:00.000Z" });
+    try {
+      await daemon.init(root, "Pin Rewrite App");
+
+      expect((await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true })).ok).toBe(true);
+      if (process.platform !== "win32") {
+        expect(statSync(lockPath).mode & 0o777).toBe(0o600);
+      }
+
+      const second = await daemon.docs(root, { command: "pin", libraryId: "/vercel/next.js", version: "14.0.0", approved: true });
+      expect(second.ok).toBe(true);
+      expect(((second.data as any).lock.libraries as any[]).map((library) => library.libraryId))
+        .toEqual(["/facebook/react", "/vercel/next.js"]);
+      expect(JSON.parse(readText(lockPath)).libraries).toHaveLength(2);
+      if (process.platform !== "win32") {
+        expect(statSync(lockPath).mode & 0o777).toBe(0o600);
+      }
     } finally {
       await daemon.stop();
       removeTempRepo(root);

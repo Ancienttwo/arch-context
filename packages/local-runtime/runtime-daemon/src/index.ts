@@ -17,7 +17,7 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { assertPathHasNoSymlinkSegments, ChangeSetEngine, writeFileWithoutFollowingSymlinks, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   architectureLedgerGitCursorFromPlan,
@@ -2332,7 +2332,8 @@ export class ArchctxDaemon {
         if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
         assertContext7LibraryId(input.libraryId);
         assertContext7Version(input.version);
-        const lock = upsertContext7Pin(readContext7Lockfile(session.workspace.root), {
+        const current = readContext7LockfileState(session.workspace.root);
+        const lock = upsertContext7Pin(current.lock, {
           libraryId: input.libraryId,
           version: input.version,
           pinnedAt: this.clock(),
@@ -2346,7 +2347,7 @@ export class ArchctxDaemon {
             lock
           } as unknown as Json);
         }
-        writeContext7Lockfile(session.workspace.root, lock);
+        writeContext7Lockfile(session.workspace.root, lock, current.expectedHash);
         return okEnvelope("docs.pin", {
           schemaVersion: "archcontext.context7-pin/v1",
           approved: true,
@@ -6344,15 +6345,29 @@ function isExactPackageVersion(value: string): boolean {
 }
 
 function readContext7Lockfile(root: string): Context7LockfileV1 {
-  const path = resolve(root, CONTEXT7_LOCKFILE);
+  return readContext7LockfileState(root).lock;
+}
+
+/**
+ * The lockfile plus the hash of the exact bytes the lock was parsed from, so an approved pin can
+ * carry that hash into the write as an optimistic-concurrency precondition. Reading once is what
+ * makes the precondition meaningful: hashing a second read would only prove the file was stable
+ * between two reads, not that the pin is being applied to the state it was computed from.
+ */
+function readContext7LockfileState(root: string): { lock: Context7LockfileV1; expectedHash: string } {
+  const path = assertPathHasNoSymlinkSegments(root, CONTEXT7_LOCKFILE);
   if (!existsSync(path)) {
     return {
-      schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
-      provider: "context7",
-      libraries: []
+      lock: {
+        schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
+        provider: "context7",
+        libraries: []
+      },
+      expectedHash: "missing"
     };
   }
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as Context7LockfileV1;
+  const body = readFileSync(path, "utf8");
+  const parsed = JSON.parse(body) as Context7LockfileV1;
   if (parsed.schemaVersion !== CONTEXT7_LOCKFILE_SCHEMA_VERSION || parsed.provider !== "context7" || !Array.isArray(parsed.libraries)) {
     throw new Error("Invalid Context7 lockfile");
   }
@@ -6361,8 +6376,11 @@ function readContext7Lockfile(root: string): Context7LockfileV1 {
     assertContext7Version(library.version);
   }
   return {
-    ...parsed,
-    libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+    lock: {
+      ...parsed,
+      libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+    },
+    expectedHash: digestJson({ body } as unknown as Json)
   };
 }
 
@@ -6375,8 +6393,14 @@ function upsertContext7Pin(lock: Context7LockfileV1, pin: Context7LibraryPinV1):
   };
 }
 
-function writeContext7Lockfile(root: string, lock: Context7LockfileV1): void {
-  writePrivateJson(resolve(root, CONTEXT7_LOCKFILE), lock);
+function writeContext7Lockfile(root: string, lock: Context7LockfileV1, expectedHash: string): void {
+  writeFileWithoutFollowingSymlinks({
+    root,
+    path: CONTEXT7_LOCKFILE,
+    body: JSON.stringify(lock, null, 2),
+    mode: 0o600,
+    expectedHash
+  });
 }
 
 function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {
