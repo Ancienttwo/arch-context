@@ -6550,19 +6550,28 @@ export async function rebuildDerivedLandscapeState(store: RuntimeLocalStore, inp
   };
 }
 
-async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase> {
-  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
-  if (!process.versions.bun) {
-    const nodeSqlite = await import("node:sqlite");
-    const db = new (nodeSqlite as any).DatabaseSync(databasePath);
-    return {
-      exec: (sql) => db.exec(sql),
-      prepare: (sql) => db.prepare(sql),
-      close: () => db.close()
-    };
-  }
-  const bunSqlite = await import("bun:sqlite");
-  const db = new (bunSqlite as any).Database(databasePath);
+type SqliteRuntime = "bun" | "node";
+
+// Each runtime owns exactly one SQLite binding, chosen explicitly; an unrecognised
+// runtime fails closed rather than trying a second binding.
+//
+// Bun must never take `node:sqlite`: Bun's shim keeps the underlying file descriptor
+// open after `DatabaseSync.close()` once the connection has prepared a statement, so a
+// later connection compacting the same file (`PRAGMA journal_mode = DELETE`) blocks on
+// the leaked lock. `bun:sqlite` exposes the statement lifetime this module needs
+// through `clearQueryCache()`.
+//
+// Node must keep `node:sqlite`: the packaged `archctx.mjs` runs on Node in production.
+function selectSqliteRuntime(): SqliteRuntime {
+  if (process.versions.bun) return "bun";
+  if (process.versions.node) return "node";
+  throw new Error(
+    "Unsupported SQLite runtime: archctx requires the Bun or Node runtime, but neither process.versions.bun nor process.versions.node is set."
+  );
+}
+
+function adaptBunSqliteDatabase(bunSqlite: any, databasePath: string): SqliteDatabase {
+  const db = new bunSqlite.Database(databasePath);
   const releaseStatements = () => db.clearQueryCache();
   return {
     exec: (sql) => db.exec(sql),
@@ -6575,29 +6584,25 @@ async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase>
   };
 }
 
-function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
-  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
-  if (!process.versions.bun) {
-    const nodeSqlite = runtimeRequire("node:sqlite") as any;
-    const db = new (nodeSqlite as any).DatabaseSync(databasePath);
-    return {
-      exec: (sql) => db.exec(sql),
-      prepare: (sql) => db.prepare(sql),
-      close: () => db.close()
-    };
-  }
-  const bunSqlite = runtimeRequire("bun:sqlite");
-  const db = new (bunSqlite as any).Database(databasePath);
-  const releaseStatements = () => db.clearQueryCache();
+function adaptNodeSqliteDatabase(nodeSqlite: any, databasePath: string): SqliteDatabase {
+  const db = new nodeSqlite.DatabaseSync(databasePath);
   return {
     exec: (sql) => db.exec(sql),
-    prepare: (sql) => db.query(sql),
-    releaseStatements,
-    close: () => {
-      releaseStatements();
-      db.close();
-    }
+    prepare: (sql) => db.prepare(sql),
+    close: () => db.close()
   };
+}
+
+async function openSqliteDatabase(databasePath: string): Promise<SqliteDatabase> {
+  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
+  if (selectSqliteRuntime() === "bun") return adaptBunSqliteDatabase(await import("bun:sqlite"), databasePath);
+  return adaptNodeSqliteDatabase(await import("node:sqlite"), databasePath);
+}
+
+function openSqliteDatabaseSync(databasePath: string): SqliteDatabase {
+  if (databasePath !== ":memory:") ensurePrivateDir(dirname(databasePath));
+  if (selectSqliteRuntime() === "bun") return adaptBunSqliteDatabase(runtimeRequire("bun:sqlite"), databasePath);
+  return adaptNodeSqliteDatabase(runtimeRequire("node:sqlite"), databasePath);
 }
 
 function legacyMigrationResult(
