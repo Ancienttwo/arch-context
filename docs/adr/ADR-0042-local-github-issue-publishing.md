@@ -64,19 +64,31 @@ Add a daemon-owned `archctx audit approve` flow with five parts.
    repository — deleted immediately after the call settles.
 3. **A narrow trust boundary with no ambient fallback.** `auditApprove` requires a dedicated
    `ARCHCONTEXT_GH_ISSUES_TOKEN` fine-grained PAT scoped to `Issues: write` only; a missing token,
-   an unresolvable `git remote get-url origin`, or a failed/inconclusive `gh repo view` visibility
-   probe all fail closed with no `gh` call made and no fallback to an ambient `gh auth login`
-   session. Every draft's full outbound payload (title, body, labels, and the footer marker below)
-   is scanned against the same six secret-shaped patterns
-   `scripts/fg5-retention-staging-readback.ts` already uses, and checked against GitHub's issue
-   body length limit, for the entire batch before any ledger event is appended or any `gh` call is
-   made; either check failing aborts the whole run, not just the offending draft. Authorization is
+   an unresolvable `git remote get-url origin`, an `origin` whose canonical host is not
+   `github.com`, or a failed/inconclusive `gh repo view` visibility probe all fail closed with no
+   `gh` call made and no fallback to an ambient `gh auth login` session. The host check is an
+   active `AC_PRECONDITION_FAILED` rejection, not merely an unsupported configuration: `gh`
+   resolves a bare `owner/repo` slug against `github.com`, so a GitLab, Bitbucket, GitHub
+   Enterprise, or self-hosted `origin` would otherwise publish to whatever same-named repository
+   happens to exist on `github.com`. Every draft's full outbound payload (title, body, labels, and
+   the footer marker below) is scanned field by field against value-shape secret detectors — each
+   carrying a stable `id` that a rejection names alongside the offending field, without echoing the
+   matched text — and checked against GitHub's issue body length limit, for the entire batch before
+   any ledger event is appended or any `gh` call is made; either check failing aborts the whole run,
+   not just the offending draft. Those detectors match credential *values* (a real token prefix, a
+   bearer credential, a private-key header, a webhook secret, a compact-token structure, or an
+   installation token in assignment context) rather than security vocabulary, so an architecture
+   finding that discusses JWT or installation-token handling is publishable. They are deliberately
+   not shared with `scripts/fg5-retention-staging-readback.ts`, whose own list scans
+   machine-generated retention output instead of human-authored advisory prose. Authorization is
    local-process trust plus the manifest's `audit.githubIssues.enabled` opt-in plus this narrow
    PAT — not a new RBAC layer, matching this codebase's existing single-operator local trust model.
 4. **A second, explicit gate for non-private repositories.** Beyond the opt-in manifest flag,
    publishing to a repository whose authoritatively-probed visibility is not `private` requires a
    caller-supplied `--confirm-public-repo <token>` matching
-   `public:<owner/repo>:<baseSha>:<runId>` exactly; an absent or stale token returns
+   `public:<host>/<owner>/<repo>:<baseSha>:<runId>` exactly; the canonical host is part of the
+   token so the human is confirming a fully qualified target rather than a hostless slug. An
+   absent or stale token returns
    `AC_USER_CONFIRMATION_REQUIRED` with the exact rerun command in the error message (the CLI
    prints it as a warning) rather than guessing intent. The token is not a secret — it is
    reconstructible from data already in the ledger — but its digest, never its raw text, is folded
@@ -135,7 +147,9 @@ two never intersect.
   the target repository is never verified, and `gh issue create --label X` fails the entire call
   outright when `X` doesn't exist there — an unbounded new partial-failure shape this ADR does not
   attempt to classify — so `createIssue` never sends `--label`; a draft's labels stay visible only
-  via `archctx audit show`, for a human to apply by hand after filing); any host other than
-  `github.com`; an MCP-surfaced `approve` tool; and extracting `SECRET_PATTERNS` into a shared
-  module across this file and `scripts/fg5-retention-staging-readback.ts` (the two lists are kept
-  independently inlined on purpose — see the executor module's own comment).
+  via `archctx audit show`, for a human to apply by hand after filing); supporting any host other
+  than `github.com` (a non-`github.com` `origin` is not merely unsupported — it is rejected with
+  `AC_PRECONDITION_FAILED` before any `gh` call, per the trust-boundary point above); an
+  MCP-surfaced `approve` tool; and extracting `SECRET_DETECTORS` into a shared module across this
+  file and `scripts/fg5-retention-staging-readback.ts` (the two lists are kept independently
+  inlined on purpose — see the executor module's own comment).

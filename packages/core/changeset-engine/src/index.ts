@@ -1,5 +1,5 @@
-import { closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   ARCHITECTURE_EVENT_SCHEMA_VERSION,
   architectureEventHash,
@@ -647,14 +647,93 @@ function assertSafeTarget(root: string, path: string, scope?: ArchContextPathSco
   }
 }
 
+export interface NoFollowFileWrite {
+  /** Containment boundary. The root itself is trusted and may legitimately be reached through a symlink. */
+  root: string;
+  /** Repository-relative destination. */
+  path: string;
+  body: string;
+  /** POSIX mode forced on the file. Omit to inherit the process default. */
+  mode?: number;
+  /** `digestJson({ body })` of the current contents, or `"missing"` when the file must not exist yet. */
+  expectedHash: string;
+}
+
+/**
+ * The write boundary for structured files that live outside the ChangeSet operation set but still
+ * must not be redirected by a repository-controlled path — the Context7 pin lockfile is the first.
+ *
+ * It reuses this module's atomic writer and expected-hash precondition rather than introducing a
+ * second one, and it is fail-closed: a symlink anywhere in the path, or contents that changed since
+ * the caller read them, aborts before anything is created, truncated, renamed, or chmod'd.
+ */
+export function writeFileWithoutFollowingSymlinks(request: NoFollowFileWrite): void {
+  const absoluteRoot = resolve(request.root);
+  const absolute = assertPathHasNoSymlinkSegments(request.root, request.path);
+  const segments = relative(absoluteRoot, absolute).split(sep);
+  if (existsSync(absolute)) assertExpectedHash(absolute, request.expectedHash);
+  else if (request.expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${request.path}`);
+  mkdirSync(dirname(absolute), { recursive: true });
+  // Re-checked after mkdir: the directories just materialized were not covered by the first walk.
+  assertNoSymlinkSegments(absoluteRoot, segments, request.path);
+  atomicWriteFile(absolute, `${absolute}.archctx-tmp-${process.pid}-${nextNoFollowWriteSequence()}`, request.body, request.mode);
+}
+
+/**
+ * Containment plus no-follow validation for a repository-relative path, returning its absolute form.
+ *
+ * Exported so readers of the same fail-closed files apply the identical rule: a path that is unsafe
+ * to write is also unsafe to parse, because following it hands an attacker-chosen file to a parser
+ * that was only ever meant to see repository state.
+ */
+export function assertPathHasNoSymlinkSegments(root: string, path: string): string {
+  const absoluteRoot = resolve(root);
+  const absolute = resolve(absoluteRoot, path);
+  const contained = relative(absoluteRoot, absolute);
+  if (contained === "" || contained === ".." || contained.startsWith(`..${sep}`) || isAbsolute(contained)) {
+    throw new Error(`Path escapes repository: ${path}`);
+  }
+  assertNoSymlinkSegments(absoluteRoot, contained.split(sep), path);
+  return absolute;
+}
+
+let noFollowWriteSequence = 0;
+
+function nextNoFollowWriteSequence(): number {
+  noFollowWriteSequence += 1;
+  return noFollowWriteSequence;
+}
+
+/**
+ * `lstat` every existing component, destination included. `existsSync` is deliberately not used to
+ * decide whether a component is there: it follows links, so a dangling symlink would read as absent
+ * and be silently accepted as a path to create.
+ */
+function assertNoSymlinkSegments(absoluteRoot: string, segments: string[], displayPath: string): void {
+  let current = absoluteRoot;
+  for (const segment of segments) {
+    current = resolve(current, segment);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch {
+      return;
+    }
+    if (stat.isSymbolicLink()) throw new Error(`Refusing to write through symlink: ${displayPath}`);
+  }
+}
+
 function assertExpectedHash(path: string, expectedHash: string): void {
   const actual = digestJson({ body: readFileSync(path, "utf8") });
   if (expectedHash !== actual) throw new Error(`Expected hash mismatch: ${path}`);
 }
 
-function atomicWriteFile(path: string, tempPath: string, body: string): void {
+function atomicWriteFile(path: string, tempPath: string, body: string, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(tempPath, body, "utf8");
+  writeFileSync(tempPath, body, mode === undefined ? "utf8" : { encoding: "utf8", mode, flag: "wx" });
+  // The mode is forced on the temp name, which only this process can reach. Doing it on the
+  // destination after the rename would leave a window where a swapped path receives the chmod.
+  if (mode !== undefined) chmodSync(tempPath, mode);
   fsyncFile(tempPath);
   renameSync(tempPath, path);
   fsyncDirectory(dirname(path));

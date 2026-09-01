@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type Stats } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   addRepositoryToLandscape,
   bindRepository,
@@ -17,7 +17,7 @@ import {
   type Landscape,
   type RepositoryRegistration
 } from "@archcontext/core/architecture-domain";
-import { ChangeSetEngine, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
+import { assertPathHasNoSymlinkSegments, ChangeSetEngine, writeFileWithoutFollowingSymlinks, type ChangeOperation, type ChangeSetDraft } from "@archcontext/core/changeset-engine";
 import {
   ARCHITECTURE_LEDGER_GIT_CURSOR_ID,
   architectureLedgerGitCursorFromPlan,
@@ -101,10 +101,10 @@ import { renderExplorerHtml } from "@archcontext/local-runtime/explorer-html";
 import { completeTaskGate, type CompleteTaskInput, type CompleteTaskProjectionDriftInput, type CompleteTaskProjectionFreshnessInput } from "@archcontext/core/review-engine";
 import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prepareArchitectureDocumentationProjectionSnapshot, type CodeGraphProvider } from "@archcontext/local-runtime/codegraph-adapter";
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
-import { compileLandscapeTaskContext, compileTaskContext, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
+import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
-import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
+import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
 import {
@@ -364,7 +364,7 @@ export interface RuntimeAuditApproveInput {
   runId: string;
   /**
    * Required once, verbatim, when the run's repository resolves to non-private visibility.
-   * Expected shape: `public:<owner/repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
+   * Expected shape: `public:<host>/<owner>/<repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
    * gate) — a re-run instruction, not a secret, so it is safe to print in error messages.
    */
   confirmPublicToken?: string;
@@ -572,6 +572,8 @@ export interface DeveloperReviewRunRecovery {
   recovered: DeveloperReviewRunCleanup[];
   removedLocks: string[];
   skippedActive: string[];
+  /** State-dir entries left untouched because they failed the daemon-ownership check. */
+  rejected: string[];
 }
 
 export interface RuntimeDeps {
@@ -685,6 +687,15 @@ export interface DaemonControlRecovery {
   removed: DaemonControlRecoveryReason[];
 }
 
+/**
+ * Largest accepted `POST /rpc` body. The biggest legitimate method is a ChangeSet apply carrying
+ * rendered projection documents, which stays far below this; anything larger is a malfunctioning
+ * or hostile local client rather than a real request.
+ */
+export const RUNTIME_RPC_MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
+/** Deadline for reading an accepted request body, measured from the end of authorization. */
+export const RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS = 30_000;
+
 export interface RuntimeRpcServerOptions {
   root?: string;
   port?: number;
@@ -692,6 +703,10 @@ export interface RuntimeRpcServerOptions {
   lockPath?: string;
   connectionPath?: string;
   clock?: () => string;
+  /** Defaults to `RUNTIME_RPC_MAX_REQUEST_BODY_BYTES`. */
+  maxRequestBodyBytes?: number;
+  /** Defaults to `RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS`. */
+  requestBodyTimeoutMs?: number;
   /** `undefined` resolves to the `ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS` env var, then
    * `DEFAULT_DAEMON_IDLE_TIMEOUT_MS`. `0` disables idle exit. */
   idleTimeoutMs?: number;
@@ -859,8 +874,6 @@ export interface RuntimeDaemonClient {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
-    tempRoot?: string;
-    stateDir?: string;
   }): Promise<DeveloperReviewRunPreparation> | DeveloperReviewRunPreparation;
   runSignedDeveloperReviewAttestation(input: {
     challenge: ReviewChallengeV2;
@@ -876,7 +889,6 @@ export interface RuntimeDaemonClient {
   cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): Promise<DeveloperReviewRunCleanup> | DeveloperReviewRunCleanup;
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
-    stateDir?: string;
     force?: boolean;
   }): Promise<DeveloperReviewRunRecovery> | DeveloperReviewRunRecovery;
 }
@@ -1503,7 +1515,8 @@ export class ArchctxDaemon {
     const scope = await this.architectureLedgerScope(repositoryRoot);
     const jobs = await this.localStore.listRuntimeAgentJobs(scope);
     const record = jobs.find((candidate) => candidate.job.jobId === input.jobId);
-    if (record && record.job.status !== "running") {
+    if (!record) return runtimeAgentJobOutOfScopeEnvelope("jobs.complete", input.jobId);
+    if (record.job.status !== "running") {
       return errorEnvelope(
         "jobs.complete",
         "AC_PRECONDITION_FAILED",
@@ -1517,8 +1530,9 @@ export class ArchctxDaemon {
       // .archcontext/ directory changing) must not be silently self-cancelled here either — this
       // check is a second, independent staleness enforcement point from that sweep, and both must
       // agree on the same policy or a stalePolicy override is only half-honored.
-      if (record && record.job.stalePolicy === "cancel-on-head-change" && isRuntimeAgentJobCursorStale(record.job, scope)) {
+      if (record.job.stalePolicy === "cancel-on-head-change" && isRuntimeAgentJobCursorStale(record.job, scope)) {
         await this.localStore.cancelRuntimeAgentJob({
+          ...scope,
           jobId: input.jobId,
           status: "expired",
           now: input.now ?? this.clock(),
@@ -1534,7 +1548,7 @@ export class ArchctxDaemon {
     if (input.proposalPlan) {
       const validation = validateRuntimeAgentProposalPlan({
         proposalPlan: input.proposalPlan,
-        job: record?.job,
+        job: record.job,
         jobId: input.jobId,
         outputDigest: input.outputDigest
       });
@@ -1547,6 +1561,7 @@ export class ArchctxDaemon {
       } as unknown as Json
       : input.runMetadata as unknown as Json | undefined;
     const job = await this.localStore.completeRuntimeAgentJob({
+      ...scope,
       jobId: input.jobId,
       status: input.status,
       workerId: input.workerId,
@@ -1560,8 +1575,12 @@ export class ArchctxDaemon {
 
   async jobsRetry(root: string, input: RuntimeAgentJobRetryRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
-    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
+      return runtimeAgentJobOutOfScopeEnvelope("jobs.retry", input.jobId);
+    }
     const job = await this.localStore.retryRuntimeAgentJob({
+      ...scope,
       jobId: input.jobId,
       reason: input.reason,
       now: input.now ?? this.clock()
@@ -1571,8 +1590,12 @@ export class ArchctxDaemon {
 
   async jobsCancel(root: string, input: RuntimeAgentJobCancelRpcInput): Promise<JsonEnvelope> {
     this.assertRunning();
-    await this.architectureLedgerScope(findRepositoryRoot(root));
+    const scope = await this.architectureLedgerScope(findRepositoryRoot(root));
+    if (!(await this.runtimeAgentJobInScope(scope, input.jobId))) {
+      return runtimeAgentJobOutOfScopeEnvelope("jobs.cancel", input.jobId);
+    }
     const job = await this.localStore.cancelRuntimeAgentJob({
+      ...scope,
       jobId: input.jobId,
       status: input.status ?? "cancelled",
       reason: input.reason,
@@ -1580,6 +1603,17 @@ export class ArchctxDaemon {
       now: input.now ?? this.clock()
     });
     return okEnvelope("jobs.cancel", { job } as unknown as Json);
+  }
+
+  /**
+   * Resolves `jobId` inside the caller's own repository/worktree scope. The store rejects
+   * out-of-scope mutations by throwing; resolving first lets the RPC surface answer with an error
+   * envelope instead of an exception, and keeps a cross-repository job ID indistinguishable from an
+   * unknown one.
+   */
+  private async runtimeAgentJobInScope(scope: ArchitectureLedgerScope, jobId: string): Promise<RuntimeAgentJobRecord | undefined> {
+    const jobs = await this.localStore.listRuntimeAgentJobs(scope);
+    return jobs.find((candidate) => candidate.job.jobId === jobId);
   }
 
   async auditRun(root: string, input: RuntimeAuditRunInput = {}): Promise<JsonEnvelope> {
@@ -1885,17 +1919,28 @@ export class ArchctxDaemon {
    * auth login` session (the PAT is the only credential source `auditApprove` will use).
    */
   private async canFileGithubIssues(root: string): Promise<
-    | { ok: true; repoNameWithOwner: string; visibility: ArchitectureAuditRunV1["repoVisibility"]; token: string }
+    | { ok: true; host: string; repoNameWithOwner: string; visibility: ArchitectureAuditRunV1["repoVisibility"]; token: string }
     | { ok: false; code: "AC_PRECONDITION_FAILED"; message: string }
   > {
-    const repoNameWithOwner = repositoryNameWithOwner(root);
-    if (repoNameWithOwner === "local/unknown") {
+    const target = readGitRemoteTarget(root);
+    if (!target) {
       return {
         ok: false,
         code: "AC_PRECONDITION_FAILED",
         message: "audit approve requires a resolvable GitHub owner/repo; git remote 'origin' is missing or is not a parseable GitHub URL"
       };
     }
+    // ADR-0042 scope is exactly github.com. `gh` resolves a bare `owner/repo` against github.com,
+    // so a GitLab/Bitbucket/GitHub Enterprise/self-hosted remote must be refused here rather than
+    // silently republished to whatever same-named repository exists on github.com.
+    if (target.host !== SUPPORTED_GITHUB_REMOTE_HOST) {
+      return {
+        ok: false,
+        code: "AC_PRECONDITION_FAILED",
+        message: `audit approve supports ${SUPPORTED_GITHUB_REMOTE_HOST} remotes only (ADR-0042); git remote 'origin' resolves to host "${target.host}", and ${target.owner}/${target.repo} there is not the same repository as ${target.owner}/${target.repo} on ${SUPPORTED_GITHUB_REMOTE_HOST}`
+      };
+    }
+    const repoNameWithOwner = `${target.owner}/${target.repo}`;
     const token = process.env[AUDIT_APPROVE_GH_TOKEN_ENV];
     if (!token) {
       return {
@@ -1923,7 +1968,7 @@ export class ArchctxDaemon {
         message: `audit approve received an unrecognized visibility "${probedVisibility}" for ${repoNameWithOwner}; refusing to guess whether it is safe to publish`
       };
     }
-    return { ok: true, repoNameWithOwner, visibility, token };
+    return { ok: true, host: target.host, repoNameWithOwner, visibility, token };
   }
 
   async auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
@@ -2025,12 +2070,14 @@ export class ArchctxDaemon {
       const capability = await this.canFileGithubIssues(repositoryRoot);
       if (!capability.ok) return errorEnvelope("audit.approve", capability.code, capability.message);
 
-      const expectedConfirmToken = `public:${capability.repoNameWithOwner}:${run.baseSha}:${run.runId}`;
+      // The canonical host is part of the token so the human confirming a public publish is
+      // confirming a fully qualified target, not a hostless slug.
+      const expectedConfirmToken = `public:${capability.host}/${capability.repoNameWithOwner}:${run.baseSha}:${run.runId}`;
       if (capability.visibility !== "private" && input.confirmPublicToken !== expectedConfirmToken) {
         return errorEnvelope(
           "audit.approve",
           "AC_USER_CONFIRMATION_REQUIRED",
-          `audit run ${run.runId} targets a ${capability.visibility} repository (${capability.repoNameWithOwner}); rerun with explicit confirmation: archctx audit approve ${run.runId} --confirm-public-repo ${expectedConfirmToken}`
+          `audit run ${run.runId} targets a ${capability.visibility} repository (${capability.host}/${capability.repoNameWithOwner}); rerun with explicit confirmation: archctx audit approve ${run.runId} --confirm-public-repo ${expectedConfirmToken}`
         );
       }
 
@@ -2297,7 +2344,8 @@ export class ArchctxDaemon {
         if (!input.libraryId || !input.version) return errorEnvelope("docs.pin", "AC_SCHEMA_INVALID", "docs pin requires --library-id and --version");
         assertContext7LibraryId(input.libraryId);
         assertContext7Version(input.version);
-        const lock = upsertContext7Pin(readContext7Lockfile(session.workspace.root), {
+        const current = readContext7LockfileState(session.workspace.root);
+        const lock = upsertContext7Pin(current.lock, {
           libraryId: input.libraryId,
           version: input.version,
           pinnedAt: this.clock(),
@@ -2311,7 +2359,7 @@ export class ArchctxDaemon {
             lock
           } as unknown as Json);
         }
-        writeContext7Lockfile(session.workspace.root, lock);
+        writeContext7Lockfile(session.workspace.root, lock, current.expectedHash);
         return okEnvelope("docs.pin", {
           schemaVersion: "archcontext.context7-pin/v1",
           approved: true,
@@ -2734,7 +2782,6 @@ export class ArchctxDaemon {
     currentFiles: ModelFile[],
     createdAt: string
   ): Promise<ArchitectureProjectionRollbackWriteResult> {
-    const targetPaths = new Set(projectedFiles.map((file) => file.path));
     const backupBase = `.archcontext/backups/ledger-rollback/${safePathSegment(createdAt)}`;
     const backupRelativePath = uniqueBackupPath(root, backupBase);
     const manifestPath = `${backupRelativePath}/manifest.json`;
@@ -2743,7 +2790,7 @@ export class ArchctxDaemon {
       path: backupRelativePath,
       manifestPath
     });
-    const removedPaths = currentFiles.filter((file) => !targetPaths.has(file.path)).map((file) => file.path);
+    const removedPaths = obsoleteManagedProjectionPaths(currentFiles, projectedFiles);
     await this.applyArchitectureProjectionChangeSet(root, {
       id: `changeset.ledger-rollback-${shortDigest(digestJson({ createdAt, projectionDigest: architectureLedgerProjectionDigest(projectedFiles) } as unknown as Json))}`,
       files: [
@@ -3120,11 +3167,15 @@ export class ArchctxDaemon {
       const scope = await this.architectureLedgerScope(root);
       const state = await this.localStore.readArchitectureLedgerState(scope);
       const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+      const removedPaths = obsoleteManagedProjectionPaths(
+        listModelFiles(root).filter((file) => isArchitectureLedgerManagedModelPath(file.path)),
+        projectedFiles
+      );
       if (writes) {
         await this.applyArchitectureProjectionChangeSet(root, {
           id: `changeset.ledger-project-${shortDigest(architectureLedgerProjectionDigest(projectedFiles))}`,
           files: projectedFiles.map(({ path, body }) => ({ path, body })),
-          removedPaths: []
+          removedPaths
         });
       }
       const drift = compareArchitectureLedgerStateToYaml({
@@ -3145,6 +3196,7 @@ export class ArchctxDaemon {
         projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
         graphDigest: architectureLedgerStateDigest(state),
         writtenPaths: writes ? projectedFiles.map((file) => file.path) : [],
+        removedPaths: writes ? removedPaths : [],
         projectedFiles: writes ? undefined : projectedFiles,
         drift,
         reconcile
@@ -3647,20 +3699,29 @@ export class ArchctxDaemon {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
+    /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
-    stateDir?: string;
   }): DeveloperReviewRunPreparation {
     this.assertRunning();
     const sourceRoot = findRepositoryRoot(input.repositoryRoot);
     const paths = createDeveloperReviewRunPaths({
       sourceRoot,
       challengeId: input.challenge.challengeId,
-      tempRoot: input.tempRoot,
-      stateDir: input.stateDir
+      tempRoot: input.tempRoot
     });
     mkdirSync(paths.stateDir, { recursive: true });
     mkdirSync(paths.runRoot, { recursive: true });
     mkdirSync(paths.worktreeTempRoot, { recursive: true });
+    const createdAt = this.clock();
+    writeDeveloperReviewRunOwnerMarker({
+      runRoot: paths.runRoot,
+      runId: paths.runId,
+      challengeId: input.challenge.challengeId,
+      stateDir: paths.stateDir,
+      manifestPath: paths.manifestPath,
+      lockPath: paths.lockPath,
+      createdAt
+    });
     const preparing: DeveloperReviewRunManifest = {
       schemaVersion: "archcontext.developer-review-run/v1",
       runId: paths.runId,
@@ -3672,7 +3733,7 @@ export class ArchctxDaemon {
       manifestPath: paths.manifestPath,
       lockPath: paths.lockPath,
       pid: process.pid,
-      createdAt: this.clock(),
+      createdAt,
       status: "preparing",
       codeGraphTemporaryState: {
         root: paths.runRoot,
@@ -3725,8 +3786,8 @@ export class ArchctxDaemon {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
+    /** In-process callers only; the production RPC contract does not accept a temp root. */
     tempRoot?: string;
-    stateDir?: string;
   }, run: (developerReviewRun: DeveloperReviewRun) => Promise<T> | T): Promise<T> {
     const prepared = this.startDeveloperReviewRun(input);
     if (!prepared.accepted || !prepared.run) {
@@ -3740,22 +3801,25 @@ export class ArchctxDaemon {
   }
 
   cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
+    // Throws before anything is removed when the manifest names a path this daemon does not own.
+    const targets = resolveOwnedDeveloperReviewRunTargets(run);
     const removed: DeveloperReviewRunCleanup["removed"] = [];
     const errors: string[] = [];
-    if (run.worktree) {
+    if (targets.worktree) {
       try {
-        const hadWorktree = existsSync(run.worktree.worktreeRoot);
-        removeDetachedReviewWorktree(run.worktree);
+        const hadWorktree = existsSync(targets.worktree.worktreeRoot);
+        removeDetachedReviewWorktree(targets.worktree);
         if (hadWorktree) removed.push("worktree");
       } catch (error) {
         errors.push(cleanupErrorMessage("worktree", error));
       }
     }
     for (const [kind, path] of [
-      ["run-root", run.runRoot],
-      ["manifest", run.manifestPath],
-      ["lock", run.lockPath]
+      ["run-root", targets.runRoot],
+      ["manifest", targets.manifestPath],
+      ["lock", targets.lockPath]
     ] as const) {
+      if (!path) continue;
       try {
         const existed = existsSync(path);
         removePathWithRetry(path);
@@ -3774,42 +3838,65 @@ export class ArchctxDaemon {
     };
   }
 
+  /**
+   * Crash recovery scans one directory only: the daemon-owned developer-review state dir for the
+   * caller's repository. There is no caller-selected scan root, and every manifest found there is
+   * still re-validated against its own file location before its run is cleaned up.
+   */
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
-    stateDir?: string;
     force?: boolean;
   }): DeveloperReviewRunRecovery {
     this.assertRunning();
     const sourceRoot = findRepositoryRoot(input.repositoryRoot);
-    const stateDir = input.stateDir ? resolve(input.stateDir) : defaultDeveloperReviewRunStateDir(sourceRoot);
+    const stateDir = defaultDeveloperReviewRunStateDir(sourceRoot);
     const recovery: DeveloperReviewRunRecovery = {
       schemaVersion: "archcontext.developer-review-run-recovery/v1",
       sourceRoot,
       stateDir,
       recovered: [],
       removedLocks: [],
-      skippedActive: []
+      skippedActive: [],
+      rejected: []
     };
     if (!existsSync(stateDir)) return recovery;
 
     for (const entry of readdirSync(stateDir).sort()) {
       if (!entry.endsWith(".json")) continue;
       const manifestPath = join(stateDir, entry);
+      const stats = lstatIfExists(manifestPath);
+      if (!stats || !stats.isFile()) {
+        recovery.rejected.push(`${entry}: not-a-regular-file`);
+        continue;
+      }
       const manifest = readDeveloperReviewRunManifest(manifestPath);
       if (!manifest) {
         rmSync(manifestPath, { force: true });
+        continue;
+      }
+      if (resolve(manifest.manifestPath) !== manifestPath) {
+        recovery.rejected.push(`${entry}: manifest-path-mismatch`);
         continue;
       }
       if (!input.force && isDeveloperReviewPidAlive(manifest.pid)) {
         recovery.skippedActive.push(manifest.runId);
         continue;
       }
-      recovery.recovered.push(this.cleanupDeveloperReviewRun(manifest));
+      try {
+        recovery.recovered.push(this.cleanupDeveloperReviewRun(manifest));
+      } catch (error) {
+        recovery.rejected.push(`${entry}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     for (const entry of readdirSync(stateDir).sort()) {
       if (!entry.endsWith(".lock")) continue;
       const lockPath = join(stateDir, entry);
+      const stats = lstatIfExists(lockPath);
+      if (!stats || !stats.isFile()) {
+        recovery.rejected.push(`${entry}: not-a-regular-file`);
+        continue;
+      }
       const lock = readJsonObject(lockPath);
       const pid = typeof lock?.pid === "number" ? lock.pid : undefined;
       const runId = typeof lock?.runId === "string" ? lock.runId : entry;
@@ -4000,18 +4087,69 @@ export class ArchctxDaemon {
     } as unknown as Json);
   }
 
+  /**
+   * Removal is durable and leaves the saved landscape self-consistent. The persisted
+   * `repository_sessions` row is deleted (otherwise `restoreRepositorySessions` resurrects the
+   * repository on the next daemon start), the repository is dropped from `scope`'s default active
+   * set, and every stored cross-repo relation touching it is detached from `landscape.relations`.
+   * The `cross_repo_edges` rows themselves are kept: they are architectural history, and
+   * `listCrossRepoRelations(landscape)` already filters to the active landscape's relation IDs, so
+   * detaching is enough to keep them out of live context. Relation IDs that resolve to no stored
+   * relation are left alone — there is nothing to check them against.
+   *
+   * Every rejection is decided before the first write. The post-removal landscape can be invalid
+   * for reasons that have nothing to do with this repository (a relation pointing at an
+   * unregistered endpoint, say), and a removal that answers with an error must leave the in-memory
+   * session map, the persisted session row, and the saved landscape exactly as it found them —
+   * otherwise the daemon reports failure while already having dropped the session.
+   */
   async repoRemove(repositoryId: string): Promise<JsonEnvelope> {
     this.assertRunning();
-    this.sessions.delete(repositoryId);
+    const hadOpenSession = this.sessions.has(repositoryId);
+    const hadPersistedSession = (await this.localStore.listRepositorySessions())
+      .some((session) => session.repositoryId === repositoryId);
+    const registered = this.landscape?.repositories.some((repo) => repo.repositoryId === repositoryId) ?? false;
+    if (!registered && !hadOpenSession && !hadPersistedSession) {
+      return errorEnvelope("repo.remove", "AC_REPO_NOT_FOUND", `repository is not registered: ${repositoryId}`);
+    }
+    let detachedRelationIds: string[] = [];
+    let nextLandscape: Landscape | undefined;
     if (this.landscape) {
-      this.landscape = {
+      detachedRelationIds = (await this.localStore.listCrossRepoRelations(this.landscape))
+        .filter((relation) => relation.source.repositoryId === repositoryId || relation.target.repositoryId === repositoryId)
+        .map((relation) => relation.id)
+        .sort();
+      const detached = new Set(detachedRelationIds);
+      const next: Landscape = {
         ...this.landscape,
         repositories: this.landscape.repositories.filter((repo) => repo.repositoryId !== repositoryId),
-        relations: this.landscape.relations
+        relations: this.landscape.relations.filter((relationId) => !detached.has(relationId)),
+        ...(this.landscape.scope === undefined ? {} : {
+          scope: {
+            ...this.landscape.scope,
+            defaultActiveRepositories: (this.landscape.scope.defaultActiveRepositories ?? [])
+              .filter((activeId) => activeId !== repositoryId)
+          }
+        })
       };
-      await this.localStore.saveLandscape(this.landscape);
+      const validation = validateLandscape(next, await this.localStore.listCrossRepoRelations(next));
+      if (!validation.valid) {
+        return errorEnvelope("repo.remove", "AC_SCHEMA_INVALID", validation.errors.join("; "));
+      }
+      nextLandscape = next;
     }
-    return okEnvelope("repo.remove", { repositoryId, removed: true } as Json);
+    this.sessions.delete(repositoryId);
+    await this.localStore.deleteRepositorySession(repositoryId);
+    if (nextLandscape) {
+      this.landscape = nextLandscape;
+      await this.localStore.saveLandscape(nextLandscape);
+    }
+    return okEnvelope("repo.remove", {
+      repositoryId,
+      removed: true,
+      sessionRemoved: hadOpenSession || hadPersistedSession,
+      detachedRelationIds
+    } as unknown as Json);
   }
 
   async loadLandscape(landscape: Landscape): Promise<JsonEnvelope> {
@@ -4892,14 +5030,78 @@ export class ArchctxDaemon {
   }
 }
 
+export type RuntimeRpcTransportErrorCode = "RPC_TIMEOUT" | "RPC_ABORTED";
+
+/**
+ * Stable classification for a runtime RPC call that never produced a response. Carries the method
+ * and its deadline so a caller can decide on retry/backoff, and deliberately carries neither the
+ * bearer token nor the request body.
+ */
+export class RuntimeRpcTransportError extends Error {
+  constructor(
+    readonly code: RuntimeRpcTransportErrorCode,
+    readonly method: string,
+    readonly timeoutMs: number,
+    readonly elapsedMs: number
+  ) {
+    super(code === "RPC_TIMEOUT"
+      ? `runtime RPC timeout: ${method} exceeded ${timeoutMs}ms`
+      : `runtime RPC cancelled: ${method} aborted after ${elapsedMs}ms`);
+    this.name = "RuntimeRpcTransportError";
+  }
+}
+
+export interface RuntimeRpcClientTimeoutPolicy {
+  /** `GET /health` liveness probe. */
+  health: number;
+  /** Control and status reads that must not depend on repository work. */
+  short: number;
+  /** Default class for ordinary repository operations. */
+  normal: number;
+  /** Indexing, audit, and review methods that legitimately run for minutes. */
+  long: number;
+}
+
+export interface RuntimeRpcClientOptions {
+  timeouts?: Partial<RuntimeRpcClientTimeoutPolicy>;
+  /** Caller-owned cancellation applied to every call this client makes. */
+  signal?: AbortSignal;
+}
+
+export const RUNTIME_RPC_CLIENT_TIMEOUT_POLICY: RuntimeRpcClientTimeoutPolicy = {
+  health: 5_000,
+  short: 15_000,
+  normal: 120_000,
+  long: 900_000
+};
+
+const RUNTIME_RPC_SHORT_METHODS = new Set([
+  "shutdown", "runtimeStatus", "landscapeStatus", "repoList", "explorerStatus", "explorerServiceContract",
+  "jobsList", "jobsStats", "ledgerState", "ledgerDrift", "stopExplorer", "revokeExplorerToken"
+]);
+
+const RUNTIME_RPC_LONG_METHODS = new Set([
+  "init", "sync", "prepare", "context", "checkpoint", "auditRun", "auditApprove", "recommendations", "book",
+  "ledgerRebuild", "ledgerMigrate", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
+]);
+
+function runtimeRpcMethodTimeout(method: string, policy: RuntimeRpcClientTimeoutPolicy): number {
+  if (RUNTIME_RPC_SHORT_METHODS.has(method)) return policy.short;
+  if (RUNTIME_RPC_LONG_METHODS.has(method)) return policy.long;
+  return policy.normal;
+}
+
 export class RuntimeRpcClient implements RuntimeDaemonClient {
-  constructor(private readonly connection: RuntimeRpcConnection) {}
+  private readonly timeouts: RuntimeRpcClientTimeoutPolicy;
+
+  constructor(private readonly connection: RuntimeRpcConnection, private readonly options: RuntimeRpcClientOptions = {}) {
+    this.timeouts = { ...RUNTIME_RPC_CLIENT_TIMEOUT_POLICY, ...options.timeouts };
+  }
 
   async health(): Promise<Json> {
-    const response = await fetch(`${this.connection.url}health`, {
+    return await this.request("health", this.timeouts.health, `${this.connection.url}health`, {
       headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
-    });
-    return await response.json() as Json;
+    }) as Json;
   }
 
   async shutdown(): Promise<JsonEnvelope> {
@@ -5103,8 +5305,6 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     repositoryRoot: string;
     challenge: ReviewChallengeV2;
     expectedHeadTreeOid?: string;
-    tempRoot?: string;
-    stateDir?: string;
   }): Promise<DeveloperReviewRunPreparation> {
     return unwrapRpcData(await this.call("startDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunPreparation;
   }
@@ -5129,14 +5329,13 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
 
   async recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
-    stateDir?: string;
     force?: boolean;
   }): Promise<DeveloperReviewRunRecovery> {
     return unwrapRpcData(await this.call("recoverDeveloperReviewRuns", [input])) as unknown as DeveloperReviewRunRecovery;
   }
 
   private async call(method: string, params: unknown[]): Promise<JsonEnvelope> {
-    const response = await fetch(`${this.connection.url}rpc`, {
+    return await this.request(method, runtimeRpcMethodTimeout(method, this.timeouts), `${this.connection.url}rpc`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.connection.token}`,
@@ -5144,8 +5343,39 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
         "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
       },
       body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
-    });
-    return await response.json() as JsonEnvelope;
+    }) as JsonEnvelope;
+  }
+
+  /**
+   * Single transport path for health and every RPC method. The deadline covers response headers
+   * *and* body, so a daemon that starts a response and stalls still fails. A timed-out call is
+   * never replayed here: the daemon may have already committed a mutation whose response was lost,
+   * so reconciliation is the caller's decision, not a silent retry.
+   */
+  private async request(method: string, timeoutMs: number, url: string, init: RequestInit): Promise<unknown> {
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const callerSignal = this.options.signal;
+    const onCallerAbort = (): void => controller.abort();
+    if (callerSignal?.aborted) controller.abort();
+    else callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      return await response.json();
+    } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      if (timedOut) throw new RuntimeRpcTransportError("RPC_TIMEOUT", method, timeoutMs, elapsedMs);
+      if (callerSignal?.aborted) throw new RuntimeRpcTransportError("RPC_ABORTED", method, timeoutMs, elapsedMs);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
+    }
   }
 }
 
@@ -5306,13 +5536,28 @@ export class ArchctxRuntimeRpcServer {
       writeJson(response, 401, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC token required" });
       return;
     }
-    const body = await readRequestJson(request) as { schemaVersion?: string; method?: string; params?: unknown[] };
-    if (body.schemaVersion !== RUNTIME_RPC_VERSION) {
-      writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
-      return;
-    }
+    // An accepted request counts as in-flight from here, before its body is read: the idle-exit
+    // path must never classify an authorized upload as an idle daemon.
     this.inFlightRpcRequests += 1;
     try {
+      const read = await readRpcRequestBody(request, {
+        maxBytes: this.options.maxRequestBodyBytes ?? RUNTIME_RPC_MAX_REQUEST_BODY_BYTES,
+        timeoutMs: this.options.requestBodyTimeoutMs ?? RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS
+      });
+      if (!read.ok) {
+        // A disconnected client has no response to receive; anything else gets a bounded envelope.
+        if (read.kind === "rejected") writeJson(response, read.status, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: read.error });
+        return;
+      }
+      if (!read.value || typeof read.value !== "object" || Array.isArray(read.value)) {
+        writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC request body must be an object" });
+        return;
+      }
+      const body = read.value as { schemaVersion?: string; method?: string; params?: unknown[] };
+      if (body.schemaVersion !== RUNTIME_RPC_VERSION) {
+        writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
+        return;
+      }
       const result = await this.dispatch(body.method ?? "", body.params ?? []);
       writeJson(response, 200, result);
       if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
@@ -5424,14 +5669,17 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.contextLandscape(params[0] as string, params[1] as number | undefined);
       case "runtimeStatus":
         return this.daemon.runtimeStatus(params[0] as string | undefined);
+      // Developer-review inputs are decoded strictly at the boundary: they carry filesystem paths
+      // and the cleanup/recovery pair deletes real directories, so an unknown field (including the
+      // in-process-only `tempRoot`/`stateDir` overrides) is rejected rather than ignored.
       case "startDeveloperReviewRun":
-        return okEnvelope("developerReview.startRun", this.daemon.startDeveloperReviewRun(params[0] as any) as unknown as Json);
+        return okEnvelope("developerReview.startRun", this.daemon.startDeveloperReviewRun(decodeStartDeveloperReviewRunParams(params)) as unknown as Json);
       case "runSignedDeveloperReviewAttestation":
-        return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(params[0] as any) as unknown as Json);
+        return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(decodeSignedDeveloperReviewAttestationParams(params)) as unknown as Json);
       case "cleanupDeveloperReviewRun":
-        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(params[0] as DeveloperReviewRunManifest) as unknown as Json);
+        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(decodeDeveloperReviewRunManifest(params[0], "cleanupDeveloperReviewRun")) as unknown as Json);
       case "recoverDeveloperReviewRuns":
-        return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(params[0] as any) as unknown as Json);
+        return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(decodeRecoverDeveloperReviewRunsParams(params)) as unknown as Json);
       case "shutdown":
         return okEnvelope("daemon.stop", { stopping: true } as Json);
       default:
@@ -5627,6 +5875,21 @@ function shouldSkipGeneratedProjectionJob(metadata: GitChangeMetadata, input: Ru
 function isRuntimeAgentJobCursorStale(job: AgentJobV1, scope: ArchitectureLedgerScope): boolean {
   return job.worktree.headSha !== scope.worktree.headSha
     || job.worktree.worktreeDigest !== scope.worktree.worktreeDigest;
+}
+
+/**
+ * One reply for "this job ID is not yours" and "this job ID does not exist". Job IDs are unique
+ * across every repository sharing one local store, so a stale, copied, or misrouted ID from another
+ * repository or worktree must not be able to mutate — or even confirm the existence of — that
+ * repository's queue state.
+ */
+function runtimeAgentJobOutOfScopeEnvelope(requestId: string, jobId: string): JsonEnvelope {
+  return errorEnvelope(
+    requestId,
+    "AC_PRECONDITION_FAILED",
+    `runtime agent job does not belong to this repository/worktree: ${jobId}`,
+    "runtime-agent-job-out-of-scope"
+  );
 }
 
 function runtimeWorktreeDigest(root: string, profile: RuntimeWorktreeDigestProfile): string {
@@ -6020,11 +6283,44 @@ function runtimeAttestationIdentity(snapshot: CodeFactsSnapshot, composition: Ru
   };
 }
 
+const DEVELOPER_REVIEW_RUN_ROOT_PREFIX = "archctx-developer-review-";
+const DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE = ".archctx-developer-review-run.json";
+const DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION = "archcontext.developer-review-run-owner/v1";
+/** `mkdtempSync` appends exactly six random characters to the requested prefix. */
+const DEVELOPER_REVIEW_RUN_ROOT_SUFFIX = /^[A-Za-z0-9]{6}$/;
+/** `runId` is the safe challenge segment plus `randomBytes(6).toString("hex")`. */
+const DEVELOPER_REVIEW_RUN_ID_SUFFIX = /^[0-9a-f]{12}$/;
+
+interface DeveloperReviewRunOwnerMarkerV1 {
+  schemaVersion: typeof DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION;
+  runId: string;
+  challengeId: string;
+  stateDir: string;
+  manifestPath: string;
+  lockPath: string;
+  pid: number;
+  createdAt: string;
+}
+
+/**
+ * Deletion targets for one developer-review run, re-derived from daemon-owned state instead of
+ * trusted from the caller-supplied manifest. `runRoot`/`worktree` are absent when the run root is
+ * already gone, which leaves manifest and lock removal as the only remaining work — that is the
+ * crash window between removing a run root and removing its manifest, not a caller-controlled
+ * shortcut.
+ */
+interface OwnedDeveloperReviewRunTargets {
+  stateDir: string;
+  manifestPath: string;
+  lockPath: string;
+  runRoot?: string;
+  worktree?: DetachedReviewWorktree;
+}
+
 function createDeveloperReviewRunPaths(input: {
   sourceRoot: string;
   challengeId: string;
   tempRoot?: string;
-  stateDir?: string;
 }): {
   runId: string;
   stateDir: string;
@@ -6035,10 +6331,10 @@ function createDeveloperReviewRunPaths(input: {
 } {
   const safeChallengeId = safeControlFileSegment(input.challengeId);
   const runId = `${safeChallengeId}-${randomBytes(6).toString("hex")}`;
-  const stateDir = input.stateDir ? resolve(input.stateDir) : defaultDeveloperReviewRunStateDir(input.sourceRoot);
+  const stateDir = defaultDeveloperReviewRunStateDir(input.sourceRoot);
   const tempParent = input.tempRoot ? resolve(input.tempRoot) : tmpdir();
   mkdirSync(tempParent, { recursive: true });
-  const runRoot = mkdtempSync(join(tempParent, `archctx-developer-review-${safeChallengeId.slice(0, 32)}-`));
+  const runRoot = mkdtempSync(join(tempParent, `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`));
   return {
     runId,
     stateDir,
@@ -6047,6 +6343,104 @@ function createDeveloperReviewRunPaths(input: {
     manifestPath: join(stateDir, `${safeChallengeId}.json`),
     lockPath: join(stateDir, `${safeChallengeId}.lock`)
   };
+}
+
+/**
+ * Written into a run root the moment the daemon creates it. Cleanup deletes a run root only when
+ * this marker is present and matches the run being cleaned, which is what proves the daemon
+ * created the directory it is about to remove — including after a crash, from a different process.
+ */
+function writeDeveloperReviewRunOwnerMarker(input: {
+  runRoot: string;
+  runId: string;
+  challengeId: string;
+  stateDir: string;
+  manifestPath: string;
+  lockPath: string;
+  createdAt: string;
+}): void {
+  const marker: DeveloperReviewRunOwnerMarkerV1 = {
+    schemaVersion: DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION,
+    runId: input.runId,
+    challengeId: input.challengeId,
+    stateDir: input.stateDir,
+    manifestPath: input.manifestPath,
+    lockPath: input.lockPath,
+    pid: process.pid,
+    createdAt: input.createdAt
+  };
+  writePrivateJson(join(input.runRoot, DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE), marker, "wx");
+}
+
+function readDeveloperReviewRunOwnerMarker(path: string): DeveloperReviewRunOwnerMarkerV1 | undefined {
+  const stats = lstatIfExists(path);
+  if (!stats || !stats.isFile()) return undefined;
+  const parsed = readJsonObject(path);
+  if (!parsed || parsed.schemaVersion !== DEVELOPER_REVIEW_RUN_OWNER_SCHEMA_VERSION) return undefined;
+  if (typeof parsed.runId !== "string" || typeof parsed.challengeId !== "string") return undefined;
+  if (typeof parsed.manifestPath !== "string" || typeof parsed.lockPath !== "string") return undefined;
+  return parsed as unknown as DeveloperReviewRunOwnerMarkerV1;
+}
+
+function developerReviewRunNotOwned(reason: string): Error {
+  return new Error(`developer-review-run-not-owned: ${reason}`);
+}
+
+/**
+ * Fail-closed containment check for every developer-review deletion. Nothing here trusts a
+ * caller-supplied path: the state directory comes from `runtimeStatePaths`, manifest and lock
+ * names are re-derived from the challenge id, the run root must carry the daemon's mkdtemp naming
+ * convention plus its ownership marker, and the worktree must sit inside that run root. Any
+ * mismatch throws before a single unlink happens.
+ */
+function resolveOwnedDeveloperReviewRunTargets(run: DeveloperReviewRunManifest): OwnedDeveloperReviewRunTargets {
+  const safeChallengeId = safeControlFileSegment(run.challengeId);
+  const runIdSuffix = run.runId.startsWith(`${safeChallengeId}-`) ? run.runId.slice(safeChallengeId.length + 1) : undefined;
+  if (!runIdSuffix || !DEVELOPER_REVIEW_RUN_ID_SUFFIX.test(runIdSuffix)) throw developerReviewRunNotOwned("run-id");
+
+  const stateDir = defaultDeveloperReviewRunStateDir(run.sourceRoot);
+  const manifestPath = join(stateDir, `${safeChallengeId}.json`);
+  const lockPath = join(stateDir, `${safeChallengeId}.lock`);
+  if (resolve(run.manifestPath) !== manifestPath) throw developerReviewRunNotOwned("manifest-path");
+  if (resolve(run.lockPath) !== lockPath) throw developerReviewRunNotOwned("lock-path");
+
+  const runRoot = resolve(run.runRoot);
+  const runRootPrefix = `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`;
+  const runRootName = basename(runRoot);
+  if (!runRootName.startsWith(runRootPrefix) || !DEVELOPER_REVIEW_RUN_ROOT_SUFFIX.test(runRootName.slice(runRootPrefix.length))) {
+    throw developerReviewRunNotOwned("run-root-name");
+  }
+  const worktreeTempRoot = join(runRoot, "worktrees");
+  if (resolve(run.worktreeTempRoot) !== worktreeTempRoot) throw developerReviewRunNotOwned("worktree-temp-root");
+  if (resolve(run.codeGraphTemporaryState.root) !== runRoot) throw developerReviewRunNotOwned("codegraph-temporary-state-root");
+
+  const runRootStats = lstatIfExists(runRoot);
+  if (!runRootStats) return { stateDir, manifestPath, lockPath };
+  if (!runRootStats.isDirectory()) throw developerReviewRunNotOwned("run-root-not-a-directory");
+  const marker = readDeveloperReviewRunOwnerMarker(join(runRoot, DEVELOPER_REVIEW_RUN_OWNER_MARKER_FILE));
+  if (!marker) throw developerReviewRunNotOwned("run-root-owner-marker-missing");
+  if (marker.runId !== run.runId || marker.challengeId !== run.challengeId) throw developerReviewRunNotOwned("run-root-owner-marker-mismatch");
+  if (marker.manifestPath !== manifestPath || marker.lockPath !== lockPath) throw developerReviewRunNotOwned("run-root-owner-marker-mismatch");
+  if (!run.worktree) return { stateDir, manifestPath, lockPath, runRoot };
+
+  const temporaryRoot = resolve(run.worktree.temporaryRoot);
+  const worktreeRoot = resolve(run.worktree.worktreeRoot);
+  if (!isContainedPath(worktreeTempRoot, temporaryRoot)) throw developerReviewRunNotOwned("worktree-temporary-root");
+  if (!isContainedPath(temporaryRoot, worktreeRoot)) throw developerReviewRunNotOwned("worktree-root");
+  if (defaultDeveloperReviewRunStateDir(run.worktree.sourceRoot) !== stateDir) throw developerReviewRunNotOwned("worktree-source-root");
+  return { stateDir, manifestPath, lockPath, runRoot, worktree: { ...run.worktree, temporaryRoot, worktreeRoot } };
+}
+
+function isContainedPath(parent: string, child: string): boolean {
+  return child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
+}
+
+function lstatIfExists(path: string): Stats | undefined {
+  try {
+    return lstatSync(path);
+  } catch {
+    return undefined;
+  }
 }
 
 function safeControlFileSegment(value: string): string {
@@ -6127,9 +6521,7 @@ function appendExternalDocumentationToContext(
     : [...context.resources, externalResource as any];
   const unknown = `External documentation is advisory and untrusted for ${candidate.packageName}@${candidate.version}: ${candidate.intent}`;
   const unknowns = context.unknowns.includes(unknown) ? context.unknowns : [...context.unknowns, unknown];
-  const extensionWithoutDigest = { ...context.extensions };
-  delete (extensionWithoutDigest as { digest?: string }).digest;
-  const withoutDigest = {
+  const augmented = {
     ...context,
     unknowns,
     resources,
@@ -6148,7 +6540,7 @@ function appendExternalDocumentationToContext(
       }
     },
     extensions: {
-      ...extensionWithoutDigest,
+      ...context.extensions,
       externalDocumentationDigest: digestJson({
         provider: resource.provider,
         libraryId: candidate.libraryId,
@@ -6159,22 +6551,7 @@ function appendExternalDocumentationToContext(
       } as unknown as Json)
     }
   };
-  const byteLength = Buffer.byteLength(JSON.stringify(withoutDigest), "utf8");
-  const withMetadata = {
-    ...withoutDigest,
-    extensions: {
-      ...withoutDigest.extensions,
-      byteLength,
-      budgetExceeded: byteLength > maxBytes
-    }
-  };
-  return {
-    ...withMetadata,
-    extensions: {
-      ...withMetadata.extensions,
-      digest: digestJson(withMetadata as unknown as Json)
-    }
-  };
+  return finalizeContextBudgetMetadata(augmented, maxBytes);
 }
 
 function prepareContextHasVersionRelatedUnknown(context: PreparedTaskContext): boolean {
@@ -6269,15 +6646,29 @@ function isExactPackageVersion(value: string): boolean {
 }
 
 function readContext7Lockfile(root: string): Context7LockfileV1 {
-  const path = resolve(root, CONTEXT7_LOCKFILE);
+  return readContext7LockfileState(root).lock;
+}
+
+/**
+ * The lockfile plus the hash of the exact bytes the lock was parsed from, so an approved pin can
+ * carry that hash into the write as an optimistic-concurrency precondition. Reading once is what
+ * makes the precondition meaningful: hashing a second read would only prove the file was stable
+ * between two reads, not that the pin is being applied to the state it was computed from.
+ */
+function readContext7LockfileState(root: string): { lock: Context7LockfileV1; expectedHash: string } {
+  const path = assertPathHasNoSymlinkSegments(root, CONTEXT7_LOCKFILE);
   if (!existsSync(path)) {
     return {
-      schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
-      provider: "context7",
-      libraries: []
+      lock: {
+        schemaVersion: CONTEXT7_LOCKFILE_SCHEMA_VERSION,
+        provider: "context7",
+        libraries: []
+      },
+      expectedHash: "missing"
     };
   }
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as Context7LockfileV1;
+  const body = readFileSync(path, "utf8");
+  const parsed = JSON.parse(body) as Context7LockfileV1;
   if (parsed.schemaVersion !== CONTEXT7_LOCKFILE_SCHEMA_VERSION || parsed.provider !== "context7" || !Array.isArray(parsed.libraries)) {
     throw new Error("Invalid Context7 lockfile");
   }
@@ -6286,8 +6677,11 @@ function readContext7Lockfile(root: string): Context7LockfileV1 {
     assertContext7Version(library.version);
   }
   return {
-    ...parsed,
-    libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+    lock: {
+      ...parsed,
+      libraries: [...parsed.libraries].sort((a, b) => a.libraryId.localeCompare(b.libraryId))
+    },
+    expectedHash: digestJson({ body } as unknown as Json)
   };
 }
 
@@ -6300,8 +6694,14 @@ function upsertContext7Pin(lock: Context7LockfileV1, pin: Context7LibraryPinV1):
   };
 }
 
-function writeContext7Lockfile(root: string, lock: Context7LockfileV1): void {
-  writePrivateJson(resolve(root, CONTEXT7_LOCKFILE), lock);
+function writeContext7Lockfile(root: string, lock: Context7LockfileV1, expectedHash: string): void {
+  writeFileWithoutFollowingSymlinks({
+    root,
+    path: CONTEXT7_LOCKFILE,
+    body: JSON.stringify(lock, null, 2),
+    mode: 0o600,
+    expectedHash
+  });
 }
 
 function writeDeveloperReviewRunManifest(manifest: DeveloperReviewRunManifest): void {
@@ -6315,15 +6715,169 @@ function writePrivateJson(path: string, value: unknown, flag: "w" | "wx" = "w"):
 }
 
 function readDeveloperReviewRunManifest(path: string): DeveloperReviewRunManifest | undefined {
-  const parsed = readJsonObject(path);
-  if (!parsed || parsed.schemaVersion !== "archcontext.developer-review-run/v1") return undefined;
-  if (typeof parsed.runId !== "string" || typeof parsed.challengeId !== "string") return undefined;
-  if (typeof parsed.repositoryId !== "number" || typeof parsed.sourceRoot !== "string") return undefined;
-  if (typeof parsed.runRoot !== "string" || typeof parsed.worktreeTempRoot !== "string") return undefined;
-  if (typeof parsed.manifestPath !== "string" || typeof parsed.lockPath !== "string") return undefined;
-  if (typeof parsed.pid !== "number" || typeof parsed.createdAt !== "string") return undefined;
-  if (parsed.status !== "preparing" && parsed.status !== "running") return undefined;
-  return parsed as unknown as DeveloperReviewRunManifest;
+  try {
+    return decodeDeveloperReviewRunManifest(readJsonObject(path), "developer-review-run-manifest");
+  } catch {
+    return undefined;
+  }
+}
+
+function rpcInputInvalid(context: string, detail: string): Error {
+  return new Error(`runtime-rpc-input-invalid: ${context} ${detail}`);
+}
+
+function decodeRpcRecord(value: unknown, context: string, label: string, allowedKeys: readonly string[]): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw rpcInputInvalid(context, `${label} must be an object`);
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.includes(key)) throw rpcInputInvalid(context, `${label} has unknown field ${key}`);
+  }
+  return record;
+}
+
+function rpcString(record: Record<string, unknown>, context: string, label: string): string {
+  const value = record[label];
+  if (typeof value !== "string" || value.length === 0) throw rpcInputInvalid(context, `${label} must be a non-empty string`);
+  return value;
+}
+
+function rpcOptionalString(record: Record<string, unknown>, context: string, label: string): string | undefined {
+  return record[label] === undefined ? undefined : rpcString(record, context, label);
+}
+
+function rpcNumber(record: Record<string, unknown>, context: string, label: string): number {
+  const value = record[label];
+  if (typeof value !== "number" || !Number.isFinite(value)) throw rpcInputInvalid(context, `${label} must be a number`);
+  return value;
+}
+
+function rpcLiteral<T extends string>(record: Record<string, unknown>, context: string, label: string, allowed: readonly T[]): T {
+  const value = record[label];
+  if (typeof value !== "string" || !allowed.includes(value as T)) throw rpcInputInvalid(context, `${label} is not an accepted value`);
+  return value as T;
+}
+
+function decodeRpcReviewChallengeV2(value: unknown, context: string): ReviewChallengeV2 {
+  const record = decodeRpcRecord(value, context, "challenge", [
+    "schemaVersion", "challengeId", "installationId", "repositoryId", "pullRequestNumber",
+    "headSha", "baseSha", "nonce", "requiredTrust", "policyProfileId", "createdAt", "expiresAt", "status"
+  ]);
+  return {
+    schemaVersion: rpcLiteral(record, context, "schemaVersion", ["archcontext.review-challenge/v2"] as const),
+    challengeId: rpcString(record, context, "challengeId"),
+    installationId: rpcNumber(record, context, "installationId"),
+    repositoryId: rpcNumber(record, context, "repositoryId"),
+    pullRequestNumber: rpcNumber(record, context, "pullRequestNumber"),
+    headSha: rpcString(record, context, "headSha"),
+    baseSha: rpcString(record, context, "baseSha"),
+    nonce: rpcString(record, context, "nonce"),
+    requiredTrust: rpcLiteral(record, context, "requiredTrust", ["developer", "organization"] as const),
+    policyProfileId: rpcString(record, context, "policyProfileId"),
+    createdAt: rpcString(record, context, "createdAt"),
+    expiresAt: rpcString(record, context, "expiresAt"),
+    status: rpcLiteral(record, context, "status", ["PENDING", "LEASED", "SUBMITTED", "VERIFIED", "REJECTED", "SUPERSEDED", "EXPIRED"] as const)
+  };
+}
+
+function decodeRpcDetachedReviewWorktree(value: unknown, context: string, label = "worktree"): DetachedReviewWorktree {
+  const record = decodeRpcRecord(value, context, label, [
+    "schemaVersion", "sourceRoot", "worktreeRoot", "temporaryRoot", "headSha", "headTreeOid", "detached", "clean"
+  ]);
+  if (record.detached !== true) throw rpcInputInvalid(context, `${label}.detached must be true`);
+  if (record.clean !== true) throw rpcInputInvalid(context, `${label}.clean must be true`);
+  return {
+    schemaVersion: rpcLiteral(record, context, "schemaVersion", ["archcontext.detached-review-worktree/v1"] as const),
+    sourceRoot: rpcString(record, context, "sourceRoot"),
+    worktreeRoot: rpcString(record, context, "worktreeRoot"),
+    temporaryRoot: rpcString(record, context, "temporaryRoot"),
+    headSha: rpcString(record, context, "headSha"),
+    headTreeOid: rpcString(record, context, "headTreeOid"),
+    detached: true,
+    clean: true
+  };
+}
+
+function decodeDeveloperReviewRunManifest(value: unknown, context: string): DeveloperReviewRunManifest {
+  const record = decodeRpcRecord(value, context, "run", [
+    "schemaVersion", "runId", "challengeId", "repositoryId", "sourceRoot", "runRoot", "worktreeTempRoot",
+    "manifestPath", "lockPath", "pid", "createdAt", "status", "codeGraphTemporaryState", "worktree"
+  ]);
+  const codeGraphTemporaryState = decodeRpcRecord(record.codeGraphTemporaryState, context, "run.codeGraphTemporaryState", ["root", "cleanup"]);
+  return {
+    schemaVersion: rpcLiteral(record, context, "schemaVersion", ["archcontext.developer-review-run/v1"] as const),
+    runId: rpcString(record, context, "runId"),
+    challengeId: rpcString(record, context, "challengeId"),
+    repositoryId: rpcNumber(record, context, "repositoryId"),
+    sourceRoot: rpcString(record, context, "sourceRoot"),
+    runRoot: rpcString(record, context, "runRoot"),
+    worktreeTempRoot: rpcString(record, context, "worktreeTempRoot"),
+    manifestPath: rpcString(record, context, "manifestPath"),
+    lockPath: rpcString(record, context, "lockPath"),
+    pid: rpcNumber(record, context, "pid"),
+    createdAt: rpcString(record, context, "createdAt"),
+    status: rpcLiteral(record, context, "status", ["preparing", "running"] as const),
+    codeGraphTemporaryState: {
+      root: rpcString(codeGraphTemporaryState, context, "root"),
+      cleanup: rpcLiteral(codeGraphTemporaryState, context, "cleanup", ["remove-run-root"] as const)
+    },
+    ...(record.worktree === undefined ? {} : { worktree: decodeRpcDetachedReviewWorktree(record.worktree, context, "run.worktree") })
+  };
+}
+
+function decodeStartDeveloperReviewRunParams(params: unknown[]): {
+  repositoryRoot: string;
+  challenge: ReviewChallengeV2;
+  expectedHeadTreeOid?: string;
+} {
+  const context = "startDeveloperReviewRun";
+  const record = decodeRpcRecord(params[0], context, "params[0]", ["repositoryRoot", "challenge", "expectedHeadTreeOid"]);
+  const expectedHeadTreeOid = rpcOptionalString(record, context, "expectedHeadTreeOid");
+  return {
+    repositoryRoot: rpcString(record, context, "repositoryRoot"),
+    challenge: decodeRpcReviewChallengeV2(record.challenge, context),
+    ...(expectedHeadTreeOid === undefined ? {} : { expectedHeadTreeOid })
+  };
+}
+
+function decodeSignedDeveloperReviewAttestationParams(params: unknown[]): {
+  challenge: ReviewChallengeV2;
+  worktree: DetachedReviewWorktree;
+  keyRef: string;
+  principalId: string;
+  publicKeyId: string;
+  taskSessionId?: string;
+  mergeBaseSha?: string;
+  startedAt?: string;
+  completedAt?: string;
+} {
+  const context = "runSignedDeveloperReviewAttestation";
+  const record = decodeRpcRecord(params[0], context, "params[0]", [
+    "challenge", "worktree", "keyRef", "principalId", "publicKeyId", "taskSessionId", "mergeBaseSha", "startedAt", "completedAt"
+  ]);
+  const optional = {
+    taskSessionId: rpcOptionalString(record, context, "taskSessionId"),
+    mergeBaseSha: rpcOptionalString(record, context, "mergeBaseSha"),
+    startedAt: rpcOptionalString(record, context, "startedAt"),
+    completedAt: rpcOptionalString(record, context, "completedAt")
+  };
+  return {
+    challenge: decodeRpcReviewChallengeV2(record.challenge, context),
+    worktree: decodeRpcDetachedReviewWorktree(record.worktree, context),
+    keyRef: rpcString(record, context, "keyRef"),
+    principalId: rpcString(record, context, "principalId"),
+    publicKeyId: rpcString(record, context, "publicKeyId"),
+    ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined))
+  };
+}
+
+function decodeRecoverDeveloperReviewRunsParams(params: unknown[]): { repositoryRoot: string; force?: boolean } {
+  const context = "recoverDeveloperReviewRuns";
+  const record = decodeRpcRecord(params[0], context, "params[0]", ["repositoryRoot", "force"]);
+  if (record.force !== undefined && typeof record.force !== "boolean") throw rpcInputInvalid(context, "force must be a boolean");
+  return {
+    repositoryRoot: rpcString(record, context, "repositoryRoot"),
+    ...(record.force === undefined ? {} : { force: record.force })
+  };
 }
 
 function readJsonObject(path: string): Record<string, unknown> | undefined {
@@ -6558,33 +7112,56 @@ function readCurrentBranch(root: string): string {
  * "local/unknown" rather than guessing.
  */
 function repositoryNameWithOwner(root: string): string {
+  const target = readGitRemoteTarget(root);
+  return target ? `${target.owner}/${target.repo}` : "local/unknown";
+}
+
+/**
+ * The remote's host is part of the publish target's identity, so it is parsed and carried rather
+ * than discarded: `git@gitlab.com:acme/widgets.git` and `git@github.com:acme/widgets.git` name two
+ * different repositories that happen to share an `owner/repo` slug, and only the caller that knows
+ * the host can refuse to hand the hostless slug to `gh` (see `canFileGithubIssues`).
+ */
+interface GitRemoteTarget {
+  host: string;
+  owner: string;
+  repo: string;
+}
+
+const SUPPORTED_GITHUB_REMOTE_HOST = "github.com";
+
+function readGitRemoteTarget(root: string): GitRemoteTarget | undefined {
   try {
     const url = execFileSync("git", ["remote", "get-url", "origin"], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).trim();
-    return parseGitRemoteOwnerRepo(url) ?? "local/unknown";
-  } catch {
-    return "local/unknown";
-  }
-}
-
-function parseGitRemoteOwnerRepo(url: string): string | undefined {
-  const stripped = url.trim().replace(/\.git$/, "");
-  const scpMatch = /^[^/@]+@[^:/]+:(.+)$/.exec(stripped);
-  if (scpMatch) return normalizeOwnerRepoPath(scpMatch[1]);
-  try {
-    return normalizeOwnerRepoPath(new URL(stripped).pathname);
+    return parseGitRemoteTarget(url);
   } catch {
     return undefined;
   }
 }
 
-function normalizeOwnerRepoPath(path: string): string | undefined {
+function parseGitRemoteTarget(url: string): GitRemoteTarget | undefined {
+  const stripped = url.trim().replace(/\.git$/, "");
+  const scpMatch = /^[^/@]+@([^:/]+):(.+)$/.exec(stripped);
+  if (scpMatch) return gitRemoteTarget(scpMatch[1]!, scpMatch[2]!);
+  try {
+    const parsed = new URL(stripped);
+    return gitRemoteTarget(parsed.hostname, parsed.pathname);
+  } catch {
+    return undefined;
+  }
+}
+
+/** `URL.hostname` already excludes any port; host comparison is case-insensitive per RFC 3986. */
+function gitRemoteTarget(host: string, path: string): GitRemoteTarget | undefined {
+  const canonicalHost = host.trim().toLowerCase();
+  if (!canonicalHost) return undefined;
   const segments = path.split("/").map((segment) => segment.trim()).filter(Boolean);
   if (segments.length < 2) return undefined;
-  return segments.slice(-2).join("/");
+  return { host: canonicalHost, owner: segments[segments.length - 2]!, repo: segments[segments.length - 1]! };
 }
 
 /** `gh`/GitHub's REST and GraphQL visibility values are uppercase; normalize and validate rather than guess. */
@@ -6613,6 +7190,22 @@ interface ArchitectureProjectionRollbackWriteResult {
   backup: Json;
   writtenPaths: string[];
   removedPaths: string[];
+}
+
+/**
+ * Managed model files the ledger no longer projects.
+ *
+ * Both ledger-to-Git directions — `ledger project --to-git` and `ledger rollback --to-yaml` — must
+ * use this one set difference, so an entity, relation, or constraint retired in the ledger cannot
+ * survive as stale YAML. `currentFiles` is already filtered to ledger-managed model paths, which is
+ * what keeps manifests, policies, waivers, backups, and generated artifacts out of the deletion set.
+ */
+function obsoleteManagedProjectionPaths(
+  currentFiles: ModelFile[],
+  projectedFiles: ArchitectureLedgerProjectionFile[]
+): string[] {
+  const targetPaths = new Set(projectedFiles.map((file) => file.path));
+  return currentFiles.filter((file) => !targetPaths.has(file.path)).map((file) => file.path);
 }
 
 function expectedFileHash(root: string, path: string): string {
@@ -6977,11 +7570,77 @@ function isRpcVersionHeaderCompatible(request: IncomingMessage): boolean {
   return header === undefined || header === RUNTIME_RPC_VERSION;
 }
 
-async function readRequestJson(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+type RuntimeRpcRequestBody =
+  | { ok: true; value: unknown }
+  | { ok: false; kind: "aborted" }
+  | { ok: false; kind: "rejected"; status: number; error: string };
+
+/**
+ * Reads an authenticated RPC body under an explicit resource contract: a declared `Content-Length`
+ * over the limit is refused before a byte is read, a chunked upload is counted while streaming and
+ * cut off the moment it crosses the limit, and a stalled upload dies on the read deadline. Every
+ * exit path drops the accumulated chunks, so a client that disconnects mid-upload releases its
+ * buffers immediately. The stream is only paused on rejection — Node destroys the socket itself
+ * once the response finishes on an unfinished request, which keeps the rejection response
+ * deliverable instead of racing a manual destroy.
+ */
+async function readRpcRequestBody(request: IncomingMessage, limits: { maxBytes: number; timeoutMs: number }): Promise<RuntimeRpcRequestBody> {
+  const declaredLength = Number(request.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > limits.maxBytes) {
+    request.pause();
+    return { ok: false, kind: "rejected", status: 413, error: "runtime RPC request body exceeds the configured limit" };
+  }
+  return await new Promise<RuntimeRpcRequestBody>((resolveBody) => {
+    let chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const timer = setTimeout(() => {
+      settle({ ok: false, kind: "rejected", status: 408, error: "runtime RPC request body read timeout" });
+    }, limits.timeoutMs);
+
+    const settle = (result: RuntimeRpcRequestBody): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chunks = [];
+      request.off("data", onData);
+      request.off("end", onEnd);
+      request.off("aborted", onAborted);
+      request.off("error", onAborted);
+      request.off("close", onClose);
+      if (!result.ok) request.pause();
+      resolveBody(result);
+    };
+    const onData = (chunk: Buffer | string): void => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > limits.maxBytes) {
+        settle({ ok: false, kind: "rejected", status: 413, error: "runtime RPC request body exceeds the configured limit" });
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = (): void => {
+      if (size === 0) {
+        settle({ ok: true, value: {} });
+        return;
+      }
+      const body = Buffer.concat(chunks).toString("utf8");
+      try {
+        settle({ ok: true, value: JSON.parse(body) });
+      } catch {
+        settle({ ok: false, kind: "rejected", status: 400, error: "runtime RPC request body is not valid JSON" });
+      }
+    };
+    const onAborted = (): void => settle({ ok: false, kind: "aborted" });
+    const onClose = (): void => settle({ ok: false, kind: "aborted" });
+
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("aborted", onAborted);
+    request.on("error", onAborted);
+    request.on("close", onClose);
+  });
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {

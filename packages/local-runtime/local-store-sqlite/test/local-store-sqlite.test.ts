@@ -1604,6 +1604,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         now: "2026-06-25T01:10:02.000Z"
       })).resolves.toBeUndefined();
       await expect(store.completeRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
         jobId: job.jobId,
         workerId: "worker.one",
         status: "failed",
@@ -1611,6 +1612,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         error: "fixture-failure"
       })).resolves.toMatchObject({ job: { status: "failed" }, attemptCount: 1, deadLetteredAt: undefined });
       await expect(store.retryRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
         jobId: job.jobId,
         now: "2026-06-25T01:10:04.000Z",
         reason: "retry-fixture"
@@ -1624,6 +1626,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       });
       expect(secondClaim).toMatchObject({ job: { status: "running" }, attemptCount: 2, leaseOwner: "worker.two" });
       await expect(store.completeRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
         jobId: job.jobId,
         workerId: "worker.two",
         status: "failed",
@@ -1658,6 +1661,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         attemptCount: 1
       });
       await expect(store.completeRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
         jobId: job.jobId,
         workerId: "worker.duplicate",
         status: "succeeded",
@@ -1668,6 +1672,7 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         attemptCount: 1
       });
       await expect(store.completeRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
         jobId: job.jobId,
         workerId: "worker.duplicate",
         status: "succeeded",
@@ -1681,6 +1686,147 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       expect(succeeded[0].job.outputDigest).toBe(outputDigest);
     } finally {
       store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("runtime job queue refuses completion, retry, and cancellation from a foreign repository or worktree", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-runtime-job-scope-"));
+    const store = new SqliteLocalStore(join(root, "runtime.sqlite"));
+    try {
+      await store.migrate();
+      const foreignRepositoryScope = {
+        repository: {
+          repositoryId: "repo.architecture-ledger-foreign",
+          storageRepositoryId: "repo.storage.architecture-ledger-foreign"
+        },
+        worktree: ARCHITECTURE_LEDGER_SCOPE.worktree
+      };
+      const foreignWorktreeScope = {
+        repository: ARCHITECTURE_LEDGER_SCOPE.repository,
+        worktree: {
+          ...ARCHITECTURE_LEDGER_SCOPE.worktree,
+          workspaceId: "workspace.architecture-ledger-foreign",
+          storageWorkspaceId: "workspace.storage.architecture-ledger-foreign"
+        }
+      };
+      const owned = runtimeAgentJob("scope-owned", { queuedAt: "2026-06-25T01:40:00.000Z" });
+      await store.enqueueRuntimeAgentJob({
+        job: owned,
+        analysisKind: "architecture-delta",
+        coalesceKey: "scope.owned",
+        maxAttempts: 3
+      });
+      await expect(store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.scope-owner",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:40:01.000Z"
+      })).resolves.toMatchObject({ job: { jobId: owned.jobId, status: "running" }, leaseOwner: "worker.scope-owner" });
+
+      for (const foreign of [foreignRepositoryScope, foreignWorktreeScope]) {
+        await expect(store.completeRuntimeAgentJob({
+          ...foreign,
+          jobId: owned.jobId,
+          status: "succeeded",
+          now: "2026-06-25T01:40:02.000Z",
+          outputDigest: digestJson({ output: "foreign-completion" } as unknown as Json)
+        })).rejects.toThrow(`runtime-agent-job-not-found-in-scope: ${owned.jobId}`);
+        await expect(store.retryRuntimeAgentJob({
+          ...foreign,
+          jobId: owned.jobId,
+          now: "2026-06-25T01:40:02.000Z",
+          reason: "foreign-retry"
+        })).rejects.toThrow(`runtime-agent-job-not-found-in-scope: ${owned.jobId}`);
+        await expect(store.cancelRuntimeAgentJob({
+          ...foreign,
+          jobId: owned.jobId,
+          status: "cancelled",
+          now: "2026-06-25T01:40:02.000Z",
+          reason: "foreign-cancel"
+        })).rejects.toThrow(`runtime-agent-job-not-found-in-scope: ${owned.jobId}`);
+      }
+
+      expect((await store.listRuntimeAgentJobs(ARCHITECTURE_LEDGER_SCOPE))
+        .map((record) => [record.job.jobId, record.job.status, record.leaseOwner, record.job.outputDigest]))
+        .toEqual([[owned.jobId, "running", "worker.scope-owner", undefined]]);
+
+      await expect(store.completeRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        jobId: owned.jobId,
+        workerId: "worker.scope-owner",
+        status: "failed",
+        now: "2026-06-25T01:40:03.000Z",
+        error: "scope-fixture-failure"
+      })).resolves.toMatchObject({ job: { jobId: owned.jobId, status: "failed" }, attemptCount: 1 });
+      await expect(store.completeRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        jobId: owned.jobId,
+        workerId: "worker.scope-owner",
+        status: "failed",
+        now: "2026-06-25T01:40:04.000Z"
+      })).rejects.toThrow(`runtime-agent-job-complete-requires-running: ${owned.jobId}`);
+      await expect(store.retryRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        jobId: owned.jobId,
+        now: "2026-06-25T01:40:05.000Z",
+        reason: "owned-retry"
+      })).resolves.toMatchObject({ job: { jobId: owned.jobId, status: "queued" } });
+      await expect(store.cancelRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        jobId: owned.jobId,
+        status: "cancelled",
+        now: "2026-06-25T01:40:06.000Z",
+        reason: "owned-cancel"
+      })).resolves.toMatchObject({ job: { jobId: owned.jobId, status: "cancelled" } });
+
+      const claimed = await store.claimRuntimeAgentJob({
+        ...ARCHITECTURE_LEDGER_SCOPE,
+        workerId: "worker.scope-second",
+        leaseMs: 30_000,
+        now: "2026-06-25T01:40:07.000Z"
+      });
+      expect(claimed).toBeUndefined();
+    } finally {
+      store.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("repository sessions are deleted durably and leave unrelated sessions intact", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-repository-session-delete-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const first = new SqliteLocalStore(databasePath);
+    try {
+      await first.migrate();
+      await first.saveRepositorySession({
+        repositoryId: "repo.removed",
+        root: join(root, "removed"),
+        headSha: "abc123",
+        worktreeDigest: digestJson({ worktree: "removed" } as unknown as Json),
+        updatedAt: "2026-06-25T03:00:00.000Z"
+      });
+      await first.saveRepositorySession({
+        repositoryId: "repo.kept",
+        root: join(root, "kept"),
+        headSha: "def456",
+        worktreeDigest: digestJson({ worktree: "kept" } as unknown as Json),
+        updatedAt: "2026-06-25T03:00:01.000Z"
+      });
+      await expect(first.deleteRepositorySession("repo.removed")).resolves.toBe(true);
+      await expect(first.deleteRepositorySession("repo.removed")).resolves.toBe(false);
+      await expect(first.deleteRepositorySession("repo.never-registered")).resolves.toBe(false);
+      first.close();
+
+      const second = new SqliteLocalStore(databasePath);
+      try {
+        await second.migrate();
+        expect((await second.listRepositorySessions()).map((session) => session.repositoryId)).toEqual(["repo.kept"]);
+      } finally {
+        second.close();
+      }
+    } finally {
+      first.close();
       rmSync(root, { recursive: true, force: true });
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);

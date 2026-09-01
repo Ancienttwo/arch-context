@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import {
   ARCHITECTURE_CANDIDATE_CHANGESET_PLAN_SCHEMA_VERSION,
   ChangeSetEngine,
   planArchitectureCandidateChangeSet,
+  writeFileWithoutFollowingSymlinks,
   type ChangeSetDraft,
   type ChangeSetJournalFile,
   type ChangeSetJournalPort
@@ -616,6 +617,160 @@ describe("@archcontext/core/changeset-engine", () => {
       await expect(engine.apply(modelRoot, draft)).rejects.toThrow("approved");
     } finally {
       rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("writeFileWithoutFollowingSymlinks", () => {
+  const RELATIVE = ".archcontext/integrations/context7.lock.yaml";
+
+  function tempWriteRoot(): { root: string; outside: string } {
+    const base = mkdtempSync(join(tmpdir(), "archctx-nofollow-"));
+    const root = join(base, "repo");
+    const outside = join(base, "outside");
+    mkdirSync(join(root, ".archcontext/integrations"), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    return { root, outside };
+  }
+
+  function bodyHash(body: string): string {
+    return digestJson({ body });
+  }
+
+  test("creates a private file and keeps the requested mode", () => {
+    const { root } = tempWriteRoot();
+    try {
+      writeFileWithoutFollowingSymlinks({ root, path: RELATIVE, body: "{}\n", mode: 0o600, expectedHash: "missing" });
+
+      expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("{}\n");
+      if (process.platform !== "win32") {
+        expect(lstatSync(join(root, RELATIVE)).mode & 0o777).toBe(0o600);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("updates an existing file when the expected hash matches and rejects it when it does not", () => {
+    const { root } = tempWriteRoot();
+    try {
+      writeFileWithoutFollowingSymlinks({ root, path: RELATIVE, body: "first\n", mode: 0o600, expectedHash: "missing" });
+      writeFileWithoutFollowingSymlinks({ root, path: RELATIVE, body: "second\n", mode: 0o600, expectedHash: bodyHash("first\n") });
+      expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("second\n");
+
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "third\n",
+        mode: 0o600,
+        expectedHash: bodyHash("first\n")
+      })).toThrow("Expected hash mismatch");
+      expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("second\n");
+
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "third\n",
+        mode: 0o600,
+        expectedHash: "missing"
+      })).toThrow("Expected hash mismatch");
+      expect(readFileSync(join(root, RELATIVE), "utf8")).toBe("second\n");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a symlinked destination and leaves the outside target byte-for-byte unchanged", () => {
+    const { root, outside } = tempWriteRoot();
+    try {
+      const target = join(outside, "victim");
+      writeFileSync(target, "do-not-touch\n", { encoding: "utf8", mode: 0o644 });
+      const modeBefore = lstatSync(target).mode;
+      symlinkSync(target, join(root, RELATIVE));
+
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "{}\n",
+        mode: 0o600,
+        expectedHash: "missing"
+      })).toThrow("symlink");
+
+      expect(readFileSync(target, "utf8")).toBe("do-not-touch\n");
+      expect(lstatSync(target).mode).toBe(modeBefore);
+      expect(lstatSync(join(root, RELATIVE)).isSymbolicLink()).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a dangling symlinked destination instead of materializing its target", () => {
+    const { root, outside } = tempWriteRoot();
+    try {
+      const target = join(outside, "not-created-yet");
+      symlinkSync(target, join(root, RELATIVE));
+
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "{}\n",
+        mode: 0o600,
+        expectedHash: "missing"
+      })).toThrow("symlink");
+      expect(existsSync(target)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a symlinked parent component", () => {
+    const { root, outside } = tempWriteRoot();
+    try {
+      rmSync(join(root, ".archcontext/integrations"), { recursive: true, force: true });
+      symlinkSync(outside, join(root, ".archcontext/integrations"));
+
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "{}\n",
+        mode: 0o600,
+        expectedHash: "missing"
+      })).toThrow("symlink");
+      expect(existsSync(join(outside, "context7.lock.yaml"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a path that escapes the repository root", () => {
+    const { root, outside } = tempWriteRoot();
+    try {
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: "../outside/escaped.yaml",
+        body: "{}\n",
+        mode: 0o600,
+        expectedHash: "missing"
+      })).toThrow("escapes repository");
+      expect(existsSync(join(outside, "escaped.yaml"))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("leaves no partial file behind when the write is rejected", () => {
+    const { root } = tempWriteRoot();
+    try {
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "{}\n",
+        mode: 0o600,
+        expectedHash: bodyHash("never-written\n")
+      })).toThrow();
+      expect(readdirSync(join(root, ".archcontext/integrations"))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
