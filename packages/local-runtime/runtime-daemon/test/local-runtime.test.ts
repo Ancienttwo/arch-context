@@ -126,6 +126,31 @@ function readText(path: string): string {
   return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
+/**
+ * Managed node, relation, and constraint YAML that the ledger does not know about, standing in for
+ * the projection a retired subject leaves behind. The relation and constraint reference
+ * `module.ledger-project` so the model stays valid both before and after the stale files are removed.
+ */
+function writeStaleLedgerProjection(root: string): void {
+  mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+  mkdirSync(join(root, ".archcontext/model/constraints"), { recursive: true });
+  writeFileSync(
+    join(root, ".archcontext/model/nodes/module.project-stale.yaml"),
+    "schemaVersion: archcontext.node/v2\nid: module.project-stale\nkind: module\nname: Stale Project\nstatus: active\nsummary: Stale projection node\n",
+    "utf8"
+  );
+  writeFileSync(
+    join(root, ".archcontext/model/relations/relation.project-stale.yaml"),
+    "schemaVersion: archcontext.relation/v1\nid: relation.project-stale\nkind: calls\nsource: module.ledger-project\ntarget: module.project-stale\nprotocol: HTTP\nintent: Stale projection relation\n",
+    "utf8"
+  );
+  writeFileSync(
+    join(root, ".archcontext/model/constraints/constraint.project-stale.yaml"),
+    "schemaVersion: archcontext.constraint/v1\nid: constraint.project-stale\nname: Stale projection constraint\nseverity: warning\nscope:\n  nodes: [\"module.ledger-project\"]\nrule:\n  type: require-owner\nrationale: Stale projection constraint\n",
+    "utf8"
+  );
+}
+
 function projectionTestProvenance(root: string, model: ReturnType<typeof loadNativeModelFromArchContext>) {
   return prepareArchitectureDocumentationProjectionSnapshot(root, model).provenance;
 }
@@ -3845,6 +3870,119 @@ describe("local runtime foundation", () => {
       const cleanDrift = await daemon.ledgerDrift(root);
       expect((cleanDrift.data as any).drift.ok).toBe(true);
       expect((cleanDrift.data as any).reconcile.ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger project write deletes managed YAML the ledger no longer projects", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:06:00.000Z"
+      });
+      await daemon.init(root, "Ledger Project Removal App");
+      const keptPath = ".archcontext/model/nodes/module.ledger-project.yaml";
+      const staleNodePath = ".archcontext/model/nodes/module.project-stale.yaml";
+      const staleRelationPath = ".archcontext/model/relations/relation.project-stale.yaml";
+      const staleConstraintPath = ".archcontext/model/constraints/constraint.project-stale.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-project-removal-node",
+        operations: [{
+          op: "create_entity",
+          path: keptPath,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-project-removal-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      const manifestBefore = readText(join(root, ".archcontext/manifest.yaml"));
+      writeStaleLedgerProjection(root);
+
+      const dryRun = await daemon.ledgerProject(root, { dryRun: true });
+      expect(dryRun.ok).toBe(true);
+      expect((dryRun.data as any).drift.ok).toBe(false);
+      expect(existsSync(join(root, staleNodePath))).toBe(true);
+
+      const status = await daemon.runtimeStatus(root);
+      const project = await daemon.ledgerProject(root, {
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      });
+
+      expect(project.ok).toBe(true);
+      expect((project.data as any).writtenPaths).toContain(keptPath);
+      expect(((project.data as any).removedPaths as string[]).slice().sort())
+        .toEqual([staleConstraintPath, staleNodePath, staleRelationPath].slice().sort());
+      expect(existsSync(join(root, staleNodePath))).toBe(false);
+      expect(existsSync(join(root, staleRelationPath))).toBe(false);
+      expect(existsSync(join(root, staleConstraintPath))).toBe(false);
+      expect(readText(join(root, keptPath))).toContain("module.ledger-project");
+      expect(readText(join(root, ".archcontext/manifest.yaml"))).toBe(manifestBefore);
+      expect((project.data as any).drift.ok).toBe(true);
+      expect((project.data as any).reconcile.ok).toBe(true);
+      expect([...store.changeSetJournals.values()].some((journal) =>
+        journal.status === "committed"
+        && journal.files.some((file) => file.path === staleNodePath && file.operation === "delete_entity")
+      )).toBe(true);
+
+      const cleanDrift = await daemon.ledgerDrift(root);
+      expect((cleanDrift.data as any).drift.ok).toBe(true);
+    } finally {
+      removeTempRepo(root);
+    }
+  });
+
+  test("ledger project write refuses to delete an obsolete target that changed concurrently", async () => {
+    const root = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const daemon = await createStartedTestDaemon({
+        localStore: store,
+        architectureLedger: { rolloutMode: "ledger-authoritative" },
+        clock: () => "2026-06-25T04:07:00.000Z"
+      });
+      await daemon.init(root, "Ledger Project Race App");
+      const keptPath = ".archcontext/model/nodes/module.ledger-project.yaml";
+      const staleNodePath = ".archcontext/model/nodes/module.project-stale.yaml";
+      const staleRelationPath = ".archcontext/model/relations/relation.project-stale.yaml";
+      const plan = await daemon.planUpdate(root, {
+        id: "changeset.ledger-project-race-node",
+        operations: [{
+          op: "create_entity",
+          path: keptPath,
+          expectedHash: "missing",
+          body: "schemaVersion: archcontext.node/v2\nid: module.ledger-project\nkind: module\nname: Ledger Project\nstatus: active\nsummary: Ledger project node\n"
+        }]
+      });
+      await daemon.applyUpdate(root, {
+        id: "changeset.ledger-project-race-node",
+        approved: true,
+        expectedWorktreeDigest: (plan.data as any).draft.base.worktreeDigest
+      });
+      writeStaleLedgerProjection(root);
+
+      const status = await daemon.runtimeStatus(root);
+      writeFileSync(
+        join(root, staleNodePath),
+        "schemaVersion: archcontext.node/v2\nid: module.project-stale\nkind: module\nname: Stale Project\nstatus: active\nsummary: Edited after the projection was planned\n",
+        "utf8"
+      );
+
+      await expect(daemon.ledgerProject(root, {
+        dryRun: false,
+        expectedWorktreeDigest: (status.data as any).worktreeDigest
+      })).rejects.toThrow("Worktree digest changed before ledger project --to-git");
+
+      expect(readText(join(root, staleNodePath))).toContain("Edited after the projection was planned");
+      expect(existsSync(join(root, staleRelationPath))).toBe(true);
     } finally {
       removeTempRepo(root);
     }
