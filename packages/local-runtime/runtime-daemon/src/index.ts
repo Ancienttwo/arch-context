@@ -687,6 +687,15 @@ export interface DaemonControlRecovery {
   removed: DaemonControlRecoveryReason[];
 }
 
+/**
+ * Largest accepted `POST /rpc` body. The biggest legitimate method is a ChangeSet apply carrying
+ * rendered projection documents, which stays far below this; anything larger is a malfunctioning
+ * or hostile local client rather than a real request.
+ */
+export const RUNTIME_RPC_MAX_REQUEST_BODY_BYTES = 16 * 1024 * 1024;
+/** Deadline for reading an accepted request body, measured from the end of authorization. */
+export const RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS = 30_000;
+
 export interface RuntimeRpcServerOptions {
   root?: string;
   port?: number;
@@ -694,6 +703,10 @@ export interface RuntimeRpcServerOptions {
   lockPath?: string;
   connectionPath?: string;
   clock?: () => string;
+  /** Defaults to `RUNTIME_RPC_MAX_REQUEST_BODY_BYTES`. */
+  maxRequestBodyBytes?: number;
+  /** Defaults to `RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS`. */
+  requestBodyTimeoutMs?: number;
   /** `undefined` resolves to the `ARCHCONTEXT_DAEMON_IDLE_TIMEOUT_MS` env var, then
    * `DEFAULT_DAEMON_IDLE_TIMEOUT_MS`. `0` disables idle exit. */
   idleTimeoutMs?: number;
@@ -5415,13 +5428,28 @@ export class ArchctxRuntimeRpcServer {
       writeJson(response, 401, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC token required" });
       return;
     }
-    const body = await readRequestJson(request) as { schemaVersion?: string; method?: string; params?: unknown[] };
-    if (body.schemaVersion !== RUNTIME_RPC_VERSION) {
-      writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
-      return;
-    }
+    // An accepted request counts as in-flight from here, before its body is read: the idle-exit
+    // path must never classify an authorized upload as an idle daemon.
     this.inFlightRpcRequests += 1;
     try {
+      const read = await readRpcRequestBody(request, {
+        maxBytes: this.options.maxRequestBodyBytes ?? RUNTIME_RPC_MAX_REQUEST_BODY_BYTES,
+        timeoutMs: this.options.requestBodyTimeoutMs ?? RUNTIME_RPC_REQUEST_BODY_TIMEOUT_MS
+      });
+      if (!read.ok) {
+        // A disconnected client has no response to receive; anything else gets a bounded envelope.
+        if (read.kind === "rejected") writeJson(response, read.status, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: read.error });
+        return;
+      }
+      if (!read.value || typeof read.value !== "object" || Array.isArray(read.value)) {
+        writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC request body must be an object" });
+        return;
+      }
+      const body = read.value as { schemaVersion?: string; method?: string; params?: unknown[] };
+      if (body.schemaVersion !== RUNTIME_RPC_VERSION) {
+        writeJson(response, 400, { schemaVersion: RUNTIME_RPC_VERSION, ok: false, error: "runtime RPC version mismatch" });
+        return;
+      }
       const result = await this.dispatch(body.method ?? "", body.params ?? []);
       writeJson(response, 200, result);
       if (body.method === "shutdown") setTimeout(() => void this.stop(), 0);
@@ -7434,11 +7462,77 @@ function isRpcVersionHeaderCompatible(request: IncomingMessage): boolean {
   return header === undefined || header === RUNTIME_RPC_VERSION;
 }
 
-async function readRequestJson(request: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+type RuntimeRpcRequestBody =
+  | { ok: true; value: unknown }
+  | { ok: false; kind: "aborted" }
+  | { ok: false; kind: "rejected"; status: number; error: string };
+
+/**
+ * Reads an authenticated RPC body under an explicit resource contract: a declared `Content-Length`
+ * over the limit is refused before a byte is read, a chunked upload is counted while streaming and
+ * cut off the moment it crosses the limit, and a stalled upload dies on the read deadline. Every
+ * exit path drops the accumulated chunks, so a client that disconnects mid-upload releases its
+ * buffers immediately. The stream is only paused on rejection — Node destroys the socket itself
+ * once the response finishes on an unfinished request, which keeps the rejection response
+ * deliverable instead of racing a manual destroy.
+ */
+async function readRpcRequestBody(request: IncomingMessage, limits: { maxBytes: number; timeoutMs: number }): Promise<RuntimeRpcRequestBody> {
+  const declaredLength = Number(request.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > limits.maxBytes) {
+    request.pause();
+    return { ok: false, kind: "rejected", status: 413, error: "runtime RPC request body exceeds the configured limit" };
+  }
+  return await new Promise<RuntimeRpcRequestBody>((resolveBody) => {
+    let chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const timer = setTimeout(() => {
+      settle({ ok: false, kind: "rejected", status: 408, error: "runtime RPC request body read timeout" });
+    }, limits.timeoutMs);
+
+    const settle = (result: RuntimeRpcRequestBody): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chunks = [];
+      request.off("data", onData);
+      request.off("end", onEnd);
+      request.off("aborted", onAborted);
+      request.off("error", onAborted);
+      request.off("close", onClose);
+      if (!result.ok) request.pause();
+      resolveBody(result);
+    };
+    const onData = (chunk: Buffer | string): void => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > limits.maxBytes) {
+        settle({ ok: false, kind: "rejected", status: 413, error: "runtime RPC request body exceeds the configured limit" });
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = (): void => {
+      if (size === 0) {
+        settle({ ok: true, value: {} });
+        return;
+      }
+      const body = Buffer.concat(chunks).toString("utf8");
+      try {
+        settle({ ok: true, value: JSON.parse(body) });
+      } catch {
+        settle({ ok: false, kind: "rejected", status: 400, error: "runtime RPC request body is not valid JSON" });
+      }
+    };
+    const onAborted = (): void => settle({ ok: false, kind: "aborted" });
+    const onClose = (): void => settle({ ok: false, kind: "aborted" });
+
+    request.on("data", onData);
+    request.on("end", onEnd);
+    request.on("aborted", onAborted);
+    request.on("error", onAborted);
+    request.on("close", onClose);
+  });
 }
 
 function writeJson(response: ServerResponse, statusCode: number, body: unknown): void {

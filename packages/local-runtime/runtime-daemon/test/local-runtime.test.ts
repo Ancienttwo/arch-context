@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
+import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
 import { computeWorktreeDigest, repositoryFingerprint, validateLandscape, type CrossRepoRelation } from "@archcontext/core/architecture-domain";
@@ -111,6 +113,63 @@ async function waitUntil(predicate: () => boolean, timeoutMs: number, descriptio
     await sleep(20);
   }
   throw new Error(`Timed out waiting for: ${description}`);
+}
+
+/**
+ * Raw HTTP client for the runtime RPC socket. `fetch` cannot express a half-written body, a
+ * chunked upload without `Content-Length`, or a mid-upload disconnect, which are exactly the
+ * request shapes the daemon's body limits and read deadline have to survive.
+ */
+async function rawHttpRequest(input: {
+  url: string;
+  headerLines: string[];
+  chunks?: Array<{ data: string; delayMs?: number }>;
+  destroyAfterChunks?: boolean;
+}): Promise<string> {
+  const url = new URL(input.url);
+  const socket = netConnect({ host: "127.0.0.1", port: Number(url.port) });
+  socket.setNoDelay(true);
+  let received = "";
+  const response = new Promise<string>((resolveResponse) => {
+    socket.on("data", (buffer: Buffer) => {
+      received += buffer.toString("utf8");
+      if (received.includes("\r\n\r\n")) resolveResponse(received);
+    });
+    socket.on("close", () => resolveResponse(received));
+    socket.on("error", () => resolveResponse(received));
+  });
+  await once(socket, "connect");
+  socket.write(`${input.headerLines.join("\r\n")}\r\n\r\n`);
+  for (const chunk of input.chunks ?? []) {
+    if (chunk.delayMs) await sleep(chunk.delayMs);
+    if (socket.destroyed) break;
+    if (chunk.data.length > 0) socket.write(chunk.data);
+  }
+  if (input.destroyAfterChunks) socket.destroy();
+  const raw = await response;
+  socket.destroy();
+  return raw;
+}
+
+function rawHttpStatus(raw: string): number {
+  const match = raw.match(/^HTTP\/1\.\d (\d{3})/);
+  return match ? Number(match[1]) : 0;
+}
+
+function httpChunkFrame(data: string): string {
+  return `${Buffer.byteLength(data).toString(16)}\r\n${data}\r\n`;
+}
+
+function rpcRequestHeaderLines(connection: { url: string; token: string }, extra: string[]): string[] {
+  const url = new URL(connection.url);
+  return [
+    "POST /rpc HTTP/1.1",
+    `Host: 127.0.0.1:${url.port}`,
+    `Authorization: Bearer ${connection.token}`,
+    "Content-Type: application/json",
+    `X-ArchContext-RPC-Version: ${RUNTIME_RPC_VERSION}`,
+    ...extra
+  ];
 }
 
 function expectSameExistingPath(actual: string, expected: string): void {
@@ -5152,6 +5211,141 @@ describe("local runtime foundation", () => {
       removeTempRepo(root);
     }
   });
+
+  test("runtime RPC bounds request bodies and applies a body read deadline", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "rpc-body-limit-token",
+      maxRequestBodyBytes: 4096,
+      requestBodyTimeoutMs: 300
+    });
+    try {
+      const connection = await rpc.start();
+      const headers = {
+        "Authorization": `Bearer ${connection.token}`,
+        "Content-Type": "application/json",
+        "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
+      };
+      const envelope = (pad: string) => JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root], pad });
+      const padLength = 4096 - Buffer.byteLength(envelope(""));
+      const exact = envelope("p".repeat(padLength));
+      expect(Buffer.byteLength(exact)).toBe(4096);
+
+      const accepted = await fetch(`${connection.url}rpc`, { method: "POST", headers, body: exact });
+      expect(accepted.status).toBe(200);
+      expect((await accepted.json() as any).ok).toBe(true);
+
+      const oversized = await fetch(`${connection.url}rpc`, { method: "POST", headers, body: envelope("p".repeat(padLength + 1)) });
+      expect(oversized.status).toBe(413);
+      expect((await oversized.json() as any).error).toBe("runtime RPC request body exceeds the configured limit");
+
+      // No Content-Length to pre-check: the streaming byte counter has to stop the upload.
+      const chunkedOverflow = await rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Transfer-Encoding: chunked"]),
+        chunks: [
+          { data: httpChunkFrame("q".repeat(3000)) },
+          { data: httpChunkFrame("q".repeat(3000)), delayMs: 20 }
+        ]
+      });
+      expect(rawHttpStatus(chunkedOverflow)).toBe(413);
+
+      const chunkedAccepted = await rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Transfer-Encoding: chunked"]),
+        chunks: [
+          { data: httpChunkFrame(JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] })) },
+          { data: "0\r\n\r\n" }
+        ]
+      });
+      expect(rawHttpStatus(chunkedAccepted)).toBe(200);
+
+      const slowUpload = await rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Content-Length: 4000"]),
+        chunks: [{ data: "{" }]
+      });
+      expect(rawHttpStatus(slowUpload)).toBe(408);
+
+      const malformed = await fetch(`${connection.url}rpc`, { method: "POST", headers, body: "{ not json" });
+      expect(malformed.status).toBe(400);
+      const malformedBody = await malformed.json() as any;
+      expect(malformedBody.error).toBe("runtime RPC request body is not valid JSON");
+      expect(JSON.stringify(malformedBody)).not.toContain("position");
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 15_000);
+
+  test("idle exit does not start while an accepted RPC request is still reading its body", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const exitCodes: number[] = [];
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "rpc-body-idle-token",
+      idleTimeoutMs: 100,
+      requestBodyTimeoutMs: 5_000,
+      exit: (code) => { exitCodes.push(code); }
+    });
+    try {
+      const connection = await rpc.start();
+      const inFlight = () => (rpc as unknown as { inFlightRpcRequests: number }).inFlightRpcRequests;
+      const body = JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method: "runtimeStatus", params: [root] });
+      const slow = rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, [`Content-Length: ${Buffer.byteLength(body)}`]),
+        chunks: [{ data: body.slice(0, 5) }, { data: body.slice(5), delayMs: 400 }]
+      });
+      await waitUntil(() => inFlight() === 1, 1_000, "accepted request counted as in flight while uploading");
+      await sleep(250);
+      // Idle exit "beginning" is observable before the exit callback: it removes the connection
+      // file first, and its own `stop()` then blocks on this still-open upload connection.
+      expect(exitCodes).toEqual([]);
+      expect(existsSync(connection.connectionPath)).toBe(true);
+      expect(rawHttpStatus(await slow)).toBe(200);
+      await waitUntil(() => inFlight() === 0, 1_000, "in-flight released after the response");
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 15_000);
+
+  test("client disconnect during upload releases the RPC body buffers and in-flight slot", async () => {
+    const root = tempRepo();
+    const daemon = await createStartedTestDaemon();
+    const rpc = new ArchctxRuntimeRpcServer(daemon, {
+      root,
+      port: 0,
+      token: "rpc-body-abort-token",
+      idleTimeoutMs: 0,
+      requestBodyTimeoutMs: 5_000
+    });
+    try {
+      const connection = await rpc.start();
+      const inFlight = () => (rpc as unknown as { inFlightRpcRequests: number }).inFlightRpcRequests;
+      const aborted = rawHttpRequest({
+        url: connection.url,
+        headerLines: rpcRequestHeaderLines(connection, ["Content-Length: 4000"]),
+        chunks: [{ data: "{" }, { data: "", delayMs: 300 }],
+        destroyAfterChunks: true
+      });
+      await waitUntil(() => inFlight() === 1, 1_000, "aborted request counted as in flight while uploading");
+      await aborted;
+      await waitUntil(() => inFlight() === 0, 2_000, "in-flight released after client disconnect");
+
+      const recovered = await new RuntimeRpcClient(connection).runtimeStatus(root);
+      expect(recovered.ok).toBe(true);
+    } finally {
+      await rpc.stop().catch(() => undefined);
+      removeTempRepo(root);
+    }
+  }, 15_000);
 
   test("runtime RPC rejects untrusted worktree digest profiles before plan or apply state", async () => {
     const root = createGitRepo();
