@@ -89,6 +89,12 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 - Scope gate: edit only paths listed under `allowed_paths`; update this contract before widening scope.
 - Completion gate: run `verify-sprint --prepare-acceptance`, record one typed AcceptanceReceipt under the frozen policy below, then run `verify-sprint`; review Markdown is projection only.
 
+## Change Assessment
+
+```json
+{"protocol":1,"oracles":[{"id":"recovery-authority-regression","kind":"deterministic_test","paths":["*"]},{"id":"dual-public-package-clean-consumer","kind":"runtime_readback","paths":["*"]}]}
+```
+
 ## Acceptance Policy
 
 ```json
