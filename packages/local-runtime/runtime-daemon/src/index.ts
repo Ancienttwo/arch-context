@@ -364,7 +364,7 @@ export interface RuntimeAuditApproveInput {
   runId: string;
   /**
    * Required once, verbatim, when the run's repository resolves to non-private visibility.
-   * Expected shape: `public:<owner/repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
+   * Expected shape: `public:<host>/<owner>/<repo>:<baseSha>:<runId>` (see `auditApprove`'s confirmation
    * gate) — a re-run instruction, not a secret, so it is safe to print in error messages.
    */
   confirmPublicToken?: string;
@@ -1885,17 +1885,28 @@ export class ArchctxDaemon {
    * auth login` session (the PAT is the only credential source `auditApprove` will use).
    */
   private async canFileGithubIssues(root: string): Promise<
-    | { ok: true; repoNameWithOwner: string; visibility: ArchitectureAuditRunV1["repoVisibility"]; token: string }
+    | { ok: true; host: string; repoNameWithOwner: string; visibility: ArchitectureAuditRunV1["repoVisibility"]; token: string }
     | { ok: false; code: "AC_PRECONDITION_FAILED"; message: string }
   > {
-    const repoNameWithOwner = repositoryNameWithOwner(root);
-    if (repoNameWithOwner === "local/unknown") {
+    const target = readGitRemoteTarget(root);
+    if (!target) {
       return {
         ok: false,
         code: "AC_PRECONDITION_FAILED",
         message: "audit approve requires a resolvable GitHub owner/repo; git remote 'origin' is missing or is not a parseable GitHub URL"
       };
     }
+    // ADR-0042 scope is exactly github.com. `gh` resolves a bare `owner/repo` against github.com,
+    // so a GitLab/Bitbucket/GitHub Enterprise/self-hosted remote must be refused here rather than
+    // silently republished to whatever same-named repository exists on github.com.
+    if (target.host !== SUPPORTED_GITHUB_REMOTE_HOST) {
+      return {
+        ok: false,
+        code: "AC_PRECONDITION_FAILED",
+        message: `audit approve supports ${SUPPORTED_GITHUB_REMOTE_HOST} remotes only (ADR-0042); git remote 'origin' resolves to host "${target.host}", and ${target.owner}/${target.repo} there is not the same repository as ${target.owner}/${target.repo} on ${SUPPORTED_GITHUB_REMOTE_HOST}`
+      };
+    }
+    const repoNameWithOwner = `${target.owner}/${target.repo}`;
     const token = process.env[AUDIT_APPROVE_GH_TOKEN_ENV];
     if (!token) {
       return {
@@ -1923,7 +1934,7 @@ export class ArchctxDaemon {
         message: `audit approve received an unrecognized visibility "${probedVisibility}" for ${repoNameWithOwner}; refusing to guess whether it is safe to publish`
       };
     }
-    return { ok: true, repoNameWithOwner, visibility, token };
+    return { ok: true, host: target.host, repoNameWithOwner, visibility, token };
   }
 
   async auditList(root: string, input: { statuses?: ArchitectureAuditRunV1["status"][] } = {}): Promise<JsonEnvelope> {
@@ -2025,12 +2036,14 @@ export class ArchctxDaemon {
       const capability = await this.canFileGithubIssues(repositoryRoot);
       if (!capability.ok) return errorEnvelope("audit.approve", capability.code, capability.message);
 
-      const expectedConfirmToken = `public:${capability.repoNameWithOwner}:${run.baseSha}:${run.runId}`;
+      // The canonical host is part of the token so the human confirming a public publish is
+      // confirming a fully qualified target, not a hostless slug.
+      const expectedConfirmToken = `public:${capability.host}/${capability.repoNameWithOwner}:${run.baseSha}:${run.runId}`;
       if (capability.visibility !== "private" && input.confirmPublicToken !== expectedConfirmToken) {
         return errorEnvelope(
           "audit.approve",
           "AC_USER_CONFIRMATION_REQUIRED",
-          `audit run ${run.runId} targets a ${capability.visibility} repository (${capability.repoNameWithOwner}); rerun with explicit confirmation: archctx audit approve ${run.runId} --confirm-public-repo ${expectedConfirmToken}`
+          `audit run ${run.runId} targets a ${capability.visibility} repository (${capability.host}/${capability.repoNameWithOwner}); rerun with explicit confirmation: archctx audit approve ${run.runId} --confirm-public-repo ${expectedConfirmToken}`
         );
       }
 
@@ -6558,33 +6571,56 @@ function readCurrentBranch(root: string): string {
  * "local/unknown" rather than guessing.
  */
 function repositoryNameWithOwner(root: string): string {
+  const target = readGitRemoteTarget(root);
+  return target ? `${target.owner}/${target.repo}` : "local/unknown";
+}
+
+/**
+ * The remote's host is part of the publish target's identity, so it is parsed and carried rather
+ * than discarded: `git@gitlab.com:acme/widgets.git` and `git@github.com:acme/widgets.git` name two
+ * different repositories that happen to share an `owner/repo` slug, and only the caller that knows
+ * the host can refuse to hand the hostless slug to `gh` (see `canFileGithubIssues`).
+ */
+interface GitRemoteTarget {
+  host: string;
+  owner: string;
+  repo: string;
+}
+
+const SUPPORTED_GITHUB_REMOTE_HOST = "github.com";
+
+function readGitRemoteTarget(root: string): GitRemoteTarget | undefined {
   try {
     const url = execFileSync("git", ["remote", "get-url", "origin"], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"]
     }).trim();
-    return parseGitRemoteOwnerRepo(url) ?? "local/unknown";
-  } catch {
-    return "local/unknown";
-  }
-}
-
-function parseGitRemoteOwnerRepo(url: string): string | undefined {
-  const stripped = url.trim().replace(/\.git$/, "");
-  const scpMatch = /^[^/@]+@[^:/]+:(.+)$/.exec(stripped);
-  if (scpMatch) return normalizeOwnerRepoPath(scpMatch[1]);
-  try {
-    return normalizeOwnerRepoPath(new URL(stripped).pathname);
+    return parseGitRemoteTarget(url);
   } catch {
     return undefined;
   }
 }
 
-function normalizeOwnerRepoPath(path: string): string | undefined {
+function parseGitRemoteTarget(url: string): GitRemoteTarget | undefined {
+  const stripped = url.trim().replace(/\.git$/, "");
+  const scpMatch = /^[^/@]+@([^:/]+):(.+)$/.exec(stripped);
+  if (scpMatch) return gitRemoteTarget(scpMatch[1]!, scpMatch[2]!);
+  try {
+    const parsed = new URL(stripped);
+    return gitRemoteTarget(parsed.hostname, parsed.pathname);
+  } catch {
+    return undefined;
+  }
+}
+
+/** `URL.hostname` already excludes any port; host comparison is case-insensitive per RFC 3986. */
+function gitRemoteTarget(host: string, path: string): GitRemoteTarget | undefined {
+  const canonicalHost = host.trim().toLowerCase();
+  if (!canonicalHost) return undefined;
   const segments = path.split("/").map((segment) => segment.trim()).filter(Boolean);
   if (segments.length < 2) return undefined;
-  return segments.slice(-2).join("/");
+  return { host: canonicalHost, owner: segments[segments.length - 2]!, repo: segments[segments.length - 1]! };
 }
 
 /** `gh`/GitHub's REST and GraphQL visibility values are uppercase; normalize and validate rather than guess. */

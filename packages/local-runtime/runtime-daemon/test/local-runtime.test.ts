@@ -1847,7 +1847,7 @@ describe("local runtime foundation", () => {
         const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
         expect(tokenMatch).not.toBeNull();
         const token = tokenMatch![1]!;
-        expect(token).toMatch(/^public:acme\/widgets:[0-9a-f]+:audit_run\./);
+        expect(token).toMatch(/^public:github\.com\/acme\/widgets:[0-9a-f]+:audit_run\./);
 
         const approved = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId, confirmPublicToken: token });
         expect(approved.ok).toBe(true);
@@ -1904,6 +1904,58 @@ describe("local runtime foundation", () => {
       removeTempRepo(fixture.root);
     }
   });
+
+  // Issue #110: the remote host is part of the publish target's identity. A non-github.com remote
+  // must never be reinterpreted as the same-named repository on github.com.
+  const nonGithubRemotes = [
+    "git@gitlab.com:acme/widgets.git",
+    "https://bitbucket.org/acme/widgets.git",
+    "git@github.acme-corp.com:acme/widgets.git",
+    "ssh://git@localhost:2222/acme/widgets.git"
+  ];
+  for (const remoteUrl of nonGithubRemotes) {
+    test(`audit approve rejects the non-github.com remote ${remoteUrl} before any gh call`, async () => {
+      const { executor, calls } = fakeGithubIssueExecutor();
+      const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl });
+      try {
+        await withAuditApproveToken("gh_pat_test_token", async () => {
+          const result = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+          expect(result.ok).toBe(false);
+          expect((result as any).error.code).toBe("AC_PRECONDITION_FAILED");
+          expect((result as any).error.message).toContain("github.com");
+        });
+        expect(calls.repoView).toHaveLength(0);
+        expect(calls.listRecentIssues).toHaveLength(0);
+        expect(calls.createIssue).toHaveLength(0);
+      } finally {
+        removeTempRepo(fixture.root);
+      }
+    });
+  }
+
+  const canonicalGithubRemotes = [
+    "https://github.com/acme/widgets.git",
+    "git@github.com:acme/widgets.git",
+    "git@GitHub.COM:acme/widgets.git",
+    "https://github.com:443/acme/widgets"
+  ];
+  for (const remoteUrl of canonicalGithubRemotes) {
+    test(`audit approve resolves ${remoteUrl} to the same canonical github.com target in its confirmation token`, async () => {
+      const { executor } = fakeGithubIssueExecutor({ visibility: "public" });
+      const fixture = await createPendingApproveFixture({ githubIssueExecutor: executor, remoteUrl });
+      try {
+        await withAuditApproveToken("gh_pat_test_token", async () => {
+          const rejected = await fixture.daemon.auditApprove(fixture.root, { runId: fixture.runId });
+          expect(rejected.ok).toBe(false);
+          const tokenMatch = /--confirm-public-repo (\S+)/.exec((rejected as any).error.message);
+          expect(tokenMatch).not.toBeNull();
+          expect(tokenMatch![1]!).toMatch(/^public:github\.com\/acme\/widgets:[0-9a-f]+:audit_run\./);
+        });
+      } finally {
+        removeTempRepo(fixture.root);
+      }
+    });
+  }
 
   test("audit approve rejects a draft whose body exceeds the GitHub issue length limit before any gh call", async () => {
     const { executor, calls } = fakeGithubIssueExecutor();
@@ -5533,6 +5585,7 @@ describe("github issue executor", () => {
       rmSync(binDir, { recursive: true, force: true });
     }
   });
+
 });
 
 function createGitRepo(): string {
