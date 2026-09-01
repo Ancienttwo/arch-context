@@ -127,6 +127,19 @@ function readText(path: string): string {
 }
 
 /**
+ * Independent re-serialization of the canonical measured form: the returned context minus the three
+ * self-referential extension fields. Deliberately does not import the compiler helper — the point is
+ * to prove the recorded `byteLength` matches a payload measured by someone other than its producer.
+ */
+function canonicalContextByteLength(context: { extensions: Record<string, unknown> }): number {
+  const extensions = { ...context.extensions };
+  delete extensions.byteLength;
+  delete extensions.budgetExceeded;
+  delete extensions.digest;
+  return Buffer.byteLength(JSON.stringify({ ...context, extensions }), "utf8");
+}
+
+/**
  * Managed node, relation, and constraint YAML that the ledger does not know about, standing in for
  * the projection a retired subject leaves behind. The relation and constraint reference
  * `module.ledger-project` so the model stays valid both before and after the stale files are removed.
@@ -3068,6 +3081,48 @@ describe("local runtime foundation", () => {
       expect(second.ok).toBe(true);
       expect(((second.data as any).context.resources as any[]).some((resource) => resource.type === "external-docs")).toBe(true);
       expect(providerCalls).toBe(1);
+    } finally {
+      await daemon.stop();
+      removeTempRepo(root);
+    }
+  });
+
+  test("Context7 augmentation recomputes byteLength and budgetExceeded over the returned canonical payload", async () => {
+    const root = tempRepo();
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "react-docs-app",
+      dependencies: { react: "18.2.0" }
+    }, null, 2), "utf8");
+    const daemon = await createStartedTestDaemon({
+      clock: () => "2026-06-24T00:00:00.000Z",
+      externalDocumentation: fakeExternalDocumentation(() => undefined, "prepare-unknowns")
+    });
+    try {
+      await daemon.init(root, "React Docs App");
+      await daemon.docs(root, { command: "pin", libraryId: "/facebook/react", version: "18.2.0", approved: true });
+
+      const plainTask = "Use React state hooks without changing architecture constraints";
+      const docsTask = "Use React state hooks and confirm package version unknowns without changing architecture constraints";
+
+      const plain = ((await daemon.prepare(root, plainTask, 1_048_576, 12, "task_bytes_no_docs")).data as any).context;
+      expect(plain.resources.some((resource: any) => resource.type === "external-docs")).toBe(false);
+      expect(plain.extensions.byteLength).toBe(canonicalContextByteLength(plain));
+      expect(plain.extensions.budgetExceeded).toBe(false);
+
+      const augmented = ((await daemon.prepare(root, docsTask, 1_048_576, 12, "task_bytes_docs")).data as any).context;
+      expect(augmented.resources.some((resource: any) => resource.type === "external-docs")).toBe(true);
+      expect(augmented.extensions.externalDocumentationDigest).toMatch(/^sha256:/);
+      expect(augmented.extensions.byteLength).toBe(canonicalContextByteLength(augmented));
+      expect(augmented.extensions.budgetExceeded).toBe(false);
+
+      // A budget between the compiled size and the augmented size must surface as budgetExceeded:
+      // Context7 is what pushes the returned payload over, and it says so on the payload it returns.
+      const maxBytes = canonicalContextByteLength(augmented) - 1;
+      const tight = ((await daemon.prepare(root, docsTask, maxBytes, 12, "task_bytes_docs_tight")).data as any).context;
+      expect(tight.resources.some((resource: any) => resource.type === "external-docs")).toBe(true);
+      expect(tight.extensions.byteLength).toBe(canonicalContextByteLength(tight));
+      expect(tight.extensions.byteLength).toBeGreaterThan(maxBytes);
+      expect(tight.extensions.budgetExceeded).toBe(true);
     } finally {
       await daemon.stop();
       removeTempRepo(root);
