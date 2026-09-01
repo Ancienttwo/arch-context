@@ -5017,14 +5017,78 @@ export class ArchctxDaemon {
   }
 }
 
+export type RuntimeRpcTransportErrorCode = "RPC_TIMEOUT" | "RPC_ABORTED";
+
+/**
+ * Stable classification for a runtime RPC call that never produced a response. Carries the method
+ * and its deadline so a caller can decide on retry/backoff, and deliberately carries neither the
+ * bearer token nor the request body.
+ */
+export class RuntimeRpcTransportError extends Error {
+  constructor(
+    readonly code: RuntimeRpcTransportErrorCode,
+    readonly method: string,
+    readonly timeoutMs: number,
+    readonly elapsedMs: number
+  ) {
+    super(code === "RPC_TIMEOUT"
+      ? `runtime RPC timeout: ${method} exceeded ${timeoutMs}ms`
+      : `runtime RPC cancelled: ${method} aborted after ${elapsedMs}ms`);
+    this.name = "RuntimeRpcTransportError";
+  }
+}
+
+export interface RuntimeRpcClientTimeoutPolicy {
+  /** `GET /health` liveness probe. */
+  health: number;
+  /** Control and status reads that must not depend on repository work. */
+  short: number;
+  /** Default class for ordinary repository operations. */
+  normal: number;
+  /** Indexing, audit, and review methods that legitimately run for minutes. */
+  long: number;
+}
+
+export interface RuntimeRpcClientOptions {
+  timeouts?: Partial<RuntimeRpcClientTimeoutPolicy>;
+  /** Caller-owned cancellation applied to every call this client makes. */
+  signal?: AbortSignal;
+}
+
+export const RUNTIME_RPC_CLIENT_TIMEOUT_POLICY: RuntimeRpcClientTimeoutPolicy = {
+  health: 5_000,
+  short: 15_000,
+  normal: 120_000,
+  long: 900_000
+};
+
+const RUNTIME_RPC_SHORT_METHODS = new Set([
+  "shutdown", "runtimeStatus", "landscapeStatus", "repoList", "explorerStatus", "explorerServiceContract",
+  "jobsList", "jobsStats", "ledgerState", "ledgerDrift", "stopExplorer", "revokeExplorerToken"
+]);
+
+const RUNTIME_RPC_LONG_METHODS = new Set([
+  "init", "sync", "prepare", "context", "checkpoint", "auditRun", "auditApprove", "recommendations", "book",
+  "ledgerRebuild", "ledgerMigrate", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
+]);
+
+function runtimeRpcMethodTimeout(method: string, policy: RuntimeRpcClientTimeoutPolicy): number {
+  if (RUNTIME_RPC_SHORT_METHODS.has(method)) return policy.short;
+  if (RUNTIME_RPC_LONG_METHODS.has(method)) return policy.long;
+  return policy.normal;
+}
+
 export class RuntimeRpcClient implements RuntimeDaemonClient {
-  constructor(private readonly connection: RuntimeRpcConnection) {}
+  private readonly timeouts: RuntimeRpcClientTimeoutPolicy;
+
+  constructor(private readonly connection: RuntimeRpcConnection, private readonly options: RuntimeRpcClientOptions = {}) {
+    this.timeouts = { ...RUNTIME_RPC_CLIENT_TIMEOUT_POLICY, ...options.timeouts };
+  }
 
   async health(): Promise<Json> {
-    const response = await fetch(`${this.connection.url}health`, {
+    return await this.request("health", this.timeouts.health, `${this.connection.url}health`, {
       headers: { "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION }
-    });
-    return await response.json() as Json;
+    }) as Json;
   }
 
   async shutdown(): Promise<JsonEnvelope> {
@@ -5258,7 +5322,7 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
   }
 
   private async call(method: string, params: unknown[]): Promise<JsonEnvelope> {
-    const response = await fetch(`${this.connection.url}rpc`, {
+    return await this.request(method, runtimeRpcMethodTimeout(method, this.timeouts), `${this.connection.url}rpc`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${this.connection.token}`,
@@ -5266,8 +5330,39 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
         "X-ArchContext-RPC-Version": RUNTIME_RPC_VERSION
       },
       body: JSON.stringify({ schemaVersion: RUNTIME_RPC_VERSION, method, params })
-    });
-    return await response.json() as JsonEnvelope;
+    }) as JsonEnvelope;
+  }
+
+  /**
+   * Single transport path for health and every RPC method. The deadline covers response headers
+   * *and* body, so a daemon that starts a response and stalls still fails. A timed-out call is
+   * never replayed here: the daemon may have already committed a mutation whose response was lost,
+   * so reconciliation is the caller's decision, not a silent retry.
+   */
+  private async request(method: string, timeoutMs: number, url: string, init: RequestInit): Promise<unknown> {
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const callerSignal = this.options.signal;
+    const onCallerAbort = (): void => controller.abort();
+    if (callerSignal?.aborted) controller.abort();
+    else callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      return await response.json();
+    } catch (error) {
+      const elapsedMs = Date.now() - startedAt;
+      if (timedOut) throw new RuntimeRpcTransportError("RPC_TIMEOUT", method, timeoutMs, elapsedMs);
+      if (callerSignal?.aborted) throw new RuntimeRpcTransportError("RPC_ABORTED", method, timeoutMs, elapsedMs);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
+    }
   }
 }
 

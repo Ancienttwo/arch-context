@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign, verify } from "node:crypto";
 import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
+import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
 import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join, resolve } from "node:path";
@@ -45,6 +46,7 @@ import {
   assertProductionRuntimeDeps,
   createStartedProductionDaemon,
   createStartedDaemon,
+  RuntimeRpcTransportError,
   defaultDeveloperReviewRunStateDir,
   defaultDaemonConnectionPath,
   defaultDaemonLockPath,
@@ -170,6 +172,31 @@ function rpcRequestHeaderLines(connection: { url: string; token: string }, extra
     `X-ArchContext-RPC-Version: ${RUNTIME_RPC_VERSION}`,
     ...extra
   ];
+}
+
+function loopbackRpcConnection(port: number) {
+  return {
+    schemaVersion: RUNTIME_RPC_VERSION,
+    protocol: "http-loopback",
+    version: 1,
+    root: tmpdir(),
+    url: `http://127.0.0.1:${port}/`,
+    token: "stalled-runtime-rpc-token",
+    pid: process.pid,
+    lockPath: "",
+    connectionPath: "",
+    startedAt: "2026-06-20T00:00:00.000Z"
+  } as const;
+}
+
+async function listenLoopback(server: HttpServer): Promise<number> {
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  return (server.address() as { port: number }).port;
+}
+
+async function closeLoopback(server: HttpServer): Promise<void> {
+  server.closeAllConnections();
+  await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
 }
 
 function expectSameExistingPath(actual: string, expected: string): void {
@@ -5344,6 +5371,98 @@ describe("local runtime foundation", () => {
     } finally {
       await rpc.stop().catch(() => undefined);
       removeTempRepo(root);
+    }
+  }, 15_000);
+
+  test("runtime RPC client fails stalled health and RPC calls within its configured deadline", async () => {
+    let requests = 0;
+    const stalled = createHttpServer((request) => {
+      requests += 1;
+      request.resume();
+    });
+    const port = await listenLoopback(stalled);
+    try {
+      const connection = loopbackRpcConnection(port);
+      const client = new RuntimeRpcClient(connection, { timeouts: { health: 150, short: 150, normal: 150, long: 150 } });
+
+      const startedAt = Date.now();
+      const healthError = await client.health().catch((error: unknown) => error);
+      expect(healthError).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((healthError as RuntimeRpcTransportError).code).toBe("RPC_TIMEOUT");
+      expect((healthError as RuntimeRpcTransportError).method).toBe("health");
+      expect((healthError as RuntimeRpcTransportError).timeoutMs).toBe(150);
+      expect((healthError as RuntimeRpcTransportError).elapsedMs).toBeGreaterThanOrEqual(100);
+      expect(Date.now() - startedAt).toBeLessThan(3_000);
+
+      const rpcError = await client.runtimeStatus(tmpdir()).catch((error: unknown) => error);
+      expect(rpcError).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((rpcError as RuntimeRpcTransportError).code).toBe("RPC_TIMEOUT");
+      expect((rpcError as RuntimeRpcTransportError).method).toBe("runtimeStatus");
+      expect((rpcError as Error).message).not.toContain(connection.token);
+      expect(String((rpcError as Error).stack)).not.toContain(connection.token);
+
+      // A timed-out mutation must not be replayed: the daemon may have already committed it.
+      const before = requests;
+      await client.applyUpdate(tmpdir(), { id: "changeset.timeout", approved: true, expectedWorktreeDigest: `sha256:${"0".repeat(64)}` })
+        .catch(() => undefined);
+      await sleep(300);
+      expect(requests - before).toBe(1);
+
+      const controller = new AbortController();
+      const cancellable = new RuntimeRpcClient(connection, {
+        timeouts: { health: 10_000, short: 10_000, normal: 10_000, long: 10_000 },
+        signal: controller.signal
+      });
+      const cancelStartedAt = Date.now();
+      setTimeout(() => controller.abort(), 50);
+      const cancelled = await cancellable.runtimeStatus(tmpdir()).catch((error: unknown) => error);
+      expect(cancelled).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((cancelled as RuntimeRpcTransportError).code).toBe("RPC_ABORTED");
+      expect(Date.now() - cancelStartedAt).toBeLessThan(3_000);
+    } finally {
+      await closeLoopback(stalled);
+    }
+  }, 15_000);
+
+  test("runtime RPC client separates long running method deadlines from short control calls", async () => {
+    const server = createHttpServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk: Buffer) => { body += chunk.toString("utf8"); });
+      request.on("end", () => {
+        const method = request.url === "/health" ? "health" : (JSON.parse(body || "{}") as { method?: string }).method ?? "unknown";
+        if (method === "validate") {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.write("{\"schemaVersion\":");
+          return;
+        }
+        setTimeout(() => {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ schemaVersion: "archcontext.envelope/v1", ok: true, kind: `test.${method}`, data: {} }));
+        }, 250);
+      });
+    });
+    const port = await listenLoopback(server);
+    try {
+      const connection = loopbackRpcConnection(port);
+      const strict = new RuntimeRpcClient(connection, { timeouts: { health: 900, short: 100, normal: 100, long: 900 } });
+
+      const shortTimeout = await strict.runtimeStatus(tmpdir()).catch((error: unknown) => error);
+      expect(shortTimeout).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((shortTimeout as RuntimeRpcTransportError).method).toBe("runtimeStatus");
+
+      // Delayed headers on a long-running method stay inside its own, explicitly longer deadline.
+      expect((await strict.auditRun(tmpdir())).ok).toBe(true);
+      expect((await strict.health() as any).ok).toBe(true);
+
+      // A response that starts but never finishes still fails on the deadline.
+      const stalledBody = await strict.validate(tmpdir()).catch((error: unknown) => error);
+      expect(stalledBody).toBeInstanceOf(RuntimeRpcTransportError);
+      expect((stalledBody as RuntimeRpcTransportError).code).toBe("RPC_TIMEOUT");
+
+      const relaxed = new RuntimeRpcClient(connection, { timeouts: { health: 900, short: 400, normal: 400, long: 900 } });
+      expect((await relaxed.runtimeStatus(tmpdir())).ok).toBe(true);
+    } finally {
+      await closeLoopback(server);
     }
   }, 15_000);
 
