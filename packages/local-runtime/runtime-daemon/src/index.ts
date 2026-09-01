@@ -2769,7 +2769,6 @@ export class ArchctxDaemon {
     currentFiles: ModelFile[],
     createdAt: string
   ): Promise<ArchitectureProjectionRollbackWriteResult> {
-    const targetPaths = new Set(projectedFiles.map((file) => file.path));
     const backupBase = `.archcontext/backups/ledger-rollback/${safePathSegment(createdAt)}`;
     const backupRelativePath = uniqueBackupPath(root, backupBase);
     const manifestPath = `${backupRelativePath}/manifest.json`;
@@ -2778,7 +2777,7 @@ export class ArchctxDaemon {
       path: backupRelativePath,
       manifestPath
     });
-    const removedPaths = currentFiles.filter((file) => !targetPaths.has(file.path)).map((file) => file.path);
+    const removedPaths = obsoleteManagedProjectionPaths(currentFiles, projectedFiles);
     await this.applyArchitectureProjectionChangeSet(root, {
       id: `changeset.ledger-rollback-${shortDigest(digestJson({ createdAt, projectionDigest: architectureLedgerProjectionDigest(projectedFiles) } as unknown as Json))}`,
       files: [
@@ -3155,11 +3154,15 @@ export class ArchctxDaemon {
       const scope = await this.architectureLedgerScope(root);
       const state = await this.localStore.readArchitectureLedgerState(scope);
       const projectedFiles = projectArchitectureLedgerStateToYamlFiles(state);
+      const removedPaths = obsoleteManagedProjectionPaths(
+        listModelFiles(root).filter((file) => isArchitectureLedgerManagedModelPath(file.path)),
+        projectedFiles
+      );
       if (writes) {
         await this.applyArchitectureProjectionChangeSet(root, {
           id: `changeset.ledger-project-${shortDigest(architectureLedgerProjectionDigest(projectedFiles))}`,
           files: projectedFiles.map(({ path, body }) => ({ path, body })),
-          removedPaths: []
+          removedPaths
         });
       }
       const drift = compareArchitectureLedgerStateToYaml({
@@ -3180,6 +3183,7 @@ export class ArchctxDaemon {
         projectionDigest: architectureLedgerProjectionDigest(projectedFiles),
         graphDigest: architectureLedgerStateDigest(state),
         writtenPaths: writes ? projectedFiles.map((file) => file.path) : [],
+        removedPaths: writes ? removedPaths : [],
         projectedFiles: writes ? undefined : projectedFiles,
         drift,
         reconcile
@@ -6707,6 +6711,22 @@ interface ArchitectureProjectionRollbackWriteResult {
   backup: Json;
   writtenPaths: string[];
   removedPaths: string[];
+}
+
+/**
+ * Managed model files the ledger no longer projects.
+ *
+ * Both ledger-to-Git directions — `ledger project --to-git` and `ledger rollback --to-yaml` — must
+ * use this one set difference, so an entity, relation, or constraint retired in the ledger cannot
+ * survive as stale YAML. `currentFiles` is already filtered to ledger-managed model paths, which is
+ * what keeps manifests, policies, waivers, backups, and generated artifacts out of the deletion set.
+ */
+function obsoleteManagedProjectionPaths(
+  currentFiles: ModelFile[],
+  projectedFiles: ArchitectureLedgerProjectionFile[]
+): string[] {
+  const targetPaths = new Set(projectedFiles.map((file) => file.path));
+  return currentFiles.filter((file) => !targetPaths.has(file.path)).map((file) => file.path);
 }
 
 function expectedFileHash(root: string, path: string): string {
