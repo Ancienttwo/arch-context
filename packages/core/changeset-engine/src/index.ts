@@ -15,6 +15,7 @@ import {
   type ModelStorePort
 } from "@archcontext/contracts";
 import { assertAllowedArchContextPath, evaluateChangeSetPaths, type ArchContextPathScope } from "@archcontext/core/policy-engine";
+import { descriptorRelativeWrite } from "./descriptor-relative-write";
 
 export type ChangeSetStatus = "proposed" | "approved" | "applied" | "rolled-back" | "rejected";
 export type ChangeOperationKind =
@@ -671,12 +672,10 @@ export function writeFileWithoutFollowingSymlinks(request: NoFollowFileWrite): v
   const absoluteRoot = resolve(request.root);
   const absolute = assertPathHasNoSymlinkSegments(request.root, request.path);
   const segments = relative(absoluteRoot, absolute).split(sep);
-  if (existsSync(absolute)) assertExpectedHash(absolute, request.expectedHash);
-  else if (request.expectedHash !== "missing") throw new Error(`Expected missing file hash for new path: ${request.path}`);
-  mkdirSync(dirname(absolute), { recursive: true });
-  // Re-checked after mkdir: the directories just materialized were not covered by the first walk.
-  assertNoSymlinkSegments(absoluteRoot, segments, request.path);
-  atomicWriteFile(absolute, `${absolute}.archctx-tmp-${process.pid}-${nextNoFollowWriteSequence()}`, request.body, request.mode);
+  descriptorRelativeWrite({
+    ...request,
+    tempName: `${segments.at(-1)}.archctx-tmp-${process.pid}-${nextNoFollowWriteSequence()}`
+  });
 }
 
 /**

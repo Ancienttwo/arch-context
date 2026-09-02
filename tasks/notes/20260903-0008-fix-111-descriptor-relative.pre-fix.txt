@@ -1,0 +1,13 @@
+Command: bun test packages/core/changeset-engine/test/changeset-engine.test.ts --test-name-pattern "rejects concurrent parent replacement"
+bun test v1.4.0 (34cbb9a40)
+
+packages/core/changeset-engine/test/changeset-engine.test.ts:
+error: expect(received).toThrow(expected)
+Expected substring: "parent changed during write"
+Received function did not throw
+(fail) writeFileWithoutFollowingSymlinks > rejects concurrent parent replacement without touching the outside target
+
+0 pass
+18 filtered out
+1 fail
+PRE_FIX_EXIT=1

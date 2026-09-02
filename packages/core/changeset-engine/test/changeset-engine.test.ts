@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +22,7 @@ import {
   type ChangeSetJournalFile,
   type ChangeSetJournalPort
 } from "../src/index";
+import { setDescriptorRelativeWriteTestHook } from "../src/descriptor-relative-write";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const digest = `sha256:${"a".repeat(64)}`;
@@ -738,6 +739,32 @@ describe("writeFileWithoutFollowingSymlinks", () => {
       })).toThrow("symlink");
       expect(existsSync(join(outside, "context7.lock.yaml"))).toBe(false);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects concurrent parent replacement without touching the outside target", () => {
+    const { root, outside } = tempWriteRoot();
+    const integrations = join(root, ".archcontext/integrations");
+    const displaced = join(root, ".archcontext/integrations-displaced");
+    const outsideTarget = join(outside, "context7.lock.yaml");
+    writeFileSync(outsideTarget, "do-not-touch\n");
+    setDescriptorRelativeWriteTestHook(() => {
+      renameSync(integrations, displaced);
+      symlinkSync(outside, integrations);
+    });
+    try {
+      expect(() => writeFileWithoutFollowingSymlinks({
+        root,
+        path: RELATIVE,
+        body: "redirected\n",
+        mode: 0o600,
+        expectedHash: "missing"
+      })).toThrow();
+      expect(readFileSync(outsideTarget, "utf8")).toBe("do-not-touch\n");
+      if (process.platform !== "win32") expect(existsSync(join(displaced, "context7.lock.yaml"))).toBe(false);
+    } finally {
+      setDescriptorRelativeWriteTestHook(undefined);
       rmSync(root, { recursive: true, force: true });
     }
   });
