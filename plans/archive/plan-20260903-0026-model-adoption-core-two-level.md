@@ -1,6 +1,6 @@
 # Plan: Model adoption: two-level architecture node tree (5 workspace modules + core components)
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260903-0026
 > **Slug**: model-adoption-core-two-level
 > **Planning Source**: waza-think

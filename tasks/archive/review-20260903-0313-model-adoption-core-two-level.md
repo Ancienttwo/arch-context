@@ -1,3 +1,9 @@
+> **Archived**: 2026-09-03 03:13
+> **Related Plan**: plans/archive/plan-20260903-0026-model-adoption-core-two-level.md
+> **Outcome**: Completed
+> **Lifecycle**: review
+> **Parent Run ID**: run-20260903-0313
+
 # Task Review: model-adoption-core-two-level
 
 > **Status**: Accepted
