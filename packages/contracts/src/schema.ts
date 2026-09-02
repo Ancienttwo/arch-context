@@ -28,7 +28,11 @@ export type ArchContextErrorCode =
   | "AC_USER_CONFIRMATION_REQUIRED"
   | "AC_ENTITLEMENT_REQUIRED"
   | "AC_ATTESTATION_REJECTED"
-  | "AC_TUNNEL_SCOPE_DENIED";
+  | "AC_TUNNEL_SCOPE_DENIED"
+  | "AC_MODEL_ADOPTION_REQUIRED"
+  | "AC_REFACTOR_STALE"
+  | "AC_REFACTOR_EVIDENCE_REQUIRED"
+  | "AC_REFACTOR_PROPOSAL_UNAUTHORED";
 
 export interface ArchContextError {
   code: ArchContextErrorCode;
@@ -65,7 +69,11 @@ export const ERROR_CATALOG: Record<ArchContextErrorCode, Omit<ArchContextError, 
   AC_USER_CONFIRMATION_REQUIRED: { code: "AC_USER_CONFIRMATION_REQUIRED", severity: "warning", retryable: true, action: "show-human-decision" },
   AC_ENTITLEMENT_REQUIRED: { code: "AC_ENTITLEMENT_REQUIRED", severity: "error", retryable: false, action: "login-or-subscribe" },
   AC_ATTESTATION_REJECTED: { code: "AC_ATTESTATION_REJECTED", severity: "error", retryable: false, action: "review-again" },
-  AC_TUNNEL_SCOPE_DENIED: { code: "AC_TUNNEL_SCOPE_DENIED", severity: "error", retryable: false, action: "reduce-scope" }
+  AC_TUNNEL_SCOPE_DENIED: { code: "AC_TUNNEL_SCOPE_DENIED", severity: "error", retryable: false, action: "reduce-scope" },
+  AC_MODEL_ADOPTION_REQUIRED: { code: "AC_MODEL_ADOPTION_REQUIRED", severity: "error", retryable: false, action: "adopt-architecture-model" },
+  AC_REFACTOR_STALE: { code: "AC_REFACTOR_STALE", severity: "warning", retryable: true, action: "rerun-refactor-scan" },
+  AC_REFACTOR_EVIDENCE_REQUIRED: { code: "AC_REFACTOR_EVIDENCE_REQUIRED", severity: "error", retryable: false, action: "run-refactor-verify" },
+  AC_REFACTOR_PROPOSAL_UNAUTHORED: { code: "AC_REFACTOR_PROPOSAL_UNAUTHORED", severity: "error", retryable: false, action: "attach-authoring-actor" }
 };
 
 export function okEnvelope<T extends Json>(requestId: string, data: T): JsonEnvelope<T> {

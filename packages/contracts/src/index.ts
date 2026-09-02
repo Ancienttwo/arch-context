@@ -7,5 +7,6 @@ export * from "./ports";
 export * from "./practices";
 export * from "./projection";
 export * from "./product-version";
+export * from "./refactor";
 export * from "./schema";
 export * from "./validator";
