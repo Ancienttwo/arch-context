@@ -568,6 +568,12 @@ export interface DeveloperReviewRunCleanup {
   errors: string[];
 }
 
+export interface DeveloperReviewRunCleanupRequest {
+  repositoryRoot: string;
+  challengeId: string;
+  runId: string;
+}
+
 export interface DeveloperReviewRunRecovery {
   schemaVersion: "archcontext.developer-review-run-recovery/v1";
   sourceRoot: string;
@@ -890,7 +896,7 @@ export interface RuntimeDaemonClient {
     startedAt?: string;
     completedAt?: string;
   }): Promise<DeveloperReviewAttestation> | DeveloperReviewAttestation;
-  cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): Promise<DeveloperReviewRunCleanup> | DeveloperReviewRunCleanup;
+  cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): Promise<DeveloperReviewRunCleanup> | DeveloperReviewRunCleanup;
   recoverDeveloperReviewRuns(input: {
     repositoryRoot: string;
     force?: boolean;
@@ -1114,8 +1120,9 @@ export class ArchctxDaemon {
     await this.localStore.migrate();
     this.localStore.recoverPendingSnapshots();
     this.localStore.recoverPendingChangeSets();
-    this.running = true;
+    await this.restoreLandscape();
     await this.restoreRepositorySessions();
+    this.running = true;
   }
 
   async stop(): Promise<void> {
@@ -3812,7 +3819,7 @@ export class ArchctxDaemon {
         tempRoot: paths.worktreeTempRoot
       });
       if (!prepared.accepted || !prepared.worktree) {
-        const cleanup = this.cleanupDeveloperReviewRun(preparing);
+        const cleanup = this.cleanupOwnedDeveloperReviewRun(preparing);
         return { ...prepared, cleanup };
       }
       const run: DeveloperReviewRun = {
@@ -3824,7 +3831,7 @@ export class ArchctxDaemon {
       return { ...prepared, run };
     } catch (error) {
       if (lockAcquired) {
-        this.cleanupDeveloperReviewRun(preparing);
+        this.cleanupOwnedDeveloperReviewRun(preparing);
       } else {
         removePathWithRetry(paths.runRoot);
       }
@@ -3846,11 +3853,11 @@ export class ArchctxDaemon {
     try {
       return await run(prepared.run);
     } finally {
-      this.cleanupDeveloperReviewRun(prepared.run);
+      this.cleanupOwnedDeveloperReviewRun(prepared.run);
     }
   }
 
-  cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
+  cleanupOwnedDeveloperReviewRun(run: DeveloperReviewRunManifest): DeveloperReviewRunCleanup {
     // Throws before anything is removed when the manifest names a path this daemon does not own.
     const targets = resolveOwnedDeveloperReviewRunTargets(run);
     const removed: DeveloperReviewRunCleanup["removed"] = [];
@@ -3886,6 +3893,19 @@ export class ArchctxDaemon {
       removed,
       errors
     };
+  }
+
+  cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): DeveloperReviewRunCleanup {
+    this.assertRunning();
+    const sourceRoot = findRepositoryRoot(input.repositoryRoot);
+    const safeChallengeId = safeControlFileSegment(input.challengeId);
+    const manifestPath = join(defaultDeveloperReviewRunStateDir(sourceRoot), `${safeChallengeId}.json`);
+    const manifest = readDeveloperReviewRunManifest(manifestPath);
+    if (!manifest) throw developerReviewRunNotOwned("persisted-manifest-missing");
+    if (manifest.runId !== input.runId || manifest.challengeId !== input.challengeId || resolve(manifest.sourceRoot) !== sourceRoot) {
+      throw developerReviewRunNotOwned("persisted-manifest-identity-mismatch");
+    }
+    return this.cleanupOwnedDeveloperReviewRun(manifest);
   }
 
   /**
@@ -3933,7 +3953,7 @@ export class ArchctxDaemon {
         continue;
       }
       try {
-        recovery.recovered.push(this.cleanupDeveloperReviewRun(manifest));
+        recovery.recovered.push(this.cleanupOwnedDeveloperReviewRun(manifest));
       } catch (error) {
         recovery.rejected.push(`${entry}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -4188,12 +4208,9 @@ export class ArchctxDaemon {
       }
       nextLandscape = next;
     }
+    await this.localStore.commitRepositoryRemoval(repositoryId, nextLandscape);
     this.sessions.delete(repositoryId);
-    await this.localStore.deleteRepositorySession(repositoryId);
-    if (nextLandscape) {
-      this.landscape = nextLandscape;
-      await this.localStore.saveLandscape(nextLandscape);
-    }
+    if (nextLandscape) this.landscape = nextLandscape;
     return okEnvelope("repo.remove", {
       repositoryId,
       removed: true,
@@ -4775,6 +4792,16 @@ export class ArchctxDaemon {
       });
       this.evictOldSessions();
     }
+  }
+
+  private async restoreLandscape(): Promise<void> {
+    const landscape = await this.localStore.readLandscape("landscape.local");
+    if (!landscape) return;
+    const validation = validateLandscape(landscape);
+    if (!validation.valid) {
+      throw new Error(`persisted-landscape-invalid: ${validation.errors.join("; ")}`);
+    }
+    this.landscape = landscape;
   }
 
   private evictOldSessions(): void {
@@ -5377,8 +5404,8 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return unwrapRpcData(await this.call("runSignedDeveloperReviewAttestation", [input])) as unknown as DeveloperReviewAttestation;
   }
 
-  async cleanupDeveloperReviewRun(run: DeveloperReviewRunManifest): Promise<DeveloperReviewRunCleanup> {
-    return unwrapRpcData(await this.call("cleanupDeveloperReviewRun", [run])) as unknown as DeveloperReviewRunCleanup;
+  async cleanupDeveloperReviewRun(input: DeveloperReviewRunCleanupRequest): Promise<DeveloperReviewRunCleanup> {
+    return unwrapRpcData(await this.call("cleanupDeveloperReviewRun", [input])) as unknown as DeveloperReviewRunCleanup;
   }
 
   async recoverDeveloperReviewRuns(input: {
@@ -5733,7 +5760,7 @@ export class ArchctxRuntimeRpcServer {
       case "runSignedDeveloperReviewAttestation":
         return okEnvelope("developerReview.attestation", await this.daemon.runSignedDeveloperReviewAttestation(decodeSignedDeveloperReviewAttestationParams(params)) as unknown as Json);
       case "cleanupDeveloperReviewRun":
-        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(decodeDeveloperReviewRunManifest(params[0], "cleanupDeveloperReviewRun")) as unknown as Json);
+        return okEnvelope("developerReview.cleanupRun", this.daemon.cleanupDeveloperReviewRun(decodeDeveloperReviewRunCleanupRequest(params[0])) as unknown as Json);
       case "recoverDeveloperReviewRuns":
         return okEnvelope("developerReview.recoverRuns", this.daemon.recoverDeveloperReviewRuns(decodeRecoverDeveloperReviewRunsParams(params)) as unknown as Json);
       case "shutdown":
@@ -6608,6 +6635,31 @@ function resolveOwnedDeveloperReviewRunTargets(run: DeveloperReviewRunManifest):
   if (resolve(run.manifestPath) !== manifestPath) throw developerReviewRunNotOwned("manifest-path");
   if (resolve(run.lockPath) !== lockPath) throw developerReviewRunNotOwned("lock-path");
 
+  const persisted = readDeveloperReviewRunManifest(manifestPath);
+  if (!persisted) throw developerReviewRunNotOwned("persisted-manifest-missing");
+  if (
+    persisted.runId !== run.runId
+    || persisted.challengeId !== run.challengeId
+    || persisted.repositoryId !== run.repositoryId
+    || resolve(persisted.sourceRoot) !== resolve(run.sourceRoot)
+    || resolve(persisted.runRoot) !== resolve(run.runRoot)
+    || resolve(persisted.worktreeTempRoot) !== resolve(run.worktreeTempRoot)
+    || resolve(persisted.manifestPath) !== manifestPath
+    || resolve(persisted.lockPath) !== lockPath
+  ) {
+    throw developerReviewRunNotOwned("persisted-manifest-mismatch");
+  }
+  const lockStats = lstatIfExists(lockPath);
+  const lock = lockStats?.isFile() ? readJsonObject(lockPath) : undefined;
+  if (
+    !lock
+    || lock.schemaVersion !== "archcontext.developer-review-run-lock/v1"
+    || lock.runId !== run.runId
+    || lock.challengeId !== run.challengeId
+  ) {
+    throw developerReviewRunNotOwned("persisted-lock-mismatch");
+  }
+
   const runRoot = resolve(run.runRoot);
   const runRootPrefix = `${DEVELOPER_REVIEW_RUN_ROOT_PREFIX}${safeChallengeId.slice(0, 32)}-`;
   const runRootName = basename(runRoot);
@@ -7025,6 +7077,16 @@ function decodeDeveloperReviewRunManifest(value: unknown, context: string): Deve
       cleanup: rpcLiteral(codeGraphTemporaryState, context, "cleanup", ["remove-run-root"] as const)
     },
     ...(record.worktree === undefined ? {} : { worktree: decodeRpcDetachedReviewWorktree(record.worktree, context, "run.worktree") })
+  };
+}
+
+function decodeDeveloperReviewRunCleanupRequest(value: unknown): DeveloperReviewRunCleanupRequest {
+  const context = "cleanupDeveloperReviewRun";
+  const record = decodeRpcRecord(value, context, "params[0]", ["repositoryRoot", "challengeId", "runId"]);
+  return {
+    repositoryRoot: rpcString(record, context, "repositoryRoot"),
+    challengeId: rpcString(record, context, "challengeId"),
+    runId: rpcString(record, context, "runId")
   };
 }
 

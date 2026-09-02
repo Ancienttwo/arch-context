@@ -1,0 +1,94 @@
+bun test v1.4.0 (34cbb9a40)
+
+packages/local-runtime/runtime-daemon/test/local-runtime.test.ts:
+4923 |       // A conventionally named but absent run root must not turn the caller's manifest into
+4924 |       // authority for the real challenge control files.
+4925 |       const absentImpostorRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "cccccc"));
+4926 |       expect(existsSync(absentImpostorRunRoot)).toBe(false);
+4927 |       expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(absentImpostorRunRoot)))
+4928 |         .toThrow("developer-review-run-not-owned");
+                ^
+error: expect(received).toThrow(expected)
+
+Expected substring: "developer-review-run-not-owned"
+
+Received function did not throw
+Received value: {
+  schemaVersion: "archcontext.developer-review-run-cleanup/v1",
+  runId: "chal_runtime_worktree-960c02de345d",
+  challengeId: "chal_runtime_worktree",
+  cleaned: true,
+  removed: [ "manifest", "lock" ],
+  errors: [],
+}
+
+      at <anonymous> (/Users/kito/Projects/arch-context-wt-fix-audit-residuals/packages/local-runtime/runtime-daemon/test/local-runtime.test.ts:4928:10)
+(fail) local runtime foundation > developer review cleanup refuses deletion targets outside daemon-owned review roots [311.34ms]
+5929 |       const removal = await restarted.repoRemove(removedId);
+5930 |       expect(removal.ok).toBe(true);
+5931 |       expect(removal.data).toMatchObject({ repositoryId: removedId, removed: true, sessionRemoved: true });
+5932 |
+5933 |       const saved = (await store.readLandscape("landscape.local"))!;
+5934 |       expect(saved.repositories.map((repo) => repo.repositoryId)).toEqual([keptId]);
+                                                                         ^
+error: expect(received).toEqual(expected)
+
+  [
++   "repo.3ce2571a1de680e9",
+    "repo.def52da7b461f48d",
+  ]
+
+- Expected  - 0
++ Received  + 1
+
+      at <anonymous> (/Users/kito/Projects/arch-context-wt-fix-audit-residuals/packages/local-runtime/runtime-daemon/test/local-runtime.test.ts:5934:67)
+(fail) local runtime foundation > repo remove after daemon restart updates the persisted landscape [29.74ms]
+6599 |   ];
+6600 |
+6601 |   for (const { name, draft } of benignSecurityProseDrafts) {
+6602 |     test(`preflight publishes benign security prose: ${name}`, () => {
+6603 |       const result = preflightGithubIssueDrafts("audit_run.benign", [draft]);
+6604 |       expect(result.ok).toBe(true);
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/kito/Projects/arch-context-wt-fix-audit-residuals/packages/local-runtime/runtime-daemon/test/local-runtime.test.ts:6604:25)
+(fail) github issue executor > preflight publishes benign security prose: Bearer authentication terminology [0.78ms]
+6671 |   ];
+6672 |
+6673 |   for (const { name, field, draft } of credentialValueDrafts) {
+6674 |     test(`preflight rejects a credential value: ${name}`, () => {
+6675 |       const result = preflightGithubIssueDrafts("audit_run.credential", [draft]);
+6676 |       expect(result.ok).toBe(false);
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/kito/Projects/arch-context-wt-fix-audit-residuals/packages/local-runtime/runtime-daemon/test/local-runtime.test.ts:6676:25)
+(fail) github issue executor > preflight rejects a credential value: fine-grained github token prefix [0.38ms]
+6671 |   ];
+6672 |
+6673 |   for (const { name, field, draft } of credentialValueDrafts) {
+6674 |     test(`preflight rejects a credential value: ${name}`, () => {
+6675 |       const result = preflightGithubIssueDrafts("audit_run.credential", [draft]);
+6676 |       expect(result.ok).toBe(false);
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/kito/Projects/arch-context-wt-fix-audit-residuals/packages/local-runtime/runtime-daemon/test/local-runtime.test.ts:6676:25)
+(fail) github issue executor > preflight rejects a credential value: github refresh token prefix [0.26ms]
+
+ 0 pass
+ 144 filtered out
+ 5 fail
+ 10 expect() calls
+Ran 5 tests across 1 file. [1272.00ms]
+PRE_FIX_EXIT=1

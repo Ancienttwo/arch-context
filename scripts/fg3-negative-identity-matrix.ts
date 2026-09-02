@@ -230,7 +230,7 @@ export async function runFg3NegativeIdentityMatrix(config: ReturnType<typeof bui
         if (!dirtyRejected) failures.push(`dirty detached worktree rejected with unexpected reason: ${dirtyReasonCode}`);
       } finally {
         const worktreeRoot = dirtyRun.run.worktree.worktreeRoot;
-        const cleanup = daemon.cleanupDeveloperReviewRun(dirtyRun.run);
+        const cleanup = daemon.cleanupOwnedDeveloperReviewRun(dirtyRun.run);
         dirtyCleanupCleaned = cleanup.cleaned;
         dirtyWorktreeRemovedAfterCleanup = !existsSync(worktreeRoot);
       }

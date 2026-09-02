@@ -4872,7 +4872,11 @@ describe("local runtime foundation", () => {
       expect(signed.attestation.signature.value).not.toBe("");
       expect(signed.reviewSession.reviewResult).toBe("pass");
 
-      const cleanup = await client.cleanupDeveloperReviewRun(prepared.run!);
+      const cleanup = await client.cleanupDeveloperReviewRun({
+        repositoryRoot: prepared.run!.sourceRoot,
+        challengeId: prepared.run!.challengeId,
+        runId: prepared.run!.runId
+      });
       expect(cleanup.cleaned).toBe(true);
       expect(existsSync(prepared.run!.worktree.worktreeRoot)).toBe(false);
 
@@ -4920,31 +4924,40 @@ describe("local runtime foundation", () => {
         codeGraphTemporaryState: { root: runRoot, cleanup: "remove-run-root" as const }
       });
 
+      // A conventionally named but absent run root must not turn the caller's manifest into
+      // authority for the real challenge control files.
+      const absentImpostorRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "cccccc"));
+      expect(existsSync(absentImpostorRunRoot)).toBe(false);
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun(detachedRunRoot(absentImpostorRunRoot)))
+        .toThrow("developer-review-run-not-owned");
+      expect(existsSync(run.manifestPath)).toBe(true);
+      expect(existsSync(run.lockPath)).toBe(true);
+
       // Absolute escape: an unrelated directory is not a review run root.
-      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(outside)))
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun(detachedRunRoot(outside)))
         .toThrow("developer-review-run-not-owned");
       // `..` traversal that lands outside the daemon temp parent.
-      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(join(run.runRoot, "..", "..", basename(outside)))))
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun(detachedRunRoot(join(run.runRoot, "..", "..", basename(outside)))))
         .toThrow("developer-review-run-not-owned");
       // Manifest/lock are derived from the repository state dir, so a caller-named file is rejected.
-      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, manifestPath: victim }))
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun({ ...run, manifestPath: victim }))
         .toThrow("developer-review-run-not-owned");
-      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, lockPath: victim }))
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun({ ...run, lockPath: victim }))
         .toThrow("developer-review-run-not-owned");
-      expect(() => daemon!.cleanupDeveloperReviewRun({ ...run, manifestPath: join(run.manifestPath, "..", "..", "escaped.json") }))
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun({ ...run, manifestPath: join(run.manifestPath, "..", "..", "escaped.json") }))
         .toThrow("developer-review-run-not-owned");
 
       // A directory that merely looks like a run root carries no ownership marker.
       const impostorRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "bbbbbb"));
       mkdirSync(impostorRunRoot, { recursive: true });
-      expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(impostorRunRoot)))
+      expect(() => daemon!.cleanupOwnedDeveloperReviewRun(detachedRunRoot(impostorRunRoot)))
         .toThrow("developer-review-run-not-owned");
       expect(existsSync(impostorRunRoot)).toBe(true);
 
       if (process.platform !== "win32") {
         const symlinkedRunRoot = join(tempRoot, basename(run.runRoot).replace(/.{6}$/, "aaaaaa"));
         symlinkSync(outside, symlinkedRunRoot);
-        expect(() => daemon!.cleanupDeveloperReviewRun(detachedRunRoot(symlinkedRunRoot)))
+        expect(() => daemon!.cleanupOwnedDeveloperReviewRun(detachedRunRoot(symlinkedRunRoot)))
           .toThrow("developer-review-run-not-owned");
       }
 
@@ -4954,7 +4967,7 @@ describe("local runtime foundation", () => {
       expect(existsSync(run.manifestPath)).toBe(true);
       expect(existsSync(run.lockPath)).toBe(true);
 
-      const cleanup = daemon.cleanupDeveloperReviewRun(run);
+      const cleanup = daemon.cleanupOwnedDeveloperReviewRun(run);
       expect(cleanup.cleaned).toBe(true);
       expect(cleanup.removed).toEqual(expect.arrayContaining(["worktree", "run-root", "manifest", "lock"]));
       expect(existsSync(run.runRoot)).toBe(false);
@@ -5906,6 +5919,32 @@ describe("local runtime foundation", () => {
     }
   });
 
+  test("repo remove after daemon restart updates the persisted landscape", async () => {
+    const removedRoot = tempRepo();
+    const keptRoot = tempRepo();
+    const store = new TestLocalStore();
+    try {
+      const first = await createStartedTestDaemon({ localStore: store });
+      const removedId = ((await first.repoAdd(removedRoot, "web")).data as any).repository.repositoryId;
+      const keptId = ((await first.repoAdd(keptRoot, "api")).data as any).repository.repositoryId;
+      await first.stop();
+
+      const restarted = await createStartedTestDaemon({ localStore: store });
+      const removal = await restarted.repoRemove(removedId);
+      expect(removal.ok).toBe(true);
+      expect(removal.data).toMatchObject({ repositoryId: removedId, removed: true, sessionRemoved: true });
+
+      const saved = (await store.readLandscape("landscape.local"))!;
+      expect(saved.repositories.map((repo) => repo.repositoryId)).toEqual([keptId]);
+      expect(saved.scope?.defaultActiveRepositories).toEqual([keptId]);
+      expect([...store.repositorySessions.keys()]).toEqual([keptId]);
+      await restarted.stop();
+    } finally {
+      removeTempRepo(removedRoot);
+      removeTempRepo(keptRoot);
+    }
+  });
+
   test("repo remove rejected by landscape validation leaves every session untouched", async () => {
     const removedRoot = tempRepo();
     const keptRoot = tempRepo();
@@ -6556,6 +6595,10 @@ describe("github issue executor", () => {
     {
       name: "dotted identifiers that are not a compact token",
       draft: preflightDraft({ bodyMarkdown: "See packages.local-runtime.runtime-daemon for the handler.\n" })
+    },
+    {
+      name: "Bearer authentication terminology",
+      draft: preflightDraft({ bodyMarkdown: "Use Bearer authentication for this request.\n" })
     }
   ];
 
@@ -6593,6 +6636,16 @@ describe("github issue executor", () => {
       name: "github token prefix",
       field: "body",
       draft: preflightDraft({ bodyMarkdown: "Rotate ghp_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
+    },
+    {
+      name: "fine-grained github token prefix",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: `Rotate github_pat_${"A".repeat(40)} immediately.\n` })
+    },
+    {
+      name: "github refresh token prefix",
+      field: "body",
+      draft: preflightDraft({ bodyMarkdown: "Rotate ghr_abcdefghijklmnopqrstuvwxyz0123456789 immediately.\n" })
     },
     {
       name: "bearer credential",

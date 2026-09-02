@@ -199,8 +199,12 @@ export async function withGithubIssueBodyFile<T>(
  * instead of the vocabulary.
  */
 const SECRET_DETECTORS = [
-  { id: "github-token-prefix", pattern: /gh[opsu]_[A-Za-z0-9_]+/ },
-  { id: "bearer-credential", pattern: /Bearer\s+[A-Za-z0-9._-]+/i },
+  { id: "github-fine-grained-pat", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/ },
+  { id: "github-token-prefix", pattern: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{20,}\b/ },
+  {
+    id: "bearer-credential",
+    pattern: /\b(?:Authorization\s*:\s*Bearer|authorization["']?\s*[:=]\s*["']?Bearer)\s+[A-Za-z0-9._~-]{20,}\b/i
+  },
   { id: "private-key-header", pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
   { id: "github-webhook-secret", pattern: /GITHUB_WEBHOOK_SECRET/i },
   // A value in assignment context (`installation_token = <value>`, `Installation-Token: <value>`),

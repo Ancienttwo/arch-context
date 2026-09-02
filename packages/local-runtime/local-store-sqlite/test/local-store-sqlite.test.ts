@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync as nodeRmSync, statSync, symlinkSync, writeFileSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { LANDSCAPE_FILE, computeWorktreeDigest, landscapeYaml } from "@archcontext/core/architecture-domain";
+import { LANDSCAPE_FILE, computeWorktreeDigest, createLandscape, landscapeYaml } from "@archcontext/core/architecture-domain";
 import {
   ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
   applyArchitectureLedgerEvidenceEvent,
@@ -1829,6 +1829,53 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
       }
     } finally {
       first.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
+
+  test("repository removal commits the session delete and landscape projection atomically", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-repository-removal-transaction-"));
+    const databasePath = join(root, "runtime.sqlite");
+    const store = new SqliteLocalStore(databasePath);
+    const session = (repositoryId: string) => ({
+      repositoryId,
+      root: join(root, repositoryId),
+      headSha: "abc123",
+      worktreeDigest: digestJson({ repositoryId } as unknown as Json),
+      updatedAt: "2026-09-02T00:00:00.000Z"
+    });
+    const keptLandscape = createLandscape({
+      id: "local",
+      name: "Local Landscape",
+      repositories: [{
+        repositoryId: "repo.kept",
+        numericRepositoryId: 2,
+        name: "kept",
+        role: "application",
+        root: join(root, "repo.kept"),
+        defaultBranch: "main"
+      }]
+    });
+    try {
+      await store.migrate();
+      await store.saveRepositorySession(session("repo.removed"));
+      await store.saveRepositorySession(session("repo.kept"));
+      await expect(store.commitRepositoryRemoval("repo.removed", keptLandscape)).resolves.toBe(true);
+      expect((await store.listRepositorySessions()).map((item) => item.repositoryId)).toEqual(["repo.kept"]);
+      expect(await store.readLandscape("landscape.local")).toEqual(keptLandscape);
+
+      await store.saveRepositorySession(session("repo.rollback"));
+      const failureDb = new Database(databasePath);
+      failureDb.exec(`CREATE TRIGGER fail_landscape_write
+        BEFORE INSERT ON landscapes
+        BEGIN SELECT RAISE(ABORT, 'forced landscape failure'); END`);
+      failureDb.close();
+      await expect(store.commitRepositoryRemoval("repo.rollback", keptLandscape))
+        .rejects.toThrow("forced landscape failure");
+      expect((await store.listRepositorySessions()).map((item) => item.repositoryId).sort())
+        .toEqual(["repo.kept", "repo.rollback"]);
+    } finally {
+      store.close();
       rmSync(root, { recursive: true, force: true });
     }
   }, LOCAL_STORE_SLOW_TEST_TIMEOUT_MS);
