@@ -55,10 +55,16 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 - Scope gate: edit only paths listed under `allowed_paths`; update this contract before widening scope.
 - Completion gate: run `verify-sprint --prepare-acceptance`, record one typed AcceptanceReceipt under the frozen policy below, then run `verify-sprint`; review Markdown is projection only.
 
+## Change Assessment
+
+```json
+{"protocol":1,"oracles":[]}
+```
+
 ## Acceptance Policy
 
 ```json
-{"protocol":1,"reviewer":"Claude","user_waiver":"allowed"}
+{"protocol":2,"reviewer":"Codex","source":"codex-review","user_waiver":"allowed"}
 ```
 
 ## Allowed Paths
@@ -113,9 +119,7 @@ delegation:
   runner:
     preferred:
       - subagent
-      - codex-exec
-      - main-thread
-    fallback: main-thread
+    fallback: null
     brief_is_authoritative: true
 ```
 
@@ -132,6 +136,13 @@ exit_criteria:
     - path: tests/unit/{{TASK_SLUG}}.test.ts
   commands_succeed:
     - bun run check:type
+# Optional exact-subject reuse is fail-closed and opt-in. List only deterministic
+# criteria whose inputs are fully bound by the frozen subject/toolchain context.
+# criterion_reuse:
+#   tests_pass:
+#     - path/to/deterministic.test.ts
+#   commands_succeed:
+#     - bun test --timeout 60000
 ```
 
 ## Acceptance Notes (Human Review)
