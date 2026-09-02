@@ -1,3 +1,9 @@
+> **Archived**: 2026-09-03 04:00
+> **Related Plan**: plans/archive/plan-20260903-0305-rf1a-contracts-freeze.md
+> **Outcome**: Completed
+> **Lifecycle**: notes
+> **Parent Run ID**: run-20260903-0400
+
 # Implementation Notes: rf1a-contracts-freeze
 
 > **Status**: Active

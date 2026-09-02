@@ -1,6 +1,6 @@
 # Plan: Sprint task: rf1a-contracts-freeze
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260903-0305
 > **Slug**: rf1a-contracts-freeze
 > **Planning Source**: repo-harness-sprint
