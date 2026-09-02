@@ -10,7 +10,7 @@
 > **Review Rubric Version**: 2
 > **Reviewed Subject SHA256**: sha256:e7064d784cb1f1d1c5db685bfb45ab8673b27749598af086b960783ad57ade70
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: 6ff95df6e69b6480eba7712ef8c9171f42321a20
+> **Reviewed Target Revision**: 2382b655d6b581cab3d9366886d595eb86ef80e5
 
 ## Human Review Card
 
@@ -63,11 +63,11 @@ screenshot/artifact path, or reviewer observation.
 > **Actor**: not-applicable
 > **Reviewed Subject SHA256**: sha256:e7064d784cb1f1d1c5db685bfb45ab8673b27749598af086b960783ad57ade70
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: 6ff95df6e69b6480eba7712ef8c9171f42321a20
-> **Verification Evidence SHA256**: sha256:aff38b3545bf06255c6a5be9b909177229ff6c5875ec2c5651639de8a642bb53
-> **Issued At**: 2026-09-02T16:42:47.390Z
+> **Reviewed Target Revision**: 2382b655d6b581cab3d9366886d595eb86ef80e5
+> **Verification Evidence SHA256**: sha256:68f3cd7f46aee832c9b86e083fde115d741f1e93e38ad13eecfcaf8ce021e020
+> **Issued At**: 2026-09-02T18:16:10.313Z
 
-- Summary: Gatekeeper acceptance review PASS and Codex cross-review PASS (no P1/P2 findings) for RF0 characterization freeze: 26 additive test/fixture/artifact files, zero src edits, verify-contract 24/24 Fulfilled, six-package suites 265 pass, evals PASS, perturbation probe PROBE_EXIT=1.
+- Summary: Gatekeeper acceptance review PASS and Codex cross-review PASS (no P1/P2 findings; subject sha256:e7064d78... unchanged after main advanced to 2382b65) for RF0 characterization freeze: additive test/fixture/artifact files only, zero src edits, verify-contract 24/24 Fulfilled, 265 tests pass, evals PASS, perturbation probe PROBE_EXIT=1.
 - Findings: none
 
 ## Behavior Diff Notes
