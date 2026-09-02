@@ -1,16 +1,16 @@
 # Task Review: audit-residuals-108-117-remediation
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260902-2222-audit-residuals-108-117-remediation.md
 > **Contract**: tasks/contracts/20260902-2222-audit-residuals-108-117-remediation.contract.md
 > **Notes File**: tasks/notes/20260902-2222-audit-residuals-108-117-remediation.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-02 22:42
-> **Recommendation**: pass-local-evidence; acceptance pending
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:a1166f00579432e7f66a1167277f810d74cbce553d453b6d7cab83112f4090ac
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: 961f965b18d2196fdc3950082414f82b4bf47b29
 
 ## Human Review Card
 
@@ -48,18 +48,18 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Claude
+> **Source**: claude-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:a1166f00579432e7f66a1167277f810d74cbce553d453b6d7cab83112f4090ac
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: 961f965b18d2196fdc3950082414f82b4bf47b29
+> **Verification Evidence SHA256**: sha256:c1ead155937ae3ff95960c35332c91ff524c283ba7b579ec875ef6690dfa5280
+> **Issued At**: 2026-09-02T15:30:58.922Z
 
-- Summary: No AcceptanceReceipt has been recorded.
-- Findings: none
+- Summary: Independent Claude review found no P1; deterministic verification and corrected eight-path Change Assessment pass. Six P2 residuals are recorded for follow-up.
+- Findings: P2: restoreLandscape reloads only landscape.local while public loadLandscape can persist another active landscape id.; P2: Developer Review recovery rejects a daemon-owned manifest when its lock file is missing, which can leave a challenge unavailable until manual repair.; P2: An invalid persisted landscape fails daemon startup without a daemon-accessible repair path.; P2: Bearer DLP detection now requires authorization context and deliberately permits a bare Bearer token-shaped value.; P2: deleteRepositorySession remains as a second unused deletion API after commitRepositoryRemoval became the repoRemove authority.; P2: The new cleanup identity-mismatch RPC rejection path lacks a direct regression test.
 
 ## Behavior Diff Notes
 
