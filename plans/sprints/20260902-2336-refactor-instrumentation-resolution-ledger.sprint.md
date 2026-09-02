@@ -3,7 +3,7 @@
 > **Status**: Approved
 > **Slug**: refactor-instrumentation-resolution-ledger
 > **Created**: 2026-09-02 23:36
-> **Updated**: 2026-09-02 23:36
+> **Updated**: 2026-09-03 02:29
 > **Source PRD**: `plans/prds/20260902-2312-refactor-intelligence-resolution-ledger.prd.md`
 > **Source Spec**: `docs/spec.md`
 > **Goal Mode**: incremental
@@ -107,7 +107,7 @@ execution for small tasks. Every row needs a concrete acceptance line.
 
 | # | Status | Task | Mode | Acceptance | Plan |
 |---|--------|------|------|------------|------|
-| 1 | [ ] | rf0-characterization-freeze | contract | `test/fixtures/refactor-baseline/` digest fixtures exist under `packages/core/refactor-decision`, `packages/core/pressure-engine`, `packages/core/recommendation-engine`, `packages/core/projection-engine`, `packages/local-runtime/codegraph-adapter`; `bun test` for those five packages passes; `bun evals/run.ts --check` exit 0; `git diff --stat -- docs/architecture` empty | (pending) |
+| 1 | [x] | rf0-characterization-freeze | contract | `test/fixtures/refactor-baseline/` digest fixtures exist under `packages/core/refactor-decision`, `packages/core/pressure-engine`, `packages/core/recommendation-engine`, `packages/core/projection-engine`, `packages/local-runtime/codegraph-adapter`; `bun test` for those five packages passes; `bun evals/run.ts --check` exit 0; `git diff --stat -- docs/architecture` empty | `plans/archive/plan-20260902-2348-rf0-characterization-freeze.md` |
 | 2 | [ ] | rf1a-contracts-freeze | contract | `packages/contracts/src/refactor.ts` exports schema constants for `archcontext.refactor-request/v1`, `refactor-proposal/v1`, `module-statistics/v1`, `refactor-assessment/v1`, `recommendation/v3`, `refactor-resolution-evidence/v1` plus invariant validators and digest functions; `RecommendationStatus` shared union exported from `ledger.ts`; `bun test packages/contracts` and `bun run typecheck` pass; `grep -c 'recommendation/v3' packages/local-runtime` is 0 (no consumer switched yet) | (pending) |
 | 3 | [ ] | rf1b-module-statistics-snapshot | contract | `bun test packages/core/module-statistics` passes fixtures: two-run identical `snapshotDigest`; untracked `dist/` file inside include glob leaves `lineCount` unchanged; ancestor/descendant overlap assigns file to deepest node; non-ancestor overlap sets `ambiguousOwnership=true`; node without `source.include` sets `footprintDeclared=false`; missing index yields `coverage=unknown` and `dependencyGraph=null`; `bun packages/surfaces/cli/src/main.ts docs plan --json` reports zero owned drift (PRD S5) | (pending) |
 | 4 | [ ] | rf2-assessment-observations-scale | contract | `bun test packages/core/refactor-assessment` passes fixtures single-module (S1 `scale=module`), cross-module (S2 `scale=cross_module`), architecture-owner-change (S3 `scale=architecture`, no placeholder target strings), incomplete-evidence five sub-cases (S5 only `insufficient_evidence`/`model_adoption_required`), observation-only (S7 `scale=null`, zero `refactor_proposal`), heuristic-isolation (same scale with and without `task` text) | (pending) |
@@ -124,3 +124,4 @@ Keep this section last; `repo-harness run sprint-backlog complete-task` appends 
 
 | When | Task | Plan | Result |
 |------|------|------|--------|
+| 2026-09-03 02:29 | rf0-characterization-freeze | `plans/archive/plan-20260902-2348-rf0-characterization-freeze.md` | done |

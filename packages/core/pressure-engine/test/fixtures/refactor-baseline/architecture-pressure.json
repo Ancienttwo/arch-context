@@ -1,0 +1,915 @@
+[
+  {
+    "id": "no-signals",
+    "description": "a benign task produces no signals and score 0",
+    "input": {
+      "task": "add feature"
+    },
+    "expected": {
+      "level": "low",
+      "score": 0,
+      "signals": []
+    },
+    "digest": "sha256:ed3a69378c0bc81ccf5f75b6e9469be9ad06fdb6d022cbe90e9db72d7e5b6567"
+  },
+  {
+    "id": "heuristic-only-single",
+    "description": "one medium heuristic scores 15 under the heuristic-only cap",
+    "input": {
+      "task": "duplicate copy of the same responsibility"
+    },
+    "expected": {
+      "level": "low",
+      "score": 15,
+      "signals": [
+        {
+          "type": "duplicate-responsibility",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate copy of the same responsibility",
+              "digest": "sha256:cbdf1afc7d41b313b550abad39570cfe0ae085b10a4e6d0c98847c289cf3dc70",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:bdba52a6755a040e760ca441b602c4dc3852b3be413e5786138540c0a6bc5195"
+  },
+  {
+    "id": "heuristic-only-cap-25",
+    "description": "eleven heuristics raw-score 100 but the heuristic-only cap holds the score at 25 and the level at low",
+    "input": {
+      "task": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle"
+    },
+    "expected": {
+      "level": "low",
+      "score": 25,
+      "signals": [
+        {
+          "type": "duplicate-responsibility",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "multiple-lifecycle-owner",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "unjustified-wrapper-adapter",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "dual-track-business-concept",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "cross-boundary-data-access",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "cycle-or-hotspot",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "contract-after-implementation",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "migration-without-target-state",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "temporary-state-without-removal",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "broad-permission-scope",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "unpinned-runtime-dependency",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate wrapper migration temporary token dependency api cycle direct db legacy two owner lifecycle",
+              "digest": "sha256:6fb2f2631046dc741dfd1efe2cfa3483ad7bd0c44dd82a9ba2bcb86c9538330e",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:1466f22a1ebda3693681c28c91599d40a6b00906d1d208a146345423adeb9007"
+  },
+  {
+    "id": "heuristic-plus-one-observed-escapes-cap",
+    "description": "a single observed signal lifts the cap, so the same heuristics score above 25",
+    "input": {
+      "task": "duplicate responsibility cleanup",
+      "symbols": [
+        "hotspot"
+      ]
+    },
+    "expected": {
+      "level": "medium",
+      "score": 35,
+      "signals": [
+        {
+          "type": "duplicate-responsibility",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate responsibility cleanup",
+              "digest": "sha256:ac0f185e4fbb8085961033f3dcb0eef403c8a7fb2eb739eb5eaadffdf98bd7d6",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "migration-without-target-state",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "duplicate responsibility cleanup",
+              "digest": "sha256:ac0f185e4fbb8085961033f3dcb0eef403c8a7fb2eb739eb5eaadffdf98bd7d6",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "cycle-or-hotspot",
+          "severity": "medium",
+          "evidence": [
+            "hotspot"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "hotspot",
+              "digest": "sha256:f53e853deedf7290025d12a1a544760c602adcb27bfe651467cd24eb0b63c2d9",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:e20a64815e23f3b8a52a7edd4c32cb146053d8584ef6d533413c4d5697bf9903"
+  },
+  {
+    "id": "observed-wrapper-and-dual-track",
+    "description": "one legacy wrapper symbol raises two high observed signals",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "legacyWrapper"
+      ]
+    },
+    "expected": {
+      "level": "medium",
+      "score": 50,
+      "signals": [
+        {
+          "type": "unjustified-wrapper-adapter",
+          "severity": "high",
+          "evidence": [
+            "legacyWrapper"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "legacyWrapper",
+              "digest": "sha256:56c61239d72aa235fb5baac1c2ad4a0f64259364f4291bfa8514a718bffb09bc",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "dual-track-business-concept",
+          "severity": "high",
+          "evidence": [
+            "legacyWrapper"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "legacyWrapper",
+              "digest": "sha256:56c61239d72aa235fb5baac1c2ad4a0f64259364f4291bfa8514a718bffb09bc",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:f3290e5e4ac33f2dab496f77c3093436d03cab535bc8bde7c4a19d80996596b8"
+  },
+  {
+    "id": "level-threshold-medium-boundary-30",
+    "description": "two medium observed signals land exactly on the medium threshold",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "hotspot",
+        "adr"
+      ]
+    },
+    "expected": {
+      "level": "medium",
+      "score": 30,
+      "signals": [
+        {
+          "type": "cycle-or-hotspot",
+          "severity": "medium",
+          "evidence": [
+            "hotspot"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "hotspot",
+              "digest": "sha256:f53e853deedf7290025d12a1a544760c602adcb27bfe651467cd24eb0b63c2d9",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "architecture-intervention",
+          "severity": "medium",
+          "evidence": [
+            "adr"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "adr",
+              "digest": "sha256:6ed37f45edacb0bd676a4464e68ec752ccb0ff9cedc625b460e61a68658157c2",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:c8477779d79cb33c4907202feb0b2a5f0e1b208dba7ff187a3377812501bb129"
+  },
+  {
+    "id": "level-threshold-below-medium-25",
+    "description": "a single high observed signal scores 25 and stays low",
+    "input": {
+      "task": "add feature",
+      "migrationReviewDate": "2026-01-01",
+      "now": "2026-09-01"
+    },
+    "expected": {
+      "level": "low",
+      "score": 25,
+      "signals": [
+        {
+          "type": "overdue-migration-state",
+          "severity": "high",
+          "evidence": [
+            "2026-01-01"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "runtime-check",
+              "strength": "observed",
+              "subject": "2026-01-01",
+              "digest": "sha256:6a046282db519d0efb15e5da76540dd7ec3a2cab9dda668dccc5c66eec124bf3",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:b0b8377b83e3d32aabeba971b763efbb6feee6ebaa693cbfe4c7f3ced5179a17"
+  },
+  {
+    "id": "level-threshold-high-boundary-60",
+    "description": "four medium observed signals land exactly on the high threshold",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "duplicate",
+        "hotspot",
+        "adr",
+        "owner"
+      ]
+    },
+    "expected": {
+      "level": "high",
+      "score": 60,
+      "signals": [
+        {
+          "type": "duplicate-responsibility",
+          "severity": "medium",
+          "evidence": [
+            "duplicate"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "duplicate",
+              "digest": "sha256:6b7fbed01f9ca4b9923c4ae17a3deac46b41812a93ddb9d17266f528c9f91a53",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "cycle-or-hotspot",
+          "severity": "medium",
+          "evidence": [
+            "hotspot"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "hotspot",
+              "digest": "sha256:f53e853deedf7290025d12a1a544760c602adcb27bfe651467cd24eb0b63c2d9",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "architecture-intervention",
+          "severity": "medium",
+          "evidence": [
+            "adr"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "adr",
+              "digest": "sha256:6ed37f45edacb0bd676a4464e68ec752ccb0ff9cedc625b460e61a68658157c2",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "missing-owner",
+          "severity": "medium",
+          "evidence": [
+            "owner"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "owner",
+              "digest": "sha256:ef8c5a0ea8ed348f2495256ca1045ad6576bccca43e2ee1cab91de3d4974b4c4",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:24f64f56d1da38c5f094299de5aaa907cb4e4c384eb112ad0b3f1accae2f9b81"
+  },
+  {
+    "id": "two-high-plus-one-medium-65",
+    "description": "two high plus one medium observed signal scores 65 and reads high",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "legacyWrapper",
+        "hotspot"
+      ]
+    },
+    "expected": {
+      "level": "high",
+      "score": 65,
+      "signals": [
+        {
+          "type": "unjustified-wrapper-adapter",
+          "severity": "high",
+          "evidence": [
+            "legacyWrapper"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "legacyWrapper",
+              "digest": "sha256:56c61239d72aa235fb5baac1c2ad4a0f64259364f4291bfa8514a718bffb09bc",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "dual-track-business-concept",
+          "severity": "high",
+          "evidence": [
+            "legacyWrapper"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "legacyWrapper",
+              "digest": "sha256:56c61239d72aa235fb5baac1c2ad4a0f64259364f4291bfa8514a718bffb09bc",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "cycle-or-hotspot",
+          "severity": "medium",
+          "evidence": [
+            "hotspot"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "observed",
+              "subject": "hotspot",
+              "digest": "sha256:f53e853deedf7290025d12a1a544760c602adcb27bfe651467cd24eb0b63c2d9",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:320ecb1b41921c571492b51fceb168a54802b6c190f629d8557e2976f9ee3dd9"
+  },
+  {
+    "id": "bidirectional-import-dependency-cycle",
+    "description": "a bidirectional imports pair raises dependency-cycle high without any cycle wording in the task",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "moduleA",
+        "moduleB"
+      ],
+      "edges": [
+        {
+          "source": "moduleA",
+          "target": "moduleB",
+          "kind": "imports",
+          "confidence": "high"
+        },
+        {
+          "source": "moduleB",
+          "target": "moduleA",
+          "kind": "imports",
+          "confidence": "high"
+        }
+      ]
+    },
+    "expected": {
+      "level": "medium",
+      "score": 50,
+      "signals": [
+        {
+          "type": "boundary-crossing-import",
+          "severity": "high",
+          "evidence": [
+            "moduleA->moduleB",
+            "moduleB->moduleA"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "import-edge",
+              "strength": "observed",
+              "subject": "moduleA->moduleB",
+              "digest": "sha256:064498398a47eb4b7fea7095575d3e92a1b4852c5c1b15ccbefbd8ecda0a5079",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            },
+            {
+              "kind": "import-edge",
+              "strength": "observed",
+              "subject": "moduleB->moduleA",
+              "digest": "sha256:6ee8682237450d11cda7ce307b794d162878a487bcf5858b759e94203ad8b953",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "type": "dependency-cycle",
+          "severity": "high",
+          "evidence": [
+            "moduleA->moduleB",
+            "moduleB->moduleA"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "import-edge",
+              "strength": "observed",
+              "subject": "moduleA->moduleB",
+              "digest": "sha256:064498398a47eb4b7fea7095575d3e92a1b4852c5c1b15ccbefbd8ecda0a5079",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            },
+            {
+              "kind": "import-edge",
+              "strength": "observed",
+              "subject": "moduleB->moduleA",
+              "digest": "sha256:6ee8682237450d11cda7ce307b794d162878a487bcf5858b759e94203ad8b953",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:afac70b2906f78938cf9a3f969c20260ace56843c90caab362dc3074d06e9b04"
+  },
+  {
+    "id": "unidirectional-import-no-dependency-cycle",
+    "description": "a one-way imports edge raises boundary-crossing-import but not dependency-cycle",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "moduleA",
+        "moduleB"
+      ],
+      "edges": [
+        {
+          "source": "moduleA",
+          "target": "moduleB",
+          "kind": "imports",
+          "confidence": "high"
+        }
+      ]
+    },
+    "expected": {
+      "level": "low",
+      "score": 25,
+      "signals": [
+        {
+          "type": "boundary-crossing-import",
+          "severity": "high",
+          "evidence": [
+            "moduleA->moduleB"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "import-edge",
+              "strength": "observed",
+              "subject": "moduleA->moduleB",
+              "digest": "sha256:064498398a47eb4b7fea7095575d3e92a1b4852c5c1b15ccbefbd8ecda0a5079",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:82708564d453a5be23d52f34f3588338f8cab08c8a519fd4b379a36933a3dee9"
+  },
+  {
+    "id": "data-edge-cross-boundary-access",
+    "description": "a reads edge raises cross-boundary-data-access high",
+    "input": {
+      "task": "refactor",
+      "symbols": [
+        "orderModule"
+      ],
+      "edges": [
+        {
+          "source": "orderModule",
+          "target": "billingStore",
+          "kind": "reads",
+          "confidence": "high"
+        }
+      ]
+    },
+    "expected": {
+      "level": "low",
+      "score": 25,
+      "signals": [
+        {
+          "type": "cross-boundary-data-access",
+          "severity": "high",
+          "evidence": [
+            "orderModule->billingStore"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "import-edge",
+              "strength": "observed",
+              "subject": "orderModule->billingStore",
+              "digest": "sha256:9c23b534117e8770e0fc020dcdac45b9c3c7c737b5f5e7aed6e66b77d428ae4f",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:74f8b68f52400755fb5678e15a353d99e3f1756f41d4079a470001ae1e282b4c"
+  },
+  {
+    "id": "benign-subjects-filtered",
+    "description": "docs, readme, test and fixture subjects are filtered out before structural matching",
+    "input": {
+      "task": "refactor",
+      "files": [
+        "docs/readme.md",
+        "test/fixtures/wrapper.ts"
+      ]
+    },
+    "expected": {
+      "level": "low",
+      "score": 0,
+      "signals": []
+    },
+    "digest": "sha256:ed3a69378c0bc81ccf5f75b6e9469be9ad06fdb6d022cbe90e9db72d7e5b6567"
+  },
+  {
+    "id": "weak-dual-track-wording",
+    "description": "bare old/new wording is a low-severity heuristic only",
+    "input": {
+      "task": "replace the old path with the new path"
+    },
+    "expected": {
+      "level": "low",
+      "score": 5,
+      "signals": [
+        {
+          "type": "dual-track-business-concept",
+          "severity": "low",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "replace the old path with the new path",
+              "digest": "sha256:59c135c63f33926d40ed4920fbdf1839f617d2fd333008c7f9809e331a1e9df4",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:ad624263ae69d1c94503e78c8a65dfdccacef0924054f4ac0472381886eef8ef"
+  },
+  {
+    "id": "strong-dual-track-wording",
+    "description": "explicit v1/v2/legacy wording is a medium-severity heuristic",
+    "input": {
+      "task": "delete the legacy v1 path"
+    },
+    "expected": {
+      "level": "low",
+      "score": 15,
+      "signals": [
+        {
+          "type": "dual-track-business-concept",
+          "severity": "medium",
+          "evidence": [
+            "task-text"
+          ],
+          "evidenceKind": "heuristic",
+          "evidenceDetails": [
+            {
+              "kind": "task-text",
+              "strength": "heuristic",
+              "subject": "delete the legacy v1 path",
+              "digest": "sha256:ad3d009f40af1ce8538e9ef0319ebc1725485cdde401c2f87e46c2db89106bfe",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:9df529117174819e3bd849816aa30f1fb39a7d366c358c29cd57d91164d48b59"
+  },
+  {
+    "id": "migration-review-date-not-overdue",
+    "description": "a future migration review date raises no overdue signal",
+    "input": {
+      "task": "add feature",
+      "migrationReviewDate": "2027-01-01",
+      "now": "2026-09-01"
+    },
+    "expected": {
+      "level": "low",
+      "score": 0,
+      "signals": []
+    },
+    "digest": "sha256:ed3a69378c0bc81ccf5f75b6e9469be9ad06fdb6d022cbe90e9db72d7e5b6567"
+  },
+  {
+    "id": "verified-observed-evidence",
+    "description": "verified evidence mentioning tests raises architecture-intervention keyed on the evidence id",
+    "input": {
+      "task": "add feature",
+      "observedEvidence": [
+        {
+          "id": "evidence.e1",
+          "selector": {
+            "path": "src/a.ts"
+          },
+          "summary": "verified by test",
+          "confidence": "verified",
+          "snapshot": {
+            "repositoryId": "repo.test",
+            "headSha": "abc",
+            "worktreeDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
+      ]
+    },
+    "expected": {
+      "level": "low",
+      "score": 15,
+      "signals": [
+        {
+          "type": "architecture-intervention",
+          "severity": "medium",
+          "evidence": [
+            "evidence.e1"
+          ],
+          "evidenceKind": "observed",
+          "evidenceDetails": [
+            {
+              "kind": "symbol",
+              "strength": "verified",
+              "subject": "evidence.e1",
+              "digest": "sha256:11ebc9be71d46d828678a2a68c5c8c2ede1b01f55e98c52d11a389646d765698",
+              "observedAt": "1970-01-01T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "digest": "sha256:ac980c7f131d6f20e4f8cdd7c2e2d8940a27fb5e887980c830a421e0fc9e523d"
+  }
+]

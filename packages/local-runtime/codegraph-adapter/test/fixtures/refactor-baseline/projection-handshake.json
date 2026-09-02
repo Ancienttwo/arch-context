@@ -1,0 +1,77 @@
+[
+  {
+    "id": "ready-handshake-field-list",
+    "description": "an indexed workspace produces the full ready handshake with requiredVersion 1.5.0",
+    "input": {
+      "withIndex": true
+    },
+    "expected": {
+      "fieldsPresent": [
+        "actualVersion",
+        "availability",
+        "binaryDigest",
+        "graphDigest",
+        "indexedWorktreeDigest",
+        "packageName",
+        "postSyncStatusDigest",
+        "preSyncStatusDigest",
+        "requiredVersion",
+        "schemaVersion",
+        "syncDigest"
+      ],
+      "schemaVersion": "archcontext.codegraph-projection-handshake/v1",
+      "packageName": "@colbymchenry/codegraph",
+      "requiredVersion": "1.5.0",
+      "actualVersion": "1.5.0",
+      "availability": "ready",
+      "reasonCode": null,
+      "digestShapes": {
+        "binaryDigest": "sha256",
+        "preSyncStatusDigest": "sha256",
+        "postSyncStatusDigest": "sha256",
+        "syncDigest": "sha256",
+        "indexedWorktreeDigest": "sha256",
+        "graphDigest": "sha256"
+      }
+    },
+    "digest": "sha256:46d6ceb6e4deb2c89cf2899175c34cfc3d9697bb78e9b03d7ce7dbd3f3ac44ed"
+  },
+  {
+    "id": "index-missing-handshake-field-list",
+    "description": "a workspace with no index is an explicit unavailable handshake, not an empty measurement",
+    "input": {
+      "withIndex": false
+    },
+    "expected": {
+      "fieldsPresent": [
+        "actualVersion",
+        "availability",
+        "binaryDigest",
+        "graphDigest",
+        "indexedWorktreeDigest",
+        "packageName",
+        "postSyncStatusDigest",
+        "preSyncStatusDigest",
+        "reasonCode",
+        "requiredVersion",
+        "schemaVersion",
+        "syncDigest"
+      ],
+      "schemaVersion": "archcontext.codegraph-projection-handshake/v1",
+      "packageName": "@colbymchenry/codegraph",
+      "requiredVersion": "1.5.0",
+      "actualVersion": "1.5.0",
+      "availability": "unavailable",
+      "reasonCode": "index-missing",
+      "digestShapes": {
+        "binaryDigest": "sha256",
+        "preSyncStatusDigest": null,
+        "postSyncStatusDigest": null,
+        "syncDigest": null,
+        "indexedWorktreeDigest": null,
+        "graphDigest": "sha256"
+      }
+    },
+    "digest": "sha256:4834edf60bfd07bac4eea26883a140c74232650948093de6084eff52d8ed58a7"
+  }
+]

@@ -1,0 +1,200 @@
+[
+  {
+    "id": "pressure-low-confidence-low",
+    "description": "low pressure with low confidence",
+    "input": {
+      "pressure": {
+        "level": "low",
+        "score": 10,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 0.2,
+        "testsAvailable": false,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "posture": "normal",
+      "confidenceLevel": "low",
+      "confidenceScore": 14
+    },
+    "digest": "sha256:70d7b18ea086726b3794f1288c4e91430b036b772f5afd0545cd9a9e2573c005"
+  },
+  {
+    "id": "pressure-low-confidence-medium",
+    "description": "low pressure with medium confidence",
+    "input": {
+      "pressure": {
+        "level": "low",
+        "score": 10,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 0.7,
+        "testsAvailable": false,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "posture": "normal",
+      "confidenceLevel": "medium",
+      "confidenceScore": 49
+    },
+    "digest": "sha256:1840858122c32e10d5c83fa7d2e79ce633297bef423c74fe01a6b42f931bb7ae"
+  },
+  {
+    "id": "pressure-low-confidence-high",
+    "description": "low pressure with high confidence",
+    "input": {
+      "pressure": {
+        "level": "low",
+        "score": 10,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 1,
+        "testsAvailable": true,
+        "rollbackAvailable": true
+      }
+    },
+    "expected": {
+      "posture": "normal",
+      "confidenceLevel": "high",
+      "confidenceScore": 100
+    },
+    "digest": "sha256:f1c2081efdffb9fd57a8c81d779f750216e87c560696a73c2e5e5c486e3db8d4"
+  },
+  {
+    "id": "pressure-medium-confidence-low",
+    "description": "medium pressure with low confidence",
+    "input": {
+      "pressure": {
+        "level": "medium",
+        "score": 35,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 0.2,
+        "testsAvailable": false,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "posture": "structural",
+      "confidenceLevel": "low",
+      "confidenceScore": 14
+    },
+    "digest": "sha256:650dc9f21044b9b569f781baa60e5e5806691748247c21471213ef5d836fa8fc"
+  },
+  {
+    "id": "pressure-medium-confidence-medium",
+    "description": "medium pressure with medium confidence",
+    "input": {
+      "pressure": {
+        "level": "medium",
+        "score": 35,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 0.7,
+        "testsAvailable": false,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "posture": "structural",
+      "confidenceLevel": "medium",
+      "confidenceScore": 49
+    },
+    "digest": "sha256:d034c9d979d86d9316c0c9b4c8fa7d262fd52db8432ff2d8646156d806c65b9e"
+  },
+  {
+    "id": "pressure-medium-confidence-high",
+    "description": "medium pressure with high confidence",
+    "input": {
+      "pressure": {
+        "level": "medium",
+        "score": 35,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 1,
+        "testsAvailable": true,
+        "rollbackAvailable": true
+      }
+    },
+    "expected": {
+      "posture": "structural",
+      "confidenceLevel": "high",
+      "confidenceScore": 100
+    },
+    "digest": "sha256:716a00ba394a90524c5e4cc19ebd6df8a15de68e9a40f56f692db7cf0590e674"
+  },
+  {
+    "id": "pressure-high-confidence-low",
+    "description": "high pressure with low confidence",
+    "input": {
+      "pressure": {
+        "level": "high",
+        "score": 80,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 0.2,
+        "testsAvailable": false,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "posture": "proof-required",
+      "confidenceLevel": "low",
+      "confidenceScore": 14
+    },
+    "digest": "sha256:1ae5ab958e6bd9be5be35d879db242f214c552be300855feddfcd810b2bc42a8"
+  },
+  {
+    "id": "pressure-high-confidence-medium",
+    "description": "high pressure with medium confidence",
+    "input": {
+      "pressure": {
+        "level": "high",
+        "score": 80,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 0.7,
+        "testsAvailable": false,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "posture": "proof-required",
+      "confidenceLevel": "medium",
+      "confidenceScore": 49
+    },
+    "digest": "sha256:d561764b3a089b97206f6ade56366e6c5ef95af60e908bac7b8ebb602002ec6b"
+  },
+  {
+    "id": "pressure-high-confidence-high",
+    "description": "high pressure with high confidence",
+    "input": {
+      "pressure": {
+        "level": "high",
+        "score": 80,
+        "signals": []
+      },
+      "confidenceInput": {
+        "callerCoverage": 1,
+        "testsAvailable": true,
+        "rollbackAvailable": true
+      }
+    },
+    "expected": {
+      "posture": "intervention",
+      "confidenceLevel": "high",
+      "confidenceScore": 100
+    },
+    "digest": "sha256:16b627b9abb49cc95854adcc2a9eddddbf5a62ca44dc2d10cde50f52e5fcc51d"
+  }
+]

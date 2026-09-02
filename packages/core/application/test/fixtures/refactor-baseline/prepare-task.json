@@ -1,0 +1,507 @@
+[
+  {
+    "id": "all-defaults-high-pressure",
+    "description": "no confidence inputs: callerCoverage 0.8, testsAvailable true, rollbackAvailable true",
+    "input": {
+      "task": "remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+      "facts": "structuralCompatibility"
+    },
+    "expected": {
+      "confidence": {
+        "level": "high",
+        "score": 86,
+        "coverage": [
+          "caller-coverage:0.8"
+        ],
+        "externalConsumers": [],
+        "persistedData": [],
+        "rollbackPoints": [
+          "git-worktree"
+        ]
+      },
+      "posture": "intervention",
+      "pressure": {
+        "level": "high",
+        "score": 100,
+        "signalTypes": [
+          "cross-boundary-data-access/high/observed",
+          "cycle-or-hotspot/medium/heuristic",
+          "dual-track-business-concept/high/observed",
+          "dual-track-business-concept/medium/heuristic",
+          "multiple-lifecycle-owner/medium/heuristic",
+          "unjustified-wrapper-adapter/high/observed",
+          "unjustified-wrapper-adapter/medium/heuristic"
+        ]
+      },
+      "proofPoint": null,
+      "intervention": {
+        "id": "intervention.remove-legacy-v1-wrapper-and-fallback-mapper-with-multiple-lifecycle-owner",
+        "status": "proposed",
+        "thesis": "Resolve multiple-lifecycle-owner, unjustified-wrapper-adapter, dual-track-business-concept, cycle-or-hotspot, unjustified-wrapper-adapter, dual-track-business-concept, cross-boundary-data-access by moving to a single target architecture rather than adding a permanent compatibility layer.",
+        "targetState": {
+          "owners": {
+            "primaryLifecycle": "module.target-owner"
+          },
+          "requiredRelations": [
+            "relation.target-calls-boundary"
+          ],
+          "removedConcepts": [
+            "legacy-wrapper",
+            "fallback-mapper"
+          ]
+        },
+        "migrationState": {
+          "active": true,
+          "compatibilityContracts": [],
+          "cleanupBy": "next-release",
+          "temporaryRelations": [
+            "relation.temporary-migration"
+          ]
+        },
+        "constraints": {
+          "real": [],
+          "inherited": [
+            "internal-callers",
+            "legacy-layout"
+          ]
+        },
+        "proofPoint": {
+          "description": "Prove the smallest end-to-end path for: remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+          "successCriteria": [
+            "one-owner-observed",
+            "no-fallback-path",
+            "current-tests-pass"
+          ],
+          "falsifiers": [
+            "untracked-external-consumer",
+            "unacceptable-migration-risk"
+          ]
+        },
+        "killList": [
+          {
+            "id": "remove-legacy-wrapper",
+            "target": "symbol.legacyWrapper",
+            "required": true
+          },
+          {
+            "id": "remove-fallback-mapper",
+            "target": "symbol.fallbackMapper",
+            "required": true
+          }
+        ],
+        "benefitLedger": {
+          "benefits": [
+            "single lifecycle owner",
+            "bounded migration cleanup",
+            "fewer compatibility paths"
+          ],
+          "costs": [
+            "larger coordinated change"
+          ],
+          "rollbackPoint": "git-worktree"
+        }
+      }
+    },
+    "digest": "sha256:29bdd7a3ef97d4cdfacb07141c18a59bbd86c6b09ebc12b7da1157454c52b5f2"
+  },
+  {
+    "id": "explicit-defaults-are-identical",
+    "description": "passing 0.8/true/true explicitly reproduces the default branch exactly",
+    "input": {
+      "task": "remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+      "facts": "structuralCompatibility",
+      "callerCoverage": 0.8,
+      "testsAvailable": true,
+      "rollbackAvailable": true
+    },
+    "expected": {
+      "confidence": {
+        "level": "high",
+        "score": 86,
+        "coverage": [
+          "caller-coverage:0.8"
+        ],
+        "externalConsumers": [],
+        "persistedData": [],
+        "rollbackPoints": [
+          "git-worktree"
+        ]
+      },
+      "posture": "intervention",
+      "pressure": {
+        "level": "high",
+        "score": 100,
+        "signalTypes": [
+          "cross-boundary-data-access/high/observed",
+          "cycle-or-hotspot/medium/heuristic",
+          "dual-track-business-concept/high/observed",
+          "dual-track-business-concept/medium/heuristic",
+          "multiple-lifecycle-owner/medium/heuristic",
+          "unjustified-wrapper-adapter/high/observed",
+          "unjustified-wrapper-adapter/medium/heuristic"
+        ]
+      },
+      "proofPoint": null,
+      "intervention": {
+        "id": "intervention.remove-legacy-v1-wrapper-and-fallback-mapper-with-multiple-lifecycle-owner",
+        "status": "proposed",
+        "thesis": "Resolve multiple-lifecycle-owner, unjustified-wrapper-adapter, dual-track-business-concept, cycle-or-hotspot, unjustified-wrapper-adapter, dual-track-business-concept, cross-boundary-data-access by moving to a single target architecture rather than adding a permanent compatibility layer.",
+        "targetState": {
+          "owners": {
+            "primaryLifecycle": "module.target-owner"
+          },
+          "requiredRelations": [
+            "relation.target-calls-boundary"
+          ],
+          "removedConcepts": [
+            "legacy-wrapper",
+            "fallback-mapper"
+          ]
+        },
+        "migrationState": {
+          "active": true,
+          "compatibilityContracts": [],
+          "cleanupBy": "next-release",
+          "temporaryRelations": [
+            "relation.temporary-migration"
+          ]
+        },
+        "constraints": {
+          "real": [],
+          "inherited": [
+            "internal-callers",
+            "legacy-layout"
+          ]
+        },
+        "proofPoint": {
+          "description": "Prove the smallest end-to-end path for: remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+          "successCriteria": [
+            "one-owner-observed",
+            "no-fallback-path",
+            "current-tests-pass"
+          ],
+          "falsifiers": [
+            "untracked-external-consumer",
+            "unacceptable-migration-risk"
+          ]
+        },
+        "killList": [
+          {
+            "id": "remove-legacy-wrapper",
+            "target": "symbol.legacyWrapper",
+            "required": true
+          },
+          {
+            "id": "remove-fallback-mapper",
+            "target": "symbol.fallbackMapper",
+            "required": true
+          }
+        ],
+        "benefitLedger": {
+          "benefits": [
+            "single lifecycle owner",
+            "bounded migration cleanup",
+            "fewer compatibility paths"
+          ],
+          "costs": [
+            "larger coordinated change"
+          ],
+          "rollbackPoint": "git-worktree"
+        }
+      }
+    },
+    "digest": "sha256:29bdd7a3ef97d4cdfacb07141c18a59bbd86c6b09ebc12b7da1157454c52b5f2"
+  },
+  {
+    "id": "explicit-zero-coverage-is-not-the-default",
+    "description": "callerCoverage 0 is honoured rather than falling back to 0.8",
+    "input": {
+      "task": "remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+      "facts": "structuralCompatibility",
+      "callerCoverage": 0
+    },
+    "expected": {
+      "confidence": {
+        "level": "low",
+        "score": 30,
+        "coverage": [
+          "caller-coverage:0"
+        ],
+        "externalConsumers": [],
+        "persistedData": [],
+        "rollbackPoints": [
+          "git-worktree"
+        ]
+      },
+      "posture": "proof-required",
+      "pressure": {
+        "level": "high",
+        "score": 100,
+        "signalTypes": [
+          "cross-boundary-data-access/high/observed",
+          "cycle-or-hotspot/medium/heuristic",
+          "dual-track-business-concept/high/observed",
+          "dual-track-business-concept/medium/heuristic",
+          "multiple-lifecycle-owner/medium/heuristic",
+          "unjustified-wrapper-adapter/high/observed",
+          "unjustified-wrapper-adapter/medium/heuristic"
+        ]
+      },
+      "proofPoint": {
+        "description": "Prove the smallest end-to-end path for: remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+        "successCriteria": [
+          "one-owner-observed",
+          "no-fallback-path",
+          "current-tests-pass"
+        ],
+        "falsifiers": [
+          "untracked-external-consumer",
+          "unacceptable-migration-risk"
+        ]
+      },
+      "intervention": null
+    },
+    "digest": "sha256:12110bb8dfe05076cb5ed5ec6ebd13507e88281bcc488acd6284789d722b9c42"
+  },
+  {
+    "id": "explicit-tests-unavailable",
+    "description": "testsAvailable false is honoured rather than defaulting to true",
+    "input": {
+      "task": "remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+      "facts": "structuralCompatibility",
+      "testsAvailable": false
+    },
+    "expected": {
+      "confidence": {
+        "level": "high",
+        "score": 71,
+        "coverage": [
+          "caller-coverage:0.8"
+        ],
+        "externalConsumers": [],
+        "persistedData": [],
+        "rollbackPoints": [
+          "git-worktree"
+        ]
+      },
+      "posture": "intervention",
+      "pressure": {
+        "level": "high",
+        "score": 100,
+        "signalTypes": [
+          "cross-boundary-data-access/high/observed",
+          "cycle-or-hotspot/medium/heuristic",
+          "dual-track-business-concept/high/observed",
+          "dual-track-business-concept/medium/heuristic",
+          "multiple-lifecycle-owner/medium/heuristic",
+          "unjustified-wrapper-adapter/high/observed",
+          "unjustified-wrapper-adapter/medium/heuristic"
+        ]
+      },
+      "proofPoint": null,
+      "intervention": {
+        "id": "intervention.remove-legacy-v1-wrapper-and-fallback-mapper-with-multiple-lifecycle-owner",
+        "status": "proposed",
+        "thesis": "Resolve multiple-lifecycle-owner, unjustified-wrapper-adapter, dual-track-business-concept, cycle-or-hotspot, unjustified-wrapper-adapter, dual-track-business-concept, cross-boundary-data-access by moving to a single target architecture rather than adding a permanent compatibility layer.",
+        "targetState": {
+          "owners": {
+            "primaryLifecycle": "module.target-owner"
+          },
+          "requiredRelations": [
+            "relation.target-calls-boundary"
+          ],
+          "removedConcepts": [
+            "legacy-wrapper",
+            "fallback-mapper"
+          ]
+        },
+        "migrationState": {
+          "active": true,
+          "compatibilityContracts": [],
+          "cleanupBy": "next-release",
+          "temporaryRelations": [
+            "relation.temporary-migration"
+          ]
+        },
+        "constraints": {
+          "real": [],
+          "inherited": [
+            "internal-callers",
+            "legacy-layout"
+          ]
+        },
+        "proofPoint": {
+          "description": "Prove the smallest end-to-end path for: remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+          "successCriteria": [
+            "one-owner-observed",
+            "no-fallback-path",
+            "current-tests-pass"
+          ],
+          "falsifiers": [
+            "untracked-external-consumer",
+            "unacceptable-migration-risk"
+          ]
+        },
+        "killList": [
+          {
+            "id": "remove-legacy-wrapper",
+            "target": "symbol.legacyWrapper",
+            "required": true
+          },
+          {
+            "id": "remove-fallback-mapper",
+            "target": "symbol.fallbackMapper",
+            "required": true
+          }
+        ],
+        "benefitLedger": {
+          "benefits": [
+            "single lifecycle owner",
+            "bounded migration cleanup",
+            "fewer compatibility paths"
+          ],
+          "costs": [
+            "larger coordinated change"
+          ],
+          "rollbackPoint": "git-worktree"
+        }
+      }
+    },
+    "digest": "sha256:5623bf961c5167d3dfb031b3df55d2c22269cd0794f4e4f816f768f6da2cb949"
+  },
+  {
+    "id": "explicit-rollback-unavailable",
+    "description": "rollbackAvailable false is honoured and empties rollbackPoints",
+    "input": {
+      "task": "remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+      "facts": "structuralCompatibility",
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "confidence": {
+        "level": "high",
+        "score": 71,
+        "coverage": [
+          "caller-coverage:0.8"
+        ],
+        "externalConsumers": [],
+        "persistedData": [],
+        "rollbackPoints": []
+      },
+      "posture": "intervention",
+      "pressure": {
+        "level": "high",
+        "score": 100,
+        "signalTypes": [
+          "cross-boundary-data-access/high/observed",
+          "cycle-or-hotspot/medium/heuristic",
+          "dual-track-business-concept/high/observed",
+          "dual-track-business-concept/medium/heuristic",
+          "multiple-lifecycle-owner/medium/heuristic",
+          "unjustified-wrapper-adapter/high/observed",
+          "unjustified-wrapper-adapter/medium/heuristic"
+        ]
+      },
+      "proofPoint": null,
+      "intervention": {
+        "id": "intervention.remove-legacy-v1-wrapper-and-fallback-mapper-with-multiple-lifecycle-owner",
+        "status": "proposed",
+        "thesis": "Resolve multiple-lifecycle-owner, unjustified-wrapper-adapter, dual-track-business-concept, cycle-or-hotspot, unjustified-wrapper-adapter, dual-track-business-concept, cross-boundary-data-access by moving to a single target architecture rather than adding a permanent compatibility layer.",
+        "targetState": {
+          "owners": {
+            "primaryLifecycle": "module.target-owner"
+          },
+          "requiredRelations": [
+            "relation.target-calls-boundary"
+          ],
+          "removedConcepts": [
+            "legacy-wrapper",
+            "fallback-mapper"
+          ]
+        },
+        "migrationState": {
+          "active": true,
+          "compatibilityContracts": [],
+          "cleanupBy": "next-release",
+          "temporaryRelations": [
+            "relation.temporary-migration"
+          ]
+        },
+        "constraints": {
+          "real": [],
+          "inherited": [
+            "internal-callers",
+            "legacy-layout"
+          ]
+        },
+        "proofPoint": {
+          "description": "Prove the smallest end-to-end path for: remove legacy v1 wrapper and fallback mapper with multiple lifecycle owner",
+          "successCriteria": [
+            "one-owner-observed",
+            "no-fallback-path",
+            "current-tests-pass"
+          ],
+          "falsifiers": [
+            "untracked-external-consumer",
+            "unacceptable-migration-risk"
+          ]
+        },
+        "killList": [
+          {
+            "id": "remove-legacy-wrapper",
+            "target": "symbol.legacyWrapper",
+            "required": true
+          },
+          {
+            "id": "remove-fallback-mapper",
+            "target": "symbol.fallbackMapper",
+            "required": true
+          }
+        ],
+        "benefitLedger": {
+          "benefits": [
+            "single lifecycle owner",
+            "bounded migration cleanup",
+            "fewer compatibility paths"
+          ],
+          "costs": [
+            "larger coordinated change"
+          ],
+          "rollbackPoint": "git"
+        }
+      }
+    },
+    "digest": "sha256:4745d1d3daf276f71aa6cc37a02ca55ac3a63d60fa61c1b02a63abbab3f5657c"
+  },
+  {
+    "id": "low-pressure-defaults-stay-normal",
+    "description": "a quiet code context leaves posture normal with the same default confidence",
+    "input": {
+      "task": "add a field to the report view",
+      "facts": "quiet"
+    },
+    "expected": {
+      "confidence": {
+        "level": "high",
+        "score": 86,
+        "coverage": [
+          "caller-coverage:0.8"
+        ],
+        "externalConsumers": [],
+        "persistedData": [],
+        "rollbackPoints": [
+          "git-worktree"
+        ]
+      },
+      "posture": "normal",
+      "pressure": {
+        "level": "low",
+        "score": 0,
+        "signalTypes": []
+      },
+      "proofPoint": null,
+      "intervention": null
+    },
+    "digest": "sha256:b55f6149488813d93187bfbfde1cb76021cf3fc79dd3717ad3daf9571e5b693d"
+  }
+]

@@ -1,0 +1,249 @@
+RF0 characterization-freeze causation control (perturbation probe)
+
+Perturbation: packages/core/refactor-decision/src/index.ts:21
+  -  if (input.testsAvailable) score += 15;
+  +  if (input.testsAvailable) score += 16;
+
+Exactly one production constant changed; no test, fixture or contract file was touched.
+Command: bun test packages/core/refactor-decision packages/core/pressure-engine packages/core/recommendation-engine packages/core/projection-engine packages/core/application packages/local-runtime/codegraph-adapter --timeout 60000
+Captured with redirection (no pipe), so PROBE_EXIT below is the real exit status.
+The perturbation was reverted with 'git checkout -- packages/core/refactor-decision/src/index.ts' immediately after this capture.
+
+----- output -----
+bun test v1.4.0 (34cbb9a40)
+
+packages/core/refactor-decision/test/refactor-baseline.test.ts:
+28 |   return parsed;
+29 | }
+30 | 
+31 | /** Asserts the observed payload against both committed forms; neither alone is a freeze. */
+32 | function expectFrozen(actual: unknown, fixture: BaselineFixture<unknown>): void {
+33 |   expect(actual).toEqual(fixture.expected);
+                      ^
+error: expect(received).toEqual(expected)
+
+@@ -10,3 +10,3 @@
+    ],
+-   "score": 86,
++   "score": 87,
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at expectFrozen (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:33:18)
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:42:7)
+(fail) RF0 baseline: computeRefactorConfidence score table > prepare-task-defaults — the 0.8/true/true default triple prepareTask feeds in [3.30ms]
+28 |   return parsed;
+29 | }
+30 | 
+31 | /** Asserts the observed payload against both committed forms; neither alone is a freeze. */
+32 | function expectFrozen(actual: unknown, fixture: BaselineFixture<unknown>): void {
+33 |   expect(actual).toEqual(fixture.expected);
+                      ^
+error: expect(received).toEqual(expected)
+
+@@ -8,3 +8,3 @@
+    "rollbackPoints": [],
+-   "score": 50,
++   "score": 51,
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at expectFrozen (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:33:18)
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:42:7)
+(fail) RF0 baseline: computeRefactorConfidence score table > tests-only-bonus — tests bonus without rollback bonus [0.05ms]
+28 |   return parsed;
+29 | }
+30 | 
+31 | /** Asserts the observed payload against both committed forms; neither alone is a freeze. */
+32 | function expectFrozen(actual: unknown, fixture: BaselineFixture<unknown>): void {
+33 |   expect(actual).toEqual(fixture.expected);
+                      ^
+error: expect(received).toEqual(expected)
+
+@@ -12,3 +12,3 @@
+    ],
+-   "score": 73,
++   "score": 74,
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at expectFrozen (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:33:18)
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:42:7)
+(fail) RF0 baseline: computeRefactorConfidence score table > external-consumer-penalty — one external consumer applies the -20 penalty [0.04ms]
+28 |   return parsed;
+29 | }
+30 | 
+31 | /** Asserts the observed payload against both committed forms; neither alone is a freeze. */
+32 | function expectFrozen(actual: unknown, fixture: BaselineFixture<unknown>): void {
+33 |   expect(actual).toEqual(fixture.expected);
+                      ^
+error: expect(received).toEqual(expected)
+
+@@ -12,3 +12,3 @@
+    ],
+-   "score": 83,
++   "score": 84,
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at expectFrozen (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:33:18)
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:42:7)
+(fail) RF0 baseline: computeRefactorConfidence score table > persisted-data-penalty — one persisted-data constraint applies the -10 penalty [0.04ms]
+28 |   return parsed;
+29 | }
+30 | 
+31 | /** Asserts the observed payload against both committed forms; neither alone is a freeze. */
+32 | function expectFrozen(actual: unknown, fixture: BaselineFixture<unknown>): void {
+33 |   expect(actual).toEqual(fixture.expected);
+                      ^
+error: expect(received).toEqual(expected)
+
+@@ -14,3 +14,3 @@
+    ],
+-   "score": 63,
++   "score": 64,
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at expectFrozen (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:33:18)
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:42:7)
+(fail) RF0 baseline: computeRefactorConfidence score table > both-penalties — both penalties stack to -30 [0.03ms]
+28 |   return parsed;
+29 | }
+30 | 
+31 | /** Asserts the observed payload against both committed forms; neither alone is a freeze. */
+32 | function expectFrozen(actual: unknown, fixture: BaselineFixture<unknown>): void {
+33 |   expect(actual).toEqual(fixture.expected);
+                      ^
+error: expect(received).toEqual(expected)
+
+@@ -10,3 +10,3 @@
+    ],
+-   "score": 93,
++   "score": 94,
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at expectFrozen (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:33:18)
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/refactor-decision/test/refactor-baseline.test.ts:42:7)
+(fail) RF0 baseline: computeRefactorConfidence score table > empty-penalty-arrays-do-not-penalize — empty constraint arrays are not treated as constraints [0.03ms]
+
+packages/core/application/test/refactor-baseline.test.ts:
+136 | 
+137 | describe("RF0 baseline: prepareTask confidence defaults and posture branch", () => {
+138 |   for (const fixture of fixtures) {
+139 |     test(`${fixture.id} — ${fixture.description}`, async () => {
+140 |       const actual = await runFixture(fixture.input);
+141 |       expect(actual).toEqual(fixture.expected as Json);
+                           ^
+error: expect(received).toEqual(expected)
+
+@@ -11,3 +11,3 @@
+      ],
+-     "score": 86,
++     "score": 87,
+    },
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/application/test/refactor-baseline.test.ts:141:22)
+(fail) RF0 baseline: prepareTask confidence defaults and posture branch > all-defaults-high-pressure — no confidence inputs: callerCoverage 0.8, testsAvailable true, rollbackAvailable true [75.62ms]
+136 | 
+137 | describe("RF0 baseline: prepareTask confidence defaults and posture branch", () => {
+138 |   for (const fixture of fixtures) {
+139 |     test(`${fixture.id} — ${fixture.description}`, async () => {
+140 |       const actual = await runFixture(fixture.input);
+141 |       expect(actual).toEqual(fixture.expected as Json);
+                           ^
+error: expect(received).toEqual(expected)
+
+@@ -11,3 +11,3 @@
+      ],
+-     "score": 86,
++     "score": 87,
+    },
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/application/test/refactor-baseline.test.ts:141:22)
+(fail) RF0 baseline: prepareTask confidence defaults and posture branch > explicit-defaults-are-identical — passing 0.8/true/true explicitly reproduces the default branch exactly [5.46ms]
+136 | 
+137 | describe("RF0 baseline: prepareTask confidence defaults and posture branch", () => {
+138 |   for (const fixture of fixtures) {
+139 |     test(`${fixture.id} — ${fixture.description}`, async () => {
+140 |       const actual = await runFixture(fixture.input);
+141 |       expect(actual).toEqual(fixture.expected as Json);
+                           ^
+error: expect(received).toEqual(expected)
+
+@@ -11,3 +11,3 @@
+      ],
+-     "score": 30,
++     "score": 31,
+    },
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/application/test/refactor-baseline.test.ts:141:22)
+(fail) RF0 baseline: prepareTask confidence defaults and posture branch > explicit-zero-coverage-is-not-the-default — callerCoverage 0 is honoured rather than falling back to 0.8 [6.12ms]
+136 | 
+137 | describe("RF0 baseline: prepareTask confidence defaults and posture branch", () => {
+138 |   for (const fixture of fixtures) {
+139 |     test(`${fixture.id} — ${fixture.description}`, async () => {
+140 |       const actual = await runFixture(fixture.input);
+141 |       expect(actual).toEqual(fixture.expected as Json);
+                           ^
+error: expect(received).toEqual(expected)
+
+@@ -9,3 +9,3 @@
+      "rollbackPoints": [],
+-     "score": 71,
++     "score": 72,
+    },
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/application/test/refactor-baseline.test.ts:141:22)
+(fail) RF0 baseline: prepareTask confidence defaults and posture branch > explicit-rollback-unavailable — rollbackAvailable false is honoured and empties rollbackPoints [4.88ms]
+136 | 
+137 | describe("RF0 baseline: prepareTask confidence defaults and posture branch", () => {
+138 |   for (const fixture of fixtures) {
+139 |     test(`${fixture.id} — ${fixture.description}`, async () => {
+140 |       const actual = await runFixture(fixture.input);
+141 |       expect(actual).toEqual(fixture.expected as Json);
+                           ^
+error: expect(received).toEqual(expected)
+
+@@ -11,3 +11,3 @@
+      ],
+-     "score": 86,
++     "score": 87,
+    },
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/Users/ancienttwo/Projects/arch-context-wt-rf0-characterization-freeze/packages/core/application/test/refactor-baseline.test.ts:141:22)
+(fail) RF0 baseline: prepareTask confidence defaults and posture branch > low-pressure-defaults-stay-normal — a quiet code context leaves posture normal with the same default confidence [4.37ms]
+
+ 254 pass
+ 11 fail
+ 1169 expect() calls
+Ran 265 tests across 20 files. [2.32s]
+PROBE_EXIT=1
