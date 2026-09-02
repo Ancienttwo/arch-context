@@ -1,3 +1,9 @@
+> **Archived**: 2026-09-03 07:12
+> **Related Plan**: plans/archive/plan-20260903-0512-rf2-assessment-observations-scale.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260903-0712
+
 # Task Contract: rf2-assessment-observations-scale
 
 > **Status**: Fulfilled

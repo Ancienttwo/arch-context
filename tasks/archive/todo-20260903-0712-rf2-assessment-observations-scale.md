@@ -1,7 +1,13 @@
+> **Archived**: 2026-09-03 07:12
+> **Related Plan**: plans/archive/plan-20260903-0512-rf2-assessment-observations-scale.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260903-0712
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: (archive-workflow)
+> **Updated**: 2026-09-03 05:13
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.

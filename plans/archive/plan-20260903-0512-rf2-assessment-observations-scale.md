@@ -1,6 +1,6 @@
 # Plan: Sprint task: rf2-assessment-observations-scale
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260903-0512
 > **Slug**: rf2-assessment-observations-scale
 > **Planning Source**: repo-harness-sprint
