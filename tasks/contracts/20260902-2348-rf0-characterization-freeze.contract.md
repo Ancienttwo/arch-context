@@ -6,7 +6,7 @@
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
 > **Owner**: ancienttwo
 > **Capability ID**: root
-> **Last Updated**: 2026-09-03 00:20
+> **Last Updated**: 2026-09-03 00:40
 > **Review File**: `tasks/reviews/20260902-2348-rf0-characterization-freeze.review.md`
 > **Notes File**: `tasks/notes/20260902-2348-rf0-characterization-freeze.notes.md`
 > **Exemplar**: `docs/reference-configs/contract-brief-example.md`
@@ -75,7 +75,7 @@ Required when Task Profile is `bugfix`; leave as-is otherwise.
 ## Change Assessment
 
 ```json
-{"protocol":1,"oracles":[]}
+{"protocol":1,"oracles":[{"id":"refactor-baseline-suites","kind":"deterministic_test","paths":["*"]},{"id":"rf0-perturbation-probe-readback","kind":"runtime_readback","paths":["*"]}]}
 ```
 
 ## Acceptance Policy
