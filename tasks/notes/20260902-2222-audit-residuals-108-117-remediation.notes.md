@@ -45,7 +45,9 @@
 - `bun run typecheck`: exit 0.
 - `git diff --check`: exit 0.
 - `repo-harness run verify-contract --strict`: 9/9 pass, contract status `Fulfilled`.
-- `repo-harness run verify-sprint --prepare-acceptance` froze the verification evidence but cannot select the intended subject: policy `review_base` resolves the dirty primary checkout's stale local `main@01d42c`, while this isolated candidate is based on current `origin/main@961f965`. The resulting Change Assessment includes unrelated historical changes, so no AcceptanceReceipt was issued.
+- The first acceptance preparation exposed a stale local review base: policy `review_base` resolved `main@01d42c` while the candidate was based on `origin/main@961f965`; no receipt was issued from that over-broad subject.
+- After explicit user approval, the primary checkout's four dirty files were preserved byte-for-byte on `codex/wip-main-before-review-base-sync-20260902`, and local `main` was advanced to `961f965` without stash/reset/clean. The corrected Change Assessment selects exactly eight implementation/test paths with subject `sha256:a1166f00579432e7f66a1167277f810d74cbce553d453b6d7cab83112f4090ac`.
+- Corrected `repo-harness run verify-sprint --prepare-acceptance`: pass; snapshot `.ai/harness/runs/run-20260902T231400-44859-20260902-2222-audit-residuals-108-117-remediation.json`. Semantic AcceptanceReceipt remains pending.
 
 ## Promotion Filter
 

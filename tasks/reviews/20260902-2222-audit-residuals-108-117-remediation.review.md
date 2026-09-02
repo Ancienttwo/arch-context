@@ -20,7 +20,7 @@
 - Actual files changed: matches intended scope; no source outside the contract allowlist.
 - Commands passed: focused 29-test run, affected 323-test run, `bun run typecheck`, root 1304-test run, and `git diff --check`.
 - Residual risks: #111 remains conditional against a malicious same-UID concurrent parent-directory swap; absolute closure needs a separately approved native descriptor-relative filesystem contract.
-- Reviewer action required: first reconcile the policy review base with current `origin/main@961f965`, then inspect only this candidate and issue a typed AcceptanceReceipt or explicit waiver.
+- Reviewer action required: inspect the corrected eight-path subject `sha256:a1166f00579432e7f66a1167277f810d74cbce553d453b6d7cab83112f4090ac` and issue a typed AcceptanceReceipt or explicit waiver.
 - Rollback: revert this isolated candidate; it has no migration, deployment, or external state mutation.
 
 ## Mode Evidence
@@ -36,7 +36,7 @@
 - Manual checks: macOS descriptor-path probe returned `ENOENT`; no cross-platform `openat`/`renameat` helper exists in the repository.
 - Supporting artifacts: pre-fix log and post-fix test output summarized in implementation notes.
 - Implementation notes reviewed: yes.
-- Run snapshot: `.ai/harness/runs/run-20260902T230122-86546-20260902-2222-audit-residuals-108-117-remediation.json`; deterministic criteria pass, acceptance preparation is blocked by stale local `main` subject selection.
+- Run snapshot: `.ai/harness/runs/run-20260902T231400-44859-20260902-2222-audit-residuals-108-117-remediation.json`; deterministic criteria and corrected Change Assessment pass.
 
 ## Manual Check Evidence
 
@@ -82,7 +82,7 @@ screenshot/artifact path, or reviewer observation.
 
 ## Failing Items
 
-- Typed acceptance receipt is not yet present. The policy review base is local `main@01d42c`, so Change Assessment selects unrelated historical changes instead of the candidate based on `origin/main@961f965`; this is a workflow authority blocker, not a code/test failure.
+- Typed acceptance receipt is not yet present; verification and deterministic Change Assessment are frozen and ready for semantic review.
 
 ## Retest Steps
 
