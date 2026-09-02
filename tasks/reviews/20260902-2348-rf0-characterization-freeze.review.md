@@ -1,6 +1,6 @@
 # Task Review: rf0-characterization-freeze
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260902-2348-rf0-characterization-freeze.md
 > **Contract**: tasks/contracts/20260902-2348-rf0-characterization-freeze.contract.md
 > **Notes File**: tasks/notes/20260902-2348-rf0-characterization-freeze.notes.md
@@ -57,17 +57,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:e7064d784cb1f1d1c5db685bfb45ab8673b27749598af086b960783ad57ade70
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: 6ff95df6e69b6480eba7712ef8c9171f42321a20
+> **Verification Evidence SHA256**: sha256:aff38b3545bf06255c6a5be9b909177229ff6c5875ec2c5651639de8a642bb53
+> **Issued At**: 2026-09-02T16:42:47.390Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Gatekeeper acceptance review PASS and Codex cross-review PASS (no P1/P2 findings) for RF0 characterization freeze: 26 additive test/fixture/artifact files, zero src edits, verify-contract 24/24 Fulfilled, six-package suites 265 pass, evals PASS, perturbation probe PROBE_EXIT=1.
 - Findings: none
 
 ## Behavior Diff Notes
