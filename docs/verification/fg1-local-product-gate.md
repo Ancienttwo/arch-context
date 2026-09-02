@@ -31,11 +31,11 @@
 - Completed At: 2026-06-20
 - Reviewer: Codex execution under user goal
 
-## 0.4.7 Nine-target hosted matrix readback
+## 0.4.8 Nine-target hosted matrix readback
 
-- Verify run `33003178348`, head `d3f14a0bb595c19089febc2221061cb3eb9d48f1`: https://github.com/Ancienttwo/arch-context/actions/runs/33003178348
-- GitHub Actions Verify run `33003178348`: PASS for all nine matrix jobs; Governance remained fail-closed on the pre-0.4.7 deterministic evidence and is regenerated separately.
-- Downloaded hosted IPC artifacts: PASS, all nine `platform-ipc-permission-readback.json` files verified for schema, installed-bin help, HTTP loopback binding, token redaction, and daemon lifecycle.
+- Verify run `33573235102`, head `a1d34e414fcf08bbfaea30de854288c3e481d15d`: https://github.com/Ancienttwo/arch-context/actions/runs/33573235102
+- GitHub Actions Verify run `33573235102`: PASS for all nine matrix jobs; Governance remained fail-closed on the pre-bun-1.4 platform workflow matrix evidence and is regenerated separately.
+- Downloaded hosted IPC artifacts: PASS, all nine `platform-ipc-permission-readback.json` files report Bun `1.4.0` and are verified for schema, installed-bin help, HTTP loopback binding, token redaction, and daemon lifecycle.
 - Hosted permission readback: Linux/macOS connection and lock modes are `600`; Windows connection and lock modes are `win32-acl`.
 - Artifact names verified from that run:
   - `platform-ipc-permission-ubuntu-latest-node-22.22.x`

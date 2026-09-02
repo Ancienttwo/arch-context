@@ -4,14 +4,14 @@
   "environment": "staging-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-08-26T19:21:04.698Z",
+  "generatedAt": "2026-09-02T00:10:00.345Z",
   "sources": {
     "workflowPath": ".github/workflows/verify.yml",
     "platformReadbackScript": "scripts/platform-ipc-permission-readback.mjs",
     "fg1Gate": "docs/verification/fg1-local-product-gate.md",
     "githubHostedRunnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
     "selfHostedRunnerSource": "docs/verification/fg4-self-hosted-runner-execution-readback.json",
-    "hostedArtifactDirectory": "archctx-047-hosted-33003178348"
+    "hostedArtifactDirectory": "fg6-matrix-artifacts"
   },
   "evidence": {
     "workflowMatrix": {
@@ -44,9 +44,9 @@
       "checksLifecycle": true
     },
     "hostedCi": {
-      "runId": 33003178348,
-      "headSha": "d3f14a0bb595c19089febc2221061cb3eb9d48f1",
-      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/33003178348",
+      "runId": 33573235102,
+      "headSha": "a1d34e414fcf08bbfaea30de854288c3e481d15d",
+      "runUrl": "https://github.com/Ancienttwo/arch-context/actions/runs/33573235102",
       "runConclusion": "PASS",
       "downloadedArtifactsVerified": true,
       "artifactNames": [
@@ -64,82 +64,82 @@
       "artifacts": [
         {
           "name": "platform-ipc-permission-ubuntu-latest-node-22.22.x",
-          "sha256": "sha256:44dc12da6324773607251b86da4109c660fc4de0a69d25eb8756097a2ee9a94b",
+          "sha256": "sha256:b5681027d6857ca509bca066d375d456e9520979be3de56bce5271c8246b3f8c",
           "platform": "linux",
           "node": "v22.22.3",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "600",
           "lockMode": "600"
         },
         {
           "name": "platform-ipc-permission-ubuntu-latest-node-24.x",
-          "sha256": "sha256:3e9a3d7ca442c48866f3c2ee8cf02c3f41fb8c37e037b8bb196e891e9b1fe6e0",
+          "sha256": "sha256:bfdedcea2dcfc4595a2c917b8c08a2b98ecdc967f8e8deba3612accd62e7f77c",
           "platform": "linux",
           "node": "v24.19.0",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "600",
           "lockMode": "600"
         },
         {
           "name": "platform-ipc-permission-ubuntu-latest-node-25.x",
-          "sha256": "sha256:856ec9f6614e6666f69f88e6d3e7cebb893d6ea757d85f27ab76fcadbe176236",
+          "sha256": "sha256:a1f4377cbb2693bc19757d3ab845b7a73017d424697e92cf919e1129f3975d42",
           "platform": "linux",
           "node": "v25.9.0",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "600",
           "lockMode": "600"
         },
         {
           "name": "platform-ipc-permission-macos-15-node-22.22.x",
-          "sha256": "sha256:8be788fb3565beb4b36d529796638bc059a87cbb97505c284b6915058f4aefb8",
+          "sha256": "sha256:8be0377b6def09a5b16c46552bed17ca72192cb59e1d971eb41c56c5dd669538",
           "platform": "darwin",
           "node": "v22.22.3",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "600",
           "lockMode": "600"
         },
         {
           "name": "platform-ipc-permission-macos-15-node-24.x",
-          "sha256": "sha256:eed80f73f9439c41b89e512884cfd18f9dd8d608697c167e16daff1f012953e3",
+          "sha256": "sha256:bb26c8e06f70fa825add5da69df4252901a5ca266f5feb7d5a8d58203e2d7357",
           "platform": "darwin",
           "node": "v24.18.0",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "600",
           "lockMode": "600"
         },
         {
           "name": "platform-ipc-permission-macos-15-node-25.x",
-          "sha256": "sha256:5c5b9071c0da188590caf40baa514a19d6b0f7c65e8210fea02c5a6140ba9a2f",
+          "sha256": "sha256:8992ef832e3c8bcd230a6d9c8b21557b54be0b50c92bc62d87b217b2a31de5f1",
           "platform": "darwin",
           "node": "v25.9.0",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "600",
           "lockMode": "600"
         },
         {
           "name": "platform-ipc-permission-windows-latest-node-22.22.x",
-          "sha256": "sha256:f2ba92f61721703fa9c14b65dde0322aff5f28c04dcedc8ae270cc0e072f2e16",
+          "sha256": "sha256:5444ee5465c560b79aa1d910b4dfff53c9e324cfd3f8f1560ac47888816c63f5",
           "platform": "win32",
           "node": "v22.22.3",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "win32-acl",
           "lockMode": "win32-acl"
         },
         {
           "name": "platform-ipc-permission-windows-latest-node-24.x",
-          "sha256": "sha256:e0388e1966086e240faf7abedad9a8dcb9e4a25e1a57c815fe796c6169a5a839",
+          "sha256": "sha256:1b68279129c407dd1c6a67764baa75a53272c2a5a9086b0e46cab4cb79ca0702",
           "platform": "win32",
           "node": "v24.19.0",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "win32-acl",
           "lockMode": "win32-acl"
         },
         {
           "name": "platform-ipc-permission-windows-latest-node-25.x",
-          "sha256": "sha256:99f9979591bc0379a023bea82673fbfb1b454588ba0f21a21e05f53d5aee4018",
+          "sha256": "sha256:972ac4ff251f297761b56b7612f1a221c0bf9af9d1b81000165e2871a218a33f",
           "platform": "win32",
           "node": "v25.9.0",
-          "bun": "1.3.10",
+          "bun": "1.4.0",
           "connectionMode": "win32-acl",
           "lockMode": "win32-acl"
         }
@@ -148,7 +148,7 @@
       "posixModeVerified": true,
       "windowsAclVerified": true
     },
-    "currentHeadSha": "d3f14a0bb595c19089febc2221061cb3eb9d48f1",
+    "currentHeadSha": "a1d34e414fcf08bbfaea30de854288c3e481d15d",
     "githubWorkflowRuns": {
       "githubHosted": {
         "workflow": {
