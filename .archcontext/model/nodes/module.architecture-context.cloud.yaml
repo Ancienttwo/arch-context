@@ -1,0 +1,12 @@
+schemaVersion: archcontext.node/v2
+id: module.architecture-context.cloud
+kind: module
+name: "Cloud Workspace"
+status: active
+parent: capability.architecture-context
+summary: "Provides the hosted control plane, GitHub App, runner, attestation, hardening, and notification services."
+source:
+  exclude:
+    - "packages/cloud/**/test/**"
+  include:
+    - "packages/cloud/**/src/**"

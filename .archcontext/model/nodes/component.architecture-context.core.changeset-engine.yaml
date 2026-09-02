@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.changeset-engine
+kind: component
+name: "ChangeSet Engine"
+status: active
+parent: module.architecture-context.core
+summary: "Plans, previews, and applies journaled ChangeSets against model files with expected-hash preconditions and rollback."
+source:
+  include:
+    - "packages/core/changeset-engine/src/**"

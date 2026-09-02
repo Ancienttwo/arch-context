@@ -1,0 +1,12 @@
+schemaVersion: archcontext.node/v2
+id: module.architecture-context.core
+kind: module
+name: "Core Workspace"
+status: active
+parent: capability.architecture-context
+summary: "Holds the runtime-independent domain engines that compute architecture context, pressure, policy, recommendations, and change sets."
+source:
+  exclude:
+    - "packages/core/**/test/**"
+  include:
+    - "packages/core/**/src/**"

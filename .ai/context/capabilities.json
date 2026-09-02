@@ -38,6 +38,405 @@
         "bun run verify",
         "bun run typecheck"
       ]
+    },
+    {
+      "id": "module-architecture-context-contracts",
+      "domain": "architecture-context",
+      "name": "contracts",
+      "prefixes": [
+        "packages/contracts"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/module-architecture-context-contracts.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/contracts",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "module-architecture-context-core",
+      "domain": "architecture-context",
+      "name": "core",
+      "prefixes": [
+        "packages/core"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/module-architecture-context-core.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "module-architecture-context-local-runtime",
+      "domain": "architecture-context",
+      "name": "local-runtime",
+      "prefixes": [
+        "packages/local-runtime"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/module-architecture-context-local-runtime.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/local-runtime",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "module-architecture-context-surfaces",
+      "domain": "architecture-context",
+      "name": "surfaces",
+      "prefixes": [
+        "packages/surfaces"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/module-architecture-context-surfaces.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/surfaces",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "module-architecture-context-cloud",
+      "domain": "architecture-context",
+      "name": "cloud",
+      "prefixes": [
+        "packages/cloud"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/module-architecture-context-cloud.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/cloud",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-agent-orchestrator",
+      "domain": "architecture-context",
+      "name": "agent-orchestrator",
+      "prefixes": [
+        "packages/core/agent-orchestrator/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-agent-orchestrator.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/agent-orchestrator",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-application",
+      "domain": "architecture-context",
+      "name": "application",
+      "prefixes": [
+        "packages/core/application/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-application.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/application",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-architecture-delta",
+      "domain": "architecture-context",
+      "name": "architecture-delta",
+      "prefixes": [
+        "packages/core/architecture-delta/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-architecture-delta.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/architecture-delta",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-architecture-domain",
+      "domain": "architecture-context",
+      "name": "architecture-domain",
+      "prefixes": [
+        "packages/core/architecture-domain/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-architecture-domain.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/architecture-domain",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-architecture-ledger",
+      "domain": "architecture-context",
+      "name": "architecture-ledger",
+      "prefixes": [
+        "packages/core/architecture-ledger/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-architecture-ledger.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/architecture-ledger",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-changeset-engine",
+      "domain": "architecture-context",
+      "name": "changeset-engine",
+      "prefixes": [
+        "packages/core/changeset-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-changeset-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/changeset-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-context-compiler",
+      "domain": "architecture-context",
+      "name": "context-compiler",
+      "prefixes": [
+        "packages/core/context-compiler/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-context-compiler.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/context-compiler",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-policy-engine",
+      "domain": "architecture-context",
+      "name": "policy-engine",
+      "prefixes": [
+        "packages/core/policy-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-policy-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/policy-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-practice-catalog",
+      "domain": "architecture-context",
+      "name": "practice-catalog",
+      "prefixes": [
+        "packages/core/practice-catalog/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-practice-catalog.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/practice-catalog",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-practice-engine",
+      "domain": "architecture-context",
+      "name": "practice-engine",
+      "prefixes": [
+        "packages/core/practice-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-practice-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/practice-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-pressure-engine",
+      "domain": "architecture-context",
+      "name": "pressure-engine",
+      "prefixes": [
+        "packages/core/pressure-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-pressure-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/pressure-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-recommendation-engine",
+      "domain": "architecture-context",
+      "name": "recommendation-engine",
+      "prefixes": [
+        "packages/core/recommendation-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-recommendation-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/recommendation-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-reconcile-engine",
+      "domain": "architecture-context",
+      "name": "reconcile-engine",
+      "prefixes": [
+        "packages/core/reconcile-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-reconcile-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/reconcile-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-refactor-decision",
+      "domain": "architecture-context",
+      "name": "refactor-decision",
+      "prefixes": [
+        "packages/core/refactor-decision/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-refactor-decision.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/refactor-decision",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-retrieval",
+      "domain": "architecture-context",
+      "name": "retrieval",
+      "prefixes": [
+        "packages/core/retrieval/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-retrieval.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/retrieval",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
+    },
+    {
+      "id": "component-architecture-context-core-review-engine",
+      "domain": "architecture-context",
+      "name": "review-engine",
+      "prefixes": [
+        "packages/core/review-engine/src"
+      ],
+      "contract_files": {
+        "agents": "AGENTS.md",
+        "claude": "CLAUDE.md"
+      },
+      "architecture_module": "docs/architecture/modules/component-architecture-context-core-review-engine.md",
+      "workstream_dir": "tasks/workstreams/architecture-context/core/review-engine",
+      "lsp_profile": "typescript-lsp",
+      "verification_hints": [
+        "bun run verify",
+        "bun run typecheck"
+      ]
     }
   ]
 }

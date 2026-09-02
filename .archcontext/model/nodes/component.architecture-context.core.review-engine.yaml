@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.review-engine
+kind: component
+name: "Review Engine"
+status: active
+parent: module.architecture-context.core
+summary: "Gates task completion by validating the landscape, cross-repo pressure, and compatibility contracts behind a ChangeSet."
+source:
+  include:
+    - "packages/core/review-engine/src/**"

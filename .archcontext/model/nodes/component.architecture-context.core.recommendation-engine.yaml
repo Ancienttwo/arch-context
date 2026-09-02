@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.recommendation-engine
+kind: component
+name: "Recommendation Engine"
+status: active
+parent: module.architecture-context.core
+summary: "Schedules recommendation runs and builds ranked recommendations with explanation trees and feedback records."
+source:
+  include:
+    - "packages/core/recommendation-engine/src/**"

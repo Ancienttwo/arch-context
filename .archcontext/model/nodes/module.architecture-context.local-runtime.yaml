@@ -1,0 +1,12 @@
+schemaVersion: archcontext.node/v2
+id: module.architecture-context.local-runtime
+kind: module
+name: "Local Runtime Workspace"
+status: active
+parent: capability.architecture-context
+summary: "Provides the local daemon and its adapters for SQLite storage, YAML model files, Git, CodeGraph, and Context7."
+source:
+  exclude:
+    - "packages/local-runtime/**/test/**"
+  include:
+    - "packages/local-runtime/**/src/**"

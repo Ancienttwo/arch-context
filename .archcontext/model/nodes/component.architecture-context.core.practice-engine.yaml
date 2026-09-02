@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.practice-engine
+kind: component
+name: "Practice Engine"
+status: active
+parent: module.architecture-context.core
+summary: "Matches catalog practices to a task's code context and pressure and evaluates their enforcement checks."
+source:
+  include:
+    - "packages/core/practice-engine/src/**"

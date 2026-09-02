@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.refactor-decision
+kind: component
+name: "Refactor Decision"
+status: active
+parent: module.architecture-context.core
+summary: "Scores refactor confidence and decides the intervention posture and proof points for a proposed change."
+source:
+  include:
+    - "packages/core/refactor-decision/src/**"

@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.context-compiler
+kind: component
+name: "Context Compiler"
+status: active
+parent: module.architecture-context.core
+summary: "Compiles budgeted task context from the model, code facts, practice guidance, and detected architecture pressure."
+source:
+  include:
+    - "packages/core/context-compiler/src/**"

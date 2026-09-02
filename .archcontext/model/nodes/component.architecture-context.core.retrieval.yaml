@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.retrieval
+kind: component
+name: "Retrieval"
+status: active
+parent: module.architecture-context.core
+summary: "Provides the lexical retriever, tokenizer, and scoring used to rank constraint and practice documents."
+source:
+  include:
+    - "packages/core/retrieval/src/**"

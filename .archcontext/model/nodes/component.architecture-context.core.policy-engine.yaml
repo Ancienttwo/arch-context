@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.policy-engine
+kind: component
+name: "Policy Engine"
+status: active
+parent: module.architecture-context.core
+summary: "Enforces the ArchContext path allowlist and evaluates candidate architecture deltas and compatibility contracts against policy."
+source:
+  include:
+    - "packages/core/policy-engine/src/**"

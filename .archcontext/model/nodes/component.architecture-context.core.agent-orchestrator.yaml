@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.agent-orchestrator
+kind: component
+name: "Agent Orchestrator"
+status: active
+parent: module.architecture-context.core
+summary: "Turns investigation requests into agent jobs and validates the typed investigation reports and proposal plans they return."
+source:
+  include:
+    - "packages/core/agent-orchestrator/src/**"

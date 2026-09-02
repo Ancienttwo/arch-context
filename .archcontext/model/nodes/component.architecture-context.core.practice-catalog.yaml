@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.practice-catalog
+kind: component
+name: "Practice Catalog"
+status: active
+parent: module.architecture-context.core
+summary: "Loads and validates practice assets, sources, and profiles into an effective practice catalog."
+source:
+  include:
+    - "packages/core/practice-catalog/src/**"
