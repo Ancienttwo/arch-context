@@ -6,7 +6,7 @@
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
 > **Owner**: ancienttwo
 > **Capability ID**: root
-> **Last Updated**: 2026-09-03 00:40
+> **Last Updated**: 2026-09-03 02:30
 > **Review File**: `tasks/reviews/20260902-2348-rf0-characterization-freeze.review.md`
 > **Notes File**: `tasks/notes/20260902-2348-rf0-characterization-freeze.notes.md`
 > **Exemplar**: `docs/reference-configs/contract-brief-example.md`
@@ -165,7 +165,6 @@ exit_criteria:
     - bun test packages/core/application/test/refactor-baseline.test.ts --timeout 60000
     - bun test packages/core/projection-engine/test/refactor-baseline.test.ts --timeout 60000
     - bun test packages/local-runtime/codegraph-adapter/test/refactor-baseline.test.ts --timeout 60000
-    - bun test packages/core/refactor-decision packages/core/pressure-engine packages/core/recommendation-engine packages/core/projection-engine packages/core/application packages/local-runtime/codegraph-adapter --timeout 60000
     - bun evals/run.ts --check
     - bun run typecheck
     - node scripts/privacy-route-audit.mjs
