@@ -20,6 +20,13 @@
 
 - **Scale ladder: `target-unresolved` moved ahead of the model gate.** The plan table puts the model gate (rows 1) before the evidence gate (rows 2), which includes `unresolvedTargets`. The frozen `refactorScanInvariantIssues` (`packages/contracts/src/refactor.ts:719-725`) makes a non-empty `targetDelta.unresolvedTargets` require `scale === "insufficient_evidence"` unconditionally, so a proposal that both names an unresolvable target and touches an unowned path could not be reported as `model_adoption_required` without emitting a pair that fails the frozen validator. The ladder therefore leads with `target-unresolved`; the model gate still precedes the remaining evidence conditions (coverage, contested ownership). No information is lost: `scaleReasonCodes` still carries `unowned-paths` / `node-footprint-undeclared` alongside `target-unresolved`. Covered by `scale.test.ts` "an unresolved target outranks the model gate, as the frozen scan invariant requires". No fixture named in the plan required this, and the frozen contract was not edited.
 
+### Cross-review round 2 (Codex [P1] x3)
+
+- **Snapshot is validated before it is read.** `assessRefactor` runs `moduleStatisticsSnapshotInvariantIssues` first and throws `AC_SCHEMA_INVALID`. Without it a snapshot whose payload was altered while `snapshotDigest` was kept would be laundered into a signed assessment. Test: `observations.test.ts` "rejects a snapshot whose payload no longer binds its own digest".
+- **`scopePaths` are tested against the snapshot's tracked files, not against string syntax.** `trackedFiles: readonly string[]` is now a required input field; any entry outside that set is unowned before ownership resolution. This closes the real hole: `src/m/a/absent.ts` matches `component.a`'s include glob and would previously have resolved to a real owner. The metacharacter rejection stays as defense in depth and now covers `* ? [ ] { } ( ) !` plus a trailing `/`. Comparison is exact string equality: both sides are already contract-constrained to repo-relative POSIX (`isRepoRelativePosixPath` on `scopePaths`, `readTrackedSourceFiles` on the producer side), so adding a normalizer would fork the path dialect rather than reconcile one. Tests: `scale.test.ts` `test.each` over glob / character class / brace expansion / extglob / directory / untracked file, plus "an untracked path is unowned even though a node glob claims it".
+- **Declared selector ids resolve in `targetDelta`.** A `removedConcepts` entry now resolves against node ids, relation ids, declared entrypoint ids, declared sink ids, and `snapshot.modules[].surfaces.observedEntrypoints`; only an id matching none is unresolved. A resolved entrypoint or sink contributes no reason code in v1 — `entrypoint-changed` and `interface-changed` would need the removed surface compared against a full target semantic state, which is exactly the target model RF2 must not build (PRD §0.1). It also contributes no `affectedNodeIds`, since a selector id is not a node id. Tests: `target-delta.test.ts` "declared selector resolution" (3 cases, incl. the same id unresolved against a snapshot that never observed it) and `scale.test.ts` "a removed declared entrypoint is resolved, so the scale is not insufficient_evidence".
+- The observed-entrypoint fixture is built by `withObservedEntrypoint`, which reseals `moduleDigest` and `snapshotDigest` through the frozen helpers rather than tampering with a signed payload — required now that item 1 validates the snapshot.
+
 ## Tradeoffs Considered
 
 | Option | Decision | Reason |
@@ -28,6 +35,9 @@
 | Suppress `unresolvedTargets` when the model gate fires | Rejected | The unresolved id is a fact about the delta; hiding it to satisfy an ordering is inventing state |
 | Emit `scaleReasonCodes` only for the winning ladder row | Rejected | Downstream loses the other true blockers; the codes are sorted-unique facts, not a single verdict |
 | Reuse `detectArchitecturePressure` | Rejected | Its observed signals regex over strings and admit task text; RF2 admits nothing heuristic |
+| Normalize `scopePaths` before matching `trackedFiles` | Rejected | Both sides are already repo-relative POSIX by contract; a normalizer would be a second path dialect |
+| Derive `entrypoint-changed` from a removed declared entrypoint | Rejected | Needs a full target semantic state to compare against, i.e. ArchContext authoring the target model (PRD §0.1) |
+| Keep syntax-only `scopePaths` checking | Rejected | `src/m/a/absent.ts` matches a node include glob, so a nonexistent file resolved to a real owner |
 
 ## Open Questions
 

@@ -1,5 +1,9 @@
-import type { ArchitectureMajorChangeReasonCode, ArchitectureTargetDeltaV1 } from "@archcontext/contracts";
-import type { NativeModel } from "../../projection-engine/src/index";
+import type {
+  ArchitectureMajorChangeReasonCode,
+  ArchitectureTargetDeltaV1,
+  ModuleStatisticsSnapshotV1
+} from "@archcontext/contracts";
+import { nativeNodeSource, type NativeModel } from "../../projection-engine/src/index";
 
 export interface TargetDeltaDerivationV1 {
   /** The subset of `ArchitectureMajorChangeReasonCode` v1 can derive from a declared model. */
@@ -12,6 +16,8 @@ export interface TargetDeltaDerivationV1 {
 
 export interface TargetDeltaContextV1 {
   model: NativeModel;
+  /** Supplies the observed entrypoint ids a delta may legitimately name. */
+  snapshot: ModuleStatisticsSnapshotV1;
   /** Deepest owners of the proposal's `scopePaths`, i.e. who owns the surface today. */
   currentOwnerIds: string[];
 }
@@ -28,6 +34,11 @@ export interface TargetDeltaContextV1 {
  *
  * `requiredRelations` entries the model does not declare are the point of the delta — a relation to
  * be created — so they raise `relation-changed` and are deliberately NOT unresolved targets.
+ *
+ * A `removedConcepts` entry resolves against nodes, relations, declared entrypoint and sink
+ * selectors, and observed entrypoints. A declared entrypoint or sink is therefore a resolved target
+ * that contributes no reason code in v1: `entrypoint-changed` and `interface-changed` need the
+ * removed surface compared against a full target semantic state, which RF2 does not build.
  */
 export function deriveTargetDelta(
   delta: ArchitectureTargetDeltaV1 | undefined,
@@ -36,6 +47,7 @@ export function deriveTargetDelta(
   if (!delta) return { reasons: [], unresolvedTargets: [], resolvedNodeIds: [] };
   const nodeIds = new Set(context.model.nodes.map((node) => node.id));
   const relationIds = new Set(context.model.relations.map((relation) => relation.id));
+  const selectorIds = declaredSelectorIds(context.model, context.snapshot);
   const reasons = new Set<ArchitectureMajorChangeReasonCode>();
   const unresolved = new Set<string>();
   const resolved = new Set<string>();
@@ -73,6 +85,8 @@ export function deriveTargetDelta(
       resolved.add(concept);
       continue;
     }
+    // Resolved, but not a node: a selector id cannot widen `affectedNodeIds`.
+    if (selectorIds.has(concept)) continue;
     unresolved.add(concept);
   }
 
@@ -100,6 +114,23 @@ export function withUnresolvedTargets(
   unresolvedTargets: string[]
 ): ArchitectureTargetDeltaV1 {
   return { ...delta, unresolvedTargets };
+}
+
+/** Declared entrypoint ids, declared sink ids, and the entrypoints the index actually observed. */
+function declaredSelectorIds(model: NativeModel, snapshot: ModuleStatisticsSnapshotV1): Set<string> {
+  const ids = new Set<string>();
+  for (const node of model.nodes) {
+    for (const entrypoint of nativeNodeSource(node)?.entrypoints ?? []) {
+      ids.add(entrypoint.id);
+      for (const symbol of entrypoint.symbols) {
+        for (const sink of symbol.sinks) ids.add(sink.id);
+      }
+    }
+  }
+  for (const module of snapshot.modules) {
+    for (const entrypoint of module.surfaces.observedEntrypoints) ids.add(entrypoint);
+  }
+  return ids;
 }
 
 function sameMembers(left: Set<string>, right: Set<string>): boolean {

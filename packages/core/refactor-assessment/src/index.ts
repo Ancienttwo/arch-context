@@ -1,6 +1,7 @@
 import {
   REFACTOR_ASSESSMENT_SCHEMA_VERSION,
   digestJson,
+  moduleStatisticsSnapshotInvariantIssues,
   refactorAssessmentDigest,
   refactorRequestInvariantIssues,
   type ArchitectureMajorChangeReasonCode,
@@ -45,6 +46,11 @@ export interface RefactorAssessmentInputV1 {
   snapshot: ModuleStatisticsSnapshotV1;
   /** The declared model the snapshot measured; bound to it through `snapshot.modelDigest`. */
   model: NativeModel;
+  /**
+   * Repo-relative POSIX paths of the Git-tracked files the snapshot was measured over. A
+   * `scopePath` outside this set names no file the instrument observed, so it cannot be owned.
+   */
+  trackedFiles: readonly string[];
   request: RefactorRequestV1;
   /** Caller-supplied identity and clock; both are excluded from `assessmentDigest`. */
   requestId: string;
@@ -67,6 +73,10 @@ export interface RefactorAssessmentResultV1 {
  * read — the same request assessed with and without task text yields the same `assessmentDigest`.
  */
 export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssessmentResultV1 {
+  // The snapshot is the only evidence this classifier has. Reading one whose digests no longer
+  // bind its payload would launder a tampered or half-built measurement into a signed assessment.
+  const snapshotIssues = moduleStatisticsSnapshotInvariantIssues(input.snapshot);
+  if (snapshotIssues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${snapshotIssues.join("; ")}`);
   const requestIssues = refactorRequestInvariantIssues(input.request);
   if (requestIssues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${requestIssues.join("; ")}`);
   // Without this binding the classifier would resolve ownership against a model the snapshot never
@@ -82,7 +92,13 @@ export function assessRefactor(input: RefactorAssessmentInputV1): RefactorAssess
   const observations = buildObservations(input.snapshot);
   const proposal = input.request.proposal;
   const classification = proposal
-    ? classifyProposal({ snapshot: input.snapshot, model: input.model, scope: input.request.scope, proposal })
+    ? classifyProposal({
+      snapshot: input.snapshot,
+      model: input.model,
+      trackedFiles: input.trackedFiles,
+      scope: input.request.scope,
+      proposal
+    })
     : observationOnly(input.snapshot.codeFacts.coverage);
 
   const draft: RefactorAssessmentV1 = {
@@ -221,12 +237,14 @@ function observationOnly(coverage: EvidenceCoverageLevelV2): ProposalClassificat
 function classifyProposal(context: {
   snapshot: ModuleStatisticsSnapshotV1;
   model: NativeModel;
+  trackedFiles: readonly string[];
   scope: RefactorRequestV1["scope"];
   proposal: RefactorProposalV1;
 }): ProposalClassification {
-  const scopeOwnership = resolveScopePaths(context.model, context.proposal.scopePaths);
+  const scopeOwnership = resolveScopePaths(context.model, context.trackedFiles, context.proposal.scopePaths);
   const derivation = deriveTargetDelta(context.proposal.targetDelta, {
     model: context.model,
+    snapshot: context.snapshot,
     currentOwnerIds: scopeOwnership.owners
   });
   // Ancestors deliberately do not count: `resolveOwnership` already collapsed each file onto its
@@ -318,11 +336,15 @@ interface ScopeOwnership {
  * structural ancestor collapse the snapshot was measured with, and forking the two would let a
  * proposal's owners disagree with the modules it was assessed against.
  */
-function resolveScopePaths(model: NativeModel, scopePaths: string[]): ScopeOwnership {
-  // `scopePaths` are file paths (PRD RF2). A glob or a directory marker names a set, not a file,
-  // and no set of files can be resolved to one deepest owner, so it fails the model gate.
-  const filePaths = scopePaths.filter(isFilePath);
-  const unowned = scopePaths.filter((path) => !isFilePath(path));
+function resolveScopePaths(model: NativeModel, trackedFiles: readonly string[], scopePaths: string[]): ScopeOwnership {
+  // `scopePaths` are tracked file paths (PRD RF2). Membership in the snapshot's own tracked-file
+  // set is the test: a glob, a directory, or a path the commit does not carry names no file the
+  // instrument observed, so it can never resolve to one deepest owner and fails the model gate.
+  // Both sides are already contract-constrained to repo-relative POSIX, so exact string equality
+  // is the comparison; a second path dialect here would fork the ownership rule.
+  const tracked = new Set(trackedFiles);
+  const filePaths = scopePaths.filter((path) => isFilePath(path) && tracked.has(path));
+  const unowned = scopePaths.filter((path) => !isFilePath(path) || !tracked.has(path));
   const index = resolveOwnership(model.nodes, filePaths);
   const owners = new Set<string>();
   const contested: string[] = [];
@@ -338,8 +360,9 @@ function resolveScopePaths(model: NativeModel, scopePaths: string[]): ScopeOwner
   return { owners: [...owners].sort(), unowned: unowned.sort(), contested: contested.sort() };
 }
 
+/** Defense in depth behind the tracked-file test: these shapes name a set, never one file. */
 function isFilePath(path: string): boolean {
-  return !/[*?]/.test(path) && !path.endsWith("/");
+  return !/[*?[\]{}()!]/.test(path) && !path.endsWith("/");
 }
 
 function buildUnresolvedEvidence(context: {

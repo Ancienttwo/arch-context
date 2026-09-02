@@ -3,6 +3,8 @@ import {
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
   REFACTOR_REQUEST_SCHEMA_VERSION,
   architectureTargetDeltaInterventionId,
+  moduleStatisticsDigest,
+  moduleStatisticsSnapshotDigest,
   refactorProposalDigest,
   type ArchitectureTargetDeltaV1,
   type ModuleStatisticsSnapshotV1,
@@ -29,7 +31,19 @@ export const MODEL: NativeModel = {
     { id: "module.m", kind: "module", name: "M", source: { include: ["src/m/**"] } },
     { id: "component.a", kind: "component", name: "A", parent: "module.m", source: { include: ["src/m/a/**"] } },
     { id: "component.b", kind: "component", name: "B", parent: "module.m", source: { include: ["src/m/b/**"] } },
-    { id: "module.c", kind: "module", name: "C", source: { include: ["src/c/**"] } }
+    {
+      id: "module.c",
+      kind: "module",
+      name: "C",
+      source: {
+        include: ["src/c/**"],
+        entrypoints: [{
+          id: "entrypoint.architecture-context.cli",
+          path: "src/c/z.ts",
+          symbols: [{ name: "run", sinks: [{ id: "sink.c.store", path: "src/c/z.ts", symbol: "write" }] }]
+        }]
+      }
+    }
   ],
   relations: [{ id: "relation.a-to-b", kind: "uses", source: "component.a", target: "component.b", intent: "calls B" }]
 };
@@ -56,6 +70,8 @@ export const TRACKED_FILES = [
   { path: "src/m/root.ts", lineCount: 3 },
   { path: "tools/gen.ts", lineCount: 2 }
 ];
+
+export const TRACKED_PATHS: readonly string[] = TRACKED_FILES.map((file) => file.path);
 
 /** `component.a` and `module.c` import each other, so the module graph carries one component. */
 export const CYCLE_EDGES = [
@@ -92,6 +108,25 @@ export function makeSnapshotInput(overrides: Partial<ModuleStatisticsInputV1> = 
 
 export function makeSnapshot(overrides: Partial<ModuleStatisticsInputV1> = {}): ModuleStatisticsSnapshotV1 {
   return buildModuleStatisticsSnapshot(makeSnapshotInput(overrides));
+}
+
+/**
+ * Rebinds a snapshot around an observed entrypoint. RF1b emits `observedEntrypoints: []` for every
+ * module in v1, so this fixture builds the producer's future output by hand and reseals both
+ * digests through the frozen helpers rather than tampering with a signed payload.
+ */
+export function withObservedEntrypoint(
+  snapshot: ModuleStatisticsSnapshotV1,
+  nodeId: string,
+  entrypointId: string
+): ModuleStatisticsSnapshotV1 {
+  const modules = snapshot.modules.map((module) => {
+    if (module.nodeId !== nodeId) return module;
+    const draft = { ...module, surfaces: { ...module.surfaces, observedEntrypoints: [entrypointId] }, moduleDigest: "" };
+    return { ...draft, moduleDigest: moduleStatisticsDigest(draft) };
+  });
+  const draft = { ...snapshot, modules, snapshotDigest: "" };
+  return { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
 }
 
 /** Seals an authored delta: `interventionId` is derived, `unresolvedTargets` starts empty. */
@@ -155,6 +190,7 @@ export function makeAssessmentInput(overrides: Partial<RefactorAssessmentInputV1
   return {
     snapshot: makeSnapshot(),
     model: MODEL,
+    trackedFiles: TRACKED_PATHS,
     request: makeRequest(),
     requestId: "request.rf2-fixture",
     createdAt: "2026-09-03T05:13:00.000Z",

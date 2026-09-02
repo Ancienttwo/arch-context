@@ -146,10 +146,25 @@ describe("S5 incomplete evidence", () => {
     expect(assessment.confidence.unresolvedEvidence).toContain("undeclared-footprint:module.m");
   });
 
-  test("a directory or glob scope entry is not a file path, so it is unowned", () => {
-    const { assessment } = assessProposal(["src/m/**"]);
+  test.each([
+    ["a glob", "src/m/**"],
+    ["a character class", "src/m/[ab]/x.ts"],
+    ["a brace expansion", "src/m/{a,b}/x.ts"],
+    ["an extglob", "src/m/a/+(x).ts"],
+    ["a directory", "src/m/a"],
+    ["a plausible but untracked file", "src/m/a/absent.ts"]
+  ])("%s scope entry is not a tracked file, so it is unowned", (_label, scopePath) => {
+    const { assessment } = assessProposal([scopePath]);
     expect(assessment.scale).toBe("model_adoption_required");
-    expect(assessment.confidence.unresolvedEvidence).toContain("unowned-path:src/m/**");
+    expect(assessment.scaleReasonCodes).toContain("unowned-paths");
+    expect(assessment.confidence.unresolvedEvidence).toContain(`unowned-path:${scopePath}`);
+  });
+
+  test("an untracked path is unowned even though a node glob claims it", () => {
+    // `src/m/a/absent.ts` matches `component.a`'s include; only the tracked-file test rejects it.
+    const { assessment } = assessProposal(["src/m/a/absent.ts"]);
+    expect(assessment.affectedNodeIds).toEqual([]);
+    expect(assessment.scale).toBe("model_adoption_required");
   });
 
   test("an unresolvable targetDelta id is insufficient_evidence, never architecture", () => {
@@ -176,6 +191,22 @@ describe("S5 incomplete evidence", () => {
     expect(assessment.scale).toBe("insufficient_evidence");
     expect(assessment.scaleReasonCodes).toContain("target-unresolved");
     expect(assessment.scaleReasonCodes).toContain("unowned-paths");
+  });
+});
+
+describe("declared selectors in targetDelta", () => {
+  test("a removed declared entrypoint is resolved, so the scale is not insufficient_evidence", () => {
+    const proposal = makeProposal({
+      scopePaths: ["src/m/a/x.ts"],
+      targetDelta: makeTargetDelta({
+        targetState: { owners: {}, requiredRelations: [], removedConcepts: ["entrypoint.architecture-context.cli"] }
+      })
+    });
+    const { assessment, proposal: filled } = assess({ request: makeRequest({ proposal }) });
+    expect(filled?.targetDelta?.unresolvedTargets).toEqual([]);
+    expect(assessment.scaleReasonCodes).not.toContain("target-unresolved");
+    expect(assessment.scale).toBe("module");
+    expect(assessment.majorChangeReasons).toEqual([]);
   });
 });
 

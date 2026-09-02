@@ -1,20 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { architectureTargetDeltaInterventionId, refactorProposalDigest } from "@archcontext/contracts";
 import { deriveTargetDelta, withUnresolvedTargets } from "../src/index";
-import { MODEL, makeProposal, makeTargetDelta } from "./factories";
+import { MODEL, makeProposal, makeSnapshot, makeTargetDelta, withObservedEntrypoint } from "./factories";
 
 const CURRENT_OWNERS = ["component.a"];
+const SNAPSHOT = makeSnapshot();
 
 function derive(
   overrides: Parameters<typeof makeTargetDelta>[0] = {},
   currentOwnerIds: string[] = CURRENT_OWNERS
 ) {
-  return deriveTargetDelta(makeTargetDelta(overrides), { model: MODEL, currentOwnerIds });
+  return deriveTargetDelta(makeTargetDelta(overrides), { model: MODEL, snapshot: SNAPSHOT, currentOwnerIds });
 }
 
 describe("majorChangeReasons", () => {
   test("is empty when the proposal carries no targetDelta", () => {
-    expect(deriveTargetDelta(undefined, { model: MODEL, currentOwnerIds: CURRENT_OWNERS })).toEqual({
+    expect(deriveTargetDelta(undefined, { model: MODEL, snapshot: SNAPSHOT, currentOwnerIds: CURRENT_OWNERS })).toEqual({
       reasons: [],
       unresolvedTargets: [],
       resolvedNodeIds: []
@@ -149,6 +150,30 @@ describe("unresolvedTargets", () => {
   });
 });
 
+describe("declared selector resolution", () => {
+  test("a removedConcepts entry naming a declared entrypoint resolves without a reason code", () => {
+    const derivation = derive({ targetState: { owners: {}, requiredRelations: [], removedConcepts: ["entrypoint.architecture-context.cli"] } });
+    expect(derivation.unresolvedTargets).toEqual([]);
+    expect(derivation.reasons).toEqual([]);
+    expect(derivation.resolvedNodeIds).toEqual([]);
+  });
+
+  test("a removedConcepts entry naming a declared sink resolves without a reason code", () => {
+    const derivation = derive({ targetState: { owners: {}, requiredRelations: [], removedConcepts: ["sink.c.store"] } });
+    expect(derivation.unresolvedTargets).toEqual([]);
+    expect(derivation.reasons).toEqual([]);
+  });
+
+  test("a removedConcepts entry naming an observed entrypoint resolves", () => {
+    const snapshot = withObservedEntrypoint(SNAPSHOT, "module.c", "entrypoint.observed.worker");
+    const delta = makeTargetDelta({ targetState: { owners: {}, requiredRelations: [], removedConcepts: ["entrypoint.observed.worker"] } });
+    expect(deriveTargetDelta(delta, { model: MODEL, snapshot, currentOwnerIds: CURRENT_OWNERS }).unresolvedTargets).toEqual([]);
+    // The same id is unresolved against the snapshot that never observed it.
+    expect(derive({ targetState: { owners: {}, requiredRelations: [], removedConcepts: ["entrypoint.observed.worker"] } }).unresolvedTargets)
+      .toEqual(["entrypoint.observed.worker"]);
+  });
+});
+
 describe("filling unresolvedTargets is digest-safe", () => {
   test("leaves proposalDigest and interventionId untouched", () => {
     const proposal = makeProposal({
@@ -156,7 +181,7 @@ describe("filling unresolvedTargets is digest-safe", () => {
         targetState: { owners: { primaryLifecycle: "module.absent" }, requiredRelations: [], removedConcepts: [] }
       })
     });
-    const derivation = deriveTargetDelta(proposal.targetDelta, { model: MODEL, currentOwnerIds: CURRENT_OWNERS });
+    const derivation = deriveTargetDelta(proposal.targetDelta, { model: MODEL, snapshot: SNAPSHOT, currentOwnerIds: CURRENT_OWNERS });
     const filled = { ...proposal, targetDelta: withUnresolvedTargets(proposal.targetDelta!, derivation.unresolvedTargets) };
 
     expect(filled.targetDelta.unresolvedTargets).toEqual(["module.absent"]);
