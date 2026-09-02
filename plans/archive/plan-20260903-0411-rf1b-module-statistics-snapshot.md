@@ -1,6 +1,6 @@
 # Plan: Sprint task: rf1b-module-statistics-snapshot
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260903-0411
 > **Slug**: rf1b-module-statistics-snapshot
 > **Planning Source**: repo-harness-sprint

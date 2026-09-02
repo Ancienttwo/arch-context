@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-09-03T04:00:35+0800 -->
+<!-- updated_at: 2026-09-03T05:11:07+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-09-03T04:00:35+0800
-> **Source Branch**: codex/rf1a-contracts-freeze
-> **Source Commit**: 87430f0
+> **Updated At**: 2026-09-03T05:11:07+0800
+> **Source Branch**: codex/rf1b-module-statistics-snapshot
+> **Source Commit**: d63f499
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -43,7 +43,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - (none)
 ## Handoff
 
-- Exact Next Step: Stage the completed module diff first; then run /check and let canonical workflow gates determine whether review, external acceptance, verification, or worktree finish is next. Command: /check
+- Exact Next Step: If a major module was just completed, stage its coherent diff first; then continue the next Task Breakdown item: Package registration (core exports, tsconfig path) + `ModuleStatisticsInputV1`
 
 ## Checks
 
@@ -54,16 +54,16 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260903-0305-rf1a-contracts-freeze.md
- D tasks/contracts/20260903-0305-rf1a-contracts-freeze.contract.md
- D tasks/notes/20260903-0305-rf1a-contracts-freeze.notes.md
- D tasks/reviews/20260903-0305-rf1a-contracts-freeze.review.md
+ D plans/plan-20260903-0411-rf1b-module-statistics-snapshot.md
+ D tasks/contracts/20260903-0411-rf1b-module-statistics-snapshot.contract.md
+ D tasks/notes/20260903-0411-rf1b-module-statistics-snapshot.notes.md
+ D tasks/reviews/20260903-0411-rf1b-module-statistics-snapshot.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260903-0305-rf1a-contracts-freeze.md
-?? tasks/archive/contract-20260903-0400-rf1a-contracts-freeze.md
-?? tasks/archive/notes-20260903-0400-rf1a-contracts-freeze.md
-?? tasks/archive/review-20260903-0400-rf1a-contracts-freeze.md
-?? tasks/archive/todo-20260903-0400-rf1a-contracts-freeze.md
+?? plans/archive/plan-20260903-0411-rf1b-module-statistics-snapshot.md
+?? tasks/archive/contract-20260903-0511-rf1b-module-statistics-snapshot.md
+?? tasks/archive/notes-20260903-0511-rf1b-module-statistics-snapshot.md
+?? tasks/archive/review-20260903-0511-rf1b-module-statistics-snapshot.md
+?? tasks/archive/todo-20260903-0511-rf1b-module-statistics-snapshot.md
 ```
 
 ## Source Artifacts
