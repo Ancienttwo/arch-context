@@ -23,8 +23,12 @@
     "./retrieval": "./retrieval/src/index.ts",
     "./review-engine": "./review-engine/src/index.ts"
   },
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@archcontext/contracts": "workspace:*",
-    "@node-rs/jieba": "^2.0.1"
+    "@node-rs/jieba": "^2.0.1",
+    "koffi": "3.1.6"
   }
 }
