@@ -48,6 +48,7 @@
 - Root `bun run verify`: 1305 tests pass, 0 fail, 8045 assertions; representative eval PASS.
 - Hosted Linux/macOS/Windows Node 22.22/24/25 evidence is required on the PR head before merge.
 - The first committed `verify-sprint --prepare-acceptance` run exposed a missing contract Change Assessment block. No acceptance was issued; the contract now freezes the deterministic adversarial test and packaged Node-only docs-pin readback as the two whole-subject oracles.
+- The generated acceptance policy named Claude, but no Claude review was explicitly requested. The final contract names the actual reviewer (`Codex`, source `codex-review`) instead of fabricating an external review or treating implementation approval as a user waiver.
 
 ## Promotion Filter
 
