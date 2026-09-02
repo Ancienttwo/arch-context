@@ -1,0 +1,142 @@
+[
+  {
+    "id": "declared-footprints-over-a-synthetic-tree",
+    "description": "include minus exclude, .git and node_modules skipped, files sorted, nodes sorted by id, nodes without source.include omitted",
+    "input": {
+      "tree": {
+        "README.md": "# root\n",
+        ".git/HEAD": "ref: refs/heads/main\n",
+        "node_modules/pkg/index.ts": "export const skipped = 1;\n",
+        "packages/app/src/a.ts": "line1\nline2\nline3\n",
+        "packages/app/src/b.ts": "no trailing newline",
+        "packages/app/src/empty.ts": "",
+        "packages/app/src/nested/deep/d.ts": "one\ntwo\n",
+        "packages/app/test/a.test.ts": "// excluded from the footprint\n",
+        "packages/app/node_modules/vendor/v.ts": "export const vendored = 1;\n",
+        "packages/other/src/c.ts": "alpha\nbeta\ngamma\ndelta\n",
+        "packages/other/README.md": "# other\n"
+      },
+      "model": {
+        "nodes": [
+          {
+            "id": "capability.other",
+            "kind": "capability",
+            "name": "Other",
+            "source": {
+              "include": [
+                "packages/other/**"
+              ]
+            }
+          },
+          {
+            "id": "capability.app",
+            "kind": "capability",
+            "name": "App",
+            "source": {
+              "include": [
+                "packages/app/**"
+              ],
+              "exclude": [
+                "packages/app/test/**"
+              ]
+            }
+          },
+          {
+            "id": "module.no-source",
+            "kind": "module",
+            "name": "No Source"
+          },
+          {
+            "id": "module.empty-include",
+            "kind": "module",
+            "name": "Empty Include",
+            "source": {
+              "include": []
+            }
+          },
+          {
+            "id": "capability.no-match",
+            "kind": "capability",
+            "name": "No Match",
+            "source": {
+              "include": [
+                "packages/absent/**"
+              ]
+            }
+          }
+        ],
+        "relations": []
+      }
+    },
+    "expected": {
+      "footprints": [
+        {
+          "nodeId": "capability.app",
+          "files": [
+            "packages/app/src/a.ts",
+            "packages/app/src/b.ts",
+            "packages/app/src/empty.ts",
+            "packages/app/src/nested/deep/d.ts"
+          ],
+          "includePatterns": [
+            "packages/app/**"
+          ],
+          "excludePatterns": [
+            "packages/app/test/**"
+          ]
+        },
+        {
+          "nodeId": "capability.no-match",
+          "files": [],
+          "includePatterns": [
+            "packages/absent/**"
+          ],
+          "excludePatterns": []
+        },
+        {
+          "nodeId": "capability.other",
+          "files": [
+            "packages/other/README.md",
+            "packages/other/src/c.ts"
+          ],
+          "includePatterns": [
+            "packages/other/**"
+          ],
+          "excludePatterns": []
+        }
+      ],
+      "scaleSignals": [
+        {
+          "nodeId": "capability.app",
+          "fileCount": 4,
+          "lineCount": 6,
+          "includePatterns": [
+            "packages/app/**"
+          ],
+          "excludePatterns": [
+            "packages/app/test/**"
+          ]
+        },
+        {
+          "nodeId": "capability.no-match",
+          "fileCount": 0,
+          "lineCount": 0,
+          "includePatterns": [
+            "packages/absent/**"
+          ],
+          "excludePatterns": []
+        },
+        {
+          "nodeId": "capability.other",
+          "fileCount": 2,
+          "lineCount": 5,
+          "includePatterns": [
+            "packages/other/**"
+          ],
+          "excludePatterns": []
+        }
+      ]
+    },
+    "digest": "sha256:8fc8a4411fdbd99771a20d241acdfbc8ba45ac5eb56788fd9ce8be07f501f67c"
+  }
+]

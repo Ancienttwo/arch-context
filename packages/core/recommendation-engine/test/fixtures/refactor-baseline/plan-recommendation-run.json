@@ -1,0 +1,1331 @@
+[
+  {
+    "id": "single-medium-risk-candidate",
+    "description": "one medium-risk candidate at a fixed now produces the frozen run, ids and digests",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "riskSignals": [
+            "boundary-change"
+          ],
+          "uncertaintySignals": [],
+          "score": 52
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z"
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.9f23e1e0ef517306",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L1",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:9f23e1e0ef51730628f97f496c729aa0e5bf6ce54727bdf83611a91569763585",
+        "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [
+          "recommendation.9a73926c59bdc665"
+        ],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 1,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [],
+          "investigationEligibleRecommendationIds": [],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 0,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [
+        {
+          "schemaVersion": "archcontext.recommendation/v2",
+          "recommendationId": "recommendation.9a73926c59bdc665",
+          "runId": "recommendation_run.9f23e1e0ef517306",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "open",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "risk": "medium",
+          "uncertainty": "low",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "createdAt": "2026-06-26T12:00:00.000Z",
+          "updatedAt": "2026-06-26T12:00:00.000Z",
+          "extensions": {
+            "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "riskSignals": [
+              "boundary-change"
+            ],
+            "uncertaintySignals": [],
+            "explanationTree": {
+              "schemaVersion": "archcontext.recommendation-explanation-tree/v1",
+              "trigger": {
+                "level": "L1",
+                "source": "checkpoint"
+              },
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "evidenceBindingIds": [
+                "evidence.module.checkout-runtime.boundary"
+              ],
+              "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "score": 52,
+              "risk": {
+                "level": "medium",
+                "signals": [
+                  "boundary-change"
+                ],
+                "reasonCodes": [
+                  "risk:boundary-change"
+                ]
+              },
+              "uncertainty": {
+                "level": "low",
+                "signals": [],
+                "reasonCodes": [
+                  "uncertainty:evidence-bound"
+                ]
+              },
+              "policyOutcome": {
+                "enforcement": "advisory",
+                "l3InvestigationEligible": false
+              }
+            },
+            "l3InvestigationEligible": false,
+            "l3InvestigationSuppressedByBudget": false
+          }
+        }
+      ],
+      "suppressed": [],
+      "investigationEligibleRecommendationIds": [],
+      "inputDigest": "sha256:9f23e1e0ef51730628f97f496c729aa0e5bf6ce54727bdf83611a91569763585",
+      "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64"
+    },
+    "digest": "sha256:f415cfce3d55d2ad9793539a9bcef2f9194b22b85f348c82a4bdfc0e7957b7ba"
+  },
+  {
+    "id": "high-risk-high-uncertainty-l3",
+    "description": "high risk plus high uncertainty escalates the run to L3 and marks the recommendation investigation-eligible",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "low",
+          "enforcement": "checkpoint",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary",
+            "evidence.module.checkout-runtime.payment"
+          ],
+          "explanation": [
+            "module.checkout-runtime changed a payment-facing persistence boundary with ambiguous ownership evidence."
+          ],
+          "baselineDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "riskSignals": [
+            "persistence-change",
+            "payment-domain-change"
+          ],
+          "uncertaintySignals": [
+            "mapping-ambiguity"
+          ],
+          "score": 91
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z"
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.fce9ebc36d50d824",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L3",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:fce9ebc36d50d82422b5864e8638aceaef5de210049bc3b4c3b0f87660e96860",
+        "outputDigest": "sha256:cb251d9ca898f5e228cc7d7b15f30097d7bf411b113edc9a8b82f058e2fc2bc3",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [
+          "recommendation.e1ef0f06ba8af7da"
+        ],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 2,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [],
+          "investigationEligibleRecommendationIds": [
+            "recommendation.e1ef0f06ba8af7da"
+          ],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 1,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [
+        {
+          "schemaVersion": "archcontext.recommendation/v2",
+          "recommendationId": "recommendation.e1ef0f06ba8af7da",
+          "runId": "recommendation_run.fce9ebc36d50d824",
+          "fingerprint": "sha256:e1ef0f06ba8af7daeb0e00a94b07735e1360e9a0a1277abc4df4900bebca368a",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "open",
+          "confidence": "low",
+          "enforcement": "checkpoint",
+          "risk": "high",
+          "uncertainty": "high",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary",
+            "evidence.module.checkout-runtime.payment"
+          ],
+          "explanation": [
+            "module.checkout-runtime changed a payment-facing persistence boundary with ambiguous ownership evidence."
+          ],
+          "createdAt": "2026-06-26T12:00:00.000Z",
+          "updatedAt": "2026-06-26T12:00:00.000Z",
+          "extensions": {
+            "baselineDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+            "riskSignals": [
+              "payment-domain-change",
+              "persistence-change"
+            ],
+            "uncertaintySignals": [
+              "mapping-ambiguity"
+            ],
+            "explanationTree": {
+              "schemaVersion": "archcontext.recommendation-explanation-tree/v1",
+              "trigger": {
+                "level": "L3",
+                "source": "checkpoint"
+              },
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "evidenceBindingIds": [
+                "evidence.module.checkout-runtime.boundary",
+                "evidence.module.checkout-runtime.payment"
+              ],
+              "baselineDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+              "score": 91,
+              "risk": {
+                "level": "high",
+                "signals": [
+                  "payment-domain-change",
+                  "persistence-change"
+                ],
+                "reasonCodes": [
+                  "risk:payment-domain-change",
+                  "risk:persistence-change"
+                ]
+              },
+              "uncertainty": {
+                "level": "high",
+                "signals": [
+                  "mapping-ambiguity"
+                ],
+                "reasonCodes": [
+                  "uncertainty:low-confidence",
+                  "uncertainty:mapping-ambiguity"
+                ]
+              },
+              "policyOutcome": {
+                "enforcement": "checkpoint",
+                "l3InvestigationEligible": true
+              }
+            },
+            "l3InvestigationEligible": true,
+            "l3InvestigationSuppressedByBudget": false
+          }
+        }
+      ],
+      "suppressed": [],
+      "investigationEligibleRecommendationIds": [
+        "recommendation.e1ef0f06ba8af7da"
+      ],
+      "inputDigest": "sha256:fce9ebc36d50d82422b5864e8638aceaef5de210049bc3b4c3b0f87660e96860",
+      "outputDigest": "sha256:cb251d9ca898f5e228cc7d7b15f30097d7bf411b113edc9a8b82f058e2fc2bc3"
+    },
+    "digest": "sha256:5def66866a33e9d8f24c5925b8adc9a5fd082755c9603c9927cb3a8fa88b8bd7"
+  },
+  {
+    "id": "duplicate-active-fingerprint-suppressed",
+    "description": "an active previous recommendation with the same fingerprint suppresses the candidate",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "riskSignals": [
+            "boundary-change"
+          ],
+          "uncertaintySignals": [],
+          "score": 52
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z",
+      "previousRecommendations": [
+        {
+          "recommendationId": "recommendation.9a73926c59bdc665",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "open",
+          "updatedAt": "2026-06-20T12:00:00.000Z"
+        }
+      ]
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.fad86ca275d774f2",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L1",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:fad86ca275d774f2e86c6a8351679e210cc752a771d91167c2fd57131a428a16",
+        "outputDigest": "sha256:d7a832850788da0e03796f43c1d3e73240930b3a603b64cc075bb16be2410273",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 1,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [
+            {
+              "reasonCode": "duplicate-active-fingerprint",
+              "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "previousRecommendationId": "recommendation.9a73926c59bdc665"
+            }
+          ],
+          "investigationEligibleRecommendationIds": [],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 0,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [],
+      "suppressed": [
+        {
+          "reasonCode": "duplicate-active-fingerprint",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "previousRecommendationId": "recommendation.9a73926c59bdc665"
+        }
+      ],
+      "investigationEligibleRecommendationIds": [],
+      "inputDigest": "sha256:fad86ca275d774f2e86c6a8351679e210cc752a771d91167c2fd57131a428a16",
+      "outputDigest": "sha256:d7a832850788da0e03796f43c1d3e73240930b3a603b64cc075bb16be2410273"
+    },
+    "digest": "sha256:3e4cac21254f91ee16dbea16bab7482314b4fe6534f1e75ad3b75f2fd77d0765"
+  },
+  {
+    "id": "resolved-previous-fingerprint-not-suppressed",
+    "description": "a terminal previous status is not an active duplicate, so the candidate is re-emitted",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "riskSignals": [
+            "boundary-change"
+          ],
+          "uncertaintySignals": [],
+          "score": 52
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z",
+      "previousRecommendations": [
+        {
+          "recommendationId": "recommendation.9a73926c59bdc665",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "resolved",
+          "updatedAt": "2026-06-20T12:00:00.000Z"
+        }
+      ]
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.15794c10427d5613",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L1",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:15794c10427d5613ba9a57fb160890037edee172b3ec21ee013594c5dbfe74fa",
+        "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [
+          "recommendation.9a73926c59bdc665"
+        ],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 1,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [],
+          "investigationEligibleRecommendationIds": [],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 0,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [
+        {
+          "schemaVersion": "archcontext.recommendation/v2",
+          "recommendationId": "recommendation.9a73926c59bdc665",
+          "runId": "recommendation_run.15794c10427d5613",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "open",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "risk": "medium",
+          "uncertainty": "low",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "createdAt": "2026-06-26T12:00:00.000Z",
+          "updatedAt": "2026-06-26T12:00:00.000Z",
+          "extensions": {
+            "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "riskSignals": [
+              "boundary-change"
+            ],
+            "uncertaintySignals": [],
+            "explanationTree": {
+              "schemaVersion": "archcontext.recommendation-explanation-tree/v1",
+              "trigger": {
+                "level": "L1",
+                "source": "checkpoint"
+              },
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "evidenceBindingIds": [
+                "evidence.module.checkout-runtime.boundary"
+              ],
+              "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "score": 52,
+              "risk": {
+                "level": "medium",
+                "signals": [
+                  "boundary-change"
+                ],
+                "reasonCodes": [
+                  "risk:boundary-change"
+                ]
+              },
+              "uncertainty": {
+                "level": "low",
+                "signals": [],
+                "reasonCodes": [
+                  "uncertainty:evidence-bound"
+                ]
+              },
+              "policyOutcome": {
+                "enforcement": "advisory",
+                "l3InvestigationEligible": false
+              }
+            },
+            "l3InvestigationEligible": false,
+            "l3InvestigationSuppressedByBudget": false
+          }
+        }
+      ],
+      "suppressed": [],
+      "investigationEligibleRecommendationIds": [],
+      "inputDigest": "sha256:15794c10427d5613ba9a57fb160890037edee172b3ec21ee013594c5dbfe74fa",
+      "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64"
+    },
+    "digest": "sha256:8b6233fa34658a23c2363aac849bc958b21e128eea87ea87693d6c0148c9837a"
+  },
+  {
+    "id": "cooldown-boundary-exactly-elapsed-not-suppressed",
+    "description": "a cooldown whose default window ends exactly at now does not suppress",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "riskSignals": [
+            "boundary-change"
+          ],
+          "uncertaintySignals": [],
+          "score": 52
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z",
+      "cooldowns": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "lastRecommendedAt": "2026-06-19T12:00:00.000Z"
+        }
+      ]
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.6d7358f62df45f82",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L1",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:6d7358f62df45f82b30dc8c4c9eca3528350039fb8859f82bace6ee2c95dbb7e",
+        "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [
+          "recommendation.9a73926c59bdc665"
+        ],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 1,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [],
+          "investigationEligibleRecommendationIds": [],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 0,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [
+        {
+          "schemaVersion": "archcontext.recommendation/v2",
+          "recommendationId": "recommendation.9a73926c59bdc665",
+          "runId": "recommendation_run.6d7358f62df45f82",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "open",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "risk": "medium",
+          "uncertainty": "low",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "createdAt": "2026-06-26T12:00:00.000Z",
+          "updatedAt": "2026-06-26T12:00:00.000Z",
+          "extensions": {
+            "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "riskSignals": [
+              "boundary-change"
+            ],
+            "uncertaintySignals": [],
+            "explanationTree": {
+              "schemaVersion": "archcontext.recommendation-explanation-tree/v1",
+              "trigger": {
+                "level": "L1",
+                "source": "checkpoint"
+              },
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "evidenceBindingIds": [
+                "evidence.module.checkout-runtime.boundary"
+              ],
+              "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "score": 52,
+              "risk": {
+                "level": "medium",
+                "signals": [
+                  "boundary-change"
+                ],
+                "reasonCodes": [
+                  "risk:boundary-change"
+                ]
+              },
+              "uncertainty": {
+                "level": "low",
+                "signals": [],
+                "reasonCodes": [
+                  "uncertainty:evidence-bound"
+                ]
+              },
+              "policyOutcome": {
+                "enforcement": "advisory",
+                "l3InvestigationEligible": false
+              }
+            },
+            "l3InvestigationEligible": false,
+            "l3InvestigationSuppressedByBudget": false
+          }
+        }
+      ],
+      "suppressed": [],
+      "investigationEligibleRecommendationIds": [],
+      "inputDigest": "sha256:6d7358f62df45f82b30dc8c4c9eca3528350039fb8859f82bace6ee2c95dbb7e",
+      "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64"
+    },
+    "digest": "sha256:e9444c18ee1362746dff108347e63639e1ada1751154f614aebdfa94edc2dc16"
+  },
+  {
+    "id": "cooldown-boundary-one-ms-short-suppressed",
+    "description": "one millisecond short of the default cooldown window suppresses with cooldown-active",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "riskSignals": [
+            "boundary-change"
+          ],
+          "uncertaintySignals": [],
+          "score": 52
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z",
+      "cooldowns": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "lastRecommendedAt": "2026-06-19T12:00:00.001Z"
+        }
+      ]
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.e734f707050b74f5",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L1",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:e734f707050b74f5eaffa90270988a9ec1d2ad63b0a59c0469a7beea369c8a74",
+        "outputDigest": "sha256:a346e1448d0fe9b525e308ad25883a9c9853de77f7c8faad411a6d54cec3a344",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 1,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [
+            {
+              "reasonCode": "cooldown-active",
+              "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "cooldownUntil": "2026-06-26T12:00:00.001Z"
+            }
+          ],
+          "investigationEligibleRecommendationIds": [],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 0,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [],
+      "suppressed": [
+        {
+          "reasonCode": "cooldown-active",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "cooldownUntil": "2026-06-26T12:00:00.001Z"
+        }
+      ],
+      "investigationEligibleRecommendationIds": [],
+      "inputDigest": "sha256:e734f707050b74f5eaffa90270988a9ec1d2ad63b0a59c0469a7beea369c8a74",
+      "outputDigest": "sha256:a346e1448d0fe9b525e308ad25883a9c9853de77f7c8faad411a6d54cec3a344"
+    },
+    "digest": "sha256:b4423b872b05749c20ac071a7ff051e1e114a539ff0831eeafe4cac3c639b623"
+  },
+  {
+    "id": "cooldown-for-other-subject-does-not-match",
+    "description": "a cooldown scoped to a different subject leaves the candidate untouched",
+    "input": {
+      "repository": {
+        "repositoryId": "repo.arch-context",
+        "storageRepositoryId": "repo.arch-context"
+      },
+      "worktree": {
+        "workspaceId": "workspace.arch-context",
+        "storageWorkspaceId": "workspace.arch-context",
+        "branch": "codex/rf0",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+      },
+      "triggerSource": "checkpoint",
+      "policyMode": "advisory",
+      "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "inputCursor": {
+        "source": "candidate-delta",
+        "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+        "headSha": "0123456789abcdef0123456789abcdef01234567",
+        "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+      },
+      "candidates": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.checkout-runtime",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "riskSignals": [
+            "boundary-change"
+          ],
+          "uncertaintySignals": [],
+          "score": 52
+        }
+      ],
+      "now": "2026-06-26T12:00:00.000Z",
+      "cooldowns": [
+        {
+          "practiceId": "practice.runtime-boundary",
+          "subject": "module.billing-runtime",
+          "lastRecommendedAt": "2026-06-26T12:00:00.000Z"
+        }
+      ]
+    },
+    "expected": {
+      "run": {
+        "schemaVersion": "archcontext.recommendation-run/v1",
+        "runId": "recommendation_run.5f399f44f81ddf1c",
+        "repository": {
+          "repositoryId": "repo.arch-context",
+          "storageRepositoryId": "repo.arch-context"
+        },
+        "worktree": {
+          "workspaceId": "workspace.arch-context",
+          "storageWorkspaceId": "workspace.arch-context",
+          "branch": "codex/rf0",
+          "headSha": "0123456789abcdef0123456789abcdef01234567",
+          "worktreeDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+        },
+        "trigger": {
+          "level": "L1",
+          "source": "checkpoint"
+        },
+        "engineVersion": "archcontext.recommendation-scheduler/v1",
+        "catalogDigest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+        "inputDigest": "sha256:5f399f44f81ddf1c8347f7456738c4a034c76a08d100e8cb5294c053f48604d4",
+        "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64",
+        "policyMode": "advisory",
+        "status": "succeeded",
+        "startedAt": "2026-06-26T12:00:00.000Z",
+        "completedAt": "2026-06-26T12:00:00.000Z",
+        "recommendationIds": [
+          "recommendation.9a73926c59bdc665"
+        ],
+        "metrics": {
+          "matchCount": 1,
+          "evidenceBindingCount": 1,
+          "unboundEvidenceCount": 0
+        },
+        "extensions": {
+          "inputCursor": {
+            "source": "candidate-delta",
+            "baseDigest": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+            "headDigest": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+            "headSha": "0123456789abcdef0123456789abcdef01234567",
+            "candidateDeltaDigest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "suppressed": [],
+          "investigationEligibleRecommendationIds": [],
+          "schedulerLevelMatrix": "L0=status,L1=hook,L2=high-risk,L3=high-risk-high-uncertainty,L4=manual",
+          "cooldownMs": 604800000,
+          "schedulerPolicy": {
+            "enabled": true,
+            "policyMode": "advisory",
+            "frequency": {
+              "minIntervalMs": 0,
+              "cooldownMs": 604800000
+            },
+            "budgets": {
+              "maxRecommendationsPerRun": 25,
+              "maxL3InvestigationsPerRun": 1,
+              "maxRunsPerTask": 1,
+              "maxRunsPerRepositoryPerDay": 25,
+              "maxRunsPerDay": 100
+            },
+            "reasonCodes": [
+              "safe-defaults"
+            ]
+          },
+          "schedulerBudget": {
+            "maxRecommendationsPerRun": 25,
+            "inputCandidateCount": 1,
+            "selectedCandidateCount": 1,
+            "omittedCandidateCount": 0,
+            "maxL3InvestigationsPerRun": 1,
+            "l3InvestigationEligibleCount": 0,
+            "enabled": true
+          }
+        }
+      },
+      "recommendations": [
+        {
+          "schemaVersion": "archcontext.recommendation/v2",
+          "recommendationId": "recommendation.9a73926c59bdc665",
+          "runId": "recommendation_run.5f399f44f81ddf1c",
+          "fingerprint": "sha256:9a73926c59bdc66508d0b166456a5032c308b4af56c48a0edcda38cd328ef7e5",
+          "subject": "module.checkout-runtime",
+          "practiceId": "practice.runtime-boundary",
+          "status": "open",
+          "confidence": "medium",
+          "enforcement": "advisory",
+          "risk": "medium",
+          "uncertainty": "low",
+          "evidenceBindingIds": [
+            "evidence.module.checkout-runtime.boundary"
+          ],
+          "explanation": [
+            "module.checkout-runtime boundary changed and should be reviewed by architecture owner."
+          ],
+          "createdAt": "2026-06-26T12:00:00.000Z",
+          "updatedAt": "2026-06-26T12:00:00.000Z",
+          "extensions": {
+            "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+            "riskSignals": [
+              "boundary-change"
+            ],
+            "uncertaintySignals": [],
+            "explanationTree": {
+              "schemaVersion": "archcontext.recommendation-explanation-tree/v1",
+              "trigger": {
+                "level": "L1",
+                "source": "checkpoint"
+              },
+              "subject": "module.checkout-runtime",
+              "practiceId": "practice.runtime-boundary",
+              "evidenceBindingIds": [
+                "evidence.module.checkout-runtime.boundary"
+              ],
+              "baselineDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+              "score": 52,
+              "risk": {
+                "level": "medium",
+                "signals": [
+                  "boundary-change"
+                ],
+                "reasonCodes": [
+                  "risk:boundary-change"
+                ]
+              },
+              "uncertainty": {
+                "level": "low",
+                "signals": [],
+                "reasonCodes": [
+                  "uncertainty:evidence-bound"
+                ]
+              },
+              "policyOutcome": {
+                "enforcement": "advisory",
+                "l3InvestigationEligible": false
+              }
+            },
+            "l3InvestigationEligible": false,
+            "l3InvestigationSuppressedByBudget": false
+          }
+        }
+      ],
+      "suppressed": [],
+      "investigationEligibleRecommendationIds": [],
+      "inputDigest": "sha256:5f399f44f81ddf1c8347f7456738c4a034c76a08d100e8cb5294c053f48604d4",
+      "outputDigest": "sha256:4c75c85ac781d3e8622d538e5f4758e46637351af4557cfd51f68c962e4d1b64"
+    },
+    "digest": "sha256:13154c0b0d8542541e1eaf380eb5d893c5a2777a9cd89bac8a861eead0a1fd6e"
+  }
+]

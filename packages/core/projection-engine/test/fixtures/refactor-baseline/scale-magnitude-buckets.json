@@ -1,0 +1,392 @@
+[
+  {
+    "id": "bucket-0",
+    "description": "a measured count of 0 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 0,
+      "lineCount": 0
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`0` 個文件 / `0` 行",
+      "label": "0"
+    },
+    "digest": "sha256:073499724a7027c9bc8bf0e4b7773edd939f01bc7d381e7bbcabc3d28a3e27f0"
+  },
+  {
+    "id": "bucket-1",
+    "description": "a measured count of 1 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 1,
+      "lineCount": 1
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`1–2` 個文件 / `1–2` 行",
+      "label": "1–2"
+    },
+    "digest": "sha256:3f9e670f3d538afa40d2df0e9554ce46c1112108d50786e5e263752ee2be8eb3"
+  },
+  {
+    "id": "bucket-2",
+    "description": "a measured count of 2 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 2,
+      "lineCount": 2
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`2–5` 個文件 / `2–5` 行",
+      "label": "2–5"
+    },
+    "digest": "sha256:76518c0e30691fff99c50c14231c054fa052584c31018344a484a090d9624a74"
+  },
+  {
+    "id": "bucket-3",
+    "description": "a measured count of 3 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 3,
+      "lineCount": 3
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`2–5` 個文件 / `2–5` 行",
+      "label": "2–5"
+    },
+    "digest": "sha256:76518c0e30691fff99c50c14231c054fa052584c31018344a484a090d9624a74"
+  },
+  {
+    "id": "bucket-5",
+    "description": "a measured count of 5 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 5,
+      "lineCount": 5
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`5–10` 個文件 / `5–10` 行",
+      "label": "5–10"
+    },
+    "digest": "sha256:eac8b8293aea3e195a11adf44e280416f31a31fe144451accacc5aaf699ab15f"
+  },
+  {
+    "id": "bucket-9",
+    "description": "a measured count of 9 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 9,
+      "lineCount": 9
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`5–10` 個文件 / `5–10` 行",
+      "label": "5–10"
+    },
+    "digest": "sha256:eac8b8293aea3e195a11adf44e280416f31a31fe144451accacc5aaf699ab15f"
+  },
+  {
+    "id": "bucket-10",
+    "description": "a measured count of 10 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 10,
+      "lineCount": 10
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`10–20` 個文件 / `10–20` 行",
+      "label": "10–20"
+    },
+    "digest": "sha256:35895e5cae58373d5ad801219a460735c783860ee393ee71ee3d2b70fd0d035e"
+  },
+  {
+    "id": "bucket-11",
+    "description": "a measured count of 11 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 11,
+      "lineCount": 11
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`10–20` 個文件 / `10–20` 行",
+      "label": "10–20"
+    },
+    "digest": "sha256:35895e5cae58373d5ad801219a460735c783860ee393ee71ee3d2b70fd0d035e"
+  },
+  {
+    "id": "bucket-20",
+    "description": "a measured count of 20 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 20,
+      "lineCount": 20
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`20–50` 個文件 / `20–50` 行",
+      "label": "20–50"
+    },
+    "digest": "sha256:2e3a3ddded56f888e0cfd1d814eee1682a9e58f20b729514631fab859672de34"
+  },
+  {
+    "id": "bucket-50",
+    "description": "a measured count of 50 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 50,
+      "lineCount": 50
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`50–100` 個文件 / `50–100` 行",
+      "label": "50–100"
+    },
+    "digest": "sha256:97d42d5e17c8a3dcbb79016e2260242a179021d9c5859f1a889de74bf105b752"
+  },
+  {
+    "id": "bucket-99",
+    "description": "a measured count of 99 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 99,
+      "lineCount": 99
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`50–100` 個文件 / `50–100` 行",
+      "label": "50–100"
+    },
+    "digest": "sha256:97d42d5e17c8a3dcbb79016e2260242a179021d9c5859f1a889de74bf105b752"
+  },
+  {
+    "id": "bucket-100",
+    "description": "a measured count of 100 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 100,
+      "lineCount": 100
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`100–200` 個文件 / `100–200` 行",
+      "label": "100–200"
+    },
+    "digest": "sha256:cbd9fb8afcf1d252a76969dcf6f50efe83d98340d21df186de78bcfd9d3201fe"
+  },
+  {
+    "id": "bucket-199",
+    "description": "a measured count of 199 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 199,
+      "lineCount": 199
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`100–200` 個文件 / `100–200` 行",
+      "label": "100–200"
+    },
+    "digest": "sha256:cbd9fb8afcf1d252a76969dcf6f50efe83d98340d21df186de78bcfd9d3201fe"
+  },
+  {
+    "id": "bucket-200",
+    "description": "a measured count of 200 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 200,
+      "lineCount": 200
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`200–500` 個文件 / `200–500` 行",
+      "label": "200–500"
+    },
+    "digest": "sha256:4e644caea74ba557df3f8d9ec72d8c098860becb519a1b7f4b9fcb232e8de4a1"
+  },
+  {
+    "id": "bucket-500",
+    "description": "a measured count of 500 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 500,
+      "lineCount": 500
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`500–1000` 個文件 / `500–1000` 行",
+      "label": "500–1000"
+    },
+    "digest": "sha256:7a5f8841cef75b49445cf87116c54a1a119a6a7fe4e47a733c803f829479d0ad"
+  },
+  {
+    "id": "bucket-999",
+    "description": "a measured count of 999 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 999,
+      "lineCount": 999
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`500–1000` 個文件 / `500–1000` 行",
+      "label": "500–1000"
+    },
+    "digest": "sha256:7a5f8841cef75b49445cf87116c54a1a119a6a7fe4e47a733c803f829479d0ad"
+  },
+  {
+    "id": "bucket-1000",
+    "description": "a measured count of 1000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 1000,
+      "lineCount": 1000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`1000–2000` 個文件 / `1000–2000` 行",
+      "label": "1000–2000"
+    },
+    "digest": "sha256:e5ac5eaa108228f183f2ae4b6355d290e6451af2e707260be35a7790f05f0c9d"
+  },
+  {
+    "id": "bucket-1999",
+    "description": "a measured count of 1999 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 1999,
+      "lineCount": 1999
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`1000–2000` 個文件 / `1000–2000` 行",
+      "label": "1000–2000"
+    },
+    "digest": "sha256:e5ac5eaa108228f183f2ae4b6355d290e6451af2e707260be35a7790f05f0c9d"
+  },
+  {
+    "id": "bucket-2000",
+    "description": "a measured count of 2000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 2000,
+      "lineCount": 2000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`2000–5000` 個文件 / `2000–5000` 行",
+      "label": "2000–5000"
+    },
+    "digest": "sha256:20b939477f5f95ede47678f79ea5f42f0699e70f670c9f2d48ba3934a84245bd"
+  },
+  {
+    "id": "bucket-5000",
+    "description": "a measured count of 5000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 5000,
+      "lineCount": 5000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`5000–10000` 個文件 / `5000–10000` 行",
+      "label": "5000–10000"
+    },
+    "digest": "sha256:d7ea36402203dc795387a12188d0b73c432d7a2fc6cb6124eb1466b6d5fa8fbb"
+  },
+  {
+    "id": "bucket-9999",
+    "description": "a measured count of 9999 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 9999,
+      "lineCount": 9999
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`5000–10000` 個文件 / `5000–10000` 行",
+      "label": "5000–10000"
+    },
+    "digest": "sha256:d7ea36402203dc795387a12188d0b73c432d7a2fc6cb6124eb1466b6d5fa8fbb"
+  },
+  {
+    "id": "bucket-10000",
+    "description": "a measured count of 10000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 10000,
+      "lineCount": 10000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`10k–20k` 個文件 / `10k–20k` 行",
+      "label": "10k–20k"
+    },
+    "digest": "sha256:e7525bec037911cb332162a0be3516cca1d9686a2e0ba2a7411bac6e2fbad491"
+  },
+  {
+    "id": "bucket-20000",
+    "description": "a measured count of 20000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 20000,
+      "lineCount": 20000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`20k–50k` 個文件 / `20k–50k` 行",
+      "label": "20k–50k"
+    },
+    "digest": "sha256:f23b409e08a3893075737b50dc7a829d90e434bdfe6cf570f88045066f6ef7ac"
+  },
+  {
+    "id": "bucket-50000",
+    "description": "a measured count of 50000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 50000,
+      "lineCount": 50000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`50k–100k` 個文件 / `50k–100k` 行",
+      "label": "50k–100k"
+    },
+    "digest": "sha256:cb1c0571d9c3d1dcc67ad819f9bc3704d300bf00cd89781662c00354e14f2522"
+  },
+  {
+    "id": "bucket-100000",
+    "description": "a measured count of 100000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 100000,
+      "lineCount": 100000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`100k–200k` 個文件 / `100k–200k` 行",
+      "label": "100k–200k"
+    },
+    "digest": "sha256:a02996c05053d08fd426196737bf34c77f307231d4555357da274bee99fad9b1"
+  },
+  {
+    "id": "bucket-500000",
+    "description": "a measured count of 500000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 500000,
+      "lineCount": 500000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`500k–1000k` 個文件 / `500k–1000k` 行",
+      "label": "500k–1000k"
+    },
+    "digest": "sha256:1efc1234761303f85ec798a7b8dfde0ed1e91b6fb64f4c077692628762ca00eb"
+  },
+  {
+    "id": "bucket-999999",
+    "description": "a measured count of 999999 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 999999,
+      "lineCount": 999999
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`500k–1000k` 個文件 / `500k–1000k` 行",
+      "label": "500k–1000k"
+    },
+    "digest": "sha256:1efc1234761303f85ec798a7b8dfde0ed1e91b6fb64f4c077692628762ca00eb"
+  },
+  {
+    "id": "bucket-1000000",
+    "description": "a measured count of 1000000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 1000000,
+      "lineCount": 1000000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`1M–2M` 個文件 / `1M–2M` 行",
+      "label": "1M–2M"
+    },
+    "digest": "sha256:48d230008836aaca741b146a7228ef1282d694577ed9a67f9cdf703b9393714f"
+  },
+  {
+    "id": "bucket-2000000",
+    "description": "a measured count of 2000000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 2000000,
+      "lineCount": 2000000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`2M–5M` 個文件 / `2M–5M` 行",
+      "label": "2M–5M"
+    },
+    "digest": "sha256:ade96ceb27ea62b12445e98f838552a09ca4da971c0d82eb3f2b28c833985f7e"
+  },
+  {
+    "id": "bucket-5000000",
+    "description": "a measured count of 5000000 renders as its 1-2-5 magnitude bucket",
+    "input": {
+      "fileCount": 5000000,
+      "lineCount": 5000000
+    },
+    "expected": {
+      "renderedLine": "- 規模量級:`5M–10M` 個文件 / `5M–10M` 行",
+      "label": "5M–10M"
+    },
+    "digest": "sha256:8ad9cfa6fa7e3995cb94d6b084b55a99f87bf2a4d4db04d2b2465dbe99de45d5"
+  }
+]

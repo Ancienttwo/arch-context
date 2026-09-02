@@ -1,0 +1,42 @@
+[
+  {
+    "id": "unify-billing-lifecycle-owner",
+    "description": "proof point strings for a lifecycle task",
+    "input": {
+      "task": "Unify billing lifecycle owner"
+    },
+    "expected": {
+      "description": "Prove the smallest end-to-end path for: Unify billing lifecycle owner",
+      "successCriteria": [
+        "one-owner-observed",
+        "no-fallback-path",
+        "current-tests-pass"
+      ],
+      "falsifiers": [
+        "untracked-external-consumer",
+        "unacceptable-migration-risk"
+      ]
+    },
+    "digest": "sha256:cbb18e4dfac652f6e3da12254a502d3a614ae967982a1c00d6822d90294d1526"
+  },
+  {
+    "id": "empty-task",
+    "description": "proof point interpolates an empty task verbatim",
+    "input": {
+      "task": ""
+    },
+    "expected": {
+      "description": "Prove the smallest end-to-end path for: ",
+      "successCriteria": [
+        "one-owner-observed",
+        "no-fallback-path",
+        "current-tests-pass"
+      ],
+      "falsifiers": [
+        "untracked-external-consumer",
+        "unacceptable-migration-risk"
+      ]
+    },
+    "digest": "sha256:e5e31a64def3700e272e62a10c065e9fbc1d59da63dcb3e4ccb93c2b1e4b1b77"
+  }
+]

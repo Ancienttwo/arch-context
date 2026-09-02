@@ -1,0 +1,98 @@
+[
+  {
+    "id": "with-practice-id",
+    "description": "practiceId participates in the fingerprint",
+    "input": {
+      "practiceId": "practice.runtime-boundary",
+      "subject": "module.checkout-runtime",
+      "evidenceBindingIds": [
+        "evidence.a",
+        "evidence.b"
+      ],
+      "baselineDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "expected": {
+      "fingerprint": "sha256:4be0b7d74189c7dab16e0883209968f06b2264d0c0f67d572d085dae011bdce6"
+    },
+    "digest": "sha256:814854f91ddc7c673984b8fdab66b50d3ea99187e022bbaf89091ca0fe57c3ea"
+  },
+  {
+    "id": "without-practice-id",
+    "description": "a missing practiceId is hashed as null, not as an absent key",
+    "input": {
+      "subject": "module.checkout-runtime",
+      "evidenceBindingIds": [
+        "evidence.a",
+        "evidence.b"
+      ],
+      "baselineDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "expected": {
+      "fingerprint": "sha256:89c8715cbee6f492c872e51bf2a8bfb9436735907c927ad21c9cd39432267f91"
+    },
+    "digest": "sha256:a79ff7edd8954bc1389fea52431bb329d898e0d46e59c14f98e1e80a574ba438"
+  },
+  {
+    "id": "evidence-binding-ids-unsorted",
+    "description": "evidence binding order does not change the fingerprint",
+    "input": {
+      "practiceId": "practice.runtime-boundary",
+      "subject": "module.checkout-runtime",
+      "evidenceBindingIds": [
+        "evidence.b",
+        "evidence.a"
+      ],
+      "baselineDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "expected": {
+      "fingerprint": "sha256:4be0b7d74189c7dab16e0883209968f06b2264d0c0f67d572d085dae011bdce6"
+    },
+    "digest": "sha256:814854f91ddc7c673984b8fdab66b50d3ea99187e022bbaf89091ca0fe57c3ea"
+  },
+  {
+    "id": "without-baseline-digest",
+    "description": "a missing baselineDigest is hashed as null",
+    "input": {
+      "practiceId": "practice.runtime-boundary",
+      "subject": "module.checkout-runtime",
+      "evidenceBindingIds": [
+        "evidence.a",
+        "evidence.b"
+      ]
+    },
+    "expected": {
+      "fingerprint": "sha256:00cf41fa5dc6c44fab08dba0bd07094e274c83c33880a5bba683f38ff1e8d882"
+    },
+    "digest": "sha256:845c8d280609917e2de6fed9384a8a5957089ccba2fe2d1c0eae9fa017665277"
+  },
+  {
+    "id": "empty-evidence-bindings",
+    "description": "an unbound candidate still fingerprints deterministically",
+    "input": {
+      "practiceId": "practice.runtime-boundary",
+      "subject": "module.checkout-runtime",
+      "evidenceBindingIds": []
+    },
+    "expected": {
+      "fingerprint": "sha256:aa9d9ccd59e70e8a7af7a7968047c4c5d0ddd05ac5b5978d93b7e21ff3380071"
+    },
+    "digest": "sha256:eb9c1b69b0e19463266cb53652652fdbe7125a684b4033778c74dd0bcd28e92f"
+  },
+  {
+    "id": "different-subject",
+    "description": "subject participates in the fingerprint",
+    "input": {
+      "practiceId": "practice.runtime-boundary",
+      "subject": "module.billing-runtime",
+      "evidenceBindingIds": [
+        "evidence.a",
+        "evidence.b"
+      ],
+      "baselineDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "expected": {
+      "fingerprint": "sha256:8649734613450bd37fabda90b13bacf3b737114dc5def3132841ff04ad444805"
+    },
+    "digest": "sha256:9f84889d0c48d68e120b53412618904d3a8a795eaf428d8a2cd38ecec7982ed8"
+  }
+]

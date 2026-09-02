@@ -1,0 +1,390 @@
+[
+  {
+    "id": "floor-no-signals",
+    "description": "zero coverage, no tests, no rollback scores 0 and reads low",
+    "input": {
+      "callerCoverage": 0,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "low",
+      "score": 0,
+      "coverage": [
+        "caller-coverage:0"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:ab6e4c6fa7e8834579d969cfb4e63c329421b75d2d1724ec890fb9434d9afbd1"
+  },
+  {
+    "id": "ceiling-all-signals",
+    "description": "full coverage plus both bonuses reaches the 100 ceiling",
+    "input": {
+      "callerCoverage": 1,
+      "testsAvailable": true,
+      "rollbackAvailable": true
+    },
+    "expected": {
+      "level": "high",
+      "score": 100,
+      "coverage": [
+        "caller-coverage:1"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:6ae7d6593d7188e9af6e4b6c4819428ddd178e5ccbd37b04ef02a98a2be4066c"
+  },
+  {
+    "id": "prepare-task-defaults",
+    "description": "the 0.8/true/true default triple prepareTask feeds in",
+    "input": {
+      "callerCoverage": 0.8,
+      "testsAvailable": true,
+      "rollbackAvailable": true
+    },
+    "expected": {
+      "level": "high",
+      "score": 86,
+      "coverage": [
+        "caller-coverage:0.8"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:d3f76c425f1a5758237c4ddfa657048a6b2cb70531a8096d901baf9662f0c8a6"
+  },
+  {
+    "id": "tests-only-bonus",
+    "description": "tests bonus without rollback bonus",
+    "input": {
+      "callerCoverage": 0.5,
+      "testsAvailable": true,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "medium",
+      "score": 50,
+      "coverage": [
+        "caller-coverage:0.5"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:c1c9e5c03880e2df793e373759f52a987a9d8364f3c0fca0a5ec058758765f69"
+  },
+  {
+    "id": "rollback-only-bonus",
+    "description": "rollback bonus without tests bonus",
+    "input": {
+      "callerCoverage": 0.5,
+      "testsAvailable": false,
+      "rollbackAvailable": true
+    },
+    "expected": {
+      "level": "medium",
+      "score": 50,
+      "coverage": [
+        "caller-coverage:0.5"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:98c2b9dce153eaec62573d4292bd0224745f3d25f2ed839458b6454b52f462b1"
+  },
+  {
+    "id": "external-consumer-penalty",
+    "description": "one external consumer applies the -20 penalty",
+    "input": {
+      "callerCoverage": 0.9,
+      "testsAvailable": true,
+      "rollbackAvailable": true,
+      "externalConsumers": [
+        "partner.acme"
+      ]
+    },
+    "expected": {
+      "level": "high",
+      "score": 73,
+      "coverage": [
+        "caller-coverage:0.9"
+      ],
+      "externalConsumers": [
+        "partner.acme"
+      ],
+      "persistedData": [],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:89c051ca1fc9f6c208c90ec3cf455c9bb06a50c7717a5af294205a049417823b"
+  },
+  {
+    "id": "persisted-data-penalty",
+    "description": "one persisted-data constraint applies the -10 penalty",
+    "input": {
+      "callerCoverage": 0.9,
+      "testsAvailable": true,
+      "rollbackAvailable": true,
+      "persistedData": [
+        "billing-db"
+      ]
+    },
+    "expected": {
+      "level": "high",
+      "score": 83,
+      "coverage": [
+        "caller-coverage:0.9"
+      ],
+      "externalConsumers": [],
+      "persistedData": [
+        "billing-db"
+      ],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:65dcd0321bdb3fa75e95e867f906dd2846aee093776a11c9e37fdf4286b90e2f"
+  },
+  {
+    "id": "both-penalties",
+    "description": "both penalties stack to -30",
+    "input": {
+      "callerCoverage": 0.9,
+      "testsAvailable": true,
+      "rollbackAvailable": true,
+      "externalConsumers": [
+        "partner.acme"
+      ],
+      "persistedData": [
+        "billing-db"
+      ]
+    },
+    "expected": {
+      "level": "medium",
+      "score": 63,
+      "coverage": [
+        "caller-coverage:0.9"
+      ],
+      "externalConsumers": [
+        "partner.acme"
+      ],
+      "persistedData": [
+        "billing-db"
+      ],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:0cc807d5aa73146a6b393b2b8cd17ba0f6ea75d94c3306322d63464c72e3e845"
+  },
+  {
+    "id": "empty-penalty-arrays-do-not-penalize",
+    "description": "empty constraint arrays are not treated as constraints",
+    "input": {
+      "callerCoverage": 0.9,
+      "testsAvailable": true,
+      "rollbackAvailable": true,
+      "externalConsumers": [],
+      "persistedData": []
+    },
+    "expected": {
+      "level": "high",
+      "score": 93,
+      "coverage": [
+        "caller-coverage:0.9"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:6f29c7e129f58cd5fa1cec230c33f334f9bd8407f2115b6a9337e0acbb991e74"
+  },
+  {
+    "id": "clamp-low",
+    "description": "penalties below zero clamp to 0 rather than going negative",
+    "input": {
+      "callerCoverage": 0.2,
+      "testsAvailable": false,
+      "rollbackAvailable": false,
+      "externalConsumers": [
+        "partner.acme"
+      ],
+      "persistedData": [
+        "billing-db"
+      ]
+    },
+    "expected": {
+      "level": "low",
+      "score": 0,
+      "coverage": [
+        "caller-coverage:0.2"
+      ],
+      "externalConsumers": [
+        "partner.acme"
+      ],
+      "persistedData": [
+        "billing-db"
+      ],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:0d38a3c8f92e4daa05504780ff1b46b28db42cc38df5780d1118694256a75b8c"
+  },
+  {
+    "id": "clamp-high",
+    "description": "coverage above 1 clamps to the 100 ceiling",
+    "input": {
+      "callerCoverage": 2,
+      "testsAvailable": true,
+      "rollbackAvailable": true
+    },
+    "expected": {
+      "level": "high",
+      "score": 100,
+      "coverage": [
+        "caller-coverage:2"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": [
+        "git-worktree"
+      ]
+    },
+    "digest": "sha256:b131e2f1109b5e5b7b903d707d58260faf41d0987e53d4c6ef3a490dc496c71f"
+  },
+  {
+    "id": "level-cut-high-boundary",
+    "description": "score exactly 70 is high, not medium",
+    "input": {
+      "callerCoverage": 1,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "high",
+      "score": 70,
+      "coverage": [
+        "caller-coverage:1"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:5d9271738046b104ac34832703384c3327a6a1828aace4c074bb3b01eef19d4c"
+  },
+  {
+    "id": "level-cut-high-minus-one",
+    "description": "score 69 falls to medium",
+    "input": {
+      "callerCoverage": 0.99,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "medium",
+      "score": 69,
+      "coverage": [
+        "caller-coverage:0.99"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:be7ded7423c8204f133c1cff1d14bee956e87243fb33f41583b69c7c98101a05"
+  },
+  {
+    "id": "level-cut-medium-boundary",
+    "description": "score exactly 40 is medium, not low",
+    "input": {
+      "callerCoverage": 0.57,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "medium",
+      "score": 40,
+      "coverage": [
+        "caller-coverage:0.57"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:cc2f97ddc705ea4bdf6b2676669e9786d5814a8c21fd30d091c97a83a9fcb525"
+  },
+  {
+    "id": "level-cut-medium-minus-one",
+    "description": "score 39 falls to low",
+    "input": {
+      "callerCoverage": 0.56,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "low",
+      "score": 39,
+      "coverage": [
+        "caller-coverage:0.56"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:65cb0e7316afa8c4f2d6b5bcb6262ce4e7ca5b39ee961e507827447d9615b8e2"
+  },
+  {
+    "id": "rounding-half-up",
+    "description": "0.5 coverage rounds 35 exactly with no bonuses",
+    "input": {
+      "callerCoverage": 0.5,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "low",
+      "score": 35,
+      "coverage": [
+        "caller-coverage:0.5"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:fb4be7db2f2fc638a1178915d00b9a7e0b330581254cf753ed4c74abff8819e3"
+  },
+  {
+    "id": "rounding-quarter",
+    "description": "0.25 coverage rounds 17.5 to 18",
+    "input": {
+      "callerCoverage": 0.25,
+      "testsAvailable": false,
+      "rollbackAvailable": false
+    },
+    "expected": {
+      "level": "low",
+      "score": 18,
+      "coverage": [
+        "caller-coverage:0.25"
+      ],
+      "externalConsumers": [],
+      "persistedData": [],
+      "rollbackPoints": []
+    },
+    "digest": "sha256:50bd291f0734d3d5db1e50fc8a058ba39708d30d6277256edabc72bbff03c0e4"
+  }
+]
