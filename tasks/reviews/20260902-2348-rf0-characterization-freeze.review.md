@@ -64,10 +64,10 @@ screenshot/artifact path, or reviewer observation.
 > **Reviewed Subject SHA256**: sha256:e7064d784cb1f1d1c5db685bfb45ab8673b27749598af086b960783ad57ade70
 > **Reviewed Subject Scope**: normalized-final-content
 > **Reviewed Target Revision**: 2382b655d6b581cab3d9366886d595eb86ef80e5
-> **Verification Evidence SHA256**: sha256:b98d81e81f0108376102cc919a76cc832b26f800c354563919c6d49fa936b5dd
-> **Issued At**: 2026-09-02T18:25:44.271Z
+> **Verification Evidence SHA256**: sha256:ac5e408b59b69d20248943425dd9e55c2a7ef70d1b3474b3b06959066455322f
+> **Issued At**: 2026-09-02T18:27:03.293Z
 
-- Summary: Gatekeeper PASS and Codex cross-review PASS (no P1/P2; subject sha256:e7064d78... unchanged) for RF0 characterization freeze: additive tests/fixtures/artifact only, zero src edits, verify-contract 24/24, 265 tests pass, evals PASS, probe PROBE_EXIT=1.
+- Summary: Gatekeeper PASS and Codex cross-review PASS (no P1/P2; subject sha256:e7064d78... unchanged) for RF0 characterization freeze: additive tests/fixtures/artifact only, zero src edits, verify-contract Fulfilled, 265 tests pass, evals PASS, probe PROBE_EXIT=1.
 - Findings: none
 
 ## Behavior Diff Notes
