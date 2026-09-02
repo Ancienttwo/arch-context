@@ -1,16 +1,16 @@
 # Task Review: model-adoption-core-two-level
 
-> **Status**: Pending
+> **Status**: Accepted
 > **Plan**: plans/plan-20260903-0026-model-adoption-core-two-level.md
 > **Contract**: tasks/contracts/20260903-0026-model-adoption-core-two-level.contract.md
 > **Notes File**: tasks/notes/20260903-0026-model-adoption-core-two-level.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
 > **Last Updated**: 2026-09-03 00:26
-> **Recommendation**: fail
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:414784773a2d2b7e9d3c3aa141b5c8b2e08825f535626b8bc1277940176bd40f
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: 83636c77fcc750d5d78ff21a4321acb753857c9f
 
 ## Human Review Card
 
@@ -49,17 +49,17 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:414784773a2d2b7e9d3c3aa141b5c8b2e08825f535626b8bc1277940176bd40f
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: 83636c77fcc750d5d78ff21a4321acb753857c9f
+> **Verification Evidence SHA256**: sha256:01c9c269315ae34d2c162179998f2e849f66705a04970e897fb9e14aa8b2d523
+> **Issued At**: 2026-09-02T19:12:36.317Z
 
-- Summary: No AcceptanceReceipt has been recorded.
+- Summary: Gatekeeper acceptance review PASS (two doc findings fixed) and Codex cross-review PASS (zero findings, subject sha256:41478477...) for model adoption: 21 archctx nodes via plan/apply ChangeSets, module test excludes, drift-free docs projection, 21 registry entries, verify-contract 23/23 Fulfilled, bun run verify exit 0.
 - Findings: none
 
 ## Behavior Diff Notes
