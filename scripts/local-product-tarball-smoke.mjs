@@ -4,6 +4,7 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
@@ -78,6 +79,14 @@ try {
   const init = await runArchctx(archctxBin, ["init", "--name", "Tarball Smoke"], { cwd: repo, env });
   assert(init.ok === true, "init must succeed from installed tarball");
 
+  const docsPin = await runArchctx(archctxBin, ["docs", "pin", "--library-id", "/facebook/react", "--version", "18.2.0", "--approved"], { cwd: repo, env });
+  assert(docsPin.ok === true && docsPin.data?.approved === true, "installed Node-only runtime must execute descriptor-relative docs pin");
+  const docsLockPath = join(repo, ".archcontext", "integrations", "context7.lock.yaml");
+  assert(existsSync(docsLockPath), "descriptor-relative docs pin must create the Context7 lockfile");
+  if (process.platform !== "win32") {
+    assert((lstatSync(docsLockPath).mode & 0o777) === 0o600, "descriptor-relative docs pin must preserve the private mode contract");
+  }
+
   const sync = await runArchctx(archctxBin, ["sync", "--changed", "src/index.ts"], { cwd: repo, env });
   assert(sync.ok === true, "sync must succeed with installed codegraph dependency");
   assert(/^sha256:/.test(String(sync.data?.codeFactsDigest)), "sync must return a code facts digest");
@@ -135,6 +144,7 @@ try {
     },
     runtime: {
       cli: true,
+      descriptorRelativeWrite: true,
       daemon: {
         started: true,
         protocol: started.data?.protocol,
@@ -205,7 +215,8 @@ async function buildLocalProductTarball(artifactDir) {
     "--entry-naming",
     "archctx.mjs",
     "--external=@node-rs/jieba",
-    "--external=@node-rs/jieba/dict.js"
+    "--external=@node-rs/jieba/dict.js",
+    "--external=koffi"
   ], { cwd: root, env: process.env });
   rewriteShebang(binPath, "#!/usr/bin/env node");
   chmodSync(binPath, 0o755);
@@ -245,7 +256,8 @@ async function buildLocalProductTarball(artifactDir) {
     ],
     dependencies: {
       "@colbymchenry/codegraph": rootManifest.dependencies?.["@colbymchenry/codegraph"],
-      "@node-rs/jieba": coreManifest.dependencies?.["@node-rs/jieba"]
+      "@node-rs/jieba": coreManifest.dependencies?.["@node-rs/jieba"],
+      koffi: coreManifest.dependencies?.koffi
     }
   }, null, 2), "utf8");
   assertNodeOnlyReleaseRuntime(stageDir, binPath);
@@ -432,6 +444,7 @@ function assertNodeOnlyReleaseRuntime(stageDir, binPath) {
     "release package must preserve the exact CodeGraph dependency"
   );
   assert(manifest.dependencies?.["@node-rs/jieba"] === coreManifest.dependencies?.["@node-rs/jieba"], "release package must declare native tokenizer dependency");
+  assert(manifest.dependencies?.koffi === coreManifest.dependencies?.koffi, "release package must declare descriptor-relative filesystem dependency");
 }
 
 function nodeOnlyRuntimeEnv(stateRoot) {
