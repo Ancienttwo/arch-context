@@ -1,0 +1,38 @@
+[
+  {
+    "id": "negative-file-count",
+    "description": "a negative count is rejected instead of bucketed",
+    "input": {
+      "fileCount": -1,
+      "lineCount": 10
+    },
+    "expected": {
+      "message": "architecture-docs-projection-scale-signal-not-a-count: -1"
+    },
+    "digest": "sha256:f1dc9a33d72966d9718076ea17a1342a3f69bd828421ccf43c4b0440ff6de20c"
+  },
+  {
+    "id": "non-integer-line-count",
+    "description": "a non-integer count is rejected instead of bucketed",
+    "input": {
+      "fileCount": 3,
+      "lineCount": 1.5
+    },
+    "expected": {
+      "message": "architecture-docs-projection-scale-signal-not-a-count: 1.5"
+    },
+    "digest": "sha256:20582776d88587a74c412fb178c3c7a0d1a3e54eb24ebddbe6df3802b15655a8"
+  },
+  {
+    "id": "unsafe-integer-line-count",
+    "description": "a count beyond the safe integer range is rejected instead of bucketed",
+    "input": {
+      "fileCount": 3,
+      "lineCount": 9007199254740992
+    },
+    "expected": {
+      "message": "architecture-docs-projection-scale-signal-not-a-count: 9007199254740992"
+    },
+    "digest": "sha256:a8963fe1a27237a443db27eb762b3614dceca854849de374910d416f3592edeb"
+  }
+]

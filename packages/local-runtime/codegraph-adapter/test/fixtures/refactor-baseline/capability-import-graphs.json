@@ -1,0 +1,171 @@
+[
+  {
+    "id": "resolution-refusals-and-outbound-only-scope",
+    "description": "candidate order, every refusal class, and the outbound-only footprint filter",
+    "input": {},
+    "expected": {
+      "importGraphs": [
+        {
+          "nodeId": "capability.app",
+          "files": [
+            "packages/app/src/data.json",
+            "packages/app/src/dir/index.ts",
+            "packages/app/src/dironly/notindex.ts",
+            "packages/app/src/exact.ts",
+            "packages/app/src/exact/index.ts",
+            "packages/app/src/ext.js",
+            "packages/app/src/ext.ts",
+            "packages/app/src/main.ts"
+          ],
+          "edges": [
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/data.json"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/dir/index.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/exact.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/ext.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/lib/src/shared.ts"
+            }
+          ],
+          "truncated": false
+        },
+        {
+          "nodeId": "capability.lib",
+          "files": [
+            "packages/lib/src/shared.ts"
+          ],
+          "edges": [],
+          "truncated": false
+        }
+      ],
+      "selectorEvidence": []
+    },
+    "digest": "sha256:7cb939bdd7e8c9052046038c4fca8d8d0d61411aaa6e5770baddbdef05efcec6"
+  },
+  {
+    "id": "saturated-dump-copies-truncated-into-every-graph",
+    "description": "hitting importNodeLimit marks every capability graph truncated, including one with no edges of its own",
+    "input": {
+      "importNodeLimit": 11
+    },
+    "expected": {
+      "importGraphs": [
+        {
+          "nodeId": "capability.app",
+          "files": [
+            "packages/app/src/data.json",
+            "packages/app/src/dir/index.ts",
+            "packages/app/src/dironly/notindex.ts",
+            "packages/app/src/exact.ts",
+            "packages/app/src/exact/index.ts",
+            "packages/app/src/ext.js",
+            "packages/app/src/ext.ts",
+            "packages/app/src/main.ts"
+          ],
+          "edges": [
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/data.json"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/dir/index.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/exact.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/ext.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/lib/src/shared.ts"
+            }
+          ],
+          "truncated": true
+        },
+        {
+          "nodeId": "capability.lib",
+          "files": [
+            "packages/lib/src/shared.ts"
+          ],
+          "edges": [],
+          "truncated": true
+        }
+      ],
+      "selectorEvidence": []
+    },
+    "digest": "sha256:2c337b8a79ca3952c94487b27281963082dbc5a0eb7d1ca4b924aaf84024af10"
+  },
+  {
+    "id": "limit-above-population-is-not-truncated",
+    "description": "one node of headroom below the limit leaves truncated false",
+    "input": {
+      "importNodeLimit": 12
+    },
+    "expected": {
+      "importGraphs": [
+        {
+          "nodeId": "capability.app",
+          "files": [
+            "packages/app/src/data.json",
+            "packages/app/src/dir/index.ts",
+            "packages/app/src/dironly/notindex.ts",
+            "packages/app/src/exact.ts",
+            "packages/app/src/exact/index.ts",
+            "packages/app/src/ext.js",
+            "packages/app/src/ext.ts",
+            "packages/app/src/main.ts"
+          ],
+          "edges": [
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/data.json"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/dir/index.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/exact.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/app/src/ext.ts"
+            },
+            {
+              "from": "packages/app/src/main.ts",
+              "to": "packages/lib/src/shared.ts"
+            }
+          ],
+          "truncated": false
+        },
+        {
+          "nodeId": "capability.lib",
+          "files": [
+            "packages/lib/src/shared.ts"
+          ],
+          "edges": [],
+          "truncated": false
+        }
+      ],
+      "selectorEvidence": []
+    },
+    "digest": "sha256:7cb939bdd7e8c9052046038c4fca8d8d0d61411aaa6e5770baddbdef05efcec6"
+  }
+]

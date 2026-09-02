@@ -1,0 +1,55 @@
+[
+  {
+    "id": "normalized-import-edges-from-query-nodes",
+    "description": "resolved import pairs become file: prefixed imports edges at high confidence, deduplicated",
+    "input": {
+      "task": "resolve imports",
+      "maxSymbols": 3,
+      "includeSource": false,
+      "changedPaths": [
+        "packages/app/src/main.ts"
+      ]
+    },
+    "expected": {
+      "edges": [
+        {
+          "source": "file:packages/app/src/main.ts",
+          "target": "file:packages/app/src/exact.ts",
+          "kind": "imports",
+          "confidence": "high"
+        },
+        {
+          "source": "file:packages/app/src/main.ts",
+          "target": "file:packages/app/src/dir/index.ts",
+          "kind": "imports",
+          "confidence": "high"
+        },
+        {
+          "source": "file:packages/app/src/main.ts",
+          "target": "file:packages/app/src/ext.ts",
+          "kind": "imports",
+          "confidence": "high"
+        },
+        {
+          "source": "file:packages/app/src/main.ts",
+          "target": "file:packages/app/src/data.json",
+          "kind": "imports",
+          "confidence": "high"
+        },
+        {
+          "source": "file:packages/app/src/main.ts",
+          "target": "file:packages/lib/src/shared.ts",
+          "kind": "imports",
+          "confidence": "high"
+        },
+        {
+          "source": "file:packages/other/src/outside.ts",
+          "target": "file:packages/app/src/main.ts",
+          "kind": "imports",
+          "confidence": "high"
+        }
+      ]
+    },
+    "digest": "sha256:e81897bf5c97b5d96d6f414fff0d6e1ed7558aec6b3574bf59f674c57b924b28"
+  }
+]

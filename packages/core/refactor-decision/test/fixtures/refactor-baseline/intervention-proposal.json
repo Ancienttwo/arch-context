@@ -1,0 +1,219 @@
+[
+  {
+    "id": "high-confidence-with-constraints",
+    "description": "intervention proposal with external consumers, persisted data, and a rollback point",
+    "input": {
+      "task": "Unify billing lifecycle owner",
+      "pressure": {
+        "level": "high",
+        "score": 80,
+        "signals": [
+          {
+            "type": "unjustified-wrapper-adapter",
+            "severity": "high",
+            "evidence": [
+              "symbol.legacyWrapper"
+            ],
+            "evidenceKind": "observed",
+            "evidenceDetails": []
+          },
+          {
+            "type": "dual-track-business-concept",
+            "severity": "high",
+            "evidence": [
+              "symbol.fallbackMapper"
+            ],
+            "evidenceKind": "observed",
+            "evidenceDetails": []
+          }
+        ]
+      },
+      "confidenceInput": {
+        "callerCoverage": 1,
+        "testsAvailable": true,
+        "rollbackAvailable": true,
+        "externalConsumers": [
+          "partner.acme"
+        ],
+        "persistedData": [
+          "billing-db"
+        ]
+      }
+    },
+    "expected": {
+      "id": "intervention.unify-billing-lifecycle-owner",
+      "status": "proposed",
+      "thesis": "Resolve unjustified-wrapper-adapter, dual-track-business-concept by moving to a single target architecture rather than adding a permanent compatibility layer.",
+      "targetState": {
+        "owners": {
+          "primaryLifecycle": "module.target-owner"
+        },
+        "requiredRelations": [
+          "relation.target-calls-boundary"
+        ],
+        "removedConcepts": [
+          "legacy-wrapper",
+          "fallback-mapper"
+        ]
+      },
+      "migrationState": {
+        "active": true,
+        "compatibilityContracts": [],
+        "cleanupBy": "next-release",
+        "temporaryRelations": [
+          "relation.temporary-migration"
+        ]
+      },
+      "constraints": {
+        "real": [
+          "partner.acme",
+          "billing-db"
+        ],
+        "inherited": [
+          "internal-callers",
+          "legacy-layout"
+        ]
+      },
+      "proofPoint": {
+        "description": "Prove the smallest end-to-end path for: Unify billing lifecycle owner",
+        "successCriteria": [
+          "one-owner-observed",
+          "no-fallback-path",
+          "current-tests-pass"
+        ],
+        "falsifiers": [
+          "untracked-external-consumer",
+          "unacceptable-migration-risk"
+        ]
+      },
+      "killList": [
+        {
+          "id": "remove-legacy-wrapper",
+          "target": "symbol.legacyWrapper",
+          "required": true
+        },
+        {
+          "id": "remove-fallback-mapper",
+          "target": "symbol.fallbackMapper",
+          "required": true
+        }
+      ],
+      "benefitLedger": {
+        "benefits": [
+          "single lifecycle owner",
+          "bounded migration cleanup",
+          "fewer compatibility paths"
+        ],
+        "costs": [
+          "larger coordinated change"
+        ],
+        "rollbackPoint": "git-worktree"
+      }
+    },
+    "digest": "sha256:182cf6f8e2745f9c7b157776a2e8e06e8ee2b890721dbd51f3f3b8e8f80ee1a4"
+  },
+  {
+    "id": "no-rollback-point",
+    "description": "without a rollback point the benefit ledger falls back to the literal git",
+    "input": {
+      "task": "Remove legacy v1 wrapper",
+      "pressure": {
+        "level": "high",
+        "score": 80,
+        "signals": [
+          {
+            "type": "unjustified-wrapper-adapter",
+            "severity": "high",
+            "evidence": [
+              "symbol.legacyWrapper"
+            ],
+            "evidenceKind": "observed",
+            "evidenceDetails": []
+          },
+          {
+            "type": "dual-track-business-concept",
+            "severity": "high",
+            "evidence": [
+              "symbol.fallbackMapper"
+            ],
+            "evidenceKind": "observed",
+            "evidenceDetails": []
+          }
+        ]
+      },
+      "confidenceInput": {
+        "callerCoverage": 1,
+        "testsAvailable": true,
+        "rollbackAvailable": false
+      }
+    },
+    "expected": {
+      "id": "intervention.remove-legacy-v1-wrapper",
+      "status": "proposed",
+      "thesis": "Resolve unjustified-wrapper-adapter, dual-track-business-concept by moving to a single target architecture rather than adding a permanent compatibility layer.",
+      "targetState": {
+        "owners": {
+          "primaryLifecycle": "module.target-owner"
+        },
+        "requiredRelations": [
+          "relation.target-calls-boundary"
+        ],
+        "removedConcepts": [
+          "legacy-wrapper",
+          "fallback-mapper"
+        ]
+      },
+      "migrationState": {
+        "active": true,
+        "compatibilityContracts": [],
+        "cleanupBy": "next-release",
+        "temporaryRelations": [
+          "relation.temporary-migration"
+        ]
+      },
+      "constraints": {
+        "real": [],
+        "inherited": [
+          "internal-callers",
+          "legacy-layout"
+        ]
+      },
+      "proofPoint": {
+        "description": "Prove the smallest end-to-end path for: Remove legacy v1 wrapper",
+        "successCriteria": [
+          "one-owner-observed",
+          "no-fallback-path",
+          "current-tests-pass"
+        ],
+        "falsifiers": [
+          "untracked-external-consumer",
+          "unacceptable-migration-risk"
+        ]
+      },
+      "killList": [
+        {
+          "id": "remove-legacy-wrapper",
+          "target": "symbol.legacyWrapper",
+          "required": true
+        },
+        {
+          "id": "remove-fallback-mapper",
+          "target": "symbol.fallbackMapper",
+          "required": true
+        }
+      ],
+      "benefitLedger": {
+        "benefits": [
+          "single lifecycle owner",
+          "bounded migration cleanup",
+          "fewer compatibility paths"
+        ],
+        "costs": [
+          "larger coordinated change"
+        ],
+        "rollbackPoint": "git"
+      }
+    },
+    "digest": "sha256:1b4322f6a7c4c5fa5b46daa755083c1b6a8b7e8f589ff4ce85c0cd41fbeea7ab"
+  }
+]
