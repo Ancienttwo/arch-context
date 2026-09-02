@@ -44,12 +44,12 @@ not a gap to patch with a compatibility path.
   `not-published`, npm identity `ancienttwo`.
 - [x] `bun run preflight:contracts:npm` reports `ready`: manifest ok, pack ok (`178` files),
   unscoped public name, registry readback `not-published`.
-- [ ] Publish `archctx-contracts@0.4.8` and read back version, integrity, shasum, and clean-room import.
-- [ ] Publish `archctx@0.4.8` and read back version, integrity, shasum, Node engine, exact CodeGraph
+- [x] Publish `archctx-contracts@0.4.8` and read back version, integrity, shasum, and clean-room import.
+- [x] Publish `archctx@0.4.8` and read back version, integrity, shasum, Node engine, exact CodeGraph
   dependency, and the capabilities handshake.
-- [ ] Record the official npm artifact in `docs/verification/architecture-ledger-al10-npm-release-readback.json`
+- [x] Record the official npm artifact in `docs/verification/architecture-ledger-al10-npm-release-readback.json`
   from a real clean-room install, then close `bun run readback:release` with `failures: []`.
-- [ ] Update `docs/spec.md` `## Release State` and `docs/runbooks/personal-user-install.md` to name
+- [x] Update `docs/spec.md` `## Release State` and `docs/runbooks/personal-user-install.md` to name
   `0.4.8` as the published artifact once the registry readback is recorded.
 
 ## Publish execution
@@ -69,6 +69,40 @@ already on the registry, or when `npm whoami` fails, and it never publishes with
 `--confirm-publish`. Credentials resolve from `NODE_AUTH_TOKEN`, `CI_TOKEN`, or `NPM_TOKEN` in the
 environment or in `_ops/env/archctx.npm.env`, written into a short-lived `0600` npmrc that is removed
 even on `SIGINT`/`SIGTERM`.
+
+## Post-publish readback
+
+`archctx@0.4.8` went to public npm at `2026-09-02T08:32:49.123Z` under `latest`, with the `beta` tag
+still pinned at `0.1.4-beta.0`. The registry serves `dist.shasum`
+`ea1c03076b6ba1183955c08c7ed88cec6018695e` and `dist.integrity`
+`sha512-AOQdTm7eNikBMwByEcmFVewQ5GrT1MKxWNsXj+jSeypVWwhBWnd+qqUwb9QEw2Y4D8ZsB8ZNqIrhsQP8XPQTaQ==`,
+`engines.node` `>=22.22 <26`, and the exact `@colbymchenry/codegraph` `1.5.0` dependency.
+`archctx-contracts@0.4.8` is `latest` with `dist.shasum` `41bfbf43430c7dfd9ceb23ecb0b7cc3bf59b657c`
+and `dist.integrity`
+`sha512-BIFSNY+HgNrParQwzeL+TMhdx5J8GCR5pc2iohuS+s35Qxmjgrhyexuarm4SV1vFRY3TMpQWqt8kS82X+d03MQ==`.
+
+Both tarballs were re-downloaded with `npm pack` and hashed locally. `archctx-0.4.8.tgz` hashes to
+SHA-1 `ea1c03076b6ba1183955c08c7ed88cec6018695e` — an exact match for the registry `dist.shasum` —
+and SHA-256 `f105a5cd3f5ea0f4986fd4384a9c7119da27a84792ff4fc337c0a80580db8503`;
+`archctx-contracts-0.4.8.tgz` hashes to SHA-1 `41bfbf43430c7dfd9ceb23ecb0b7cc3bf59b657c` and SHA-256
+`a9be92f610a00dabe9a2e9d46f3e970236c2bef64217e83cbf2430211b4e4f99`. Both SHA-256 values equal the
+pre-publish dry-run digests recorded above, so the published artifacts are byte-identical to the
+staged ones.
+
+The clean-room install ran twice from the registry into throwaway prefixes, once at Node `v24.18.0`
+and once at the `v22.22.0` engine floor. Both runs report `help` returning `41` commands,
+`doctor` reporting product/cli/daemon/mcp all `0.4.8`, `update --check` reporting `current`, and
+`capabilities` returning `archcontext.projection-result/v2` with the
+`projection-apply-recovery-v1` feature. Importing `archctx-contracts@0.4.8` from a clean prefix
+resolves `123` exports.
+
+`bun run readback:fg6:release-distribution` and `bun run readback:release` were regenerated from the
+live registry and both close with `failures: []`, including `officialNpmReadbackVerified`,
+`registryMetadataMatchesOfficialRelease`, and `registryLatestMatchesRoot`.
+
+The `Runtime` line in `docs/runbooks/personal-user-install.md` still read `Node.js 24.x or 25.x`,
+which contradicted the `>=22.22 <26` engine range that `0.4.7` introduced. It now names the engine
+range directly.
 
 ## Carried evidence gap
 

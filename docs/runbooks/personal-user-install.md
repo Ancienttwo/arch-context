@@ -1,25 +1,22 @@
 # Personal User Install
 
-This runbook is the published individual-user install path for `archctx@0.4.7`.
+This runbook is the current individual-user install path for `archctx@0.4.8`.
 Team collaboration, design-partner rollout, opt-in beta cohorts, and shared organization rollout evidence are deferred.
 
-`archctx@0.4.8` is the unreleased recovery-capability identity in this repository. It is not
-available from public npm, and users must not substitute `0.4.7` when they require recovery.
-The rollout therefore fails closed until the exact `0.4.8` public artifact and release readback
-are recorded.
+`archctx@0.4.8` carries the recovery capability. `0.4.7` and earlier do not, so users who require
+recovery must not substitute an older version.
 
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Published artifact for this legacy install path: public npm package `archctx@0.4.7` (`latest`).
-- Runtime: Node.js 24.x or 25.x, npm, and git must be available on `PATH`.
+- Required release artifact: public npm package `archctx@0.4.8` (`latest`).
+- Runtime: Node.js `>=22.22 <26`, npm, and git must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 - Do not treat this runbook as approved for a published package version until `docs/verification/fg6-release-distribution-readback.json` is verified for that exact version.
 
 ## Install
 
-Verify Node/npm/git and install the currently published npm release. This does not include
-the unreleased recovery capability:
+Verify Node/npm/git and install the current npm release:
 
 ```bash
 node --version
@@ -29,16 +26,15 @@ npm install -g archctx@latest
 archctx --help
 ```
 
-For pinned reproduction of the published release:
+For pinned reproduction of the current verified release:
 
 ```bash
-npm install -g archctx@0.4.7
+npm install -g archctx@0.4.8
 ```
 
 The npm package is the generated public `archctx` artifact. The repository root package
 `archcontext` and workspace packages remain private source manifests for building and verifying
-that artifact. Do not publish or deploy the local `0.4.8` tarball outside the separately approved
-release workflow.
+that artifact.
 
 ## First Run
 
