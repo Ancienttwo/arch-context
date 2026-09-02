@@ -10,21 +10,21 @@
 
 | State | From applied | To applied | Latest migration | Integrity | Result |
 | --- | ---: | ---: | --- | --- | --- |
-| fresh-empty | 0 | 19 | 0019_projection_apply_receipts | ok | pass |
-| pre-ledger-0005 | 5 | 19 | 0019_projection_apply_receipts | ok | pass |
-| ledger-v1-0006 | 6 | 19 | 0019_projection_apply_receipts | ok | pass |
-| pre-search-fts-0008 | 8 | 19 | 0019_projection_apply_receipts | ok | pass |
-| current-0017 | 17 | 19 | 0019_projection_apply_receipts | ok | pass |
-| current-0018 | 18 | 19 | 0019_projection_apply_receipts | ok | pass |
-| current-0019 | 19 | 19 | 0019_projection_apply_receipts | ok | pass |
+| fresh-empty | 0 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
+| pre-ledger-0005 | 5 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
+| ledger-v1-0006 | 6 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
+| pre-search-fts-0008 | 8 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
+| current-0017 | 17 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
+| current-0018 | 18 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
+| current-0019 | 20 | 20 | 0020_projection_apply_recovery_proof | ok | pass |
 
 ## Package Bundle
 
-- Package: archctx@0.4.7
-- Tarball: archctx-0.4.7.tgz
-- Package files: 86
-- CLI bytes: 1737713
-- CLI digest: sha256:c290e551d9b06b97451e4674337ad66dd6f2c707ce3c8d98c743d0b907fc66ad
+- Package: archctx@0.4.8
+- Tarball: archctx-0.4.8.tgz
+- Package files: 87
+- CLI bytes: 1793408
+- CLI digest: sha256:6edfb0e2897844bd3f273dc306a95b81a230efe2059b6d1a7dd496ac70ceaae0
 
 ## Bundle Signatures
 
