@@ -1,6 +1,6 @@
 # Task Review: fix-111-descriptor-relative
 
-> **Status**: Ready for acceptance
+> **Status**: Accepted
 > **Plan**: plans/plan-20260903-0008-fix-111-descriptor-relative.md
 > **Contract**: tasks/contracts/20260903-0008-fix-111-descriptor-relative.contract.md
 > **Notes File**: tasks/notes/20260903-0008-fix-111-descriptor-relative.notes.md
@@ -8,9 +8,9 @@
 > **Last Updated**: 2026-09-03 00:08
 > **Recommendation**: pass
 > **Review Rubric Version**: 2
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:1ec2e44da07761fa5d9c39c02314a2b48936d354e7efc76c2f7289201a45b0a6
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
+> **Reviewed Target Revision**: 24071f3401841cbb532ace89e2a53505b4ac5a36
 
 ## Human Review Card
 
@@ -48,18 +48,18 @@ screenshot/artifact path, or reviewer observation.
 
 ## Acceptance Receipt Projection
 
-> **Disposition**: unavailable
-> **Reviewer**: unavailable
-> **Source**: unavailable
+> **Disposition**: external_pass
+> **Reviewer**: Codex
+> **Source**: codex-review
 > **Actor**: not-applicable
-> **Reviewed Subject SHA256**: pending
+> **Reviewed Subject SHA256**: sha256:1ec2e44da07761fa5d9c39c02314a2b48936d354e7efc76c2f7289201a45b0a6
 > **Reviewed Subject Scope**: normalized-final-content
-> **Reviewed Target Revision**: pending
-> **Verification Evidence SHA256**: pending
-> **Issued At**: pending
+> **Reviewed Target Revision**: 24071f3401841cbb532ace89e2a53505b4ac5a36
+> **Verification Evidence SHA256**: sha256:6ac6b1a91b52fe0bf41b92eecebfba71d62bcc65497a84c7e13c8f9f49fa8389
+> **Issued At**: 2026-09-02T16:54:22.066Z
 
-- Summary: No AcceptanceReceipt has been recorded.
-- Findings: none
+- Summary: Descriptor-relative POSIX writes and Windows parent-handle pinning close the named concurrent parent-to-symlink redirection; focused, packaged Node-only, and full local verification pass.
+- Findings: P2: Hosted Windows remains the authoritative confirmation of CreateFileW marshalling and no-FILE_SHARE_DELETE behavior; merge remains gated on the exact-head CI matrix.
 
 ## Behavior Diff Notes
 
