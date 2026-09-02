@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,7 @@ import {
   isTrackedWorktreeClean,
   prepareDetachedReviewWorktree,
   readCommitChangeMetadata,
+  readTrackedSourceFiles,
   readTrackedTreeEntries,
   readRepositoryBinding,
   readHeadSha,
@@ -116,6 +117,65 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     expect(first).toBe(reordered);
     expect(first).not.toBe(differentFacts);
     expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  test("measures Git-tracked source files only, so an untracked build output cannot inflate the footprint", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "src/dist"), { recursive: true });
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\nexport const b = 2;\n");
+      writeFileSync(join(root, "src/no-trailing-newline.ts"), "export const c = 3;");
+      writeFileSync(join(root, "src/empty.ts"), "");
+      writeFileSync(join(root, "docs/guide.md"), "# guide\n");
+      git(root, "add", ".");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "sources");
+
+      // Exists on disk inside the include glob, but was never committed.
+      writeFileSync(join(root, "src/dist/x.ts"), "export const generated = true;\n".repeat(40));
+
+      const measured = readTrackedSourceFiles(root, { include: ["src/**"] });
+
+      expect(measured).toEqual([
+        { path: "src/a.ts", lineCount: 2 },
+        { path: "src/empty.ts", lineCount: 0 },
+        { path: "src/no-trailing-newline.ts", lineCount: 1 }
+      ]);
+      expect(measured.some((file) => file.path === "src/dist/x.ts")).toBe(false);
+      // Tracking it is what changes the measurement, not its presence on disk.
+      git(root, "add", "src/dist/x.ts");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "generated");
+      expect(readTrackedSourceFiles(root, { include: ["src/**"] })).toHaveLength(4);
+
+      // No include filter measures the whole tracked tree.
+      expect(readTrackedSourceFiles(root).map((file) => file.path)).toEqual([
+        "docs/guide.md",
+        "src/a.ts",
+        "src/dist/x.ts",
+        "src/empty.ts",
+        "src/no-trailing-newline.ts",
+        "tracked.txt"
+      ]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("a tracked file missing from the worktree fails closed naming the paths", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\n");
+      writeFileSync(join(root, "src/b.ts"), "export const b = 2;\n");
+      git(root, "add", ".");
+      git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "sources");
+      rmSync(join(root, "src/b.ts"));
+
+      // Reporting a smaller footprint than the commit actually has would be a silent wrong answer.
+      expect(() => readTrackedSourceFiles(root, { include: ["src/**"] })).toThrow("git-tracked-file-missing: src/b.ts");
+    } finally {
+      removeTempRoot(root);
+    }
   });
 
   test("creates a detached temporary worktree at an exact clean commit", () => {

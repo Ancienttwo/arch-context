@@ -201,6 +201,14 @@ export interface ModuleStatisticsV1 {
     instability: number | null;
     directionViolationCount: number | null;
   } | null;
+  /**
+   * `callerCoverage` is a graph-boundary resolution ratio (the share of the
+   * module's inbound call boundary the index could resolve), not a test
+   * measurement, so it is independent of `coverageStatus`: a producer may know
+   * the boundary ratio while observing no test evidence at all, and it may know
+   * test files while the boundary stays unresolved. Only the 0-1 ratio bound is
+   * enforced; the two fields are never coupled (PRD 0.3-16).
+   */
   tests: {
     testFileCount: number | null;
     observedTestEdges: number | null;
@@ -480,9 +488,6 @@ export function moduleStatisticsInvariantIssues(module: ModuleStatisticsV1, pref
     ...ratioIssues(`${prefix}.tests.callerCoverage`, module.tests.callerCoverage),
     ...nonNegativeIntegerIssues(`${prefix}.uncertainty.unresolvedImports`, module.uncertainty.unresolvedImports)
   );
-  if (module.tests.coverageStatus === "unknown" && module.tests.callerCoverage !== null) {
-    issues.push(`${prefix}.tests.callerCoverage must be null when coverageStatus is unknown`);
-  }
   if (moduleStatisticsDigest(module) !== module.moduleDigest) {
     issues.push(`${prefix}.moduleDigest must bind the measured module payload`);
   }

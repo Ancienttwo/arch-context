@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from "@archcontext/core/architecture-domain";
+import { matchesGlob } from "@archcontext/core/projection-engine";
 import { digestJson, type Json } from "@archcontext/contracts";
 
 export function findRepositoryRoot(start: string): string {
@@ -165,6 +166,34 @@ export function readTrackedTreeEntries(root: string, ref = "HEAD"): GitTrackedTr
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
+export interface TrackedSourceFileV1 {
+  path: string;
+  lineCount: number;
+}
+
+/**
+ * Git-tracked source files with their line counts, filtered by optional include globs.
+ *
+ * The population is `git ls-tree`, not a working-tree walk, so an untracked build output inside an
+ * include glob can never enter the measured footprint and the same commit measures identically in
+ * a dirty and a clean checkout. `listScaleScanFiles` in the projection engine deliberately keeps
+ * the opposite (working-tree) semantics; its behavior is fixture-pinned and stays untouched. A
+ * tracked path missing from the worktree fails closed naming the paths, because reporting a
+ * smaller footprint than the commit actually has would be a silent wrong answer.
+ */
+export function readTrackedSourceFiles(root: string, options: { include?: string[] } = {}): TrackedSourceFileV1[] {
+  const absolute = (path: string): string => join(root, ...path.split("/"));
+  const paths = readTrackedTreeEntries(root)
+    .filter((entry) => entry.type === "blob")
+    .map((entry) => entry.path)
+    .filter((path) => options.include === undefined || options.include.some((pattern) => matchesGlob(path, pattern)));
+  const missing = paths.filter((path) => !existsSync(absolute(path)));
+  if (missing.length > 0) throw new Error(`git-tracked-file-missing: ${missing.join(", ")}`);
+  return paths
+    .map((path) => ({ path, lineCount: countLines(absolute(path)) }))
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+}
+
 export function isDetachedHead(root: string): boolean {
   return runGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]).trim() === "HEAD";
 }
@@ -275,6 +304,14 @@ export function removeDetachedReviewWorktree(worktree: Pick<DetachedReviewWorktr
 
 export function removePathWithRetry(path: string): void {
   rmSync(path, { recursive: true, force: true, maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100 });
+}
+
+/** Same counting rule as the projection engine's footprint scan: a trailing newline is a terminator, not a line. */
+function countLines(absolute: string): number {
+  const content = readFileSync(absolute, "utf8");
+  if (content === "") return 0;
+  const newlines = content.split("\n").length - 1;
+  return content.endsWith("\n") ? newlines : newlines + 1;
 }
 
 function readCommitTreeOid(root: string, headSha: string): string | undefined {

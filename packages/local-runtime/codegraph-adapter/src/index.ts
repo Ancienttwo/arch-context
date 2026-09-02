@@ -994,6 +994,37 @@ export function loadCapabilityCodeGraphProjectionInputs(
   return { importGraphs, selectorEvidence };
 }
 
+export interface RepositoryImportPairV1 {
+  from: string;
+  /** `null` when the specifier did not resolve to a repository file. */
+  to: string | null;
+}
+
+export interface RepositoryImportPairsV1 {
+  pairs: RepositoryImportPairV1[];
+  truncated: boolean;
+}
+
+/**
+ * Every import edge in the repository as repo-relative file pairs, plus whether the dump saturated
+ * its limit. Unlike `capabilityImportGraphs` this keeps specifiers the resolver could not pin to a
+ * real file as `to: null` instead of dropping them, because a module snapshot has to report how
+ * much of its boundary is unresolved and a dropped edge is indistinguishable from an absent one.
+ * The two producers deliberately share only `codeGraphImportNodes`: `capabilityImportGraphs` keeps
+ * its resolved-only edge set, which the capability projection fixtures pin byte for byte.
+ */
+export function repositoryImportPairs(root: string, binary: string, limit: number): RepositoryImportPairsV1 {
+  const nodes = codeGraphImportNodes(root, binary, limit);
+  const pairs = new Map<string, RepositoryImportPairV1>();
+  for (const node of nodes.imports) {
+    if (node.kind !== "import") continue;
+    const to = resolveImportTarget(root, node.filePath, node.name) ?? null;
+    // Keyed on the JSON pair so sorting the keys orders by (from, then target, unresolved first).
+    pairs.set(JSON.stringify([node.filePath, to ?? ""]), { from: node.filePath, to });
+  }
+  return { pairs: [...pairs.keys()].sort().map((key) => pairs.get(key)!), truncated: nodes.truncated };
+}
+
 function capabilityImportGraphs(
   root: string,
   binary: string,
