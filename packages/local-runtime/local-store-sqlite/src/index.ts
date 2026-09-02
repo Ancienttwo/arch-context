@@ -1512,6 +1512,8 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   listRepositorySessions(): Promise<PersistedRepositorySession[]>;
   /** Resolves to whether a persisted session existed for `repositoryId` before the delete. */
   deleteRepositorySession(repositoryId: string): Promise<boolean>;
+  /** Atomically deletes one persisted session and, when supplied, saves its post-removal landscape. */
+  commitRepositoryRemoval(repositoryId: string, landscape?: Landscape): Promise<boolean>;
   enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult>;
   listRuntimeAgentJobs(input: ArchitectureLedgerScope & { statuses?: RuntimeAgentJobStatus[] }): Promise<RuntimeAgentJobRecord[]>;
   queueStatsRuntimeAgentJobs(input: ArchitectureLedgerScope & { now?: string }): Promise<RuntimeAgentJobQueueStats>;
@@ -1779,6 +1781,27 @@ export class SqliteLocalStore implements RuntimeLocalStore {
     if (!existing) return false;
     db.prepare("DELETE FROM repository_sessions WHERE repository_id = ?").run(repositoryId);
     return true;
+  }
+
+  async commitRepositoryRemoval(repositoryId: string, landscape?: Landscape): Promise<boolean> {
+    const db = await this.database();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = db.prepare("SELECT repository_id FROM repository_sessions WHERE repository_id = ?").get(repositoryId);
+      if (existing) db.prepare("DELETE FROM repository_sessions WHERE repository_id = ?").run(repositoryId);
+      if (landscape) {
+        db.prepare(
+          `INSERT OR REPLACE INTO landscapes
+            (id, digest, metadata_json, updated_at)
+            VALUES (?, ?, ?, ?)`
+        ).run(landscape.id, landscapeDigest(landscape), stableJson(landscape), nowIso());
+      }
+      db.exec("COMMIT");
+      return existing !== undefined;
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   async enqueueRuntimeAgentJob(input: RuntimeAgentJobEnqueueInput): Promise<RuntimeAgentJobEnqueueResult> {

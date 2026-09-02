@@ -2711,7 +2711,11 @@ async function runGithubReviewCommand(args: string[], cwd: string, deps: CliRunt
         startedAt: readFlag(commandArgs, "--started-at"),
         completedAt: readFlag(commandArgs, "--completed-at") ?? readFlag(commandArgs, "--now")
       });
-      cleanup = await runtime.client.cleanupDeveloperReviewRun(prepared.run) as unknown as Json;
+      cleanup = await runtime.client.cleanupDeveloperReviewRun({
+        repositoryRoot: prepared.run.sourceRoot,
+        challengeId: prepared.run.challengeId,
+        runId: prepared.run.runId
+      }) as unknown as Json;
       const ran = await writeGithubDeveloperReviewState(cwd, {
         ...claimed.state,
         status: action === "run" ? "ran" : "ready_for_submit",
@@ -2740,7 +2744,11 @@ async function runGithubReviewCommand(args: string[], cwd: string, deps: CliRunt
         cleanup
       } as unknown as Json);
     } catch (error) {
-      if (!cleanup) cleanup = await Promise.resolve(runtime.client.cleanupDeveloperReviewRun(prepared.run)).catch((cleanupError: unknown) => ({
+      if (!cleanup) cleanup = await Promise.resolve(runtime.client.cleanupDeveloperReviewRun({
+        repositoryRoot: prepared.run.sourceRoot,
+        challengeId: prepared.run.challengeId,
+        runId: prepared.run.runId
+      })).catch((cleanupError: unknown) => ({
         cleaned: false,
         errors: [cleanupError instanceof Error ? cleanupError.message : String(cleanupError)]
       })) as unknown as Json;
