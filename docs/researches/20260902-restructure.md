@@ -1,5 +1,51 @@
 # 代码重构模式：双仓权威边界与实施 Sprint
 
+> **修訂記錄（2026-09-03）：本文件是原始方案，不是權威。** 權威順序：`packages/contracts/src/refactor.ts` + `packages/contracts/src/ledger.ts`（已凍結、已合入 main，PR #129）> `plans/prds/20260902-2312-refactor-intelligence-resolution-ledger.prd.md`（Approved）> 本文件。下方 §0 列出本文件與凍結 contract 的全部分歧；被修訂的章節在標題下方以「⚠︎ 已修訂，見 §0」標記。Program B（repo-harness）撰寫 PRD / validator 時只能對照 §0 與 contract 原檔，不得照本文件的字段名。
+
+## §0 對照凍結 contract 的修訂
+
+### §0.1 定位修訂（最重要）
+
+原方案把 ArchContext 寫成「唯一 route 權威，自己生成重構建議與目標架構」。PRD §0.1 已改為：**ArchContext 是 Agent 在代碼架構上的儀器、證據閘門與賬本，不是重構決策者。** 它量測、對 Agent 提出的變更做確定性判級、記錄並事後驗證；是否重構、目標架構長什麼樣，由 Agent 層（repo-harness 派發的 coding agent 與人）決定並以 typed proposal 送入。ArchContext 唯一的否決是事實閘門：不能把量測為 `cross_module` / `architecture` 的提案宣稱成 `module`，不能在 `insufficient_evidence` 時繼續。原方案 §2「權威關係」、§5.2 判級順序中「ArchContext 決定 route」的措辭全部依此收窄。
+
+### §0.2 字段對照表
+
+| 本文件用語 | 凍結 contract | 位置 |
+|---|---|---|
+| `RefactorRoute` 五值（`no_action` / `module_refactor` / `cross_module_refactor` / `architecture_intervention` / `proof_required`） | `RefactorScale` 五值：`architecture`、`cross_module`、`insufficient_evidence`、`model_adoption_required`、`module`；`RefactorAssessmentV1.scale: RefactorScale \| null`，無 proposal 時為 `null`。**`insufficient_evidence` 與 `model_adoption_required` 是 scale 值**，不是 reason code。`no_action` 不存在（那是 Agent 的決定）。「route」變成 repo-harness 自己從 `scale` + `scaleReasonCodes` 映射出的 workflow 概念 | `refactor.ts:27-33`（`REFACTOR_SCALES`）、`:268-269` |
+| `routeReasonCodes` | `scaleReasonCodes: RefactorScaleReasonCode[]`，閉合 10 值：`caller-coverage-unknown`、`code-facts-missing`、`code-facts-truncated`、`major-change-detected`、`multi-node-scope`、`node-footprint-undeclared`、`ownership-ambiguous`、`single-node-scope`、`target-unresolved`、`unowned-paths` | `refactor.ts:34-45` |
+| `opportunities`（含 `duplicate-implementation`、`compatibility-path`） | 不存在。ArchContext 只輸出確定性 `observations: RefactorObservationV1[]`，kind 閉合 6 值：`cycle`、`direction-violation`、`evidence-gap`、`ownership-ambiguous`、`undeclared-footprint`、`unowned-paths`。語義判斷（重複實作、兼容層）屬 Agent 層 | `refactor.ts:46-53`、`:267` |
+| `RefactorRequestV1` 只有 scope | `RefactorRequestV1 { schemaVersion, scope, proposal?: RefactorProposalV1, expectedHeadSha?, expectedWorktreeDigest?, task? }`；`task` 只供 advisory heuristic，不影響 scale | `refactor.ts:166-175` |
+| ArchContext 生成 `ArchitectureInterventionModel` / `ArchitectureInterventionPayloadV1` | 不存在。Agent 撰寫 `RefactorProposalV1 { authoredBy, intent, scopePaths, targetDelta?: ArchitectureTargetDeltaV1, targetOutcomes, killList, proposalDigest }`；`ArchitectureTargetDeltaV1` 含 `interventionId`（digest 派生）、`trigger`、`thesis`、`targetState`、`migrationState`、`completionCriteria`、`falsifiers`、`benefitLedger`、`unresolvedTargets`（由 ArchContext 回填；非空 ⇒ scale `insufficient_evidence`，reason `target-unresolved`） | `refactor.ts:128-165` |
+| `RecommendationV3.category` = `practice` / `refactor` / `architecture_intervention` | `practice` / `structural_observation` / `refactor_proposal`；`category` 與 `payload` 是判別聯合 | `ledger.ts:742-752` |
+| `RefactorRecommendationPayloadV1`、`ArchitectureInterventionPayloadV1` | `PracticeRecommendationPayloadV1`、`StructuralObservationPayloadV1`、`RefactorProposalPayloadV1 { assessmentDigest, proposalDigest, scale, affectedNodeIds, majorChangeReasons, baselineSnapshotDigest, targetDelta?, targetOutcomes, killList }` | `ledger.ts:693-725` |
+| `RecommendationV3` 丟掉 v2 欄位 | v3 是 v2 嚴格超集（保留 `enforcement`、`confidence`、`uncertainty`、`explanation`、`practiceId?`…），新增 required `category`、`authoredBy`、`subjectSelectorId`、`payload`、`relations { supersedes?, regressesFrom? }`；`authoredBy.kind/source` 必須是允許配對（`cli→cli`、`mcp→mcp`、`subagent→subagent`、`developer→manual`），`daemon` / `system` 永不能撰寫 `refactor_proposal`；`structural_observation` 必須 kind+source 皆 `daemon` | `ledger.ts:726-752`、`refactor.ts:82-95` |
+| `subjectSelector: {kind, id}` | `subjectSelectorId: string`，引用既有 `ArchitectureSubjectSelectorV1` | `ledger.ts:365-382` |
+| major-change 詞彙表在 repo-harness | 在 ArchContext contracts：`ARCHITECTURE_MAJOR_CHANGE_REASON_CODES` 13 值（含 `verified-flow-proof-changed`，不含「migration target state changed」）；`RefactorAssessmentV1.majorChangeReasons` 直接復用 | `projection.ts:36-50` |
+| `RefactorVerificationRequestV1` | 尚未定義。核心 API 是 `refactorVerifyInvariantIssues(afterSnapshot, evidence)`（`refactor.ts:723`）；CLI 層的 request 形狀由 RF4 / RF5b（0.5.1）定義，Program B 在那之前不得對其寫 validator | `refactor.ts:723-760` |
+| `RefactorResolutionEvidenceV1.disposition` 五值 | 相同：`not_improved`、`partially_resolved`、`regressed`、`resolved`、`stale`；outcome satisfaction 由 ArchContext 依 `operator` / `value` 重算，不信任呼叫方的 `satisfied` | `refactor.ts:54-60`、`:301-330` |
+| `ModuleStatisticsV1.uncertainty.graphTruncated` 逐 node | 移到全局 `codeFacts.truncated`（import edge 的 truncation 是全倉值）；`dependencyGraph` 在 index 缺失時為 `null`；`instability` / `directionViolationCount` 為 P1 可 `null`；`tests.callerCoverage` 在 v1 恆為 `null`（import edge 觀察不到動態呼叫），**不得**列為 essential evidence | `refactor.ts:176-258` |
+| 新錯誤碼 | `AC_MODEL_ADOPTION_REQUIRED`、`AC_REFACTOR_STALE`、`AC_REFACTOR_EVIDENCE_REQUIRED`、`AC_REFACTOR_PROPOSAL_UNAUTHORED` | `schema.ts` |
+
+### §0.3 CLI 與發布分兩版
+
+| 項目 | 0.5.0 | 0.5.1 |
+|---|---|---|
+| CLI verb | `archctx refactor scan`、`archctx refactor record` | `archctx refactor verify` |
+| daemon RPC | `refactorScan`、`refactorRecord` | `refactorVerify` |
+| `ARCHCTX_FEATURES` 新增 | `module-statistics-v1`、`refactor-assessment-v1`、`recommendation-v3` | `refactor-resolution-v1` |
+| contracts | 六個 schema 全部在 `archctx-contracts@0.5.0` 一次凍結（含 `RefactorResolutionEvidenceV1` 型別） | 無新 contract；只補 runtime |
+| `recommendations resolve` | 新增 `--evidence-digest` flag 與檢查；`refactor_proposal` / `structural_observation` 類在 0.5.0 **不可** resolve（沒有合法 evidence） | 可 resolve |
+
+原方案 §10.2 `required_features` 四項一次要齊不成立：RH-RF0 ～ RH-RF3 綁 0.5.0 的三個 feature；RH-RF4（candidate verify）與 RH-RF5（after-scan）綁 0.5.1 的 `refactor-resolution-v1`。§17 的「0.5.0 之後 repo-harness 更新 pin」仍成立，但要分兩次。
+
+### §0.4 上游進度（2026-09-03）
+
+sprint `plans/sprints/20260902-2336-refactor-instrumentation-resolution-ledger.sprint.md` 10 行：RF0（特徵凍結）、RF1a（contract 凍結）已合入 main；RF1b（module statistics snapshot）在 worktree 實作中；之後 RF2 → RF3 → RF5a（0.5.0 發布 + npm readback）→ RF4 → RF5b（0.5.1）。npm 上 `archctx` / `archctx-contracts` 目前仍是 0.4.8，不含 refactor contract。Program B 的派工單見 `docs/researches/20260903-program-b-dispatch.md`。
+
+---
+
+
 ## 最终决策
 
 应采用一条非常清晰的分界：
@@ -61,6 +107,8 @@ CodeGraph adapter已经固定 `@colbymchenry/codegraph@1.5.0`，支持 index、c
 ---
 
 # 二、P1 架构
+
+> ⚠︎ 已修訂，見 §0：route → scale；ArchContext 不決定 workflow，見 §0.1 / §0.2
 
 ```mermaid
 flowchart TD
@@ -137,6 +185,8 @@ flowchart TD
 
 ## 权威关系
 
+> ⚠︎ 已修訂，見 §0：ArchContext 只否決事實（scale 不可降級、insufficient_evidence 不可跳過），不決定 route
+
 ```text
 ArchContext assessment.route
     是唯一“采用什么重构规模”的判定
@@ -187,6 +237,8 @@ repo-harness
 ---
 
 # 四、ArchContext 上游需要新增的能力
+
+> ⚠︎ 已修訂，見 §0：graphTruncated 為全局值；callerCoverage 在 v1 恆為 null；見 §0.2
 
 ## 4.1 模块定义不得按文件夹猜测
 
@@ -364,6 +416,8 @@ docs/architecture:
 ---
 
 # 五、ArchContext 的重构判定协议
+
+> ⚠︎ 已修訂，見 §0：RefactorRoute → RefactorScale；opportunities → observations；見 §0.2
 
 ## 5.1 `RefactorAssessmentV1`
 
@@ -589,6 +643,8 @@ repo-harness/refactor-ledger.json
 
 ## 7.2 建议升级为 `RecommendationV3`
 
+> ⚠︎ 已修訂，見 §0：category / payload 名稱與判別聯合、v2 超集、authoredBy 配對，見 §0.2
+
 当前 `RecommendationV2` 缺少typed category/payload。重构语义若只塞进自由 `extensions`，以后会难以机器验证。
 
 建议上游新增：
@@ -713,6 +769,8 @@ stale
 
 # 八、重构结果验证
 
+> ⚠︎ 已修訂，見 §0：satisfied 由 ArchContext 重算；RefactorVerificationRequestV1 尚未定義，見 §0.2
+
 ## 8.1 `RefactorResolutionEvidenceV1`
 
 ```ts
@@ -771,6 +829,8 @@ interface RefactorResolutionEvidenceV1 {
 ---
 
 # 九、ArchContext CLI 设计
+
+> ⚠︎ 已修訂，見 §0：scan / record 在 0.5.0，verify 在 0.5.1；resolve 需 --evidence-digest，見 §0.3
 
 建议只新增三个核心verb，复用现有 `recommendations` 和 `book`，不要再造完整平行命令族。
 
@@ -889,6 +949,8 @@ root execute
 这样不会复活旧autoplan，也不会建立第二个workflow engine。
 
 ## 10.2 Policy
+
+> ⚠︎ 已修訂，見 §0：required_features 分兩版，見 §0.3
 
 ```json
 {
@@ -1386,6 +1448,8 @@ src/core/refactor/refactor-score.ts
 
 # 十七、版本与发布顺序
 
+> ⚠︎ 已修訂，見 §0：0.5.0 + 0.5.1 兩段，見 §0.3
+
 目前ArchContext仓库版本已到 `0.4.8`，而repo-harness当前provider contract仍固定要求 `archctx@0.4.7` 以及现有projection feature集合。
 
 建议新协议发布为：
@@ -1430,6 +1494,8 @@ refactor_provider_version_mismatch
 ---
 
 # 十八、双仓 Program / Sprint
+
+> ⚠︎ 已修訂，見 §0：上游 sprint 實際 10 行順序見 §0.4
 
 这个“Refactor Mode”本身是一个新功能，所以仍应按你的规则走：
 
