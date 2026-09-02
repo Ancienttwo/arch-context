@@ -994,6 +994,67 @@ export function loadCapabilityCodeGraphProjectionInputs(
   return { importGraphs, selectorEvidence };
 }
 
+export interface RepositoryImportPairV1 {
+  from: string;
+  /** The specifier verbatim. Two different specifiers from one file are two observations. */
+  specifier: string;
+  /** Repo-relative target, or `null` when this producer could not resolve the specifier. */
+  to: string | null;
+}
+
+export interface RepositoryImportPairsV1 {
+  pairs: RepositoryImportPairV1[];
+  truncated: boolean;
+  /** `ready` only when an index exists and reports no pending source changes. */
+  availability: "ready" | "unavailable";
+  /** The worktree the index attests to, or `null` when it attests to nothing usable. */
+  indexedWorktreeDigest: string | null;
+}
+
+/**
+ * Every import edge in the repository as repo-relative pairs, plus the identity of the index they
+ * were read from. Unlike `capabilityImportGraphs` this keeps specifiers it could not resolve as
+ * `to: null` with the specifier retained, because a module snapshot has to report how much of its
+ * boundary is unresolved and a dropped edge is indistinguishable from an absent one. Bare
+ * workspace specifiers are deliberately left unresolved here: mapping `@scope/pkg/sub` through a
+ * package `exports` map is the builder's job, which keeps this adapter free of resolution rules
+ * and keeps the resolution itself unit-testable without an index. The two producers share only
+ * `codeGraphImportNodes`; `capabilityImportGraphs` keeps its resolved-only edge set, which the
+ * capability projection fixtures pin byte for byte.
+ *
+ * Freshness is producer-owned evidence, never a caller assertion: the returned
+ * `indexedWorktreeDigest` binds the edges to `worktreeDigest` only when the index reports itself
+ * clean, so a consumer cannot claim complete coverage over an index that never saw this tree.
+ */
+export function repositoryImportPairs(
+  root: string,
+  binary: string,
+  limit: number,
+  worktreeDigest: string
+): RepositoryImportPairsV1 {
+  if (!codeGraphIndexAvailable(root)) {
+    return { pairs: [], truncated: true, availability: "unavailable", indexedWorktreeDigest: null };
+  }
+  const nodes = codeGraphImportNodes(root, binary, limit);
+  const pairs = new Map<string, RepositoryImportPairV1>();
+  for (const node of nodes.imports) {
+    if (node.kind !== "import") continue;
+    const to = resolveImportTarget(root, node.filePath, node.name) ?? null;
+    // Keyed on (file, specifier) so three distinct unresolved specifiers stay three records.
+    pairs.set(JSON.stringify([node.filePath, node.name]), { from: node.filePath, specifier: node.name, to });
+  }
+  const status = readProjectionCodeGraphStatus(codeGraphCliInvocation(binary, root, ""), root, CODEGRAPH_QUERY_TIMEOUT_MS);
+  const pending = status.pendingChanges;
+  const clean = status.initialized && pending !== undefined && pending.added === 0 && pending.modified === 0 && pending.removed === 0;
+  return {
+    pairs: [...pairs.keys()].sort().map((key) => pairs.get(key)!),
+    truncated: nodes.truncated,
+    availability: clean ? "ready" : "unavailable",
+    indexedWorktreeDigest: clean ? worktreeDigest : null
+  };
+}
+
+
 function capabilityImportGraphs(
   root: string,
   binary: string,

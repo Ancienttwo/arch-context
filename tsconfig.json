@@ -18,6 +18,7 @@
       "@archcontext/core/architecture-domain": ["./packages/core/architecture-domain/src/index.ts"],
       "@archcontext/core/changeset-engine": ["./packages/core/changeset-engine/src/index.ts"],
       "@archcontext/core/context-compiler": ["./packages/core/context-compiler/src/index.ts"],
+      "@archcontext/core/module-statistics": ["./packages/core/module-statistics/src/index.ts"],
       "@archcontext/core/policy-engine": ["./packages/core/policy-engine/src/index.ts"],
       "@archcontext/core/practice-catalog": ["./packages/core/practice-catalog/src/index.ts"],
       "@archcontext/core/practice-engine": ["./packages/core/practice-engine/src/index.ts"],

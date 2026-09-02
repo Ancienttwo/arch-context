@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,8 @@ import {
   isTrackedWorktreeClean,
   prepareDetachedReviewWorktree,
   readCommitChangeMetadata,
+  readTrackedSourceFiles,
+  readWorkspacePackages,
   readTrackedTreeEntries,
   readRepositoryBinding,
   readHeadSha,
@@ -118,6 +120,107 @@ describe("@archcontext/local-runtime/git-adapter", () => {
     expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
+  test("measures Git-tracked source files only, so an untracked build output cannot inflate the footprint", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "src/dist"), { recursive: true });
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\nexport const b = 2;\n");
+      writeFileSync(join(root, "src/no-trailing-newline.ts"), "export const c = 3;");
+      writeFileSync(join(root, "src/empty.ts"), "");
+      writeFileSync(join(root, "docs/guide.md"), "# guide\n");
+      commitAll(root, "sources");
+
+      // Exists on disk inside the include glob, but was never committed.
+      writeFileSync(join(root, "src/dist/x.ts"), "export const generated = true;\n".repeat(40));
+
+      const measured = readTrackedSourceFiles(root, { include: ["src/**"] });
+
+      expect(measured).toEqual([
+        { path: "src/a.ts", lineCount: 2 },
+        { path: "src/empty.ts", lineCount: 0 },
+        { path: "src/no-trailing-newline.ts", lineCount: 1 }
+      ]);
+      expect(measured.some((file) => file.path === "src/dist/x.ts")).toBe(false);
+      // Tracking it is what changes the measurement, not its presence on disk.
+      git(root, "add", "src/dist/x.ts");
+      commitAll(root, "generated");
+      expect(readTrackedSourceFiles(root, { include: ["src/**"] })).toHaveLength(4);
+
+      // No include filter measures the whole tracked tree.
+      expect(readTrackedSourceFiles(root).map((file) => file.path)).toEqual([
+        "docs/guide.md",
+        "src/a.ts",
+        "src/dist/x.ts",
+        "src/empty.ts",
+        "src/no-trailing-newline.ts",
+        "tracked.txt"
+      ]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("counts the committed blob, so an uncommitted edit or deletion does not move the measurement", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\n");
+      writeFileSync(join(root, "src/b.ts"), "export const b = 2;\n");
+      commitAll(root, "sources");
+      const committed = readTrackedSourceFiles(root, { include: ["src/**"] });
+      expect(committed).toEqual([{ path: "src/a.ts", lineCount: 1 }, { path: "src/b.ts", lineCount: 1 }]);
+
+      // Grow one tracked file by 40 lines and delete another, without committing either.
+      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\n".repeat(41));
+      rmSync(join(root, "src/b.ts"));
+
+      // The snapshot describes a commit, not whatever happens to be on disk, so two scans at the
+      // same HEAD stay comparable.
+      expect(readTrackedSourceFiles(root, { include: ["src/**"] })).toEqual(committed);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("a blob Git cannot hand back fails closed naming the path", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/a.ts"), "export const a = 1;\n");
+      commitAll(root, "sources");
+      const objectId = gitOut(root, "rev-parse", "HEAD:src/a.ts");
+      rmSync(join(root, ".git/objects", objectId.slice(0, 2), objectId.slice(2)));
+
+      // Reporting a smaller footprint than the commit actually has would be a silent wrong answer.
+      expect(() => readTrackedSourceFiles(root, { include: ["src/**"] })).toThrow("git-tracked-blob-unreadable: src/a.ts");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("reads workspace manifests so bare workspace specifiers can be resolved downstream", () => {
+    const root = createGitFixture();
+    try {
+      mkdirSync(join(root, "packages/alpha"), { recursive: true });
+      mkdirSync(join(root, "packages/beta"), { recursive: true });
+      writeFileSync(join(root, "package.json"), JSON.stringify({ workspaces: ["packages/beta", "packages/alpha"] }));
+      writeFileSync(join(root, "packages/alpha/package.json"), JSON.stringify({
+        name: "@fixture/alpha",
+        exports: { ".": "./src/index.ts", "./sub": "./sub/src/index.ts" }
+      }));
+      writeFileSync(join(root, "packages/beta/package.json"), JSON.stringify({ name: "@fixture/beta" }));
+
+      expect(readWorkspacePackages(root)).toEqual([
+        { name: "@fixture/alpha", root: "packages/alpha", exports: { ".": "./src/index.ts", "./sub": "./sub/src/index.ts" } },
+        // A manifest without `exports` contributes no resolvable subpath rather than a guess.
+        { name: "@fixture/beta", root: "packages/beta", exports: {} }
+      ]);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("creates a detached temporary worktree at an exact clean commit", () => {
     const root = createGitFixture();
     const tempRoot = mkdtempSync(join(tmpdir(), "archctx-review-worktrees-"));
@@ -213,6 +316,11 @@ function createGitFixture(): string {
   git(root, "add", ".");
   git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", "fixture");
   return root;
+}
+
+function commitAll(root: string, message: string): void {
+  git(root, "add", ".");
+  git(root, "-c", "user.name=ArchContext Test", "-c", "user.email=archcontext@example.test", "commit", "-m", message);
 }
 
 function git(root: string, ...args: string[]): void {

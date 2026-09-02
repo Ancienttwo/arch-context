@@ -611,6 +611,27 @@ describe("module statistics validators", () => {
     ).toContain("snapshot.repositorySummary.unownedFileCount must be a non-negative integer");
   });
 
+  test("callerCoverage is a boundary ratio independent of coverageStatus, bounded but never coupled", () => {
+    // A producer that resolved the inbound call boundary but observed no test evidence is a
+    // legal measurement: `coverageStatus: "unknown"` must not force `callerCoverage` to null.
+    const unknownWithRatio = makeModule({
+      tests: { testFileCount: null, observedTestEdges: null, callerCoverage: 0.4, coverageStatus: "unknown" }
+    });
+    expect(moduleStatisticsInvariantIssues(unknownWithRatio)).toEqual([]);
+
+    // The ratio bound still applies under every coverageStatus.
+    const outOfBounds = makeModule({
+      tests: { testFileCount: null, observedTestEdges: null, callerCoverage: 1.5, coverageStatus: "unknown" }
+    });
+    expect(moduleStatisticsInvariantIssues(outOfBounds)).toContain("module.tests.callerCoverage must be a ratio between 0 and 1");
+
+    // The RF1 producer shape (everything unknown/null) stays legal too.
+    const allUnknown = makeModule({
+      tests: { testFileCount: null, observedTestEdges: null, callerCoverage: null, coverageStatus: "unknown" }
+    });
+    expect(moduleStatisticsInvariantIssues(allUnknown)).toEqual([]);
+  });
+
   test("a repositorySummary that disagrees with the measured modules is rejected", () => {
     const snapshot = makeSnapshot();
     const drifted = {
