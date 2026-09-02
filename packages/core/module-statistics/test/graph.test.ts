@@ -22,7 +22,8 @@ describe("module import graph and strongly connected components", () => {
     ], OWNERS);
 
     const a = graph.countsByNode.get("module.a")!;
-    // Two file edges cross into module.b but they reach only one peer module.
+    // Two file edges cross into module.b but they reach only one peer module. The a1->a2 edge is
+    // internal and stays out of the outbound count entirely.
     expect(a).toMatchObject({ internalEdgeCount: 1, outboundModuleEdges: 3, inboundModuleEdges: 0, fanOut: 2, fanIn: 0 });
     expect(graph.countsByNode.get("module.c")).toMatchObject({ inboundModuleEdges: 2, fanIn: 2, fanOut: 0, outboundModuleEdges: 0 });
     // Distinct ordered module pairs: a->b, a->c, b->c.
@@ -70,15 +71,34 @@ describe("module import graph and strongly connected components", () => {
       .toBe(forward.countsByNode.get("module.a")!.stronglyConnectedComponentId);
   });
 
-  test("a self-loop is a non-trivial one-member component, an internal edge is not", () => {
+  test("an internal edge is never a module-graph edge, so a module never depends on itself", () => {
     const internalOnly = buildModuleGraph(NODE_IDS, [{ from: "a1.ts", to: "a2.ts" }], OWNERS);
-    // Two files of the same module: one module-level self edge, which does close a cycle on itself.
-    expect(internalOnly.countsByNode.get("module.a")).toMatchObject({ internalEdgeCount: 1, cycleCount: 1 });
-    expect(internalOnly.countsByNode.get("module.a")!.stronglyConnectedComponentId).toMatch(/^scc\./);
-    expect(internalOnly.stronglyConnectedComponentCount).toBe(1);
-    // A self-loop is never a cross-module pair.
+    // Two files of one module: an internal edge, and nothing else. The module graph answers which
+    // modules depend on which, and a module does not depend on itself.
+    expect(internalOnly.countsByNode.get("module.a")).toMatchObject({
+      internalEdgeCount: 1,
+      outboundModuleEdges: 0,
+      inboundModuleEdges: 0,
+      fanIn: 0,
+      fanOut: 0,
+      cycleCount: 0,
+      stronglyConnectedComponentId: null
+    });
+    expect(internalOnly.stronglyConnectedComponentCount).toBe(0);
     expect(internalOnly.crossModuleEdgeCount).toBe(0);
     expect(internalOnly.crossModuleCycleCount).toBe(0);
+  });
+
+  test("an intra-module file cycle is not a module cycle", () => {
+    // a1 -> a2 -> a1 is a genuine file-level cycle inside one module. At module granularity there
+    // is no cycle to report: it stays two internal edges and no component.
+    const graph = buildModuleGraph(NODE_IDS, [{ from: "a1.ts", to: "a2.ts" }, { from: "a2.ts", to: "a1.ts" }], OWNERS);
+    expect(graph.countsByNode.get("module.a")).toMatchObject({
+      internalEdgeCount: 2,
+      cycleCount: 0,
+      stronglyConnectedComponentId: null
+    });
+    expect(graph.stronglyConnectedComponentCount).toBe(0);
   });
 
   test("edges touching an unowned file are dropped rather than attributed to a guess", () => {
@@ -108,9 +128,9 @@ describe("module import graph and strongly connected components", () => {
       directionViolationCount: null,
       inboundModuleEdges: 0
     });
-    // packages/runtime/main.ts imports packages/core/index.ts (module.core) and
-    // packages/core/shared/util.ts (module.core and component.shared).
-    expect(runtime.dependencyGraph!.outboundModuleEdges).toBe(3);
+    // packages/runtime/main.ts reaches packages/core/index.ts and
+    // packages/core/pressure-engine/src/index.ts through the two workspace specifiers.
+    expect(runtime.dependencyGraph!.outboundModuleEdges).toBe(2);
     expect(runtime.dependencyGraph!.fanOut).toBe(2);
     expect(snapshot.repositorySummary.crossModuleEdgeCount).toBe(graphPairCount(snapshot));
   });

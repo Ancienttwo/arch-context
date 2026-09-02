@@ -30,9 +30,14 @@ type PairCounts = Map<string, Map<string, number>>;
  * Builds the module-level import graph from resolved file edges and runs Tarjan over it.
  *
  * A file edge is attributed to every `(owner(from), owner(to))` pair, so a contested file
- * contributes to each claimant instead of disappearing into one arbitrary winner. Self edges are
- * kept: a module importing across two of its own files is an internal edge, and a module whose own
- * files close an import cycle is a one-member component that is not trivial.
+ * contributes to each claimant instead of disappearing into one arbitrary winner.
+ *
+ * A same-owner file edge is counted in `internalEdgeCount` and is deliberately NOT a module-graph
+ * edge. The module graph answers "which modules depend on which"; a module does not depend on
+ * itself. So an intra-module file cycle, however real, is not a module cycle: it never creates a
+ * one-member component, and an acyclic module with internal imports reports
+ * `stronglyConnectedComponentId: null` and `cycleCount: 0`. Intra-module cycles are a
+ * file-granularity concern that a module-granularity snapshot cannot honestly report.
  *
  * Everything is keyed through nested maps rather than joined strings: node ids and repo-relative
  * paths are free-form, and a delimiter collision would silently merge two distinct edges.
@@ -68,11 +73,11 @@ export function buildModuleGraph(
   let crossModuleEdgeCount = 0;
   for (const [from, targets] of pairCounts) {
     for (const [to, edgeCount] of targets) {
-      successors.get(from)!.add(to);
       if (from === to) {
         counts.get(from)!.internalEdgeCount += edgeCount;
         continue;
       }
+      successors.get(from)!.add(to);
       counts.get(from)!.outboundModuleEdges += edgeCount;
       counts.get(from)!.fanOut += 1;
       counts.get(to)!.inboundModuleEdges += edgeCount;
@@ -84,26 +89,26 @@ export function buildModuleGraph(
   let stronglyConnectedComponentCount = 0;
   const componentByNode = new Map<string, string>();
   for (const members of tarjanComponents(nodeIds, successors)) {
-    const selfLooping = members.length === 1 && successors.get(members[0])!.has(members[0]);
-    if (members.length === 1 && !selfLooping) continue;
+    // The module graph carries no self-loops, so a one-member component is always trivial.
+    if (members.length === 1) continue;
     stronglyConnectedComponentCount += 1;
     const componentId = stronglyConnectedComponentIdFor(members);
     for (const member of members) componentByNode.set(member, componentId);
   }
   for (const id of nodeIds) counts.get(id)!.stronglyConnectedComponentId = componentByNode.get(id) ?? null;
 
-  // `cycleCount` is the module's own out-edges (self-loop included) that stay inside its own
-  // component, i.e. how many of its dependencies can reach it back. It is deliberately not the
-  // number of simple cycles through the module: enumerating simple cycles is exponential in the
-  // component size, and a repository-wide scan cannot afford an answer that may never terminate.
+  // `cycleCount` is the module's own out-edges that stay inside its own component, i.e. how many
+  // of its dependencies can reach it back. It is deliberately not the number of simple cycles
+  // through the module: enumerating simple cycles is exponential in the component size, and a
+  // repository-wide scan cannot afford an answer that may never terminate.
   let crossModuleCycleCount = 0;
-  for (const [from, targets] of pairCounts) {
+  for (const [from, targets] of successors) {
     const component = componentByNode.get(from);
     if (component === undefined) continue;
-    for (const to of targets.keys()) {
+    for (const to of targets) {
       if (componentByNode.get(to) !== component) continue;
       counts.get(from)!.cycleCount += 1;
-      if (from !== to) crossModuleCycleCount += 1;
+      crossModuleCycleCount += 1;
     }
   }
 

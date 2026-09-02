@@ -47,14 +47,52 @@
 - **`dependencyGraph` is `null`, not zero-filled, when nothing was measured** — for every module
   when coverage is `unknown`, and for a node that declared no footprint. A zero-filled graph would
   claim an observation that did not happen.
-- **`indexedWorktreeDigest` is bound to the measured tree.** It is emitted only when the input's
-  `indexFreshForWorktreeDigest` equals `worktree.worktreeDigest`; otherwise coverage is forced to
-  `unknown` and the digest is `null`. The handshake's own `indexedWorktreeDigest` and
-  `CodeFactsSnapshot.workspaceDigest` are different domains and are deliberately not reused.
+- **`indexedWorktreeDigest` is bound to the measured tree.** It is emitted only when the producer's
+  returned `codeFacts.indexedWorktreeDigest` equals `worktree.worktreeDigest`; otherwise coverage is
+  forced to `unknown`, the digest is `null`, and the edges are discarded (see round-2 item 4).
 - **Pure synchronous core.** `@archcontext/core` forbids I/O, clocks and child processes, so the
   builder takes a materialized `ModuleStatisticsInputV1`. Git and the code index are read by the two
   thin local-runtime producers. That also makes a snapshot exactly reproducible from a recorded
   input, which is what the resolution ledger needs.
+
+## Cross-Review Round 2 (Codex findings, all in scope)
+
+- **(1) Workspace package imports were dropped.** `resolveImportTarget` only resolves relative
+  specifiers, so `@archcontext/*` subpath imports — this repo's main cross-module mechanism — never
+  became edges while coverage still said `complete`. `resolveImportTarget` and
+  `capabilityImportGraphs` are untouched (RF0 pins them). Instead `repositoryImportPairs` now
+  returns the specifier verbatim with `to: null`, `readWorkspacePackages` (git-adapter) reads each
+  workspace manifest's `name` + `exports`, and the builder maps `@scope/pkg/sub` through
+  `exports["./sub"]`. Resolution lives in core to protect the local-runtime line budget and to keep
+  it unit-testable without an index. An export target the commit does not carry stays unresolved:
+  an export entry is not evidence that a file exists.
+- **(2) Unresolved imports collapsed.** Pairs are keyed by `(filePath, specifier)`, not
+  `(filePath, target)`, so three distinct unresolved specifiers from one file are three records and
+  `unresolvedImportCount` counts three. The `specifier` field is now part of the edge shape.
+- **(3) Internal edges were self-loops.** A same-owner file edge is counted in `internalEdgeCount`
+  and is no longer a module-graph edge. The module graph answers "which modules depend on which",
+  and a module does not depend on itself. Consequence, deliberately: an intra-module file cycle is
+  NOT a module cycle — it produces no one-member component, and an acyclic module with internal
+  imports reports `stronglyConnectedComponentId: null` / `cycleCount: 0`. Intra-module cycles are a
+  file-granularity fact a module-granularity snapshot cannot honestly report.
+- **(4) Edges were not bound to index freshness.** `repositoryImportPairs` now returns
+  `availability` and `indexedWorktreeDigest`, derived from `codeGraphIndexAvailable` plus the
+  index's own `pendingChanges` status — producer-owned evidence, not a caller assertion. The
+  builder's `codeFacts` takes that return. When coverage resolves to `unknown`, the supplied edges
+  are ignored entirely (`unresolvedImports` 0 per module, `unresolvedImportCount` 0, `crossModule*`
+  0) and `code-facts-missing` is recorded: an index that did not attest to this tree is not weaker
+  evidence, it is no evidence.
+- **(5) `readTrackedSourceFiles` read worktree bytes.** Line counts now come from the HEAD blobs via
+  one `git cat-file --batch`, so a modified-but-uncommitted tracked file does not move the
+  measurement and two scans at the same HEAD stay comparable. Fail-closed moved with it: the error
+  is now `git-tracked-blob-unreadable: <paths>` for a blob Git cannot hand back. A tracked file
+  deleted from the worktree is no longer an error, because the commit still carries its blob.
+- **(6) `modelDigest` omitted relations.** It now hashes the whole model (nodes, relations, flows),
+  each sorted by id, so a relation change moves the snapshot identity and a reordering does not.
+- **(7) Line budget flipped.** local-runtime went from 19,990 to 20,068 lines, crossing the 20k
+  bucket boundary. Regenerated through `docs plan --json` (`majorChange.mode: none`, single owned
+  diff) then `docs apply --approved --id changeset.docs-rf1b-1`; `docs drift --json` is `ok: true`.
+  Only the `規模量級` line plus projection digests changed. No hand edits, no `archctx init`.
 
 ## Deviations From Plan Or Spec
 
@@ -84,15 +122,19 @@
 | Tarjan: recursive vs. iterative | Iterative | A repository-sized component would overflow the stack, and the builder must not fail on a model that is merely large |
 | `cycleCount`: simple cycles vs. in-component out-edges | In-component out-edges | Simple-cycle enumeration is exponential; a scan cannot ship a possibly non-terminating answer |
 | Undeclared node: zero-filled graph vs. `null` | `null` | Zeros would claim an observation that never happened |
+| Workspace resolution in the adapter vs. in core | Core | Keeps local-runtime inside its line budget and makes resolution testable without an index |
+| Stale index: keep edges as partial vs. discard | Discard | Edges from another tree are not weaker evidence, they are evidence about something else |
+| Intra-module cycle: one-member SCC vs. not a module cycle | Not a module cycle | A module does not depend on itself; file-granularity cycles need a file-granularity report |
 
 ## Open Questions
 
 - PRD §0.3-16 must state explicitly that a `null` `callerCoverage` lowers `confidence.level` rather
   than blocking an assessment, before RF2 starts. No v1 producer can supply a non-null value.
-- `module.architecture-context.local-runtime` now measures 19,995 lines against a `10k-20k` bucket:
-  five lines of headroom. The next additive change to that module flips the bucket and will report
-  owned drift in `docs plan`. RF5a should budget for a projection refresh, not treat it as a
-  regression.
+- `module.architecture-context.local-runtime` now measures 20,068 lines in a freshly regenerated
+  `20k-50k` bucket, so there is real headroom again and RF5a's wiring will not flip it.
+- Workspace specifier resolution reads `exports` only. A deep import that bypasses `exports`
+  (`@archcontext/core/projection-engine/src/index`) stays unresolved and is reported as such rather
+  than guessed. If RF2 needs those edges, the fix is an explicit resolution rule, not a heuristic.
 
 ## Evidence Links
 

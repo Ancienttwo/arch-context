@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { NativeModel } from "../../projection-engine/src/index";
-import type { ModuleStatisticsInputV1 } from "../src/index";
+import type { ModuleStatisticsInputV1, ModuleStatisticsWorkspacePackageV1 } from "../src/index";
 
 export function digestOf(seed: string): string {
   return `sha256:${createHash("sha256").update(seed).digest("hex")}`;
@@ -22,16 +22,27 @@ export const MODEL: NativeModel = {
     { id: "component.shared", kind: "component", name: "Shared", parent: "module.runtime", source: { include: ["packages/core/shared/**"] } },
     { id: "node.undeclared", kind: "component", name: "Undeclared", parent: "module.runtime" }
   ],
-  relations: []
+  relations: [{ id: "relation.runtime-core", kind: "uses", source: "module.runtime", target: "module.core", intent: "reads the model" }]
 };
 
 export const TRACKED_FILES = [
   { path: "docs/readme.md", lineCount: 1 },
   { path: "packages/core/index.ts", lineCount: 5 },
+  { path: "packages/core/pressure-engine/src/index.ts", lineCount: 9 },
   { path: "packages/core/pressure-engine/engine.ts", lineCount: 10 },
   { path: "packages/core/shared/util.ts", lineCount: 7 },
   { path: "packages/core/test/core.test.ts", lineCount: 4 },
   { path: "packages/runtime/main.ts", lineCount: 3 }
+];
+
+/** Mirrors the real repository shape: one manifest per workspace, subpaths under `exports`. */
+export const WORKSPACE_PACKAGES: ModuleStatisticsWorkspacePackageV1[] = [
+  {
+    name: "@archcontext/core",
+    root: "packages/core",
+    exports: { ".": "./index.ts", "./pressure-engine": "./pressure-engine/src/index.ts" }
+  },
+  { name: "@archcontext/runtime", root: "packages/runtime", exports: { ".": "./main.ts" } }
 ];
 
 export function makeInput(overrides: Partial<ModuleStatisticsInputV1> = {}): ModuleStatisticsInputV1 {
@@ -47,19 +58,20 @@ export function makeInput(overrides: Partial<ModuleStatisticsInputV1> = {}): Mod
     },
     trackedFiles: TRACKED_FILES,
     importEdges: [
-      { from: "packages/core/index.ts", to: "packages/core/pressure-engine/engine.ts" },
-      { from: "packages/core/pressure-engine/engine.ts", to: "packages/core/shared/util.ts" },
-      { from: "packages/runtime/main.ts", to: "packages/core/index.ts" },
-      { from: "packages/runtime/main.ts", to: "packages/core/shared/util.ts" },
-      { from: "packages/core/index.ts", to: null }
+      { from: "packages/core/index.ts", specifier: "./pressure-engine/engine", to: "packages/core/pressure-engine/engine.ts" },
+      { from: "packages/core/pressure-engine/engine.ts", specifier: "../shared/util", to: "packages/core/shared/util.ts" },
+      { from: "packages/runtime/main.ts", specifier: "@archcontext/core", to: null },
+      { from: "packages/runtime/main.ts", specifier: "@archcontext/core/pressure-engine", to: null },
+      { from: "packages/core/index.ts", specifier: "node:fs", to: null }
     ],
+    workspacePackages: WORKSPACE_PACKAGES,
     truncated: false,
     edgeLimit: 20000,
     codeFacts: {
       version: "0.9.1",
       binaryDigest: digestOf("codegraph-binary"),
       availability: "ready",
-      indexFreshForWorktreeDigest: WORKTREE_DIGEST
+      indexedWorktreeDigest: WORKTREE_DIGEST
     },
     createdAt: "2026-09-03T04:11:00.000Z",
     ...overrides

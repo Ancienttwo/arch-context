@@ -6,6 +6,9 @@ import { bindRepository, type GitTrackedTreeEntry, type RepositoryBinding } from
 import { matchesGlob } from "@archcontext/core/projection-engine";
 import { digestJson, type Json } from "@archcontext/contracts";
 
+/** One `git cat-file --batch` carries every measured blob; a repository-sized tree needs the headroom. */
+const GIT_CAT_FILE_MAX_BYTES = 512 * 1024 * 1024;
+
 export function findRepositoryRoot(start: string): string {
   try {
     return resolve(execFileSync("git", ["rev-parse", "--show-toplevel"], {
@@ -171,27 +174,72 @@ export interface TrackedSourceFileV1 {
   lineCount: number;
 }
 
+export interface WorkspacePackageV1 {
+  name: string;
+  /** Repo-relative package directory. */
+  root: string;
+  /** The manifest `exports` map verbatim: subpath -> package-relative target. */
+  exports: Record<string, string>;
+}
+
 /**
- * Git-tracked source files with their line counts, filtered by optional include globs.
+ * Git-tracked source files with their line counts, measured from the HEAD blobs.
  *
- * The population is `git ls-tree`, not a working-tree walk, so an untracked build output inside an
- * include glob can never enter the measured footprint and the same commit measures identically in
- * a dirty and a clean checkout. `listScaleScanFiles` in the projection engine deliberately keeps
- * the opposite (working-tree) semantics; its behavior is fixture-pinned and stays untouched. A
- * tracked path missing from the worktree fails closed naming the paths, because reporting a
- * smaller footprint than the commit actually has would be a silent wrong answer.
+ * Both halves matter. The population is `git ls-tree`, so an untracked build output inside an
+ * include glob can never enter the footprint; and the bytes are the committed blobs, so editing a
+ * tracked file without committing does not move the measurement either. A snapshot therefore
+ * describes a commit, not whatever happens to be on disk, which is what makes two scans at the
+ * same HEAD comparable. `listScaleScanFiles` in the projection engine deliberately keeps the
+ * opposite (working-tree) semantics; it is fixture-pinned and stays untouched.
+ *
+ * A blob Git cannot hand back makes the footprint unmeasurable, so this fails closed naming the
+ * paths rather than reporting a smaller footprint than the commit actually has.
  */
 export function readTrackedSourceFiles(root: string, options: { include?: string[] } = {}): TrackedSourceFileV1[] {
-  const absolute = (path: string): string => join(root, ...path.split("/"));
-  const paths = readTrackedTreeEntries(root)
+  const entries = readTrackedTreeEntries(root)
     .filter((entry) => entry.type === "blob")
-    .map((entry) => entry.path)
-    .filter((path) => options.include === undefined || options.include.some((pattern) => matchesGlob(path, pattern)));
-  const missing = paths.filter((path) => !existsSync(absolute(path)));
-  if (missing.length > 0) throw new Error(`git-tracked-file-missing: ${missing.join(", ")}`);
-  return paths
-    .map((path) => ({ path, lineCount: countLines(absolute(path)) }))
+    .filter((entry) => options.include === undefined || options.include.some((pattern) => matchesGlob(entry.path, pattern)))
     .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  if (entries.length === 0) return [];
+  const batch = execFileSync("git", ["cat-file", "--batch"], {
+    cwd: root,
+    input: `${entries.map((entry) => entry.objectId).join("\n")}\n`,
+    maxBuffer: GIT_CAT_FILE_MAX_BYTES,
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+  const files: TrackedSourceFileV1[] = [];
+  const unreadable: string[] = [];
+  let offset = 0;
+  for (const entry of entries) {
+    const headerEnd = batch.indexOf(0x0a, offset);
+    const header = headerEnd === -1 ? "" : batch.toString("utf8", offset, headerEnd);
+    const [, kind, size] = header.split(" ");
+    if (kind !== "blob" || !Number.isInteger(Number(size))) {
+      unreadable.push(entry.path);
+      break;
+    }
+    const start = headerEnd + 1;
+    files.push({ path: entry.path, lineCount: countLines(batch.subarray(start, start + Number(size))) });
+    offset = start + Number(size) + 1;
+  }
+  if (unreadable.length > 0) throw new Error(`git-tracked-blob-unreadable: ${unreadable.join(", ")}`);
+  return files;
+}
+
+/**
+ * Workspace manifests as declared by the root `package.json`, so a consumer can resolve a bare
+ * workspace specifier through the owning package's `exports` map. Workspace entries are read as
+ * literal directories; a glob entry would fail loudly here rather than silently measure nothing.
+ */
+export function readWorkspacePackages(root: string): WorkspacePackageV1[] {
+  const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { workspaces?: string[] };
+  return (manifest.workspaces ?? [])
+    .map((directory) => {
+      const path = join(root, ...directory.split("/"), "package.json");
+      const packageManifest = JSON.parse(readFileSync(path, "utf8")) as { name: string; exports?: Record<string, string> };
+      return { name: packageManifest.name, root: directory, exports: packageManifest.exports ?? {} };
+    })
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
 }
 
 export function isDetachedHead(root: string): boolean {
@@ -307,11 +355,11 @@ export function removePathWithRetry(path: string): void {
 }
 
 /** Same counting rule as the projection engine's footprint scan: a trailing newline is a terminator, not a line. */
-function countLines(absolute: string): number {
-  const content = readFileSync(absolute, "utf8");
-  if (content === "") return 0;
-  const newlines = content.split("\n").length - 1;
-  return content.endsWith("\n") ? newlines : newlines + 1;
+function countLines(content: Buffer): number {
+  if (content.length === 0) return 0;
+  let newlines = 0;
+  for (const byte of content) if (byte === 0x0a) newlines += 1;
+  return content[content.length - 1] === 0x0a ? newlines : newlines + 1;
 }
 
 function readCommitTreeOid(root: string, headSha: string): string | undefined {

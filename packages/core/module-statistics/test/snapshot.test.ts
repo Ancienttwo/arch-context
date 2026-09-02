@@ -5,7 +5,7 @@ import {
   type ModuleStatisticsSnapshotV1
 } from "@archcontext/contracts";
 import { buildModuleStatisticsSnapshot } from "../src/index";
-import { WORKTREE_DIGEST, digestOf, makeInput } from "./factories";
+import { MODEL, WORKTREE_DIGEST, digestOf, makeInput } from "./factories";
 
 function issues(snapshot: ModuleStatisticsSnapshotV1): string[] {
   return moduleStatisticsSnapshotInvariantIssues(snapshot);
@@ -65,7 +65,7 @@ describe("module statistics snapshot", () => {
     expect(snapshot.repositorySummary).toMatchObject({
       moduleCount: 5,
       undeclaredFootprintNodeCount: 1,
-      ownedFileCount: 4,
+      ownedFileCount: 5,
       unownedFileCount: 2,
       multiplyOwnedFileCount: 1,
       unresolvedImportCount: 1,
@@ -86,9 +86,10 @@ describe("module statistics snapshot", () => {
   });
 
   test("a missing index yields unknown coverage, no digest, and no dependency graph anywhere", () => {
+    // The edges are deliberately still supplied: an index that did not attest to this tree is no
+    // evidence at all, so the builder must ignore them rather than report them as observations.
     const snapshot = buildModuleStatisticsSnapshot(makeInput({
-      codeFacts: { ...makeInput().codeFacts, availability: "unavailable" },
-      importEdges: []
+      codeFacts: { ...makeInput().codeFacts, availability: "unavailable", indexedWorktreeDigest: null }
     }));
 
     expect(issues(snapshot)).toEqual([]);
@@ -97,27 +98,32 @@ describe("module statistics snapshot", () => {
     expect(snapshot.codeFacts.indexedWorktreeDigest).toBeNull();
     expect(snapshot.codeFacts.reasonCodes).toContain("code-facts-missing");
     expect(snapshot.modules.every((module) => module.dependencyGraph === null)).toBe(true);
+    expect(snapshot.modules.every((module) => module.uncertainty.unresolvedImports === 0)).toBe(true);
     expect(snapshot.repositorySummary).toMatchObject({
       crossModuleEdgeCount: 0,
       crossModuleCycleCount: 0,
-      stronglyConnectedComponentCount: 0
+      stronglyConnectedComponentCount: 0,
+      unresolvedImportCount: 0
     });
     // The footprint is Git-measured, so it survives an unusable index.
     expect(snapshot.modules.find((module) => module.nodeId === "module.core")!.footprint).not.toBeNull();
   });
 
-  test("an index built against a different worktree is not treated as fresh evidence", () => {
+  test("an index built against a different worktree is no evidence, and its edges are dropped", () => {
     const snapshot = buildModuleStatisticsSnapshot(makeInput({
-      codeFacts: { ...makeInput().codeFacts, indexFreshForWorktreeDigest: digestOf("worktree.other") }
+      codeFacts: { ...makeInput().codeFacts, indexedWorktreeDigest: digestOf("worktree.other") }
     }));
 
     expect(issues(snapshot)).toEqual([]);
     expect(snapshot.codeFacts.coverage).toBe("unknown");
     expect(snapshot.codeFacts.indexedWorktreeDigest).toBeNull();
     expect(snapshot.codeFacts.reasonCodes).toContain("code-facts-missing");
+    // Same rule as a missing index: stale edges never become measured facts.
+    expect(snapshot.repositorySummary.unresolvedImportCount).toBe(0);
+    expect(snapshot.repositorySummary.crossModuleEdgeCount).toBe(0);
 
     const never = buildModuleStatisticsSnapshot(makeInput({
-      codeFacts: { ...makeInput().codeFacts, indexFreshForWorktreeDigest: null }
+      codeFacts: { ...makeInput().codeFacts, indexedWorktreeDigest: null }
     }));
     expect(never.codeFacts.coverage).toBe("unknown");
   });
@@ -160,6 +166,66 @@ describe("module statistics snapshot", () => {
     expect(snapshot.repositorySummary.unresolvedImportCount).toBe(1);
   });
 
+  test("distinct unresolved specifiers from one file are distinct observations", () => {
+    const base = makeInput();
+    const snapshot = buildModuleStatisticsSnapshot(makeInput({
+      importEdges: [
+        { from: "packages/core/index.ts", specifier: "node:fs", to: null },
+        { from: "packages/core/index.ts", specifier: "node:path", to: null },
+        { from: "packages/core/index.ts", specifier: "@unknown/pkg", to: null }
+      ],
+      workspacePackages: base.workspacePackages
+    }));
+
+    // Three specifiers, three unresolved records: collapsing them would understate the boundary.
+    expect(snapshot.repositorySummary.unresolvedImportCount).toBe(3);
+    expect(snapshot.modules.find((module) => module.nodeId === "module.core")!.uncertainty.unresolvedImports).toBe(3);
+  });
+
+  test("bare workspace specifiers resolve through the package exports map into real edges", () => {
+    const snapshot = buildModuleStatisticsSnapshot(makeInput());
+    const runtime = snapshot.modules.find((module) => module.nodeId === "module.runtime")!;
+
+    // `@archcontext/core` -> exports["."] and `@archcontext/core/pressure-engine` ->
+    // exports["./pressure-engine"]; both become real cross-module edges out of module.runtime.
+    expect(runtime.dependencyGraph).toMatchObject({ outboundModuleEdges: 2, fanOut: 2 });
+    expect(runtime.uncertainty.unresolvedImports).toBe(0);
+    expect(snapshot.repositorySummary.crossModuleEdgeCount).toBeGreaterThan(0);
+  });
+
+  test("an unknown subpath, an unknown package, and an export off the commit all stay unresolved", () => {
+    const snapshot = buildModuleStatisticsSnapshot(makeInput({
+      importEdges: [
+        { from: "packages/runtime/main.ts", specifier: "@archcontext/core/not-exported", to: null },
+        { from: "packages/runtime/main.ts", specifier: "@vendor/absent", to: null },
+        { from: "packages/runtime/main.ts", specifier: "@archcontext/runtime", to: null }
+      ],
+      // `@archcontext/runtime` exports ./main.ts, but this commit does not carry it.
+      trackedFiles: makeInput().trackedFiles.filter((file) => file.path !== "packages/runtime/main.ts")
+    }));
+
+    expect(issues(snapshot)).toEqual([]);
+    expect(snapshot.repositorySummary.unresolvedImportCount).toBe(3);
+    expect(snapshot.repositorySummary.crossModuleEdgeCount).toBe(0);
+  });
+
+  test("modelDigest covers relations, not only nodes", () => {
+    const base = makeInput();
+    const withoutRelations = buildModuleStatisticsSnapshot(makeInput({
+      model: { ...MODEL, relations: [] }
+    }));
+    const withRelations = buildModuleStatisticsSnapshot(base);
+
+    // A relation change is a model change: it must move modelDigest and therefore the snapshot.
+    expect(withoutRelations.modelDigest).not.toBe(withRelations.modelDigest);
+    expect(withoutRelations.snapshotDigest).not.toBe(withRelations.snapshotDigest);
+    // Relation ordering is not a model change.
+    const reordered = buildModuleStatisticsSnapshot(makeInput({
+      model: { ...MODEL, relations: [...MODEL.relations].reverse() }
+    }));
+    expect(reordered.modelDigest).toBe(withRelations.modelDigest);
+  });
+
   test("a model with no declared footprint at all still produces a valid snapshot", () => {
     const snapshot = buildModuleStatisticsSnapshot(makeInput({
       model: { nodes: [{ id: "module.only", kind: "module", name: "Only" }], relations: [] },
@@ -171,7 +237,7 @@ describe("module statistics snapshot", () => {
       moduleCount: 1,
       undeclaredFootprintNodeCount: 1,
       ownedFileCount: 0,
-      unownedFileCount: 6,
+      unownedFileCount: 7,
       multiplyOwnedFileCount: 0
     });
     expect(snapshot.codeFacts.reasonCodes).toContain("unowned-paths");

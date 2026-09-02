@@ -18,7 +18,7 @@ import { resolveOwnership, type OwnershipIndex } from "./ownership";
 export { resolveOwnership, type OwnershipIndex, type OwnershipResolution } from "./ownership";
 export { buildModuleGraph, type ModuleGraph, type ModuleGraphEdgeCounts } from "./graph";
 
-/** Whether the code index answered at all. Mirrors the codegraph handshake's own two states. */
+/** Whether the code index answered at all. Mirrors the index handshake's own two states. */
 export type ModuleStatisticsIndexAvailability = "ready" | "unavailable";
 
 export interface ModuleStatisticsTrackedFileV1 {
@@ -29,29 +29,40 @@ export interface ModuleStatisticsTrackedFileV1 {
 
 export interface ModuleStatisticsImportEdgeV1 {
   from: string;
-  /** `null` when the specifier did not resolve to a repository file. */
+  /** The import specifier verbatim; two specifiers from one file are two observations. */
+  specifier: string;
+  /** Repo-relative target, or `null` when the producer could not resolve the specifier. */
   to: string | null;
+}
+
+export interface ModuleStatisticsWorkspacePackageV1 {
+  name: string;
+  /** Repo-relative package directory. */
+  root: string;
+  /** The manifest `exports` map: subpath (`"."`, `"./sub"`) -> package-relative target. */
+  exports: Record<string, string>;
 }
 
 export interface ModuleStatisticsCodeFactsInputV1 {
   version: string;
   binaryDigest: string;
-  availability: ModuleStatisticsIndexAvailability;
   /**
-   * The worktree digest the index was built against. The builder emits
-   * `codeFacts.indexedWorktreeDigest` only when this equals the measured `worktree.worktreeDigest`;
-   * anything else means the index describes a different tree and coverage drops to `unknown`.
+   * Both fields must come from `repositoryImportPairs(...)`, never from a caller's own belief: the
+   * producer owns the freshness verdict because only it observed the index. `indexedWorktreeDigest`
+   * equal to the measured `worktree.worktreeDigest` is what licenses a non-`unknown` coverage.
    */
-  indexFreshForWorktreeDigest: string | null;
+  availability: ModuleStatisticsIndexAvailability;
+  indexedWorktreeDigest: string | null;
 }
 
 /**
  * Everything `buildModuleStatisticsSnapshot` measures, already materialized.
  *
  * The builder is pure and synchronous by construction: `@archcontext/core` forbids I/O, clocks and
- * child processes, so Git and CodeGraph are read by the local-runtime producers
- * (`readTrackedSourceFiles`, `repositoryImportPairs`) and handed over as data. That also makes the
- * snapshot exactly reproducible from a recorded input, which is what the resolution ledger needs.
+ * child processes, so Git and the code index are read by the local-runtime producers
+ * (`readTrackedSourceFiles`, `readWorkspacePackages`, `repositoryImportPairs`) and handed over as
+ * data. That also makes the snapshot exactly reproducible from a recorded input, which is what the
+ * resolution ledger needs.
  */
 export interface ModuleStatisticsInputV1 {
   model: NativeModel;
@@ -59,6 +70,8 @@ export interface ModuleStatisticsInputV1 {
   worktree: ArchitectureWorktreeIdentityV1;
   trackedFiles: ModuleStatisticsTrackedFileV1[];
   importEdges: ModuleStatisticsImportEdgeV1[];
+  /** Workspace manifests, so bare `@scope/pkg/sub` specifiers resolve to real repository files. */
+  workspacePackages: ModuleStatisticsWorkspacePackageV1[];
   /** True when the index dump saturated its limit, so the edge set is a prefix, not the population. */
   truncated: boolean;
   edgeLimit: number | null;
@@ -80,21 +93,27 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
   const linesByPath = new Map(trackedFiles.map((file) => [file.path, file.lineCount]));
   const ownership = resolveOwnership(nodes, trackedFiles.map((file) => file.path));
 
-  const indexFresh = input.codeFacts.indexFreshForWorktreeDigest !== null
-    && input.codeFacts.indexFreshForWorktreeDigest === input.worktree.worktreeDigest;
-  const measurable = input.codeFacts.availability === "ready" && indexFresh;
+  const measurable = input.codeFacts.availability === "ready"
+    && input.codeFacts.indexedWorktreeDigest !== null
+    && input.codeFacts.indexedWorktreeDigest === input.worktree.worktreeDigest;
   const coverage: EvidenceCoverageLevelV2 = !measurable ? "unknown" : input.truncated ? "partial" : "complete";
+  // An index that did not attest to this tree is not weaker evidence, it is no evidence: the edges
+  // it produced describe some other tree, so they are dropped rather than reported as observations.
+  const edges = measurable ? resolveEdges(input.importEdges, input.workspacePackages, trackedFiles) : [];
 
   const ownersByPath = new Map([...ownership.byPath].map(([path, resolution]) => [path, resolution.owners]));
-  const resolvedEdges = input.importEdges.filter((edge): edge is { from: string; to: string } => edge.to !== null);
-  const graph = buildModuleGraph(nodes.map((node) => node.id), resolvedEdges, ownersByPath);
+  const graph = buildModuleGraph(
+    nodes.map((node) => node.id),
+    edges.flatMap((edge) => (edge.to === null ? [] : [{ from: edge.from, to: edge.to }])),
+    ownersByPath
+  );
 
   const modules = nodes.map((node) => buildModule({
     node,
     ownership,
     linesByPath,
     counts: graph.countsByNode.get(node.id)!,
-    unresolvedImports: countUnresolvedImports(input.importEdges, ownership, node.id),
+    unresolvedImports: countUnresolvedImports(edges, ownership, node.id),
     graphMeasured: coverage !== "unknown"
   }));
 
@@ -102,8 +121,8 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
     provider: "codegraph" as const,
     version: input.codeFacts.version,
     binaryDigest: input.codeFacts.binaryDigest,
-    // Emitted only when the index was built against the tree that was measured; the frozen
-    // validator additionally requires it to be present whenever coverage is not `unknown`.
+    // Emitted only when the index attested to the tree that was measured; the frozen validator
+    // additionally requires it to be present whenever coverage is not `unknown`.
     indexedWorktreeDigest: coverage === "unknown" ? null : input.worktree.worktreeDigest,
     coverage,
     // An unknown coverage is a truncated answer by definition: nothing was observed.
@@ -116,7 +135,7 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
     schemaVersion: MODULE_STATISTICS_SCHEMA_VERSION,
     repository: input.repository,
     worktree: input.worktree,
-    modelDigest: digestJson(nodes as unknown as Json),
+    modelDigest: modelDigest(input.model),
     codeFacts,
     modules,
     repositorySummary: {
@@ -125,10 +144,10 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
       ownedFileCount: ownership.ownedFileCount,
       unownedFileCount: ownership.unownedFileCount,
       multiplyOwnedFileCount: ownership.multiplyOwnedFileCount,
-      crossModuleEdgeCount: coverage === "unknown" ? 0 : graph.crossModuleEdgeCount,
-      crossModuleCycleCount: coverage === "unknown" ? 0 : graph.crossModuleCycleCount,
-      stronglyConnectedComponentCount: coverage === "unknown" ? 0 : graph.stronglyConnectedComponentCount,
-      unresolvedImportCount: input.importEdges.filter((edge) => edge.to === null).length,
+      crossModuleEdgeCount: graph.crossModuleEdgeCount,
+      crossModuleCycleCount: graph.crossModuleCycleCount,
+      stronglyConnectedComponentCount: graph.stronglyConnectedComponentCount,
+      unresolvedImportCount: edges.filter((edge) => edge.to === null).length,
       // Every module carries dynamic-invocation risk in v1: import edges cannot observe reflective
       // or registry-mediated calls, so no module can be reported as free of it.
       dynamicInvocationRiskCount: modules.length
@@ -137,6 +156,51 @@ export function buildModuleStatisticsSnapshot(input: ModuleStatisticsInputV1): M
     snapshotDigest: ""
   };
   return { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
+}
+
+/** The whole model, sorted: a relation or flow change is a model change and must move the digest. */
+function modelDigest(model: NativeModel): string {
+  return digestJson({
+    nodes: [...model.nodes].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+    relations: [...model.relations].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)),
+    flows: [...(model.flows ?? [])].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  } as unknown as Json);
+}
+
+/**
+ * Completes the producer's resolution: a bare workspace specifier is mapped through the owning
+ * package's `exports` map, which is how this repository actually crosses module boundaries. The
+ * adapter cannot do this (it has no manifest map) and dropping it would report `complete` coverage
+ * over an edge set missing every cross-package import.
+ */
+function resolveEdges(
+  importEdges: ModuleStatisticsImportEdgeV1[],
+  workspacePackages: ModuleStatisticsWorkspacePackageV1[],
+  trackedFiles: ModuleStatisticsTrackedFileV1[]
+): ModuleStatisticsImportEdgeV1[] {
+  const tracked = new Set(trackedFiles.map((file) => file.path));
+  return importEdges
+    .map((edge) => (edge.to !== null ? edge : { ...edge, to: resolveWorkspaceSpecifier(edge.specifier, workspacePackages, tracked) }))
+    .sort((left, right) => (left.from < right.from ? -1 : left.from > right.from ? 1 : 0)
+      || (left.specifier < right.specifier ? -1 : left.specifier > right.specifier ? 1 : 0));
+}
+
+/** `@scope/pkg/sub` -> that package's `exports["./sub"]`, as a repo-relative tracked path. */
+function resolveWorkspaceSpecifier(
+  specifier: string,
+  workspacePackages: ModuleStatisticsWorkspacePackageV1[],
+  tracked: Set<string>
+): string | null {
+  for (const workspacePackage of workspacePackages) {
+    if (specifier !== workspacePackage.name && !specifier.startsWith(`${workspacePackage.name}/`)) continue;
+    const subpath = specifier === workspacePackage.name ? "." : `.${specifier.slice(workspacePackage.name.length)}`;
+    const target = workspacePackage.exports[subpath];
+    if (target === undefined) return null;
+    const path = `${workspacePackage.root}/${target.replace(/^\.\//, "")}`;
+    // An export pointing at a file the commit does not carry is not evidence of an edge.
+    return tracked.has(path) ? path : null;
+  }
+  return null;
 }
 
 function buildModule(context: {

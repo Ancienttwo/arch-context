@@ -1,6 +1,6 @@
 # module/architecture-context/local-runtime 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-local-runtime" sourceDigest="sha256:6b35d9352beb62b44f0f0f081eb8adbf34a5dcf7eb5c8d56e6fd9bbe80c7d80c" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:041fdabdb3a18f30413da78da3e614e505c08b0f6da247f266d79d871dd82ff9" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.module-architecture-context-local-runtime" sourceDigest="sha256:9fb648669714ca08f1b1947930facdb27246ab200666936901d349e5e8f8677d" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:f3a08cf91ea76df805473c027efe9eb7a4f90ea52f1fccb79a00323de2358b99" -->
 > **狀態**:`active`
 > **Capability ID**:`module.architecture-context.local-runtime`(kind `module`)
 > **Matched Prefixes**:`packages/local-runtime/**/src/**`
@@ -22,7 +22,7 @@ Provides the local daemon and its adapters for SQLite storage, YAML model files,
 
 ### 1.3 規模信號
 
-- 規模量級:`10–20` 個文件 / `10k–20k` 行
+- 規模量級:`10–20` 個文件 / `20k–50k` 行
 - 匹配前綴:`packages/local-runtime/**/src/**`
 - 排除前綴:`packages/local-runtime/**/test/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。

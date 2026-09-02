@@ -1,14 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryImportPairs } from "../src/index";
 
+const WORKTREE_DIGEST = `sha256:${"a".repeat(64)}`;
+
 /**
- * Fake index CLI. It answers the one query shape this producer issues and fails loudly on
+ * Fake index CLI. It answers the two query shapes this producer issues and fails loudly on
  * anything else, so an unexpected invocation surfaces as a failure rather than as an empty answer.
  */
-function fakeCli(logPath: string): string {
+function fakeCli(logPath: string, pending: number): string {
   return `
 import { appendFileSync } from "node:fs";
 const argv = process.argv.slice(2);
@@ -17,6 +19,7 @@ const importNodes = [
   { name: "./render", filePath: "packages/docs/src/main.ts" },
   { name: "./render", filePath: "packages/docs/src/main.ts" },
   { name: "@archcontext/contracts", filePath: "packages/docs/src/main.ts" },
+  { name: "node:fs", filePath: "packages/docs/src/main.ts" },
   { name: "./missing-target", filePath: "packages/docs/src/render.ts" },
   { name: "../../shared/util", filePath: "packages/docs/src/render.ts" },
   { name: "./helper", filePath: "packages/other/src/index.ts" }
@@ -26,6 +29,14 @@ if (argv[0] === "query") {
   process.stdout.write(JSON.stringify(importNodes.slice(0, limit).map((node) => ({
     node: { id: "import:" + node.filePath + ":" + node.name, kind: "import", name: node.name, filePath: node.filePath }
   }))));
+} else if (argv[0] === "status") {
+  process.stdout.write(JSON.stringify({
+    initialized: true,
+    version: "1.5.0",
+    projectPath: process.cwd(),
+    lastIndexed: "2026-09-03T00:00:00Z",
+    pendingChanges: { added: ${pending}, modified: 0, removed: 0 }
+  }));
 } else {
   process.stderr.write("unexpected codegraph invocation: " + JSON.stringify(argv));
   process.exit(1);
@@ -33,9 +44,9 @@ if (argv[0] === "query") {
 `;
 }
 
-function seedWorkspace(): { root: string; binary: string; log: string } {
+function seedWorkspace(options: { withIndex?: boolean; pending?: number } = {}): { root: string; binary: string; log: string } {
   const root = mkdtempSync(join(tmpdir(), "archctx-module-import-pairs-"));
-  mkdirSync(join(root, ".codegraph"));
+  if (options.withIndex !== false) mkdirSync(join(root, ".codegraph"));
   mkdirSync(join(root, "packages/docs/src"), { recursive: true });
   mkdirSync(join(root, "packages/shared"), { recursive: true });
   mkdirSync(join(root, "packages/other/src"), { recursive: true });
@@ -47,35 +58,71 @@ function seedWorkspace(): { root: string; binary: string; log: string } {
   const log = join(root, "invocations.log");
   writeFileSync(log, "");
   const binary = join(root, "fake-codegraph.js");
-  writeFileSync(binary, fakeCli(log));
+  writeFileSync(binary, fakeCli(log, options.pending ?? 0));
   return { root, binary, log };
 }
 
 describe("repository-wide import pairs", () => {
-  test("keeps unresolved specifiers as a null target instead of dropping the edge", () => {
+  test("keeps every unresolved specifier as its own record with the specifier retained", () => {
     const { root, binary, log } = seedWorkspace();
     try {
-      const result = repositoryImportPairs(root, binary, 100);
+      const result = repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST);
 
       expect(result.truncated).toBe(false);
-      // A bare package specifier and a dangling relative specifier both resolve to nothing, but
-      // the module snapshot has to report how much of its boundary is unresolved, so they stay as
-      // `to: null` rather than silently disappearing. Repeated identical edges collapse to one.
+      // Bare and dangling specifiers stay as `to: null` because a module snapshot has to report
+      // how much of its boundary is unresolved. They are keyed by (file, specifier), so the three
+      // distinct unresolved specifiers from main.ts and render.ts stay three separate records
+      // instead of collapsing into one. Repeated identical specifiers still collapse.
       expect(result.pairs).toEqual([
-        { from: "packages/docs/src/main.ts", to: null },
-        { from: "packages/docs/src/main.ts", to: "packages/docs/src/render.ts" },
-        { from: "packages/docs/src/render.ts", to: null },
-        { from: "packages/docs/src/render.ts", to: "packages/shared/util.ts" },
-        { from: "packages/other/src/index.ts", to: "packages/other/src/helper.ts" }
+        { from: "packages/docs/src/main.ts", specifier: "./render", to: "packages/docs/src/render.ts" },
+        { from: "packages/docs/src/main.ts", specifier: "@archcontext/contracts", to: null },
+        { from: "packages/docs/src/main.ts", specifier: "node:fs", to: null },
+        { from: "packages/docs/src/render.ts", specifier: "../../shared/util", to: "packages/shared/util.ts" },
+        { from: "packages/docs/src/render.ts", specifier: "./missing-target", to: null },
+        { from: "packages/other/src/index.ts", specifier: "./helper", to: "packages/other/src/helper.ts" }
       ]);
-
-      // Every file in the repository is measured: unlike the capability graphs there is no
-      // footprint filter, so an edge outside any declared node is still reported.
-      expect(result.pairs.some((pair) => pair.from.startsWith("packages/other/"))).toBe(true);
+      expect(result.pairs.filter((pair) => pair.from === "packages/docs/src/main.ts" && pair.to === null)).toHaveLength(2);
 
       const invocations = readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line) as string[]);
-      expect(invocations).toHaveLength(1);
-      expect(invocations[0].slice(0, 2)).toEqual(["query", "-p"]);
+      expect(invocations.map((argv) => argv[0])).toEqual(["query", "status"]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("binds the edges to the measured worktree only when the index reports itself clean", () => {
+    const clean = seedWorkspace();
+    try {
+      expect(repositoryImportPairs(clean.root, clean.binary, 100, WORKTREE_DIGEST)).toMatchObject({
+        availability: "ready",
+        indexedWorktreeDigest: WORKTREE_DIGEST
+      });
+    } finally {
+      rmSync(clean.root, { recursive: true, force: true });
+    }
+
+    // An index with pending source changes describes some other tree; it attests to nothing.
+    const stale = seedWorkspace({ pending: 3 });
+    try {
+      expect(repositoryImportPairs(stale.root, stale.binary, 100, WORKTREE_DIGEST)).toMatchObject({
+        availability: "unavailable",
+        indexedWorktreeDigest: null
+      });
+    } finally {
+      rmSync(stale.root, { recursive: true, force: true });
+    }
+  });
+
+  test("no index at all is an explicit unavailable state, not an empty measurement", () => {
+    const { root, binary } = seedWorkspace();
+    try {
+      rmdirSync(join(root, ".codegraph"));
+      expect(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST)).toEqual({
+        pairs: [],
+        truncated: true,
+        availability: "unavailable",
+        indexedWorktreeDigest: null
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -84,11 +131,11 @@ describe("repository-wide import pairs", () => {
   test("a saturated dump is reported as truncated, not as a complete edge set", () => {
     const { root, binary } = seedWorkspace();
     try {
-      const result = repositoryImportPairs(root, binary, 3);
+      const result = repositoryImportPairs(root, binary, 3, WORKTREE_DIGEST);
       expect(result.truncated).toBe(true);
       expect(result.pairs).toEqual([
-        { from: "packages/docs/src/main.ts", to: null },
-        { from: "packages/docs/src/main.ts", to: "packages/docs/src/render.ts" }
+        { from: "packages/docs/src/main.ts", specifier: "./render", to: "packages/docs/src/render.ts" },
+        { from: "packages/docs/src/main.ts", specifier: "@archcontext/contracts", to: null }
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -98,8 +145,8 @@ describe("repository-wide import pairs", () => {
   test("two runs over the same workspace return the same ordered pairs", () => {
     const { root, binary } = seedWorkspace();
     try {
-      expect(JSON.stringify(repositoryImportPairs(root, binary, 100)))
-        .toBe(JSON.stringify(repositoryImportPairs(root, binary, 100)));
+      expect(JSON.stringify(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST)))
+        .toBe(JSON.stringify(repositoryImportPairs(root, binary, 100, WORKTREE_DIGEST)));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

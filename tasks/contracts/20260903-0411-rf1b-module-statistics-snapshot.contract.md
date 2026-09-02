@@ -22,7 +22,7 @@ Add `packages/core/module-statistics` exporting `buildModuleStatisticsSnapshot(i
 ## Scope
 
 - In scope: the new core package and its tests; `packages/core/package.json` export and `tsconfig.json` path; additive `readTrackedSourceFiles` in git-adapter (+ test with a temp git repo proving an untracked `dist/x.ts` inside an include glob is excluded, and a missing tracked file fails closed); additive `repositoryImportPairs` in codegraph-adapter (+ test with the existing fake CLI pattern); the single validator correction in `packages/contracts/src/refactor.ts` and its test update; notes recording design decisions (e) callerCoverage always null in v1 and the PRD clarification RF2 needs.
-- Out of scope: RPC / CLI / daemon wiring (RF5a); `.archcontext/` edits; behavior changes to `loadCapabilitySourceFootprints`, `countFileLines`, `listScaleScanFiles`, `capabilityImportGraphs`; `docs/architecture`; `instability` and `directionViolationCount` (emit `null`); any other contract change.
+- Out of scope: RPC / CLI / daemon wiring (RF5a); `.archcontext/` edits; behavior changes to `loadCapabilitySourceFootprints`, `countFileLines`, `listScaleScanFiles`, `capabilityImportGraphs`; hand edits to `docs/architecture` (regeneration through `archctx docs apply` is permitted when a module's scale bucket flips because of this slice's additive source); `instability` and `directionViolationCount` (emit `null`); any other contract change.
 - Taste constraints: reuse `matchesGlob` and `nativeNodeSource` from projection-engine; do not call `resolveArchitectureOwnerForPath` (different tie-break rule). Sort with plain `.sort()`. No I/O and no clock in the core package. Keep new core `src/**` under 2,800 lines / 26 files and keep `module.architecture-context.local-runtime` inside its current scale bucket so `docs plan` reports zero owned drift.
 
 ## Stop Conditions
@@ -82,6 +82,7 @@ allowed_paths:
   - packages/local-runtime/codegraph-adapter/test/module-import-pairs.test.ts
   - packages/contracts/src/refactor.ts
   - packages/contracts/test/refactor-contracts.test.ts
+  - docs/architecture/
   - plans/plan-20260903-0411-rf1b-module-statistics-snapshot.md
   - tasks/todos.md
   - tasks/contracts/20260903-0411-rf1b-module-statistics-snapshot.contract.md
@@ -159,7 +160,8 @@ exit_criteria:
     - test -z "$(grep -n 'callerCoverage must be null when coverageStatus is unknown' packages/contracts/src/refactor.ts)"
     - node scripts/package-boundary-audit.mjs
     - bun packages/surfaces/cli/src/main.ts docs plan --json | jq -e '[.data.drift.diffs[]? | select(.targetId != null)] | length == 0'
-    - test -z "$(git diff --stat -- docs/architecture .archcontext)"
+    - bun packages/surfaces/cli/src/main.ts docs drift --json | jq -e '.data.ok == true'
+    - test -z "$(git status --short -- .archcontext)"
 # Optional exact-subject reuse is fail-closed and opt-in. List only deterministic
 # criteria whose inputs are fully bound by the frozen subject/toolchain context.
 # criterion_reuse:

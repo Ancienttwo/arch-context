@@ -15,7 +15,10 @@ describe("tracked file ownership under the PRD ancestor rule", () => {
       owners: ["component.pressure"],
       ambiguous: false
     });
-    expect(ownership.filesByNode.get("component.pressure")).toEqual(["packages/core/pressure-engine/engine.ts"]);
+    expect(ownership.filesByNode.get("component.pressure")).toEqual([
+      "packages/core/pressure-engine/engine.ts",
+      "packages/core/pressure-engine/src/index.ts"
+    ]);
     // The module keeps only what no descendant took: `engine.ts` is gone, the contested
     // `shared/util.ts` stays because no descendant of `module.core` claims it.
     expect(ownership.filesByNode.get("module.core")).toEqual([
@@ -49,7 +52,7 @@ describe("tracked file ownership under the PRD ancestor rule", () => {
     expect(ownership.byPath.get("packages/core/test/core.test.ts")).toEqual({ owners: [], ambiguous: false });
     expect(ownership.byPath.get("docs/readme.md")).toEqual({ owners: [], ambiguous: false });
     expect(ownership.unownedFileCount).toBe(2);
-    expect(ownership.ownedFileCount).toBe(4);
+    expect(ownership.ownedFileCount).toBe(5);
     expect(ownership.ownedFileCount + ownership.unownedFileCount).toBe(PATHS.length);
   });
 
