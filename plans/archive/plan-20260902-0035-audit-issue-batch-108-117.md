@@ -1,6 +1,6 @@
 # Plan: Audit issue batch fix #108-#117
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260902-0035
 > **Slug**: audit-issue-batch-108-117
 > **Planning Source**: repo-harness-plan
