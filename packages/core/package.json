@@ -20,6 +20,7 @@
     "./pressure-engine": "./pressure-engine/src/index.ts",
     "./recommendation-engine": "./recommendation-engine/src/index.ts",
     "./reconcile-engine": "./reconcile-engine/src/index.ts",
+    "./refactor-assessment": "./refactor-assessment/src/index.ts",
     "./refactor-decision": "./refactor-decision/src/index.ts",
     "./retrieval": "./retrieval/src/index.ts",
     "./review-engine": "./review-engine/src/index.ts"
