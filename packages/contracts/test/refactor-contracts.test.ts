@@ -655,6 +655,17 @@ describe("refactor assessment validators", () => {
     expect(refactorAssessmentInvariantIssues(assessment).some((issue) => issue.includes("unsupported reason"))).toBe(true);
   });
 
+  test("a pressure score outside 0-100 is rejected", () => {
+    for (const score of [-5, 101, 42.5]) {
+      const assessment = makeAssessment({ pressure: { level: "medium", score, signalIds: ["signal.cycle.core-runtime"] } });
+      expect(refactorAssessmentInvariantIssues(assessment), String(score)).toContain(
+        "assessment.pressure.score must be an integer between 0 and 100"
+      );
+    }
+    const boundary = makeAssessment({ pressure: { level: "high", score: 100, signalIds: [] } });
+    expect(refactorAssessmentInvariantIssues(boundary)).toEqual([]);
+  });
+
   test("an accepted major change reason passes", () => {
     const assessment = makeAssessment({ scale: "architecture", majorChangeReasons: ["ownership-changed"] });
     expect(refactorAssessmentInvariantIssues(assessment)).toEqual([]);
@@ -770,6 +781,16 @@ describe("recommendation v3 contract", () => {
     } as unknown as RecommendationV3;
     const issues = recommendationV3InvariantIssues(mismatched);
     expect(issues.some((issue) => issue.startsWith("recommendation.payload does not match category refactor_proposal"))).toBe(true);
+  });
+
+  test("a null or primitive payload returns issues without throwing", () => {
+    for (const payload of [null, 42, "payload", [] as unknown]) {
+      const broken = { ...makeRecommendationV3(), payload } as unknown as RecommendationV3;
+      expect(() => recommendationV3InvariantIssues(broken)).not.toThrow();
+      expect(recommendationV3InvariantIssues(broken), String(payload)).toContain(
+        "recommendation.payload must be an object for category refactor_proposal"
+      );
+    }
   });
 
   test("a wrong schemaVersion and a malformed fingerprint are rejected", () => {

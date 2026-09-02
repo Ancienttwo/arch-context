@@ -557,6 +557,10 @@ export function refactorAssessmentInvariantIssues(assessment: RefactorAssessment
     issues.push(...sortedUniqueIssues(`${prefix}.observations[${index}].signalIds`, observation.signalIds));
   }
   issues.push(...ratioIssues(`${prefix}.confidence.callerCoverage`, assessment.confidence.callerCoverage));
+  if (!Number.isInteger(assessment.pressure.score) || assessment.pressure.score < 0 || assessment.pressure.score > 100) {
+    issues.push(`${prefix}.pressure.score must be an integer between 0 and 100`);
+  }
+  issues.push(...sortedUniqueIssues(`${prefix}.pressure.signalIds`, assessment.pressure.signalIds));
   if (refactorAssessmentDigest(assessment) !== assessment.assessmentDigest) {
     issues.push(`${prefix}.assessmentDigest must bind the assessed payload`);
   }
@@ -626,6 +630,12 @@ export function refactorResolutionEvidenceInvariantIssues(
 }
 
 /**
+ * Guards the one invariant the `RecommendationV3` union cannot enforce at
+ * runtime: that `payload` matches `category`. A non-object or mismatched
+ * payload yields issues instead of throwing. Every other field is trusted to
+ * match its declared type; structural validation of untrusted ingress is the
+ * job of the JSON Schemas, not of this validator.
+ *
  * The fingerprint hash itself stays owned by `recommendationFingerprint()` in
  * `packages/core/recommendation-engine`: contracts must not import core, and
  * re-deriving the hash here would fork it into two definitions. This validator
@@ -793,6 +803,9 @@ function recommendationPayloadShapeIssues(
   payload: RecommendationPayloadV1,
   prefix: string
 ): string[] {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return [`${prefix}.payload must be an object for category ${category}`];
+  }
   const record = payload as unknown as Record<string, unknown>;
   const required = REQUIRED_PAYLOAD_FIELDS[category];
   const missing = required.filter((field) => !(field in record));
