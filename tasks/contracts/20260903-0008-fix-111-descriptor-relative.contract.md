@@ -40,6 +40,12 @@ Commit the no-follow file write through verified directory handles so concurrent
 
 The direction is falsified if the selected native runtime cannot load under both Bun 1.4.0 and supported Node 22.22/24/25, or cannot expose the required directory-handle operations on a supported OS. Cheapest proof: a focused import and syscall smoke before replacing production code. No pathname-only fallback may ship.
 
+## Change Assessment
+
+```json
+{"protocol":1,"oracles":[{"id":"descriptor-relative-adversarial-regression","kind":"deterministic_test","paths":["*"]},{"id":"node-only-packaged-docs-pin","kind":"runtime_readback","paths":["*"]}]}
+```
+
 ## Root Cause Evidence
 
 Required when Task Profile is `bugfix`; leave as-is otherwise.
