@@ -1,0 +1,12 @@
+schemaVersion: archcontext.node/v2
+id: module.architecture-context.contracts
+kind: module
+name: "Contracts Workspace"
+status: active
+parent: capability.architecture-context
+summary: "Declares the shared schema versions, envelope types, digest helpers, and runtime port interfaces that every other workspace imports."
+source:
+  exclude:
+    - "packages/contracts/test/**"
+  include:
+    - "packages/contracts/src/**"

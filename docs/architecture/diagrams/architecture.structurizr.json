@@ -1,4 +1,4 @@
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:1c0af2be30664c6a28100fc077043baabeb39de0b376ae3efd8e2aeed3b35722" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.diagram.structurizr" sourceDigest="sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:dc532ee496688b9cfeb93948e1729ef89759971657a56b8b15ed2f732647960d" -->
 {
   "schemaVersion": "archcontext.structurizr-export/v1",
   "name": "ArchContext Architecture",
@@ -13,11 +13,179 @@
         ]
       },
       {
+        "id": "component.architecture-context.core.agent-orchestrator",
+        "name": "Agent Orchestrator",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.application",
+        "name": "Application Control Loop",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.architecture-delta",
+        "name": "Architecture Delta",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.architecture-domain",
+        "name": "Architecture Domain",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.architecture-ledger",
+        "name": "Architecture Ledger",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.changeset-engine",
+        "name": "ChangeSet Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.context-compiler",
+        "name": "Context Compiler",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.policy-engine",
+        "name": "Policy Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.practice-catalog",
+        "name": "Practice Catalog",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.practice-engine",
+        "name": "Practice Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.pressure-engine",
+        "name": "Pressure Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.recommendation-engine",
+        "name": "Recommendation Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.reconcile-engine",
+        "name": "Reconcile Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.refactor-decision",
+        "name": "Refactor Decision",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.retrieval",
+        "name": "Retrieval",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
+        "id": "component.architecture-context.core.review-engine",
+        "name": "Review Engine",
+        "type": "Component",
+        "tags": [
+          "component"
+        ]
+      },
+      {
         "id": "component.architecture-context.projection-renderer",
         "name": "Architecture Documentation Renderer",
         "type": "Component",
         "tags": [
           "component"
+        ]
+      },
+      {
+        "id": "module.architecture-context.cloud",
+        "name": "Cloud Workspace",
+        "type": "Container",
+        "tags": [
+          "module"
+        ]
+      },
+      {
+        "id": "module.architecture-context.contracts",
+        "name": "Contracts Workspace",
+        "type": "Container",
+        "tags": [
+          "module"
+        ]
+      },
+      {
+        "id": "module.architecture-context.core",
+        "name": "Core Workspace",
+        "type": "Container",
+        "tags": [
+          "module"
+        ]
+      },
+      {
+        "id": "module.architecture-context.local-runtime",
+        "name": "Local Runtime Workspace",
+        "type": "Container",
+        "tags": [
+          "module"
+        ]
+      },
+      {
+        "id": "module.architecture-context.surfaces",
+        "name": "Surfaces Workspace",
+        "type": "Container",
+        "tags": [
+          "module"
         ]
       }
     ],
@@ -35,7 +203,28 @@
       "key": "archcontext-landscape",
       "include": [
         "capability.architecture-context",
-        "component.architecture-context.projection-renderer"
+        "component.architecture-context.core.agent-orchestrator",
+        "component.architecture-context.core.application",
+        "component.architecture-context.core.architecture-delta",
+        "component.architecture-context.core.architecture-domain",
+        "component.architecture-context.core.architecture-ledger",
+        "component.architecture-context.core.changeset-engine",
+        "component.architecture-context.core.context-compiler",
+        "component.architecture-context.core.policy-engine",
+        "component.architecture-context.core.practice-catalog",
+        "component.architecture-context.core.practice-engine",
+        "component.architecture-context.core.pressure-engine",
+        "component.architecture-context.core.recommendation-engine",
+        "component.architecture-context.core.reconcile-engine",
+        "component.architecture-context.core.refactor-decision",
+        "component.architecture-context.core.retrieval",
+        "component.architecture-context.core.review-engine",
+        "component.architecture-context.projection-renderer",
+        "module.architecture-context.cloud",
+        "module.architecture-context.contracts",
+        "module.architecture-context.core",
+        "module.architecture-context.local-runtime",
+        "module.architecture-context.surfaces"
       ]
     }
   }

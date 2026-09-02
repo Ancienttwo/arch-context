@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.reconcile-engine
+kind: component
+name: "Reconcile Engine"
+status: active
+parent: module.architecture-context.core
+summary: "Compares architecture ledger state against the Git YAML projection and proposes the reconciliation actions that resolve the drift."
+source:
+  include:
+    - "packages/core/reconcile-engine/src/**"

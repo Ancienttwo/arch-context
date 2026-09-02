@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.architecture-delta
+kind: component
+name: "Architecture Delta"
+status: active
+parent: module.architecture-context.core
+summary: "Maps code changes onto declared architecture subjects and produces candidate architecture deltas with evidence bindings."
+source:
+  include:
+    - "packages/core/architecture-delta/src/**"

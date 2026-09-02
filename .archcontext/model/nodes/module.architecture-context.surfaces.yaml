@@ -1,0 +1,12 @@
+schemaVersion: archcontext.node/v2
+id: module.architecture-context.surfaces
+kind: module
+name: "Surfaces Workspace"
+status: active
+parent: capability.architecture-context
+summary: "Provides the user-facing entrypoints: the CLI, the local MCP server, the explorer and ChatGPT UIs, the renderer, and the LikeC4 and Structurizr adapters."
+source:
+  exclude:
+    - "packages/surfaces/**/test/**"
+  include:
+    - "packages/surfaces/**/src/**"

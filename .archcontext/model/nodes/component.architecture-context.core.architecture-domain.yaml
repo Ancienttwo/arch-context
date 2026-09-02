@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.architecture-domain
+kind: component
+name: "Architecture Domain"
+status: active
+parent: module.architecture-context.core
+summary: "Defines the repository, worktree, landscape, and posture primitives plus the digest functions the rest of the system binds to."
+source:
+  include:
+    - "packages/core/architecture-domain/src/**"

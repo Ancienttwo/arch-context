@@ -1,0 +1,10 @@
+schemaVersion: archcontext.node/v2
+id: component.architecture-context.core.application
+kind: component
+name: "Application Control Loop"
+status: active
+parent: module.architecture-context.core
+summary: "Composes the prepare-task, checkpoint, and complete-task control loop over the other core engines."
+source:
+  include:
+    - "packages/core/application/src/**"

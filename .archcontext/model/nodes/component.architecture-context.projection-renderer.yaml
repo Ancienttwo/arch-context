@@ -3,7 +3,7 @@ id: component.architecture-context.projection-renderer
 kind: component
 name: "Architecture Documentation Renderer"
 status: active
-parent: capability.architecture-context
+parent: module.architecture-context.core
 summary: "Renders the accepted architecture model into documentation projections and decides each target's provenance stamp."
 source:
   include:

@@ -2,15 +2,15 @@
   "schemaVersion": "archcontext.architecture-docs-projection-manifest/v1",
   "rendererVersion": "archcontext.docs-renderer/v4",
   "profile": "default",
-  "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
+  "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
   "provenance": {
     "schemaVersion": "archcontext.architecture-docs-projection-provenance/v1",
-    "baseHeadSha": "40609455ffb6a8483ad49b1f4d52a93c880b6650",
-    "worktreeDigest": "sha256:5f8699b47373dab40e53d82088fa59a75aaa74f01d4df051647ff634c7d1fba0",
-    "sourceTreeDigest": "sha256:e508dec7df6cd91af563d7e0183e38b23f8181ae46a17232e8f1bf25269829d3",
-    "modelDigest": "sha256:911ac2cdc6668e229c9c9009d7f5adf939003da2a2348aa5f1c8a9c594fa4735",
-    "codeGraphDigest": "sha256:083dc143c0772446156658fc2ca7629c565794d83a4b5bd695b7dd3324594977",
-    "indexedWorktreeDigest": "sha256:74ce2378cd7ee9d0abba5199255b0c86eb2345e5f5167216c140cbbe1184ccea",
+    "baseHeadSha": "2382b655d6b581cab3d9366886d595eb86ef80e5",
+    "worktreeDigest": "sha256:47470a9993368e1dd1df60abee457f7113179b8104434a13589498d50161a526",
+    "sourceTreeDigest": "sha256:02cb61fa107f172b29be9bd57825f144d4390bb149f84085bf98f67a01c1140a",
+    "modelDigest": "sha256:8f91d6d973949fadc6dce6ddaf99174dfc15edc8f1918e697cc33316de8708cb",
+    "codeGraphDigest": "sha256:e4f7abbdb0282801ca127f59850e947f22556f3e2f210cd87c2fb8c1ed34385e",
+    "indexedWorktreeDigest": "sha256:dc41b341c7e9ae4147802d7e5565faaed0a041df1a25f1d530383534d9f5a528",
     "rendererVersion": "archcontext.docs-renderer/v4",
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": {
@@ -19,9 +19,9 @@
       "codeGraphBinaryDigest": "sha256:e4be48573fdf16196ca0d2867be2790aa161534e9973dcb89bc70465100ea537",
       "codeGraphStatus": "ready"
     },
-    "projectionInputDigest": "sha256:6c1eac938fd09959502c0e62e1ddc0353f2e687a663f9448da354299881ba427"
+    "projectionInputDigest": "sha256:f4687309b3d7a8e5849de0680bc80eb0ab647c4fdbcc997c2056bdfb774e799b"
   },
-  "projectionDigest": "sha256:f6f8d4acd230301184eba784d554513c2ff1029b1baa3f6d873b62c8a0caf2c5",
+  "projectionDigest": "sha256:cef606935e6580c252dc456cb2afd6a63231569149bf99fcc511a0fab5b97086",
   "semanticBaseline": {
     "semanticState": {
       "schemaVersion": "archcontext.architecture-semantic-state/v1",
@@ -30,42 +30,63 @@
           "capabilityId": "capability.architecture-context",
           "memberNodeIds": [
             "capability.architecture-context",
-            "component.architecture-context.projection-renderer"
+            "component.architecture-context.core.agent-orchestrator",
+            "component.architecture-context.core.application",
+            "component.architecture-context.core.architecture-delta",
+            "component.architecture-context.core.architecture-domain",
+            "component.architecture-context.core.architecture-ledger",
+            "component.architecture-context.core.changeset-engine",
+            "component.architecture-context.core.context-compiler",
+            "component.architecture-context.core.policy-engine",
+            "component.architecture-context.core.practice-catalog",
+            "component.architecture-context.core.practice-engine",
+            "component.architecture-context.core.pressure-engine",
+            "component.architecture-context.core.recommendation-engine",
+            "component.architecture-context.core.reconcile-engine",
+            "component.architecture-context.core.refactor-decision",
+            "component.architecture-context.core.retrieval",
+            "component.architecture-context.core.review-engine",
+            "component.architecture-context.projection-renderer",
+            "module.architecture-context.cloud",
+            "module.architecture-context.contracts",
+            "module.architecture-context.core",
+            "module.architecture-context.local-runtime",
+            "module.architecture-context.surfaces"
           ],
-          "semanticFingerprint": "sha256:1d967844ce90ac614a0b57b1603ec6a826dafd2b4b73289151dc36f318e0b1c5",
-          "flowProofFingerprint": "sha256:164980caff7639c8b0440c14ed0912215e38b8832271f39536713d8c2a9a3574",
+          "semanticFingerprint": "sha256:de13ecd5ee72f9839d88b8b402d98065838efd44fbf879ff122e4bada1027073",
+          "flowProofFingerprint": "sha256:9d6b81fb407823c9cbeb7ee19849d3f412af98e9ea272979bf6a9aaa29deee95",
           "proofStatus": {
             "p1": "proven",
             "p2": "proven"
           },
           "facets": {
-            "constraints": "sha256:cf9df42424720f4c559d2195a2e3b81eb79d2367de203a72a109c7d15e9f3749",
-            "entrypoints": "sha256:04cc7f612261a10d3a0268d41322bf16fd8423f7cc51592384487aae6f389747",
-            "interfaces": "sha256:244b6348024b776119e6c31af7f8bd4384354ee976bbaa43a1eb1c136e7f1ad1",
-            "lifecycle": "sha256:a4d8fef772eeb1ac268e75fa0899885a0995ef0f7d7d1fafdb8ced3250602805",
-            "names": "sha256:260fbddb630ab2da2da98b95b40350f095bd7c9277e0d6072c7ee40ac4d79e25",
-            "ownership": "sha256:f955624d4b0096c695f9e2296e1313485dbcec0f62a50a7353b99203773a32cc",
-            "placement": "sha256:b8fabdcae47c6c9a8a7a5d5579d5579b22205c90502963c4d93b2f7916f666be",
+            "constraints": "sha256:6d2f9a0e044f930b63f174c23e92f9202b980238a96f465af72680599e19fc62",
+            "entrypoints": "sha256:f54538144f33e988076ef2bac57b6d10f78fc969a8074f4a8f52d35416261076",
+            "interfaces": "sha256:d5ff84c1b052a88eacd6e2fd00fd95d35d49e4fbc4e1d8a1dc82ae62fd9ce8d0",
+            "lifecycle": "sha256:913ec52abcd88fea70f327f3275f04112432d43dff509dbaef5b4e7435e7f8b6",
+            "names": "sha256:a7d0cc3b88eb4139b9ef8116fb8a065c245a245f5ab956de906645f465c95b41",
+            "ownership": "sha256:817f37c19ec6196b4af7a1c6b0f295f216d7bc71e49b41f91b037bbcedbc32af",
+            "placement": "sha256:cb819ab30e74ea6effe6a33480e4c4571714ef51e51fdd0e4cf9aa6cef59c3d4",
             "relations": "sha256:24da7b898ac7c262b85438c3de09d3b9cbc963ebbe14308ee4ce58283f278a74",
-            "responsibilities": "sha256:4f3f562c2ba855a686ebd5e558d79abc548bb28fa57c003e29afa5f9b77e5d7c",
-            "riskBoundaries": "sha256:5f4696f411ebe8e21a4676983fa0d625640f2fecf86a8cf96d1b8b0ccdce243c"
+            "responsibilities": "sha256:720bb2c90235ee6c45258785030a73a93df6c358207f02243f09286784d28839",
+            "riskBoundaries": "sha256:cf9db7dbb5956f01bb02a950d115f4f8980589e9d063352e9c4f0344ed3f7f34"
           }
         }
       ],
-      "semanticFingerprint": "sha256:83f28be66b9a6ba3c5385120ebd24a0ca06700f82c38f4db6e004e856152e022",
-      "flowProofFingerprint": "sha256:3ef5fc73b53d045408b156b68ca22c1312b86fd545305b404f06f399370dfca4"
+      "semanticFingerprint": "sha256:b25d2f326f31457d6b6f2b55df73ae88b841cdf1eee73717736d00c13db62c71",
+      "flowProofFingerprint": "sha256:9d702c4e7d7eb5a288a94e83e60896953dc3449b4ca99e2a145f4deb97149c19"
     },
     "digests": {
-      "modelDigest": "sha256:911ac2cdc6668e229c9c9009d7f5adf939003da2a2348aa5f1c8a9c594fa4735",
-      "sourceTreeDigest": "sha256:e508dec7df6cd91af563d7e0183e38b23f8181ae46a17232e8f1bf25269829d3",
-      "flowProofDigest": "sha256:3ef5fc73b53d045408b156b68ca22c1312b86fd545305b404f06f399370dfca4",
-      "projectionDigest": "sha256:f6f8d4acd230301184eba784d554513c2ff1029b1baa3f6d873b62c8a0caf2c5"
+      "modelDigest": "sha256:8f91d6d973949fadc6dce6ddaf99174dfc15edc8f1918e697cc33316de8708cb",
+      "sourceTreeDigest": "sha256:02cb61fa107f172b29be9bd57825f144d4390bb149f84085bf98f67a01c1140a",
+      "flowProofDigest": "sha256:9d702c4e7d7eb5a288a94e83e60896953dc3449b4ca99e2a145f4deb97149c19",
+      "projectionDigest": "sha256:cef606935e6580c252dc456cb2afd6a63231569149bf99fcc511a0fab5b97086"
     }
   },
-  "receiptDigest": "sha256:56a24aee71ac97bfdc13241486fa21656f1b19fd733b882db0680defa486cd09",
+  "receiptDigest": "sha256:7e92afd3d5cbf73869006ec4ad479023d96a0c9aa2197734c9aae695b743280f",
   "refreshSignalIds": [],
-  "targetCount": 9,
-  "fileCount": 9,
+  "targetCount": 30,
+  "fileCount": 30,
   "targets": [
     {
       "targetId": "projection_target.architecture.index",
@@ -77,8 +98,8 @@
       "ownership": "mixed",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "markdown",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
-      "outputDigest": "sha256:dae139ef4a635bf2b5331f4f9de2582f23dba75fcbfca0560bc0ebc89bde5efa"
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
+      "outputDigest": "sha256:5367cf6edd0e2b2f58bd1cb2c9c3703759eac308a50c36a4c29960bf96a1145c"
     },
     {
       "targetId": "projection_target.entity.capability-architecture-context",
@@ -92,12 +113,332 @@
       "ownership": "mixed",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "markdown",
-      "sourceDigest": "sha256:e1ed11fd46afe4f5549eea22344d7afc318ddfbad9b727f8171cdb07f492e6d8",
-      "outputDigest": "sha256:81bdd30469e7d21bf5320c6464e32c45f90e05d56216bb772d2f1477924e4b13",
+      "sourceDigest": "sha256:2dfa089e396ee90f039bf04e0d0b8407da67838f114c32b70390951e3e5fd408",
+      "outputDigest": "sha256:d52dfac3b10b905def7fe60cbd8babba35f13230d538721a16774c0dd97602cc",
       "verifiedAgainst": {
-        "branch": "main",
-        "commit": "40609455ffb6a8483ad49b1f4d52a93c880b6650",
-        "committedAt": "2026-08-18T16:40:29+08:00"
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "2382b655d6b581cab3d9366886d595eb86ef80e5",
+        "committedAt": "2026-09-03T02:14:40+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-agent-orchestrator",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.agent-orchestrator",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-agent-orchestrator.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:71e617580c8e133cbafdd2aea8adff58f73754defa2d24c5b39d1d490673bd5d",
+      "outputDigest": "sha256:53ead59fccb0dbae4eaf5fff3e5ce57eab464a0a1a3daed13c2a98b2625b5f70",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-application",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.application",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-application.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:aa14779073ddaea07dfc315ed21f19466c64122310fbc053c283e7455e1bb36d",
+      "outputDigest": "sha256:ddf1a39323fc32f7495e9abfae4719f2de62385d47da51d9e224c969e24ce592",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-architecture-delta",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.architecture-delta",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-architecture-delta.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:f11f3b3a2e993ff00b67899a306a2fd90ace08ba6c7d557b3f14791823ee6c1a",
+      "outputDigest": "sha256:9bfe9737e42126924a035dfa62223c7c4ff989e73ec0544eb6bc2d870a1d7b70",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-architecture-domain",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.architecture-domain",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-architecture-domain.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:f426bf47badc7371bf406d6bced946b5abfd7c62d81657ab60ae4dc2533b91ab",
+      "outputDigest": "sha256:f1fa1af66a6ad9ca9a77725db9c03b25108328e9d49b48960d14a171f9b722ff",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-architecture-ledger",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.architecture-ledger",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-architecture-ledger.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:08ae67e9605f32459d6aa6fbc50cdde5382a92fee472041b8db036a2aa9ba58e",
+      "outputDigest": "sha256:715e259bddc5ef5690a0b28ea815b4e1a4435635c8dcd5efccae44a7a487c72a",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-changeset-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.changeset-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-changeset-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:2c70504acf1dfb05eeda5715b7660e56a9c16f08db88318e57e11f0fa2710437",
+      "outputDigest": "sha256:2b5d37f0181dac637189e191768b590f6e6c1a1f4ffb3c64debdc5f04958fe40",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "2382b655d6b581cab3d9366886d595eb86ef80e5",
+        "committedAt": "2026-09-03T02:14:40+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-context-compiler",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.context-compiler",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-context-compiler.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:ac358c0895f9e1afa9f49fa201f46e8a82dd6982aa21478b1a52fb5c3a80f7e2",
+      "outputDigest": "sha256:7f7f99515935e5fd22ec6e7ae38e9230e9a4f860b7948db7051499716d8c4fc3",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-policy-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.policy-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-policy-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:8b069aa28b5c14256cda05ac3886708ca433ca8d3070f2e340a5bfc12893d6b8",
+      "outputDigest": "sha256:09af79edec12f737d6ae38ae81cbe126f3d08717fa9f06a9217ab6030699863e",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-practice-catalog",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.practice-catalog",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-practice-catalog.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:ab88bfdd66c91f77b76dcc10be9090a0a9accb6463d1095b1e66067a16c01a05",
+      "outputDigest": "sha256:9c68b18d5d4cef00723254dcb2a80ac173cdce5c708e822f389c62e3b83db7c0",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-practice-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.practice-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-practice-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:2bc394d9f4a8c9116144a4ce3c1556a91bda0ed91a34c70c47fe40c57a0b9bb8",
+      "outputDigest": "sha256:9166687dc92f2b34b277ea1d95347a05227fdc2456ac22ea54afe41c589ac37b",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-pressure-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.pressure-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-pressure-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:51121fc8fa54c66f21665a79c6864686f0cc8a22803042c403756e47cdd320e2",
+      "outputDigest": "sha256:5689aa2ec0972bd29fee8092ac19f008a23f2fc0bb8f6ea51ff044b090fa828b",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-recommendation-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.recommendation-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-recommendation-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:e1542af09fb64c754d16f6babd7b62541077f1528b2e7d0ec8d31997763fc473",
+      "outputDigest": "sha256:73f15007ad4a83f0ea7d77be96590b4963ae67bda70f92a4de69890935495628",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-reconcile-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.reconcile-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-reconcile-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:c150346c21fc2835a0b3ebc6d6fb78cd158445c92b802477c8603f72df97e17f",
+      "outputDigest": "sha256:d457b40f0ff89fd28020ad7b75ee941e1d41c091886a98a4c23ae6b8dd2ca9d8",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-refactor-decision",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.refactor-decision",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-refactor-decision.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:7c0a217c2cce5b797839711086697eb13ee40a767632c1abbc942896afa4a57f",
+      "outputDigest": "sha256:9dd5a6d58264cf32d46a8b5c9bcf69589c6652e9f12c5af89a2c3998a5cb590b",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-retrieval",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.retrieval",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-retrieval.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:9cdd1c14f185f4dde03c945b4cc075a18c5a71cd38d7593424b0fb7fe2dd8841",
+      "outputDigest": "sha256:6e2a2aacf529d481f4e77c8cc8a6eb53179625bbe10aeca4cef82833f0ad3ca1",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.component-architecture-context-core-review-engine",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "component.architecture-context.core.review-engine",
+        "entityKind": "component"
+      },
+      "path": "docs/architecture/modules/component-architecture-context-core-review-engine.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:3a0cf5eac849883c84eedb5616f8239888af0d0d3fd528cb70e3f11b454b33ff",
+      "outputDigest": "sha256:1a7b7e7de039ab655f30f61496d82a172c22a613df3e8efcc363fdfe470565cc",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
       }
     },
     {
@@ -115,9 +456,109 @@
       "sourceDigest": "sha256:ecb7dab9162172a91235a76ee5741b7051cb8b1b5edd297197b481a137a03467",
       "outputDigest": "sha256:a0c29d1d41b44f092e2334cb6042b559fc2d0b4672a8c6483259cfbb69822397",
       "verifiedAgainst": {
-        "branch": "codex/daemon-projection-symbol-collision",
-        "commit": "612db70e81353815832f6f2afc5c4389b169b077",
-        "committedAt": "2026-08-18T12:52:32+08:00"
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.module-architecture-context-cloud",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "module.architecture-context.cloud",
+        "entityKind": "module"
+      },
+      "path": "docs/architecture/modules/module-architecture-context-cloud.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:f0b4f02f47ac2362d27255cb60a9d5f3be769448587042d269e29b260c3cc513",
+      "outputDigest": "sha256:a5087cc8101778e5b8ec86e7946311271f5028516897cf2171b1459c094e00b6",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.module-architecture-context-contracts",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "module.architecture-context.contracts",
+        "entityKind": "module"
+      },
+      "path": "docs/architecture/modules/module-architecture-context-contracts.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:fc19c60ee82a245b2f8764316f7994d1e758f088cd767fe2f7147fedeff97190",
+      "outputDigest": "sha256:44b233e4a661d41ede6045dd93132a0873cc64fb7b4d3dd365597386c2bae200",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
+        "committedAt": "2026-09-02T23:48:37+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.module-architecture-context-core",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "module.architecture-context.core",
+        "entityKind": "module"
+      },
+      "path": "docs/architecture/modules/module-architecture-context-core.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:7a9a05c4a988de13ae2c75995453a8bc731015fd58961c1dbd7368e87ed60625",
+      "outputDigest": "sha256:2be28a8839ac92a2ccaff35934a0085b3a72db665691d0435741db59b66e73bb",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "2382b655d6b581cab3d9366886d595eb86ef80e5",
+        "committedAt": "2026-09-03T02:14:40+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.module-architecture-context-local-runtime",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "module.architecture-context.local-runtime",
+        "entityKind": "module"
+      },
+      "path": "docs/architecture/modules/module-architecture-context-local-runtime.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:6b35d9352beb62b44f0f0f081eb8adbf34a5dcf7eb5c8d56e6fd9bbe80c7d80c",
+      "outputDigest": "sha256:041fdabdb3a18f30413da78da3e614e505c08b0f6da247f266d79d871dd82ff9",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "2382b655d6b581cab3d9366886d595eb86ef80e5",
+        "committedAt": "2026-09-03T02:14:40+08:00"
+      }
+    },
+    {
+      "targetId": "projection_target.entity.module-architecture-context-surfaces",
+      "type": "entity-summary",
+      "scope": {
+        "kind": "entity",
+        "id": "module.architecture-context.surfaces",
+        "entityKind": "module"
+      },
+      "path": "docs/architecture/modules/module-architecture-context-surfaces.md",
+      "ownership": "mixed",
+      "rendererVersion": "archcontext.docs-renderer/v4",
+      "format": "markdown",
+      "sourceDigest": "sha256:aa37416cbfaca77dcde003b4e7b195880d62011fff0f3d94ef2099ce7a112cb9",
+      "outputDigest": "sha256:789cd4ba7de0f2796534b28f31eccf948c21f12ec6bd09f9f1254b09eb081961",
+      "verifiedAgainst": {
+        "branch": "codex/model-adoption-core-two-level",
+        "commit": "2382b655d6b581cab3d9366886d595eb86ef80e5",
+        "committedAt": "2026-09-03T02:14:40+08:00"
       }
     },
     {
@@ -131,7 +572,7 @@
       "ownership": "mixed",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "markdown",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
       "outputDigest": "sha256:d82efcdae6c6c0796d5e21fe532e40c682d80370f0eaf1d081f52a665ec54577"
     },
     {
@@ -144,7 +585,7 @@
       "ownership": "mixed",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "markdown",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
       "outputDigest": "sha256:bae3c36e4277d0a3a0885141f1ba8ddc5762f45d12bd9b675d8ee19f5075ba8b"
     },
     {
@@ -157,7 +598,7 @@
       "ownership": "mixed",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "markdown",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
       "outputDigest": "sha256:1f723aeb74466aae7d607eeab8c438a830c36f49a48e6622f868a8151afabea6"
     },
     {
@@ -171,8 +612,8 @@
       "ownership": "generated",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "mermaid",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
-      "outputDigest": "sha256:89405fa23beca20426787ae328f3a575a3539862e532097b33a2c2a3662f1671"
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
+      "outputDigest": "sha256:87d4219e4c009a60c25f4a37f5e82f0a6305076f7cb812b846b20c9fe576b93e"
     },
     {
       "targetId": "projection_target.diagram.structurizr",
@@ -185,8 +626,8 @@
       "ownership": "generated",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "structurizr-json",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
-      "outputDigest": "sha256:1c0af2be30664c6a28100fc077043baabeb39de0b376ae3efd8e2aeed3b35722"
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
+      "outputDigest": "sha256:dc532ee496688b9cfeb93948e1729ef89759971657a56b8b15ed2f732647960d"
     },
     {
       "targetId": "projection_target.diagram.likec4",
@@ -199,8 +640,8 @@
       "ownership": "generated",
       "rendererVersion": "archcontext.docs-renderer/v4",
       "format": "likec4",
-      "sourceDigest": "sha256:e71550cddcc2db918af3a6bc6a8d59b2dde93dd95dace35bd7e703e0c338de63",
-      "outputDigest": "sha256:70798574cc71da4ab24240fa9ca75521d635b4562ce04eff3854213f86032a90"
+      "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
+      "outputDigest": "sha256:a35a8ba33bd7178f1d3bbe194dc1349ca1f9252887897d4947d0d7bff5a5ae8e"
     }
   ]
 }
