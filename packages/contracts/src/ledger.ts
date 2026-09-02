@@ -1,3 +1,11 @@
+import type { ArchitectureMajorChangeReasonCode } from "./projection";
+import type {
+  ArchitectureTargetDeltaV1,
+  RefactorKillListEntryV1,
+  RefactorObservationKind,
+  RefactorScale,
+  RefactorTargetOutcomeV1
+} from "./refactor";
 import { digestJson, type Json } from "./schema";
 
 export const ARCHITECTURE_EVENT_SCHEMA_VERSION = "archcontext.architecture-event/v1" as const;
@@ -6,6 +14,7 @@ export const EVIDENCE_ITEM_SCHEMA_VERSION = "archcontext.evidence-item/v2" as co
 export const EVIDENCE_BINDING_SCHEMA_VERSION = "archcontext.evidence-binding/v1" as const;
 export const RECOMMENDATION_RUN_SCHEMA_VERSION = "archcontext.recommendation-run/v1" as const;
 export const RECOMMENDATION_SCHEMA_VERSION = "archcontext.recommendation/v2" as const;
+export const RECOMMENDATION_V3_SCHEMA_VERSION = "archcontext.recommendation/v3" as const;
 export const RECOMMENDATION_FEEDBACK_SCHEMA_VERSION = "archcontext.recommendation-feedback/v1" as const;
 export const AGENT_JOB_SCHEMA_VERSION = "archcontext.agent-job/v1" as const;
 export const INVESTIGATION_REPORT_SCHEMA_VERSION = "archcontext.investigation-report/v1" as const;
@@ -14,9 +23,23 @@ export const ARCHITECTURE_CANDIDATE_DELTA_SCHEMA_VERSION = "archcontext.architec
 export const ARCHITECTURE_CANDIDATE_DELTA_POLICY_SCHEMA_VERSION = "archcontext.architecture-candidate-delta-policy/v1" as const;
 export const PROJECTION_TARGET_SCHEMA_VERSION = "archcontext.projection-target/v1" as const;
 
+export const RECOMMENDATION_CATEGORIES = ["practice", "refactor_proposal", "structural_observation"] as const;
+
 export type ArchitectureFactAuthority = "declared" | "observed" | "verified" | "proposed" | "projected";
 export type ArchitectureLedgerMode = "yaml" | "dual" | "dual-compare" | "ledger-shadow" | "ledger" | "ledger-authoritative";
 export type ArchitectureActorKind = "developer" | "daemon" | "hook" | "cli" | "mcp" | "subagent" | "migration" | "system";
+export type ArchitectureActorSource = "cli" | "mcp" | "manual" | "daemon" | "system" | "subagent";
+export type RecommendationCategory = (typeof RECOMMENDATION_CATEGORIES)[number];
+export type RecommendationStatus =
+  | "open"
+  | "acknowledged"
+  | "accepted"
+  | "rejected"
+  | "deferred"
+  | "waived"
+  | "resolved"
+  | "superseded"
+  | "expired";
 export type ArchitectureEventSource =
   | "prepare_task"
   | "checkpoint"
@@ -28,7 +51,8 @@ export type ArchitectureEventSource =
   | "projection_reconcile"
   | "migration"
   | "manual"
-  | "agent_audit";
+  | "agent_audit"
+  | "refactor_scan";
 
 export type EvidenceStrengthV2 = "heuristic" | "declared" | "observed" | "verified";
 export type EvidencePolarityV2 = "positive" | "absence" | "declaration";
@@ -621,7 +645,7 @@ export interface RecommendationV2 {
   fingerprint: string;
   subject: string;
   practiceId?: string;
-  status: "open" | "acknowledged" | "accepted" | "rejected" | "deferred" | "waived" | "resolved" | "superseded" | "expired";
+  status: RecommendationStatus;
   confidence: "low" | "medium" | "high";
   enforcement: "advisory" | "checkpoint" | "complete";
   risk: "low" | "medium" | "high";
@@ -639,12 +663,12 @@ export interface RecommendationFeedbackV1 {
   recommendationId: string;
   runId: string;
   action: "acknowledge" | "accept" | "reject" | "defer" | "waive" | "resolve";
-  previousStatus: RecommendationV2["status"];
-  nextStatus: RecommendationV2["status"];
+  previousStatus: RecommendationStatus;
+  nextStatus: RecommendationStatus;
   actor: {
     kind: ArchitectureActorKind;
     id: string;
-    source: "cli" | "mcp" | "manual" | "daemon" | "system" | "subagent";
+    source: ArchitectureActorSource;
   };
   reason: string;
   explicit: true;
@@ -652,6 +676,72 @@ export interface RecommendationFeedbackV1 {
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
   createdAt: string;
+  extensions?: Record<string, Json>;
+}
+
+export interface RecommendationAuthorV1 {
+  kind: ArchitectureActorKind;
+  id: string;
+  source: ArchitectureActorSource;
+}
+
+export interface RecommendationRelationsV1 {
+  supersedes?: string;
+  regressesFrom?: string;
+}
+
+export interface PracticeRecommendationPayloadV1 {
+  practiceId: string;
+  baselineDigest: string | null;
+}
+
+export interface StructuralObservationPayloadV1 {
+  assessmentDigest: string;
+  kind: RefactorObservationKind;
+  affectedNodeIds: string[];
+  baselineSnapshotDigest: string;
+  derivedOutcomes: RefactorTargetOutcomeV1[];
+}
+
+export interface RefactorProposalPayloadV1 {
+  assessmentDigest: string;
+  proposalDigest: string;
+  scale: RefactorScale;
+  affectedNodeIds: string[];
+  majorChangeReasons: ArchitectureMajorChangeReasonCode[];
+  baselineSnapshotDigest: string;
+  targetDelta?: ArchitectureTargetDeltaV1;
+  targetOutcomes: RefactorTargetOutcomeV1[];
+  killList: RefactorKillListEntryV1[];
+}
+
+export type RecommendationPayloadV1 =
+  | PracticeRecommendationPayloadV1
+  | StructuralObservationPayloadV1
+  | RefactorProposalPayloadV1;
+
+/** Strict superset of RecommendationV2: every v2 field is kept verbatim. */
+export interface RecommendationV3 {
+  schemaVersion: typeof RECOMMENDATION_V3_SCHEMA_VERSION;
+  recommendationId: string;
+  runId: string;
+  fingerprint: string;
+  subject: string;
+  practiceId?: string;
+  status: RecommendationStatus;
+  confidence: "low" | "medium" | "high";
+  enforcement: "advisory" | "checkpoint" | "complete";
+  risk: "low" | "medium" | "high";
+  uncertainty: "low" | "medium" | "high";
+  evidenceBindingIds: string[];
+  explanation: string[];
+  category: RecommendationCategory;
+  authoredBy: RecommendationAuthorV1;
+  subjectSelectorId: string;
+  payload: RecommendationPayloadV1;
+  relations: RecommendationRelationsV1;
+  createdAt: string;
+  updatedAt: string;
   extensions?: Record<string, Json>;
 }
 
