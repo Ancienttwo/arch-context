@@ -26,6 +26,7 @@
       "@archcontext/core/pressure-engine": ["./packages/core/pressure-engine/src/index.ts"],
       "@archcontext/core/recommendation-engine": ["./packages/core/recommendation-engine/src/index.ts"],
       "@archcontext/core/reconcile-engine": ["./packages/core/reconcile-engine/src/index.ts"],
+      "@archcontext/core/refactor-assessment": ["./packages/core/refactor-assessment/src/index.ts"],
       "@archcontext/core/refactor-decision": ["./packages/core/refactor-decision/src/index.ts"],
       "@archcontext/core/retrieval": ["./packages/core/retrieval/src/index.ts"],
       "@archcontext/core/review-engine": ["./packages/core/review-engine/src/index.ts"],

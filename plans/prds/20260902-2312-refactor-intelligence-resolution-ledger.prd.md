@@ -291,7 +291,11 @@ Agent 層（repo-harness + Claude / Codex / GPT Pro + 人）
   - `majorChangeReasons` 由 proposal 的 `targetDelta` 對照宣告模型計算，型別 = `ArchitectureMajorChangeReasonCode`；`targetDelta` 為空則 `[]`。
   - `affectedNodeIds` 由 proposal scope 的 paths 對 ownership 解析得出；任一 path 無 owner → `model_adoption_required`（暫定）。
   - `targetDelta` 內任一 node / relation / symbol ID 無法解析到 `.archcontext` 或已觀察 symbol → `unresolvedTargets` 非空 → `scale = insufficient_evidence`，reason `target-unresolved`。
-  - `confidence.*` 直接取 snapshot 量測值或 `null`；不填預設值。task text 不影響 `scale`。
+  - Essential evidence（決定 `scale` 的三項，缺一即 fail closed）：(1) proposal 相關的每個 node 都 `footprintDeclared = true`，否則 `model_adoption_required` + `node-footprint-undeclared`；(2) 每個 `scopePaths` 恰好解析到一個最深 owner，無 owner → `model_adoption_required` + `unowned-paths`，非祖先／後代競爭 → `insufficient_evidence` + `ownership-ambiguous`；(3) `codeFacts.coverage = complete`，`unknown` → `code-facts-missing`，`partial` → `code-facts-truncated`。`tests.callerCoverage`、`testsObserved`、`rollbackObserved` **不是** essential：v1 三者恆為 `null`（node/v2 無 `source.tests`；import edge 看不見 dynamic invocation；rollback 只有 Agent 文本），列為 essential 會讓所有提案都判 `insufficient_evidence`。`caller-coverage-unknown` 只進 `scaleReasonCodes` 與 `confidence`，不選分支；帶 proposal 的 assessment 在 v1 因此最高只到 `confidence.level = medium`。
+  - `unresolvedTargets` 只由 `targetState.owners` 的 value、`removedConcepts` 條目與 `completionCriteria[].nodeId` 產生。`requiredRelations` 中未宣告的 relation 是「要新建」而非 unresolved；`removedConcepts` 條目依序對照 node id、relation id、宣告的 entrypoint id（`nodes[].source.entrypoints[].id`）、宣告的 sink id（`entrypoints[].symbols[].sinks[].id`）、以及 snapshot 的 `modules[].surfaces.observedEntrypoints`；五者皆不中才進 `unresolvedTargets`。`killList` 在 `targetDelta` 之外，其 symbol / path selector 由 RF4 `verify` 解析，RF2 不解析。
+  - `majorChangeReasons` v1 只導出 `ownership-changed`、`relation-changed`、`node-removed`。`node-added` 不可導出（未解析的 node id 一律進 `unresolvedTargets`，否則打錯的 id 會 fail open）；`lifecycle-changed` 不可導出（`owners` 的 key 是自由文本 role label，node/v2 無宣告的 role→owner 映射）；`migrationState` 不貢獻任何 code。`removedConcepts` 命中宣告的 entrypoint / sink selector 時該條目算「已解析」，但 v1 不導出 `entrypoint-changed` 或 `interface-changed`：兩者需要把被移除的 surface 對照一份完整的目標 semantic state，等於要 ArchContext 自造目標模型（違反 §0.1）。
+  - RF2 不呼叫 `detectArchitecturePressure`：其 observed 判定對 path／symbol 字串做 regex，且 `multiple-lifecycle-owner` 會把 `task` 文本折進 observed signal。`pressure` 改由 RF2 自己的 observations 依 pressure-engine 的權重（25／15／5，上限 100）與門檻（60／30）計算；`request.task` 在 RF2 完全不被讀取，heuristic-isolation fixture 因此斷言完整 `assessmentDigest` 相等。
+  - `RefactorProposalV1.scopePaths` 每一條都必須是 snapshot 輸入裡已追蹤（tracked）的 repo-relative **檔案**路徑；判定就是對 `trackedFiles` 做精確比對（兩邊都已由 contract 約束為 repo-relative POSIX，不另做正規化）。不在 tracked 集合內的條目——目錄、glob（`*`、`?`、`[]`、`{}`、`()`、`!`）、或 commit 沒有的檔案——一律視為 unowned path → `model_adoption_required` + `unowned-paths`。Program B 送入 proposal 前必須展開成已追蹤檔案。
   - `RefactorScaleReasonCode` 閉合枚舉，至少含：`code-facts-missing`、`code-facts-truncated`、`ownership-ambiguous`、`unowned-paths`、`node-footprint-undeclared`、`caller-coverage-unknown`、`target-unresolved`、`single-node-scope`、`multi-node-scope`、`major-change-detected`。
 - Recommended Defaults: `evidence-gap` observation 在 `coverage ≠ complete` 時必出。
 - Freedoms: observation 排序；reason code 補充項。
@@ -569,12 +573,14 @@ Fact class 對應（ADR-0040 authority matrix）：`ModuleStatisticsSnapshotV1` 
 | Item | Impact | Resolution Path | Owner |
 |---|---|---|---|
 | [UNKNOWN] `paths:` scope 部分無 owner 時整體 fail closed 是否過嚴 | Agent 對混合路徑集合拿不到 scale | RF2 先整體 `model_adoption_required`；dogfood 兩週後決定是否加 `ownedSubset` | Maintainer |
-| [UNKNOWN] `targetDelta` 是否復用 projection accept 的 accepted-change 結構 | 影響 RF2 對照計算與 repo-harness 側 `architecture-projection accept` 的銜接 | RF2 plan 階段對照 `AcceptedArchitectureChangeReferenceV1`，能復用就不新造 | Maintainer |
+| ~~[UNKNOWN] `targetDelta` 是否復用 accepted-change 結構~~ **[RESOLVED, RF1a]** `ArchitectureTargetDeltaV1` 已在 `archctx-contracts@0.5.0` 凍結為獨立型別；只復用 `ARCHITECTURE_MAJOR_CHANGE_REASON_CODES` 詞彙表，不復用 `classifyArchitectureMajorChange`（它需要兩份完整 `ArchitectureSemanticStateV1` 與 diagram proof compilation，等於要 ArchContext 自造目標模型，違反 §0.1） | — | — | Maintainer |
 | [UNKNOWN] v2→v3 migration 後 `ledger rebuild` replay 一致性 | 不一致則 0.5.0 不能宣稱 ledger 可重建 | RF3 驗收加入對照腳本 | Maintainer |
 | [UNVERIFIED] CodeGraph `1.5.0` 在大倉的 `truncated` 頻率與 `edgeLimit` | `insufficient_evidence` 比例過高會讓儀器不可用 | RF1 在本倉與一個外部 fixture 倉實測 | Maintainer |
 | [UNKNOWN] 本倉 model 只有 capability + child component | dogfooding 無法驗證 cross_module / architecture scale | RF2 前另開 model adoption 任務把 `packages/core/*` 拆為獨立 node | Maintainer |
 | [UNKNOWN] `source.tests` selector 進 node/v2 還是等 node/v3 | 影響 `tests` 何時能離開 `unknown` | RF1 以 `unknown` 交付；進 schema 需 ChangeSet 與 ADR | Maintainer |
 | [UNKNOWN] 0.5.1 與 0.5.0 的間隔 | 過長會讓 repo-harness shadow 期無法驗證 resolve 路徑 | Sprint 把 RF4 排在 RF5(0.5.0) 之後立即開始，目標兩週內 | Maintainer |
+| [UNKNOWN] 外部 research provider（如 GPT Pro）撰寫的 proposal 如何標 provenance | 0.5.0 只能以 `developer→manual`（人簽署）或 `subagent→subagent`（harness agent 採納並負責）提交，來源寫在 `intent`；無一等 provenance 欄位 | 若下游需要可稽核的 provenance，0.6.0 contract 加 `provenance?: {provider, ref}`，不新增 author source | Maintainer |
+| [UNKNOWN] `confidence.level` 在 v1 帶 proposal 時封頂 `medium` | 下游若把 `medium` 當作不可行動，儀器價值降低 | RF1c／node/v3 `source.tests` 落地後 `testsObserved` 才能非 null；dogfood 兩週後決定是否引入 `evidenceLevel` 分離欄位 | Maintainer |
 
 ---
 
