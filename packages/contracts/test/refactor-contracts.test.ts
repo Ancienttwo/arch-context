@@ -8,6 +8,8 @@ import {
   RECOMMENDATION_V3_SCHEMA_VERSION,
   type RecommendationV2,
   type RecommendationV3,
+  type RecommendationV3Base,
+  type RecommendationV3CategoryPayloadV1,
   type RefactorProposalPayloadV1
 } from "../src/ledger";
 import {
@@ -20,6 +22,7 @@ import {
   REFACTOR_OBSERVATION_KINDS,
   REFACTOR_OUTCOME_DIRECTIONS,
   REFACTOR_OUTCOME_OPERATORS,
+  REFACTOR_PROPOSAL_AUTHOR_PAIRS,
   REFACTOR_PROPOSAL_AUTHOR_SOURCES,
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
   REFACTOR_REQUEST_SCHEMA_VERSION,
@@ -269,9 +272,30 @@ function makeResolutionEvidence(overrides: Partial<RefactorResolutionEvidenceV1>
   return { ...draft, resolutionDigest: refactorResolutionEvidenceDigest(draft) };
 }
 
-function makeRecommendationV3(overrides: Partial<RecommendationV3> = {}): RecommendationV3 {
+function makeRefactorProposalPayload(overrides: Partial<RefactorProposalPayloadV1> = {}): RefactorProposalPayloadV1 {
   const proposal = makeProposal();
   return {
+    assessmentDigest: makeAssessment().assessmentDigest,
+    proposalDigest: proposal.proposalDigest,
+    scale: "cross_module",
+    affectedNodeIds: ["component.core", "component.local-runtime"],
+    majorChangeReasons: [],
+    baselineSnapshotDigest: makeSnapshot().snapshotDigest,
+    targetDelta: proposal.targetDelta,
+    targetOutcomes: proposal.targetOutcomes,
+    killList: proposal.killList,
+    ...overrides
+  };
+}
+
+function makeRecommendationV3(
+  overrides: Partial<RecommendationV3Base> = {},
+  categoryPayload: RecommendationV3CategoryPayloadV1 = {
+    category: "refactor_proposal",
+    payload: makeRefactorProposalPayload()
+  }
+): RecommendationV3 {
+  const base: RecommendationV3Base = {
     schemaVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
     recommendationId: "recommendation.abc123",
     runId: "run.refactor.1",
@@ -284,25 +308,13 @@ function makeRecommendationV3(overrides: Partial<RecommendationV3> = {}): Recomm
     uncertainty: "medium",
     evidenceBindingIds: ["binding.1", "binding.2"],
     explanation: ["two serializer implementations own the same paths"],
-    category: "refactor_proposal",
     authoredBy: { kind: "subagent", id: "agent.codex", source: "subagent" },
     subjectSelectorId: "selector.node.core",
-    payload: {
-      assessmentDigest: makeAssessment().assessmentDigest,
-      proposalDigest: proposal.proposalDigest,
-      scale: "cross_module",
-      affectedNodeIds: ["component.core", "component.local-runtime"],
-      majorChangeReasons: [],
-      baselineSnapshotDigest: makeSnapshot().snapshotDigest,
-      targetDelta: proposal.targetDelta,
-      targetOutcomes: proposal.targetOutcomes,
-      killList: proposal.killList
-    },
     relations: {},
     createdAt: "2026-09-03T03:07:00.000Z",
-    updatedAt: "2026-09-03T03:07:00.000Z",
-    ...overrides
+    updatedAt: "2026-09-03T03:07:00.000Z"
   };
+  return { ...base, ...categoryPayload, ...overrides };
 }
 
 describe("refactor contract digest determinism", () => {
@@ -495,6 +507,29 @@ describe("refactor proposal and target delta validators", () => {
     );
   });
 
+  test("a daemon actor kind cannot author a proposal even with an allowed source", () => {
+    const proposal = makeProposal({ authoredBy: { kind: "daemon", id: "archctx-daemon", source: "subagent" } });
+    expect(refactorProposalInvariantIssues(proposal)).toContain(
+      "proposal.authoredBy.kind must not be daemon; refactor proposals are agent or human authored"
+    );
+  });
+
+  test("an actor kind incompatible with its source is rejected", () => {
+    const proposal = makeProposal({ authoredBy: { kind: "cli", id: "archctx-cli", source: "mcp" } });
+    expect(refactorProposalInvariantIssues(proposal)).toContain(
+      "proposal.authoredBy.kind cli is not compatible with source mcp"
+    );
+  });
+
+  test("the declared kind and source pairs are accepted", () => {
+    for (const [kind, sources] of Object.entries(REFACTOR_PROPOSAL_AUTHOR_PAIRS)) {
+      for (const source of sources) {
+        const proposal = makeProposal({ authoredBy: { kind: kind as "cli", id: `actor.${kind}`, source } });
+        expect(refactorProposalInvariantIssues(proposal), `${kind}/${source}`).toEqual([]);
+      }
+    }
+  });
+
   test("an outcome with a value-free operator carrying a value is rejected", () => {
     const proposal = makeProposal({ targetOutcomes: [makeOutcome({ operator: "absent", value: 3 })] });
     expect(refactorProposalInvariantIssues(proposal).some((issue) => issue.includes("must not carry a value"))).toBe(true);
@@ -529,6 +564,51 @@ describe("module statistics validators", () => {
     });
     const issues = moduleStatisticsSnapshotInvariantIssues(draft);
     expect(issues).toContain("snapshot.modules[0].dependencyGraph must be null when codeFacts.coverage is unknown");
+  });
+
+  test("a stale code-facts index is rejected once coverage is claimed", () => {
+    const snapshot = makeSnapshot();
+    const stale = {
+      ...snapshot,
+      codeFacts: { ...snapshot.codeFacts, indexedWorktreeDigest: digestOf("worktree.older-head") }
+    };
+    expect(moduleStatisticsSnapshotInvariantIssues(stale)).toContain(
+      "snapshot.codeFacts.indexedWorktreeDigest must match the measured worktreeDigest"
+    );
+    const unindexed = { ...snapshot, codeFacts: { ...snapshot.codeFacts, indexedWorktreeDigest: null } };
+    expect(moduleStatisticsSnapshotInvariantIssues(unindexed)).toContain(
+      "snapshot.codeFacts.indexedWorktreeDigest must be present when coverage is complete"
+    );
+  });
+
+  test("negative and fractional counts are rejected", () => {
+    const negativeEdges = makeModule({
+      dependencyGraph: {
+        internalEdgeCount: -1,
+        inboundModuleEdges: 3,
+        outboundModuleEdges: 2,
+        fanIn: 3,
+        fanOut: 2,
+        stronglyConnectedComponentId: null,
+        cycleCount: 0,
+        instability: null,
+        directionViolationCount: null
+      }
+    });
+    expect(moduleStatisticsInvariantIssues(negativeEdges)).toContain(
+      "module.dependencyGraph.internalEdgeCount must be a non-negative integer"
+    );
+    const overCoverage = makeModule({
+      tests: { testFileCount: 4, observedTestEdges: 9, callerCoverage: 2, coverageStatus: "measured" }
+    });
+    expect(moduleStatisticsInvariantIssues(overCoverage)).toContain("module.tests.callerCoverage must be a ratio between 0 and 1");
+    const snapshot = makeSnapshot();
+    expect(
+      moduleStatisticsSnapshotInvariantIssues({
+        ...snapshot,
+        repositorySummary: { ...snapshot.repositorySummary, unownedFileCount: 1.5 }
+      })
+    ).toContain("snapshot.repositorySummary.unownedFileCount must be a non-negative integer");
   });
 
   test("a repositorySummary that disagrees with the measured modules is rejected", () => {
@@ -604,6 +684,18 @@ describe("resolution evidence validators", () => {
     );
   });
 
+  test("a self-reported satisfied flag that contradicts the measurement is rejected", () => {
+    const evidence = makeResolutionEvidence({
+      observedOutcomes: [{ outcomeId: "outcome.cycle-count", observedValue: 99, satisfied: true, direction: "improved" }]
+    });
+    const issues = refactorResolutionEvidenceInvariantIssues(evidence);
+    expect(issues).toContain(
+      "resolutionEvidence.observedOutcomes outcome.cycle-count claims satisfied=true but cycleCount less_than 1 against 99 is false"
+    );
+    expect(issues).toContain("resolutionEvidence.disposition must be not_improved when no required outcome is satisfied");
+    expect(refactorVerifyInvariantIssues(makeSnapshot(), evidence).length).toBeGreaterThan(0);
+  });
+
   test("an expected outcome without an observation is rejected", () => {
     const evidence = makeResolutionEvidence({ observedOutcomes: [] });
     expect(refactorResolutionEvidenceInvariantIssues(evidence)).toContain(
@@ -643,40 +735,64 @@ describe("recommendation v3 contract", () => {
   });
 
   test("architecture scale requires complete enforcement", () => {
-    const base = makeRecommendationV3();
-    const recommendation = makeRecommendationV3({
-      payload: { ...(base.payload as { scale: string }), scale: "architecture" } as RecommendationV3["payload"]
-    });
+    const recommendation = makeRecommendationV3(
+      {},
+      { category: "refactor_proposal", payload: makeRefactorProposalPayload({ scale: "architecture" }) }
+    );
     expect(recommendationV3InvariantIssues(recommendation)).toContain(
       "recommendation.refactor_proposal with scale architecture requires complete enforcement"
     );
   });
 
   test("a structural observation must be daemon authored and advisory", () => {
-    const recommendation = makeRecommendationV3({
-      category: "structural_observation",
-      enforcement: "checkpoint",
-      authoredBy: { kind: "subagent", id: "agent.codex", source: "subagent" },
-      payload: {
-        assessmentDigest: makeAssessment().assessmentDigest,
-        kind: "cycle",
-        affectedNodeIds: ["component.core"],
-        baselineSnapshotDigest: makeSnapshot().snapshotDigest,
-        derivedOutcomes: [makeOutcome()]
+    const recommendation = makeRecommendationV3(
+      { enforcement: "checkpoint", authoredBy: { kind: "subagent", id: "agent.codex", source: "subagent" } },
+      {
+        category: "structural_observation",
+        payload: {
+          assessmentDigest: makeAssessment().assessmentDigest,
+          kind: "cycle",
+          affectedNodeIds: ["component.core"],
+          baselineSnapshotDigest: makeSnapshot().snapshotDigest,
+          derivedOutcomes: [makeOutcome()]
+        }
       }
-    });
+    );
     const issues = recommendationV3InvariantIssues(recommendation);
     expect(issues).toContain("recommendation.structural_observation must be authored by the daemon");
     expect(issues).toContain("recommendation.structural_observation enforcement must be advisory");
   });
 
-  test("a practice recommendation without a practiceId is rejected", () => {
-    const recommendation = makeRecommendationV3({
-      category: "practice",
-      enforcement: "advisory",
-      authoredBy: { kind: "daemon", id: "archctx-daemon", source: "daemon" },
+  test("a mismatched category and payload returns issues without throwing", () => {
+    const mismatched = {
+      ...makeRecommendationV3(),
       payload: { practiceId: "practice.boundary", baselineDigest: null }
+    } as unknown as RecommendationV3;
+    const issues = recommendationV3InvariantIssues(mismatched);
+    expect(issues.some((issue) => issue.startsWith("recommendation.payload does not match category refactor_proposal"))).toBe(true);
+  });
+
+  test("a wrong schemaVersion and a malformed fingerprint are rejected", () => {
+    const wrongVersion = { ...makeRecommendationV3(), schemaVersion: "archcontext.recommendation/v2" } as unknown as RecommendationV3;
+    expect(recommendationV3InvariantIssues(wrongVersion)).toContain("recommendation.schemaVersion is invalid");
+    const malformed = makeRecommendationV3({ fingerprint: "not-a-digest" });
+    expect(recommendationV3InvariantIssues(malformed)).toContain("recommendation.fingerprint must be a sha256:<64-hex> digest");
+  });
+
+  test("a daemon actor kind cannot author a refactor proposal recommendation", () => {
+    const recommendation = makeRecommendationV3({
+      authoredBy: { kind: "daemon", id: "archctx-daemon", source: "subagent" }
     });
+    expect(recommendationV3InvariantIssues(recommendation)).toContain(
+      "recommendation.authoredBy.kind must not be daemon; refactor proposals are agent or human authored"
+    );
+  });
+
+  test("a practice recommendation without a practiceId is rejected", () => {
+    const recommendation = makeRecommendationV3(
+      { enforcement: "advisory", authoredBy: { kind: "daemon", id: "archctx-daemon", source: "daemon" } },
+      { category: "practice", payload: { practiceId: "practice.boundary", baselineDigest: null } }
+    );
     expect(recommendationV3InvariantIssues(recommendation)).toContain(
       "recommendation.practiceId is required for practice recommendations"
     );
@@ -695,21 +811,25 @@ describe("recommendationV3FingerprintInput", () => {
 
   test("re-detection at a new baseline dedups to the same fingerprint input", () => {
     const recommendation = makeRecommendationV3();
-    const rescanned = makeRecommendationV3({
-      payload: {
-        ...(recommendation.payload as RefactorProposalPayloadV1),
-        assessmentDigest: digestOf("assessment.rerun"),
-        baselineSnapshotDigest: digestOf("snapshot.newer-head")
+    const rescanned = makeRecommendationV3(
+      {},
+      {
+        category: "refactor_proposal",
+        payload: makeRefactorProposalPayload({
+          assessmentDigest: digestOf("assessment.rerun"),
+          baselineSnapshotDigest: digestOf("snapshot.newer-head")
+        })
       }
-    });
+    );
     expect(fingerprintDigest(rescanned)).toBe(fingerprintDigest(recommendation));
   });
 
   test("a different proposal changes the fingerprint input", () => {
     const recommendation = makeRecommendationV3();
-    const other = makeRecommendationV3({
-      payload: { ...(recommendation.payload as RefactorProposalPayloadV1), proposalDigest: digestOf("proposal.other") }
-    });
+    const other = makeRecommendationV3(
+      {},
+      { category: "refactor_proposal", payload: makeRefactorProposalPayload({ proposalDigest: digestOf("proposal.other") }) }
+    );
     expect(fingerprintDigest(other)).not.toBe(fingerprintDigest(recommendation));
   });
 
@@ -772,6 +892,16 @@ describe("cross-entity validators", () => {
   test("a coherent verification passes", () => {
     const snapshot = makeSnapshot();
     expect(refactorVerifyInvariantIssues(snapshot, makeResolutionEvidence())).toEqual([]);
+  });
+
+  test("a stale after-snapshot index cannot resolve", () => {
+    const snapshot = makeSnapshot();
+    const draft = { ...snapshot, codeFacts: { ...snapshot.codeFacts, indexedWorktreeDigest: digestOf("worktree.older-head") } };
+    const stale = { ...draft, snapshotDigest: moduleStatisticsSnapshotDigest(draft) };
+    const evidence = makeResolutionEvidence({ afterSnapshotDigest: stale.snapshotDigest });
+    expect(refactorVerifyInvariantIssues(stale, evidence)).toContain(
+      "resolutionEvidence.disposition must not be resolved while the after-snapshot index does not cover the verified worktree"
+    );
   });
 
   test("incomplete after-snapshot coverage cannot resolve", () => {

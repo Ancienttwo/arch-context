@@ -1,5 +1,6 @@
-import { RECOMMENDATION_CATEGORIES } from "./ledger";
+import { RECOMMENDATION_CATEGORIES, RECOMMENDATION_V3_SCHEMA_VERSION } from "./ledger";
 import type {
+  ArchitectureActorKind,
   ArchitectureRepositoryIdentityV1,
   ArchitectureWorktreeIdentityV1,
   EvidenceCoverageLevelV2,
@@ -8,6 +9,7 @@ import type {
   RecommendationCategory,
   RecommendationPayloadV1,
   RecommendationV3,
+  RecommendationV3Base,
   RefactorProposalPayloadV1,
   StructuralObservationPayloadV1
 } from "./ledger";
@@ -67,6 +69,18 @@ export const REFACTOR_EXECUTION_EVIDENCE_KINDS = [
   "task_contract"
 ] as const;
 export const REFACTOR_PROPOSAL_AUTHOR_SOURCES = ["cli", "manual", "mcp", "subagent"] as const;
+export const REFACTOR_PROPOSAL_AUTHOR_KINDS = ["cli", "developer", "mcp", "subagent"] as const;
+/**
+ * A refactor proposal is authored by an agent surface acting for itself, or by
+ * a human acting manually. `daemon`, `system`, `hook`, and `migration` kinds
+ * are ArchContext acting on its own behalf and can never author a proposal.
+ */
+export const REFACTOR_PROPOSAL_AUTHOR_PAIRS: Readonly<Record<RefactorProposalAuthorKind, readonly RefactorProposalAuthorSource[]>> = {
+  cli: ["cli"],
+  developer: ["manual"],
+  mcp: ["mcp"],
+  subagent: ["subagent"]
+};
 export const MODULE_DYNAMIC_INVOCATION_LEVELS = ["known", "none_observed", "possible", "unknown"] as const;
 export const MODULE_TESTS_COVERAGE_STATUSES = ["measured", "partial", "unknown"] as const;
 
@@ -79,6 +93,7 @@ export type RefactorOutcomeDirection = (typeof REFACTOR_OUTCOME_DIRECTIONS)[numb
 export type RefactorKillListKind = (typeof REFACTOR_KILL_LIST_KINDS)[number];
 export type RefactorExecutionEvidenceKind = (typeof REFACTOR_EXECUTION_EVIDENCE_KINDS)[number];
 export type RefactorProposalAuthorSource = (typeof REFACTOR_PROPOSAL_AUTHOR_SOURCES)[number];
+export type RefactorProposalAuthorKind = (typeof REFACTOR_PROPOSAL_AUTHOR_KINDS)[number];
 export type ModuleDynamicInvocationLevel = (typeof MODULE_DYNAMIC_INVOCATION_LEVELS)[number];
 export type ModuleTestsCoverageStatus = (typeof MODULE_TESTS_COVERAGE_STATUSES)[number];
 
@@ -393,10 +408,7 @@ export function refactorProposalInvariantIssues(proposal: RefactorProposalV1, pr
   for (const path of proposal.scopePaths) {
     if (!isRepoRelativePosixPath(path)) issues.push(`${prefix}.scopePaths must be repo-relative POSIX paths: ${path}`);
   }
-  if (!isRefactorProposalAuthorSource(proposal.authoredBy.source)) {
-    issues.push(`${prefix}.authoredBy.source must not be ${proposal.authoredBy.source}; refactor proposals are agent or human authored`);
-  }
-  if (proposal.authoredBy.id.trim() === "") issues.push(`${prefix}.authoredBy.id must not be empty`);
+  issues.push(...refactorProposalAuthorIssues(proposal.authoredBy, prefix));
   issues.push(...sortedUniqueIssues(`${prefix}.killList.selectorId`, proposal.killList.map((entry) => entry.selectorId)));
   if (refactorProposalDigest(proposal) !== proposal.proposalDigest) {
     issues.push(`${prefix}.proposalDigest must bind the authored proposal payload`);
@@ -443,11 +455,31 @@ export function moduleStatisticsInvariantIssues(module: ModuleStatisticsV1, pref
     issues.push(`${prefix}.footprint must be present exactly when footprintDeclared is true`);
   }
   if (module.footprint) {
-    issues.push(...digestIssues(`${prefix}.footprint.sourceFilesDigest`, module.footprint.sourceFilesDigest));
-    if (module.footprint.fileCount < 0 || module.footprint.lineCount < 0) {
-      issues.push(`${prefix}.footprint counts must not be negative`);
-    }
+    issues.push(
+      ...digestIssues(`${prefix}.footprint.sourceFilesDigest`, module.footprint.sourceFilesDigest),
+      ...nonNegativeIntegerIssues(`${prefix}.footprint.fileCount`, module.footprint.fileCount),
+      ...nonNegativeIntegerIssues(`${prefix}.footprint.lineCount`, module.footprint.lineCount)
+    );
   }
+  if (module.dependencyGraph) {
+    const graph = module.dependencyGraph;
+    issues.push(
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.internalEdgeCount`, graph.internalEdgeCount),
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.inboundModuleEdges`, graph.inboundModuleEdges),
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.outboundModuleEdges`, graph.outboundModuleEdges),
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.fanIn`, graph.fanIn),
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.fanOut`, graph.fanOut),
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.cycleCount`, graph.cycleCount),
+      ...nonNegativeIntegerIssues(`${prefix}.dependencyGraph.directionViolationCount`, graph.directionViolationCount),
+      ...ratioIssues(`${prefix}.dependencyGraph.instability`, graph.instability)
+    );
+  }
+  issues.push(
+    ...nonNegativeIntegerIssues(`${prefix}.tests.testFileCount`, module.tests.testFileCount),
+    ...nonNegativeIntegerIssues(`${prefix}.tests.observedTestEdges`, module.tests.observedTestEdges),
+    ...ratioIssues(`${prefix}.tests.callerCoverage`, module.tests.callerCoverage),
+    ...nonNegativeIntegerIssues(`${prefix}.uncertainty.unresolvedImports`, module.uncertainty.unresolvedImports)
+  );
   if (module.tests.coverageStatus === "unknown" && module.tests.callerCoverage !== null) {
     issues.push(`${prefix}.tests.callerCoverage must be null when coverageStatus is unknown`);
   }
@@ -473,6 +505,17 @@ export function moduleStatisticsSnapshotInvariantIssues(snapshot: ModuleStatisti
         issues.push(`${prefix}.modules[${index}].dependencyGraph must be null when codeFacts.coverage is unknown`);
       }
     }
+  }
+  if (snapshot.codeFacts.coverage !== "unknown") {
+    if (snapshot.codeFacts.indexedWorktreeDigest === null) {
+      issues.push(`${prefix}.codeFacts.indexedWorktreeDigest must be present when coverage is ${snapshot.codeFacts.coverage}`);
+    } else if (snapshot.codeFacts.indexedWorktreeDigest !== snapshot.worktree.worktreeDigest) {
+      issues.push(`${prefix}.codeFacts.indexedWorktreeDigest must match the measured worktreeDigest`);
+    }
+  }
+  issues.push(...nonNegativeIntegerIssues(`${prefix}.codeFacts.edgeLimit`, snapshot.codeFacts.edgeLimit));
+  for (const [field, value] of Object.entries(snapshot.repositorySummary)) {
+    issues.push(...nonNegativeIntegerIssues(`${prefix}.repositorySummary.${field}`, value));
   }
   if (snapshot.repositorySummary.moduleCount !== snapshot.modules.length) {
     issues.push(`${prefix}.repositorySummary.moduleCount must equal the module count`);
@@ -513,9 +556,7 @@ export function refactorAssessmentInvariantIssues(assessment: RefactorAssessment
     if (observation.subjectSelectorId.trim() === "") issues.push(`${prefix}.observations[${index}].subjectSelectorId must not be empty`);
     issues.push(...sortedUniqueIssues(`${prefix}.observations[${index}].signalIds`, observation.signalIds));
   }
-  if (assessment.confidence.callerCoverage !== null && (assessment.confidence.callerCoverage < 0 || assessment.confidence.callerCoverage > 1)) {
-    issues.push(`${prefix}.confidence.callerCoverage must be a ratio between 0 and 1`);
-  }
+  issues.push(...ratioIssues(`${prefix}.confidence.callerCoverage`, assessment.confidence.callerCoverage));
   if (refactorAssessmentDigest(assessment) !== assessment.assessmentDigest) {
     issues.push(`${prefix}.assessmentDigest must bind the assessed payload`);
   }
@@ -543,11 +584,26 @@ export function refactorResolutionEvidenceInvariantIssues(
     if (!/^[a-f0-9]{64}$/.test(ref.sha256)) issues.push(`${prefix}.executionEvidenceRefs.sha256 must be a bare SHA-256 hex digest`);
     if (ref.locator.trim() === "") issues.push(`${prefix}.executionEvidenceRefs.locator must not be empty`);
   }
+  for (const expected of evidence.expectedOutcomes) {
+    const observed = observedById.get(expected.outcomeId);
+    if (!observed) continue;
+    const recomputed = outcomeSatisfied(expected, observed.observedValue);
+    if (observed.satisfied !== recomputed) {
+      issues.push(
+        `${prefix}.observedOutcomes ${expected.outcomeId} claims satisfied=${observed.satisfied} but ${expected.metric} ${expected.operator} ${expected.value} against ${observed.observedValue} is ${recomputed}`
+      );
+    }
+  }
   if (evidence.disposition !== "stale") {
     const required = evidence.expectedOutcomes.filter((outcome) => outcome.required);
-    const observedRequired = required.map((outcome) => observedById.get(outcome.outcomeId)).filter(isPresent);
+    const observedRequired = required
+      .map((outcome) => {
+        const observed = observedById.get(outcome.outcomeId);
+        return observed ? { outcome, satisfied: outcomeSatisfied(outcome, observed.observedValue) } : undefined;
+      })
+      .filter(isPresent);
     const regressed = evidence.observedOutcomes.some((outcome) => outcome.direction === "regressed");
-    const satisfiedCount = observedRequired.filter((outcome) => outcome.satisfied).length;
+    const satisfiedCount = observedRequired.filter((entry) => entry.satisfied).length;
     if (regressed && evidence.disposition !== "regressed") {
       issues.push(`${prefix}.disposition must be regressed when any observed outcome regressed`);
     }
@@ -569,19 +625,35 @@ export function refactorResolutionEvidenceInvariantIssues(
   return issues;
 }
 
+/**
+ * The fingerprint hash itself stays owned by `recommendationFingerprint()` in
+ * `packages/core/recommendation-engine`: contracts must not import core, and
+ * re-deriving the hash here would fork it into two definitions. This validator
+ * therefore checks the fingerprint's shape, not its value.
+ */
 export function recommendationV3InvariantIssues(recommendation: RecommendationV3, prefix = "recommendation"): string[] {
-  const issues = [...sortedUniqueIssues(`${prefix}.evidenceBindingIds`, recommendation.evidenceBindingIds)];
+  const issues = [
+    ...sortedUniqueIssues(`${prefix}.evidenceBindingIds`, recommendation.evidenceBindingIds),
+    ...digestIssues(`${prefix}.fingerprint`, recommendation.fingerprint)
+  ];
+  if (recommendation.schemaVersion !== RECOMMENDATION_V3_SCHEMA_VERSION) issues.push(`${prefix}.schemaVersion is invalid`);
   if (!(RECOMMENDATION_CATEGORIES as readonly string[]).includes(recommendation.category)) {
     issues.push(`${prefix}.category is unsupported: ${recommendation.category}`);
+    return issues;
   }
   if (recommendation.subjectSelectorId.trim() === "") issues.push(`${prefix}.subjectSelectorId must not be empty`);
   if (recommendation.authoredBy.id.trim() === "") issues.push(`${prefix}.authoredBy.id must not be empty`);
+  const shapeIssues = recommendationPayloadShapeIssues(recommendation.category, recommendation.payload, prefix);
+  issues.push(...shapeIssues);
   if (recommendation.category === "practice" && !recommendation.practiceId) {
     issues.push(`${prefix}.practiceId is required for practice recommendations`);
   }
   if (recommendation.category === "structural_observation") {
     if (recommendation.authoredBy.source !== "daemon") {
       issues.push(`${prefix}.structural_observation must be authored by the daemon`);
+    }
+    if (recommendation.authoredBy.kind !== "daemon") {
+      issues.push(`${prefix}.structural_observation must be authored by the daemon actor kind`);
     }
     if (recommendation.enforcement !== "advisory") {
       issues.push(`${prefix}.structural_observation enforcement must be advisory`);
@@ -591,14 +663,19 @@ export function recommendationV3InvariantIssues(recommendation: RecommendationV3
     if (!isRefactorProposalAuthorSource(recommendation.authoredBy.source)) {
       issues.push(`${prefix}.refactor_proposal must not be authored by ${recommendation.authoredBy.source}`);
     }
-    const payload = recommendation.payload as RefactorProposalPayloadV1;
-    const expected = payload.scale === "architecture" ? "complete" : "checkpoint";
-    if (recommendation.enforcement !== expected) {
-      issues.push(`${prefix}.refactor_proposal with scale ${payload.scale} requires ${expected} enforcement`);
+    issues.push(...refactorProposalAuthorIssues(recommendation.authoredBy, prefix));
+    if (shapeIssues.length === 0) {
+      const payload = recommendation.payload as RefactorProposalPayloadV1;
+      const expected = payload.scale === "architecture" ? "complete" : "checkpoint";
+      if (recommendation.enforcement !== expected) {
+        issues.push(`${prefix}.refactor_proposal with scale ${payload.scale} requires ${expected} enforcement`);
+      }
+      issues.push(
+        ...digestIssues(`${prefix}.payload.proposalDigest`, payload.proposalDigest),
+        ...sortedUniqueIssues(`${prefix}.payload.affectedNodeIds`, payload.affectedNodeIds),
+        ...sortedUniqueIssues(`${prefix}.payload.majorChangeReasons`, payload.majorChangeReasons)
+      );
     }
-    issues.push(...digestIssues(`${prefix}.payload.proposalDigest`, payload.proposalDigest));
-    issues.push(...sortedUniqueIssues(`${prefix}.payload.affectedNodeIds`, payload.affectedNodeIds));
-    issues.push(...sortedUniqueIssues(`${prefix}.payload.majorChangeReasons`, payload.majorChangeReasons));
   }
   return issues;
 }
@@ -653,6 +730,12 @@ export function refactorVerifyInvariantIssues(
   if (afterSnapshot.codeFacts.coverage !== "complete" && evidence.disposition === "resolved") {
     issues.push("resolutionEvidence.disposition must not be resolved while after-snapshot coverage is incomplete");
   }
+  const indexCoversWorktree =
+    afterSnapshot.codeFacts.indexedWorktreeDigest !== null
+    && afterSnapshot.codeFacts.indexedWorktreeDigest === afterSnapshot.worktree.worktreeDigest;
+  if (!indexCoversWorktree && evidence.disposition === "resolved") {
+    issues.push("resolutionEvidence.disposition must not be resolved while the after-snapshot index does not cover the verified worktree");
+  }
   return issues;
 }
 
@@ -669,6 +752,77 @@ function authoredTargetDelta(delta: ArchitectureTargetDeltaV1): Omit<Architectur
 function isRefactorProposalAuthorSource(source: string): source is RefactorProposalAuthorSource {
   return (REFACTOR_PROPOSAL_AUTHOR_SOURCES as readonly string[]).includes(source);
 }
+
+function isRefactorProposalAuthorKind(kind: string): kind is RefactorProposalAuthorKind {
+  return (REFACTOR_PROPOSAL_AUTHOR_KINDS as readonly string[]).includes(kind);
+}
+
+function refactorProposalAuthorIssues(author: RecommendationAuthorV1, prefix: string): string[] {
+  const issues: string[] = [];
+  if (author.id.trim() === "") issues.push(`${prefix}.authoredBy.id must not be empty`);
+  if (!isRefactorProposalAuthorSource(author.source)) {
+    issues.push(`${prefix}.authoredBy.source must not be ${author.source}; refactor proposals are agent or human authored`);
+  }
+  if (!isRefactorProposalAuthorKind(author.kind)) {
+    issues.push(`${prefix}.authoredBy.kind must not be ${author.kind}; refactor proposals are agent or human authored`);
+    return issues;
+  }
+  if (isRefactorProposalAuthorSource(author.source) && !REFACTOR_PROPOSAL_AUTHOR_PAIRS[author.kind].includes(author.source)) {
+    issues.push(`${prefix}.authoredBy.kind ${author.kind} is not compatible with source ${author.source}`);
+  }
+  return issues;
+}
+
+function outcomeSatisfied(expected: RefactorTargetOutcomeV1, observedValue: number | null): boolean {
+  switch (expected.operator) {
+    case "absent":
+      return observedValue === null || observedValue === 0;
+    case "present":
+      return observedValue !== null && observedValue !== 0;
+    case "equals":
+      return observedValue !== null && expected.value !== null && observedValue === expected.value;
+    case "greater_than":
+      return observedValue !== null && expected.value !== null && observedValue > expected.value;
+    case "less_than":
+      return observedValue !== null && expected.value !== null && observedValue < expected.value;
+  }
+}
+
+function recommendationPayloadShapeIssues(
+  category: RecommendationCategory,
+  payload: RecommendationPayloadV1,
+  prefix: string
+): string[] {
+  const record = payload as unknown as Record<string, unknown>;
+  const required = REQUIRED_PAYLOAD_FIELDS[category];
+  const missing = required.filter((field) => !(field in record));
+  return missing.length === 0 ? [] : [`${prefix}.payload does not match category ${category}; missing ${missing.sort().join(", ")}`];
+}
+
+function nonNegativeIntegerIssues(label: string, value: number | null): string[] {
+  if (value === null) return [];
+  return Number.isInteger(value) && value >= 0 ? [] : [`${label} must be a non-negative integer`];
+}
+
+function ratioIssues(label: string, value: number | null): string[] {
+  if (value === null) return [];
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? [] : [`${label} must be a ratio between 0 and 1`];
+}
+
+const REQUIRED_PAYLOAD_FIELDS: Readonly<Record<RecommendationCategory, readonly string[]>> = {
+  practice: ["baselineDigest", "practiceId"],
+  refactor_proposal: [
+    "affectedNodeIds",
+    "assessmentDigest",
+    "baselineSnapshotDigest",
+    "killList",
+    "majorChangeReasons",
+    "proposalDigest",
+    "scale",
+    "targetOutcomes"
+  ],
+  structural_observation: ["affectedNodeIds", "assessmentDigest", "baselineSnapshotDigest", "derivedOutcomes", "kind"]
+};
 
 function fingerprintPayloadSubset(category: RecommendationCategory, payload: RecommendationPayloadV1): Record<string, Json> {
   if (category === "practice") {

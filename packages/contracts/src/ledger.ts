@@ -721,7 +721,7 @@ export type RecommendationPayloadV1 =
   | RefactorProposalPayloadV1;
 
 /** Strict superset of RecommendationV2: every v2 field is kept verbatim. */
-export interface RecommendationV3 {
+export interface RecommendationV3Base {
   schemaVersion: typeof RECOMMENDATION_V3_SCHEMA_VERSION;
   recommendationId: string;
   runId: string;
@@ -735,15 +735,21 @@ export interface RecommendationV3 {
   uncertainty: "low" | "medium" | "high";
   evidenceBindingIds: string[];
   explanation: string[];
-  category: RecommendationCategory;
   authoredBy: RecommendationAuthorV1;
   subjectSelectorId: string;
-  payload: RecommendationPayloadV1;
   relations: RecommendationRelationsV1;
   createdAt: string;
   updatedAt: string;
   extensions?: Record<string, Json>;
 }
+
+/** `category` discriminates `payload`; no other combination is representable. */
+export type RecommendationV3CategoryPayloadV1 =
+  | { category: "practice"; payload: PracticeRecommendationPayloadV1 }
+  | { category: "structural_observation"; payload: StructuralObservationPayloadV1 }
+  | { category: "refactor_proposal"; payload: RefactorProposalPayloadV1 };
+
+export type RecommendationV3 = RecommendationV3Base & RecommendationV3CategoryPayloadV1;
 
 export interface AgentJobV1 {
   schemaVersion: typeof AGENT_JOB_SCHEMA_VERSION;
