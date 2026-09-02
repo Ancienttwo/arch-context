@@ -1,3 +1,9 @@
+> **Archived**: 2026-09-03 02:29
+> **Related Plan**: plans/archive/plan-20260902-2348-rf0-characterization-freeze.md
+> **Outcome**: Completed
+> **Lifecycle**: notes
+> **Parent Run ID**: run-20260903-0229
+
 # Implementation Notes: rf0-characterization-freeze
 
 > **Status**: Active

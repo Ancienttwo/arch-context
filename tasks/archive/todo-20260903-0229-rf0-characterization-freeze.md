@@ -1,7 +1,13 @@
+> **Archived**: 2026-09-03 02:29
+> **Related Plan**: plans/archive/plan-20260902-2348-rf0-characterization-freeze.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260903-0229
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: (archive-workflow)
+> **Updated**: 2026-09-02 22:26
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.

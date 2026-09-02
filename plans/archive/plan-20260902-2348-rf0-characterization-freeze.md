@@ -1,6 +1,6 @@
 # Plan: Sprint task: rf0-characterization-freeze
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260902-2348
 > **Slug**: rf0-characterization-freeze
 > **Planning Source**: repo-harness-sprint
