@@ -116,9 +116,9 @@
       "sourceDigest": "sha256:2dfa089e396ee90f039bf04e0d0b8407da67838f114c32b70390951e3e5fd408",
       "outputDigest": "sha256:d52dfac3b10b905def7fe60cbd8babba35f13230d538721a16774c0dd97602cc",
       "verifiedAgainst": {
-        "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
-        "committedAt": "2026-09-03T08:52:39+08:00"
+        "branch": "codex/rf5a-cli-rpc-capabilities-0-5-0",
+        "commit": "e270eb8e811c831efbdbca58e498630a6c56f40b",
+        "committedAt": "2026-09-03T10:14:44+08:00"
       }
     },
     {
@@ -496,9 +496,9 @@
       "sourceDigest": "sha256:b9f101608266a2c79ce82f5616bc662d4029e1cf6645f89d7accc2b2fc9e271e",
       "outputDigest": "sha256:43b354d88ecfd4090c056429967c2075d5a2cba73f21810581ad1e869b0aecdb",
       "verifiedAgainst": {
-        "branch": "codex/rf1b-module-statistics-snapshot",
-        "commit": "8683d531dda85cc3f6fa92231f95fce2d218dd62",
-        "committedAt": "2026-09-03T04:44:21+08:00"
+        "branch": "codex/rf5a-cli-rpc-capabilities-0-5-0",
+        "commit": "e270eb8e811c831efbdbca58e498630a6c56f40b",
+        "committedAt": "2026-09-03T10:14:44+08:00"
       }
     },
     {
@@ -536,9 +536,9 @@
       "sourceDigest": "sha256:9fb648669714ca08f1b1947930facdb27246ab200666936901d349e5e8f8677d",
       "outputDigest": "sha256:f3a08cf91ea76df805473c027efe9eb7a4f90ea52f1fccb79a00323de2358b99",
       "verifiedAgainst": {
-        "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
-        "committedAt": "2026-09-03T08:52:39+08:00"
+        "branch": "codex/rf5a-cli-rpc-capabilities-0-5-0",
+        "commit": "e270eb8e811c831efbdbca58e498630a6c56f40b",
+        "committedAt": "2026-09-03T10:14:44+08:00"
       }
     },
     {
@@ -556,9 +556,9 @@
       "sourceDigest": "sha256:aa37416cbfaca77dcde003b4e7b195880d62011fff0f3d94ef2099ce7a112cb9",
       "outputDigest": "sha256:789cd4ba7de0f2796534b28f31eccf948c21f12ec6bd09f9f1254b09eb081961",
       "verifiedAgainst": {
-        "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
-        "committedAt": "2026-09-03T08:10:31+08:00"
+        "branch": "codex/rf5a-cli-rpc-capabilities-0-5-0",
+        "commit": "e270eb8e811c831efbdbca58e498630a6c56f40b",
+        "committedAt": "2026-09-03T10:14:44+08:00"
       }
     },
     {
