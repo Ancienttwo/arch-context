@@ -183,7 +183,7 @@ exit_criteria:
     - node scripts/packaged-cli-smoke.mjs
     - bun packages/surfaces/cli/src/main.ts docs plan --json | jq -e '[.data.drift.diffs[]? | select(.targetId != null)] | length == 0'
     - bun packages/surfaces/cli/src/main.ts docs drift --json | jq -e '.data.ok == true'
-    - test -z "$(git status --short -- .archcontext packages/contracts/src/refactor.ts packages/contracts/src/ledger.ts packages/core/module-statistics packages/core/refactor-assessment)"
+    - test -z "$(git status --short | grep -E '^.. (\.archcontext/|packages/contracts/src/(refactor|ledger)\.ts|packages/core/(module-statistics|refactor-assessment)/)')"
     - bun run verify
 # Optional exact-subject reuse is fail-closed and opt-in. List only deterministic
 # criteria whose inputs are fully bound by the frozen subject/toolchain context.
