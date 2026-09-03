@@ -23,7 +23,7 @@ import {
   type RefactorResolutionInputV1,
   type RefactorResolutionMetric
 } from "../src/resolution";
-import { CYCLE_EDGES, MODEL, TRACKED_PATHS, WORKTREE_DIGEST, digestOf, makeSnapshot } from "./factories";
+import { CONTESTED_MODEL, CYCLE_EDGES, MODEL, TRACKED_FILES, WORKTREE_DIGEST, digestOf, makeSnapshot } from "./factories";
 
 const VERIFIED_AT = "2026-09-03T13:30:00.000Z";
 
@@ -122,7 +122,7 @@ function evaluate(overrides: Partial<RefactorResolutionInputV1> = {}): ReturnTyp
     beforeSnapshotDigest: BEFORE.snapshotDigest,
     afterSnapshot: AFTER,
     afterModel: MODEL,
-    afterTrackedFiles: TRACKED_PATHS,
+    afterTrackedFiles: TRACKED_FILES,
     verifiedAt: VERIFIED_AT,
     ...overrides
   });
@@ -385,6 +385,105 @@ describe("evaluateResolution disposition ladder", () => {
     } as unknown as RecommendationV3;
 
     expect(() => evaluate({ recommendation: practice })).toThrow(/AC_SCHEMA_INVALID/);
+  });
+});
+
+describe("expected outcome identity is content-derived", () => {
+  const KILL_PATH = "src/m/a/x.ts";
+  const KILL_ENTRY: RefactorKillListEntryV1 = { kind: "path", selectorId: KILL_PATH, required: true };
+  /** The id ArchContext synthesizes for `KILL_ENTRY`; nothing a caller authors may wear it. */
+  const KILL_OUTCOME_ID = refactorResolutionOutcomeId({
+    metric: "killList.path.present",
+    subjectSelectorId: KILL_PATH,
+    nodeId: null,
+    operator: "absent",
+    value: null,
+    required: true
+  });
+
+  test("a target outcome forged with a required kill-list outcome id is refused", () => {
+    // Without the seal check this outcome wins the dedupe on `KILL_OUTCOME_ID`, the still-tracked
+    // path is never measured, and the verdict is `resolved` with the file present.
+    const forged: RefactorTargetOutcomeV1 = {
+      ...outcome({ metric: "repositorySummary.crossModuleCycleCount" }),
+      outcomeId: KILL_OUTCOME_ID
+    };
+
+    expect(() => evaluate({
+      recommendation: proposalRecommendation({ targetOutcomes: [forged], killList: [KILL_ENTRY] }),
+      beforeSnapshot: BEFORE
+    })).toThrow(/AC_SCHEMA_INVALID/);
+  });
+
+  test("the same proposal with a sealed id keeps the kill-list requirement", () => {
+    const evidence = evaluate({
+      recommendation: proposalRecommendation({
+        targetOutcomes: [outcome({ metric: "repositorySummary.crossModuleCycleCount" })],
+        killList: [KILL_ENTRY]
+      }),
+      beforeSnapshot: BEFORE
+    });
+
+    expect(evidence.expectedOutcomes.map((entry) => entry.outcomeId)).toContain(KILL_OUTCOME_ID);
+    expect(evidence.disposition).toBe("partially_resolved");
+  });
+
+  test("two outcomes sharing one id with different content are refused", () => {
+    const first = outcome({ metric: "repositorySummary.crossModuleCycleCount" });
+    const second = { ...outcome({ metric: "repositorySummary.moduleCount", value: 3 }), outcomeId: first.outcomeId };
+
+    expect(() => evaluate({ recommendation: proposalRecommendation({ targetOutcomes: [first, second] }) }))
+      .toThrow(/AC_SCHEMA_INVALID/);
+  });
+
+  test("an identical duplicate is deduped into one requirement", () => {
+    const only = outcome({ metric: "repositorySummary.crossModuleCycleCount" });
+    const evidence = evaluate({
+      recommendation: proposalRecommendation({ targetOutcomes: [only, { ...only }] }),
+      beforeSnapshot: BEFORE
+    });
+
+    expect(evidence.expectedOutcomes).toHaveLength(1);
+    expect(evidence.disposition).toBe("resolved");
+    expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);
+  });
+});
+
+describe("evaluateResolution binds the kill-list inputs to the after-snapshot", () => {
+  test("a model other than the one the snapshot measured is stale, never resolved", () => {
+    const evidence = evaluate({ afterModel: CONTESTED_MODEL, beforeSnapshot: BEFORE });
+
+    expect(evidence.disposition).toBe("stale");
+    expect(residualCodes(evidence)).toContain("after-model-mismatch");
+    expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);
+  });
+
+  test("a tracked-file set that cannot reproduce the snapshot footprints is stale", () => {
+    const evidence = evaluate({ afterTrackedFiles: TRACKED_FILES.slice(1), beforeSnapshot: BEFORE });
+
+    expect(evidence.disposition).toBe("stale");
+    expect(residualCodes(evidence)).toContain("after-tracked-files-mismatch");
+    expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);
+  });
+
+  test("the same paths measured at other line counts are stale too", () => {
+    const [first, ...rest] = TRACKED_FILES;
+    const evidence = evaluate({
+      afterTrackedFiles: [{ ...first!, lineCount: first!.lineCount + 1 }, ...rest],
+      beforeSnapshot: BEFORE
+    });
+
+    expect(evidence.disposition).toBe("stale");
+    expect(residualCodes(evidence)).toContain("after-tracked-files-mismatch");
+  });
+
+  test("a baseline body that failed its own invariants is a warning residual and an unknown direction", () => {
+    const evidence = evaluate({ beforeSnapshot: BEFORE, beforeSnapshotUnverifiable: true });
+
+    expect(residualCodes(evidence)).toContain("baseline-snapshot-unverifiable");
+    expect(evidence.residuals.find((residual) => residual.code === "baseline-snapshot-unverifiable")!.severity)
+      .toBe("warning");
+    expect(refactorResolutionEvidenceInvariantIssues(evidence)).toEqual([]);
   });
 });
 

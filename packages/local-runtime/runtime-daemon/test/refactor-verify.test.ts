@@ -4,21 +4,27 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  EVIDENCE_BINDING_SCHEMA_VERSION,
+  EVIDENCE_ITEM_SCHEMA_VERSION,
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
   digestJson,
   refactorProposalDigest,
   refactorResolutionEvidenceInvariantIssues,
   type ArchitectureWorktreeIdentityV1,
+  type ArchitectureEventV1,
   type EvidenceBindingV1,
   type EvidenceItemV2,
+  type EvidenceStateAtCursorV1,
   type Json,
   type JsonEnvelope,
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorProposalV1,
+  type RefactorResolutionEvidenceV1,
   type RefactorTargetOutcomeV1
 } from "@archcontext/contracts";
 import { computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
+import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
 import type { ArchitectureLedgerScope } from "@archcontext/core/architecture-ledger";
 import { planRecommendationRun, recommendationRunLedgerPayload } from "@archcontext/core/recommendation-engine";
 import { CodeGraphAdapter } from "@archcontext/local-runtime/codegraph-adapter";
@@ -32,13 +38,13 @@ import {
   CYCLE_EDGES,
   MODEL,
   TRACKED_FILES,
-  TRACKED_PATHS,
   digestOf,
   makeAssessmentInput,
   makeRequest,
   makeSnapshot
 } from "../../../core/refactor-assessment/test/factories";
-import { runRefactorVerify } from "../src/refactor-verify";
+import { evidenceLifecycleOperations } from "../src/refactor-recording";
+import { baselineSnapshotForRecommendation, resolutionEvidenceItems, runRefactorVerify } from "../src/refactor-verify";
 import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
@@ -180,18 +186,20 @@ async function recordCycleProposal(
   return { recommendation, before };
 }
 
-/** Runs the daemon's own planner over a chosen AFTER state and appends the resulting event. */
-async function planAndAppendVerification(input: {
+interface VerificationInput {
   store: TestLocalStore;
   root: string;
   recommendation: RecommendationV3;
   before: ModuleStatisticsSnapshotV1;
   after: ModuleStatisticsSnapshotV1;
   verifiedAt?: string;
-}) {
+}
+
+/** Runs the daemon's own planner over a chosen AFTER state, without persisting anything. */
+async function planVerification(input: VerificationInput) {
   const scope = await input.store.resolveArchitectureLedgerScope(gitScopeOf(input.root));
   const replay = await input.store.replayArchitectureLedger({ ...scope, mode: "genesis" });
-  const plan = runRefactorVerify({
+  return runRefactorVerify({
     recommendation: input.recommendation,
     repository: scope.repository,
     worktree: scope.worktree,
@@ -199,13 +207,138 @@ async function planAndAppendVerification(input: {
     beforeSnapshot: input.before,
     afterSnapshot: input.after,
     afterModel: MODEL,
-    afterTrackedFiles: TRACKED_PATHS,
+    afterTrackedFiles: TRACKED_FILES,
     evidenceState: replay.evidenceState,
     graphDigest: replay.graphDigest,
     verifiedAt: input.verifiedAt ?? "2026-09-03T14:00:00.000Z"
   });
+}
+
+/** Plans one verification and appends the event it produced. */
+async function planAndAppendVerification(input: VerificationInput) {
+  const plan = await planVerification(input);
   await input.store.appendArchitectureEvents({ writer: "runtime-daemon", events: [plan.event] });
   return plan;
+}
+
+/**
+ * Persists one resolution verdict through the same item/binding builder a real verification uses,
+ * so a forged body reaches the ledger in exactly the shape the resolve gate reads.
+ */
+async function appendResolutionEvidence(input: {
+  store: TestLocalStore;
+  root: string;
+  evidence: RefactorResolutionEvidenceV1;
+  afterSnapshot: ModuleStatisticsSnapshotV1;
+  rebind?: (binding: EvidenceBindingV1) => EvidenceBindingV1;
+}): Promise<void> {
+  const scope = await input.store.resolveArchitectureLedgerScope(gitScopeOf(input.root));
+  const replay = await input.store.replayArchitectureLedger({ ...scope, mode: "genesis" });
+  const items = resolutionEvidenceItems({
+    evidence: input.evidence,
+    afterSnapshot: input.afterSnapshot,
+    repository: scope.repository,
+    evidenceState: replay.evidenceState
+  });
+  const binding = input.rebind ? input.rebind(items.binding) : items.binding;
+  const operations = evidenceLifecycleOperations(
+    replay.evidenceState,
+    [items.resolutionItem, items.afterSnapshotItem],
+    [binding]
+  );
+  const inputDigest = digestJson({ forged: items.resolutionItem.evidenceId, binding: binding.bindingId } as unknown as Json);
+  const event: ArchitectureEventV1 = {
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: `architecture_event.refactor_resolution.${inputDigest.replace(/^sha256:/, "").slice(0, 16)}`,
+    eventType: "architecture.refactor.resolution",
+    payloadVersion: ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION,
+    repository: scope.repository,
+    worktree: scope.worktree,
+    baseDigest: replay.graphDigest,
+    resultingDigest: replay.graphDigest,
+    headSha: scope.worktree.headSha,
+    actor: { kind: "daemon", id: "archctxd" },
+    source: "refactor_scan",
+    timestamp: input.evidence.verifiedAt,
+    idempotencyKey: `refactor-resolution:${inputDigest}`,
+    provenance: { producer: "runtime-daemon", command: "refactor-verify.test", inputDigest },
+    payload: {
+      recommendationRuns: [],
+      recommendations: [],
+      feedback: [],
+      waivers: [],
+      operations: [],
+      evidenceOperations: operations as unknown as Json,
+      title: "Refactor resolution verification",
+      summary: "Hand-persisted resolution evidence."
+    } as unknown as Json
+  };
+  await input.store.appendArchitectureEvents({ writer: "runtime-daemon", events: [event] });
+}
+
+/**
+ * Mutates the working tree on a chosen `beginSnapshot` call. `openSession` reads HEAD before it
+ * opens a snapshot, so this fires inside one identity read and is observed only by the next one.
+ */
+class MutatingSnapshotLocalStore extends TestLocalStore {
+  mutateOnSnapshotCall: number | undefined;
+  mutate: (() => void) | undefined;
+  private snapshotCalls = 0;
+
+  override async beginSnapshot(snapshot: Parameters<TestLocalStore["beginSnapshot"]>[0]) {
+    this.snapshotCalls += 1;
+    if (this.mutateOnSnapshotCall !== undefined && this.snapshotCalls === this.mutateOnSnapshotCall) {
+      this.mutateOnSnapshotCall = undefined;
+      this.snapshotCalls = 0;
+      this.mutate?.();
+    }
+    return super.beginSnapshot(snapshot);
+  }
+
+  /** Re-arms the counter for the next command; each RPC opens its own sessions. */
+  armForNextCommand(call: number, mutate: () => void): void {
+    this.snapshotCalls = 0;
+    this.mutateOnSnapshotCall = call;
+    this.mutate = mutate;
+  }
+}
+
+/** One snapshot evidence item bound to `recommendation.rf4`, exactly as `refactor record` binds it. */
+function baselineState(snapshot: ModuleStatisticsSnapshotV1): EvidenceStateAtCursorV1 {
+  const evidenceId = "evidence.module_statistics_snapshot.baseline";
+  const item: EvidenceItemV2 = {
+    schemaVersion: EVIDENCE_ITEM_SCHEMA_VERSION,
+    evidenceId,
+    kind: "module-statistics-snapshot",
+    strength: "observed",
+    polarity: "positive",
+    origin: "runtime-daemon",
+    subject: "repository:repo.rf2",
+    selector: { kind: "snapshot", id: snapshot.snapshotDigest },
+    summary: "baseline",
+    coverage: { level: snapshot.codeFacts.coverage, scope: "module-statistics-snapshot" },
+    supports: ["recommendation"],
+    provenance: { producer: "runtime-daemon", command: "archctx refactor record", inputDigest: snapshot.snapshotDigest },
+    createdAt: snapshot.createdAt,
+    digest: digestJson({ evidenceId } as unknown as Json),
+    extensions: { moduleStatisticsSnapshot: snapshot as unknown as Json }
+  };
+  return {
+    schemaVersion: "archcontext.evidence-state-at-cursor/v1",
+    evidenceItems: [item],
+    evidenceBindings: [{
+      schemaVersion: EVIDENCE_BINDING_SCHEMA_VERSION,
+      bindingId: "binding.baseline",
+      evidenceId,
+      target: { kind: "recommendation", id: "recommendation.rf4" },
+      bindingReason: "deterministic-check",
+      authorityEffect: "complete-eligible",
+      createdAt: snapshot.createdAt,
+      provenance: { producer: "runtime-daemon", command: "archctx refactor record", inputDigest: evidenceId }
+    }],
+    tombstones: [],
+    stateDigest: digestJson({ state: "baseline" } as unknown as Json)
+  };
 }
 
 function errorOf(envelope: JsonEnvelope): { code: string; message: string; reasonCode?: string } {
@@ -363,7 +496,10 @@ describe("daemon refactorVerify", () => {
       // The baseline `refactor record` persisted is found and bound, not re-measured.
       expect(data.evidence.beforeSnapshotDigest).toBe(before.snapshotDigest);
       // The fixture repository carries no CodeGraph index, so the honest verdict is that this
-      // measurement decides nothing — never `resolved`.
+      // measurement decides nothing — never `resolved`. A daemon-level `resolved` is unreachable
+      // from a test: `runRefactorScan` reads its code facts from the on-disk `.codegraph` index and
+      // the real `codegraph` binary, not from the injectable `codeGraphProviderFactory`, so the
+      // complete-coverage path stays covered by the planner-level S4 test above.
       expect(data.disposition).toBe("stale");
       expect(data.resolveCommand).toBeNull();
       expect(data.evidence.residuals.map((residual: any) => residual.code)).toContain("after-coverage-incomplete");
@@ -745,6 +881,129 @@ describe("recommendations resolve evidence lookup", () => {
 
       expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
       expect((resolved.data as any).nextStatus).toBe("resolved");
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
+
+describe("persisted evidence is re-proved on read", () => {
+  test("a hand-written resolved verdict at the current HEAD is unknown, not evidence", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Verify App");
+      const { recommendation, before } = await recordCycleProposal(daemon, root);
+      const after = measuredSnapshot(root, CYCLE_EDGES);
+      const honest = await planVerification({ store, root, recommendation, before, after });
+      expect(honest.evidence.disposition).toBe("not_improved");
+
+      // Same recommendation, same HEAD, same digest field; only the body was rewritten.
+      const forged: RefactorResolutionEvidenceV1 = { ...honest.evidence, disposition: "resolved" };
+      await appendResolutionEvidence({ store, root, evidence: forged, afterSnapshot: after });
+
+      const result = await daemon.recommendations(root, {
+        command: "resolve",
+        recommendationId: recommendation.recommendationId,
+        reason: "resolving on a hand-written verdict",
+        evidenceDigest: forged.resolutionDigest,
+        now: "2026-09-03T15:00:00.000Z"
+      });
+
+      expect(result.ok).toBe(false);
+      expect(errorOf(result).code).toBe("AC_REFACTOR_EVIDENCE_REQUIRED");
+      expect(errorOf(result).reasonCode).toBe("evidence-unknown");
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("a self-consistent verdict bound without completion authority is unknown too", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Verify App");
+      const { recommendation, before } = await recordCycleProposal(daemon, root);
+      const after = measuredSnapshot(root, []);
+      const plan = await planVerification({ store, root, recommendation, before, after });
+      expect(plan.evidence.disposition).toBe("resolved");
+
+      // Single variable: the body is the daemon's own, only the binding's authority is downgraded.
+      await appendResolutionEvidence({
+        store,
+        root,
+        evidence: plan.evidence,
+        afterSnapshot: after,
+        rebind: (binding) => ({ ...binding, authorityEffect: "ranking" })
+      });
+
+      const result = await daemon.recommendations(root, {
+        command: "resolve",
+        recommendationId: recommendation.recommendationId,
+        reason: "resolving on a verdict nobody bound to completion",
+        evidenceDigest: plan.evidence.resolutionDigest,
+        now: "2026-09-03T15:05:00.000Z"
+      });
+
+      expect(result.ok).toBe(false);
+      expect(errorOf(result).reasonCode).toBe("evidence-unknown");
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("a persisted baseline whose body does not bind its digest is refused as unverifiable", () => {
+    const snapshot = makeSnapshot({ importEdges: CYCLE_EDGES });
+    const tampered = {
+      ...snapshot,
+      repositorySummary: { ...snapshot.repositorySummary, moduleCount: 99 }
+    } as ModuleStatisticsSnapshotV1;
+
+    expect(baselineSnapshotForRecommendation(baselineState(snapshot), "recommendation.rf4"))
+      .toEqual({ snapshotDigest: snapshot.snapshotDigest, snapshot });
+    expect(baselineSnapshotForRecommendation(baselineState(tampered), "recommendation.rf4"))
+      .toEqual({ snapshotDigest: snapshot.snapshotDigest, unverifiable: true });
+  });
+});
+
+describe("recommendations resolve re-reads the tree before it appends", () => {
+  test("F4: a HEAD that moves between the gate and the append is stale, and nothing is appended", async () => {
+    const root = createGitRepo();
+    const store = new MutatingSnapshotLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Verify App");
+      const { recommendation, before } = await recordCycleProposal(daemon, root);
+      const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
+      const eventsBefore = store.architectureEvents.length;
+
+      // `openSession` reads HEAD before it opens a snapshot, so mutating on the gate's own snapshot
+      // call lands after the gate has read the old HEAD and before the pre-append re-read.
+      store.armForNextCommand(2, () => {
+        writeFileSync(join(root, "moved.ts"), "export const moved = 1;\n", "utf8");
+        commitAll(root, "moved under the resolve");
+      });
+
+      const result = await daemon.recommendations(root, {
+        command: "resolve",
+        recommendationId: recommendation.recommendationId,
+        reason: "resolving while the tree moves",
+        evidenceDigest: plan.evidence.resolutionDigest,
+        now: "2026-09-03T15:10:00.000Z"
+      });
+
+      expect(result.ok).toBe(false);
+      expect(errorOf(result).code).toBe("AC_REFACTOR_STALE");
+      expect(errorOf(result).reasonCode).toBe("evidence-head-drift");
+      // Named so the gate's own head-drift refusal cannot be mistaken for this one.
+      expect(errorOf(result).message).toContain("before the recommendations resolve append");
+      expect(store.architectureEvents).toHaveLength(eventsBefore);
+      const status = await daemon.book(root, { command: "recommendations", openOnly: false });
+      expect(((status.data as any).recommendations as RecommendationV3[])
+        .find((candidate) => candidate.recommendationId === recommendation.recommendationId)!.status)
+        .not.toBe("resolved");
     } finally {
       await daemon.stop();
     }

@@ -3262,10 +3262,12 @@ export class ArchctxDaemon {
       if (!current) {
         return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
       }
+      let gatedWorktree: { headSha: string; worktreeDigest: string } | undefined;
       if (command === "resolve") {
         // The live HEAD, not the ledger scope's: the stored scope carries the identity of the last
         // appended event, and resolving is a claim about the tree that is here now.
         const liveScope = await this.architectureLedgerGitScope(repositoryRoot);
+        gatedWorktree = liveScope.worktree;
         const gate = refactorResolveGate(current, input.evidenceDigest, replay.evidenceState, liveScope.worktree.headSha);
         if (gate) return errorEnvelope(`recommendations.${command}`, gate.code, gate.message, gate.reasonCode);
       }
@@ -3348,6 +3350,21 @@ export class ArchctxDaemon {
           }
         } as unknown as Json
       };
+      // The gate read the tree before the transition and the event were built. Resolving binds a
+      // verdict to a HEAD, so the tree is re-read here, inside the writer, and a move between the
+      // two reads closes the record against a state nobody verified.
+      if (gatedWorktree) {
+        const preAppendScope = await this.architectureLedgerGitScope(repositoryRoot);
+        const moved = movedWorktreeIdentityFields(gatedWorktree, preAppendScope.worktree);
+        if (moved.length > 0) {
+          return errorEnvelope(
+            `recommendations.${command}`,
+            "AC_REFACTOR_STALE",
+            `worktree ${moved.join(" and ")} changed before the recommendations resolve append; run archctx refactor verify again`,
+            "evidence-head-drift"
+          );
+        }
+      }
       const append = await this.appendArchitectureEventsWithFeed(root, {
         writer: "runtime-daemon",
         events: [event]
@@ -3689,10 +3706,14 @@ export class ArchctxDaemon {
           repository: scope.repository,
           worktree: scope.worktree,
           beforeSnapshotDigest: baseline?.snapshotDigest ?? recordedBaselineSnapshotDigest(recommendation),
-          ...(baseline ? { beforeSnapshot: baseline.snapshot } : {}),
+          ...(baseline?.snapshot ? { beforeSnapshot: baseline.snapshot } : {}),
+          ...(baseline?.unverifiable ? { beforeSnapshotUnverifiable: true } : {}),
           afterSnapshot: scan.snapshot,
+          // A second read of the same HEAD, because `runRefactorScan` returns neither. It cannot
+          // silently diverge from the scan: `evaluateResolution` binds both to the snapshot's
+          // `modelDigest` and footprint digests and reports `stale` when they disagree.
           afterModel: loadNativeModelFromArchContext(repositoryRoot),
-          afterTrackedFiles: readTrackedSourceFiles(repositoryRoot).map((file) => file.path),
+          afterTrackedFiles: readTrackedSourceFiles(repositoryRoot),
           ...(input.executionEvidenceRefs ? { executionEvidenceRefs: input.executionEvidenceRefs } : {}),
           evidenceState: replay.evidenceState,
           graphDigest: replay.graphDigest,

@@ -3,6 +3,9 @@ import {
   EVIDENCE_ITEM_SCHEMA_VERSION,
   REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
   digestJson,
+  moduleStatisticsSnapshotInvariantIssues,
+  refactorResolutionEvidenceDigest,
+  refactorResolutionEvidenceInvariantIssues,
   type ArchitectureEventV1,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
@@ -17,6 +20,7 @@ import {
   type RefactorResolutionEvidenceV1
 } from "@archcontext/contracts";
 import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
+import type { ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
 import type { NativeModel } from "@archcontext/core/projection-engine";
 import { evaluateResolution, refactorOutcomeVocabularyIssues } from "@archcontext/core/refactor-assessment";
 import { evidenceLifecycleOperations } from "./refactor-recording";
@@ -46,9 +50,11 @@ export interface RefactorVerifyInputV1 {
   /** The baseline resolved for this record; `evaluateResolution` compares it to the payload's. */
   beforeSnapshotDigest: string;
   beforeSnapshot?: ModuleStatisticsSnapshotV1;
+  /** Set when a baseline body was persisted but failed its invariants and was refused as absent. */
+  beforeSnapshotUnverifiable?: boolean;
   afterSnapshot: ModuleStatisticsSnapshotV1;
   afterModel: NativeModel;
-  afterTrackedFiles: readonly string[];
+  afterTrackedFiles: readonly ModuleStatisticsTrackedFileV1[];
   executionEvidenceRefs?: readonly RefactorExecutionEvidenceRefV1[];
   evidenceState: EvidenceStateAtCursorV1;
   graphDigest: string;
@@ -77,6 +83,7 @@ export function runRefactorVerify(input: RefactorVerifyInputV1): RefactorVerifyP
     recommendation: input.recommendation,
     beforeSnapshotDigest: input.beforeSnapshotDigest,
     ...(input.beforeSnapshot ? { beforeSnapshot: input.beforeSnapshot } : {}),
+    ...(input.beforeSnapshotUnverifiable ? { beforeSnapshotUnverifiable: true } : {}),
     afterSnapshot: input.afterSnapshot,
     afterModel: input.afterModel,
     afterTrackedFiles: input.afterTrackedFiles,
@@ -252,11 +259,15 @@ export function resolutionEvidenceForRecommendation(
  *
  * Absent means no baseline body was ever persisted; the caller then falls back to the recorded
  * digest and every `direction` the evaluator reports is honestly `unknown`.
+ *
+ * A body that fails `moduleStatisticsSnapshotInvariantIssues` is not a weaker baseline, it is no
+ * baseline: its digest is returned so the ladder still compares it to the record, but the body is
+ * withheld and `unverifiable` names the reason the direction cannot be computed.
  */
 export function baselineSnapshotForRecommendation(
   evidenceState: EvidenceStateAtCursorV1,
   recommendationId: string
-): { snapshotDigest: string; snapshot: ModuleStatisticsSnapshotV1 } | undefined {
+): { snapshotDigest: string; snapshot?: ModuleStatisticsSnapshotV1; unverifiable?: true } | undefined {
   const boundEvidenceIds = new Set(
     evidenceState.evidenceBindings
       .filter((binding) => binding.target.kind === "recommendation" && binding.target.id === recommendationId)
@@ -267,9 +278,11 @@ export function baselineSnapshotForRecommendation(
     .sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
   for (const item of items) {
     const snapshot = snapshotBody(item);
-    if (snapshot && snapshot.snapshotDigest === item.selector.id) {
-      return { snapshotDigest: snapshot.snapshotDigest, snapshot };
+    if (!snapshot || snapshot.snapshotDigest !== item.selector.id) continue;
+    if (moduleStatisticsSnapshotInvariantIssues(snapshot).length > 0) {
+      return { snapshotDigest: item.selector.id, unverifiable: true };
     }
+    return { snapshotDigest: snapshot.snapshotDigest, snapshot };
   }
   return undefined;
 }
@@ -289,17 +302,49 @@ export function refactorVerifyIngressIssues(recommendation: RecommendationV3): s
   return refactorOutcomeVocabularyIssues(outcomes, `recommendation.payload.outcomes`);
 }
 
+/**
+ * Every persisted verdict that still proves itself.
+ *
+ * A record read back from the ledger is a caller-reachable payload, not a trusted one: nothing
+ * stops an appended item from carrying a hand-written `disposition: "resolved"` under a matching
+ * recommendation id and HEAD. So the body is re-validated against the frozen validator and its own
+ * digest, and the item is required to be the shape only `refactor verify` produces — a `verified`
+ * runtime-daemon item carrying a `complete-eligible` deterministic-check binding to the
+ * recommendation it claims. Anything else is absent, never trusted.
+ */
 function resolutionEvidenceRecords(evidenceState: EvidenceStateAtCursorV1): RefactorResolutionEvidenceV1[] {
   const records: RefactorResolutionEvidenceV1[] = [];
   for (const item of evidenceState.evidenceItems) {
     if (item.kind !== REFACTOR_RESOLUTION_EVIDENCE_KIND) continue;
-    const body = item.extensions?.refactorResolution;
-    if (!body || typeof body !== "object" || Array.isArray(body)) continue;
-    const evidence = body as unknown as RefactorResolutionEvidenceV1;
-    if (evidence.schemaVersion !== REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION) continue;
+    if (item.strength !== "verified" || item.origin !== "runtime-daemon") continue;
+    const evidence = validResolutionBody(item);
+    if (!evidence) continue;
+    if (!completeEligibleBinding(evidenceState, item.evidenceId, evidence.recommendationId)) continue;
     records.push(evidence);
   }
   return records;
+}
+
+function validResolutionBody(item: EvidenceItemV2): RefactorResolutionEvidenceV1 | undefined {
+  const body = item.extensions?.refactorResolution;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined;
+  const evidence = body as unknown as RefactorResolutionEvidenceV1;
+  if (evidence.schemaVersion !== REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION) return undefined;
+  if (refactorResolutionEvidenceInvariantIssues(evidence).length > 0) return undefined;
+  if (refactorResolutionEvidenceDigest(evidence) !== evidence.resolutionDigest) return undefined;
+  return evidence;
+}
+
+function completeEligibleBinding(
+  evidenceState: EvidenceStateAtCursorV1,
+  evidenceId: string,
+  recommendationId: string
+): boolean {
+  return evidenceState.evidenceBindings.some((binding) => binding.evidenceId === evidenceId
+    && binding.target.kind === "recommendation"
+    && binding.target.id === recommendationId
+    && binding.bindingReason === "deterministic-check"
+    && binding.authorityEffect === "complete-eligible");
 }
 
 function snapshotBody(item: EvidenceItemV2 | undefined): ModuleStatisticsSnapshotV1 | undefined {

@@ -18,6 +18,7 @@ import {
   type RefactorTargetOutcomeV1,
   type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
+import { resolveOwnership, type ModuleStatisticsTrackedFileV1 } from "../../module-statistics/src/index";
 import type { NativeModel } from "../../projection-engine/src/index";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
@@ -70,7 +71,10 @@ export type RefactorResolutionMetric = (typeof REFACTOR_RESOLUTION_METRICS)[numb
 export const REFACTOR_RESOLUTION_RESIDUAL_CODES = [
   "after-coverage-incomplete",
   "after-index-stale",
+  "after-model-mismatch",
+  "after-tracked-files-mismatch",
   "baseline-digest-mismatch",
+  "baseline-snapshot-unverifiable",
   "kill-list-symbol-unverifiable",
   "no-required-outcome",
   "outcome-subject-absent"
@@ -85,11 +89,17 @@ export interface RefactorResolutionInputV1 {
   beforeSnapshotDigest: string;
   /** The persisted baseline body, when one was found. Absent means every `direction` is `unknown`. */
   beforeSnapshot?: ModuleStatisticsSnapshotV1;
+  /** Set when a baseline body was persisted but failed its own invariants and was dropped. */
+  beforeSnapshotUnverifiable?: boolean;
   afterSnapshot: ModuleStatisticsSnapshotV1;
   /** The declared model at the verified HEAD; the only authority for a `relation` kill entry. */
   afterModel: NativeModel;
-  /** Repo-relative POSIX paths tracked at the verified HEAD; the authority for a `path` kill entry. */
-  afterTrackedFiles: readonly string[];
+  /**
+   * The tracked-file records read at the verified HEAD; the authority for a `path` kill entry.
+   * Carries `lineCount` because the binding below recomputes the snapshot's footprint digests from
+   * it: a file list that cannot reproduce them describes some other tree.
+   */
+  afterTrackedFiles: readonly ModuleStatisticsTrackedFileV1[];
   executionEvidenceRefs?: readonly RefactorExecutionEvidenceRefV1[];
   /** Caller-supplied clock. The evaluator reads none, so two evaluations agree on every digest. */
   verifiedAt: string;
@@ -229,6 +239,12 @@ export function refactorOutcomeVocabularyIssues(
       issues.push(`${label}.nodeId must be null for metric ${outcome.metric}`);
     }
     if (outcome.subjectSelectorId.trim() === "") issues.push(`${label}.subjectSelectorId must not be empty`);
+    // The id is the content, not a caller's label. Without this an authored outcome could carry a
+    // synthesized kill-list outcome's id, and the first-write-wins dedupe below would drop the
+    // kill-list requirement while `resolved` still claimed it was measured.
+    if (outcome.outcomeId !== refactorResolutionOutcomeId(outcome)) {
+      issues.push(`${label}.outcomeId ${outcome.outcomeId} is not derived from its own content`);
+    }
   }
   return issues;
 }
@@ -290,6 +306,24 @@ export function evaluateResolution(input: RefactorResolutionInputV1): RefactorRe
       severity: "error"
     });
   }
+  // The relation kill list is decided against `afterModel` and the path kill list against
+  // `afterTrackedFiles`, but the measured metrics come from `afterSnapshot`. Two reads of the same
+  // HEAD can diverge, so both are re-derived and compared to what the snapshot bound.
+  const modelBound = nativeModelDigest(input.afterModel) === input.afterSnapshot.modelDigest;
+  if (!modelBound) {
+    residuals.push({ code: "after-model-mismatch", subject: input.afterSnapshot.modelDigest, severity: "error" });
+  }
+  const trackedFilesBound = modelBound && trackedFilesBindSnapshot(input);
+  if (!trackedFilesBound) {
+    residuals.push({ code: "after-tracked-files-mismatch", subject: input.afterSnapshot.snapshotDigest, severity: "error" });
+  }
+  if (input.beforeSnapshotUnverifiable) {
+    residuals.push({
+      code: "baseline-snapshot-unverifiable",
+      subject: input.beforeSnapshotDigest,
+      severity: "warning"
+    });
+  }
   const coverageIncomplete = input.afterSnapshot.codeFacts.coverage !== "complete";
   if (coverageIncomplete) {
     residuals.push({
@@ -319,7 +353,8 @@ export function evaluateResolution(input: RefactorResolutionInputV1): RefactorRe
 
   const requiredSymbolKill = killList.some((entry) => entry.kind === "symbol" && entry.required);
   const disposition = decideDisposition({
-    stale: baselineDigestMismatch || coverageIncomplete || !indexCoversWorktree || requiredSymbolKill,
+    stale: baselineDigestMismatch || coverageIncomplete || !indexCoversWorktree || requiredSymbolKill
+      || !modelBound || !trackedFilesBound,
     expectedOutcomes,
     observedOutcomes,
     residuals
@@ -433,7 +468,7 @@ function observeOutcome(
   const metric = outcome.metric as RefactorResolutionMetric;
   if (metric === "killList.path.present" || metric === "killList.relation.present") {
     const present = metric === "killList.path.present"
-      ? input.afterTrackedFiles.includes(outcome.subjectSelectorId)
+      ? input.afterTrackedFiles.some((file) => file.path === outcome.subjectSelectorId)
       : input.afterModel.relations.some((relation) => relation.id === outcome.subjectSelectorId);
     return {
       outcomeId: outcome.outcomeId,
@@ -526,13 +561,59 @@ function sealOutcome(outcome: Omit<RefactorTargetOutcomeV1, "outcomeId">): Refac
   return { ...outcome, outcomeId: refactorResolutionOutcomeId(outcome) };
 }
 
-/** Two outcomes with the same id are the same requirement; keeping both would double-count it. */
+/**
+ * Two outcomes with the same id are the same requirement; keeping both would double-count it.
+ * Two that disagree on content are not, and silently keeping the first would erase the second.
+ */
 function dedupeOutcomes(outcomes: readonly RefactorTargetOutcomeV1[]): RefactorTargetOutcomeV1[] {
   const byId = new Map<string, RefactorTargetOutcomeV1>();
   for (const outcome of outcomes) {
-    if (!byId.has(outcome.outcomeId)) byId.set(outcome.outcomeId, outcome);
+    const seen = byId.get(outcome.outcomeId);
+    if (!seen) byId.set(outcome.outcomeId, outcome);
+    else if (digestJson(seen as unknown as Json) !== digestJson(outcome as unknown as Json)) {
+      throw new Error(`AC_SCHEMA_INVALID: outcomeId ${outcome.outcomeId} names two different outcomes`);
+    }
   }
   return [...byId.values()];
+}
+
+/** Ordered by id, exactly as the snapshot builder orders every model collection before digesting. */
+function byDeclaredId(left: { id: string }, right: { id: string }): number {
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+/**
+ * The snapshot builder's `modelDigest`, recomputed. `@archcontext/core/module-statistics` exports
+ * no helper for it, so this is `digestJson` over the same canonical input the builder digests; a
+ * drift between the two reads as an unbound model and forces `stale` rather than a silent pass.
+ */
+function nativeModelDigest(model: NativeModel): string {
+  return digestJson({
+    nodes: [...model.nodes].sort(byDeclaredId),
+    relations: [...model.relations].sort(byDeclaredId),
+    flows: [...(model.flows ?? [])].sort(byDeclaredId)
+  } as unknown as Json);
+}
+
+/**
+ * Whether the tracked-file set could have produced this snapshot.
+ *
+ * A snapshot carries no repository-wide file-list digest, so the binding is the strongest one the
+ * frozen shape allows: ownership resolved over these paths must reproduce every declared module's
+ * `footprint.sourceFilesDigest` and the three ownership counts. A file that no declared module
+ * claims is bound only by `unownedFileCount`.
+ */
+function trackedFilesBindSnapshot(input: RefactorResolutionInputV1): boolean {
+  const files = [...input.afterTrackedFiles].sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  const lineCounts = new Map(files.map((file) => [file.path, file.lineCount]));
+  const ownership = resolveOwnership([...input.afterModel.nodes].sort(byDeclaredId), files.map((file) => file.path));
+  const summary = input.afterSnapshot.repositorySummary;
+  if (ownership.ownedFileCount !== summary.ownedFileCount) return false;
+  if (ownership.unownedFileCount !== summary.unownedFileCount) return false;
+  if (ownership.multiplyOwnedFileCount !== summary.multiplyOwnedFileCount) return false;
+  return input.afterSnapshot.modules.every((module) => module.footprint === null
+    || digestJson((ownership.filesByNode.get(module.nodeId) ?? [])
+      .map((path) => ({ path, lineCount: lineCounts.get(path) ?? 0 })) as unknown as Json) === module.footprint.sourceFilesDigest);
 }
 
 /** `sortedUniqueIssues` in the frozen validator checks order, not just uniqueness. */
