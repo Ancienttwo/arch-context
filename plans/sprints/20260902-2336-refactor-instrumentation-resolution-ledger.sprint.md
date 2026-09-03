@@ -3,7 +3,7 @@
 > **Status**: Approved
 > **Slug**: refactor-instrumentation-resolution-ledger
 > **Created**: 2026-09-02 23:36
-> **Updated**: 2026-09-03 12:12
+> **Updated**: 2026-09-03 15:45
 > **Source PRD**: `plans/prds/20260902-2312-refactor-intelligence-resolution-ledger.prd.md`
 > **Source Spec**: `docs/spec.md`
 > **Goal Mode**: incremental
@@ -114,7 +114,7 @@ execution for small tasks. Every row needs a concrete acceptance line.
 | 5 | [x] | rf3-recommendation-v3-ledger-recording | contract | `bun test packages/core/recommendation-engine packages/local-runtime/local-store-sqlite packages/local-runtime/runtime-daemon` passes with: `refactor_scan` in `ArchitectureEventSource`; `refactorRecord` RPC in dispatch table; second `record` at same HEAD returns `duplicate-active-fingerprint`; `regressesFrom` link on re-detected fingerprint; `ledger migrate --recommendation-v3` then `ledger rebuild` digest equals pre-migration rebuild digest; `recommendations resolve` without `--evidence-digest` on non-practice category returns `AC_REFACTOR_EVIDENCE_REQUIRED` | `plans/archive/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md` |
 | 6 | [x] | rf5a-cli-rpc-capabilities-0.5.0 | contract | `archctx refactor scan --json` and `refactor record` wired through `refactorScan`/`refactorRecord` RPC; `capabilities --json` features include `module-statistics-v1`, `refactor-assessment-v1`, `recommendation-v3`; help `commands` includes `refactor`; `packaged-cli-smoke` covers `refactor scan`; version bumped to `0.5.0` with `rg '0\.4\.8' --glob '!CHANGELOG*' --glob '!docs/**'` empty; `bun run verify` exit 0 | `plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md` |
 | 7 | [ ] | rf5a-release-readback-0.5.0 | inline | `npm view archctx@0.5.0 version` prints `0.5.0`; `npm view archctx-contracts@0.5.0 version` prints `0.5.0`; clean-room readback script exit 0; readback record committed under `docs/` following the 0.4.8 precedent | (pending) |
-| 8 | [ ] | rf4-resolution-verification | contract | `bun test packages/core/refactor-assessment packages/local-runtime/runtime-daemon` passes fixtures: resolved (S4 `disposition=resolved`, resolve succeeds with `--evidence-digest`), not-improved (S6 `disposition=not_improved`, resolve returns `AC_REFACTOR_EVIDENCE_REQUIRED`), stale base (`disposition=stale`), HEAD drift (`AC_REFACTOR_STALE`), incomplete after-coverage never `resolved`; `refactorVerify` RPC in dispatch table; evidence bound via `EvidenceBinding/v1` | (pending) |
+| 8 | [x] | rf4-resolution-verification | contract | `bun test packages/core/refactor-assessment packages/local-runtime/runtime-daemon` passes fixtures: resolved (S4 `disposition=resolved`, resolve succeeds with `--evidence-digest`), not-improved (S6 `disposition=not_improved`, resolve returns `AC_REFACTOR_EVIDENCE_REQUIRED`), stale base (`disposition=stale`), HEAD drift (`AC_REFACTOR_STALE`), incomplete after-coverage never `resolved`; `refactorVerify` RPC in dispatch table; evidence bound via `EvidenceBinding/v1` | `plans/archive/plan-20260903-1330-rf4-resolution-verification.md` |
 | 9 | [ ] | rf5b-cli-verify-0.5.1 | contract | `archctx refactor verify --request-json` wired through `refactorVerify` RPC; `capabilities --json` features include `refactor-resolution-v1`; `packaged-cli-smoke` covers `refactor verify`; version bumped to `0.5.1` with `rg '0\.5\.0' --glob '!CHANGELOG*' --glob '!docs/**'` empty; `bun run verify` exit 0 | (pending) |
 | 10 | [ ] | rf5b-release-readback-0.5.1 | inline | `npm view archctx@0.5.1 version` prints `0.5.1`; clean-room readback script exit 0; readback record committed under `docs/` | (pending) |
 
@@ -130,3 +130,4 @@ Keep this section last; `repo-harness run sprint-backlog complete-task` appends 
 | 2026-09-03 07:13 | rf2-assessment-observations-scale | `plans/archive/plan-20260903-0512-rf2-assessment-observations-scale.md` | done |
 | 2026-09-03 09:06 | rf3-recommendation-v3-ledger-recording | `plans/archive/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md` | done |
 | 2026-09-03 12:12 | rf5a-cli-rpc-capabilities-0.5.0 | `plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md` | done |
+| 2026-09-03 15:45 | rf4-resolution-verification | `plans/archive/plan-20260903-1330-rf4-resolution-verification.md` | done |

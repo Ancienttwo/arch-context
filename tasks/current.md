@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-09-03T12:12:38+0800 -->
+<!-- updated_at: 2026-09-03T15:45:34+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-09-03T12:12:38+0800
-> **Source Branch**: codex/rf5a-cli-rpc-capabilities-0-5-0
-> **Source Commit**: 7358e0b
+> **Updated At**: 2026-09-03T15:45:34+0800
+> **Source Branch**: codex/rf4-resolution-verification
+> **Source Commit**: 359b0d0
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -43,7 +43,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - (none)
 ## Handoff
 
-- Exact Next Step: If a major module was just completed, stage its coherent diff first; then continue the next Task Breakdown item: git-adapter readHeadCommitterDate
+- Exact Next Step: If a major module was just completed, stage its coherent diff first; then continue the next Task Breakdown item: refactor-assessment/src/resolution.ts: metric vocabulary, readSnapshotMetric, outcome vocabulary issues, deriveObservationOutcomes, evaluateResolution (six-step ladder, kill-list path/relation, symbol → stale)
 
 ## Checks
 
@@ -54,16 +54,16 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md
- D tasks/contracts/20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.contract.md
- D tasks/notes/20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.notes.md
- D tasks/reviews/20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.review.md
+ D plans/plan-20260903-1330-rf4-resolution-verification.md
+ D tasks/contracts/20260903-1330-rf4-resolution-verification.contract.md
+ D tasks/notes/20260903-1330-rf4-resolution-verification.notes.md
+ D tasks/reviews/20260903-1330-rf4-resolution-verification.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md
-?? tasks/archive/contract-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
-?? tasks/archive/notes-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
-?? tasks/archive/review-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
-?? tasks/archive/todo-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
+?? plans/archive/plan-20260903-1330-rf4-resolution-verification.md
+?? tasks/archive/contract-20260903-1545-rf4-resolution-verification.md
+?? tasks/archive/notes-20260903-1545-rf4-resolution-verification.md
+?? tasks/archive/review-20260903-1545-rf4-resolution-verification.md
+?? tasks/archive/todo-20260903-1545-rf4-resolution-verification.md
 ```
 
 ## Source Artifacts
