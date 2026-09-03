@@ -1048,6 +1048,62 @@ describe("refactor verification request", () => {
     expect(issues).toEqual(["request.executionEvidenceRefs[0] has unsupported key(s): rawDiff"]);
   });
 
+  test("a locator that is a body rather than a reference is refused, and real references are not", () => {
+    const rule = "must be a bounded reference: 1-256 characters from [A-Za-z0-9._~:/?#@!$&'()*+,;=%-], no whitespace or control characters";
+    // A raw diff parked in the locator would be persisted under an envelope that promises
+    // `privacy.rawDiffPersisted: false`, and every digest would still agree.
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [
+        { kind: "task_contract", locator: "--- a/secrets.ts\n+++ b/secrets.ts\n+const key = 'AKIA';", sha256: "e".repeat(64) }
+      ]
+    }))).toEqual([`request.executionEvidenceRefs[0].locator ${rule}`]);
+    // 256 is the ceiling, so 257 is the first length that is refused.
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [{ kind: "task_contract", locator: "a".repeat(257), sha256: "e".repeat(64) }]
+    }))).toEqual([`request.executionEvidenceRefs[0].locator ${rule}`]);
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [{ kind: "task_contract", locator: "a".repeat(256), sha256: "e".repeat(64) }]
+    }))).toEqual([]);
+    // A space is the shape a body has and a reference does not.
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [{ kind: "task_contract", locator: "tasks/a b.json", sha256: "e".repeat(64) }]
+    }))).toEqual([`request.executionEvidenceRefs[0].locator ${rule}`]);
+    // The two shapes a locator actually takes both pass unchanged.
+    for (const locator of [
+      "tasks/receipts/20260903-1546-rf5b-cli-verify-0-5-1.json",
+      "https://github.com/Ancienttwo/arch-context/pull/124#issuecomment-1"
+    ]) {
+      expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+        executionEvidenceRefs: [{ kind: "merge_receipt", locator, sha256: "e".repeat(64) }]
+      })), locator).toEqual([]);
+    }
+    // The ref index is named, so a caller with several refs knows which one lost.
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [
+        { kind: "merge_receipt", locator: "tasks/receipts/ok.json", sha256: "e".repeat(64) },
+        { kind: "task_contract", locator: "has a space", sha256: "f".repeat(64) }
+      ]
+    }))).toEqual([`request.executionEvidenceRefs[1].locator ${rule}`]);
+  });
+
+  test("an unknown top-level key is named rather than silently dropped", () => {
+    // The typo drops the freshness claim rather than failing it: every ingress rebuilds the
+    // request from the declared keys, so `expectedWorktreeDigset` simply ceases to exist.
+    expect(refactorVerificationRequestInvariantIssues({
+      ...makeVerificationRequest(),
+      expectedWorktreeDigset: `sha256:${"b".repeat(64)}`
+    } as never)).toEqual(["request has unsupported key(s): expectedWorktreeDigset"]);
+    expect(refactorVerificationRequestInvariantIssues({
+      ...makeVerificationRequest(),
+      rawDiff: "--- a/x.ts",
+      apiKey: "sk-live"
+    } as never)).toEqual(["request has unsupported key(s): apiKey, rawDiff"]);
+    expect(refactorVerificationRequestInvariantIssues({
+      ...makeVerificationRequest(),
+      expectedWorktreeDigset: 1
+    } as never, "verifyRequest")).toEqual(["verifyRequest has unsupported key(s): expectedWorktreeDigset"]);
+  });
+
   test("a non-array executionEvidenceRefs is refused before any element is read", () => {
     expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ executionEvidenceRefs: "nope" as never })))
       .toEqual(["request.executionEvidenceRefs must be an array"]);

@@ -2135,6 +2135,30 @@ describe("archctx CLI", () => {
       expect(String((invalid as any).error.message)).toContain("sha256");
       expect(verifications).toHaveLength(0);
 
+      // A typo in a top-level key is a claim the caller believes it made. Dropping it would run
+      // the verification under a weaker precondition than the one that was typed.
+      const typo = await runCli("refactor", ["verify", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.refactor-verification-request/v1",
+        recommendationId: "recommendation.rf5b",
+        expectedWorktreeDigset: `sha256:${"b".repeat(64)}`
+      })], root, { runtimeClient: runtimeClient as any });
+      expect(typo.ok).toBe(false);
+      expect((typo as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String((typo as any).error.message)).toContain("expectedWorktreeDigset");
+      expect(verifications).toHaveLength(0);
+
+      // A locator is a reference, not a body: an unbounded one could carry a raw diff or a
+      // credential into a record whose envelope promises `privacy.rawDiffPersisted: false`.
+      const unboundedLocator = await runCli("refactor", ["verify", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.refactor-verification-request/v1",
+        recommendationId: "recommendation.rf5b",
+        executionEvidenceRefs: [{ kind: "task_contract", locator: "--- a/secrets.ts\n+const k = 1;", sha256: "c".repeat(64) }]
+      })], root, { runtimeClient: runtimeClient as any });
+      expect(unboundedLocator.ok).toBe(false);
+      expect((unboundedLocator as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String((unboundedLocator as any).error.message)).toContain("executionEvidenceRefs[0].locator");
+      expect(verifications).toHaveLength(0);
+
       const request = {
         schemaVersion: "archcontext.refactor-verification-request/v1",
         recommendationId: "recommendation.rf5b",
@@ -2148,6 +2172,76 @@ describe("archctx CLI", () => {
       // The parsed request reaches the RPC exactly as typed, and the envelope crosses back unchanged.
       expect(verifications).toEqual([request]);
       expect(verified.data).toBe(envelope as any);
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI refactor rejects an invalid invocation without ever obtaining a runtime handle", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-no-runtime-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const client = {
+        refactorScan(_root: string, _input: any) {
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.scan", data: {} };
+        },
+        refactorRecord(_root: string, _input: any) {
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.record", data: {} };
+        },
+        refactorVerify(_root: string, _input: any) {
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.verify", data: {} };
+        }
+      };
+      // `createCliRuntime` reads `deps.runtimeClient` to decide whether it must build a handle, so
+      // counting the reads counts the times the CLI reached for a runtime. Without an injected
+      // client that same reach spawns a daemon: a connection file, a thirty-minute idle process,
+      // possibly a state migration — none of which a rejected invocation asked for.
+      let runtimeReaches = 0;
+      const deps: any = {};
+      Object.defineProperty(deps, "runtimeClient", {
+        get() {
+          runtimeReaches += 1;
+          return client;
+        },
+        enumerable: false,
+        configurable: true
+      });
+
+      const rejected: string[][] = [
+        ["verify", "--json"],
+        ["verify", "--request-json", "{not json"],
+        ["verify", "--request-json", "[]"],
+        ["verify", "--request-json", JSON.stringify({
+          schemaVersion: "archcontext.refactor-verification-request/v1",
+          recommendationId: "recommendation.rf5b",
+          expectedWorktreeDigset: `sha256:${"b".repeat(64)}`
+        })],
+        ["verify", "--request-json", JSON.stringify({
+          schemaVersion: "archcontext.refactor-verification-request/v1",
+          recommendationId: "recommendation.rf5b",
+          executionEvidenceRefs: [{ kind: "task_contract", locator: "a".repeat(257), sha256: "c".repeat(64) }]
+        })],
+        ["verify", "--request-json"],
+        ["scan", "--request-json", "{not json"],
+        ["scan", "--request-json", JSON.stringify({ schemaVersion: "archcontext.refactor-request/v0", scope: { kind: "repository" } })],
+        ["record", "--assessment-digest", `sha256:${"b".repeat(64)}`],
+        ["resolve"]
+      ];
+      for (const args of rejected) {
+        const result = await runCli("refactor", args, root, deps);
+        expect(result.ok, JSON.stringify({ args, result })).toBe(false);
+        expect((result as any).error.code, JSON.stringify(args)).toBe("AC_SCHEMA_INVALID");
+      }
+      expect(runtimeReaches).toBe(0);
+
+      // Control: the same surface does reach for a runtime once the invocation is valid, so the
+      // count above is a property of the rejection and not of the injected deps.
+      const accepted = await runCli("refactor", ["verify", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.refactor-verification-request/v1",
+        recommendationId: "recommendation.rf5b"
+      })], root, deps);
+      expect(accepted.ok).toBe(true);
+      expect(runtimeReaches).toBeGreaterThan(0);
     } finally {
       removeTempRoot(root);
     }

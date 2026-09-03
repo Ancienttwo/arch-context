@@ -482,8 +482,16 @@ try {
   assert(resolvedRecommendation.ok === true, `packaged recommendations resolve must accept the recorded verdict: ${JSON.stringify(resolvedRecommendation.error ?? {})}`);
   assert(resolvedRecommendation.data?.nextStatus === "resolved", "packaged recommendations resolve must close the recommendation");
 
+  const stoppedAfterScan = await runArchctx("daemon", "stop");
+  assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
+  await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");
+  await waitForRemoved(gitPaths.data.daemonLockPath, "lock file");
+
   // The required flag is the whole point of the verb: without a subject there is nothing to verify,
-  // and answering with a default would measure a recommendation nobody named.
+  // and answering with a default would measure a recommendation nobody named. Run with the daemon
+  // stopped so the rejection also proves the CLI validated before it reached for a runtime: a
+  // start here would leave a connection file, a thirty-minute idle process, and possibly a
+  // state migration behind an invocation that was never going to run.
   const verifyWithoutRequest = await runArchctxExpectingRejection("refactor", "verify", "--json");
   assert(verifyWithoutRequest.ok === false, "packaged refactor verify must refuse to run without --request-json");
   assert(
@@ -494,11 +502,14 @@ try {
     String(verifyWithoutRequest.error?.message ?? "") === "refactor verify --request-json is required",
     `packaged refactor verify rejection must name the flag: ${JSON.stringify(verifyWithoutRequest.error ?? {})}`
   );
-
-  const stoppedAfterScan = await runArchctx("daemon", "stop");
-  assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
-  await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");
-  await waitForRemoved(gitPaths.data.daemonLockPath, "lock file");
+  assert(
+    existsSync(gitPaths.data.daemonConnectionPath) === false,
+    `packaged refactor verify rejection must not start a daemon: ${gitPaths.data.daemonConnectionPath} exists`
+  );
+  assert(
+    existsSync(gitPaths.data.daemonLockPath) === false,
+    `packaged refactor verify rejection must not start a daemon: ${gitPaths.data.daemonLockPath} exists`
+  );
 
   console.log("[packaged-cli-smoke] OK");
 } finally {

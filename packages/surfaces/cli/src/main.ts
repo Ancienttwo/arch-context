@@ -317,7 +317,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "recommendations":
       return runRecommendationsCommand(args, cwd, await runtime());
     case "refactor":
-      return runRefactorCommand(args, cwd, await runtime());
+      return runRefactorCommand(args, cwd, runtime);
     case "explore": {
       const subcommand = args[0] ?? "status";
       const daemon = await runtime();
@@ -940,8 +940,14 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
  * Thin adapter over `refactorScan` / `refactorRecord` / `refactorVerify`. The measured envelope is
  * returned exactly as the daemon produced it: sorting, trimming or re-keying it here would hide a
  * real source of nondeterminism behind the surface that is supposed to prove there is none.
+ *
+ * `runtime` is taken as a factory rather than an already-obtained client because obtaining one
+ * starts a daemon: a connection file, a thirty-minute idle process, possibly a state migration.
+ * A rejected invocation asked for none of that, so every subcommand finishes its flag, JSON and
+ * invariant checks first and only then reaches for the handle. `AC_SCHEMA_INVALID` here is
+ * produced without the daemon ever being touched.
  */
-async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
+async function runRefactorCommand(args: string[], cwd: string, runtime: () => Promise<RuntimeDaemonClient>) {
   const subcommand = args[0] ?? "scan";
   if (subcommand !== "scan" && subcommand !== "record" && subcommand !== "verify") {
     return errorEnvelope("refactor", "AC_SCHEMA_INVALID", "refactor requires scan|record|verify");
@@ -951,7 +957,7 @@ async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDa
     if (subcommand === "scan") {
       const raw = refactorFlagValue(args, "--request-json");
       // No request is the repository-scope default, which is what the daemon already applies.
-      if (raw === undefined) return daemon.refactorScan(cwd, {});
+      if (raw === undefined) return (await runtime()).refactorScan(cwd, {});
       let request: unknown;
       try {
         request = JSON.parse(raw);
@@ -963,7 +969,7 @@ async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDa
       }
       const issues = refactorRequestInvariantIssues(request as RefactorRequestV1);
       if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));
-      return daemon.refactorScan(cwd, { request: request as RefactorRequestV1 });
+      return (await runtime()).refactorScan(cwd, { request: request as RefactorRequestV1 });
     }
     if (subcommand === "verify") {
       // Unlike `scan`, verify has no repository-scope default: the subject is one recorded
@@ -983,7 +989,7 @@ async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDa
       }
       const issues = refactorVerificationRequestInvariantIssues(request as RefactorVerificationRequestV1);
       if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));
-      return daemon.refactorVerify(cwd, request as RefactorVerificationRequestV1);
+      return (await runtime()).refactorVerify(cwd, request as RefactorVerificationRequestV1);
     }
     const assessmentDigest = refactorFlagValue(args, "--assessment-digest");
     const expectedWorktreeDigest = refactorFlagValue(args, "--expected-worktree-digest");
@@ -995,7 +1001,7 @@ async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDa
     if (args.includes("--selection")) {
       return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor record does not support the unknown flag --selection; every planned recommendation is recorded");
     }
-    return daemon.refactorRecord(cwd, { assessmentDigest, expectedWorktreeDigest });
+    return (await runtime()).refactorRecord(cwd, { assessmentDigest, expectedWorktreeDigest });
   } catch (error) {
     if (error instanceof RefactorFlagError) return errorEnvelope(surface, "AC_SCHEMA_INVALID", error.message);
     throw error;
