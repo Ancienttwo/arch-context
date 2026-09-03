@@ -5,12 +5,12 @@
   "sourceDigest": "sha256:53690c91a7030265ad7abd043d685e34060093cb732aff4aa6faa50b367d5b55",
   "provenance": {
     "schemaVersion": "archcontext.architecture-docs-projection-provenance/v1",
-    "baseHeadSha": "0185ed59621f8c62c12381af969cc32f7a7cc2e1",
-    "worktreeDigest": "sha256:f7ab17418eab212214455c4077484eae456e5e861bc96b85fa90d71781f65286",
-    "sourceTreeDigest": "sha256:a4b544f2c39b321b38ada525ee5d4c08b4271b5ccd8cd4ac1d9e7a666dea356b",
+    "baseHeadSha": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
+    "worktreeDigest": "sha256:045d5244f9aecdaa2993061fbb19879e21adf82bda2f5de63fa0a499c9b4503b",
+    "sourceTreeDigest": "sha256:51549ccfcab6714f7d1ae56c6d7adfcbc98d2f95d3416b9fa30855b4bdd843ef",
     "modelDigest": "sha256:8f91d6d973949fadc6dce6ddaf99174dfc15edc8f1918e697cc33316de8708cb",
-    "codeGraphDigest": "sha256:135ebc66f8c7498296f59bd4cea3fd6d83522956361200660aff7a4662d7e6df",
-    "indexedWorktreeDigest": "sha256:e1d3604c03987af0c2dec5d1be929ca73f2ef4157a44f188899b075b65705b21",
+    "codeGraphDigest": "sha256:89da121c44e1cfddccd0af70efa02cbeb69fc4793d5aea7015445e4513d67539",
+    "indexedWorktreeDigest": "sha256:5d17a79db07cb73d653e4362048678c898686aebc58f68dffe033cff9e824b30",
     "rendererVersion": "archcontext.docs-renderer/v4",
     "layoutVersion": "archcontext.docs-layout/v1",
     "generatedFrom": {
@@ -19,9 +19,9 @@
       "codeGraphBinaryDigest": "sha256:e4be48573fdf16196ca0d2867be2790aa161534e9973dcb89bc70465100ea537",
       "codeGraphStatus": "ready"
     },
-    "projectionInputDigest": "sha256:c967afd07cb1bc6d3c6ca3e79a785567a6e4308269cb0ac82d6926c3fb4c3286"
+    "projectionInputDigest": "sha256:25b61a021d63292da95b8e8a81d02b6c957f6b38e95a8ad2f025e45b89fddf40"
   },
-  "projectionDigest": "sha256:832849bbac95d0a110c2a2b7f21b7da89c71ad4e57bc2ee6136c2bd118827eb4",
+  "projectionDigest": "sha256:7b4757efa935b68e53508bb9ef874d5764afc09d4b579b31ce6e9e2b1f148641",
   "semanticBaseline": {
     "semanticState": {
       "schemaVersion": "archcontext.architecture-semantic-state/v1",
@@ -78,12 +78,12 @@
     },
     "digests": {
       "modelDigest": "sha256:8f91d6d973949fadc6dce6ddaf99174dfc15edc8f1918e697cc33316de8708cb",
-      "sourceTreeDigest": "sha256:a4b544f2c39b321b38ada525ee5d4c08b4271b5ccd8cd4ac1d9e7a666dea356b",
+      "sourceTreeDigest": "sha256:51549ccfcab6714f7d1ae56c6d7adfcbc98d2f95d3416b9fa30855b4bdd843ef",
       "flowProofDigest": "sha256:9d702c4e7d7eb5a288a94e83e60896953dc3449b4ca99e2a145f4deb97149c19",
-      "projectionDigest": "sha256:832849bbac95d0a110c2a2b7f21b7da89c71ad4e57bc2ee6136c2bd118827eb4"
+      "projectionDigest": "sha256:7b4757efa935b68e53508bb9ef874d5764afc09d4b579b31ce6e9e2b1f148641"
     }
   },
-  "receiptDigest": "sha256:29bfb3d6d107203f0924bd5008e2712f317d2ad881c1aee98e6e0e0eb93cf65e",
+  "receiptDigest": "sha256:da0417e91a0578b0a4e76d8884edfd4c748b4404b727cab36009e6087b616e28",
   "refreshSignalIds": [],
   "targetCount": 30,
   "fileCount": 30,
@@ -117,8 +117,8 @@
       "outputDigest": "sha256:d52dfac3b10b905def7fe60cbd8babba35f13230d538721a16774c0dd97602cc",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
-        "committedAt": "2026-09-03T08:10:31+08:00"
+        "commit": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
+        "committedAt": "2026-09-03T08:52:39+08:00"
       }
     },
     {
@@ -357,8 +357,8 @@
       "outputDigest": "sha256:ee15ae9433c2b2c04acd166fc0735fd2bd27671b139ca3d57c24e1eef4856657",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
-        "committedAt": "2026-09-03T08:10:31+08:00"
+        "commit": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
+        "committedAt": "2026-09-03T08:52:39+08:00"
       }
     },
     {
@@ -517,8 +517,8 @@
       "outputDigest": "sha256:2be28a8839ac92a2ccaff35934a0085b3a72db665691d0435741db59b66e73bb",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
-        "committedAt": "2026-09-03T08:10:31+08:00"
+        "commit": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
+        "committedAt": "2026-09-03T08:52:39+08:00"
       }
     },
     {
@@ -537,8 +537,8 @@
       "outputDigest": "sha256:f3a08cf91ea76df805473c027efe9eb7a4f90ea52f1fccb79a00323de2358b99",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
-        "committedAt": "2026-09-03T08:10:31+08:00"
+        "commit": "6a4a339072a7a639f631114aa90acd32e23d8d6a",
+        "committedAt": "2026-09-03T08:52:39+08:00"
       }
     },
     {
