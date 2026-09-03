@@ -1,6 +1,6 @@
 # component/architecture-context/core/recommendation-engine 架構文檔
 
-<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.component-architecture-context-core-recommendation-engine" sourceDigest="sha256:e1542af09fb64c754d16f6babd7b62541077f1528b2e7d0ec8d31997763fc473" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:73f15007ad4a83f0ea7d77be96590b4963ae67bda70f92a4de69890935495628" -->
+<!-- BEGIN ARCHCONTEXT:generated target="projection_target.entity.component-architecture-context-core-recommendation-engine" sourceDigest="sha256:c8d757bec4d5635c92c38debf78e01283bb373c62669963a4135866f1831cc5f" rendererVersion="archcontext.docs-renderer/v4" outputDigest="sha256:ee15ae9433c2b2c04acd166fc0735fd2bd27671b139ca3d57c24e1eef4856657" -->
 > **狀態**:`active`
 > **Capability ID**:`component.architecture-context.core.recommendation-engine`(kind `component`)
 > **Matched Prefixes**:`packages/core/recommendation-engine/src/**`
@@ -22,7 +22,7 @@ Schedules recommendation runs and builds ranked recommendations with explanation
 
 ### 1.3 規模信號
 
-- 規模量級:`1–2` 個文件 / `500–1000` 行
+- 規模量級:`1–2` 個文件 / `1000–2000` 行
 - 匹配前綴:`packages/core/recommendation-engine/src/**`
 - 推導:掃描 `source.include` 減 `source.exclude`,跳過 `.git/` 與 `node_modules/`,再按 1–2–5 階梯分桶。精確計數不入本文檔:量級足以回答「這個能力有多大」,而逐行計數會讓覆蓋範圍內任何一次源碼改動都改寫本文檔。
 
