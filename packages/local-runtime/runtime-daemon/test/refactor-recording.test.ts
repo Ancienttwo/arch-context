@@ -22,7 +22,7 @@ import { runtimeStatePaths } from "@archcontext/local-runtime/local-store-sqlite
 import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph-factories";
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
-import { assessRefactor, type RefactorAssessmentInputV1 } from "../../../core/refactor-assessment/src/index";
+import { assessRefactor, deriveObservationOutcomes, type RefactorAssessmentInputV1 } from "../../../core/refactor-assessment/src/index";
 import {
   CYCLE_EDGES,
   makeAssessmentInput,
@@ -366,6 +366,73 @@ describe("refactorRecord", () => {
     }
   });
 
+  test("persists the measured baseline snapshot as a bound evidence item", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Recording App");
+      const { digest, snapshot } = registerAt(daemon, root);
+
+      const recorded = await daemon.refactorRecord(root, recordInput(root, digest));
+      const recommendationIds = (recorded.data as any).recommendationIds as string[];
+
+      const appended = store.architectureEvents.at(-1)!;
+      const operations = (appended.payload as any).evidenceOperations as any[];
+      expect(appended.payloadVersion).toBe("archcontext.architecture-evidence-lifecycle/v2");
+      expect((appended.payload as any).evidenceItems).toBeUndefined();
+      const snapshotCreate = operations.find((operation) =>
+        operation.target === "item" && operation.value.selector.kind === "snapshot"
+      );
+      expect(snapshotCreate).toBeDefined();
+      expect(snapshotCreate.action).toBe("create");
+      expect(snapshotCreate.value.selector.id).toBe(snapshot.snapshotDigest);
+      expect(snapshotCreate.value.extensions.moduleStatisticsSnapshot.snapshotDigest).toBe(snapshot.snapshotDigest);
+
+      // Bindings are emitted sorted by `bindingId` (a digest), so position carries no meaning:
+      // assert the whole snapshot-bound set instead of whichever binding happens to sort first.
+      const bindings = operations.filter((operation) =>
+        operation.target === "binding"
+        && operation.action === "create"
+        && operation.value.evidenceId === snapshotCreate.value.evidenceId
+      );
+      expect(bindings.length).toBe(recommendationIds.length);
+      for (const bound of bindings) expect(bound.value.target.kind).toBe("recommendation");
+      expect(new Set(bindings.map((bound) => bound.value.target.id))).toEqual(new Set(recommendationIds));
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("fills the acceptance test a structural observation would be closed by", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Recording App");
+      const { digest } = registerAt(daemon, root);
+
+      const recorded = await daemon.refactorRecord(root, recordInput(root, digest));
+      const observations = ((recorded.data as any).recommendations as RecommendationV3[])
+        .filter((record) => record.category === "structural_observation");
+
+      expect(observations.length).toBeGreaterThan(0);
+      for (const record of observations) {
+        const payload = record.payload as { kind: string; affectedNodeIds: string[]; derivedOutcomes: any[] };
+        // The engine records the fact and leaves the outcome derivation to refactor-assessment; a
+        // record without it could never leave `open` because verify would have nothing to measure.
+        expect(payload.derivedOutcomes).toEqual(deriveObservationOutcomes({
+          kind: payload.kind as never,
+          subjectSelectorId: record.subjectSelectorId,
+          affectedNodeIds: payload.affectedNodeIds
+        }));
+        expect(recommendationV3InvariantIssues(record)).toEqual([]);
+      }
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   test("an unknown or evicted assessment digest fails closed", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
@@ -505,16 +572,18 @@ describe("recommendations resolve gate", () => {
       expect(errorOf(missing).code).toBe("AC_REFACTOR_EVIDENCE_REQUIRED");
       expect(errorOf(missing).reasonCode).toBe("evidence-digest-missing");
 
+      // RF4 replaced the 0.5.0 always-reject arm with the evidence lookup: an unrecorded digest is
+      // now `evidence-unknown`, and no digest RF3 ever wrote can pass it.
       const supplied = await daemon.recommendations(root, {
         command: "resolve",
         recommendationId,
         reason: "resolved after the structural change landed",
-        evidenceDigest: digestJson({ evidence: "not-yet-possible" } as unknown as Json),
+        evidenceDigest: digestJson({ evidence: "never-verified" } as unknown as Json),
         now: "2026-09-03T09:01:00.000Z"
       });
       expect(supplied.ok).toBe(false);
       expect(errorOf(supplied).code).toBe("AC_REFACTOR_EVIDENCE_REQUIRED");
-      expect(errorOf(supplied).reasonCode).toBe("refactor-resolution-evidence-unavailable");
+      expect(errorOf(supplied).reasonCode).toBe("evidence-unknown");
       expect(errorOf(supplied).message).toContain("refactor verify");
 
       const accepted = await daemon.recommendations(root, {
