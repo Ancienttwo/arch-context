@@ -77,6 +77,14 @@ import {
   runRefactorScan,
   type RefactorScanResultV1
 } from "./refactor-scan";
+import {
+  baselineSnapshotForRecommendation,
+  findResolutionEvidence,
+  refactorVerifyIngressIssues,
+  resolutionEvidenceForRecommendation,
+  runRefactorVerify,
+  type RuntimeRefactorVerifyInput
+} from "./refactor-verify";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import {
   buildInvestigationContextBundleFromLedgerQuery,
@@ -122,8 +130,8 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { RECOMMENDATION_V3_SCHEMA_VERSION, refactorScanInvariantIssues, type RefactorRequestV1 } from "@archcontext/contracts";
-import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
+import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, refactorScanInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
+import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
 import { createNodeInvestigationTransport } from "./investigation-transport";
@@ -461,6 +469,8 @@ export interface RuntimeRefactorRecordInput {
   assessmentDigest: string;
   expectedWorktreeDigest: string;
 }
+
+export type { RuntimeRefactorVerifyInput } from "./refactor-verify";
 
 export interface RuntimeLedgerRollbackInput {
   toYaml?: boolean;
@@ -907,6 +917,66 @@ function decodeRuntimeRefactorRecordInput(value: unknown): RuntimeRefactorRecord
 }
 
 /**
+ * `recommendationId` is the only required field: verify always measures whatever is at HEAD now.
+ * `expectedHeadSha`/`expectedWorktreeDigest` are a caller's claim about the state it believes it
+ * is verifying, and a claim that no longer holds must be refused rather than answered with fresh
+ * numbers under the old identity.
+ */
+function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerifyInput {
+  const input = runtimeRefactorInputRecord(value, "refactor verify input");
+  if (typeof input.recommendationId !== "string" || input.recommendationId.trim() === "") {
+    throw new RuntimeRefactorInputError("refactor verify recommendationId must be a non-empty string");
+  }
+  for (const field of ["expectedHeadSha", "expectedWorktreeDigest"] as const) {
+    const claim = input[field];
+    if (claim !== undefined && (typeof claim !== "string" || claim.length === 0)) {
+      throw new RuntimeRefactorInputError(`refactor verify ${field} must be a non-empty string`);
+    }
+  }
+  return {
+    recommendationId: input.recommendationId,
+    ...(typeof input.expectedHeadSha === "string" ? { expectedHeadSha: input.expectedHeadSha } : {}),
+    ...(typeof input.expectedWorktreeDigest === "string" ? { expectedWorktreeDigest: input.expectedWorktreeDigest } : {}),
+    ...(input.executionEvidenceRefs === undefined
+      ? {}
+      : { executionEvidenceRefs: decodeRuntimeExecutionEvidenceRefs(input.executionEvidenceRefs) })
+  };
+}
+
+/**
+ * Verify evidence refs are digest-bound into the ledger, so the decoder rebuilds every element
+ * from exactly the three declared fields. A caller key that rode through a cast (`rawDiff`,
+ * `apiKey`) would be persisted under an envelope that promises `privacy.rawDiffPersisted: false`,
+ * and the frozen invariant check only inspects `sha256` and `locator` — it would never see it.
+ */
+function decodeRuntimeExecutionEvidenceRefs(value: unknown): RefactorExecutionEvidenceRefV1[] {
+  if (!Array.isArray(value)) {
+    throw new RuntimeRefactorInputError("refactor verify executionEvidenceRefs must be an array");
+  }
+  return value.map((entry, index) => {
+    const field = `refactor verify executionEvidenceRefs[${index}]`;
+    const ref = runtimeRefactorInputRecord(entry, field);
+    const extras = Object.keys(ref).filter((key) => key !== "kind" && key !== "locator" && key !== "sha256");
+    if (extras.length > 0) {
+      throw new RuntimeRefactorInputError(`${field} has unsupported key(s): ${[...extras].sort().join(", ")}`);
+    }
+    const { kind, locator, sha256 } = ref;
+    if (typeof kind !== "string" || !(REFACTOR_EXECUTION_EVIDENCE_KINDS as readonly string[]).includes(kind)) {
+      throw new RuntimeRefactorInputError(
+        `${field}.kind must be one of ${REFACTOR_EXECUTION_EVIDENCE_KINDS.join(", ")}, received ${JSON.stringify(kind)}`
+      );
+    }
+    if (typeof locator !== "string" || locator.trim() === "") {
+      throw new RuntimeRefactorInputError(`${field}.locator must be a non-empty string`);
+    }
+    if (typeof sha256 !== "string" || !/^[a-f0-9]{64}$/.test(sha256)) {
+      throw new RuntimeRefactorInputError(`${field}.sha256 must be a bare SHA-256 hex digest`);
+    }
+    return { kind: kind as RefactorExecutionEvidenceRefV1["kind"], locator, sha256 };
+  });
+}
+
+/**
  * The two fields `refactor record` binds a measurement to. A scan reads HEAD blobs, workspace
  * manifests and the code index after it captures the identity, and a record replays the ledger
  * after it validates one, so both have a window in which the tree can move underneath them.
@@ -959,6 +1029,7 @@ export interface RuntimeDaemonClient {
   recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> | JsonEnvelope;
   refactorScan(root: string, input?: RuntimeRefactorScanInput): Promise<JsonEnvelope> | JsonEnvelope;
   refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope> | JsonEnvelope;
+  refactorVerify(root: string, input: RuntimeRefactorVerifyInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -3192,7 +3263,10 @@ export class ArchctxDaemon {
         return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
       }
       if (command === "resolve") {
-        const gate = refactorResolveGate(current, input.evidenceDigest);
+        // The live HEAD, not the ledger scope's: the stored scope carries the identity of the last
+        // appended event, and resolving is a claim about the tree that is here now.
+        const liveScope = await this.architectureLedgerGitScope(repositoryRoot);
+        const gate = refactorResolveGate(current, input.evidenceDigest, replay.evidenceState, liveScope.worktree.headSha);
         if (gate) return errorEnvelope(`recommendations.${command}`, gate.code, gate.message, gate.reasonCode);
       }
       let next: RecommendationLedgerRecordV1;
@@ -3520,6 +3594,196 @@ export class ArchctxDaemon {
         }
       } as unknown as Json);
     });
+  }
+
+  /**
+   * Re-measures the repository at the current HEAD and records what that measurement says about
+   * one already-recorded recommendation.
+   *
+   * The verdict is never this method's: `runRefactorVerify` evaluates it against the frozen
+   * validator and throws rather than emit one the validator disagrees with. Everything here is
+   * the surrounding fail-closed frame — freshness, migration state, ingress shape, and the
+   * append — plus the two arms that record nothing at all: a recommendation already in a terminal
+   * status, and a verdict identical to one the ledger already holds.
+   */
+  async refactorVerify(root: string, rawInput: RuntimeRefactorVerifyInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    let input: RuntimeRefactorVerifyInput;
+    try {
+      input = decodeRuntimeRefactorVerifyInput(rawInput);
+    } catch (error) {
+      if (error instanceof RuntimeRefactorInputError) return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", error.message);
+      throw error;
+    }
+    const repositoryRoot = findRepositoryRoot(root);
+    return this.withWriter(async () => {
+      // Optional, unlike `refactor record`: verify always measures what is at HEAD now, so an
+      // absent claim is a verification of the current tree rather than a missing precondition.
+      if (input.expectedWorktreeDigest) {
+        try {
+          this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "refactor verify");
+        } catch (error) {
+          return errorEnvelope("refactor.verify", "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
+        }
+      }
+      const gitScope = await this.architectureLedgerGitScope(repositoryRoot);
+      if (input.expectedHeadSha !== undefined && input.expectedHeadSha !== gitScope.worktree.headSha) {
+        return errorEnvelope(
+          "refactor.verify",
+          "AC_REFACTOR_STALE",
+          `refactor verify expected HEAD ${input.expectedHeadSha}, current ${gitScope.worktree.headSha}`
+        );
+      }
+      const scope = await this.localStore.resolveArchitectureLedgerScope(gitScope);
+      const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      const current = latestRecommendationById(artifacts.recommendations, input.recommendationId);
+      if (!current) {
+        return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
+      }
+      if (current.schemaVersion !== RECOMMENDATION_V3_SCHEMA_VERSION) {
+        return errorEnvelope(
+          "refactor.verify",
+          "AC_PRECONDITION_FAILED",
+          `recommendation ${current.recommendationId} is still ${current.schemaVersion}; run archctx ledger migrate --recommendation-v3 --write before verifying`,
+          "recommendation-v2-not-migrated"
+        );
+      }
+      const recommendation = current as RecommendationV3;
+      const ingressIssues = refactorVerifyIngressIssues(recommendation);
+      if (ingressIssues.length > 0) return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", ingressIssues.join("; "));
+
+      // A terminal record is not re-measured: its verdict is already in the ledger, and appending
+      // a second one would let a later measurement rewrite a decision a human already acted on.
+      if (current.status === "resolved" || current.status === "superseded") {
+        const recorded = resolutionEvidenceForRecommendation(replay.evidenceState, recommendation.recommendationId);
+        return this.refactorVerifyEnvelope({
+          scope,
+          recommendation,
+          evidence: recorded[0],
+          appendStatus: "not-appended",
+          appendedEventCount: 0,
+          graphDigest: replay.graphDigest
+        });
+      }
+
+      let scan: RefactorScanResultV1;
+      try {
+        scan = runRefactorScan({
+          root: repositoryRoot,
+          request: REPOSITORY_REFACTOR_REQUEST,
+          repository: gitScope.repository,
+          worktree: gitScope.worktree,
+          previousRecommendations: artifacts.recommendations,
+          catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
+        });
+      } catch (error) {
+        if (error instanceof RefactorScanError) return errorEnvelope("refactor.verify", error.code, error.message);
+        return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      }
+      const baseline = baselineSnapshotForRecommendation(replay.evidenceState, recommendation.recommendationId);
+      let plan: ReturnType<typeof runRefactorVerify>;
+      try {
+        plan = runRefactorVerify({
+          recommendation,
+          repository: scope.repository,
+          worktree: scope.worktree,
+          beforeSnapshotDigest: baseline?.snapshotDigest ?? recordedBaselineSnapshotDigest(recommendation),
+          ...(baseline ? { beforeSnapshot: baseline.snapshot } : {}),
+          afterSnapshot: scan.snapshot,
+          afterModel: loadNativeModelFromArchContext(repositoryRoot),
+          afterTrackedFiles: readTrackedSourceFiles(repositoryRoot).map((file) => file.path),
+          ...(input.executionEvidenceRefs ? { executionEvidenceRefs: input.executionEvidenceRefs } : {}),
+          evidenceState: replay.evidenceState,
+          graphDigest: replay.graphDigest,
+          verifiedAt: this.clock()
+        });
+      } catch (error) {
+        return errorEnvelope("refactor.verify", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      }
+
+      // `resolutionDigest` excludes the clock, so a second verify at the same HEAD recomputes the
+      // same verdict. Returning the recorded one keeps the ledger at exactly one event per
+      // measurement instead of one per invocation.
+      const recorded = findResolutionEvidence(replay.evidenceState, plan.evidence.resolutionDigest);
+      if (recorded) {
+        return this.refactorVerifyEnvelope({
+          scope,
+          recommendation,
+          evidence: recorded,
+          appendStatus: "already-recorded",
+          appendedEventCount: 0,
+          graphDigest: replay.graphDigest
+        });
+      }
+
+      // The identity check happened before the replay, the scan and the evaluation; the tree can
+      // still move in between. Last look before anything is persisted.
+      const preAppendScope = await this.architectureLedgerGitScope(repositoryRoot);
+      const moved = movedWorktreeIdentityFields(gitScope.worktree, preAppendScope.worktree);
+      if (moved.length > 0) {
+        return errorEnvelope(
+          "refactor.verify",
+          "AC_REFACTOR_STALE",
+          `worktree ${moved.join(" and ")} changed before the refactor verify append; run refactor verify again`
+        );
+      }
+      const append = await this.appendArchitectureEventsWithFeed(root, {
+        writer: "runtime-daemon",
+        events: [plan.event]
+      });
+      return this.refactorVerifyEnvelope({
+        scope,
+        recommendation,
+        evidence: plan.evidence,
+        appendStatus: "appended",
+        appendedEventCount: append.appendedEvents.length,
+        graphDigest: append.graphDigest,
+        evidenceItemIds: [plan.resolutionItem.evidenceId, plan.afterSnapshotItem.evidenceId],
+        evidenceBindingIds: [plan.binding.bindingId]
+      });
+    });
+  }
+
+  /** One envelope shape for all three verify outcomes, so a caller reads the same fields either way. */
+  private refactorVerifyEnvelope(input: {
+    scope: ArchitectureLedgerScope;
+    recommendation: RecommendationV3;
+    evidence: RefactorResolutionEvidenceV1 | undefined;
+    appendStatus: "appended" | "already-recorded" | "not-appended";
+    appendedEventCount: number;
+    graphDigest: string;
+    evidenceItemIds?: string[];
+    evidenceBindingIds?: string[];
+  }): JsonEnvelope {
+    return okEnvelope("refactor.verify", {
+      schemaVersion: "archcontext.runtime-refactor-verify/v1",
+      repository: input.scope.repository,
+      worktree: input.scope.worktree,
+      recommendationId: input.recommendation.recommendationId,
+      recommendationStatus: input.recommendation.status,
+      disposition: input.evidence?.disposition ?? null,
+      resolutionDigest: input.evidence?.resolutionDigest ?? null,
+      evidence: (input.evidence ?? null) as unknown as Json,
+      resolveCommand: input.evidence && input.evidence.disposition === "resolved"
+        ? `archctx recommendations resolve --id ${input.recommendation.recommendationId} --evidence-digest ${input.evidence.resolutionDigest} --reason <why>`
+        : null,
+      evidenceItemIds: input.evidenceItemIds ?? [],
+      evidenceBindingIds: input.evidenceBindingIds ?? [],
+      append: {
+        status: input.appendStatus,
+        eventSource: "refactor_scan",
+        appendedEventCount: input.appendedEventCount,
+        graphDigest: input.graphDigest
+      },
+      privacy: {
+        writes: "architecture-ledger-event-only",
+        rawSourcePersisted: false,
+        rawDiffPersisted: false,
+        promptPersisted: false,
+        implicitAcceptance: false
+      }
+    } as unknown as Json);
   }
 
   async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
@@ -5554,7 +5818,7 @@ const RUNTIME_RPC_SHORT_METHODS = new Set([
 
 const RUNTIME_RPC_LONG_METHODS = new Set([
   "init", "sync", "prepare", "context", "checkpoint", "auditRun", "auditApprove", "recommendations", "book",
-  "ledgerRebuild", "ledgerMigrate", "refactorScan", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
+  "ledgerRebuild", "ledgerMigrate", "refactorScan", "refactorVerify", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
 ]);
 
 function runtimeRpcMethodTimeout(method: string, policy: RuntimeRpcClientTimeoutPolicy): number {
@@ -5731,6 +5995,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
 
   refactorRecord(root: string, input: RuntimeRefactorRecordInput) {
     return this.call("refactorRecord", [root, input]);
+  }
+
+  refactorVerify(root: string, input: RuntimeRefactorVerifyInput) {
+    return this.call("refactorVerify", [root, input]);
   }
 
   repoAdd(root: string, name?: string) {
@@ -6133,6 +6401,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.refactorScan(params[0] as string, params[1] as RuntimeRefactorScanInput | undefined);
       case "refactorRecord":
         return this.daemon.refactorRecord(params[0] as string, params[1] as RuntimeRefactorRecordInput);
+      case "refactorVerify":
+        return this.daemon.refactorVerify(params[0] as string, params[1] as RuntimeRefactorVerifyInput);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -6216,15 +6486,25 @@ function latestRecommendationById(
 }
 
 /**
- * 0.5.0 ships the gate, not the lookup. No `RefactorResolutionEvidenceV1` can exist before
- * `refactor verify` (0.5.1), so a non-practice recommendation is rejected both when the digest is
- * missing and when one is supplied: accepting a digest RF3 can never verify would be a lie in the
- * ledger, and reading a `payload.refactorResolutionEvidence` RF3 never writes would be dead code.
+ * The only door from a non-practice recommendation to `resolved`: a `refactor verify` verdict that
+ * names this record, was measured at the HEAD being resolved against, and says `resolved`.
+ *
+ * HEAD drift is refused rather than tolerated. A verdict measured at an earlier commit describes a
+ * tree that no longer exists, so it cannot support a claim about this one; the cost is a re-verify
+ * after any unrelated commit, which is the correct trade for a fail-closed completion gate.
+ * `practice` recommendations keep their pre-RF4 behaviour: they carry no measurable outcome and
+ * pass straight through.
  */
 function refactorResolveGate(
   recommendation: RecommendationLedgerRecordV1,
-  evidenceDigest: string | undefined
-): { code: "AC_PRECONDITION_FAILED" | "AC_REFACTOR_EVIDENCE_REQUIRED"; message: string; reasonCode?: string } | undefined {
+  evidenceDigest: string | undefined,
+  evidenceState: EvidenceStateAtCursorV1,
+  headSha: string
+): {
+  code: "AC_PRECONDITION_FAILED" | "AC_REFACTOR_EVIDENCE_REQUIRED" | "AC_REFACTOR_STALE";
+  message: string;
+  reasonCode?: string;
+} | undefined {
   if (recommendation.schemaVersion !== RECOMMENDATION_V3_SCHEMA_VERSION) {
     return {
       code: "AC_PRECONDITION_FAILED",
@@ -6240,11 +6520,36 @@ function refactorResolveGate(
       reasonCode: "evidence-digest-missing"
     };
   }
-  return {
-    code: "AC_REFACTOR_EVIDENCE_REQUIRED",
-    message: `no refactor resolution evidence exists for ${recommendation.recommendationId}; archctx refactor verify ships in 0.5.1`,
-    reasonCode: "refactor-resolution-evidence-unavailable"
-  };
+  const evidence = findResolutionEvidence(evidenceState, evidenceDigest);
+  if (!evidence || evidence.recommendationId !== recommendation.recommendationId) {
+    return {
+      code: "AC_REFACTOR_EVIDENCE_REQUIRED",
+      message: `no refactor resolution evidence ${evidenceDigest} is recorded for ${recommendation.recommendationId}; run archctx refactor verify`,
+      reasonCode: "evidence-unknown"
+    };
+  }
+  if (evidence.verifiedHeadSha !== headSha) {
+    return {
+      code: "AC_REFACTOR_STALE",
+      message: `refactor resolution evidence ${evidenceDigest} was verified at ${evidence.verifiedHeadSha}, current HEAD is ${headSha}; run archctx refactor verify again`,
+      reasonCode: "evidence-head-drift"
+    };
+  }
+  if (evidence.disposition !== "resolved") {
+    return {
+      code: "AC_REFACTOR_EVIDENCE_REQUIRED",
+      message: `refactor resolution evidence ${evidenceDigest} reports ${evidence.disposition}, not resolved`,
+      reasonCode: "evidence-not-resolved"
+    };
+  }
+  return undefined;
+}
+
+/** The baseline a record names. Both non-practice payloads carry it; `practice` never reaches here. */
+function recordedBaselineSnapshotDigest(recommendation: RecommendationV3): string {
+  return recommendation.category === "refactor_proposal"
+    ? (recommendation.payload as RefactorProposalPayloadV1).baselineSnapshotDigest
+    : (recommendation.payload as StructuralObservationPayloadV1).baselineSnapshotDigest;
 }
 
 function isRecommendationLifecycleCliAction(command: string): command is RecommendationFeedbackAction {

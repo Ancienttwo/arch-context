@@ -22,6 +22,19 @@ import type { NativeModel } from "../../projection-engine/src/index";
 import { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaDerivationV1 } from "./target-delta";
 
 export { deriveTargetDelta, withUnresolvedTargets, type TargetDeltaContextV1, type TargetDeltaDerivationV1 } from "./target-delta";
+export {
+  REFACTOR_RESOLUTION_METRICS,
+  REFACTOR_RESOLUTION_RESIDUAL_CODES,
+  deriveObservationOutcomes,
+  evaluateResolution,
+  readSnapshotMetric,
+  refactorOutcomeVocabularyIssues,
+  refactorResolutionOutcomeId,
+  type DeriveObservationOutcomesInputV1,
+  type RefactorResolutionInputV1,
+  type RefactorResolutionMetric,
+  type RefactorResolutionResidualCode
+} from "./resolution";
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const SIGNAL_ID_LENGTH = 16;

@@ -39,6 +39,7 @@ import {
   type PreviousRecommendationV3,
   type RefactorRecommendationRunPlan
 } from "@archcontext/core/recommendation-engine";
+import { deriveObservationOutcomes } from "@archcontext/core/refactor-assessment";
 
 /**
  * A scan holds its measured snapshot and assessment in memory only. The cap keeps the daemon
@@ -149,7 +150,7 @@ export interface RefactorRecordEventPlan {
  * to the same `graphDigest` with or without this event.
  */
 export function buildRefactorRecordEvent(input: RefactorRecordEventInput): RefactorRecordEventPlan {
-  const plan = planRefactorRecommendationRun({
+  const planned = planRefactorRecommendationRun({
     repository: input.repository,
     worktree: input.worktree,
     snapshot: input.registered.snapshot,
@@ -159,6 +160,7 @@ export function buildRefactorRecordEvent(input: RefactorRecordEventInput): Refac
     catalogDigest: input.catalogDigest,
     now: input.now
   });
+  const plan = withDerivedObservationOutcomes(planned);
   const evidenceOperations = evidenceLifecycleOperations(input.evidenceState, plan.evidenceItems, plan.evidenceBindings);
   const inputDigest = digestJson({
     schemaVersion: "archcontext.refactor-record-event-input/v1",
@@ -332,9 +334,11 @@ function previousRecommendationsV3(recommendations: readonly RecommendationLedge
 
 /**
  * Incremental, unlike the full-state reconcile the YAML import path uses: a scan adds evidence
- * and must never emit a `remove` for an item some other producer owns.
+ * and must never emit a `remove` for an item some other producer owns. Shared with `refactor
+ * verify`, which appends against the same evidence state and must not `create` an id a prior
+ * scan already made live — the ledger throws on that, it does not overwrite.
  */
-function evidenceLifecycleOperations(
+export function evidenceLifecycleOperations(
   previous: EvidenceStateAtCursorV1,
   items: readonly EvidenceItemV2[],
   bindings: readonly EvidenceBindingV1[]
@@ -364,6 +368,37 @@ function evidenceLifecycleOperations(
     operations.push({ target: "binding", action: "update", bindingId: binding.bindingId, previousDigest, value: binding });
   }
   return operations;
+}
+
+/**
+ * Fills the acceptance test for every recorded structural observation.
+ *
+ * The recommendation engine records the observed fact and deliberately leaves `derivedOutcomes`
+ * empty rather than fork a second kind-to-outcome definition; `refactor-assessment` owns that one.
+ * Recording the fact without the test it closes on would make the record permanently
+ * unverifiable — `refactor verify` would answer `not_improved` with `no-required-outcome` forever.
+ *
+ * Safe to fill after planning: `recommendationV3FingerprintInput` hashes only `kind` and
+ * `affectedNodeIds` for this category, so the fingerprint, `recommendationId` and every dedup
+ * decision above are untouched.
+ */
+function withDerivedObservationOutcomes(plan: RefactorRecommendationRunPlan): RefactorRecommendationRunPlan {
+  const recommendations = plan.recommendations.map((recommendation) => {
+    if (recommendation.category !== "structural_observation") return recommendation;
+    const payload = recommendation.payload;
+    return {
+      ...recommendation,
+      payload: {
+        ...payload,
+        derivedOutcomes: deriveObservationOutcomes({
+          kind: payload.kind,
+          subjectSelectorId: recommendation.subjectSelectorId,
+          affectedNodeIds: payload.affectedNodeIds
+        })
+      }
+    } as RecommendationV3;
+  });
+  return { ...plan, recommendations };
 }
 
 function digestSuffix(digest: string): string {
