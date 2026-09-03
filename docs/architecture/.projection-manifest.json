@@ -117,8 +117,8 @@
       "outputDigest": "sha256:d52dfac3b10b905def7fe60cbd8babba35f13230d538721a16774c0dd97602cc",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "0185ed59621f8c62c12381af969cc32f7a7cc2e1",
-        "committedAt": "2026-09-03T07:13:35+08:00"
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
@@ -176,9 +176,9 @@
       "sourceDigest": "sha256:f11f3b3a2e993ff00b67899a306a2fd90ace08ba6c7d557b3f14791823ee6c1a",
       "outputDigest": "sha256:9bfe9737e42126924a035dfa62223c7c4ff989e73ec0544eb6bc2d870a1d7b70",
       "verifiedAgainst": {
-        "branch": "codex/model-adoption-core-two-level",
-        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
-        "committedAt": "2026-09-02T23:48:37+08:00"
+        "branch": "codex/rf3-recommendation-v3-ledger-recording",
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
@@ -216,9 +216,9 @@
       "sourceDigest": "sha256:08ae67e9605f32459d6aa6fbc50cdde5382a92fee472041b8db036a2aa9ba58e",
       "outputDigest": "sha256:715e259bddc5ef5690a0b28ea815b4e1a4435635c8dcd5efccae44a7a487c72a",
       "verifiedAgainst": {
-        "branch": "codex/model-adoption-core-two-level",
-        "commit": "ca2c8e540783666f640246d47d655a0c114543c2",
-        "committedAt": "2026-09-02T23:48:37+08:00"
+        "branch": "codex/rf3-recommendation-v3-ledger-recording",
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
@@ -357,8 +357,8 @@
       "outputDigest": "sha256:ee15ae9433c2b2c04acd166fc0735fd2bd27671b139ca3d57c24e1eef4856657",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "0185ed59621f8c62c12381af969cc32f7a7cc2e1",
-        "committedAt": "2026-09-03T07:13:35+08:00"
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
@@ -517,8 +517,8 @@
       "outputDigest": "sha256:2be28a8839ac92a2ccaff35934a0085b3a72db665691d0435741db59b66e73bb",
       "verifiedAgainst": {
         "branch": "codex/rf3-recommendation-v3-ledger-recording",
-        "commit": "0185ed59621f8c62c12381af969cc32f7a7cc2e1",
-        "committedAt": "2026-09-03T07:13:35+08:00"
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
@@ -536,9 +536,9 @@
       "sourceDigest": "sha256:9fb648669714ca08f1b1947930facdb27246ab200666936901d349e5e8f8677d",
       "outputDigest": "sha256:f3a08cf91ea76df805473c027efe9eb7a4f90ea52f1fccb79a00323de2358b99",
       "verifiedAgainst": {
-        "branch": "codex/rf1b-module-statistics-snapshot",
-        "commit": "0a135bdd1c47ca3d56b080f45a35a85c228977f7",
-        "committedAt": "2026-09-03T05:08:58+08:00"
+        "branch": "codex/rf3-recommendation-v3-ledger-recording",
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
@@ -556,9 +556,9 @@
       "sourceDigest": "sha256:aa37416cbfaca77dcde003b4e7b195880d62011fff0f3d94ef2099ce7a112cb9",
       "outputDigest": "sha256:789cd4ba7de0f2796534b28f31eccf948c21f12ec6bd09f9f1254b09eb081961",
       "verifiedAgainst": {
-        "branch": "codex/model-adoption-core-two-level",
-        "commit": "2382b655d6b581cab3d9366886d595eb86ef80e5",
-        "committedAt": "2026-09-03T02:14:40+08:00"
+        "branch": "codex/rf3-recommendation-v3-ledger-recording",
+        "commit": "5ef9329f18dd272972f4dab6123b350fcbaa412c",
+        "committedAt": "2026-09-03T08:10:31+08:00"
       }
     },
     {
