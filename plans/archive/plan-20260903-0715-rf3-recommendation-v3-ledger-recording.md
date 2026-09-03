@@ -1,6 +1,6 @@
 # Plan: Sprint task: rf3-recommendation-v3-ledger-recording
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260903-0715
 > **Slug**: rf3-recommendation-v3-ledger-recording
 > **Planning Source**: repo-harness-sprint

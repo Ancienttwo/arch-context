@@ -1,3 +1,9 @@
+> **Archived**: 2026-09-03 09:06
+> **Related Plan**: plans/archive/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md
+> **Outcome**: Completed
+> **Lifecycle**: contract
+> **Parent Run ID**: run-20260903-0906
+
 # Task Contract: rf3-recommendation-v3-ledger-recording
 
 > **Status**: Fulfilled
