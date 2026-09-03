@@ -40,6 +40,23 @@ export function readHeadSha(root: string): string {
   }
 }
 
+/**
+ * The committer date of `HEAD`, normalized to UTC ISO-8601.
+ *
+ * This is the honest deterministic clock for anything measured at a commit: a measurement of
+ * `HEAD` is dated by the commit it measured, so two runs at the same `HEAD` agree byte for byte
+ * while still naming a real instant. An unborn or unreadable `HEAD` has no date to report and
+ * fails closed rather than substituting the wall clock.
+ */
+export function readHeadCommitterDate(root: string): string {
+  const raw = runGit(root, ["show", "-s", "--format=%cI", "HEAD"]).trim();
+  const parsed = new Date(raw);
+  if (raw === "" || Number.isNaN(parsed.getTime())) {
+    throw new Error(`git-head-committer-date-unreadable: ${root}`);
+  }
+  return parsed.toISOString();
+}
+
 export function readRepositoryBinding(start: string): RepositoryBinding {
   const root = findRepositoryRoot(start);
   return bindRepository(root, readHeadSha(root));

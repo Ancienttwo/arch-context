@@ -1,6 +1,6 @@
 {
   "schemaVersion": "archcontext.capabilities/v1",
-  "package": { "name": "archctx", "version": "0.4.8" },
+  "package": { "name": "archctx", "version": "0.5.0" },
   "protocols": {
     "projectionRequest": "archcontext.projection-request/v1",
     "projectionResult": "archcontext.projection-result/v2",
@@ -10,5 +10,5 @@
     "architectureDocs": "archcontext.docs-renderer/v4",
     "agentContext": "archcontext.agent-context-renderer/v1"
   },
-  "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-protocol-v2"]
+  "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "module-statistics-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-protocol-v2", "recommendation-v3", "refactor-assessment-v1"]
 }

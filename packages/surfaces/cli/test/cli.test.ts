@@ -2000,6 +2000,91 @@ describe("archctx CLI", () => {
     }
   }, 30_000);
 
+  test("CLI refactor scan and record are thin adapters over the daemon RPC", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const scans: any[] = [];
+      const records: any[] = [];
+      const measured = {
+        schemaVersion: "archcontext.runtime-refactor-scan/v1",
+        snapshot: { snapshotDigest: `sha256:${"a".repeat(64)}`, modules: [{ nodeId: "module.b" }, { nodeId: "module.a" }] },
+        assessment: { assessmentDigest: `sha256:${"b".repeat(64)}` },
+        proposedRecommendations: []
+      };
+      const runtimeClient = {
+        refactorScan(_root: string, input: any) {
+          scans.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.scan", data: measured };
+        },
+        refactorRecord(_root: string, input: any) {
+          records.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.record", data: { input } };
+        }
+      };
+
+      const scanned = await runCli("refactor", ["scan", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(scanned.ok).toBe(true);
+      // No --request-json means the daemon applies its own default; the CLI invents no request.
+      expect(scans[0]).toEqual({});
+      // The envelope crosses the surface unchanged, module order included.
+      expect(scanned.data).toBe(measured as any);
+      expect((scanned.data as any).snapshot.modules.map((module: any) => module.nodeId)).toEqual(["module.b", "module.a"]);
+
+      const request = {
+        schemaVersion: "archcontext.refactor-request/v1",
+        scope: { kind: "node", nodeId: "module.a" },
+        task: "collapse the boundary"
+      };
+      const scoped = await runCli("refactor", ["scan", "--request-json", JSON.stringify(request)], root, { runtimeClient: runtimeClient as any });
+      expect(scoped.ok).toBe(true);
+      expect(scans[1]).toEqual({ request });
+
+      const malformed = await runCli("refactor", ["scan", "--request-json", "{not json"], root, { runtimeClient: runtimeClient as any });
+      expect(malformed.ok).toBe(false);
+      expect((malformed as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const invalid = await runCli("refactor", ["scan", "--request-json", JSON.stringify({ schemaVersion: "archcontext.refactor-request/v0", scope: { kind: "repository" } })], root, { runtimeClient: runtimeClient as any });
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(scans).toHaveLength(2);
+
+      const recorded = await runCli("refactor", [
+        "record",
+        "--assessment-digest", `sha256:${"b".repeat(64)}`,
+        "--expected-worktree-digest", `sha256:${"c".repeat(64)}`,
+        "--json"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(recorded.ok).toBe(true);
+      expect(records[0]).toEqual({
+        assessmentDigest: `sha256:${"b".repeat(64)}`,
+        expectedWorktreeDigest: `sha256:${"c".repeat(64)}`
+      });
+
+      const missingDigest = await runCli("refactor", ["record", "--assessment-digest", `sha256:${"b".repeat(64)}`], root, { runtimeClient: runtimeClient as any });
+      expect(missingDigest.ok).toBe(false);
+      expect((missingDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(records).toHaveLength(1);
+
+      const unknownSubcommand = await runCli("refactor", ["verify"], root, { runtimeClient: runtimeClient as any });
+      expect(unknownSubcommand.ok).toBe(false);
+      expect((unknownSubcommand as any).error.code).toBe("AC_SCHEMA_INVALID");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI help lists the refactor verb and one example", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-help-"));
+    try {
+      const help = await runCli("help", [], root);
+      expect((help.data as any).commands).toContain("refactor");
+      expect((help.data as any).examples).toContain("archctx refactor scan --json");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
   test("CLI help exposes the explicit state recovery command without a force alias", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-state-help-"));
     try {

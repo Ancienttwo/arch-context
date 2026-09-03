@@ -152,7 +152,7 @@ try {
               "status: active",
               "summary: Packaged MCP smoke",
               "responsibilities:",
-              "- prove cli and mcp share daemon state",
+              "  - prove cli and mcp share daemon state",
               ""
             ].join("\n")
           }
@@ -224,7 +224,7 @@ try {
               "status: active",
               "summary: Packaged MCP restart smoke",
               "responsibilities:",
-              "- prove cli and mcp share restarted daemon state",
+              "  - prove cli and mcp share restarted daemon state",
               ""
             ].join("\n")
           }
@@ -251,6 +251,57 @@ try {
   assert(stopped.ok === true, "daemon stop must succeed");
   await waitForRemoved(connectionPath, "connection file");
   await waitForRemoved(lockPath, "lock file");
+
+  // `refactor scan` reads Git-tracked HEAD blobs, so the smoke repo only becomes measurable once
+  // it is a committed repository. Committing here, after the last `apply` and after the daemon
+  // bound to the pre-Git identity has stopped, leaves every worktree-digest assertion above
+  // measuring exactly the tree it was written against.
+  gitInRepo(["init"]);
+  gitInRepo(["add", "-A"]);
+  gitInRepo([
+    "-c",
+    "user.email=packaged-cli-smoke@example.test",
+    "-c",
+    "user.name=Packaged CLI Smoke",
+    "commit",
+    "-m",
+    "packaged cli smoke fixture"
+  ]);
+
+  // Git membership is part of the repository identity, so the runtime paths move with the commit.
+  const gitPaths = await runArchctx("paths");
+  assert(gitPaths.ok === true, "paths must succeed once the smoke repo is a Git repository");
+  assert(gitPaths.data?.storageRepositoryId !== paths.data.storageRepositoryId, "git init must rebind the storage repository identity");
+
+  const scanned = await runArchctx("refactor", "scan", "--json");
+  assert(scanned.ok === true, `packaged refactor scan must succeed: ${JSON.stringify(scanned.error ?? {})}`);
+  assert(scanned.data?.schemaVersion === "archcontext.runtime-refactor-scan/v1", "packaged refactor scan must return the scan envelope");
+  assert(/^sha256:[a-f0-9]{64}$/.test(String(scanned.data?.snapshot?.snapshotDigest)), "packaged refactor scan must return a measured snapshot digest");
+  assert(/^sha256:[a-f0-9]{64}$/.test(String(scanned.data?.assessment?.assessmentDigest)), "packaged refactor scan must return a bound assessment");
+  assert(scanned.data.assessment.statisticsSnapshotDigest === scanned.data.snapshot.snapshotDigest, "packaged refactor scan assessment must bind its snapshot");
+  assert(Array.isArray(scanned.data?.proposedRecommendations), "packaged refactor scan must return proposed recommendations");
+
+  // The scan publishes the identity `record` validates against, so the digests it hands back must
+  // be directly consumable. A scan whose worktree identity came from anywhere else fails here.
+  const recorded = await runArchctx(
+    "refactor",
+    "record",
+    "--assessment-digest",
+    String(scanned.data.assessment.assessmentDigest),
+    "--expected-worktree-digest",
+    String(scanned.data.worktree.worktreeDigest),
+    "--json"
+  );
+  assert(recorded.ok === true, `packaged refactor record must accept the scan digests: ${JSON.stringify(recorded.error ?? {})}`);
+  assert(
+    recorded.data?.assessmentDigest === scanned.data.assessment.assessmentDigest,
+    "packaged refactor record must record exactly the scanned assessment"
+  );
+
+  const stoppedAfterScan = await runArchctx("daemon", "stop");
+  assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
+  await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");
+  await waitForRemoved(gitPaths.data.daemonLockPath, "lock file");
 
   console.log("[packaged-cli-smoke] OK");
 } finally {
@@ -294,6 +345,10 @@ function runArchctx(...args) {
       }
     });
   });
+}
+
+function gitInRepo(args) {
+  execFileSync("git", args, { cwd: repo, stdio: ["ignore", "pipe", "pipe"] });
 }
 
 function resolveArchctxBin() {

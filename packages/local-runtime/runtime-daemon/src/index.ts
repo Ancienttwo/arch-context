@@ -71,6 +71,12 @@ import {
   refactorProposalAuthorPairIssues,
   type RegisteredRefactorAssessmentV1
 } from "./refactor-recording";
+import {
+  REPOSITORY_REFACTOR_REQUEST,
+  RefactorScanError,
+  runRefactorScan,
+  type RefactorScanResultV1
+} from "./refactor-scan";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import {
   buildInvestigationContextBundleFromLedgerQuery,
@@ -116,7 +122,7 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { RECOMMENDATION_V3_SCHEMA_VERSION, refactorScanInvariantIssues } from "@archcontext/contracts";
+import { RECOMMENDATION_V3_SCHEMA_VERSION, refactorScanInvariantIssues, type RefactorRequestV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -444,6 +450,11 @@ export interface RuntimeLedgerMigrateInput {
   recommendationV3?: boolean;
   dryRun?: boolean;
   expectedWorktreeDigest?: string;
+}
+
+export interface RuntimeRefactorScanInput {
+  /** Absent means the default repository-scope request; the daemon never invents a proposal. */
+  request?: RefactorRequestV1;
 }
 
 export interface RuntimeRefactorRecordInput {
@@ -889,6 +900,7 @@ export interface RuntimeDaemonClient {
   ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
   book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
   recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> | JsonEnvelope;
+  refactorScan(root: string, input?: RuntimeRefactorScanInput): Promise<JsonEnvelope> | JsonEnvelope;
   refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
@@ -3245,6 +3257,70 @@ export class ArchctxDaemon {
   }
 
   /**
+   * Measures the repository and classifies one refactor request against it, then registers the
+   * pair so `refactorRecord` can append exactly what was measured here.
+   *
+   * Read-only and clock-free: no event is appended, and both `createdAt` fields come from the
+   * HEAD committer date, so two scans at the same HEAD return byte-identical envelopes. The
+   * proposed recommendations are a preview of what `refactor record` would write; `record`
+   * re-plans under the daemon clock and is the only path that persists anything.
+   */
+  async refactorScan(root: string, input: RuntimeRefactorScanInput = {}): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    const request = input.request ?? REPOSITORY_REFACTOR_REQUEST;
+    // Two different scopes, deliberately. `gitScope` is the tree as it is right now and is the
+    // only identity `refactor record` will accept, because that is the authority its freshness
+    // check reads. `storageScope` is where the ledger keeps this workspace's events, anchored to
+    // the last event's identity, and is the only key a replay can find them under.
+    const gitScope = await this.architectureLedgerGitScope(repositoryRoot);
+    const storageScope = await this.localStore.resolveArchitectureLedgerScope(gitScope);
+    const replay = await this.localStore.replayArchitectureLedger({ ...storageScope, mode: "genesis" });
+    const artifacts = recommendationArtifactsFromEvents(replay.events);
+    let result: RefactorScanResultV1;
+    try {
+      result = runRefactorScan({
+        root: repositoryRoot,
+        request,
+        repository: gitScope.repository,
+        worktree: gitScope.worktree,
+        previousRecommendations: artifacts.recommendations,
+        catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION)
+      });
+    } catch (error) {
+      if (error instanceof RefactorScanError) return errorEnvelope("refactor.scan", error.code, error.message);
+      return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    this.registerRefactorAssessment({
+      snapshot: result.snapshot,
+      assessment: result.assessment,
+      ...(result.proposal ? { proposal: result.proposal } : {}),
+      headSha: gitScope.worktree.headSha,
+      worktreeDigest: gitScope.worktree.worktreeDigest
+    });
+    return okEnvelope("refactor.scan", {
+      schemaVersion: "archcontext.runtime-refactor-scan/v1",
+      repository: gitScope.repository,
+      worktree: gitScope.worktree,
+      requestId: result.requestId,
+      request,
+      trackedFileCount: result.trackedFileCount,
+      snapshot: result.snapshot,
+      assessment: result.assessment,
+      ...(result.proposal ? { proposal: result.proposal } : {}),
+      proposedRecommendations: result.proposedRecommendations,
+      suppressed: result.suppressed,
+      recordCommand: `archctx refactor record --assessment-digest ${result.assessment.assessmentDigest} --expected-worktree-digest ${gitScope.worktree.worktreeDigest}`,
+      privacy: {
+        writes: "none",
+        rawSourcePersisted: false,
+        rawDiffPersisted: false,
+        promptPersisted: false
+      }
+    } as unknown as Json);
+  }
+
+  /**
    * In-process only, never dispatched: a scan's measured snapshot and assessment stay inside the
    * daemon, so `refactorRecord` binds them to the HEAD they were measured at instead of trusting
    * an RPC caller to resubmit a measurement the daemon never made.
@@ -3271,14 +3347,19 @@ export class ArchctxDaemon {
       } catch (error) {
         return errorEnvelope("refactor.record", "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
       }
-      const scope = await this.architectureLedgerScope(repositoryRoot);
-      if (registered.headSha !== scope.worktree.headSha || registered.worktreeDigest !== scope.worktree.worktreeDigest) {
+      // Same authority as `assertFreshWorktree` above: the measurement must belong to the tree
+      // that is here now, not to whatever identity the last stored event happens to carry.
+      const gitScope = await this.architectureLedgerGitScope(repositoryRoot);
+      if (registered.headSha !== gitScope.worktree.headSha || registered.worktreeDigest !== gitScope.worktree.worktreeDigest) {
         return errorEnvelope(
           "refactor.record",
           "AC_REFACTOR_STALE",
           `refactor assessment ${input.assessmentDigest} was measured at a different worktree state; run refactor scan again`
         );
       }
+      // The event still lands in the ledger scope the workspace's prior events live in, so the
+      // chain and its replay stay one continuous log.
+      const scope = await this.localStore.resolveArchitectureLedgerScope(gitScope);
       if (registered.proposal) {
         const authorIssues = refactorProposalAuthorPairIssues(registered.proposal.authoredBy);
         if (authorIssues.length > 0) {
@@ -5377,7 +5458,7 @@ const RUNTIME_RPC_SHORT_METHODS = new Set([
 
 const RUNTIME_RPC_LONG_METHODS = new Set([
   "init", "sync", "prepare", "context", "checkpoint", "auditRun", "auditApprove", "recommendations", "book",
-  "ledgerRebuild", "ledgerMigrate", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
+  "ledgerRebuild", "ledgerMigrate", "refactorScan", "startDeveloperReviewRun", "runSignedDeveloperReviewAttestation"
 ]);
 
 function runtimeRpcMethodTimeout(method: string, policy: RuntimeRpcClientTimeoutPolicy): number {
@@ -5546,6 +5627,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
 
   recommendations(root: string, input: RuntimeRecommendationInput) {
     return this.call("recommendations", [root, input]);
+  }
+
+  refactorScan(root: string, input: RuntimeRefactorScanInput = {}) {
+    return this.call("refactorScan", [root, input]);
   }
 
   refactorRecord(root: string, input: RuntimeRefactorRecordInput) {
@@ -5948,6 +6033,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.book(params[0] as string, params[1] as RuntimeBookInput | undefined);
       case "recommendations":
         return this.daemon.recommendations(params[0] as string, params[1] as RuntimeRecommendationInput);
+      case "refactorScan":
+        return this.daemon.refactorScan(params[0] as string, params[1] as RuntimeRefactorScanInput | undefined);
       case "refactorRecord":
         return this.daemon.refactorRecord(params[0] as string, params[1] as RuntimeRefactorRecordInput);
       case "repoAdd":

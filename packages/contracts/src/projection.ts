@@ -58,9 +58,12 @@ export const ARCHITECTURE_REFRESH_TARGETS = [
 export const ARCHCTX_FEATURES = [
   "architecture-docs-renderer-v2",
   "architecture-refresh-signal-v1",
+  "module-statistics-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
-  "projection-protocol-v2"
+  "projection-protocol-v2",
+  "recommendation-v3",
+  "refactor-assessment-v1"
 ] as const;
 
 export type ProjectionMode = (typeof PROJECTION_MODES)[number];
