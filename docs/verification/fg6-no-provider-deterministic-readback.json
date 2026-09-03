@@ -4,7 +4,7 @@
   "environment": "staging-release-readback",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-01T19:37:42.673Z",
+  "generatedAt": "2026-09-03T04:30:10.532Z",
   "sources": {
     "localNoCloudSource": "docs/verification/fg6-local-no-cloud-readback.json",
     "runnerSource": "docs/verification/fg4-github-hosted-runner-readback.json",
@@ -55,7 +55,7 @@
       },
       "deterministicGate": {
         "llmProviderConfigured": false,
-        "modelDigest": "sha256:5ee48e00f0e2e4e8b4f2d3e3675a4acdbfdcd4927401cf94ed8824423e87a339",
+        "modelDigest": "sha256:29eabe42901fa25711939fdcf83a8dde595258594d78999ec0c0d12c77a768c4",
         "result": "pass",
         "reviewDigestMatchesAttestation": true
       },
