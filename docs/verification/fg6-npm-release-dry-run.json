@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-02T05:59:03.907Z",
+  "generatedAt": "2026-09-03T05:18:05.412Z",
   "package": {
     "name": "archctx",
-    "version": "0.4.8",
+    "version": "0.5.0",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -31,12 +31,12 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.4.8.tgz",
-    "publishDryRunId": "archctx@0.4.8",
-    "integrity": "sha512-AOQdTm7eNikBMwByEcmFVewQ5GrT1MKxWNsXj+jSeypVWwhBWnd+qqUwb9QEw2Y4D8ZsB8ZNqIrhsQP8XPQTaQ==",
-    "shasum": "ea1c03076b6ba1183955c08c7ed88cec6018695e",
-    "size": 400669,
-    "unpackedSize": 2127077,
+    "tarball": "archctx-0.5.0.tgz",
+    "publishDryRunId": "archctx@0.5.0",
+    "integrity": "sha512-gXTM88mYGL7DYO70Gq2b2Kmdlfvpldl3YEun/oo6nrtIzqf0fBH830k9agmgfJ1H2cmUjUzS0WEukJUAkvBwqg==",
+    "shasum": "ea49cede5624a219b1def8a04b703fcb4a2f4692",
+    "size": 429499,
+    "unpackedSize": 2266562,
     "entryCount": 87,
     "files": [
       "NOTICE.md",
@@ -134,7 +134,7 @@
     "ok": true,
     "source": {
       "name": "@archcontext/contracts",
-      "version": "0.4.8",
+      "version": "0.5.0",
       "files": [
         "src",
         "fixtures"
@@ -145,7 +145,7 @@
     },
     "package": {
       "name": "archctx-contracts",
-      "version": "0.4.8",
+      "version": "0.5.0",
       "private": false,
       "files": [
         "src",
@@ -161,13 +161,13 @@
       }
     },
     "artifact": {
-      "tarball": "archctx-contracts-0.4.8.tgz",
-      "publishDryRunId": "archctx-contracts@0.4.8",
-      "integrity": "sha512-BIFSNY+HgNrParQwzeL+TMhdx5J8GCR5pc2iohuS+s35Qxmjgrhyexuarm4SV1vFRY3TMpQWqt8kS82X+d03MQ==",
-      "shasum": "41bfbf43430c7dfd9ceb23ecb0b7cc3bf59b657c",
-      "size": 76848,
-      "unpackedSize": 463502,
-      "entryCount": 178,
+      "tarball": "archctx-contracts-0.5.0.tgz",
+      "publishDryRunId": "archctx-contracts@0.5.0",
+      "integrity": "sha512-OBspplgpvywq0dUBalrq0bECACuH+eacyG/jPOOBXwCA/NiNEPcXzXe7oz3xaBJRSl+S0Cw19qUWHG0EufMlMw==",
+      "shasum": "4cde9e74cc6364a2f7d0822606e214175e335b74",
+      "size": 85865,
+      "unpackedSize": 507778,
+      "entryCount": 179,
       "files": [
         "fixtures/boundary/agent-job-expired.json",
         "fixtures/boundary/architecture-event-extension.json",
@@ -345,6 +345,7 @@
         "src/practices.ts",
         "src/product-version.ts",
         "src/projection.ts",
+        "src/refactor.ts",
         "src/schema.ts",
         "src/validator.ts"
       ]
@@ -447,7 +448,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.4.8",
+    "postPublishInstallCommand": "npm install -g archctx@0.5.0",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
