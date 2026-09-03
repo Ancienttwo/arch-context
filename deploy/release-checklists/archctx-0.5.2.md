@@ -1,7 +1,7 @@
 # archctx 0.5.2 release checklist
 
-Status: pre-publish. The manifest fix and every local gate below are complete; the hosted Verify
-run, npm preflights, publish, and post-publish readbacks remain.
+Status: complete. Every item is verified; `archctx@0.5.2` and `archctx-contracts@0.5.2` are live
+on `latest`.
 
 Scope: one packaging fix. `0.5.1` was published on 2026-09-03 with a release manifest that omitted
 the `koffi` runtime dependency: the bundle keeps koffi external (`--external=koffi`), the CLI
@@ -54,17 +54,19 @@ installed and this release supersedes it on `latest`.
   at `0.5.2`; `update --check --json` resolves the current version — on Node `24.18.0` and at the
   `22.22.0` engine floor. `archctx-contracts-0.5.2.tgz` installs clean and imports via bun with
   165 exports at version `0.5.2`. This gate is what `0.5.1` failed.
-- [ ] Hosted `Verify` run is green on the merged release-prep commit.
-- [ ] `bun run preflight:archctx:npm` reports `ready`.
-- [ ] `bun run preflight:contracts:npm` reports `ready`.
-- [ ] Publish `archctx-contracts@0.5.2` and read back version, integrity, shasum, and clean-room
+- [x] Hosted `Verify` run `33777570628` is green on the merged release-prep commit `ffaea92`
+  (main after PR #142): `Governance Verify` plus all nine platform targets across Ubuntu, macOS,
+  and Windows on Node `22.22.x`, `24.x`, and `25.x`.
+- [x] `bun run preflight:archctx:npm` reports `ready`.
+- [x] `bun run preflight:contracts:npm` reports `ready`.
+- [x] Publish `archctx-contracts@0.5.2` and read back version, integrity, shasum, and clean-room
   import.
-- [ ] Publish `archctx@0.5.2` and read back version, integrity, shasum, Node engine, exact
+- [x] Publish `archctx@0.5.2` and read back version, integrity, shasum, Node engine, exact
   CodeGraph and koffi dependencies, and the capabilities handshake including
   `refactor-resolution-v1`.
-- [ ] Record the official npm artifact in `docs/verification/architecture-ledger-al10-npm-release-readback.json`
+- [x] Record the official npm artifact in `docs/verification/architecture-ledger-al10-npm-release-readback.json`
   from a real clean-room install, then close `bun run readback:release` with `failures: []`.
-- [ ] Update `docs/spec.md` `## Release State` and `docs/runbooks/personal-user-install.md` to name
+- [x] Update `docs/spec.md` `## Release State` and `docs/runbooks/personal-user-install.md` to name
   `0.5.2` as the published artifact once the registry readback is recorded.
 
 ## Publish execution
@@ -86,8 +88,21 @@ explicit writable cache because `~/.npm/_cacache` contains root-owned files on t
 
 ## Post-publish readback
 
-Not started. Fill this section from the live registry after publishing; do not pre-write expected
-digests here.
+Published 2026-09-03 under interactive web authorization on an allocated PTY; `latest` moved to
+`0.5.2`, `beta` stayed at `0.1.4-beta.0`.
+
+| artifact | published at (UTC) | shasum | SHA-256 |
+|---|---|---|---|
+| `archctx-contracts@0.5.2` | `16:32:42.230` | `adc159e15bceec26480bfa607907717ce0e81924` | `470705385f5cf31b72279eead41f8a68c694c25503cc0c9764538e87be9daf3d` |
+| `archctx@0.5.2` | `16:34:08.377` | `3f247035699d9e15e2bf8935b7b16a3d50b31ce6` | `d8c72fea9310f57ade89b8e51638b6bf2770bcf2c7a43d260bea1e518e30f9b8` |
+
+Both registry tarballs re-downloaded with `npm pack` hash-match the staged digests exactly. A
+plain `npm install archctx@0.5.2` in a clean room outside the repository passed the full smoke on
+Node `24.18.0` (capabilities 9 features including `refactor-resolution-v1`, help 42 commands,
+doctor product/CLI/daemon/MCP `0.5.2`, update check `current`) and at the `22.22.0` engine floor;
+`archctx-contracts` imported via bun with 165 exports at `0.5.2`.
+`docs/verification/architecture-ledger-al10-npm-release-readback.json` and its `.md` hold the
+official record, and `bun run readback:release` closed with `failures: []`.
 
 ## Pre-publish staging
 
