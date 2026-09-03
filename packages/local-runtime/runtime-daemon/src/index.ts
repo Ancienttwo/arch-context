@@ -50,10 +50,12 @@ import {
   type ArchitectureLedgerProjectionFile,
   type ArchitectureLedgerReplayResult,
   type ArchitectureLedgerScope,
-  type ArchitectureLedgerGraphState
+  type ArchitectureLedgerGraphState,
+  type RecommendationLedgerRecordV1
 } from "@archcontext/core/architecture-ledger";
 import { compileArchitectureFactChanges, compileEvidenceStateChanges } from "@archcontext/core/architecture-delta";
 import {
+  RECOMMENDATION_SCHEDULER_ENGINE_VERSION,
   aggregateRecommendationLifecycleMetrics,
   createRecommendationFeedback,
   recommendationLifecycleLedgerPayload,
@@ -61,6 +63,14 @@ import {
   type RecommendationFeedbackAction,
   type RecommendationFeedbackSource
 } from "@archcontext/core/recommendation-engine";
+import {
+  RefactorAssessmentRegistry,
+  buildRefactorRecordEvent,
+  planRecommendationV3Migration,
+  refactorClassifierRulesetDigest,
+  refactorProposalAuthorPairIssues,
+  type RegisteredRefactorAssessmentV1
+} from "./refactor-recording";
 import { checkpointTask, prepareTask } from "@archcontext/core/application";
 import {
   buildInvestigationContextBundleFromLedgerQuery,
@@ -106,6 +116,7 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
+import { RECOMMENDATION_V3_SCHEMA_VERSION, refactorScanInvariantIssues } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -280,6 +291,11 @@ export interface RuntimeRecommendationInput {
   command: "metrics" | RecommendationFeedbackAction;
   recommendationId?: string;
   reason?: string;
+  /**
+   * `resolve` on a non-practice category requires resolution evidence. 0.5.0 ships the gate, not
+   * the lookup: no `RefactorResolutionEvidenceV1` can exist before `refactor verify` (0.5.1).
+   */
+  evidenceDigest?: string;
   actor?: string;
   actorKind?: ArchitectureActorKind;
   source?: RecommendationFeedbackSource;
@@ -425,8 +441,14 @@ export interface RuntimeLedgerRebuildInput {
 
 export interface RuntimeLedgerMigrateInput {
   fromYaml?: boolean;
+  recommendationV3?: boolean;
   dryRun?: boolean;
   expectedWorktreeDigest?: string;
+}
+
+export interface RuntimeRefactorRecordInput {
+  assessmentDigest: string;
+  expectedWorktreeDigest: string;
 }
 
 export interface RuntimeLedgerRollbackInput {
@@ -867,6 +889,7 @@ export interface RuntimeDaemonClient {
   ledgerRollback(root: string, input?: RuntimeLedgerRollbackInput): Promise<JsonEnvelope> | JsonEnvelope;
   book(root: string, input?: RuntimeBookInput): Promise<JsonEnvelope> | JsonEnvelope;
   recommendations(root: string, input: RuntimeRecommendationInput): Promise<JsonEnvelope> | JsonEnvelope;
+  refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope> | JsonEnvelope;
   repoAdd(root: string, name?: string): Promise<JsonEnvelope> | JsonEnvelope;
   repoList(): Promise<JsonEnvelope> | JsonEnvelope;
   repoRemove(repositoryId: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -1071,6 +1094,7 @@ export class ArchctxDaemon {
   private readonly changesets = new Map<string, ChangeSetDraft>();
   private readonly changeSetWorktreeDigestProfiles = new Map<string, RuntimeWorktreeDigestProfile>();
   private readonly deferredArchitectureChangeFeedFailures = new Map<string, string>();
+  private readonly refactorAssessments = new RefactorAssessmentRegistry();
   // Tracks the AbortController for every audit job's in-flight (foreground or detached
   // background) investigation, keyed by jobId, so `stop()` can abort real `claude` subprocesses
   // rather than leaving them running orphaned past the daemon's own lifetime.
@@ -3098,7 +3122,11 @@ export class ArchctxDaemon {
       if (!current) {
         return errorEnvelope(`recommendations.${command}`, "AC_SCHEMA_INVALID", `recommendation not found: ${input.recommendationId}`);
       }
-      let next: RecommendationV2;
+      if (command === "resolve") {
+        const gate = refactorResolveGate(current, input.evidenceDigest);
+        if (gate) return errorEnvelope(`recommendations.${command}`, gate.code, gate.message, gate.reasonCode);
+      }
+      let next: RecommendationLedgerRecordV1;
       try {
         next = transitionRecommendationLifecycle(current, {
           action: command,
@@ -3216,6 +3244,107 @@ export class ArchctxDaemon {
     });
   }
 
+  /**
+   * In-process only, never dispatched: a scan's measured snapshot and assessment stay inside the
+   * daemon, so `refactorRecord` binds them to the HEAD they were measured at instead of trusting
+   * an RPC caller to resubmit a measurement the daemon never made.
+   */
+  registerRefactorAssessment(input: RegisteredRefactorAssessmentV1): string {
+    this.assertRunning();
+    return this.refactorAssessments.register(input);
+  }
+
+  async refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope> {
+    this.assertRunning();
+    const repositoryRoot = findRepositoryRoot(root);
+    return this.withWriter(async () => {
+      const registered = this.refactorAssessments.get(input.assessmentDigest);
+      if (!registered) {
+        return errorEnvelope(
+          "refactor.record",
+          "AC_SCHEMA_INVALID",
+          `refactor assessment not found: ${input.assessmentDigest}; run refactor scan again`
+        );
+      }
+      try {
+        this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "refactor record");
+      } catch (error) {
+        return errorEnvelope("refactor.record", "AC_REFACTOR_STALE", error instanceof Error ? error.message : String(error));
+      }
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      if (registered.headSha !== scope.worktree.headSha || registered.worktreeDigest !== scope.worktree.worktreeDigest) {
+        return errorEnvelope(
+          "refactor.record",
+          "AC_REFACTOR_STALE",
+          `refactor assessment ${input.assessmentDigest} was measured at a different worktree state; run refactor scan again`
+        );
+      }
+      if (registered.proposal) {
+        const authorIssues = refactorProposalAuthorPairIssues(registered.proposal.authoredBy);
+        if (authorIssues.length > 0) {
+          return errorEnvelope("refactor.record", "AC_REFACTOR_PROPOSAL_UNAUTHORED", authorIssues.join("; "));
+        }
+      }
+      const scanIssues = refactorScanInvariantIssues({
+        snapshot: registered.snapshot,
+        assessment: registered.assessment,
+        ...(registered.proposal ? { proposal: registered.proposal } : {})
+      });
+      if (scanIssues.length > 0) return errorEnvelope("refactor.record", "AC_SCHEMA_INVALID", scanIssues.join("; "));
+
+      const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      let built: ReturnType<typeof buildRefactorRecordEvent>;
+      try {
+        built = buildRefactorRecordEvent({
+          repository: scope.repository,
+          worktree: scope.worktree,
+          registered,
+          previousRecommendations: artifacts.recommendations,
+          evidenceState: replay.evidenceState,
+          graphDigest: replay.graphDigest,
+          catalogDigest: refactorClassifierRulesetDigest(RECOMMENDATION_SCHEDULER_ENGINE_VERSION),
+          now: this.clock()
+        });
+      } catch (error) {
+        return errorEnvelope("refactor.record", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      }
+      const append = await this.appendArchitectureEventsWithFeed(root, {
+        writer: "runtime-daemon",
+        events: [built.event]
+      });
+      return okEnvelope("refactor.record", {
+        schemaVersion: "archcontext.runtime-refactor-record/v1",
+        repository: scope.repository,
+        worktree: scope.worktree,
+        assessmentDigest: registered.assessment.assessmentDigest,
+        runId: built.plan.run.runId,
+        catalogDigest: built.plan.run.catalogDigest,
+        scale: registered.assessment.scale,
+        recommendationIds: built.plan.recommendations.map((recommendation) => recommendation.recommendationId),
+        recommendations: built.plan.recommendations,
+        evidenceItemIds: built.plan.evidenceItems.map((item) => item.evidenceId),
+        suppressed: built.plan.suppressed,
+        append: {
+          status: "appended",
+          eventSource: built.event.source,
+          appendedEventCount: append.appendedEvents.length,
+          duplicateEventCount: append.duplicateEvents.length,
+          graphDigest: append.graphDigest,
+          entityCount: append.entityCount,
+          relationCount: append.relationCount,
+          constraintCount: append.constraintCount
+        },
+        privacy: {
+          writes: "architecture-ledger-event-only",
+          rawSourcePersisted: false,
+          rawDiffPersisted: false,
+          promptPersisted: false
+        }
+      } as unknown as Json);
+    });
+  }
+
   async ledgerProject(root: string, input: RuntimeLedgerProjectInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.assertRunning();
     const writes = input.dryRun === false;
@@ -3264,7 +3393,11 @@ export class ArchctxDaemon {
 
   async ledgerMigrate(root: string, input: RuntimeLedgerMigrateInput = { dryRun: true }): Promise<JsonEnvelope> {
     this.assertRunning();
-    if (!input.fromYaml) return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml");
+    if (input.fromYaml && input.recommendationV3) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --from-yaml or --recommendation-v3, not both");
+    }
+    if (input.recommendationV3) return this.ledgerMigrateRecommendationV3(root, input);
+    if (!input.fromYaml) return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate requires --from-yaml or --recommendation-v3");
     const writes = input.dryRun === false;
     const migrate = async () => {
       const repositoryRoot = root;
@@ -3376,6 +3509,91 @@ export class ArchctxDaemon {
         reconcile,
         recommendedEnvironment: {
           ARCHCONTEXT_LEDGER_MODE: "dual"
+        }
+      } as unknown as Json);
+    };
+    return writes ? this.withWriter(migrate) : migrate();
+  }
+
+  /**
+   * Appends one migration event; it never rewrites a `recommendations` row. The event stream is
+   * the authority, so an in-place UPDATE would leave the log at v2, and `operations` stays empty
+   * so `ledger rebuild` replays to an identical `graphDigest` before and after.
+   */
+  private async ledgerMigrateRecommendationV3(root: string, input: RuntimeLedgerMigrateInput): Promise<JsonEnvelope> {
+    const repositoryRoot = findRepositoryRoot(root);
+    const writes = input.dryRun === false;
+    const migrate = async (): Promise<JsonEnvelope> => {
+      if (writes) this.assertFreshWorktree(repositoryRoot, input.expectedWorktreeDigest, "ledger migrate --recommendation-v3");
+      const scope = await this.architectureLedgerScope(repositoryRoot);
+      const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
+      const artifacts = recommendationArtifactsFromEvents(replay.events);
+      let plan: ReturnType<typeof planRecommendationV3Migration>;
+      try {
+        plan = planRecommendationV3Migration({
+          repository: scope.repository,
+          worktree: scope.worktree,
+          recommendations: artifacts.recommendations,
+          graphDigest: replay.graphDigest,
+          now: this.clock()
+        });
+      } catch (error) {
+        return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      }
+      const base = {
+        schemaVersion: "archcontext.runtime-recommendation-v3-migrate/v1",
+        mode: "recommendation-v3",
+        architectureLedger: this.architectureLedger,
+        repository: scope.repository,
+        worktree: scope.worktree,
+        dryRun: !writes,
+        graphDigest: replay.graphDigest,
+        inputDigest: plan.inputDigest,
+        upgradedCount: plan.upgraded.length,
+        recommendationIds: plan.upgraded.map((recommendation) => recommendation.recommendationId)
+      } as const;
+      if (!writes) {
+        return okEnvelope("ledger.migrate", {
+          ...base,
+          status: plan.upgraded.length === 0 ? "up-to-date" : "planned",
+          writes: "none",
+          append: { status: "not-applied" }
+        } as unknown as Json);
+      }
+      if (!plan.event) {
+        return okEnvelope("ledger.migrate", {
+          ...base,
+          status: "up-to-date",
+          writes: "none",
+          append: { status: "not-applied", appendedEventCount: 0, duplicateEventCount: 0 },
+          verification: { ok: true, graphDigest: replay.graphDigest, expectedGraphDigest: replay.graphDigest }
+        } as unknown as Json);
+      }
+      const append = await this.appendArchitectureEventsWithFeed(root, {
+        writer: "runtime-daemon",
+        events: [plan.event]
+      });
+      const rebuilt = await this.localStore.rebuildArchitectureLedgerCurrentState(scope);
+      const verified = rebuilt.graphDigest === replay.graphDigest;
+      return okEnvelope("ledger.migrate", {
+        ...base,
+        status: verified ? "verified" : "verification-failed",
+        writes: "architecture-ledger",
+        append: {
+          status: "appended",
+          appendedEventCount: append.appendedEvents.length,
+          duplicateEventCount: append.duplicateEvents.length,
+          graphDigest: append.graphDigest,
+          entityCount: append.entityCount,
+          relationCount: append.relationCount,
+          constraintCount: append.constraintCount
+        },
+        verification: {
+          schemaVersion: "archcontext.runtime-recommendation-v3-migration-verification/v1",
+          ok: verified,
+          replayedEventCount: rebuilt.cursor.eventCount,
+          graphDigest: rebuilt.graphDigest,
+          expectedGraphDigest: replay.graphDigest
         }
       } as unknown as Json);
     };
@@ -5330,6 +5548,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("recommendations", [root, input]);
   }
 
+  refactorRecord(root: string, input: RuntimeRefactorRecordInput) {
+    return this.call("refactorRecord", [root, input]);
+  }
+
   repoAdd(root: string, name?: string) {
     return this.call("repoAdd", [root, name]);
   }
@@ -5726,6 +5948,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.book(params[0] as string, params[1] as RuntimeBookInput | undefined);
       case "recommendations":
         return this.daemon.recommendations(params[0] as string, params[1] as RuntimeRecommendationInput);
+      case "refactorRecord":
+        return this.daemon.refactorRecord(params[0] as string, params[1] as RuntimeRefactorRecordInput);
       case "repoAdd":
         return this.daemon.repoAdd(params[0] as string, params[1] as string | undefined);
       case "repoList":
@@ -5784,25 +6008,60 @@ export class ArchctxRuntimeRpcServer {
 
 function recommendationArtifactsFromEvents(events: readonly ArchitectureEventV1[]): {
   recommendationRuns: RecommendationRunV1[];
-  recommendations: RecommendationV2[];
+  recommendations: RecommendationLedgerRecordV1[];
   feedback: RecommendationFeedbackV1[];
 } {
   const recommendationRuns: RecommendationRunV1[] = [];
-  const recommendations: RecommendationV2[] = [];
+  const recommendations: RecommendationLedgerRecordV1[] = [];
   const feedback: RecommendationFeedbackV1[] = [];
   for (const event of events) {
     const payload = architectureLedgerPayload(event);
     recommendationRuns.push(...(payload.recommendationRuns ?? []) as unknown as RecommendationRunV1[]);
-    recommendations.push(...(payload.recommendations ?? []) as unknown as RecommendationV2[]);
+    recommendations.push(...(payload.recommendations ?? []) as unknown as RecommendationLedgerRecordV1[]);
     feedback.push(...(payload.feedback ?? []) as unknown as RecommendationFeedbackV1[]);
   }
   return { recommendationRuns, recommendations, feedback };
 }
 
-function latestRecommendationById(recommendations: readonly RecommendationV2[], recommendationId: string): RecommendationV2 | undefined {
+function latestRecommendationById(
+  recommendations: readonly RecommendationLedgerRecordV1[],
+  recommendationId: string
+): RecommendationLedgerRecordV1 | undefined {
   return recommendations
     .filter((recommendation) => recommendation.recommendationId === recommendationId)
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+}
+
+/**
+ * 0.5.0 ships the gate, not the lookup. No `RefactorResolutionEvidenceV1` can exist before
+ * `refactor verify` (0.5.1), so a non-practice recommendation is rejected both when the digest is
+ * missing and when one is supplied: accepting a digest RF3 can never verify would be a lie in the
+ * ledger, and reading a `payload.refactorResolutionEvidence` RF3 never writes would be dead code.
+ */
+function refactorResolveGate(
+  recommendation: RecommendationLedgerRecordV1,
+  evidenceDigest: string | undefined
+): { code: "AC_PRECONDITION_FAILED" | "AC_REFACTOR_EVIDENCE_REQUIRED"; message: string; reasonCode?: string } | undefined {
+  if (recommendation.schemaVersion !== RECOMMENDATION_V3_SCHEMA_VERSION) {
+    return {
+      code: "AC_PRECONDITION_FAILED",
+      message: `recommendation ${recommendation.recommendationId} is still ${recommendation.schemaVersion}; run archctx ledger migrate --recommendation-v3 --write before resolving`,
+      reasonCode: "recommendation-v2-not-migrated"
+    };
+  }
+  if (recommendation.category === "practice") return undefined;
+  if (!evidenceDigest) {
+    return {
+      code: "AC_REFACTOR_EVIDENCE_REQUIRED",
+      message: `recommendations resolve on category ${recommendation.category} requires --evidence-digest`,
+      reasonCode: "evidence-digest-missing"
+    };
+  }
+  return {
+    code: "AC_REFACTOR_EVIDENCE_REQUIRED",
+    message: `no refactor resolution evidence exists for ${recommendation.recommendationId}; archctx refactor verify ships in 0.5.1`,
+    reasonCode: "refactor-resolution-evidence-unavailable"
+  };
 }
 
 function isRecommendationLifecycleCliAction(command: string): command is RecommendationFeedbackAction {

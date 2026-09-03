@@ -680,25 +680,28 @@ async function runLedgerCommand(args: string[], cwd: string, runtime?: () => Pro
     });
   }
   if (subcommand === "migrate") {
-    if (!args.includes("--from-yaml")) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate currently requires --from-yaml");
+    const fromYaml = args.includes("--from-yaml");
+    const recommendationV3 = args.includes("--recommendation-v3");
+    if (fromYaml === recommendationV3) {
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate requires exactly one of --from-yaml or --recommendation-v3");
     }
+    const mode = fromYaml ? "--from-yaml" : "--recommendation-v3";
     const write = args.includes("--write");
     if (write && args.includes("--dry-run")) {
       return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate accepts --dry-run or --write, not both");
     }
     const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
     if (write && !expectedWorktreeDigest) {
-      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", "ledger migrate --from-yaml --write requires --expected-worktree-digest");
+      return errorEnvelope("ledger.migrate", "AC_SCHEMA_INVALID", `ledger migrate ${mode} --write requires --expected-worktree-digest`);
     }
     const daemon = await requiredLedgerRuntime(runtime);
     return daemon.ledgerMigrate(cwd, {
-      fromYaml: true,
+      ...(fromYaml ? { fromYaml: true } : { recommendationV3: true }),
       dryRun: !write,
       expectedWorktreeDigest
     });
   }
-  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, rebuild --from-git, rollback --to-yaml, or project --to-git");
+  return errorEnvelope("ledger", "AC_SCHEMA_INVALID", "ledger requires status, state, drift --json, promote --mode authoritative --preflight --rollback-plan, migrate --from-yaml, migrate --recommendation-v3, rebuild --from-git, rollback --to-yaml, or project --to-git");
 }
 
 async function requiredLedgerRuntime(runtime: (() => Promise<RuntimeDaemonClient>) | undefined): Promise<RuntimeDaemonClient> {
@@ -902,6 +905,7 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
     ...(readFlag(args, "--actor-kind") === undefined ? {} : { actorKind: readFlag(args, "--actor-kind")! as any }),
     ...(readFlag(args, "--source") === undefined ? {} : { source: readFlag(args, "--source")! as any }),
     ...(readFlag(args, "--expected-worktree-digest") === undefined ? {} : { expectedWorktreeDigest: readFlag(args, "--expected-worktree-digest")! }),
+    ...(readFlag(args, "--evidence-digest") === undefined ? {} : { evidenceDigest: readFlag(args, "--evidence-digest")! }),
     ...(readFlag(args, "--agent-job-id") === undefined ? {} : { agentJobId: readFlag(args, "--agent-job-id")! }),
     ...(readFlag(args, "--now") === undefined ? {} : { now: readFlag(args, "--now")! })
   };

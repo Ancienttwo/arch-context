@@ -4511,10 +4511,27 @@ function persistEvidenceTombstone(
 function persistRecommendationRun(db: SqliteDatabase, event: ArchitectureEventV1, run: NonNullable<ArchitectureLedgerEventPayload["recommendationRuns"]>[number]): void {
   const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
-    `INSERT OR REPLACE INTO recommendation_runs
+    // Upsert, never REPLACE: REPLACE deletes the existing row first, and `recommendations.run_id`
+    // references it ON DELETE RESTRICT, so re-persisting a run that already has recommendation
+    // rows would fail the foreign key instead of refreshing the row.
+    `INSERT INTO recommendation_runs
       (run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, status, catalog_digest,
         input_digest, output_digest, metrics_json, run_json, started_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(run_id) DO UPDATE SET
+        repository_id = excluded.repository_id,
+        storage_repository_id = excluded.storage_repository_id,
+        workspace_id = excluded.workspace_id,
+        storage_workspace_id = excluded.storage_workspace_id,
+        event_id = excluded.event_id,
+        status = excluded.status,
+        catalog_digest = excluded.catalog_digest,
+        input_digest = excluded.input_digest,
+        output_digest = excluded.output_digest,
+        metrics_json = excluded.metrics_json,
+        run_json = excluded.run_json,
+        started_at = excluded.started_at,
+        completed_at = excluded.completed_at`
   ).run(
     architectureLedgerStorageId(event.worktree, run.runId),
     event.repository.repositoryId,
@@ -4536,11 +4553,35 @@ function persistRecommendationRun(db: SqliteDatabase, event: ArchitectureEventV1
 function persistRecommendation(db: SqliteDatabase, event: ArchitectureEventV1, recommendation: NonNullable<ArchitectureLedgerEventPayload["recommendations"]>[number]): void {
   const workspaceKey = architectureLedgerWorkspaceKey(event.worktree);
   db.prepare(
-    `INSERT OR REPLACE INTO recommendations
+    // Upsert, never REPLACE: `recommendation_feedback.recommendation_id` references this row
+    // ON DELETE RESTRICT, so REPLACE's delete-then-insert fails the foreign key for any
+    // recommendation that already carries lifecycle feedback — exactly what the v2 to v3
+    // migration re-persists.
+    `INSERT INTO recommendations
       (recommendation_id, run_id, repository_id, storage_repository_id, workspace_id, storage_workspace_id, event_id, fingerprint,
         subject, practice_id, status, confidence, enforcement, risk, uncertainty, evidence_binding_ids_json, explanation_json,
         recommendation_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(recommendation_id) DO UPDATE SET
+        run_id = excluded.run_id,
+        repository_id = excluded.repository_id,
+        storage_repository_id = excluded.storage_repository_id,
+        workspace_id = excluded.workspace_id,
+        storage_workspace_id = excluded.storage_workspace_id,
+        event_id = excluded.event_id,
+        fingerprint = excluded.fingerprint,
+        subject = excluded.subject,
+        practice_id = excluded.practice_id,
+        status = excluded.status,
+        confidence = excluded.confidence,
+        enforcement = excluded.enforcement,
+        risk = excluded.risk,
+        uncertainty = excluded.uncertainty,
+        evidence_binding_ids_json = excluded.evidence_binding_ids_json,
+        explanation_json = excluded.explanation_json,
+        recommendation_json = excluded.recommendation_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at`
   ).run(
     architectureLedgerStorageId(event.worktree, recommendation.recommendationId),
     architectureLedgerStorageId(event.worktree, recommendation.runId),

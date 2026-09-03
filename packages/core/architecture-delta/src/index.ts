@@ -816,11 +816,25 @@ function addRelationSelector(state: MutableBuildState, repositoryId: string, edg
   });
 }
 
+/**
+ * The single selector-identity authority. Every producer that must name the same
+ * architectural subject — delta mapping, refactor recommendations, the v2 to v3
+ * recommendation upcast — derives its `selectorId` here, so two producers can never
+ * disagree about which subject a record points at.
+ */
+export function architectureSubjectSelectorId(
+  kind: ArchitectureSubjectSelectorKind,
+  repositoryId: string,
+  stableKey: string
+): string {
+  return `subject.${kind}.${shortDigest(digestJson({ repositoryId, stableKey } as unknown as Json))}`;
+}
+
 function addSelector(
   state: MutableBuildState,
   input: Omit<ArchitectureSubjectSelectorV1, "schemaVersion" | "selectorId" | "digest">
 ): ArchitectureSubjectSelectorV1 {
-  const selectorId = selectorIdFor(input.kind, input.repositoryId, input.stableKey);
+  const selectorId = architectureSubjectSelectorId(input.kind, input.repositoryId, input.stableKey);
   const existing = state.selectors.get(selectorId);
   if (existing) return existing;
   const draft: ArchitectureSubjectSelectorV1 = {
@@ -1200,9 +1214,6 @@ function evidenceStrengthDistribution(evidenceItems: EvidenceItemV2[]): Record<E
   return counts;
 }
 
-function selectorIdFor(kind: ArchitectureSubjectSelectorKind, repositoryId: string, stableKey: string): string {
-  return `subject.${kind}.${shortDigest(digestJson({ repositoryId, stableKey } as unknown as Json))}`;
-}
 
 function withDigest(fact: ArchitectureDeltaRawFactV1): ArchitectureDeltaRawFactV1 {
   return {

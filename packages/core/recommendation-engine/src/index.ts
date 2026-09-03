@@ -1,25 +1,50 @@
 import {
+  EVIDENCE_BINDING_SCHEMA_VERSION,
+  EVIDENCE_ITEM_SCHEMA_VERSION,
   RECOMMENDATION_FEEDBACK_SCHEMA_VERSION,
   RECOMMENDATION_RUN_SCHEMA_VERSION,
   RECOMMENDATION_SCHEMA_VERSION,
+  RECOMMENDATION_V3_SCHEMA_VERSION,
   digestJson,
+  recommendationV3FingerprintInput,
+  recommendationV3InvariantIssues,
   type ArchitectureEventSource,
   type ArchitectureActorKind,
   type ArchitectureRepositoryIdentityV1,
   type ArchitectureWorktreeIdentityV1,
+  type ArchitectureMajorChangeReasonCode,
+  type EvidenceBindingV1,
+  type EvidenceItemV2,
   type Json,
+  type ModuleStatisticsSnapshotV1,
+  type PracticeRecommendationPayloadV1,
   type PracticeRecommendationSchedulerPolicyV1,
+  type RecommendationAuthorV1,
   type RecommendationFeedbackV1,
+  type RecommendationRelationsV1,
   type RecommendationRunV1,
-  type RecommendationV2
+  type RecommendationStatus as LedgerRecommendationStatus,
+  type RecommendationV2,
+  type RecommendationV3,
+  type RefactorAssessmentV1,
+  type RefactorObservationKind,
+  type RefactorObservationV1,
+  type RefactorProposalPayloadV1,
+  type RefactorProposalV1,
+  type StructuralObservationPayloadV1
 } from "@archcontext/contracts";
+import { architectureSubjectSelectorId } from "@archcontext/core/architecture-delta";
 
 export const RECOMMENDATION_SCHEDULER_ENGINE_VERSION = "archcontext.recommendation-scheduler/v1" as const;
 export const RECOMMENDATION_EXPLANATION_TREE_SCHEMA_VERSION = "archcontext.recommendation-explanation-tree/v1" as const;
 
 export type RecommendationSchedulerLevel = RecommendationRunV1["trigger"]["level"];
 export type RecommendationPolicyMode = RecommendationRunV1["policyMode"];
-export type RecommendationStatus = RecommendationV2["status"];
+/**
+ * Re-exported from contracts so the engine, `RecommendationV2`, `RecommendationV3` and
+ * `RecommendationFeedbackV1` all name one status union instead of forking it per module.
+ */
+export type RecommendationStatus = LedgerRecommendationStatus;
 export type RecommendationRisk = RecommendationV2["risk"];
 export type RecommendationUncertainty = RecommendationV2["uncertainty"];
 
@@ -165,8 +190,8 @@ export type RecommendationFeedbackSource = RecommendationFeedbackV1["actor"]["so
 export interface CreateRecommendationFeedbackInput {
   repository: ArchitectureRepositoryIdentityV1;
   worktree: ArchitectureWorktreeIdentityV1;
-  previous: RecommendationV2;
-  next: RecommendationV2;
+  previous: RecommendationV2 | RecommendationV3;
+  next: RecommendationV2 | RecommendationV3;
   action: RecommendationFeedbackAction;
   now: string;
   actorId: string;
@@ -220,6 +245,17 @@ export interface NormalizedRecommendationSchedulerPolicy {
 }
 
 const ACTIVE_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>(["open", "acknowledged", "deferred"]);
+/**
+ * Refactor-category dedup window. It includes `accepted`, which the RF0-frozen
+ * `ACTIVE_RECOMMENDATION_STATUSES` omits: an accepted refactor proposal is in flight, and
+ * re-detecting its fingerprint must suppress, not duplicate it. Matches `open_recommendations_view`.
+ */
+export const REFACTOR_ACTIVE_RECOMMENDATION_STATUSES: ReadonlySet<RecommendationStatus> = new Set<RecommendationStatus>([
+  "open",
+  "acknowledged",
+  "accepted",
+  "deferred"
+]);
 const OUTCOME_RECOMMENDATION_STATUSES = new Set<RecommendationStatus>([
   "accepted",
   "rejected",
@@ -558,10 +594,10 @@ export function planRecommendationRun(input: PlanRecommendationRunInput): Recomm
   };
 }
 
-export function transitionRecommendationLifecycle(
-  recommendation: RecommendationV2,
+export function transitionRecommendationLifecycle<T extends RecommendationV2 | RecommendationV3>(
+  recommendation: T,
   input: RecommendationLifecycleTransitionInput
-): RecommendationV2 {
+): T {
   const nextStatus = lifecycleStatus(recommendation.status, input.action);
   return {
     ...recommendation,
@@ -578,7 +614,7 @@ export function transitionRecommendationLifecycle(
         transitionedAt: input.now
       }
     }
-  };
+  } as T;
 }
 
 export function createRecommendationFeedback(input: CreateRecommendationFeedbackInput): RecommendationFeedbackV1 {
@@ -619,7 +655,7 @@ export function createRecommendationFeedback(input: CreateRecommendationFeedback
 }
 
 export function recommendationLifecycleLedgerPayload(input: {
-  recommendation: RecommendationV2;
+  recommendation: RecommendationV2 | RecommendationV3;
   feedback: RecommendationFeedbackV1;
 }): Record<string, Json> {
   return {
@@ -632,7 +668,7 @@ export function recommendationLifecycleLedgerPayload(input: {
 
 export function aggregateRecommendationLifecycleMetrics(input: {
   recommendationRuns?: readonly RecommendationRunV1[];
-  recommendations: readonly RecommendationV2[];
+  recommendations: readonly (RecommendationV2 | RecommendationV3)[];
   feedback?: readonly RecommendationFeedbackV1[];
   generatedAt: string;
 }): RecommendationLifecycleMetrics {
@@ -775,7 +811,7 @@ function budgetRecommendationCandidates(
 
 function findActiveCooldown(
   cooldowns: readonly RecommendationCooldownState[],
-  candidate: RecommendationSchedulerCandidate,
+  candidate: { subject: string; practiceId?: string },
   now: string,
   defaultCooldownMs = DEFAULT_COOLDOWN_MS
 ): string | undefined {
@@ -811,8 +847,10 @@ function lifecycleStatus(current: RecommendationStatus, action: RecommendationLi
   return next[action];
 }
 
-function latestRecommendationsById(recommendations: readonly RecommendationV2[]): RecommendationV2[] {
-  const latest = new Map<string, RecommendationV2>();
+function latestRecommendationsById(
+  recommendations: readonly (RecommendationV2 | RecommendationV3)[]
+): (RecommendationV2 | RecommendationV3)[] {
+  const latest = new Map<string, RecommendationV2 | RecommendationV3>();
   for (const recommendation of recommendations) {
     const current = latest.get(recommendation.recommendationId);
     if (!current || recommendation.updatedAt.localeCompare(current.updatedAt) >= 0) {
@@ -878,4 +916,600 @@ function percentile(values: readonly number[], percentileValue: number): number 
 
 function digestSuffix(digest: string): string {
   return digest.replace(/^sha256:/, "").slice(0, 16);
+}
+
+export const REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION = "archcontext.recommendation-fingerprint/v2" as const;
+
+export interface PreviousRecommendationV3 {
+  recommendationId: string;
+  fingerprint: string;
+  status: RecommendationStatus;
+  updatedAt: string;
+}
+
+export interface PlanRefactorRecommendationRunInput {
+  repository: ArchitectureRepositoryIdentityV1;
+  worktree: ArchitectureWorktreeIdentityV1;
+  snapshot: ModuleStatisticsSnapshotV1;
+  assessment: RefactorAssessmentV1;
+  /** The proposal returned by `assessRefactor`, carrying resolved `unresolvedTargets`. */
+  proposal?: RefactorProposalV1;
+  previousRecommendations?: PreviousRecommendationV3[];
+  cooldowns?: RecommendationCooldownState[];
+  catalogDigest: string;
+  now: string;
+  policyMode?: RecommendationPolicyMode;
+  schedulerPolicy?: PracticeRecommendationSchedulerPolicyV1;
+  engineVersion?: string;
+}
+
+export interface RefactorRecommendationRunPlan {
+  run: RecommendationRunV1;
+  recommendations: RecommendationV3[];
+  /**
+   * Always carries the measured baseline snapshot, so RF4 can compute `direction` and `regressed`
+   * against the state the recommendation was raised from. A `model_adoption_required` proposal
+   * adds a second item and records no proposal.
+   */
+  evidenceItems: EvidenceItemV2[];
+  /** One binding per emitted recommendation, pointing at the baseline snapshot item. */
+  evidenceBindings: EvidenceBindingV1[];
+  suppressed: RecommendationSuppression[];
+  inputDigest: string;
+  outputDigest: string;
+}
+
+/**
+ * `practice` delegates to the RF0-frozen hasher: `recommendationId` is derived from
+ * `fingerprint`, so a migrated v2 record must keep the identity it was written with. Refactor
+ * categories hash the contract-owned canonical input under a v2 fingerprint schema tag.
+ */
+export function recommendationV3Fingerprint(
+  recommendation: Pick<RecommendationV3, "category" | "subject" | "subjectSelectorId" | "practiceId" | "payload" | "evidenceBindingIds">
+): string {
+  if (recommendation.category === "practice") {
+    const payload = recommendation.payload as PracticeRecommendationPayloadV1;
+    return recommendationFingerprint({
+      ...(recommendation.practiceId ? { practiceId: recommendation.practiceId } : {}),
+      subject: recommendation.subject,
+      evidenceBindingIds: [...recommendation.evidenceBindingIds],
+      ...(payload.baselineDigest ? { baselineDigest: payload.baselineDigest } : {})
+    });
+  }
+  return digestJson({
+    schemaVersion: REFACTOR_RECOMMENDATION_FINGERPRINT_SCHEMA_VERSION,
+    ...recommendationV3FingerprintInput(recommendation)
+  } as unknown as Json);
+}
+
+/**
+ * Materializes one assessment as `RecommendationV3` records.
+ *
+ * Additive beside `planRecommendationRun`, which stays byte-frozen. Every emitted record is
+ * checked against `recommendationV3InvariantIssues` and the planner throws rather than handing
+ * the daemon a record the ledger would have to trust unchecked.
+ */
+export function planRefactorRecommendationRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
+  const engineVersion = input.engineVersion ?? RECOMMENDATION_SCHEDULER_ENGINE_VERSION;
+  const schedulerPolicy = normalizeRecommendationSchedulerPolicy(input.schedulerPolicy);
+  const policyMode = input.policyMode ?? schedulerPolicy.policyMode;
+  const now = input.now;
+  const baselineEvidence = baselineSnapshotEvidenceItem(input);
+  const evidenceItems = [baselineEvidence, ...modelAdoptionEvidenceItems(input)];
+  const candidateDrafts = [...observationDrafts(input), ...proposalDrafts(input)];
+  const drafts = schedulerPolicy.enabled
+    ? budgetRefactorDrafts(candidateDrafts, schedulerPolicy.budgets.maxRecommendationsPerRun)
+    : [];
+
+  const inputDigest = digestJson({
+    schemaVersion: "archcontext.refactor-recommendation-run-input/v1",
+    engineVersion,
+    trigger: { level: "L2", source: "refactor_scan" },
+    policyMode,
+    schedulerPolicy,
+    catalogDigest: input.catalogDigest,
+    snapshotDigest: input.snapshot.snapshotDigest,
+    assessmentDigest: input.assessment.assessmentDigest,
+    proposalDigest: input.assessment.proposalDigest,
+    candidates: candidateDrafts.map((draft) => ({
+      category: draft.category,
+      subjectSelectorId: draft.subjectSelectorId,
+      fingerprint: draft.fingerprint,
+      score: draft.score
+    })),
+    selectedFingerprints: drafts.map((draft) => draft.fingerprint),
+    evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
+    previousRecommendations: (input.previousRecommendations ?? []).map((recommendation) => ({
+      fingerprint: recommendation.fingerprint,
+      status: recommendation.status,
+      updatedAt: recommendation.updatedAt
+    })),
+    cooldowns: input.cooldowns ?? [],
+    // The invocation clock is part of the run's identity. Without it two scans at the same HEAD
+    // whose candidates are all suppressed derive the same runId, and therefore the same event id
+    // and idempotency key, with different timestamps — an idempotency conflict on append rather
+    // than a second run that honestly reports "everything was already open".
+    now
+  } as unknown as Json);
+  const runId = `recommendation_run.${digestSuffix(inputDigest)}`;
+
+  const latestByFingerprint = latestRecommendationV3ByFingerprint(input.previousRecommendations ?? []);
+  const recommendations: RecommendationV3[] = [];
+  const evidenceBindings: EvidenceBindingV1[] = [];
+  const suppressed: RecommendationSuppression[] = [];
+
+  for (const draft of drafts) {
+    const previous = latestByFingerprint.get(draft.fingerprint);
+    if (previous && REFACTOR_ACTIVE_RECOMMENDATION_STATUSES.has(previous.status)) {
+      suppressed.push({
+        reasonCode: "duplicate-active-fingerprint",
+        fingerprint: draft.fingerprint,
+        subject: draft.subjectSelectorId,
+        previousRecommendationId: previous.recommendationId
+      });
+      continue;
+    }
+    const cooldown = findActiveCooldown(
+      input.cooldowns ?? [],
+      { subject: draft.subjectSelectorId },
+      now,
+      schedulerPolicy.frequency.cooldownMs
+    );
+    if (cooldown) {
+      suppressed.push({
+        reasonCode: "cooldown-active",
+        fingerprint: draft.fingerprint,
+        subject: draft.subjectSelectorId,
+        cooldownUntil: cooldown
+      });
+      continue;
+    }
+    // A resolved prior is never touched: the regression is a new record that points back at it.
+    const relations: RecommendationRelationsV1 = previous?.status === "resolved"
+      ? { regressesFrom: previous.recommendationId }
+      : {};
+    const recommendationId = refactorRecommendationId(draft.fingerprint, relations.regressesFrom ?? null);
+    const binding = baselineEvidenceBinding(baselineEvidence.evidenceId, recommendationId, now);
+    evidenceBindings.push(binding);
+    const evidenceBindingIds = [binding.bindingId];
+    const record = {
+      schemaVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
+      recommendationId,
+      runId,
+      fingerprint: draft.fingerprint,
+      subject: draft.subject,
+      status: "open",
+      confidence: draft.confidence,
+      enforcement: draft.enforcement,
+      risk: draft.risk,
+      uncertainty: draft.uncertainty,
+      evidenceBindingIds,
+      explanation: draft.explanation,
+      authoredBy: draft.authoredBy,
+      subjectSelectorId: draft.subjectSelectorId,
+      relations,
+      createdAt: now,
+      updatedAt: now,
+      category: draft.category,
+      payload: draft.payload,
+      extensions: {
+        assessmentDigest: input.assessment.assessmentDigest,
+        baselineSnapshotDigest: input.snapshot.snapshotDigest,
+        riskSignals: [...draft.riskSignals].sort(),
+        uncertaintySignals: [...draft.uncertaintySignals].sort(),
+        // The scheduler's ordering key, recorded so a truncated run is auditable.
+        score: draft.score
+      }
+    } as RecommendationV3;
+    const issues = recommendationV3InvariantIssues(record);
+    if (issues.length > 0) throw new Error(`AC_SCHEMA_INVALID: ${issues.join("; ")}`);
+    recommendations.push(record);
+  }
+
+  const outputDigest = digestJson({
+    schemaVersion: "archcontext.refactor-recommendation-run-output/v1",
+    recommendationIds: recommendations.map((recommendation) => recommendation.recommendationId).sort(),
+    fingerprints: recommendations.map((recommendation) => recommendation.fingerprint).sort(),
+    evidenceItemIds: evidenceItems.map((item) => item.evidenceId).sort(),
+    evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId).sort(),
+    suppressed: suppressed.map((entry) => ({
+      reasonCode: entry.reasonCode,
+      fingerprint: entry.fingerprint,
+      subject: entry.subject
+    })),
+    budget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length)
+  } as unknown as Json);
+
+  const run: RecommendationRunV1 = {
+    schemaVersion: RECOMMENDATION_RUN_SCHEMA_VERSION,
+    runId,
+    repository: input.repository,
+    worktree: input.worktree,
+    trigger: { level: "L2", source: "refactor_scan" },
+    engineVersion,
+    catalogDigest: input.catalogDigest,
+    inputDigest,
+    outputDigest,
+    policyMode,
+    status: "succeeded",
+    startedAt: now,
+    completedAt: now,
+    recommendationIds: recommendations.map((recommendation) => recommendation.recommendationId),
+    metrics: {
+      matchCount: candidateDrafts.length,
+      evidenceBindingCount: evidenceBindings.length,
+      unboundEvidenceCount: evidenceItems.filter(
+        (item) => !evidenceBindings.some((binding) => binding.evidenceId === item.evidenceId)
+      ).length
+    },
+    extensions: {
+      suppressed: suppressed as unknown as Json,
+      assessmentDigest: input.assessment.assessmentDigest,
+      baselineSnapshotDigest: input.snapshot.snapshotDigest,
+      proposalDigest: input.assessment.proposalDigest,
+      scale: input.assessment.scale,
+      evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
+      evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId),
+      schedulerPolicy: schedulerPolicy as unknown as Json,
+      schedulerBudget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length)
+    }
+  };
+
+  return { run, recommendations, evidenceItems, evidenceBindings, suppressed, inputDigest, outputDigest };
+}
+
+export function refactorRecommendationRunLedgerPayload(plan: RefactorRecommendationRunPlan): Record<string, Json> {
+  return {
+    recommendationRuns: [plan.run as unknown as Json],
+    recommendations: plan.recommendations as unknown as Json,
+    feedback: [],
+    waivers: []
+  };
+}
+
+/**
+ * `recommendation.<digest(fingerprint)>` would collide with — and `INSERT OR REPLACE` — the
+ * resolved record a regression points back at. Binding `regressesFrom` into the id keeps every
+ * link in a regression chain a distinct row.
+ */
+function refactorRecommendationId(fingerprint: string, regressesFrom: string | null): string {
+  return `recommendation.${digestSuffix(digestJson({ fingerprint, regressesFrom } as unknown as Json))}`;
+}
+
+interface RefactorRecommendationDraft {
+  category: RecommendationV3["category"];
+  subject: string;
+  subjectSelectorId: string;
+  payload: RecommendationV3["payload"];
+  authoredBy: RecommendationAuthorV1;
+  enforcement: RecommendationV2["enforcement"];
+  confidence: RecommendationV2["confidence"];
+  explanation: string[];
+  riskSignals: RecommendationRiskSignal[];
+  uncertaintySignals: RecommendationUncertaintySignal[];
+  fingerprint: string;
+  risk: RecommendationRisk;
+  uncertainty: RecommendationUncertainty;
+  score: number;
+}
+
+/**
+ * Same shape as `budgetRecommendationCandidates`: highest score first, then stable tiebreakers so
+ * truncation is deterministic. When the cap bites, the surviving drafts are the highest-scoring
+ * ones, and within an equal score the lowest `subjectSelectorId`, then the lowest `fingerprint`.
+ */
+function budgetRefactorDrafts(
+  drafts: readonly RefactorRecommendationDraft[],
+  maxRecommendationsPerRun: number
+): RefactorRecommendationDraft[] {
+  if (maxRecommendationsPerRun <= 0) return [];
+  return [...drafts]
+    .sort((left, right) =>
+      right.score - left.score
+      || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
+      || left.fingerprint.localeCompare(right.fingerprint)
+    )
+    .slice(0, maxRecommendationsPerRun);
+}
+
+function refactorSchedulerBudget(
+  schedulerPolicy: NormalizedRecommendationSchedulerPolicy,
+  candidateCount: number,
+  selectedCount: number
+): Json {
+  return {
+    maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
+    inputCandidateCount: candidateCount,
+    selectedCandidateCount: selectedCount,
+    omittedCandidateCount: Math.max(0, candidateCount - selectedCount),
+    enabled: schedulerPolicy.enabled
+  } as unknown as Json;
+}
+
+/**
+ * Seals a draft: the fingerprint, the risk/uncertainty levels and the budget score are all derived
+ * here so the scheduler can order and truncate before any record is built.
+ */
+function sealDraft(
+  draft: Omit<RefactorRecommendationDraft, "fingerprint" | "risk" | "uncertainty" | "score">,
+  baselineEvidenceId: string
+): RefactorRecommendationDraft {
+  const risk = computeRecommendationRisk(draft.riskSignals);
+  // Every emitted record carries exactly one baseline-snapshot binding, so uncertainty is scored
+  // against that one binding rather than against an empty list.
+  const uncertainty = computeRecommendationUncertainty({
+    confidence: draft.confidence,
+    evidenceBindingIds: [baselineEvidenceId],
+    uncertaintySignals: draft.uncertaintySignals
+  });
+  return {
+    ...draft,
+    fingerprint: draftFingerprint(draft),
+    risk: risk.risk,
+    uncertainty: uncertainty.uncertainty,
+    score: scoreRecommendation(risk.risk, uncertainty.uncertainty)
+  };
+}
+
+const DAEMON_AUTHOR: RecommendationAuthorV1 = { kind: "daemon", id: "archctxd", source: "daemon" };
+
+const OBSERVATION_RISK_SIGNALS: Readonly<Record<RefactorObservationKind, readonly RecommendationRiskSignal[]>> = {
+  "cycle": ["cycle-detected"],
+  "direction-violation": ["boundary-change"],
+  "evidence-gap": [],
+  "ownership-ambiguous": ["ownership-change"],
+  "undeclared-footprint": ["ownership-change"],
+  "unowned-paths": ["ownership-change"]
+};
+
+const MAJOR_CHANGE_RISK_SIGNALS: Readonly<Record<ArchitectureMajorChangeReasonCode, RecommendationRiskSignal>> = {
+  "constraint-changed": "boundary-change",
+  "entrypoint-changed": "external-contract-change",
+  "interface-changed": "external-contract-change",
+  "lifecycle-changed": "boundary-change",
+  "node-added": "boundary-change",
+  "node-moved": "boundary-change",
+  "node-removed": "boundary-change",
+  "node-renamed": "boundary-change",
+  "ownership-changed": "ownership-change",
+  "relation-changed": "boundary-change",
+  "responsibility-changed": "ownership-change",
+  "risk-boundary-changed": "boundary-change",
+  "verified-flow-proof-changed": "external-contract-change"
+};
+
+function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorRecommendationDraft[] {
+  const baselineEvidenceId = baselineSnapshotEvidenceItem(input).evidenceId;
+  return input.assessment.observations.map((observation) => {
+    const affectedNodeIds = observationAffectedNodeIds(input.snapshot, observation);
+    const payload: StructuralObservationPayloadV1 = {
+      assessmentDigest: input.assessment.assessmentDigest,
+      kind: observation.kind,
+      affectedNodeIds,
+      baselineSnapshotDigest: input.snapshot.snapshotDigest,
+      // RF4 owns the kind-to-outcome derivation in refactor-assessment; RF3 records the fact, not
+      // the acceptance test for it, so this stays empty rather than forking a second definition.
+      derivedOutcomes: []
+    };
+    return sealDraft({
+      category: "structural_observation" as const,
+      // `subject` keeps the v2 meaning: the graph subject a reader searches for. It is the raw
+      // RF2 observation subject, not the selector digest, so FTS and `open_recommendations_view`
+      // stay readable.
+      subject: observation.subjectSelectorId,
+      subjectSelectorId: observationSubjectSelectorId(input, observation),
+      payload,
+      authoredBy: DAEMON_AUTHOR,
+      enforcement: "advisory" as const,
+      confidence: input.assessment.confidence.level,
+      explanation: [
+        `Structural observation ${observation.kind} on ${observation.subjectSelectorId}.`,
+        `Measured from module statistics snapshot ${input.snapshot.snapshotDigest}.`
+      ],
+      riskSignals: [...OBSERVATION_RISK_SIGNALS[observation.kind]],
+      uncertaintySignals: coverageUncertaintySignals(input.snapshot)
+    }, baselineEvidenceId);
+  });
+}
+
+/**
+ * Canonical selector identity for an observation subject, so a refactor record and an
+ * architecture-delta subject name the same thing. RF2 subjects come in three shapes: a declared
+ * node id, `repository:<id>`, and `scc:<componentId>`. There is no `scc` arm in
+ * `ArchitectureSubjectSelectorKind`, so a strongly connected component is addressed as a
+ * repository-kind selector whose stableKey carries the component id — the component is a
+ * repository-level fact, not a declared node.
+ */
+function observationSubjectSelectorId(
+  input: PlanRefactorRecommendationRunInput,
+  observation: RefactorObservationV1
+): string {
+  const repositoryId = input.repository.repositoryId;
+  const subject = observation.subjectSelectorId;
+  if (input.snapshot.modules.some((module) => module.nodeId === subject)) {
+    return architectureSubjectSelectorId("node", repositoryId, `node:${subject}`);
+  }
+  if (subject.startsWith("scc:")) return architectureSubjectSelectorId("repository", repositoryId, subject);
+  return architectureSubjectSelectorId("repository", repositoryId, "repository");
+}
+
+function proposalDrafts(input: PlanRefactorRecommendationRunInput): RefactorRecommendationDraft[] {
+  const proposal = input.proposal;
+  if (!proposal) return [];
+  const scale = input.assessment.scale;
+  if (scale === null) throw new Error("AC_SCHEMA_INVALID: assessment.scale must be set when a proposal is recorded");
+  // `model_adoption_required` names a gap in the declared model, not a refactor the ledger can
+  // hold as a proposal; it is recorded as evidence instead (PRD RF3 Recommended Defaults).
+  if (scale === "model_adoption_required") return [];
+  const payload: RefactorProposalPayloadV1 = {
+    assessmentDigest: input.assessment.assessmentDigest,
+    proposalDigest: proposal.proposalDigest,
+    scale,
+    affectedNodeIds: input.assessment.affectedNodeIds,
+    majorChangeReasons: input.assessment.majorChangeReasons,
+    baselineSnapshotDigest: input.snapshot.snapshotDigest,
+    ...(proposal.targetDelta ? { targetDelta: proposal.targetDelta } : {}),
+    targetOutcomes: proposal.targetOutcomes,
+    killList: proposal.killList
+  };
+  const riskSignals = new Set<RecommendationRiskSignal>(
+    input.assessment.majorChangeReasons.map((reason) => MAJOR_CHANGE_RISK_SIGNALS[reason])
+  );
+  if (scale === "architecture" || scale === "cross_module") riskSignals.add("boundary-change");
+  const uncertaintySignals = new Set<RecommendationUncertaintySignal>(coverageUncertaintySignals(input.snapshot));
+  if (scale === "insufficient_evidence") uncertaintySignals.add("missing-evidence");
+  if (input.assessment.confidence.unresolvedEvidence.length > 0) uncertaintySignals.add("partial-evidence");
+  return [sealDraft({
+    category: "refactor_proposal" as const,
+    // One affected node is a node subject; anything else has no smaller true common subject than
+    // the repository. `subject` is a search key, not an identity field: the fingerprint hashes
+    // `subjectSelectorId`, never this.
+    subject: input.assessment.affectedNodeIds.length === 1
+      ? input.assessment.affectedNodeIds[0]!
+      : `repository:${input.repository.repositoryId}`,
+    subjectSelectorId: proposalSubjectSelectorId(input.repository.repositoryId, input.assessment.affectedNodeIds),
+    payload,
+    authoredBy: proposal.authoredBy,
+    enforcement: scale === "architecture" ? ("complete" as const) : ("checkpoint" as const),
+    confidence: input.assessment.confidence.level,
+    explanation: [
+      `Agent refactor proposal classified as ${scale}.`,
+      `Measured from module statistics snapshot ${input.snapshot.snapshotDigest}.`
+    ],
+    riskSignals: [...riskSignals].sort(),
+    uncertaintySignals: [...uncertaintySignals].sort()
+  }, baselineSnapshotEvidenceItem(input).evidenceId)];
+}
+
+/**
+ * The measured BEFORE state, persisted once per snapshot. RF4 re-measures against it to decide
+ * `direction` and `regressed`, so without this item a resolution verdict would have nothing to
+ * compare to and could only ever report `unknown`. The snapshot body rides in `extensions`, which
+ * the digest deliberately excludes: `selector.id` is the snapshot digest, so the item's identity
+ * is already bound to the measurement it carries.
+ */
+function baselineSnapshotEvidenceItem(input: PlanRefactorRecommendationRunInput): EvidenceItemV2 {
+  return sealEvidenceItem({
+    schemaVersion: EVIDENCE_ITEM_SCHEMA_VERSION,
+    evidenceId: `evidence.module_statistics_snapshot.${digestSuffix(input.snapshot.snapshotDigest)}`,
+    kind: "module-statistics-snapshot",
+    strength: "observed",
+    polarity: "positive",
+    origin: "runtime-daemon",
+    subject: `repository:${input.repository.repositoryId}`,
+    selector: { kind: "snapshot", id: input.snapshot.snapshotDigest },
+    summary: `Module statistics baseline for ${input.snapshot.repositorySummary.moduleCount} declared module(s).`,
+    coverage: { level: input.snapshot.codeFacts.coverage, scope: "module-statistics-snapshot" },
+    supports: ["recommendation"],
+    provenance: {
+      producer: "recommendation-engine",
+      command: "archctx refactor record",
+      inputDigest: input.snapshot.snapshotDigest
+    },
+    // Bound to the measurement, not to the clock: re-recording the same snapshot must produce the
+    // same evidence item instead of an update operation that changes nothing but a timestamp.
+    createdAt: input.snapshot.createdAt,
+    digest: "",
+    extensions: { moduleStatisticsSnapshot: input.snapshot as unknown as Json }
+  });
+}
+
+function baselineEvidenceBinding(evidenceId: string, recommendationId: string, now: string): EvidenceBindingV1 {
+  return {
+    schemaVersion: EVIDENCE_BINDING_SCHEMA_VERSION,
+    bindingId: `binding.${digestSuffix(digestJson({ evidenceId, recommendationId } as unknown as Json))}`,
+    evidenceId,
+    target: { kind: "recommendation", id: recommendationId },
+    bindingReason: "deterministic-check",
+    authorityEffect: "context-only",
+    createdAt: now,
+    provenance: {
+      producer: "recommendation-engine",
+      command: "archctx refactor record",
+      inputDigest: evidenceId
+    }
+  };
+}
+
+function sealEvidenceItem(draft: EvidenceItemV2): EvidenceItemV2 {
+  const { digest: _digest, extensions: _extensions, ...hashable } = draft;
+  return { ...draft, digest: digestJson(hashable as unknown as Json) };
+}
+
+function modelAdoptionEvidenceItems(input: PlanRefactorRecommendationRunInput): EvidenceItemV2[] {
+  if (!input.proposal || input.assessment.scale !== "model_adoption_required") return [];
+  const subject = proposalSubjectSelectorId(input.repository.repositoryId, input.assessment.affectedNodeIds);
+  return [sealEvidenceItem({
+    schemaVersion: EVIDENCE_ITEM_SCHEMA_VERSION,
+    evidenceId: `evidence.refactor_model_adoption.${digestSuffix(input.assessment.assessmentDigest)}`,
+    kind: "refactor-model-adoption-required",
+    strength: "observed",
+    polarity: "absence",
+    origin: "runtime-daemon",
+    subject,
+    selector: { kind: "repository", id: input.repository.repositoryId },
+    summary: "Refactor proposal requires declared-model adoption before it can be recorded as a recommendation.",
+    coverage: { level: input.snapshot.codeFacts.coverage, scope: "module-statistics-snapshot" },
+    supports: ["recommendation"],
+    provenance: {
+      producer: "recommendation-engine",
+      command: "archctx refactor record",
+      inputDigest: input.assessment.assessmentDigest
+    },
+    createdAt: input.assessment.createdAt,
+    digest: ""
+  })];
+}
+
+function draftFingerprint(
+  draft: Omit<RefactorRecommendationDraft, "fingerprint" | "risk" | "uncertainty" | "score">
+): string {
+  return recommendationV3Fingerprint({
+    category: draft.category,
+    subject: draft.subject,
+    subjectSelectorId: draft.subjectSelectorId,
+    payload: draft.payload,
+    evidenceBindingIds: []
+  } as Pick<RecommendationV3, "category" | "subject" | "subjectSelectorId" | "practiceId" | "payload" | "evidenceBindingIds">);
+}
+
+function proposalSubjectSelectorId(repositoryId: string, affectedNodeIds: readonly string[]): string {
+  return affectedNodeIds.length === 0
+    ? architectureSubjectSelectorId("repository", repositoryId, "repository")
+    : architectureSubjectSelectorId("node", repositoryId, `nodes:${[...affectedNodeIds].sort().join("|")}`);
+}
+
+function observationAffectedNodeIds(snapshot: ModuleStatisticsSnapshotV1, observation: RefactorObservationV1): string[] {
+  const direct = snapshot.modules.find((module) => module.nodeId === observation.subjectSelectorId);
+  if (direct) return [direct.nodeId];
+  if (observation.subjectSelectorId.startsWith("scc:")) {
+    const componentId = observation.subjectSelectorId.slice("scc:".length);
+    return snapshot.modules
+      .filter((module) => module.dependencyGraph?.stronglyConnectedComponentId === componentId)
+      .map((module) => module.nodeId)
+      .sort();
+  }
+  return [];
+}
+
+function coverageUncertaintySignals(snapshot: ModuleStatisticsSnapshotV1): RecommendationUncertaintySignal[] {
+  return snapshot.codeFacts.coverage === "complete" ? [] : ["low-coverage"];
+}
+
+function latestRecommendationV3ByFingerprint(
+  previous: readonly PreviousRecommendationV3[]
+): Map<string, PreviousRecommendationV3> {
+  const latest = new Map<string, PreviousRecommendationV3>();
+  for (const recommendation of previous) {
+    const current = latest.get(recommendation.fingerprint);
+    if (
+      !current
+      || recommendation.updatedAt.localeCompare(current.updatedAt) > 0
+      || (recommendation.updatedAt === current.updatedAt
+        && recommendation.recommendationId.localeCompare(current.recommendationId) > 0)
+    ) {
+      latest.set(recommendation.fingerprint, recommendation);
+    }
+  }
+  return latest;
 }

@@ -1544,6 +1544,104 @@ describe("archctx CLI", () => {
     }
   });
 
+  test("CLI forwards --evidence-digest to the recommendation resolve gate", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-evidence-digest-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        recommendations(_root: string, input: any) {
+          calls.push(input);
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: `recommendations.${input.command}`,
+            data: { schemaVersion: "archcontext.runtime-recommendation-lifecycle/v1", input }
+          };
+        }
+      };
+
+      const resolved = await runCli("recommendations", [
+        "resolve",
+        "--id", "recommendation.cli_refactor",
+        "--reason", "resolved after the structural change landed",
+        "--evidence-digest", `sha256:${"a".repeat(64)}`
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(resolved.ok).toBe(true);
+      expect(calls[0]).toMatchObject({
+        command: "resolve",
+        recommendationId: "recommendation.cli_refactor",
+        evidenceDigest: `sha256:${"a".repeat(64)}`
+      });
+
+      await runCli("recommendations", [
+        "resolve",
+        "--id", "recommendation.cli_refactor",
+        "--reason", "resolved after the structural change landed"
+      ], root, { runtimeClient: runtimeClient as any });
+      expect("evidenceDigest" in calls[1]).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("CLI ledger migrate accepts exactly one of --from-yaml and --recommendation-v3", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-ledger-migrate-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const calls: any[] = [];
+      const runtimeClient = {
+        ledgerMigrate(_root: string, input: any) {
+          calls.push(input);
+          return {
+            schemaVersion: "archcontext.envelope/v1",
+            ok: true,
+            requestId: "ledger.migrate",
+            data: { schemaVersion: "archcontext.runtime-recommendation-v3-migrate/v1", input }
+          };
+        }
+      };
+
+      const neither = await runCli("ledger", ["migrate", "--dry-run"], root, { runtimeClient: runtimeClient as any });
+      expect(neither.ok).toBe(false);
+      expect((neither as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect((neither as any).error.message).toContain("exactly one");
+
+      const both = await runCli("ledger", ["migrate", "--from-yaml", "--recommendation-v3", "--dry-run"], root, {
+        runtimeClient: runtimeClient as any
+      });
+      expect(both.ok).toBe(false);
+      expect((both as any).error.message).toContain("exactly one");
+      expect(calls).toHaveLength(0);
+
+      const planned = await runCli("ledger", ["migrate", "--recommendation-v3", "--dry-run"], root, {
+        runtimeClient: runtimeClient as any
+      });
+      expect(planned.ok).toBe(true);
+      expect(calls[0]).toEqual({ recommendationV3: true, dryRun: true, expectedWorktreeDigest: undefined });
+
+      const missingDigest = await runCli("ledger", ["migrate", "--recommendation-v3", "--write"], root, {
+        runtimeClient: runtimeClient as any
+      });
+      expect(missingDigest.ok).toBe(false);
+      expect((missingDigest as any).error.message).toContain("--recommendation-v3 --write requires --expected-worktree-digest");
+
+      const written = await runCli("ledger", [
+        "migrate", "--recommendation-v3", "--write",
+        "--expected-worktree-digest", `sha256:${"2".repeat(64)}`
+      ], root, { runtimeClient: runtimeClient as any });
+      expect(written.ok).toBe(true);
+      expect(calls[1]).toEqual({
+        recommendationV3: true,
+        dryRun: false,
+        expectedWorktreeDigest: `sha256:${"2".repeat(64)}`
+      });
+      expect(calls.every((call) => call.fromYaml === undefined)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("CLI docs commands keep Context7 manual and lockfile explicit", async () => {
     const root = createInitializedGitRepo();
     try {

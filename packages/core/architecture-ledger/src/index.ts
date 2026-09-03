@@ -16,6 +16,7 @@ import {
   type Json,
   type RecommendationRunV1,
   type RecommendationV2,
+  type RecommendationV3,
   type AgentJobV1
 } from "@archcontext/contracts";
 import type { ChangeSetDraft } from "../../changeset-engine/src/index";
@@ -85,6 +86,12 @@ export interface ArchitectureAuditRunV1 {
   auditRunDigest: string;
 }
 
+/**
+ * A recommendation as carried by an architecture event. The `RecommendationV2` arm exists only
+ * for events written before `ledger migrate --recommendation-v3`; it is removed at `0.6.0`.
+ */
+export type RecommendationLedgerRecordV1 = RecommendationV2 | RecommendationV3;
+
 export interface ArchitectureLedgerEventPayload {
   summary?: string;
   rationale?: string;
@@ -94,7 +101,7 @@ export interface ArchitectureLedgerEventPayload {
   evidenceBindings?: EvidenceBindingV1[];
   evidenceOperations?: EvidenceLifecycleOperationV1[];
   recommendationRuns?: RecommendationRunV1[];
-  recommendations?: RecommendationV2[];
+  recommendations?: RecommendationLedgerRecordV1[];
   agentJobs?: AgentJobV1[];
   auditRuns?: ArchitectureAuditRunV1[];
   projectionState?: Record<string, Json>;
@@ -485,7 +492,7 @@ export interface ArchitectureBookEvidenceResult {
 export interface ArchitectureBookRecommendationsResult {
   schemaVersion: "archcontext.architecture-book-recommendations/v1";
   openOnly: boolean;
-  recommendations: RecommendationV2[];
+  recommendations: RecommendationLedgerRecordV1[];
   explanations?: ArchitectureBookSelectionExplanation[];
   budget: ArchitectureBookBudgetReadback;
   reasonCodes: string[];
@@ -813,8 +820,8 @@ export function queryArchitectureLedgerBookRecommendations(input: ArchitectureBo
   };
 }
 
-function latestBookRecommendations(events: readonly ArchitectureEventV1[]): RecommendationV2[] {
-  const latest = new Map<string, { recommendation: RecommendationV2; index: number }>();
+function latestBookRecommendations(events: readonly ArchitectureEventV1[]): RecommendationLedgerRecordV1[] {
+  const latest = new Map<string, { recommendation: RecommendationLedgerRecordV1; index: number }>();
   let index = 0;
   for (const event of events) {
     for (const recommendation of architectureLedgerPayload(event).recommendations ?? []) {
@@ -1419,7 +1426,7 @@ function explainBookSubject(subject: ArchitectureBookScoredSubject, tokens: stri
   };
 }
 
-function explainBookRecommendation(recommendation: RecommendationV2, openOnly: boolean): ArchitectureBookSelectionExplanation {
+function explainBookRecommendation(recommendation: RecommendationLedgerRecordV1, openOnly: boolean): ArchitectureBookSelectionExplanation {
   const reasonCodes = [
     ...(openOnly ? ["open-recommendation-filter"] : []),
     `status-${recommendation.status}`,
