@@ -1366,6 +1366,23 @@ describe("archctx CLI", () => {
     }
   });
 
+  // `import.meta.main` is false when the suite imports `runCli`, so the entrypoint block never runs
+  // and a `const` declared below it is never read in the temporal dead zone. Only a spawned process
+  // evaluates the module the way the packaged CLI does, which is where AUDIT_RUN_STATUSES failed.
+  test("spawned CLI audit list reads its status table instead of failing module evaluation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-spawn-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const listed = await runCliProcessRaw(root, "audit", "list", "--status", "pending", "--json");
+      const envelope = JSON.parse(listed.stdout);
+      expect(envelope.error?.code).not.toBe("AC_RUNTIME_UNAVAILABLE");
+      expect(String(envelope.error?.message ?? "")).not.toContain("before initialization");
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI requires a run-id for audit approve", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-audit-approve-missing-runid-"));
     writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
