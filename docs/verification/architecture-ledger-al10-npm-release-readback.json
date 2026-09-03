@@ -2,23 +2,24 @@
   "schemaVersion": "archcontext.al10-npm-release-readback/v1",
   "status": "verified",
   "scope": "official-public-npm-latest-release",
-  "publishedAt": "2026-09-02T08:32:49.123Z",
+  "publishedAt": "2026-09-03T16:34:08.377Z",
   "package": {
     "name": "archctx",
-    "version": "0.4.8",
+    "version": "0.5.2",
     "distTag": "latest",
     "installCommand": "npm install -g archctx@latest",
-    "explicitInstallCommand": "npm install -g archctx@0.4.8",
-    "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.4.8.tgz",
-    "shasum": "ea1c03076b6ba1183955c08c7ed88cec6018695e",
-    "sha256": "f105a5cd3f5ea0f4986fd4384a9c7119da27a84792ff4fc337c0a80580db8503",
-    "integrity": "sha512-AOQdTm7eNikBMwByEcmFVewQ5GrT1MKxWNsXj+jSeypVWwhBWnd+qqUwb9QEw2Y4D8ZsB8ZNqIrhsQP8XPQTaQ==",
+    "explicitInstallCommand": "npm install -g archctx@0.5.2",
+    "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.5.2.tgz",
+    "shasum": "3f247035699d9e15e2bf8935b7b16a3d50b31ce6",
+    "sha256": "d8c72fea9310f57ade89b8e51638b6bf2770bcf2c7a43d260bea1e518e30f9b8",
+    "integrity": "sha512-14vrH31DhxV0Wk1X4ygS2WCh6SS73Wr9BAqRdp50FWAQ0Iix42VAMVzzdJiI6JkBdRNp673FckF1JifYnN7HdQ==",
     "bin": {
       "archctx": "bin/archctx.mjs"
     },
     "dependencies": {
       "@colbymchenry/codegraph": "1.5.0",
-      "@node-rs/jieba": "^2.0.1"
+      "@node-rs/jieba": "^2.0.1",
+      "koffi": "3.1.6"
     },
     "engines": {
       "node": ">=22.22 <26"
@@ -27,7 +28,7 @@
     "license": "Apache-2.0"
   },
   "registry": {
-    "latest": "0.4.8",
+    "latest": "0.5.2",
     "beta": "0.1.4-beta.0",
     "latestMoved": true,
     "versionVisible": true,
@@ -53,80 +54,86 @@
       "0.4.5",
       "0.4.6",
       "0.4.7",
-      "0.4.8"
+      "0.4.8",
+      "0.5.1",
+      "0.5.2"
     ]
   },
   "smoke": {
     "nodeVersion": "v24.18.0",
-    "installPackage": "archctx@0.4.8",
+    "installPackage": "archctx@0.5.2",
+    "capabilitiesOk": true,
+    "capabilitiesVersion": "0.5.2",
+    "capabilitiesFeatureCount": 9,
+    "capabilitiesIncludesRefactorResolution": true,
     "helpOk": true,
     "helpRequestId": "help",
-    "helpCommandCount": 41,
+    "helpCommandCount": 42,
     "doctorOk": true,
-    "doctorProductVersion": "0.4.8",
-    "doctorCliVersion": "0.4.8",
-    "doctorDaemonVersion": "0.4.8",
-    "doctorMcpVersion": "0.4.8",
+    "doctorProductVersion": "0.5.2",
+    "doctorCliVersion": "0.5.2",
+    "doctorDaemonVersion": "0.5.2",
+    "doctorMcpVersion": "0.5.2",
     "updateCheckOk": true,
-    "updateCheckCurrentVersion": "0.4.8",
-    "updateCheckLatestVersion": "0.4.8",
+    "updateCheckCurrentVersion": "0.5.2",
+    "updateCheckLatestVersion": "0.5.2",
     "updateCheckStatus": "current"
   },
   "engineFloorSmoke": {
     "nodeVersion": "v22.22.0",
-    "installPackage": "archctx@0.4.8",
+    "installPackage": "archctx@0.5.2",
+    "capabilitiesOk": true,
     "helpOk": true,
-    "helpCommandCount": 41,
     "doctorOk": true,
-    "doctorProductVersion": "0.4.8",
+    "doctorProductVersion": "0.5.2",
     "updateCheckStatus": "current"
   },
   "contracts": {
     "name": "archctx-contracts",
-    "version": "0.4.8",
+    "version": "0.5.2",
     "distTag": "latest",
-    "tarball": "https://registry.npmjs.org/archctx-contracts/-/archctx-contracts-0.4.8.tgz",
-    "shasum": "41bfbf43430c7dfd9ceb23ecb0b7cc3bf59b657c",
-    "sha256": "a9be92f610a00dabe9a2e9d46f3e970236c2bef64217e83cbf2430211b4e4f99",
-    "integrity": "sha512-BIFSNY+HgNrParQwzeL+TMhdx5J8GCR5pc2iohuS+s35Qxmjgrhyexuarm4SV1vFRY3TMpQWqt8kS82X+d03MQ==",
+    "tarball": "https://registry.npmjs.org/archctx-contracts/-/archctx-contracts-0.5.2.tgz",
+    "shasum": "adc159e15bceec26480bfa607907717ce0e81924",
+    "sha256": "470705385f5cf31b72279eead41f8a68c694c25503cc0c9764538e87be9daf3d",
+    "integrity": "sha512-vEhtv6gJtBDlkdBxC9jKSJBeKMOuchyvZjwD3WX1hrVxn5/1cyFwiFjOChM5+rMp3krr8y0m0OIfhU1aN6pJsA==",
     "license": "Apache-2.0",
-    "packedFileCount": 178,
+    "packedFileCount": 179,
     "cleanRoomImportOk": true,
-    "cleanRoomExportCount": 123
+    "cleanRoomExportCount": 165
   },
   "source": {
     "dryRun": "docs/verification/fg6-npm-release-dry-run.json",
     "releaseDistribution": "docs/verification/fg6-release-distribution-readback.json",
-    "publishedTarball": "_ops/npm/fg6-release-dry-run/archctx-0.4.8.tgz",
-    "sprintChecklist": "plans/sprints/archctx-architecture-ledger-sprint-checklist.md"
+    "publishedTarball": "_ops/npm/fg6-release-dry-run/archctx-0.5.2.tgz",
+    "releaseChecklist": "deploy/release-checklists/archctx-0.5.2.md",
+    "supersededChecklist": "deploy/release-checklists/archctx-0.5.1.md"
   },
   "verification": {
     "prePublish": [
       "bun run typecheck",
+      "bun run verify",
+      "bun run verify:governance",
       "bun run readback:fg6:npm-release-dry-run",
       "bun run readback:fg6:local-product-tarball",
       "bun run record:al10:release-packaging",
       "bun run preflight:archctx:npm",
       "bun run preflight:contracts:npm",
-      "hosted Verify run 33576103497 on 1d80e53 green across Ubuntu, macOS, and Windows on Node 22.22.x, 24.x, and 25.x"
+      "clean-room install of the staged tarball outside the repository on Node 24.18.0 and the 22.22.0 engine floor",
+      "hosted Verify run 33777570628 on ffaea92 green across Ubuntu, macOS, and Windows on Node 22.22.x, 24.x, and 25.x"
     ],
-    "publish": "node scripts/publish-archctx.mjs --confirm-publish --tarball _ops/npm/fg6-release-dry-run/archctx-0.4.8.tgz --registry https://registry.npmjs.org/ (interactive web authorization)",
+    "publish": "bun run publish:contracts (interactive web authorization under a PTY), then npm_config_cache=<fresh-cache-dir> node scripts/publish-archctx.mjs --confirm-publish --tarball _ops/npm/fg6-release-dry-run/archctx-0.5.2.tgz --registry https://registry.npmjs.org/ (interactive web authorization under a PTY)",
     "postPublish": [
       "npm view archctx dist-tags versions --json --registry=https://registry.npmjs.org/",
-      "npm view archctx@0.4.8 name version dist.tarball dist.shasum dist.integrity bin dependencies engines homepage license --json --registry=https://registry.npmjs.org/",
-      "npm view archctx@0.4.8 time --json --registry=https://registry.npmjs.org/",
+      "npm view archctx@0.5.2 name version dist.tarball dist.shasum dist.integrity bin dependencies engines homepage license --json --registry=https://registry.npmjs.org/",
+      "npm view archctx@0.5.2 time --json --registry=https://registry.npmjs.org/",
+      "npm pack archctx@0.5.2 --registry=https://registry.npmjs.org/ then shasum -a 1 and shasum -a 256 on the downloaded tarball",
+      "npm install --prefix <clean-room-outside-repo> archctx@0.5.2 on Node 24.18.0",
+      "<node-24> <clean-room>/node_modules/archctx/bin/archctx.mjs capabilities|help|doctor|update --check --json",
+      "<node-22.22> <clean-room>/node_modules/archctx/bin/archctx.mjs capabilities|doctor|update --check --json at the engine floor",
+      "npm view archctx-contracts@0.5.2 name version dist.tarball dist.shasum dist.integrity license --json --registry=https://registry.npmjs.org/",
+      "npm pack archctx-contracts@0.5.2 --registry=https://registry.npmjs.org/ then shasum -a 1 and shasum -a 256 on the downloaded tarball",
+      "npm install --prefix <clean-room-outside-repo> archctx-contracts@0.5.2 then import archctx-contracts via bun",
       "bun run readback:fg6:release-distribution",
-      "bun scripts/fg6-release-distribution-readback.ts inspect --evidence docs/verification/fg6-release-distribution-readback.json --json",
-      "npm pack archctx@0.4.8 --registry=https://registry.npmjs.org/ then shasum -a 1 and shasum -a 256 on the downloaded tarball",
-      "npm install --prefix <clean-room> --ignore-scripts archctx@0.4.8",
-      "<node-24> <clean-room>/node_modules/archctx/bin/archctx.mjs capabilities --json",
-      "<node-24> <clean-room>/node_modules/archctx/bin/archctx.mjs help --json",
-      "<node-24> <clean-room>/node_modules/archctx/bin/archctx.mjs doctor --json",
-      "<node-24> <clean-room>/node_modules/archctx/bin/archctx.mjs update --check --json",
-      "<node-22.22> <clean-room>/node_modules/archctx/bin/archctx.mjs help|doctor|update --check --json at the engine floor",
-      "npm view archctx-contracts@0.4.8 name version dist.tarball dist.shasum dist.integrity license --json --registry=https://registry.npmjs.org/",
-      "npm pack archctx-contracts@0.4.8 --registry=https://registry.npmjs.org/ then shasum -a 1 and shasum -a 256 on the downloaded tarball",
-      "npm install --prefix <clean-room> --ignore-scripts archctx-contracts@0.4.8 then import archctx-contracts",
       "bun run readback:release"
     ]
   },
@@ -136,14 +143,16 @@
     "nodeOnlyCliPackage": true,
     "registryMetadataMatchesDryRun": true,
     "codeGraphDependencyIs1_5_0": true,
-    "fg6ReleaseDistributionVerified": true,
+    "koffiDependencyDeclared": true,
+    "cleanRoomOutsideRepoInstallPassed": true,
     "cleanNode24InstallSmokePassed": true,
     "cleanNode22EngineFloorSmokePassed": true,
     "publishedTarballHashMatchesRegistryShasum": true,
     "contractsPublishedUnderLatestTag": true,
+    "contractsCleanRoomImportPassed": true,
+    "supersedesBroken051": true,
     "doesNotBypassChangeSetOrDaemonMutationRules": true,
     "doesNotEnableLedgerAuthoritativeProductionByItself": true,
-    "doesNotCloseAL1014ByItself": true,
     "licenseApache": true
   }
 }
