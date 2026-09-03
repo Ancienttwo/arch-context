@@ -31,7 +31,7 @@ schema version it does not know, so the version has to move. `refactor verify` a
 - [x] `bun run typecheck` passes on the release candidate.
 - [x] `bun run verify` passes on the release candidate, including `node scripts/packaged-cli-smoke.mjs`
   with its `refactor scan` coverage.
-- [ ] Hosted `Verify` run is green: `Governance Verify` plus all nine platform targets across Ubuntu,
+- [x] Hosted `Verify` run is green: `Governance Verify` plus all nine platform targets across Ubuntu,
   macOS, and Windows on Node `22.22.x`, `24.x`, and `25.x`.
 - [x] `bun run readback:fg6:npm-release-dry-run` reports `failures: []` at `0.5.0` and stages
   `archctx-0.5.0.tgz` and `archctx-contracts-0.5.0.tgz` with their SHA-256 digests recorded here.
@@ -81,6 +81,10 @@ and appends one migration event. It never rewrites a row, so a ledger that has n
 keeps serving v2 records and `refactor record` keeps reading them. The v2 read path is retained for
 this release and is removed at `0.6.0`; do not add a compatibility shim that translates v3 back to
 v2 for older clients.
+
+Hosted `Verify` run `33718243197` on `main` `65647fe` completed `success` on all ten jobs
+(Governance Verify plus Ubuntu, macOS and Windows on Node 22.22.x, 24.x and 25.x) after PR #136
+restored the no-provider readbacks and the Windows temp-dir cleanup.
 
 ## Pre-publish staging
 
