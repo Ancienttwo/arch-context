@@ -1,12 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   EVIDENCE_BINDING_SCHEMA_VERSION,
   EVIDENCE_ITEM_SCHEMA_VERSION,
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
+  REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
   digestJson,
   refactorProposalDigest,
   refactorResolutionEvidenceInvariantIssues,
@@ -485,7 +486,7 @@ describe("daemon refactorVerify", () => {
       await daemon.init(root, "Refactor Verify App");
       const { recommendation, before } = await recordCycleProposal(daemon, root);
 
-      const first = await daemon.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const first = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(first.ok, JSON.stringify(first)).toBe(true);
       const data = first.data as any;
@@ -505,7 +506,7 @@ describe("daemon refactorVerify", () => {
       expect(data.evidence.residuals.map((residual: any) => residual.code)).toContain("after-coverage-incomplete");
       expect(resolutionEventCount(store)).toBe(1);
 
-      const second = await daemon.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const second = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(second.ok, JSON.stringify(second)).toBe(true);
       expect((second.data as any).append.status).toBe("already-recorded");
@@ -526,6 +527,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const result = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         expectedHeadSha: "0".repeat(40)
       });
@@ -547,7 +549,7 @@ describe("daemon refactorVerify", () => {
       await daemon.init(root, "Refactor Verify App");
       await recordCycleProposal(daemon, root);
 
-      const result = await daemon.refactorVerify(root, { recommendationId: "recommendation.never-recorded" });
+      const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: "recommendation.never-recorded" });
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
@@ -572,7 +574,7 @@ describe("daemon refactorVerify", () => {
       });
       expect(migrated.ok, JSON.stringify(migrated)).toBe(true);
 
-      const result = await daemon.refactorVerify(root, { recommendationId: seeded.recommendationId });
+      const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: seeded.recommendationId });
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
@@ -601,7 +603,7 @@ describe("daemon refactorVerify", () => {
       expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
       const eventsBefore = store.architectureEvents.length;
 
-      const result = await daemon.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(result.ok, JSON.stringify(result)).toBe(true);
       expect((result.data as any).append.status).toBe("not-appended");
@@ -624,7 +626,7 @@ describe("daemon refactorVerify", () => {
       const connection = await rpc.start();
       const client = new RuntimeRpcClient(connection);
 
-      const result = await client.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const result = await client.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(result.ok, JSON.stringify(result)).toBe(true);
       expect((result.data as any).schemaVersion).toBe("archcontext.runtime-refactor-verify/v1");
@@ -646,9 +648,31 @@ describe("daemon refactorVerify", () => {
       expect(errorOf(missingId).code).toBe("AC_SCHEMA_INVALID");
       expect(errorOf(missingId).message).toContain("recommendationId");
 
-      const badRefs = await daemon.refactorVerify(root, { recommendationId: "x", executionEvidenceRefs: "nope" } as never);
+      const badRefs = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: "x",
+        executionEvidenceRefs: "nope"
+      } as never);
       expect(badRefs.ok).toBe(false);
       expect(errorOf(badRefs).message).toContain("executionEvidenceRefs");
+
+      // RF5b made the RPC ingress the frozen contract type, so a request that names no schema
+      // version is refused before anything measures on its behalf.
+      const noSchemaVersion = await daemon.refactorVerify(root, { recommendationId: "recommendation.x" } as never);
+      expect(noSchemaVersion.ok).toBe(false);
+      expect(errorOf(noSchemaVersion).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(noSchemaVersion).message).toContain("schemaVersion");
+
+      // The contract invariants run over the rebuilt request, so a claim the daemon would later
+      // compare against a real Git identity is rejected at ingress rather than at comparison time.
+      const badHeadSha = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: "recommendation.x",
+        expectedHeadSha: "not-a-sha"
+      });
+      expect(badHeadSha.ok).toBe(false);
+      expect(errorOf(badHeadSha).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(badHeadSha).message).toContain("expectedHeadSha");
     } finally {
       await daemon.stop();
     }
@@ -663,6 +687,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const smuggled = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         executionEvidenceRefs: [
           { kind: "not-a-real-kind", locator: "x", sha256: "a".repeat(64), rawDiff: "--- a/secrets.ts" }
@@ -677,6 +702,7 @@ describe("daemon refactorVerify", () => {
       expect(resolutionEventCount(store)).toBe(0);
 
       const badKind = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         executionEvidenceRefs: [{ kind: "not-a-real-kind", locator: "x", sha256: "a".repeat(64) }]
       } as never);
@@ -685,6 +711,67 @@ describe("daemon refactorVerify", () => {
       expect(errorOf(badKind).code).toBe("AC_SCHEMA_INVALID");
       expect(errorOf(badKind).message).toContain("not-a-real-kind");
       expect(errorOf(badKind).message).toContain("kind");
+      expect(resolutionEventCount(store)).toBe(0);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("an unbounded locator is refused at the dispatch boundary before anything is appended", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Verify App");
+      const { recommendation } = await recordCycleProposal(daemon, root);
+
+      // The locator is the one free-text field on a record whose envelope promises
+      // `privacy.rawDiffPersisted: false`, so a body parked in it must not reach the ledger.
+      const rawDiffLocator = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: recommendation.recommendationId,
+        executionEvidenceRefs: [
+          { kind: "task_contract", locator: "--- a/secrets.ts\n+const key = 'AKIA';", sha256: "a".repeat(64) }
+        ]
+      });
+      expect(rawDiffLocator.ok).toBe(false);
+      expect(errorOf(rawDiffLocator).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(rawDiffLocator).message).toContain("executionEvidenceRefs[0].locator");
+      expect(errorOf(rawDiffLocator).message).toContain("bounded reference");
+      expect(resolutionEventCount(store)).toBe(0);
+
+      const tooLong = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: recommendation.recommendationId,
+        executionEvidenceRefs: [{ kind: "task_contract", locator: "a".repeat(257), sha256: "a".repeat(64) }]
+      });
+      expect(tooLong.ok).toBe(false);
+      expect(errorOf(tooLong).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(tooLong).message).toContain("bounded reference");
+      expect(resolutionEventCount(store)).toBe(0);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("an unknown top-level request key is refused rather than dropped by the rebuild", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Verify App");
+      const { recommendation } = await recordCycleProposal(daemon, root);
+
+      // Without this the decoder rebuilds only the declared keys, so the typo removes the
+      // freshness claim and the verification answers under a weaker precondition than it stated.
+      const typo = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: recommendation.recommendationId,
+        expectedWorktreeDigset: `sha256:${"b".repeat(64)}`
+      } as never);
+      expect(typo.ok).toBe(false);
+      expect(errorOf(typo).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(typo).message).toContain("expectedWorktreeDigset");
       expect(resolutionEventCount(store)).toBe(0);
     } finally {
       await daemon.stop();
@@ -700,6 +787,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const result = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         executionEvidenceRefs: [
           { kind: "acceptance_receipt", locator: "tasks/receipts/rf4.json", sha256: "b".repeat(64) }
@@ -859,6 +947,61 @@ describe("recommendations resolve evidence lookup", () => {
     }
   });
 
+  test("F1: an uncommitted edit at the same HEAD is worktree drift, and nothing is appended", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Verify App");
+      const { recommendation, before } = await recordCycleProposal(daemon, root);
+      const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
+      expect(plan.evidence.disposition).toBe("resolved");
+      const verifiedHeadSha = plan.evidence.verifiedHeadSha;
+      const eventsBefore = store.architectureEvents.length;
+
+      // The uncommitted case a HEAD-only gate cannot see: the tree the verdict measured is gone,
+      // but the commit it names is still checked out, so `verifiedHeadSha` still matches.
+      const original = readFileSync(join(root, "README.md"), "utf8");
+      writeFileSync(join(root, "README.md"), `${original}re-introduced without committing\n`, "utf8");
+      expect(gitOut(root, "rev-parse", "HEAD")).toBe(verifiedHeadSha);
+      expect(computeWorktreeDigest(root)).not.toBe(plan.evidence.verifiedWorktreeDigest);
+
+      const drifted = await daemon.recommendations(root, {
+        command: "resolve",
+        recommendationId: recommendation.recommendationId,
+        reason: "resolving against a verdict whose tree was edited without a commit",
+        now: "2026-09-03T14:45:00.000Z",
+        evidenceDigest: plan.evidence.resolutionDigest
+      });
+
+      expect(drifted.ok).toBe(false);
+      expect(errorOf(drifted).code).toBe("AC_REFACTOR_STALE");
+      expect(errorOf(drifted).reasonCode).toBe("evidence-worktree-drift");
+      expect(store.architectureEvents).toHaveLength(eventsBefore);
+      const blocked = await daemon.book(root, { command: "recommendations", openOnly: false });
+      expect(((blocked.data as any).recommendations as RecommendationV3[])
+        .find((candidate) => candidate.recommendationId === recommendation.recommendationId)!.status)
+        .not.toBe("resolved");
+
+      // Control: the edit is the only variable. Put the tree back and the same call succeeds.
+      writeFileSync(join(root, "README.md"), original, "utf8");
+      expect(computeWorktreeDigest(root)).toBe(plan.evidence.verifiedWorktreeDigest);
+
+      const resolved = await daemon.recommendations(root, {
+        command: "resolve",
+        recommendationId: recommendation.recommendationId,
+        reason: "resolving against the tree the verdict actually measured",
+        now: "2026-09-03T14:46:00.000Z",
+        evidenceDigest: plan.evidence.resolutionDigest
+      });
+
+      expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
+      expect((resolved.data as any).nextStatus).toBe("resolved");
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   test("a practice recommendation resolves without any refactor evidence", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();
@@ -969,7 +1112,7 @@ describe("persisted evidence is re-proved on read", () => {
 });
 
 describe("recommendations resolve re-reads the tree before it appends", () => {
-  test("F4: a HEAD that moves between the gate and the append is stale, and nothing is appended", async () => {
+  test("F4: a tree that moves between the gate and the append is stale, and nothing is appended", async () => {
     const root = createGitRepo();
     const store = new MutatingSnapshotLocalStore();
     const daemon = await startDaemon(store);
@@ -979,9 +1122,11 @@ describe("recommendations resolve re-reads the tree before it appends", () => {
       const plan = await planAndAppendVerification({ store, root, recommendation, before, after: measuredSnapshot(root, []) });
       const eventsBefore = store.architectureEvents.length;
 
-      // `openSession` reads HEAD before it opens a snapshot, so mutating on the gate's own snapshot
-      // call lands after the gate has read the old HEAD and before the pre-append re-read.
-      store.armForNextCommand(2, () => {
+      // `openSession` reads HEAD before it opens a snapshot, so mutating on the pre-append read's
+      // own snapshot call lands after the gate has read the whole identity and inside the re-read.
+      // Arming the gate's call instead would be caught by the gate itself, which now compares the
+      // worktree digest too, and this test would stop covering the pre-append path.
+      store.armForNextCommand(3, () => {
         writeFileSync(join(root, "moved.ts"), "export const moved = 1;\n", "utf8");
         commitAll(root, "moved under the resolve");
       });
@@ -997,8 +1142,10 @@ describe("recommendations resolve re-reads the tree before it appends", () => {
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_REFACTOR_STALE");
       expect(errorOf(result).reasonCode).toBe("evidence-head-drift");
-      // Named so the gate's own head-drift refusal cannot be mistaken for this one.
+      // Named so the gate's own drift refusal cannot be mistaken for this one, and the moved
+      // half of the identity is named so the assertion cannot pass on the wrong movement.
       expect(errorOf(result).message).toContain("before the recommendations resolve append");
+      expect(errorOf(result).message).toContain("worktreeDigest");
       expect(store.architectureEvents).toHaveLength(eventsBefore);
       const status = await daemon.book(root, { command: "recommendations", openOnly: false });
       expect(((status.data as any).recommendations as RecommendationV3[])

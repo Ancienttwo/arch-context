@@ -63,7 +63,8 @@ export const ARCHCTX_FEATURES = [
   "projection-apply-recovery-v1",
   "projection-protocol-v2",
   "recommendation-v3",
-  "refactor-assessment-v1"
+  "refactor-assessment-v1",
+  "refactor-resolution-v1"
 ] as const;
 
 export type ProjectionMode = (typeof PROJECTION_MODES)[number];

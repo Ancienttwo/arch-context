@@ -130,7 +130,7 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, refactorScanInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
+import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -306,8 +306,10 @@ export interface RuntimeRecommendationInput {
   recommendationId?: string;
   reason?: string;
   /**
-   * `resolve` on a non-practice category requires resolution evidence. 0.5.0 ships the gate, not
-   * the lookup: no `RefactorResolutionEvidenceV1` can exist before `refactor verify` (0.5.1).
+   * `resolve` on a non-practice category requires resolution evidence: the gate looks the digest
+   * up in the replayed evidence state and rejects it when unrecorded, verified at a different
+   * HEAD, verified over a different worktree digest, or carrying a disposition other than
+   * resolved. `refactor verify` writes those records.
    */
   evidenceDigest?: string;
   actor?: string;
@@ -908,7 +910,7 @@ function decodeRuntimeRefactorRecordInput(value: unknown): RuntimeRefactorRecord
   // Nothing downstream reads a selection: recording replays every planned recommendation. Taking
   // one and ignoring it would report a subset the caller asked for and record the whole proposal.
   if (input.selection !== undefined) {
-    throw new RuntimeRefactorInputError("refactor record does not support selection in 0.5.0; every planned recommendation is recorded");
+    throw new RuntimeRefactorInputError("refactor record does not support selection; every planned recommendation is recorded");
   }
   return {
     assessmentDigest: input.assessmentDigest,
@@ -917,13 +919,27 @@ function decodeRuntimeRefactorRecordInput(value: unknown): RuntimeRefactorRecord
 }
 
 /**
- * `recommendationId` is the only required field: verify always measures whatever is at HEAD now.
+ * `recommendationId` is the only required subject: verify always measures whatever is at HEAD now.
  * `expectedHeadSha`/`expectedWorktreeDigest` are a caller's claim about the state it believes it
  * is verifying, and a claim that no longer holds must be refused rather than answered with fresh
  * numbers under the old identity.
+ *
+ * The per-field decoding stays here because it rebuilds the request from exactly the declared keys
+ * and names the offending one; the frozen
+ * `refactorVerificationRequestInvariantIssues` then re-proves the rebuilt request. Every ingress —
+ * CLI `--request-json`, RPC dispatch, an in-process caller — therefore passes the same gate.
  */
 function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerifyInput {
   const input = runtimeRefactorInputRecord(value, "refactor verify input");
+  // The rebuild below reads only the declared keys, so an undeclared one would be dropped in
+  // silence: `expectedWorktreeDigset` would remove the caller's freshness claim instead of
+  // failing it. This is the last place the typo is still visible.
+  const unknownKeys = Object.keys(input)
+    .filter((key) => !(REFACTOR_VERIFICATION_REQUEST_KEYS as readonly string[]).includes(key))
+    .sort();
+  if (unknownKeys.length > 0) {
+    throw new RuntimeRefactorInputError(`refactor verify input has unsupported key(s): ${unknownKeys.join(", ")}`);
+  }
   if (typeof input.recommendationId !== "string" || input.recommendationId.trim() === "") {
     throw new RuntimeRefactorInputError("refactor verify recommendationId must be a non-empty string");
   }
@@ -933,7 +949,8 @@ function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerify
       throw new RuntimeRefactorInputError(`refactor verify ${field} must be a non-empty string`);
     }
   }
-  return {
+  const request: RuntimeRefactorVerifyInput = {
+    schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
     recommendationId: input.recommendationId,
     ...(typeof input.expectedHeadSha === "string" ? { expectedHeadSha: input.expectedHeadSha } : {}),
     ...(typeof input.expectedWorktreeDigest === "string" ? { expectedWorktreeDigest: input.expectedWorktreeDigest } : {}),
@@ -941,6 +958,14 @@ function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerify
       ? {}
       : { executionEvidenceRefs: decodeRuntimeExecutionEvidenceRefs(input.executionEvidenceRefs) })
   };
+  if (input.schemaVersion !== REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION) {
+    throw new RuntimeRefactorInputError(
+      `refactor verify schemaVersion must be ${REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION}, received ${JSON.stringify(input.schemaVersion)}`
+    );
+  }
+  const issues = refactorVerificationRequestInvariantIssues(request, "refactor verify request");
+  if (issues.length > 0) throw new RuntimeRefactorInputError(issues.join("; "));
+  return request;
 }
 
 /**
@@ -968,6 +993,12 @@ function decodeRuntimeExecutionEvidenceRefs(value: unknown): RefactorExecutionEv
     }
     if (typeof locator !== "string" || locator.trim() === "") {
       throw new RuntimeRefactorInputError(`${field}.locator must be a non-empty string`);
+    }
+    // A locator is a reference, not a body: unbounded, it is the one string field on a record
+    // whose envelope promises `privacy.rawDiffPersisted: false`, so a raw diff or a credential
+    // could be parked in it and every digest would still agree.
+    if (!REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN.test(locator)) {
+      throw new RuntimeRefactorInputError(`${field}.locator ${REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE}`);
     }
     if (typeof sha256 !== "string" || !/^[a-f0-9]{64}$/.test(sha256)) {
       throw new RuntimeRefactorInputError(`${field}.sha256 must be a bare SHA-256 hex digest`);
@@ -3268,7 +3299,7 @@ export class ArchctxDaemon {
         // appended event, and resolving is a claim about the tree that is here now.
         const liveScope = await this.architectureLedgerGitScope(repositoryRoot);
         gatedWorktree = liveScope.worktree;
-        const gate = refactorResolveGate(current, input.evidenceDigest, replay.evidenceState, liveScope.worktree.headSha);
+        const gate = refactorResolveGate(current, input.evidenceDigest, replay.evidenceState, liveScope.worktree);
         if (gate) return errorEnvelope(`recommendations.${command}`, gate.code, gate.message, gate.reasonCode);
       }
       let next: RecommendationLedgerRecordV1;
@@ -3351,8 +3382,8 @@ export class ArchctxDaemon {
         } as unknown as Json
       };
       // The gate read the tree before the transition and the event were built. Resolving binds a
-      // verdict to a HEAD, so the tree is re-read here, inside the writer, and a move between the
-      // two reads closes the record against a state nobody verified.
+      // verdict to a HEAD *and* a worktree digest, so the tree is re-read here, inside the writer,
+      // and a move between the two reads closes the record against a state nobody verified.
       if (gatedWorktree) {
         const preAppendScope = await this.architectureLedgerGitScope(repositoryRoot);
         const moved = movedWorktreeIdentityFields(gatedWorktree, preAppendScope.worktree);
@@ -6508,19 +6539,21 @@ function latestRecommendationById(
 
 /**
  * The only door from a non-practice recommendation to `resolved`: a `refactor verify` verdict that
- * names this record, was measured at the HEAD being resolved against, and says `resolved`.
+ * names this record, was measured at the *tree* being resolved against, and says `resolved`.
  *
- * HEAD drift is refused rather than tolerated. A verdict measured at an earlier commit describes a
- * tree that no longer exists, so it cannot support a claim about this one; the cost is a re-verify
- * after any unrelated commit, which is the correct trade for a fail-closed completion gate.
- * `practice` recommendations keep their pre-RF4 behaviour: they carry no measurable outcome and
- * pass straight through.
+ * Both halves of the identity are checked. HEAD drift is refused because a verdict measured at an
+ * earlier commit describes a tree that no longer exists. Worktree drift is refused for the case
+ * HEAD alone cannot see: uncommitted edits re-introduce the very cycle the verdict says is gone,
+ * at the same commit, and a HEAD-only gate would resolve the record against a tree nobody
+ * measured. The cost is a re-verify after any edit, which is the correct trade for a fail-closed
+ * completion gate. `practice` recommendations keep their pre-RF4 behaviour: they carry no
+ * measurable outcome and pass straight through.
  */
 function refactorResolveGate(
   recommendation: RecommendationLedgerRecordV1,
   evidenceDigest: string | undefined,
   evidenceState: EvidenceStateAtCursorV1,
-  headSha: string
+  worktree: { headSha: string; worktreeDigest: string }
 ): {
   code: "AC_PRECONDITION_FAILED" | "AC_REFACTOR_EVIDENCE_REQUIRED" | "AC_REFACTOR_STALE";
   message: string;
@@ -6549,11 +6582,18 @@ function refactorResolveGate(
       reasonCode: "evidence-unknown"
     };
   }
-  if (evidence.verifiedHeadSha !== headSha) {
+  if (evidence.verifiedHeadSha !== worktree.headSha) {
     return {
       code: "AC_REFACTOR_STALE",
-      message: `refactor resolution evidence ${evidenceDigest} was verified at ${evidence.verifiedHeadSha}, current HEAD is ${headSha}; run archctx refactor verify again`,
+      message: `refactor resolution evidence ${evidenceDigest} was verified at ${evidence.verifiedHeadSha}, current HEAD is ${worktree.headSha}; run archctx refactor verify again`,
       reasonCode: "evidence-head-drift"
+    };
+  }
+  if (evidence.verifiedWorktreeDigest !== worktree.worktreeDigest) {
+    return {
+      code: "AC_REFACTOR_STALE",
+      message: `refactor resolution evidence ${evidenceDigest} was verified over worktree ${evidence.verifiedWorktreeDigest}, current worktree is ${worktree.worktreeDigest}; run archctx refactor verify again`,
+      reasonCode: "evidence-worktree-drift"
     };
   }
   if (evidence.disposition !== "resolved") {

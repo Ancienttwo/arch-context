@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 
@@ -8,6 +9,8 @@ const root = process.cwd();
 const binDir = resolve(root, "node_modules", ".bin");
 const archctxBin = resolveArchctxBin();
 const PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
+const KILL_LIST_PATH = "legacy-shim.ts";
+const KILL_LIST_OWNER_NODE_ID = "module.packaged-legacy";
 
 if (!existsSync(archctxBin)) {
   const entries = existsSync(binDir) ? readdirSync(binDir).join(", ") : "<missing .bin directory>";
@@ -19,6 +22,9 @@ const stateRoot = mkdtempSync(join(tmpdir(), "archctx-packaged-state-"));
 
 try {
   writeFileSync(join(repo, "README.md"), "# packaged cli smoke\n", "utf8");
+  // The subject of the refactor proposal below: one tracked file a declared node owns, deleted
+  // between `refactor record` and `refactor verify` so the kill-list outcome is decidable.
+  writeFileSync(join(repo, KILL_LIST_PATH), "export const legacyShim = 1;\n", "utf8");
   execFileSync(resolveCodeGraphBin(), ["init", repo], {
     cwd: repo,
     env: { ...process.env, DO_NOT_TRACK: "1", PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}` },
@@ -247,6 +253,58 @@ try {
   assert(appliedAfterRestart.ok === true, "cli apply after restart must consume the MCP-created ChangeSet draft");
   assert(existsSync(join(repo, ".archcontext/model/nodes/module.packaged-mcp-restart.yaml")), "cli apply after restart must write the MCP-planned model file");
 
+  // `refactor scan` classifies a proposal against declared ownership: a scope path no node claims
+  // is `model_adoption_required` and produces no proposal recommendation to verify. This node
+  // declares the footprint, and it is planned through the same ChangeSet path as every other model
+  // write rather than by writing the YAML behind the daemon's back.
+  const plannedOwner = await runArchctxMcp({
+    jsonrpc: "2.0",
+    id: 5,
+    method: "tools/call",
+    params: {
+      name: "archcontext_plan_update",
+      arguments: {
+        root: repo,
+        id: "changeset.packaged-legacy-owner",
+        operations: [
+          {
+            op: "create_entity",
+            path: `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`,
+            expectedHash: "missing",
+            body: [
+              "schemaVersion: archcontext.node/v2",
+              `id: ${KILL_LIST_OWNER_NODE_ID}`,
+              "kind: module",
+              "name: Packaged Legacy",
+              "status: active",
+              "summary: Owns the legacy shim the packaged refactor proposal kills",
+              "responsibilities:",
+              "  - hold the shim path the refactor proposal removes",
+              "source:",
+              "  include:",
+              `    - "${KILL_LIST_PATH}"`,
+              ""
+            ].join("\n")
+          }
+        ]
+      }
+    }
+  });
+  assert(plannedOwner.result?.content?.ok === true, "mcp plan_update must declare the kill-list owner node");
+  const ownerDraftDigest = plannedOwner.result?.content?.data?.draft?.base?.worktreeDigest;
+  assert(/^sha256:/.test(String(ownerDraftDigest)), "mcp plan_update must return a draft worktree digest for the owner node");
+
+  const appliedOwner = await runArchctx(
+    "apply",
+    "--id",
+    "changeset.packaged-legacy-owner",
+    "--approved",
+    "--expected-worktree-digest",
+    ownerDraftDigest
+  );
+  assert(appliedOwner.ok === true, "cli apply must write the kill-list owner node");
+  assert(existsSync(join(repo, `.archcontext/model/nodes/${KILL_LIST_OWNER_NODE_ID}.yaml`)), "cli apply must write the owner model file");
+
   const stopped = await runArchctx("daemon", "stop");
   assert(stopped.ok === true, "daemon stop must succeed");
   await waitForRemoved(connectionPath, "connection file");
@@ -267,6 +325,12 @@ try {
     "-m",
     "packaged cli smoke fixture"
   ]);
+
+  // The index was built before `archctx init`, the two ChangeSet applies and the commit, so it no
+  // longer covers this tree. `refactor verify` cannot return `resolved` over a stale index — an
+  // `indexedWorktreeDigest` that does not bind the measured worktree forces `stale` — so the index
+  // is rebuilt here rather than the ladder being read as a verdict about the refactor.
+  reindexSmokeRepo();
 
   // Git membership is part of the repository identity, so the runtime paths move with the commit.
   const gitPaths = await runArchctx("paths");
@@ -325,10 +389,127 @@ try {
     `packaged audit list must not hit a temporal dead zone: ${JSON.stringify(auditListed.error ?? {})}`
   );
 
+  // S4 end to end through the packaged CLI: an authored proposal whose kill list names one tracked
+  // file, recorded, then measured again after that file is gone. The daemon-level suite cannot
+  // reach `resolved` from a live scan because its fixture repository carries no CodeGraph index;
+  // this repository does, so the whole measure -> record -> verify -> resolve loop is exercised
+  // over real code facts rather than a synthetic snapshot.
+  const proposalRequest = {
+    schemaVersion: "archcontext.refactor-request/v1",
+    scope: { kind: "repository" },
+    proposal: sealRefactorProposal({
+      schemaVersion: "archcontext.refactor-proposal/v1",
+      authoredBy: { kind: "subagent", id: "agent.packaged-cli-smoke", source: "subagent" },
+      intent: "Delete the legacy shim module.",
+      scopePaths: [KILL_LIST_PATH],
+      targetOutcomes: [],
+      killList: [{ kind: "path", selectorId: KILL_LIST_PATH, required: true }]
+    })
+  };
+  const proposed = await runArchctx("refactor", "scan", "--request-json", JSON.stringify(proposalRequest), "--json");
+  assert(proposed.ok === true, `packaged refactor scan must accept an authored proposal: ${JSON.stringify(proposed.error ?? {})}`);
+  assert(
+    proposed.data?.snapshot?.codeFacts?.coverage === "complete",
+    `packaged refactor scan must measure an indexed tree: ${JSON.stringify(proposed.data?.snapshot?.codeFacts ?? {})}`
+  );
+  assert(
+    proposed.data?.assessment?.scale === "module",
+    `packaged refactor scan must classify the owned proposal as module scale: ${JSON.stringify(proposed.data?.assessment?.scale)}`
+  );
+
+  const recordedProposal = await runArchctx(
+    "refactor",
+    "record",
+    "--assessment-digest",
+    String(proposed.data.assessment.assessmentDigest),
+    "--expected-worktree-digest",
+    String(proposed.data.worktree.worktreeDigest),
+    "--json"
+  );
+  assert(recordedProposal.ok === true, `packaged refactor record must accept the proposal assessment: ${JSON.stringify(recordedProposal.error ?? {})}`);
+  const proposalRecommendation = (recordedProposal.data?.recommendations ?? [])
+    .find((recommendation) => recommendation.category === "refactor_proposal");
+  assert(proposalRecommendation !== undefined, `packaged refactor record must record the proposal: ${JSON.stringify(recordedProposal.data?.recommendations ?? [])}`);
+
+  // The refactor itself: the kill-list path stops existing, and the index is rebuilt so the AFTER
+  // measurement covers the tree the verdict is about.
+  unlinkSync(join(repo, KILL_LIST_PATH));
+  gitInRepo(["add", "-A"]);
+  gitInRepo([
+    "-c",
+    "user.email=packaged-cli-smoke@example.test",
+    "-c",
+    "user.name=Packaged CLI Smoke",
+    "commit",
+    "-m",
+    "delete the legacy shim"
+  ]);
+  reindexSmokeRepo();
+
+  const verified = await runArchctx(
+    "refactor",
+    "verify",
+    "--request-json",
+    JSON.stringify({
+      schemaVersion: "archcontext.refactor-verification-request/v1",
+      recommendationId: proposalRecommendation.recommendationId
+    }),
+    "--json"
+  );
+  assert(verified.ok === true, `packaged refactor verify must succeed: ${JSON.stringify(verified.error ?? {})}`);
+  assert(
+    verified.data?.evidence?.recommendationId === proposalRecommendation.recommendationId,
+    "packaged refactor verify must answer about the recommendation it was asked about"
+  );
+  assert(
+    verified.data?.evidence?.disposition === "resolved",
+    `packaged refactor verify must resolve a deleted kill-list path: ${JSON.stringify({ disposition: verified.data?.evidence?.disposition, residuals: verified.data?.evidence?.residuals })}`
+  );
+
+  const resolutionDigest = verified.data.evidence.resolutionDigest;
+  assert(/^sha256:[a-f0-9]{64}$/.test(String(resolutionDigest)), "packaged refactor verify must return a bound resolution digest");
+  const resolvedRecommendation = await runArchctx(
+    "recommendations",
+    "resolve",
+    "--id",
+    proposalRecommendation.recommendationId,
+    "--evidence-digest",
+    String(resolutionDigest),
+    "--reason",
+    "packaged smoke deleted the kill-list path and re-measured it",
+    "--json"
+  );
+  assert(resolvedRecommendation.ok === true, `packaged recommendations resolve must accept the recorded verdict: ${JSON.stringify(resolvedRecommendation.error ?? {})}`);
+  assert(resolvedRecommendation.data?.nextStatus === "resolved", "packaged recommendations resolve must close the recommendation");
+
   const stoppedAfterScan = await runArchctx("daemon", "stop");
   assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
   await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");
   await waitForRemoved(gitPaths.data.daemonLockPath, "lock file");
+
+  // The required flag is the whole point of the verb: without a subject there is nothing to verify,
+  // and answering with a default would measure a recommendation nobody named. Run with the daemon
+  // stopped so the rejection also proves the CLI validated before it reached for a runtime: a
+  // start here would leave a connection file, a thirty-minute idle process, and possibly a
+  // state migration behind an invocation that was never going to run.
+  const verifyWithoutRequest = await runArchctxExpectingRejection("refactor", "verify", "--json");
+  assert(verifyWithoutRequest.ok === false, "packaged refactor verify must refuse to run without --request-json");
+  assert(
+    verifyWithoutRequest.error?.code === "AC_SCHEMA_INVALID",
+    `packaged refactor verify missing flag must be AC_SCHEMA_INVALID: ${JSON.stringify(verifyWithoutRequest.error ?? {})}`
+  );
+  assert(
+    String(verifyWithoutRequest.error?.message ?? "") === "refactor verify --request-json is required",
+    `packaged refactor verify rejection must name the flag: ${JSON.stringify(verifyWithoutRequest.error ?? {})}`
+  );
+  assert(
+    existsSync(gitPaths.data.daemonConnectionPath) === false,
+    `packaged refactor verify rejection must not start a daemon: ${gitPaths.data.daemonConnectionPath} exists`
+  );
+  assert(
+    existsSync(gitPaths.data.daemonLockPath) === false,
+    `packaged refactor verify rejection must not start a daemon: ${gitPaths.data.daemonLockPath} exists`
+  );
 
   console.log("[packaged-cli-smoke] OK");
 } finally {
@@ -386,6 +567,35 @@ function spawnArchctx(args, allowedExitCodes) {
 
 function gitInRepo(args) {
   execFileSync("git", args, { cwd: repo, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function reindexSmokeRepo() {
+  execFileSync(resolveCodeGraphBin(), ["index", repo], {
+    cwd: repo,
+    env: { ...process.env, DO_NOT_TRACK: "1", PATH: `${binDir}${delimiter}${process.env.PATH ?? ""}` },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+
+/**
+ * Seals an authored `RefactorProposalV1` with the digest `refactorProposalInvariantIssues` checks.
+ * The canonical form is `digestJson` in `packages/contracts/src/schema.ts` — sorted keys, no
+ * `proposalDigest`, no `extensions`. It is restated here because this script runs the packaged CLI
+ * on plain Node and cannot import the TypeScript workspace; a drift between the two is not silent,
+ * because the daemon refuses the request and names `proposalDigest`.
+ */
+function sealRefactorProposal(authored) {
+  return { ...authored, proposalDigest: digestCanonicalJson(authored) };
+}
+
+function digestCanonicalJson(value) {
+  return `sha256:${createHash("sha256").update(JSON.stringify(sortJsonKeys(value)), "utf8").digest("hex")}`;
+}
+
+function sortJsonKeys(value) {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(sortJsonKeys);
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sortJsonKeys(value[key])]));
 }
 
 function resolveArchctxBin() {

@@ -17,7 +17,8 @@ import {
   type ModuleStatisticsSnapshotV1,
   type RecommendationV3,
   type RefactorExecutionEvidenceRefV1,
-  type RefactorResolutionEvidenceV1
+  type RefactorResolutionEvidenceV1,
+  type RefactorVerificationRequestV1
 } from "@archcontext/contracts";
 import { ARCHITECTURE_EVIDENCE_LIFECYCLE_PAYLOAD_VERSION } from "@archcontext/core/architecture-ledger";
 import type { ModuleStatisticsTrackedFileV1 } from "@archcontext/core/module-statistics";
@@ -30,18 +31,12 @@ export const REFACTOR_RESOLUTION_EVIDENCE_KIND = "refactor-resolution-evidence" 
 export const MODULE_STATISTICS_SNAPSHOT_EVIDENCE_KIND = "module-statistics-snapshot" as const;
 
 /**
- * The daemon-local ingress for `refactor verify`, field-for-field what RF5b will freeze as
- * `RefactorVerificationRequestV1`. It stays here rather than in `packages/contracts` because no
- * external JSON ingress exists until the CLI gains `--request-json`, and a schema without an
- * ingress is a frozen surface nobody can exercise.
+ * The daemon's `refactor verify` ingress is the frozen contract type itself. RF5b gave the CLI a
+ * `--request-json` flag, so the shape a caller sends over JSON and the shape the daemon accepts
+ * over RPC are one declaration; a daemon-local twin would let the two drift while both claim to
+ * describe the same request.
  */
-export interface RuntimeRefactorVerifyInput {
-  recommendationId: string;
-  /** A caller's claim about the HEAD it measured. A claim that no longer holds is `AC_REFACTOR_STALE`. */
-  expectedHeadSha?: string;
-  expectedWorktreeDigest?: string;
-  executionEvidenceRefs?: RefactorExecutionEvidenceRefV1[];
-}
+export type RuntimeRefactorVerifyInput = RefactorVerificationRequestV1;
 
 export interface RefactorVerifyInputV1 {
   recommendation: RecommendationV3;

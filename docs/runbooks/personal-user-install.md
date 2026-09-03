@@ -1,6 +1,6 @@
 # Personal User Install
 
-This runbook is the current individual-user install path. The pinned reproduction below targets `archctx@0.4.8`, the last published release; `archctx@0.5.0` is prepared but not published.
+This runbook is the current individual-user install path. The pinned reproduction below targets `archctx@0.4.8`, the last published release; `archctx@0.5.1` is prepared but not published, and `0.5.0` was never published either.
 Team collaboration, design-partner rollout, opt-in beta cohorts, and shared organization rollout evidence are deferred.
 
 `archctx@0.4.8` and later carry the recovery capability. `0.4.7` and earlier do not, so users who require
@@ -9,7 +9,7 @@ recovery must not substitute an older version.
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Required release artifact: public npm package `archctx@0.5.0`, once it is published to `latest`.
+- Required release artifact: public npm package `archctx@0.5.1`, once it is published to `latest`.
 - Runtime: Node.js `>=22.22 <26`, npm, and git must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 - Do not treat this runbook as approved for a published package version until `docs/verification/fg6-release-distribution-readback.json` is verified for that exact version.
@@ -32,8 +32,8 @@ For pinned reproduction of the current verified release:
 npm install -g archctx@0.4.8
 ```
 
-`archctx@0.5.0` is prepared but not published, so pinning it fails closed until
-`deploy/release-checklists/archctx-0.5.0.md` is complete. `0.4.8` stays the pinned identity here
+`archctx@0.5.1` is prepared but not published, so pinning it fails closed until
+`deploy/release-checklists/archctx-0.5.1.md` is complete. `0.4.8` stays the pinned identity here
 until then.
 
 The npm package is the generated public `archctx` artifact. The repository root package

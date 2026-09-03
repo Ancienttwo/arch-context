@@ -39,7 +39,7 @@
       "type": "array",
       "minItems": 3,
       "uniqueItems": true,
-      "items": { "enum": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "module-statistics-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-protocol-v2", "recommendation-v3", "refactor-assessment-v1"] }
+      "items": { "enum": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "module-statistics-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-protocol-v2", "recommendation-v3", "refactor-assessment-v1", "refactor-resolution-v1"] }
     }
   }
 }
