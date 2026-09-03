@@ -55,11 +55,14 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 
 ## Release State
 
-Recovery ships under the published `archctx@0.4.8` and `archctx-contracts@0.4.8` public artifact
-identities, both on the `latest` dist-tag. The scoped `@archcontext/contracts` workspace remains
-internal source authority; it is never the public contracts artifact. `0.4.7` and earlier do not
-carry recovery semantics. Installation and organization-runner rollout still fail closed on an
-unavailable or version-mismatched artifact.
+`archctx@0.5.0` and `archctx-contracts@0.5.0` are the current release identities; they add the
+`refactor scan|record` surface and rewrite persisted recommendations to v3. Neither is published
+yet, so anything pinning them fails closed until `deploy/release-checklists/archctx-0.5.0.md` is
+complete. `archctx@0.4.8` and `archctx-contracts@0.4.8` remain the last published pair on the
+`latest` dist-tag and are the identities that carry recovery. The scoped `@archcontext/contracts`
+workspace remains internal source authority; it is never the public contracts artifact. `0.4.7`
+and earlier do not carry recovery semantics. Installation and organization-runner rollout still
+fail closed on an unavailable or version-mismatched artifact.
 
 - **Given** 一个从单体 Web 演进到含登录/订阅/支付 Webhook 的项目，**When** Agent 实现支付能力，**Then** ArchContext 从 L0 升级到 L1、给出支付数据边界与 Lifecycle Owner，并阻止把付款凭据写入业务数据库。
 - **Given** 任务要统一新旧状态字段且旧字段只有内部消费者，**When** Agent 建议加永久 Mapper，**Then** ArchContext 拒绝无真实契约的兼容层，生成调用方迁移与 Kill List，完成后仓库只剩单一路径。
