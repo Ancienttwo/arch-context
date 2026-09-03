@@ -4,10 +4,10 @@
   "environment": "npm-release-dry-run",
   "status": "verified",
   "ok": true,
-  "generatedAt": "2026-09-03T11:21:02.876Z",
+  "generatedAt": "2026-09-03T16:11:34.118Z",
   "package": {
     "name": "archctx",
-    "version": "0.5.1",
+    "version": "0.5.2",
     "private": false,
     "homepage": "https://archcontext.repoharness.com",
     "license": "Apache-2.0",
@@ -20,7 +20,8 @@
     },
     "dependencies": {
       "@colbymchenry/codegraph": "1.5.0",
-      "@node-rs/jieba": "^2.0.1"
+      "@node-rs/jieba": "^2.0.1",
+      "koffi": "3.1.6"
     },
     "optionalDependencies": {},
     "peerDependencies": {},
@@ -31,12 +32,12 @@
   },
   "artifact": {
     "artifactDir": "_ops/npm/fg6-release-dry-run",
-    "tarball": "archctx-0.5.1.tgz",
-    "publishDryRunId": "archctx@0.5.1",
-    "integrity": "sha512-8H85VJ9Lfj2tzGByY9WF5/L0S6ZLC1z5R9r2mgbxtPNkFadON8XOeiYDPbyYKJRxPvRGecZ8ne2QKDgDhAdUQg==",
-    "shasum": "b91852954bd1b06ad80483ff03743144e2332830",
-    "size": 438484,
-    "unpackedSize": 2316828,
+    "tarball": "archctx-0.5.2.tgz",
+    "publishDryRunId": "archctx@0.5.2",
+    "integrity": "sha512-14vrH31DhxV0Wk1X4ygS2WCh6SS73Wr9BAqRdp50FWAQ0Iix42VAMVzzdJiI6JkBdRNp673FckF1JifYnN7HdQ==",
+    "shasum": "3f247035699d9e15e2bf8935b7b16a3d50b31ce6",
+    "size": 438492,
+    "unpackedSize": 2316835,
     "entryCount": 87,
     "files": [
       "NOTICE.md",
@@ -134,7 +135,7 @@
     "ok": true,
     "source": {
       "name": "@archcontext/contracts",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "files": [
         "src",
         "fixtures"
@@ -145,7 +146,7 @@
     },
     "package": {
       "name": "archctx-contracts",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "private": false,
       "files": [
         "src",
@@ -161,10 +162,10 @@
       }
     },
     "artifact": {
-      "tarball": "archctx-contracts-0.5.1.tgz",
-      "publishDryRunId": "archctx-contracts@0.5.1",
-      "integrity": "sha512-n3kg8vgUVU6jcKo7e30h7O3up0u29OBdPdsdnHQY1g7KwDPkJLFcSBnWMhsj9rpxFqQBI2vG5V6C2hVgI7tF6A==",
-      "shasum": "e29b270d1d4a72f7920c0e0e0949ed27ea40b178",
+      "tarball": "archctx-contracts-0.5.2.tgz",
+      "publishDryRunId": "archctx-contracts@0.5.2",
+      "integrity": "sha512-vEhtv6gJtBDlkdBxC9jKSJBeKMOuchyvZjwD3WX1hrVxn5/1cyFwiFjOChM5+rMp3krr8y0m0OIfhU1aN6pJsA==",
+      "shasum": "adc159e15bceec26480bfa607907717ce0e81924",
       "size": 87653,
       "unpackedSize": 513692,
       "entryCount": 179,
@@ -448,7 +449,7 @@
     "noticeMentionsAllAttribution": true
   },
   "rollout": {
-    "postPublishInstallCommand": "npm install -g archctx@0.5.1",
+    "postPublishInstallCommand": "npm install -g archctx@0.5.2",
     "homeUrl": "https://archcontext.repoharness.com"
   },
   "assertions": {
@@ -459,6 +460,7 @@
     "nodeRuntimeDeclared": true,
     "noBunRuntimeDeclared": true,
     "nativeTokenizerDependencyDeclared": true,
+    "descriptorFsDependencyDeclared": true,
     "homeUrlCorrect": true,
     "noSourceRepositoryUrl": true,
     "binExposesOnlyArchctx": true,
