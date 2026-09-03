@@ -29,6 +29,7 @@ import {
   type PlanRefactorRecommendationRunInput,
   type PreviousRecommendationV3
 } from "../src/index";
+import { architectureSubjectSelectorId } from "../../architecture-delta/src/index";
 
 const NOW = "2026-09-03T07:30:00.000Z";
 const CATALOG_DIGEST = digestOf("refactor-classifier-ruleset");
@@ -65,7 +66,9 @@ function expectRecordsValid(records: readonly RecommendationV3[]): void {
   for (const record of records) {
     expect(recommendationV3InvariantIssues(record)).toEqual([]);
     expect(record.schemaVersion).toBe(RECOMMENDATION_V3_SCHEMA_VERSION);
-    expect(record.subject).toBe(record.subjectSelectorId);
+    // Canonical selector identity, produced by architectureSubjectSelectorId.
+    expect(record.subjectSelectorId).toMatch(/^subject\.(node|repository)\.[a-f0-9]{16}$/);
+    expect(record.subject.trim()).not.toBe("");
     expect(record.status).toBe("open");
     expect(record.runId).toMatch(/^recommendation_run\./);
   }
@@ -311,12 +314,101 @@ describe("dedup, cooldown and regression", () => {
   });
 });
 
+describe("scheduler policy", () => {
+  test("a disabled scheduler records the run and emits nothing", () => {
+    const plan = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, {
+      schedulerPolicy: { enabled: false }
+    });
+
+    expect(plan.recommendations).toEqual([]);
+    expect(plan.evidenceBindings).toEqual([]);
+    expect(plan.run.status).toBe("succeeded");
+    expect(plan.run.metrics.matchCount).toBeGreaterThan(0);
+    expect(plan.run.extensions?.schedulerBudget).toMatchObject({
+      enabled: false,
+      selectedCandidateCount: 0,
+      omittedCandidateCount: plan.run.metrics.matchCount
+    } as never);
+  });
+
+  test("maxRecommendationsPerRun truncates deterministically by score then selector then fingerprint", () => {
+    const full = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
+    expect(full.recommendations.length).toBeGreaterThan(1);
+    const ranked = [...full.recommendations].sort((left, right) =>
+      (right.extensions!.score as number) - (left.extensions!.score as number)
+      || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
+      || left.fingerprint.localeCompare(right.fingerprint)
+    );
+
+    const capped = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, {
+      schedulerPolicy: { budgets: { maxRecommendationsPerRun: 1 } }
+    });
+
+    expect(capped.recommendations).toHaveLength(1);
+    expect(capped.recommendations[0]!.fingerprint).toBe(ranked[0]!.fingerprint);
+    expect(capped.run.extensions?.schedulerBudget).toMatchObject({
+      maxRecommendationsPerRun: 1,
+      selectedCandidateCount: 1,
+      omittedCandidateCount: full.recommendations.length - 1
+    } as never);
+    const repeat = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, {
+      schedulerPolicy: { budgets: { maxRecommendationsPerRun: 1 } }
+    });
+    expect(repeat.recommendations[0]!.recommendationId).toBe(capped.recommendations[0]!.recommendationId);
+  });
+
+  test("policyMode comes from the scheduler policy unless the caller overrides it", () => {
+    const fromPolicy = planFor({}, { schedulerPolicy: { policyMode: "checkpoint" } });
+    const overridden = planFor({}, { schedulerPolicy: { policyMode: "checkpoint" }, policyMode: "complete" });
+
+    expect(fromPolicy.run.policyMode).toBe("checkpoint");
+    expect(overridden.run.policyMode).toBe("complete");
+    expect(planFor().run.policyMode).toBe("advisory");
+  });
+});
+
+describe("canonical subject selectors", () => {
+  test("node, repository and strongly connected component subjects all resolve canonically", () => {
+    const plan = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
+    const repositoryId = makeSnapshot().repository.repositoryId;
+    const bySubject = new Map(plan.recommendations.map((record) => [record.subject, record]));
+
+    // A proposal addresses a node *set*, so its stableKey is `nodes:<sorted>|...` even when the
+    // set holds one node; an observation on that same node uses `node:<id>`. Both go through
+    // architectureSubjectSelectorId, so the two ids differ by stableKey, never by derivation.
+    const { snapshot, assessment, proposal } = proposalFor("module");
+    const node = planWith(snapshot, assessment, proposal).recommendations
+      .find((record) => record.category === "refactor_proposal")!;
+    expect(node.subject).toBe("component.a");
+    expect(node.subjectSelectorId).toBe(architectureSubjectSelectorId("node", repositoryId, "nodes:component.a"));
+
+    const observedNode = planWith(snapshot, assessment, proposal).recommendations
+      .find((record) => record.category === "structural_observation" && record.subject === "component.a");
+    if (observedNode) {
+      expect(observedNode.subjectSelectorId)
+        .toBe(architectureSubjectSelectorId("node", repositoryId, "node:component.a"));
+    }
+
+    const repository = bySubject.get(`repository:${repositoryId}`);
+    expect(repository).toBeDefined();
+    expect(repository!.subjectSelectorId).toBe(architectureSubjectSelectorId("repository", repositoryId, "repository"));
+
+    const scc = [...bySubject.entries()].find(([subject]) => subject.startsWith("scc:"));
+    expect(scc).toBeDefined();
+    // No `scc` arm exists in ArchitectureSubjectSelectorKind: a component is a repository-level
+    // fact, so it is addressed as a repository selector whose stableKey carries the component id.
+    expect(scc![1].subjectSelectorId).toBe(architectureSubjectSelectorId("repository", repositoryId, scc![0]));
+  });
+});
+
 describe("determinism and fingerprints", () => {
   test("the same input twice yields identical run digests and ids", () => {
     const left = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
     const right = planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) });
 
     expect(right.inputDigest).toBe(left.inputDigest);
+    expect(planFor({ snapshot: makeSnapshot({ importEdges: CYCLE_EDGES }) }, { now: "2026-09-04T00:00:00.000Z" }).run.runId)
+      .not.toBe(left.run.runId);
     expect(right.outputDigest).toBe(left.outputDigest);
     expect(right.run.runId).toBe(left.run.runId);
     expect(right.recommendations.map((entry) => entry.recommendationId))

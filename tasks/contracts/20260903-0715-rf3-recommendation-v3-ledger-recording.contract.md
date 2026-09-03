@@ -1,6 +1,6 @@
 # Task Contract: rf3-recommendation-v3-ledger-recording
 
-> **Status**: Fulfilled
+> **Status**: Partial
 > **Plan**: plans/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md
 > **Task Profile**: code-change
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->

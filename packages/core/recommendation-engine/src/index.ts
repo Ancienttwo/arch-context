@@ -992,11 +992,14 @@ export function recommendationV3Fingerprint(
 export function planRefactorRecommendationRun(input: PlanRefactorRecommendationRunInput): RefactorRecommendationRunPlan {
   const engineVersion = input.engineVersion ?? RECOMMENDATION_SCHEDULER_ENGINE_VERSION;
   const schedulerPolicy = normalizeRecommendationSchedulerPolicy(input.schedulerPolicy);
-  const policyMode = input.policyMode ?? "advisory";
+  const policyMode = input.policyMode ?? schedulerPolicy.policyMode;
   const now = input.now;
-  const drafts = [...observationDrafts(input), ...proposalDrafts(input)];
   const baselineEvidence = baselineSnapshotEvidenceItem(input);
   const evidenceItems = [baselineEvidence, ...modelAdoptionEvidenceItems(input)];
+  const candidateDrafts = [...observationDrafts(input), ...proposalDrafts(input)];
+  const drafts = schedulerPolicy.enabled
+    ? budgetRefactorDrafts(candidateDrafts, schedulerPolicy.budgets.maxRecommendationsPerRun)
+    : [];
 
   const inputDigest = digestJson({
     schemaVersion: "archcontext.refactor-recommendation-run-input/v1",
@@ -1008,18 +1011,25 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     snapshotDigest: input.snapshot.snapshotDigest,
     assessmentDigest: input.assessment.assessmentDigest,
     proposalDigest: input.assessment.proposalDigest,
-    candidates: drafts.map((draft) => ({
+    candidates: candidateDrafts.map((draft) => ({
       category: draft.category,
       subjectSelectorId: draft.subjectSelectorId,
-      fingerprint: draft.fingerprint
+      fingerprint: draft.fingerprint,
+      score: draft.score
     })),
+    selectedFingerprints: drafts.map((draft) => draft.fingerprint),
     evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
     previousRecommendations: (input.previousRecommendations ?? []).map((recommendation) => ({
       fingerprint: recommendation.fingerprint,
       status: recommendation.status,
       updatedAt: recommendation.updatedAt
     })),
-    cooldowns: input.cooldowns ?? []
+    cooldowns: input.cooldowns ?? [],
+    // The invocation clock is part of the run's identity. Without it two scans at the same HEAD
+    // whose candidates are all suppressed derive the same runId, and therefore the same event id
+    // and idempotency key, with different timestamps — an idempotency conflict on append rather
+    // than a second run that honestly reports "everything was already open".
+    now
   } as unknown as Json);
   const runId = `recommendation_run.${digestSuffix(inputDigest)}`;
 
@@ -1062,23 +1072,17 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     const binding = baselineEvidenceBinding(baselineEvidence.evidenceId, recommendationId, now);
     evidenceBindings.push(binding);
     const evidenceBindingIds = [binding.bindingId];
-    const risk = computeRecommendationRisk(draft.riskSignals);
-    const uncertainty = computeRecommendationUncertainty({
-      confidence: draft.confidence,
-      evidenceBindingIds,
-      uncertaintySignals: draft.uncertaintySignals
-    });
     const record = {
       schemaVersion: RECOMMENDATION_V3_SCHEMA_VERSION,
       recommendationId,
       runId,
       fingerprint: draft.fingerprint,
-      subject: draft.subjectSelectorId,
+      subject: draft.subject,
       status: "open",
       confidence: draft.confidence,
       enforcement: draft.enforcement,
-      risk: risk.risk,
-      uncertainty: uncertainty.uncertainty,
+      risk: draft.risk,
+      uncertainty: draft.uncertainty,
       evidenceBindingIds,
       explanation: draft.explanation,
       authoredBy: draft.authoredBy,
@@ -1092,7 +1096,9 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
         assessmentDigest: input.assessment.assessmentDigest,
         baselineSnapshotDigest: input.snapshot.snapshotDigest,
         riskSignals: [...draft.riskSignals].sort(),
-        uncertaintySignals: [...draft.uncertaintySignals].sort()
+        uncertaintySignals: [...draft.uncertaintySignals].sort(),
+        // The scheduler's ordering key, recorded so a truncated run is auditable.
+        score: draft.score
       }
     } as RecommendationV3;
     const issues = recommendationV3InvariantIssues(record);
@@ -1110,7 +1116,8 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       reasonCode: entry.reasonCode,
       fingerprint: entry.fingerprint,
       subject: entry.subject
-    }))
+    })),
+    budget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length)
   } as unknown as Json);
 
   const run: RecommendationRunV1 = {
@@ -1129,7 +1136,7 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
     completedAt: now,
     recommendationIds: recommendations.map((recommendation) => recommendation.recommendationId),
     metrics: {
-      matchCount: drafts.length,
+      matchCount: candidateDrafts.length,
       evidenceBindingCount: evidenceBindings.length,
       unboundEvidenceCount: evidenceItems.filter(
         (item) => !evidenceBindings.some((binding) => binding.evidenceId === item.evidenceId)
@@ -1142,7 +1149,9 @@ export function planRefactorRecommendationRun(input: PlanRefactorRecommendationR
       proposalDigest: input.assessment.proposalDigest,
       scale: input.assessment.scale,
       evidenceItemIds: evidenceItems.map((item) => item.evidenceId),
-      evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId)
+      evidenceBindingIds: evidenceBindings.map((binding) => binding.bindingId),
+      schedulerPolicy: schedulerPolicy as unknown as Json,
+      schedulerBudget: refactorSchedulerBudget(schedulerPolicy, candidateDrafts.length, drafts.length)
     }
   };
 
@@ -1169,6 +1178,7 @@ function refactorRecommendationId(fingerprint: string, regressesFrom: string | n
 
 interface RefactorRecommendationDraft {
   category: RecommendationV3["category"];
+  subject: string;
   subjectSelectorId: string;
   payload: RecommendationV3["payload"];
   authoredBy: RecommendationAuthorV1;
@@ -1178,6 +1188,67 @@ interface RefactorRecommendationDraft {
   riskSignals: RecommendationRiskSignal[];
   uncertaintySignals: RecommendationUncertaintySignal[];
   fingerprint: string;
+  risk: RecommendationRisk;
+  uncertainty: RecommendationUncertainty;
+  score: number;
+}
+
+/**
+ * Same shape as `budgetRecommendationCandidates`: highest score first, then stable tiebreakers so
+ * truncation is deterministic. When the cap bites, the surviving drafts are the highest-scoring
+ * ones, and within an equal score the lowest `subjectSelectorId`, then the lowest `fingerprint`.
+ */
+function budgetRefactorDrafts(
+  drafts: readonly RefactorRecommendationDraft[],
+  maxRecommendationsPerRun: number
+): RefactorRecommendationDraft[] {
+  if (maxRecommendationsPerRun <= 0) return [];
+  return [...drafts]
+    .sort((left, right) =>
+      right.score - left.score
+      || left.subjectSelectorId.localeCompare(right.subjectSelectorId)
+      || left.fingerprint.localeCompare(right.fingerprint)
+    )
+    .slice(0, maxRecommendationsPerRun);
+}
+
+function refactorSchedulerBudget(
+  schedulerPolicy: NormalizedRecommendationSchedulerPolicy,
+  candidateCount: number,
+  selectedCount: number
+): Json {
+  return {
+    maxRecommendationsPerRun: schedulerPolicy.budgets.maxRecommendationsPerRun,
+    inputCandidateCount: candidateCount,
+    selectedCandidateCount: selectedCount,
+    omittedCandidateCount: Math.max(0, candidateCount - selectedCount),
+    enabled: schedulerPolicy.enabled
+  } as unknown as Json;
+}
+
+/**
+ * Seals a draft: the fingerprint, the risk/uncertainty levels and the budget score are all derived
+ * here so the scheduler can order and truncate before any record is built.
+ */
+function sealDraft(
+  draft: Omit<RefactorRecommendationDraft, "fingerprint" | "risk" | "uncertainty" | "score">,
+  baselineEvidenceId: string
+): RefactorRecommendationDraft {
+  const risk = computeRecommendationRisk(draft.riskSignals);
+  // Every emitted record carries exactly one baseline-snapshot binding, so uncertainty is scored
+  // against that one binding rather than against an empty list.
+  const uncertainty = computeRecommendationUncertainty({
+    confidence: draft.confidence,
+    evidenceBindingIds: [baselineEvidenceId],
+    uncertaintySignals: draft.uncertaintySignals
+  });
+  return {
+    ...draft,
+    fingerprint: draftFingerprint(draft),
+    risk: risk.risk,
+    uncertainty: uncertainty.uncertainty,
+    score: scoreRecommendation(risk.risk, uncertainty.uncertainty)
+  };
 }
 
 const DAEMON_AUTHOR: RecommendationAuthorV1 = { kind: "daemon", id: "archctxd", source: "daemon" };
@@ -1208,6 +1279,7 @@ const MAJOR_CHANGE_RISK_SIGNALS: Readonly<Record<ArchitectureMajorChangeReasonCo
 };
 
 function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorRecommendationDraft[] {
+  const baselineEvidenceId = baselineSnapshotEvidenceItem(input).evidenceId;
   return input.assessment.observations.map((observation) => {
     const affectedNodeIds = observationAffectedNodeIds(input.snapshot, observation);
     const payload: StructuralObservationPayloadV1 = {
@@ -1219,9 +1291,13 @@ function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorR
       // the acceptance test for it, so this stays empty rather than forking a second definition.
       derivedOutcomes: []
     };
-    const draft = {
+    return sealDraft({
       category: "structural_observation" as const,
-      subjectSelectorId: observation.subjectSelectorId,
+      // `subject` keeps the v2 meaning: the graph subject a reader searches for. It is the raw
+      // RF2 observation subject, not the selector digest, so FTS and `open_recommendations_view`
+      // stay readable.
+      subject: observation.subjectSelectorId,
+      subjectSelectorId: observationSubjectSelectorId(input, observation),
       payload,
       authoredBy: DAEMON_AUTHOR,
       enforcement: "advisory" as const,
@@ -1232,9 +1308,29 @@ function observationDrafts(input: PlanRefactorRecommendationRunInput): RefactorR
       ],
       riskSignals: [...OBSERVATION_RISK_SIGNALS[observation.kind]],
       uncertaintySignals: coverageUncertaintySignals(input.snapshot)
-    };
-    return { ...draft, fingerprint: draftFingerprint(draft) };
+    }, baselineEvidenceId);
   });
+}
+
+/**
+ * Canonical selector identity for an observation subject, so a refactor record and an
+ * architecture-delta subject name the same thing. RF2 subjects come in three shapes: a declared
+ * node id, `repository:<id>`, and `scc:<componentId>`. There is no `scc` arm in
+ * `ArchitectureSubjectSelectorKind`, so a strongly connected component is addressed as a
+ * repository-kind selector whose stableKey carries the component id — the component is a
+ * repository-level fact, not a declared node.
+ */
+function observationSubjectSelectorId(
+  input: PlanRefactorRecommendationRunInput,
+  observation: RefactorObservationV1
+): string {
+  const repositoryId = input.repository.repositoryId;
+  const subject = observation.subjectSelectorId;
+  if (input.snapshot.modules.some((module) => module.nodeId === subject)) {
+    return architectureSubjectSelectorId("node", repositoryId, `node:${subject}`);
+  }
+  if (subject.startsWith("scc:")) return architectureSubjectSelectorId("repository", repositoryId, subject);
+  return architectureSubjectSelectorId("repository", repositoryId, "repository");
 }
 
 function proposalDrafts(input: PlanRefactorRecommendationRunInput): RefactorRecommendationDraft[] {
@@ -1263,8 +1359,14 @@ function proposalDrafts(input: PlanRefactorRecommendationRunInput): RefactorReco
   const uncertaintySignals = new Set<RecommendationUncertaintySignal>(coverageUncertaintySignals(input.snapshot));
   if (scale === "insufficient_evidence") uncertaintySignals.add("missing-evidence");
   if (input.assessment.confidence.unresolvedEvidence.length > 0) uncertaintySignals.add("partial-evidence");
-  const draft = {
+  return [sealDraft({
     category: "refactor_proposal" as const,
+    // One affected node is a node subject; anything else has no smaller true common subject than
+    // the repository. `subject` is a search key, not an identity field: the fingerprint hashes
+    // `subjectSelectorId`, never this.
+    subject: input.assessment.affectedNodeIds.length === 1
+      ? input.assessment.affectedNodeIds[0]!
+      : `repository:${input.repository.repositoryId}`,
     subjectSelectorId: proposalSubjectSelectorId(input.repository.repositoryId, input.assessment.affectedNodeIds),
     payload,
     authoredBy: proposal.authoredBy,
@@ -1276,8 +1378,7 @@ function proposalDrafts(input: PlanRefactorRecommendationRunInput): RefactorReco
     ],
     riskSignals: [...riskSignals].sort(),
     uncertaintySignals: [...uncertaintySignals].sort()
-  };
-  return [{ ...draft, fingerprint: draftFingerprint(draft) }];
+  }, baselineSnapshotEvidenceItem(input).evidenceId)];
 }
 
 /**
@@ -1360,10 +1461,12 @@ function modelAdoptionEvidenceItems(input: PlanRefactorRecommendationRunInput): 
   })];
 }
 
-function draftFingerprint(draft: Omit<RefactorRecommendationDraft, "fingerprint">): string {
+function draftFingerprint(
+  draft: Omit<RefactorRecommendationDraft, "fingerprint" | "risk" | "uncertainty" | "score">
+): string {
   return recommendationV3Fingerprint({
     category: draft.category,
-    subject: draft.subjectSelectorId,
+    subject: draft.subject,
     subjectSelectorId: draft.subjectSelectorId,
     payload: draft.payload,
     evidenceBindingIds: []

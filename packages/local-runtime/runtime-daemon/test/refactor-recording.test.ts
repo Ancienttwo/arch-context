@@ -82,6 +82,17 @@ function startDaemon(store: TestLocalStore, now = "2026-09-03T08:00:00.000Z") {
   });
 }
 
+/** A daemon whose clock advances one minute per read, mirroring real wall-clock invocations. */
+function startTickingDaemon(store: TestLocalStore) {
+  let tick = 0;
+  return createStartedDaemon({
+    codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+    codeGraphProviderFactory: () => new MockCodeGraphProvider(),
+    localStore: store,
+    clock: () => new Date(Date.parse("2026-09-03T08:00:00.000Z") + tick++ * 60_000).toISOString()
+  });
+}
+
 function measured(overrides: Partial<RefactorAssessmentInputV1> = {}): {
   snapshot: ModuleStatisticsSnapshotV1;
   assessment: RefactorAssessmentV1;
@@ -274,6 +285,40 @@ describe("refactorRecord", () => {
         .toEqual(recordedIds.map(() => "duplicate-active-fingerprint"));
       const ids = recordedRecommendations(store).map((record) => record.recommendationId);
       expect(ids).toEqual(recordedIds);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("recording three times at the same HEAD on a moving clock appends runs instead of conflicting", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startTickingDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Recording App");
+      const { digest } = registerAt(daemon, root);
+
+      const first = await daemon.refactorRecord(root, recordInput(root, digest));
+      const recordedIds = (first.data as any).recommendationIds as string[];
+      expect(recordedIds.length).toBeGreaterThan(0);
+
+      // Both later scans suppress every candidate, so without the invocation clock in the run
+      // identity they would derive the same runId, eventId and idempotency key with different
+      // timestamps and throw architecture-ledger-idempotency-conflict.
+      const second = await daemon.refactorRecord(root, recordInput(root, digest));
+      const third = await daemon.refactorRecord(root, recordInput(root, digest));
+
+      expect(second.ok).toBe(true);
+      expect(third.ok).toBe(true);
+      expect((second.data as any).recommendationIds).toEqual([]);
+      expect((third.data as any).recommendationIds).toEqual([]);
+      expect((third.data as any).suppressed.every((entry: any) => entry.reasonCode === "duplicate-active-fingerprint")).toBe(true);
+      expect((second.data as any).runId).not.toBe((first.data as any).runId);
+      expect((third.data as any).runId).not.toBe((second.data as any).runId);
+
+      const scanEvents = store.architectureEvents.filter((event) => event.source === "refactor_scan");
+      expect(scanEvents).toHaveLength(3);
+      expect(recordedRecommendations(store).map((record) => record.recommendationId)).toEqual(recordedIds);
     } finally {
       await daemon.stop();
     }
@@ -590,6 +635,41 @@ describe("ledger migrate --recommendation-v3", () => {
       expect((secondMigration.data as any).status).toBe("up-to-date");
       expect((secondMigration.data as any).append.appendedEventCount).toBe(0);
       expect(store.architectureEvents.filter((event) => event.source === "migration")).toHaveLength(1);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("migrates a practice recommendation that already has feedback rows", async () => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Recording App");
+      const seeded = await seedV2Practice(store, root, "2026-09-03T07:53:00.000Z");
+
+      const acknowledged = await daemon.recommendations(root, {
+        command: "acknowledge",
+        recommendationId: seeded.recommendationId,
+        reason: "acknowledged before the v3 migration",
+        now: "2026-09-03T07:54:00.000Z"
+      });
+      expect(acknowledged.ok).toBe(true);
+
+      // The migration re-persists a recommendation row that recommendation_feedback references
+      // ON DELETE RESTRICT; a delete-then-insert materializer fails the foreign key here.
+      const migrated = await daemon.ledgerMigrate(root, {
+        recommendationV3: true,
+        dryRun: false,
+        expectedWorktreeDigest: computeWorktreeDigest(root)
+      });
+
+      expect(migrated.ok).toBe(true);
+      expect((migrated.data as any).upgradedCount).toBe(1);
+      expect((migrated.data as any).status).toBe("verified");
+      const upgraded = recordedRecommendations(store).at(-1)!;
+      expect(upgraded.schemaVersion).toBe(RECOMMENDATION_V3_SCHEMA_VERSION);
+      expect(upgraded.status).toBe("acknowledged");
     } finally {
       await daemon.stop();
     }

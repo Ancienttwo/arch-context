@@ -136,6 +136,15 @@ function recommendationRow(dbPath: string, recommendationId: string) {
   }
 }
 
+function feedbackRows(dbPath: string): unknown[] {
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    return db.prepare("SELECT feedback_id, recommendation_id FROM recommendation_feedback").all();
+  } finally {
+    db.close();
+  }
+}
+
 function foreignKeyViolations(dbPath: string): unknown[] {
   const db = new Database(dbPath, { readonly: true });
   try {
@@ -153,6 +162,56 @@ async function seedV2(recommendations: readonly RecommendationV2[]) {
     events: [v2RunEvent(recommendations, before.graphDigest)]
   });
   return { store, dbPath };
+}
+
+/**
+ * An `acknowledge` on the seeded recommendation, so the migration re-persists a row that a
+ * `recommendation_feedback` row references ON DELETE RESTRICT.
+ */
+function feedbackEvent(recommendation: RecommendationV2, graphDigest: string): ArchitectureEventV1 {
+  const feedback = {
+    schemaVersion: "archcontext.recommendation-feedback/v1",
+    feedbackId: "recommendation_feedback.v2fixture0001",
+    recommendationId: recommendation.recommendationId,
+    runId: recommendation.runId,
+    action: "acknowledge",
+    previousStatus: "open",
+    nextStatus: "acknowledged",
+    actor: { kind: "cli", id: "developer", source: "cli" },
+    reason: "acknowledged before the v3 migration",
+    explicit: true,
+    implicitAcceptance: false,
+    repository: SCOPE.repository,
+    worktree: SCOPE.worktree,
+    createdAt: "2026-06-25T00:10:00.000Z"
+  };
+  return {
+    schemaVersion: "archcontext.architecture-event/v1",
+    eventId: "architecture_event.recommendation_lifecycle.v2fixture",
+    eventType: "architecture.recommendation.lifecycle",
+    payloadVersion: "archcontext.recommendation-feedback/v1",
+    repository: SCOPE.repository,
+    worktree: SCOPE.worktree,
+    baseDigest: graphDigest,
+    resultingDigest: graphDigest,
+    headSha: SCOPE.worktree.headSha,
+    actor: { kind: "cli", id: "developer" },
+    source: "manual",
+    timestamp: "2026-06-25T00:10:00.000Z",
+    idempotencyKey: "architecture-ledger-recommendation-lifecycle:v2-fixture",
+    provenance: {
+      producer: "recommendation-v3-migration.test",
+      command: "feedbackEvent",
+      inputDigest: digestJson({ event: "v2-feedback" } as unknown as Json)
+    },
+    payload: {
+      operations: [],
+      recommendationRuns: [],
+      recommendations: [{ ...recommendation, status: "acknowledged", updatedAt: "2026-06-25T00:10:00.000Z" }],
+      feedback: [feedback],
+      waivers: []
+    } as unknown as Json
+  };
 }
 
 describe("recommendation v2 to v3 migration", () => {
@@ -255,6 +314,56 @@ describe("recommendation v2 to v3 migration", () => {
 
     expect(second.upgraded).toEqual([]);
     expect(second.event).toBeUndefined();
+  });
+
+  test("migrates a recommendation that already carries lifecycle feedback without breaking the FK", async () => {
+    const v2 = v2Recommendation();
+    const { store, dbPath } = await seedV2([v2]);
+    const seeded = await store.replayArchitectureLedger({ ...SCOPE, mode: "genesis" });
+    await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [feedbackEvent(v2, seeded.graphDigest)] });
+    expect(feedbackRows(dbPath)).toHaveLength(1);
+    const before = await store.rebuildArchitectureLedgerCurrentState(SCOPE);
+
+    const replay = await store.replayArchitectureLedger({ ...SCOPE, mode: "genesis" });
+    const recorded = replay.events.flatMap((event) =>
+      ((event.payload as { recommendations?: RecommendationV2[] }).recommendations ?? [])
+    );
+    const plan = planRecommendationV3Migration({
+      repository: SCOPE.repository,
+      worktree: SCOPE.worktree,
+      recommendations: recorded,
+      graphDigest: replay.graphDigest,
+      now: "2026-09-03T07:46:00.000Z"
+    });
+    expect(plan.upgraded).toHaveLength(1);
+    // INSERT OR REPLACE would delete the referenced row first and fail here.
+    await store.appendArchitectureEvents({ writer: "runtime-daemon", events: [plan.event!] });
+
+    const row = recommendationRow(dbPath, v2.recommendationId)!;
+    expect(row.recommendation.schemaVersion).toBe(RECOMMENDATION_V3_SCHEMA_VERSION);
+    // The acknowledge survived, and the lifecycle status it produced is carried into v3.
+    expect(row.recommendation.status).toBe("acknowledged");
+    expect(feedbackRows(dbPath)).toHaveLength(1);
+    expect(foreignKeyViolations(dbPath)).toEqual([]);
+    const after = await store.rebuildArchitectureLedgerCurrentState(SCOPE);
+    expect(after.graphDigest).toBe(before.graphDigest);
+  });
+
+  test("re-persisting a recommendation run that already owns recommendations keeps the FK intact", async () => {
+    const v2 = v2Recommendation();
+    const { store, dbPath } = await seedV2([v2]);
+    const replay = await store.replayArchitectureLedger({ ...SCOPE, mode: "genesis" });
+
+    // The same run event replayed under a new identity: INSERT OR REPLACE on recommendation_runs
+    // would delete the row that recommendations.run_id references ON DELETE RESTRICT.
+    const repeat = v2RunEvent([v2], replay.graphDigest);
+    await store.appendArchitectureEvents({
+      writer: "runtime-daemon",
+      events: [{ ...repeat, eventId: `${repeat.eventId}.repeat`, idempotencyKey: `${repeat.idempotencyKey}:repeat` }]
+    });
+
+    expect(foreignKeyViolations(dbPath)).toEqual([]);
+    expect(recommendationRow(dbPath, v2.recommendationId)).toBeDefined();
   });
 
   test("a v2 recommendation without a practiceId fails closed instead of inventing one", () => {
