@@ -21,34 +21,34 @@ whole `0.5.0` scope with it: the `refactor scan|record` surface and the `recomme
 migration ship here, and `deploy/release-checklists/archctx-0.5.0.md` stays as the record of that
 prepared-but-unpublished candidate rather than as a completed release.
 
-- [ ] `archctx`, `archctx-contracts`, every workspace manifest, `ARCHCONTEXT_PRODUCT_VERSION`, the
+- [x] `archctx`, `archctx-contracts`, every workspace manifest, `ARCHCONTEXT_PRODUCT_VERSION`, the
   product-version manifest fixture, and `packages/core/practice-catalog/assets/catalog.yaml`
   `productVersion` are exactly `0.5.1`, and the catalog was regenerated so `catalogDigest` binds the
   new `productVersion` rather than being edited by hand.
-- [ ] Repository-wide `0.5.0` sweep leaves no stale live pin. The remaining references are historical
+- [x] Repository-wide `0.5.0` sweep leaves no stale live pin. The remaining references are historical
   release checklists and archived plan/task records, the synthetic `archctx/0.5.0` runtime-version
   fixtures in `scripts/fg5-full-plane-dlp-readback.ts`, and the deliberate pre-publish statements in
   `docs/spec.md` `## Release State` and `docs/runbooks/personal-user-install.md`.
-- [ ] `archctx capabilities --json` lists all nine features, including `refactor-resolution-v1`, and
+- [x] `archctx capabilities --json` lists all nine features, including `refactor-resolution-v1`, and
   reports `package.version` `0.5.1`.
-- [ ] `archctx refactor verify` without `--request-json` fails closed with `AC_SCHEMA_INVALID` and
+- [x] `archctx refactor verify` without `--request-json` fails closed with `AC_SCHEMA_INVALID` and
   measures nothing; a malformed or invariant-violating request is refused at the same boundary.
-- [ ] `archctx refactor verify --request-json` on a recorded recommendation whose kill-list path was
+- [x] `archctx refactor verify --request-json` on a recorded recommendation whose kill-list path was
   deleted returns `disposition: resolved`, and `archctx recommendations resolve --evidence-digest`
   accepts exactly that `resolutionDigest`.
-- [ ] `bun run typecheck` passes on the release candidate.
-- [ ] `bun run verify` passes on the release candidate, including `node scripts/packaged-cli-smoke.mjs`
+- [x] `bun run typecheck` passes on the release candidate.
+- [x] `bun run verify` passes on the release candidate, including `node scripts/packaged-cli-smoke.mjs`
   with its `refactor scan → record → verify → recommendations resolve` coverage.
-- [ ] `bun run verify:governance` reports every readback green, including the three no-LLM readbacks
+- [x] `bun run verify:governance` reports every readback green, including the three no-LLM readbacks
   regenerated at `0.5.1`.
 - [ ] Hosted `Verify` run is green: `Governance Verify` plus all nine platform targets across Ubuntu,
   macOS, and Windows on Node `22.22.x`, `24.x`, and `25.x`.
-- [ ] `bun run readback:fg6:npm-release-dry-run` reports `failures: []` at `0.5.1` and stages
+- [x] `bun run readback:fg6:npm-release-dry-run` reports `failures: []` at `0.5.1` and stages
   `archctx-0.5.1.tgz` and `archctx-contracts-0.5.1.tgz` with their SHA-256 digests recorded here.
-- [ ] `bun run readback:fg6:local-product-tarball` installs the staged tarball, starts the loopback
+- [x] `bun run readback:fg6:local-product-tarball` installs the staged tarball, starts the loopback
   daemon and stdio MCP surface, and records product version `0.5.1` with the `1.5.0` CodeGraph
   dependency binary.
-- [ ] `bun run record:al10:release-packaging` reports `AL10-10` and `AL10-11` verified.
+- [x] `bun run record:al10:release-packaging` reports `AL10-10` and `AL10-11` verified.
 - [ ] `bun run preflight:archctx:npm` reports `ready`: tarball found, registry readback
   `not-published`, npm identity `ancienttwo`.
 - [ ] `bun run preflight:contracts:npm` reports `ready`: manifest ok, pack ok, unscoped public name,
@@ -97,3 +97,19 @@ candidate commit; do not pre-write expected digests here.
 
 | tarball | size | npm shasum | SHA-256 |
 |---|---|---|---|
+
+## Pre-publish staging
+
+Staged by `bun run readback:fg6:npm-release-dry-run` at `fe5d53c` (main after PR #139), artifact
+directory `_ops/npm/fg6-release-dry-run/`:
+
+| tarball | size | npm shasum | SHA-256 |
+|---|---|---|---|
+| `archctx-0.5.1.tgz` | 438484 | `b91852954bd1b06ad80483ff03743144e2332830` | `6e6429bff7443bec96540a755bc0d4c132950aaca527a3b93fbca3e240e6946b` |
+| `archctx-contracts-0.5.1.tgz` | 87653 | `e29b270d1d4a72f7920c0e0e0949ed27ea40b178` | `5d9ba7dfeed7971b421ae9ede499254b8ec51ddd0cc6020741bf18dfe78caf66` |
+
+`bun run readback:fg6:local-product-tarball` and `bun run record:al10:release-packaging` were
+regenerated from these tarballs. Both npm preflights and both publish steps run only in the
+maintainer's real terminal (the unattended shell has no npm identity). 0.5.0 was staged at `65647fe`
+but is not published either; both releases are handed off together.
+
