@@ -864,6 +864,63 @@ function runtimeUpdateInputRecord(value: unknown, field: string): Record<string,
   return value as Record<string, unknown>;
 }
 
+class RuntimeRefactorInputError extends Error {}
+
+/** Same shape check as `runtimeUpdateInputRecord`, reported under the refactor surface. */
+function runtimeRefactorInputRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new RuntimeRefactorInputError(`${field} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+/**
+ * An RPC param is untyped JSON until something checks it, and the dispatch table only casts.
+ * Only an absent `request` means "scan the repository": `null`, an array or a scalar is a caller
+ * that meant something the daemon cannot honour, and answering it with the default scan would
+ * report a measurement of a request nobody asked for.
+ */
+function decodeRuntimeRefactorScanInput(value: unknown): RuntimeRefactorScanInput {
+  const input = runtimeRefactorInputRecord(value, "refactor scan input");
+  if (input.request === undefined) return {};
+  const request = runtimeRefactorInputRecord(input.request, "refactor scan request");
+  return { request: request as unknown as RefactorRequestV1 };
+}
+
+function decodeRuntimeRefactorRecordInput(value: unknown): RuntimeRefactorRecordInput {
+  const input = runtimeRefactorInputRecord(value, "refactor record input");
+  if (typeof input.assessmentDigest !== "string" || input.assessmentDigest.length === 0) {
+    throw new RuntimeRefactorInputError("refactor record assessmentDigest must be a non-empty string");
+  }
+  if (typeof input.expectedWorktreeDigest !== "string" || input.expectedWorktreeDigest.length === 0) {
+    throw new RuntimeRefactorInputError("refactor record expectedWorktreeDigest must be a non-empty string");
+  }
+  // Nothing downstream reads a selection: recording replays every planned recommendation. Taking
+  // one and ignoring it would report a subset the caller asked for and record the whole proposal.
+  if (input.selection !== undefined) {
+    throw new RuntimeRefactorInputError("refactor record does not support selection in 0.5.0; every planned recommendation is recorded");
+  }
+  return {
+    assessmentDigest: input.assessmentDigest,
+    expectedWorktreeDigest: input.expectedWorktreeDigest
+  };
+}
+
+/**
+ * The two fields `refactor record` binds a measurement to. A scan reads HEAD blobs, workspace
+ * manifests and the code index after it captures the identity, and a record replays the ledger
+ * after it validates one, so both have a window in which the tree can move underneath them.
+ */
+function movedWorktreeIdentityFields(
+  captured: { headSha: string; worktreeDigest: string },
+  live: { headSha: string; worktreeDigest: string }
+): string[] {
+  const moved: string[] = [];
+  if (captured.headSha !== live.headSha) moved.push("headSha");
+  if (captured.worktreeDigest !== live.worktreeDigest) moved.push("worktreeDigest");
+  return moved;
+}
+
 export interface RuntimeDaemonClient {
   init(root: string, productName?: string): Promise<JsonEnvelope> | JsonEnvelope;
   sync(root: string, changedPaths?: string[]): Promise<JsonEnvelope> | JsonEnvelope;
@@ -3265,8 +3322,15 @@ export class ArchctxDaemon {
    * proposed recommendations are a preview of what `refactor record` would write; `record`
    * re-plans under the daemon clock and is the only path that persists anything.
    */
-  async refactorScan(root: string, input: RuntimeRefactorScanInput = {}): Promise<JsonEnvelope> {
+  async refactorScan(root: string, rawInput: RuntimeRefactorScanInput = {}): Promise<JsonEnvelope> {
     this.assertRunning();
+    let input: RuntimeRefactorScanInput;
+    try {
+      input = decodeRuntimeRefactorScanInput(rawInput);
+    } catch (error) {
+      if (error instanceof RuntimeRefactorInputError) return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", error.message);
+      throw error;
+    }
     const repositoryRoot = findRepositoryRoot(root);
     const request = input.request ?? REPOSITORY_REFACTOR_REQUEST;
     // Two different scopes, deliberately. `gitScope` is the tree as it is right now and is the
@@ -3290,6 +3354,18 @@ export class ArchctxDaemon {
     } catch (error) {
       if (error instanceof RefactorScanError) return errorEnvelope("refactor.scan", error.code, error.message);
       return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+    }
+    // Every input above was read after `gitScope` was captured. If the tree moved while it was
+    // being read, the measurement belongs to no single state, so nothing is published and
+    // nothing is registered: `refactor record` must never be handed a mixed-state assessment.
+    const liveScope = await this.architectureLedgerGitScope(repositoryRoot);
+    const movedDuringScan = movedWorktreeIdentityFields(gitScope.worktree, liveScope.worktree);
+    if (movedDuringScan.length > 0) {
+      return errorEnvelope(
+        "refactor.scan",
+        "AC_REFACTOR_STALE",
+        `worktree ${movedDuringScan.join(" and ")} changed while refactor scan was reading the repository; run refactor scan again`
+      );
     }
     this.registerRefactorAssessment({
       snapshot: result.snapshot,
@@ -3330,8 +3406,15 @@ export class ArchctxDaemon {
     return this.refactorAssessments.register(input);
   }
 
-  async refactorRecord(root: string, input: RuntimeRefactorRecordInput): Promise<JsonEnvelope> {
+  async refactorRecord(root: string, rawInput: RuntimeRefactorRecordInput): Promise<JsonEnvelope> {
     this.assertRunning();
+    let input: RuntimeRefactorRecordInput;
+    try {
+      input = decodeRuntimeRefactorRecordInput(rawInput);
+    } catch (error) {
+      if (error instanceof RuntimeRefactorInputError) return errorEnvelope("refactor.record", "AC_SCHEMA_INVALID", error.message);
+      throw error;
+    }
     const repositoryRoot = findRepositoryRoot(root);
     return this.withWriter(async () => {
       const registered = this.refactorAssessments.get(input.assessmentDigest);
@@ -3358,7 +3441,8 @@ export class ArchctxDaemon {
         );
       }
       // The event still lands in the ledger scope the workspace's prior events live in, so the
-      // chain and its replay stay one continuous log.
+      // chain and its replay stay one continuous log. Deferred to 0.6.0: decoupling that ledger
+      // partition key from the identity the event itself carries.
       const scope = await this.localStore.resolveArchitectureLedgerScope(gitScope);
       if (registered.proposal) {
         const authorIssues = refactorProposalAuthorPairIssues(registered.proposal.authoredBy);
@@ -3389,6 +3473,18 @@ export class ArchctxDaemon {
         });
       } catch (error) {
         return errorEnvelope("refactor.record", "AC_SCHEMA_INVALID", error instanceof Error ? error.message : String(error));
+      }
+      // The identity check above happened before the replay and the event build; the tree can
+      // still move in between. Last look before anything is persisted, so a stale measurement
+      // fails closed instead of being appended under an identity the repository no longer has.
+      const preAppendScope = await this.architectureLedgerGitScope(repositoryRoot);
+      const movedBeforeAppend = movedWorktreeIdentityFields(registered, preAppendScope.worktree);
+      if (movedBeforeAppend.length > 0) {
+        return errorEnvelope(
+          "refactor.record",
+          "AC_REFACTOR_STALE",
+          `worktree ${movedBeforeAppend.join(" and ")} changed before the refactor record append; run refactor scan again`
+        );
       }
       const append = await this.appendArchitectureEventsWithFeed(root, {
         writer: "runtime-daemon",

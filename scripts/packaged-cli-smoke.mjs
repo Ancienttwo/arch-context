@@ -298,6 +298,20 @@ try {
     "packaged refactor record must record exactly the scanned assessment"
   );
 
+  // The entrypoint block runs during module evaluation, so a class declared below it is in the
+  // temporal dead zone on a real spawned run. Only a spawned process can catch that; imported
+  // `runCli` tests never enter the block. This asserts the flag rejection, not a TDZ ReferenceError.
+  const missingValue = await runArchctxExpectingRejection("refactor", "record", "--assessment-digest", "--json");
+  assert(missingValue.ok === false, "packaged refactor record must reject --assessment-digest without a value");
+  assert(
+    missingValue.error?.code === "AC_SCHEMA_INVALID",
+    `packaged refactor record missing value must be AC_SCHEMA_INVALID: ${JSON.stringify(missingValue.error ?? {})}`
+  );
+  assert(
+    String(missingValue.error?.message ?? "").includes("--assessment-digest"),
+    `packaged refactor record rejection must name the flag: ${JSON.stringify(missingValue.error ?? {})}`
+  );
+
   const stoppedAfterScan = await runArchctx("daemon", "stop");
   assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
   await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");
@@ -311,6 +325,16 @@ try {
 }
 
 function runArchctx(...args) {
+  return spawnArchctx(args, [0]);
+}
+
+// A rejected envelope exits 1 by design, so schema-rejection assertions need the exit code in the
+// accepted set; `runArchctx` keeps demanding 0 so a silently failing success path still fails here.
+function runArchctxExpectingRejection(...args) {
+  return spawnArchctx(args, [0, 1]);
+}
+
+function spawnArchctx(args, allowedExitCodes) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(archctxBin, args, {
       cwd: repo,
@@ -334,7 +358,7 @@ function runArchctx(...args) {
     });
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code !== 0) {
+      if (!allowedExitCodes.includes(code)) {
         rejectPromise(new Error(`archctx ${args.join(" ")} failed (${code}): ${stderr || stdout}`));
         return;
       }

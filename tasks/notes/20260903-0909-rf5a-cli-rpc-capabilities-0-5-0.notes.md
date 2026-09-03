@@ -184,3 +184,59 @@ Promote a candidate to `tasks/lessons.md`, `docs/researches/`, or harness asset 
 ## Gate residual (2026-09-03, orchestrator)
 
 - `refactor record` ok-envelope reports `worktree.worktreeDigest` from the storage scope (last stored event) while the feeding `refactor scan` envelope reports the live git-scope digest. Same shape as the pre-existing `recommendations` append; not new drift. Follow-up: make the record envelope echo the live identity it validated against (RF5b or 0.6.0), so a caller diffing scan/record envelopes sees one identity.
+
+## Codex review fixes (2026-09-03)
+
+Four review findings on the committed slice, fixed in the working tree.
+
+**F1 — TOCTOU between identity capture and use.** `refactorScan` captured `gitScope` and then read
+the model, HEAD blobs, workspace manifests and CodeGraph pairs; anything committed in that window
+was measured under an identity the tree no longer had, and `refactorRecord` accepted it. The scan
+now re-reads the live identity through the same `architectureLedgerGitScope` after the assessment
+is built and returns `AC_REFACTOR_STALE` naming the moved field (`headSha`, `worktreeDigest`)
+without registering anything; the record repeats the comparison against the registered identity
+immediately before the append, inside the existing writer boundary. No third digest variant, and
+`assertFreshWorktree` is unchanged.
+
+Deferred to 0.6.0 (unchanged here): the appended event and its replay still key off the storage
+scope, so the ledger partition key stays coupled to the event identity.
+
+**F2 — RPC params were only cast.** `decodeRuntimeRefactorScanInput` / `decodeRuntimeRefactorRecordInput`
+mirror `decodeRuntimeApplyUpdateInput`: the input must be a plain object, only an absent `request`
+selects the default repository scan, and `assessmentDigest` / `expectedWorktreeDigest` must be
+non-empty strings with `selection` an array of non-empty strings. `refactorRecord(null)` used to
+throw a `TypeError` the transport reported as HTTP 500; it is now `AC_SCHEMA_INVALID`.
+
+**F3 — CLI value flags.** `refactor scan|record` read every value flag through `refactorFlagValue`,
+which rejects a missing value or a next token starting with `--` and names the flag, so a bare
+trailing `--request-json` no longer silently runs the default scan. `--selection` is repeatable and
+comma-separated (the `--major-reason` convention) and reaches `refactorRecord` in the order it was
+typed, unsorted and un-deduplicated. `RuntimeRefactorRecordInput.selection` is validated and carried
+only; selective recording itself stays RF5b's.
+
+**F4 — tests.** `refactor-scan.test.ts` asserts the scan envelope's `headSha`/`worktreeDigest` are
+read back from git at scan time, and adds a scan and a record that move the tree from inside the
+daemon's own call graph (a `TestLocalStore` subclass whose ledger replay commits once), which is the
+only honest way to enter both windows. Reverting just the two identity re-reads makes both fail:
+the scan returns `ok: true` with a mixed-state envelope, and the record appends a second event whose
+`worktree.headSha` is the commit the tree has already left. Dispatch-boundary coverage goes through
+`ArchctxRuntimeRpcServer` + `RuntimeRpcClient`. `cli.test.ts` covers bare `--request-json`,
+`--assessment-digest` with no value, and `--selection` passthrough.
+
+## Codex review fixes (2026-09-03)
+
+Plan decision (d)'s `--selection` passthrough is dropped. Nothing consumed it: neither
+`refactor-recording.ts` nor the recommendation engine read the field, so a caller who passed a
+subset still got every planned recommendation recorded — a silent semantic lie.
+`decodeRuntimeRefactorRecordInput` now rejects `selection` whenever it is present (any value,
+including `[]`) as `AC_SCHEMA_INVALID`, the field is off `RuntimeRefactorRecordInput`, and the CLI
+no longer has a `--selection` flag. Selective recording is a later slice, not this one.
+
+`class RefactorFlagError` and the `refactorFlagValue*` helpers sat below the `if (import.meta.main)`
+entrypoint, which runs during module evaluation and suspends on top-level await, so a real spawned
+run hit the class in its temporal dead zone and returned `AC_RUNTIME_UNAVAILABLE` ("Cannot access
+'RefactorFlagError' before initialization") instead of the `AC_SCHEMA_INVALID` naming the flag.
+They now sit above the entrypoint next to `RuntimeVersionUnsupportedError`; no behaviour change.
+Imported-`runCli` tests can never see this (`import.meta.main` is false), so the guard is a spawned
+assertion: `scripts/packaged-cli-smoke.mjs` and a new `cli.test.ts` case both run
+`refactor record --assessment-digest --json` and require `AC_SCHEMA_INVALID` naming the flag.

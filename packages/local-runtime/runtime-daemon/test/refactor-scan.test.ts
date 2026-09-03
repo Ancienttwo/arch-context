@@ -22,7 +22,7 @@ import { MockCodeGraphProvider } from "@archcontext/local-runtime/test/codegraph
 import { TestLocalStore } from "@archcontext/local-runtime/test/local-store-factories";
 import { initializeArchContextModel } from "@archcontext/local-runtime/model-store-yaml";
 import { REPOSITORY_REFACTOR_REQUEST, refactorRequestId } from "../src/refactor-scan";
-import { createStartedDaemon } from "../src/index";
+import { ArchctxRuntimeRpcServer, RuntimeRpcClient, createStartedDaemon } from "../src/index";
 
 const PREVIOUS_STATE_DIR = process.env.ARCHCONTEXT_STATE_DIR;
 const STATE_ROOT = mkdtempSync(join(tmpdir(), "archctx-refactor-scan-state-"));
@@ -40,8 +40,32 @@ const OWNED_FILE = "src/owned.ts";
 const UNTRACKED_FILE = "src/never-committed.ts";
 const EXTRA_FILE = "src/extra.ts";
 const OWNER_NODE_ID = "module.refactor-scan-fixture";
+const MOVED_FILE = "src/moved-underneath.ts";
 const COMMITTER_DATE = "2026-04-05T06:07:08+00:00";
 const SECOND_COMMITTER_DATE = "2026-04-06T06:07:08+00:00";
+const THIRD_COMMITTER_DATE = "2026-04-07T06:07:08+00:00";
+
+/**
+ * Moves the tree from inside the daemon's own call graph. The ledger replay runs after a scan has
+ * captured the worktree identity and before it materializes any input, and after a record has
+ * validated the registered identity and before it appends: exactly the two windows a
+ * time-of-check/time-of-use check has to close, and the only ones a test can enter honestly.
+ */
+class MutatingReplayLocalStore extends TestLocalStore {
+  mutateOnNextReplay: (() => void) | undefined;
+
+  override async replayArchitectureLedger(input: Parameters<TestLocalStore["replayArchitectureLedger"]>[0]) {
+    const mutate = this.mutateOnNextReplay;
+    this.mutateOnNextReplay = undefined;
+    mutate?.();
+    return super.replayArchitectureLedger(input);
+  }
+}
+
+/** Reads the in-process registry a scan writes; nothing else can prove a scan registered nothing. */
+function registeredAssessmentCount(daemon: unknown): number {
+  return (daemon as { refactorAssessments: { size: number } }).refactorAssessments.size;
+}
 
 /** Commits everything currently in the tree at a fixed committer date. */
 function commitFixture(root: string, message: string, committerDate: string): void {
@@ -227,6 +251,7 @@ describe("daemon refactorScan", () => {
       const seed = scanData(await daemon.refactorScan(root));
       const seededDigest = seed.worktree.worktreeDigest;
       expect(seededDigest).toBe(computeWorktreeDigest(root));
+      expect(seed.worktree.headSha).toBe(gitOut(root, "rev-parse", "HEAD"));
       const seedRecord = await daemon.refactorRecord(root, {
         assessmentDigest: seed.assessment.assessmentDigest,
         expectedWorktreeDigest: seededDigest
@@ -240,10 +265,12 @@ describe("daemon refactorScan", () => {
       expect(liveDigest).not.toBe(seededDigest);
 
       const scan = scanData(await daemon.refactorScan(root));
-      // The published identity is the tree that was measured, not the last event's.
+      // The published identity is the tree as it is at scan time, not the last event's: both
+      // fields are read back from git here, not just compared against the seeded pair.
       expect(scan.worktree.worktreeDigest).toBe(liveDigest);
       expect(scan.worktree.worktreeDigest).not.toBe(seededDigest);
       expect(scan.worktree.headSha).toBe(gitOut(root, "rev-parse", "HEAD"));
+      expect(scan.worktree.headSha).not.toBe(seed.worktree.headSha);
 
       const recorded = await daemon.refactorRecord(root, {
         assessmentDigest: scan.assessment.assessmentDigest,
@@ -355,6 +382,123 @@ describe("daemon refactorScan", () => {
       expect(undeclaredNode.ok).toBe(false);
       expect(errorOf(undeclaredNode).code).toBe("AC_SCHEMA_INVALID");
     } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("fails closed when the tree moves while the scan is reading it", async () => {
+    const root = createFixtureRepo();
+    const store = new MutatingReplayLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const capturedHead = gitOut(root, "rev-parse", "HEAD");
+      // Fires after the identity is captured and before any input is materialized.
+      store.mutateOnNextReplay = () => {
+        writeFileSync(join(root, MOVED_FILE), "export const moved = 1;\n", "utf8");
+        commitFixture(root, "moved under the scan", SECOND_COMMITTER_DATE);
+      };
+
+      const envelope = await daemon.refactorScan(root);
+
+      expect(envelope.ok, JSON.stringify(envelope)).toBe(false);
+      expect(errorOf(envelope).code).toBe("AC_REFACTOR_STALE");
+      expect(errorOf(envelope).message).toContain("headSha");
+      expect(errorOf(envelope).message).toContain("worktreeDigest");
+      expect(gitOut(root, "rev-parse", "HEAD")).not.toBe(capturedHead);
+      // Nothing measured under a mixed state may reach the registry `refactor record` reads.
+      expect(registeredAssessmentCount(daemon)).toBe(0);
+      expect(store.architectureEvents).toHaveLength(0);
+
+      // Single-variable control: the same daemon and store, with the tree left alone.
+      const settled = await daemon.refactorScan(root);
+      expect(settled.ok, JSON.stringify(settled)).toBe(true);
+      expect(registeredAssessmentCount(daemon)).toBe(1);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("appends nothing when the tree moves between the record identity check and the append", async () => {
+    const root = createFixtureRepo();
+    const store = new MutatingReplayLocalStore();
+    const daemon = await startDaemon(store);
+    try {
+      const seed = scanData(await daemon.refactorScan(root));
+      const seeded = await daemon.refactorRecord(root, {
+        assessmentDigest: seed.assessment.assessmentDigest,
+        expectedWorktreeDigest: seed.worktree.worktreeDigest
+      });
+      expect(seeded.ok, JSON.stringify(seeded)).toBe(true);
+      expect(store.architectureEvents).toHaveLength(1);
+
+      writeFileSync(join(root, EXTRA_FILE), "export const extra = 1;\n", "utf8");
+      commitFixture(root, "extra tracked file", SECOND_COMMITTER_DATE);
+      const scan = scanData(await daemon.refactorScan(root));
+
+      // Fires after the registered identity is validated and before the event is appended.
+      store.mutateOnNextReplay = () => {
+        writeFileSync(join(root, MOVED_FILE), "export const moved = 1;\n", "utf8");
+        commitFixture(root, "moved under the record", THIRD_COMMITTER_DATE);
+      };
+      const recorded = await daemon.refactorRecord(root, {
+        assessmentDigest: scan.assessment.assessmentDigest,
+        expectedWorktreeDigest: scan.worktree.worktreeDigest
+      });
+
+      expect(recorded.ok, JSON.stringify(recorded)).toBe(false);
+      expect(errorOf(recorded).code).toBe("AC_REFACTOR_STALE");
+      expect(errorOf(recorded).message).toContain("worktreeDigest");
+      expect(store.architectureEvents).toHaveLength(1);
+      expect(store.architectureEventAppends).toHaveLength(1);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  test("rejects a malformed RPC param at the dispatch boundary instead of throwing", async () => {
+    const root = createFixtureRepo();
+    const store = new TestLocalStore();
+    const daemon = await startDaemon(store);
+    const rpc = new ArchctxRuntimeRpcServer(daemon, { root, port: 0, token: "refactor-scan-rpc-token" });
+    try {
+      const client = new RuntimeRpcClient(await rpc.start());
+
+      // `null` is not an absent request: only an absent one selects the default repository scan.
+      const nullRequest = await client.refactorScan(root, { request: null } as never);
+      expect(nullRequest.ok, JSON.stringify(nullRequest)).toBe(false);
+      expect(errorOf(nullRequest).code).toBe("AC_SCHEMA_INVALID");
+
+      const scalarRequest = await client.refactorScan(root, { request: "repository" } as never);
+      expect(scalarRequest.ok).toBe(false);
+      expect(errorOf(scalarRequest).code).toBe("AC_SCHEMA_INVALID");
+
+      // Previously a TypeError inside the daemon, which the transport reported as HTTP 500.
+      const nullRecord = await client.refactorRecord(root, null as never);
+      expect(nullRecord.ok, JSON.stringify(nullRecord)).toBe(false);
+      expect(errorOf(nullRecord).code).toBe("AC_SCHEMA_INVALID");
+
+      const badSelection = await client.refactorRecord(root, {
+        assessmentDigest: `sha256:${"a".repeat(64)}`,
+        expectedWorktreeDigest: `sha256:${"b".repeat(64)}`,
+        selection: ["ok", 7]
+      } as never);
+      expect(badSelection.ok).toBe(false);
+      expect(errorOf(badSelection).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(badSelection).message).toContain("selection");
+
+      // A well-formed selection is still rejected: nothing consumes it, so honouring it would
+      // record every planned recommendation under a narrower request.
+      const wellFormedSelection = await client.refactorRecord(root, {
+        assessmentDigest: `sha256:${"a".repeat(64)}`,
+        expectedWorktreeDigest: `sha256:${"b".repeat(64)}`,
+        selection: ["x"]
+      } as never);
+      expect(wellFormedSelection.ok, JSON.stringify(wellFormedSelection)).toBe(false);
+      expect(errorOf(wellFormedSelection).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(wellFormedSelection).message).toContain("does not support selection");
+      expect(store.architectureEventAppends).toHaveLength(0);
+    } finally {
+      await rpc.stop();
       await daemon.stop();
     }
   });

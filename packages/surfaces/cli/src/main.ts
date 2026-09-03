@@ -78,6 +78,26 @@ class RuntimeVersionUnsupportedError extends Error {
   }
 }
 
+class RefactorFlagError extends Error {}
+
+/**
+ * `readFlag` reads the next token whatever it is, so a bare trailing `--request-json` looks
+ * exactly like an absent flag and a `--assessment-digest --json` swallows the next flag as its
+ * value. On `refactor` both are a caller that meant to pass something, and running the default
+ * scan or recording under a flag name would answer a question nobody asked.
+ */
+function refactorFlagValue(args: string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index === -1) return undefined;
+  return refactorFlagValueAt(args, index, flag);
+}
+
+function refactorFlagValueAt(args: string[], index: number, flag: string): string {
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) throw new RefactorFlagError(`refactor ${flag} requires a value`);
+  return value;
+}
+
 if (import.meta.main) {
   if (command === "capabilities") {
     const result = await runCli(command, args, process.cwd());
@@ -921,32 +941,43 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
  */
 async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "scan";
-  if (subcommand === "scan") {
-    const raw = readFlag(args, "--request-json");
-    // No request is the repository-scope default, which is what the daemon already applies.
-    if (raw === undefined) return daemon.refactorScan(cwd, {});
-    let request: unknown;
-    try {
-      request = JSON.parse(raw);
-    } catch (error) {
-      return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", `refactor scan --request-json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (typeof request !== "object" || request === null || Array.isArray(request)) {
-      return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", "refactor scan --request-json must be a RefactorRequestV1 object");
-    }
-    const issues = refactorRequestInvariantIssues(request as RefactorRequestV1);
-    if (issues.length > 0) return errorEnvelope("refactor.scan", "AC_SCHEMA_INVALID", issues.join("; "));
-    return daemon.refactorScan(cwd, { request: request as RefactorRequestV1 });
-  }
-  if (subcommand !== "record") {
+  if (subcommand !== "scan" && subcommand !== "record") {
     return errorEnvelope("refactor", "AC_SCHEMA_INVALID", "refactor requires scan|record");
   }
-  const assessmentDigest = readFlag(args, "--assessment-digest");
-  const expectedWorktreeDigest = readFlag(args, "--expected-worktree-digest");
-  if (!assessmentDigest || !expectedWorktreeDigest) {
-    return errorEnvelope("refactor.record", "AC_SCHEMA_INVALID", "refactor record requires --assessment-digest and --expected-worktree-digest");
+  const surface = `refactor.${subcommand}`;
+  try {
+    if (subcommand === "scan") {
+      const raw = refactorFlagValue(args, "--request-json");
+      // No request is the repository-scope default, which is what the daemon already applies.
+      if (raw === undefined) return daemon.refactorScan(cwd, {});
+      let request: unknown;
+      try {
+        request = JSON.parse(raw);
+      } catch (error) {
+        return errorEnvelope(surface, "AC_SCHEMA_INVALID", `refactor scan --request-json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (typeof request !== "object" || request === null || Array.isArray(request)) {
+        return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor scan --request-json must be a RefactorRequestV1 object");
+      }
+      const issues = refactorRequestInvariantIssues(request as RefactorRequestV1);
+      if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));
+      return daemon.refactorScan(cwd, { request: request as RefactorRequestV1 });
+    }
+    const assessmentDigest = refactorFlagValue(args, "--assessment-digest");
+    const expectedWorktreeDigest = refactorFlagValue(args, "--expected-worktree-digest");
+    if (!assessmentDigest || !expectedWorktreeDigest) {
+      return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor record requires --assessment-digest and --expected-worktree-digest");
+    }
+    // Nothing consumes a selection in 0.5.0, so accepting one and recording the whole proposal
+    // would answer a narrower request than the caller typed. The daemon rejects it too.
+    if (args.includes("--selection")) {
+      return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor record does not support the unknown flag --selection; every planned recommendation is recorded");
+    }
+    return daemon.refactorRecord(cwd, { assessmentDigest, expectedWorktreeDigest });
+  } catch (error) {
+    if (error instanceof RefactorFlagError) return errorEnvelope(surface, "AC_SCHEMA_INVALID", error.message);
+    throw error;
   }
-  return daemon.refactorRecord(cwd, { assessmentDigest, expectedWorktreeDigest });
 }
 
 async function runDocsCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
