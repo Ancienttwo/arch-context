@@ -20,11 +20,11 @@
 
 ## Package Bundle
 
-- Package: archctx@0.4.8
-- Tarball: archctx-0.4.8.tgz
+- Package: archctx@0.5.0
+- Tarball: archctx-0.5.0.tgz
 - Package files: 87
-- CLI bytes: 1793408
-- CLI digest: sha256:6edfb0e2897844bd3f273dc306a95b81a230efe2059b6d1a7dd496ac70ceaae0
+- CLI bytes: 1932822
+- CLI digest: sha256:85f7a434a5773ccb0de47a002f87a9eab5ff927c6b954ae8dde455d550a698e2
 
 ## Bundle Signatures
 
