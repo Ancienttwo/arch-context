@@ -80,6 +80,8 @@ class RuntimeVersionUnsupportedError extends Error {
 
 class RefactorFlagError extends Error {}
 
+const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
+
 /**
  * `readFlag` reads the next token whatever it is, so a bare trailing `--request-json` looks
  * exactly like an absent flag and a `--assessment-digest --json` swallows the next flag as its
@@ -2293,7 +2295,6 @@ async function runJobsCommand(args: string[], cwd: string, daemon: RuntimeDaemon
   return errorEnvelope("jobs", "AC_SCHEMA_INVALID", "jobs requires list|stats|show|cancel|retry");
 }
 
-const AUDIT_RUN_STATUSES = ["pending", "issuing", "issued", "failed"] as const;
 type AuditRunStatus = ArchitectureAuditRunV1["status"];
 
 function readAuditRunStatuses(args: string[], requestId: string):

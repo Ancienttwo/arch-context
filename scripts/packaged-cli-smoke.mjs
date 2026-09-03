@@ -312,6 +312,19 @@ try {
     `packaged refactor record rejection must name the flag: ${JSON.stringify(missingValue.error ?? {})}`
   );
 
+  // `audit list --status` reads a top-level const through `runCli`, which the entrypoint block
+  // calls during module evaluation. Declared below that block it is in the temporal dead zone and
+  // the spawned CLI answers AC_RUNTIME_UNAVAILABLE instead of listing anything.
+  const auditListed = await runArchctxExpectingRejection("audit", "list", "--status", "pending", "--json");
+  assert(
+    auditListed.error?.code !== "AC_RUNTIME_UNAVAILABLE",
+    `packaged audit list must not fail as an unavailable runtime: ${JSON.stringify(auditListed.error ?? {})}`
+  );
+  assert(
+    !String(auditListed.error?.message ?? "").includes("before initialization"),
+    `packaged audit list must not hit a temporal dead zone: ${JSON.stringify(auditListed.error ?? {})}`
+  );
+
   const stoppedAfterScan = await runArchctx("daemon", "stop");
   assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
   await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");

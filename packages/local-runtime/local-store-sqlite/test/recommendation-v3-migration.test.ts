@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync as nodeRmSync, type RmDirOptions } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -29,6 +29,20 @@ const SCOPE = {
     worktreeDigest: digestJson({ worktree: "recommendation-v3-migration" } as unknown as Json)
   }
 };
+
+function rmSync(path: string, options?: RmDirOptions): void {
+  try {
+    nodeRmSync(path, { maxRetries: process.platform === "win32" ? 5 : 0, retryDelay: 100, ...options });
+  } catch (error) {
+    if (process.platform === "win32" && isTransientWindowsCleanupError(error)) return;
+    throw error;
+  }
+}
+
+function isTransientWindowsCleanupError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY";
+}
 
 const roots: string[] = [];
 const stores: SqliteLocalStore[] = [];
