@@ -1,6 +1,6 @@
 # Plan: Sprint task: rf5a-cli-rpc-capabilities-0.5.0
 
-> **Status**: Executing
+> **Status**: Archived
 > **Created**: 20260903-0909
 > **Slug**: rf5a-cli-rpc-capabilities-0-5-0
 > **Planning Source**: repo-harness-sprint

@@ -1,13 +1,13 @@
 # Current Status Snapshot
 
 <!-- generated-by: repo-harness refresh-current-status v1 -->
-<!-- updated_at: 2026-09-03T09:06:55+0800 -->
+<!-- updated_at: 2026-09-03T12:12:38+0800 -->
 <!-- stale_after: 24h -->
 
 > **Status**: ManualClearedWithActiveWork
-> **Updated At**: 2026-09-03T09:06:55+0800
-> **Source Branch**: codex/rf3-recommendation-v3-ledger-recording
-> **Source Commit**: 0a7cfb9
+> **Updated At**: 2026-09-03T12:12:38+0800
+> **Source Branch**: codex/rf5a-cli-rpc-capabilities-0-5-0
+> **Source Commit**: 7358e0b
 > **Target Branch**: main
 > **Stale After**: 24h
 > **Reason**: archive-workflow
@@ -43,7 +43,7 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - (none)
 ## Handoff
 
-- Exact Next Step: If a major module was just completed, stage its coherent diff first; then continue the next Task Breakdown item: Engine: RecommendationStatus re-export, REFACTOR_ACTIVE statuses, recommendationV3Fingerprint, planRefactorRecommendationRun + ledger payload
+- Exact Next Step: If a major module was just completed, stage its coherent diff first; then continue the next Task Breakdown item: git-adapter readHeadCommitterDate
 
 ## Checks
 
@@ -54,16 +54,16 @@ This file is a tracked mainline snapshot derived from repo artifacts. It is not 
 - Summary: 10 changed/untracked path(s)
 
 ```
- D plans/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md
- D tasks/contracts/20260903-0715-rf3-recommendation-v3-ledger-recording.contract.md
- D tasks/notes/20260903-0715-rf3-recommendation-v3-ledger-recording.notes.md
- D tasks/reviews/20260903-0715-rf3-recommendation-v3-ledger-recording.review.md
+ D plans/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md
+ D tasks/contracts/20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.contract.md
+ D tasks/notes/20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.notes.md
+ D tasks/reviews/20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.review.md
  M tasks/todos.md
-?? plans/archive/plan-20260903-0715-rf3-recommendation-v3-ledger-recording.md
-?? tasks/archive/contract-20260903-0906-rf3-recommendation-v3-ledger-recording.md
-?? tasks/archive/notes-20260903-0906-rf3-recommendation-v3-ledger-recording.md
-?? tasks/archive/review-20260903-0906-rf3-recommendation-v3-ledger-recording.md
-?? tasks/archive/todo-20260903-0906-rf3-recommendation-v3-ledger-recording.md
+?? plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md
+?? tasks/archive/contract-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
+?? tasks/archive/notes-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
+?? tasks/archive/review-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
+?? tasks/archive/todo-20260903-1212-rf5a-cli-rpc-capabilities-0-5-0.md
 ```
 
 ## Source Artifacts

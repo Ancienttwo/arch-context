@@ -1,7 +1,13 @@
+> **Archived**: 2026-09-03 12:12
+> **Related Plan**: plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md
+> **Outcome**: Completed
+> **Source Plan**: (none)
+> **Parent Run ID**: run-20260903-1212
+
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: (archive-workflow)
+> **Updated**: 2026-09-03 09:09
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.

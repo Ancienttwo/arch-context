@@ -1,3 +1,9 @@
+> **Archived**: 2026-09-03 12:12
+> **Related Plan**: plans/archive/plan-20260903-0909-rf5a-cli-rpc-capabilities-0-5-0.md
+> **Outcome**: Completed
+> **Lifecycle**: notes
+> **Parent Run ID**: run-20260903-1212
+
 # Implementation Notes: rf5a-cli-rpc-capabilities-0-5-0
 
 > **Status**: Active
