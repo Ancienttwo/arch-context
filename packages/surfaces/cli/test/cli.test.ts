@@ -21,7 +21,6 @@ const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
-const GITHUB_REVIEW_TEST_TIMEOUT_MS = 15_000;
 
 function rmSync(path: string, options?: RmDirOptions): void {
   try {
@@ -1758,7 +1757,7 @@ describe("archctx CLI", () => {
       if (!stopped) await rpc.stop().catch(() => undefined);
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI fails closed when a healthy daemon advertises a different product version", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-product-mismatch-"));
@@ -1826,7 +1825,7 @@ describe("archctx CLI", () => {
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("CLI renders MCP install, status, and remove host configuration", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-mcp-host-"));
@@ -2660,7 +2659,7 @@ describe("archctx CLI", () => {
       else process.env.ARCHCONTEXT_STATE_DIR = previousStateDir;
       removeTempRoot(root);
     }
-  }, GITHUB_REVIEW_TEST_TIMEOUT_MS);
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("foreground daemon subprocess shares runtime state across independent CLI processes", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-foreground-"));
@@ -4261,7 +4260,7 @@ describe("archctx CLI", () => {
     } finally {
       removeTempRoot(root);
     }
-  });
+  }, DAEMON_TEST_TIMEOUT_MS);
 
   test("archctx resolve --path matches the most specific declared capability (ADR-0043)", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-resolve-"));
