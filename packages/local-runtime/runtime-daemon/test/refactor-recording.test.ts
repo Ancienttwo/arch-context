@@ -375,7 +375,7 @@ describe("refactorRecord", () => {
       const { digest, snapshot } = registerAt(daemon, root);
 
       const recorded = await daemon.refactorRecord(root, recordInput(root, digest));
-      const recommendationId = ((recorded.data as any).recommendationIds as string[])[0]!;
+      const recommendationIds = (recorded.data as any).recommendationIds as string[];
 
       const appended = store.architectureEvents.at(-1)!;
       const operations = (appended.payload as any).evidenceOperations as any[];
@@ -389,9 +389,16 @@ describe("refactorRecord", () => {
       expect(snapshotCreate.value.selector.id).toBe(snapshot.snapshotDigest);
       expect(snapshotCreate.value.extensions.moduleStatisticsSnapshot.snapshotDigest).toBe(snapshot.snapshotDigest);
 
-      const binding = operations.find((operation) => operation.target === "binding");
-      expect(binding.value.target).toEqual({ kind: "recommendation", id: recommendationId });
-      expect(binding.value.evidenceId).toBe(snapshotCreate.value.evidenceId);
+      // Bindings are emitted sorted by `bindingId` (a digest), so position carries no meaning:
+      // assert the whole snapshot-bound set instead of whichever binding happens to sort first.
+      const bindings = operations.filter((operation) =>
+        operation.target === "binding"
+        && operation.action === "create"
+        && operation.value.evidenceId === snapshotCreate.value.evidenceId
+      );
+      expect(bindings.length).toBe(recommendationIds.length);
+      for (const bound of bindings) expect(bound.value.target.kind).toBe("recommendation");
+      expect(new Set(bindings.map((bound) => bound.value.target.id))).toEqual(new Set(recommendationIds));
     } finally {
       await daemon.stop();
     }
