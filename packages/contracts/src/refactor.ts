@@ -18,12 +18,15 @@ import { digestJson, isRepoRelativePosixPath, type Json, type Severity } from ".
 
 const DIGEST_PREFIX_LENGTH = "sha256:".length;
 const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const BARE_SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const GIT_HEAD_SHA_PATTERN = /^[a-f0-9]{40}$/;
 
 export const REFACTOR_REQUEST_SCHEMA_VERSION = "archcontext.refactor-request/v1" as const;
 export const REFACTOR_PROPOSAL_SCHEMA_VERSION = "archcontext.refactor-proposal/v1" as const;
 export const MODULE_STATISTICS_SCHEMA_VERSION = "archcontext.module-statistics/v1" as const;
 export const REFACTOR_ASSESSMENT_SCHEMA_VERSION = "archcontext.refactor-assessment/v1" as const;
 export const REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "archcontext.refactor-resolution-evidence/v1" as const;
+export const REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION = "archcontext.refactor-verification-request/v1" as const;
 
 export const REFACTOR_SCALES = [
   "architecture",
@@ -170,6 +173,24 @@ export interface RefactorRequestV1 {
   expectedHeadSha?: string;
   expectedWorktreeDigest?: string;
   task?: string;
+}
+
+/**
+ * The JSON ingress for `refactor verify`. `recommendationId` is the whole subject: a verification
+ * always re-measures whatever is at HEAD now, so there is no caller-supplied AFTER state and no
+ * outcome override — the recorded recommendation already carries the acceptance test, and letting
+ * a caller restate it would let the requester steer its own verdict.
+ *
+ * `expectedHeadSha` and `expectedWorktreeDigest` are claims about the state the caller believes it
+ * is verifying. A claim that no longer holds is refused rather than answered with fresh numbers
+ * under the old identity.
+ */
+export interface RefactorVerificationRequestV1 {
+  schemaVersion: typeof REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION;
+  recommendationId: string;
+  expectedHeadSha?: string;
+  expectedWorktreeDigest?: string;
+  executionEvidenceRefs?: RefactorExecutionEvidenceRefV1[];
 }
 
 export interface ModuleStatisticsV1 {
@@ -453,6 +474,55 @@ export function refactorRequestInvariantIssues(request: RefactorRequestV1, prefi
     }
   }
   if (request.proposal) issues.push(...refactorProposalInvariantIssues(request.proposal, `${prefix}.proposal`));
+  return issues;
+}
+
+/**
+ * Validates a `refactor verify` request before anything measures on its behalf.
+ *
+ * `executionEvidenceRefs` are checked under exactly the rules that bind them into the ledger:
+ * three declared keys and nothing else, a kind from the frozen vocabulary, and a bare SHA-256.
+ * An extra key would ride a cast into a record whose envelope promises no raw bodies, and the
+ * resolution-evidence validator only ever inspects `locator` and `sha256`, so it would never see
+ * it. Refusing here is the only place that key is still visible.
+ */
+export function refactorVerificationRequestInvariantIssues(
+  request: RefactorVerificationRequestV1,
+  prefix = "request"
+): string[] {
+  const issues: string[] = [];
+  if (request.schemaVersion !== REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION) issues.push(`${prefix}.schemaVersion is invalid`);
+  if (typeof request.recommendationId !== "string" || request.recommendationId.trim() === "") {
+    issues.push(`${prefix}.recommendationId must be a non-empty string`);
+  }
+  if (request.expectedHeadSha !== undefined && !GIT_HEAD_SHA_PATTERN.test(request.expectedHeadSha)) {
+    issues.push(`${prefix}.expectedHeadSha must be a 40-hex Git commit sha`);
+  }
+  if (request.expectedWorktreeDigest !== undefined) {
+    issues.push(...digestIssues(`${prefix}.expectedWorktreeDigest`, request.expectedWorktreeDigest));
+  }
+  if (request.executionEvidenceRefs !== undefined) {
+    if (!Array.isArray(request.executionEvidenceRefs)) {
+      issues.push(`${prefix}.executionEvidenceRefs must be an array`);
+      return issues;
+    }
+    request.executionEvidenceRefs.forEach((ref, index) => {
+      const label = `${prefix}.executionEvidenceRefs[${index}]`;
+      if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
+        issues.push(`${label} must be an object`);
+        return;
+      }
+      const extras = Object.keys(ref).filter((key) => key !== "kind" && key !== "locator" && key !== "sha256");
+      if (extras.length > 0) issues.push(`${label} has unsupported key(s): ${[...extras].sort().join(", ")}`);
+      if (!(REFACTOR_EXECUTION_EVIDENCE_KINDS as readonly string[]).includes(ref.kind)) {
+        issues.push(`${label}.kind must be one of ${REFACTOR_EXECUTION_EVIDENCE_KINDS.join(", ")}`);
+      }
+      if (typeof ref.locator !== "string" || ref.locator.trim() === "") issues.push(`${label}.locator must be a non-empty string`);
+      if (typeof ref.sha256 !== "string" || !BARE_SHA256_PATTERN.test(ref.sha256)) {
+        issues.push(`${label}.sha256 must be a bare SHA-256 hex digest`);
+      }
+    });
+  }
   return issues;
 }
 

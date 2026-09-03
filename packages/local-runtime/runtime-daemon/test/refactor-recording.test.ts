@@ -334,7 +334,7 @@ describe("refactorRecord", () => {
       const first = await daemon.refactorRecord(root, recordInput(root, digest));
       const prior = ((first.data as any).recommendations as RecommendationV3[])[0]!;
 
-      // The 0.5.0 resolve gate refuses this category, so the resolved lifecycle state is appended
+      // The resolve gate refuses this category, so the resolved lifecycle state is appended
       // directly: the assertion under test is the planner's regression link, not the gate.
       const resolvedEvent = store.architectureEvents.at(-1)!;
       await store.appendArchitectureEvents({
@@ -572,7 +572,7 @@ describe("recommendations resolve gate", () => {
       expect(errorOf(missing).code).toBe("AC_REFACTOR_EVIDENCE_REQUIRED");
       expect(errorOf(missing).reasonCode).toBe("evidence-digest-missing");
 
-      // RF4 replaced the 0.5.0 always-reject arm with the evidence lookup: an unrecorded digest is
+      // RF4 replaced the always-reject arm with the evidence lookup: an unrecorded digest is
       // now `evidence-unknown`, and no digest RF3 ever wrote can pass it.
       const supplied = await daemon.recommendations(root, {
         command: "resolve",

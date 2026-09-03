@@ -1,10 +1,10 @@
 {
   "schemaVersion": "archcontext.practice-assets-s6-catalog-readback/v1",
   "status": "verified",
-  "generatedAt": "2026-06-24T01:09:21.626Z",
-  "catalogDigest": "sha256:a80c896e87aa9ccf2766ae1e1dfae4b159da24add16adbdaa8bd53307d713c14",
-  "manifestDigest": "sha256:6c69be55df18562432237f479d8801ecc815dfdc16fba0527929ea64c69e1b95",
-  "staticManifestDigest": "sha256:6c69be55df18562432237f479d8801ecc815dfdc16fba0527929ea64c69e1b95",
+  "generatedAt": "2026-09-03T09:00:17.111Z",
+  "catalogDigest": "sha256:05eac78e99a8af764deeac3810eef4bb2ab2f999f7dbce646ef935b95838ac6c",
+  "manifestDigest": "sha256:2e8a6c1c7833ea65a44721f168cc9d817dbeca2eee6d170aea3d45d627cb0115",
+  "staticManifestDigest": "sha256:2e8a6c1c7833ea65a44721f168cc9d817dbeca2eee6d170aea3d45d627cb0115",
   "summary": {
     "practiceCount": 41,
     "activePracticeCount": 40,

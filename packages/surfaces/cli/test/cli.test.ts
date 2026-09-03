@@ -2083,9 +2083,71 @@ describe("archctx CLI", () => {
       expect((missingDigest as any).error.code).toBe("AC_SCHEMA_INVALID");
       expect(records).toHaveLength(1);
 
-      const unknownSubcommand = await runCli("refactor", ["verify"], root, { runtimeClient: runtimeClient as any });
+      const unknownSubcommand = await runCli("refactor", ["resolve"], root, { runtimeClient: runtimeClient as any });
       expect(unknownSubcommand.ok).toBe(false);
       expect((unknownSubcommand as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String((unknownSubcommand as any).error.message)).toContain("scan|record|verify");
+    } finally {
+      removeTempRoot(root);
+    }
+  });
+
+  test("CLI refactor verify requires a request and dispatches it unchanged", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-verify-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const verifications: any[] = [];
+      const envelope = {
+        schemaVersion: "archcontext.runtime-refactor-verify/v1",
+        recommendationId: "recommendation.rf5b",
+        disposition: "resolved"
+      };
+      const runtimeClient = {
+        refactorVerify(_root: string, input: any) {
+          verifications.push(input);
+          return { schemaVersion: "archcontext.envelope/v1", ok: true, requestId: "refactor.verify", data: envelope };
+        }
+      };
+
+      // Verify has no repository-scope default, so an absent flag is a caller that named no
+      // subject rather than a caller asking for the default one.
+      const missingFlag = await runCli("refactor", ["verify", "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(missingFlag.ok).toBe(false);
+      expect((missingFlag as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String((missingFlag as any).error.message)).toBe("refactor verify --request-json is required");
+
+      const malformed = await runCli("refactor", ["verify", "--request-json", "{not json"], root, { runtimeClient: runtimeClient as any });
+      expect(malformed.ok).toBe(false);
+      expect((malformed as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String((malformed as any).error.message)).toContain("not valid JSON");
+
+      const notAnObject = await runCli("refactor", ["verify", "--request-json", "[]"], root, { runtimeClient: runtimeClient as any });
+      expect(notAnObject.ok).toBe(false);
+      expect((notAnObject as any).error.code).toBe("AC_SCHEMA_INVALID");
+
+      const invalid = await runCli("refactor", ["verify", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.refactor-verification-request/v1",
+        recommendationId: "recommendation.rf5b",
+        executionEvidenceRefs: [{ kind: "task_contract", locator: "x", sha256: "not-a-digest" }]
+      })], root, { runtimeClient: runtimeClient as any });
+      expect(invalid.ok).toBe(false);
+      expect((invalid as any).error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String((invalid as any).error.message)).toContain("sha256");
+      expect(verifications).toHaveLength(0);
+
+      const request = {
+        schemaVersion: "archcontext.refactor-verification-request/v1",
+        recommendationId: "recommendation.rf5b",
+        expectedHeadSha: "a".repeat(40),
+        executionEvidenceRefs: [
+          { kind: "merge_receipt", locator: "tasks/receipts/rf5b.json", sha256: "c".repeat(64) }
+        ]
+      };
+      const verified = await runCli("refactor", ["verify", "--request-json", JSON.stringify(request), "--json"], root, { runtimeClient: runtimeClient as any });
+      expect(verified.ok).toBe(true);
+      // The parsed request reaches the RPC exactly as typed, and the envelope crosses back unchanged.
+      expect(verifications).toEqual([request]);
+      expect(verified.data).toBe(envelope as any);
     } finally {
       removeTempRoot(root);
     }
@@ -2130,7 +2192,7 @@ describe("archctx CLI", () => {
       expect((missingDigestValue as any).error.message).toContain("--assessment-digest");
       expect(records).toHaveLength(0);
 
-      // Nothing consumes a selection in 0.5.0, so it is an unknown flag rather than a passthrough.
+      // Nothing consumes a selection yet, so it is an unknown flag rather than a passthrough.
       const selected = await runCli("refactor", [
         "record",
         "--assessment-digest", `sha256:${"b".repeat(64)}`,
@@ -2177,12 +2239,29 @@ describe("archctx CLI", () => {
     }
   }, DAEMON_TEST_TIMEOUT_MS);
 
+  test("spawned CLI refactor verify without a request rejects before any daemon work", async () => {
+    const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-verify-spawn-"));
+    writeFileSync(join(root, "README.md"), "# tmp\n", "utf8");
+    try {
+      const rejected = await runCliProcessRaw(root, "refactor", "verify", "--json");
+      expect(rejected.code).toBe(1);
+      const envelope = JSON.parse(rejected.stdout);
+      expect(envelope.ok).toBe(false);
+      expect(envelope.error.code).toBe("AC_SCHEMA_INVALID");
+      expect(String(envelope.error.message)).toBe("refactor verify --request-json is required");
+    } finally {
+      await stopDaemonAndWait(root);
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
   test("CLI help lists the refactor verb and one example", async () => {
     const root = mkdtempSync(join(tmpdir(), "archctx-cli-refactor-help-"));
     try {
       const help = await runCli("help", [], root);
       expect((help.data as any).commands).toContain("refactor");
       expect((help.data as any).examples).toContain("archctx refactor scan --json");
+      expect((help.data as any).examples.filter((example: string) => example.includes("refactor verify"))).toHaveLength(1);
     } finally {
       removeTempRoot(root);
     }

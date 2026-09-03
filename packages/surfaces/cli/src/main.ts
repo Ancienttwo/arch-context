@@ -3,8 +3,8 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, refactorRequestInvariantIssues } from "@archcontext/contracts";
-import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, RefactorRequestV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
+import { ARCHCONTEXT_PRODUCT_VERSION, ARCHITECTURE_MAJOR_CHANGE_REASON_CODES, CALLER_PROVIDED_ATTESTATION_FIELDS, EXPLORER_VIEW_IDS, PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION, PROJECTION_APPLY_RECOVERY_RESULT_SCHEMA_VERSION, PROJECTION_MODES, PROJECTION_REQUEST_SCHEMA_VERSION, PROJECTION_TARGETS, archctxCapabilities, createProjectionApplyIdentity, digestJson, errorEnvelope, isRepoRelativePosixPath, okEnvelope, productVersionManifest, projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryResultInvariantIssues, projectionApplyLookupKey, projectionRequestInvariantIssues, projectionResultInvariantIssues, projectionResultReceiptDigest, refactorRequestInvariantIssues, refactorVerificationRequestInvariantIssues } from "@archcontext/contracts";
+import type { AcceptedArchitectureChangeReferenceV1, AgentJobV1, ArchctxCapabilitiesV1, ArchitectureMajorChangeReasonCode, ArchitectureRefreshSignalV1, AttestationV2, ExplorerProjectionQueryV2, GitHubGovernancePort, Json, JsonEnvelope, ProjectionApplyIdentityV1, ProjectionApplyReceiptV1, ProjectionApplyRecoveryBindingV1, ProjectionApplyRecoveryIntentV1, ProjectionApplyRecoveryProofV1, ProjectionApplyRecoveryResultV1, ProjectionRequestV1, ProjectionResultV2, ProjectionSnapshotV1, RefactorRequestV1, RefactorVerificationRequestV1, ReviewChallengeV2, Sha256Digest } from "@archcontext/contracts";
 import { canonicalRepositoryRoot, computeWorktreeDigest, repositoryFingerprint } from "@archcontext/core/architecture-domain";
 import { DEFAULT_AGENT_ORCHESTRATION_POLICY, DEFAULT_AGENT_QUEUE_MAX_QUEUED_JOBS, DEFAULT_AGENT_QUEUE_MAX_RUNNING_JOBS_PER_REPOSITORY } from "@archcontext/core/agent-orchestrator";
 import type { ArchitectureAuditRunV1 } from "@archcontext/core/architecture-ledger";
@@ -539,7 +539,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
         requestId: "help",
         data: {
           commands: ["capabilities", "projection", "init", "sync", "validate", "context", "status", "daemon", "state", "repo", "landscape", "ledger", "book", "recommendations", "refactor", "explore", "prepare", "practices", "checkpoint", "hook", "hooks", "investigate", "agents", "jobs", "audit", "plan", "apply", "review", "complete", "github", "config", "mcp", "install", "uninstall", "doctor", "update", "paths", "privacy-audit", "export", "import", "resolve", "tunnel"],
-          examples: ["archctx init --name MyApp", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
+          examples: ["archctx init --name MyApp", "archctx state recover --from-git", "archctx ledger migrate --from-yaml --dry-run", "archctx ledger promote --mode authoritative --preflight --rollback-plan", "archctx book recommendations --open --explain", "archctx recommendations accept --id recommendation.<id> --reason 'Accepted after local readback.'", "archctx recommendations metrics", "archctx refactor scan --json", "archctx refactor verify --request-json '{...}' --json", "archctx practices validate --strict", "archctx practices list --json", "archctx practices waivers", "archctx practices waive --practice-id modularity.no-new-cycle --owner team-architecture --reason 'External migration window requires this edge until cutover.' --review-at 2026-07-10T00:00:00.000Z --expires-at 2026-07-24T00:00:00.000Z --evidence-digest sha256:<64-hex> --subject module.a->module.b", "archctx checkpoint --task-session-id task_cli", "archctx investigate --runner-port codex", "archctx agents status --status queued,running", "archctx agents budget", "archctx hook enqueue --event post-edit --path src/app.ts", "archctx jobs list --status queued", "archctx audit run --reason 'quarterly architecture audit'", "archctx audit run --no-wait", "archctx audit list --status pending", "archctx audit show audit_run.<id>", "archctx audit approve audit_run.<id>", "archctx audit approve audit_run.<id> --confirm-public-repo public:<host>/<owner>/<repo>:<baseSha>:<runId>", "archctx audit approve audit_run.<id> --resume", "archctx hooks install --host codex", "archctx paths", "archctx update --check", "archctx doctor --check-updates", "archctx github connect", "archctx github status", "archctx daemon start", "archctx explore start --foreground", "archctx export likec4", "archctx import structurizr --content '<json>'", "archctx resolve --path packages/core/projection-engine/src/index.ts", "archctx tunnel"]
         }
       };
     }
@@ -937,14 +937,14 @@ async function runRecommendationsCommand(args: string[], cwd: string, daemon: Ru
 }
 
 /**
- * Thin adapter over `refactorScan` / `refactorRecord`. The measured envelope is returned exactly
- * as the daemon produced it: sorting, trimming or re-keying it here would hide a real source of
- * nondeterminism behind the surface that is supposed to prove there is none.
+ * Thin adapter over `refactorScan` / `refactorRecord` / `refactorVerify`. The measured envelope is
+ * returned exactly as the daemon produced it: sorting, trimming or re-keying it here would hide a
+ * real source of nondeterminism behind the surface that is supposed to prove there is none.
  */
 async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDaemonClient) {
   const subcommand = args[0] ?? "scan";
-  if (subcommand !== "scan" && subcommand !== "record") {
-    return errorEnvelope("refactor", "AC_SCHEMA_INVALID", "refactor requires scan|record");
+  if (subcommand !== "scan" && subcommand !== "record" && subcommand !== "verify") {
+    return errorEnvelope("refactor", "AC_SCHEMA_INVALID", "refactor requires scan|record|verify");
   }
   const surface = `refactor.${subcommand}`;
   try {
@@ -965,12 +965,32 @@ async function runRefactorCommand(args: string[], cwd: string, daemon: RuntimeDa
       if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));
       return daemon.refactorScan(cwd, { request: request as RefactorRequestV1 });
     }
+    if (subcommand === "verify") {
+      // Unlike `scan`, verify has no repository-scope default: the subject is one recorded
+      // recommendation, and inventing one would measure something nobody asked about.
+      const raw = refactorFlagValue(args, "--request-json");
+      if (raw === undefined) {
+        return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor verify --request-json is required");
+      }
+      let request: unknown;
+      try {
+        request = JSON.parse(raw);
+      } catch (error) {
+        return errorEnvelope(surface, "AC_SCHEMA_INVALID", `refactor verify --request-json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (typeof request !== "object" || request === null || Array.isArray(request)) {
+        return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor verify --request-json must be a RefactorVerificationRequestV1 object");
+      }
+      const issues = refactorVerificationRequestInvariantIssues(request as RefactorVerificationRequestV1);
+      if (issues.length > 0) return errorEnvelope(surface, "AC_SCHEMA_INVALID", issues.join("; "));
+      return daemon.refactorVerify(cwd, request as RefactorVerificationRequestV1);
+    }
     const assessmentDigest = refactorFlagValue(args, "--assessment-digest");
     const expectedWorktreeDigest = refactorFlagValue(args, "--expected-worktree-digest");
     if (!assessmentDigest || !expectedWorktreeDigest) {
       return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor record requires --assessment-digest and --expected-worktree-digest");
     }
-    // Nothing consumes a selection in 0.5.0, so accepting one and recording the whole proposal
+    // Nothing consumes a selection yet, so accepting one and recording the whole proposal
     // would answer a narrower request than the caller typed. The daemon rejects it too.
     if (args.includes("--selection")) {
       return errorEnvelope(surface, "AC_SCHEMA_INVALID", "refactor record does not support the unknown flag --selection; every planned recommendation is recorded");

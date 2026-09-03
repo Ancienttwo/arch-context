@@ -30,6 +30,7 @@ import {
   REFACTOR_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
   REFACTOR_SCALES,
   REFACTOR_SCALE_REASON_CODES,
+  REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
   architectureTargetDeltaInterventionId,
   architectureTargetDeltaInvariantIssues,
   moduleStatisticsDigest,
@@ -38,6 +39,7 @@ import {
   moduleStatisticsSnapshotInvariantIssues,
   recommendationV3FingerprintInput,
   recommendationV3InvariantIssues,
+  refactorVerificationRequestInvariantIssues,
   refactorAssessmentDigest,
   refactorAssessmentInvariantIssues,
   refactorProposalDigest,
@@ -53,6 +55,7 @@ import {
   type RefactorAssessmentV1,
   type RefactorProposalV1,
   type RefactorRequestV1,
+  type RefactorVerificationRequestV1,
   type RefactorResolutionEvidenceV1,
   type RefactorTargetOutcomeV1
 } from "../src/refactor";
@@ -963,6 +966,96 @@ describe("cross-entity validators", () => {
     expect(refactorVerifyInvariantIssues(snapshot, evidence)).toContain(
       "resolutionEvidence.disposition must not be resolved while after-snapshot coverage is incomplete"
     );
+  });
+});
+
+describe("refactor verification request", () => {
+  function makeVerificationRequest(
+    overrides: Partial<RefactorVerificationRequestV1> = {}
+  ): RefactorVerificationRequestV1 {
+    return {
+      schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+      recommendationId: "recommendation.rf5b",
+      ...overrides
+    };
+  }
+
+  test("the minimal request names only its subject and round-trips through JSON", () => {
+    const request = makeVerificationRequest();
+    expect(refactorVerificationRequestInvariantIssues(request)).toEqual([]);
+    expect(JSON.parse(JSON.stringify(request))).toEqual(request);
+    expect(Object.keys(request).sort()).toEqual(["recommendationId", "schemaVersion"]);
+  });
+
+  test("a fully populated request carries both claims and its execution evidence", () => {
+    const request = makeVerificationRequest({
+      expectedHeadSha: "a".repeat(40),
+      expectedWorktreeDigest: `sha256:${"b".repeat(64)}`,
+      executionEvidenceRefs: [
+        { kind: "merge_receipt", locator: "tasks/receipts/rf5b.json", sha256: "c".repeat(64) }
+      ]
+    });
+    expect(refactorVerificationRequestInvariantIssues(request)).toEqual([]);
+    expect(JSON.parse(JSON.stringify(request))).toEqual(request);
+  });
+
+  test("every declared evidence kind is accepted", () => {
+    for (const kind of REFACTOR_EXECUTION_EVIDENCE_KINDS) {
+      const request = makeVerificationRequest({
+        executionEvidenceRefs: [{ kind, locator: `tasks/${kind}.json`, sha256: "d".repeat(64) }]
+      });
+      expect(refactorVerificationRequestInvariantIssues(request), kind).toEqual([]);
+    }
+  });
+
+  test("a foreign schema version is refused", () => {
+    const request = makeVerificationRequest({ schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION as never });
+    expect(refactorVerificationRequestInvariantIssues(request)).toEqual(["request.schemaVersion is invalid"]);
+  });
+
+  test("an empty or missing recommendation id names no subject", () => {
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ recommendationId: "   " })))
+      .toEqual(["request.recommendationId must be a non-empty string"]);
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ recommendationId: undefined as never })))
+      .toEqual(["request.recommendationId must be a non-empty string"]);
+  });
+
+  test("a claim about HEAD or the worktree must be shaped like the identity it will be compared to", () => {
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ expectedHeadSha: "HEAD" })))
+      .toEqual(["request.expectedHeadSha must be a 40-hex Git commit sha"]);
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ expectedWorktreeDigest: "b".repeat(64) })))
+      .toEqual(["request.expectedWorktreeDigest must be a sha256:<64-hex> digest"]);
+  });
+
+  test("an execution evidence ref is refused for an unknown kind, an empty locator, or a prefixed digest", () => {
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [{ kind: "code_review" as never, locator: "x", sha256: "e".repeat(64) }]
+    }))).toEqual([`request.executionEvidenceRefs[0].kind must be one of ${REFACTOR_EXECUTION_EVIDENCE_KINDS.join(", ")}`]);
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [{ kind: "task_contract", locator: "  ", sha256: "e".repeat(64) }]
+    }))).toEqual(["request.executionEvidenceRefs[0].locator must be a non-empty string"]);
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [{ kind: "task_contract", locator: "x", sha256: `sha256:${"e".repeat(64)}` }]
+    }))).toEqual(["request.executionEvidenceRefs[0].sha256 must be a bare SHA-256 hex digest"]);
+  });
+
+  test("a key the ledger never persists is named rather than dropped", () => {
+    const issues = refactorVerificationRequestInvariantIssues(makeVerificationRequest({
+      executionEvidenceRefs: [
+        { kind: "task_contract", locator: "x", sha256: "e".repeat(64), rawDiff: "--- a/secrets.ts" } as never
+      ]
+    }));
+    expect(issues).toEqual(["request.executionEvidenceRefs[0] has unsupported key(s): rawDiff"]);
+  });
+
+  test("a non-array executionEvidenceRefs is refused before any element is read", () => {
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ executionEvidenceRefs: "nope" as never })))
+      .toEqual(["request.executionEvidenceRefs must be an array"]);
+  });
+
+  test("the issue prefix follows the caller", () => {
+    expect(refactorVerificationRequestInvariantIssues(makeVerificationRequest({ recommendationId: "" }), "verifyRequest"))
+      .toEqual(["verifyRequest.recommendationId must be a non-empty string"]);
   });
 });
 

@@ -55,11 +55,13 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 
 ## Release State
 
-`archctx@0.5.0` and `archctx-contracts@0.5.0` are the current release identities; they add the
-`refactor scan|record` surface and rewrite persisted recommendations to v3. Neither is published
-yet, so anything pinning them fails closed until `deploy/release-checklists/archctx-0.5.0.md` is
-complete. `archctx@0.4.8` and `archctx-contracts@0.4.8` remain the last published pair on the
-`latest` dist-tag and are the identities that carry recovery. The scoped `@archcontext/contracts`
+`archctx@0.5.1` and `archctx-contracts@0.5.1` are the current release identities; they add the
+`refactor scan|record|verify` surface, the `refactor-resolution-v1` capability feature, and
+rewrite persisted recommendations to v3. Neither is published yet, and `0.5.0` was prepared but
+never published either, so anything pinning them fails closed until
+`deploy/release-checklists/archctx-0.5.1.md` is complete. `archctx@0.4.8` and
+`archctx-contracts@0.4.8` remain the last published pair on the `latest` dist-tag (verified with
+`npm view archctx version` on 2026-09-03) and are the identities that carry recovery. The scoped `@archcontext/contracts`
 workspace remains internal source authority; it is never the public contracts artifact. `0.4.7`
 and earlier do not carry recovery semantics. Installation and organization-runner rollout still
 fail closed on an unavailable or version-mismatched artifact.

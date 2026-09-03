@@ -130,7 +130,7 @@ import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertCo
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
 import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
-import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, refactorScanInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
+import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
 import { initializeArchContextModel, listModelFiles, planGeneratedProjection, rebuildGeneratedProjection, YamlModelStore, type ModelFile } from "@archcontext/local-runtime/model-store-yaml";
@@ -306,8 +306,9 @@ export interface RuntimeRecommendationInput {
   recommendationId?: string;
   reason?: string;
   /**
-   * `resolve` on a non-practice category requires resolution evidence. 0.5.0 ships the gate, not
-   * the lookup: no `RefactorResolutionEvidenceV1` can exist before `refactor verify` (0.5.1).
+   * `resolve` on a non-practice category requires resolution evidence: the gate looks the digest
+   * up in the replayed evidence state and rejects it when unrecorded, verified at a different
+   * HEAD, or carrying a disposition other than resolved. `refactor verify` writes those records.
    */
   evidenceDigest?: string;
   actor?: string;
@@ -908,7 +909,7 @@ function decodeRuntimeRefactorRecordInput(value: unknown): RuntimeRefactorRecord
   // Nothing downstream reads a selection: recording replays every planned recommendation. Taking
   // one and ignoring it would report a subset the caller asked for and record the whole proposal.
   if (input.selection !== undefined) {
-    throw new RuntimeRefactorInputError("refactor record does not support selection in 0.5.0; every planned recommendation is recorded");
+    throw new RuntimeRefactorInputError("refactor record does not support selection; every planned recommendation is recorded");
   }
   return {
     assessmentDigest: input.assessmentDigest,
@@ -917,10 +918,15 @@ function decodeRuntimeRefactorRecordInput(value: unknown): RuntimeRefactorRecord
 }
 
 /**
- * `recommendationId` is the only required field: verify always measures whatever is at HEAD now.
+ * `recommendationId` is the only required subject: verify always measures whatever is at HEAD now.
  * `expectedHeadSha`/`expectedWorktreeDigest` are a caller's claim about the state it believes it
  * is verifying, and a claim that no longer holds must be refused rather than answered with fresh
  * numbers under the old identity.
+ *
+ * The per-field decoding stays here because it rebuilds the request from exactly the declared keys
+ * and names the offending one; the frozen
+ * `refactorVerificationRequestInvariantIssues` then re-proves the rebuilt request. Every ingress —
+ * CLI `--request-json`, RPC dispatch, an in-process caller — therefore passes the same gate.
  */
 function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerifyInput {
   const input = runtimeRefactorInputRecord(value, "refactor verify input");
@@ -933,7 +939,8 @@ function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerify
       throw new RuntimeRefactorInputError(`refactor verify ${field} must be a non-empty string`);
     }
   }
-  return {
+  const request: RuntimeRefactorVerifyInput = {
+    schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
     recommendationId: input.recommendationId,
     ...(typeof input.expectedHeadSha === "string" ? { expectedHeadSha: input.expectedHeadSha } : {}),
     ...(typeof input.expectedWorktreeDigest === "string" ? { expectedWorktreeDigest: input.expectedWorktreeDigest } : {}),
@@ -941,6 +948,14 @@ function decodeRuntimeRefactorVerifyInput(value: unknown): RuntimeRefactorVerify
       ? {}
       : { executionEvidenceRefs: decodeRuntimeExecutionEvidenceRefs(input.executionEvidenceRefs) })
   };
+  if (input.schemaVersion !== REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION) {
+    throw new RuntimeRefactorInputError(
+      `refactor verify schemaVersion must be ${REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION}, received ${JSON.stringify(input.schemaVersion)}`
+    );
+  }
+  const issues = refactorVerificationRequestInvariantIssues(request, "refactor verify request");
+  if (issues.length > 0) throw new RuntimeRefactorInputError(issues.join("; "));
+  return request;
 }
 
 /**

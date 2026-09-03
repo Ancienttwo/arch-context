@@ -7,6 +7,7 @@ import {
   EVIDENCE_BINDING_SCHEMA_VERSION,
   EVIDENCE_ITEM_SCHEMA_VERSION,
   REFACTOR_PROPOSAL_SCHEMA_VERSION,
+  REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
   digestJson,
   refactorProposalDigest,
   refactorResolutionEvidenceInvariantIssues,
@@ -485,7 +486,7 @@ describe("daemon refactorVerify", () => {
       await daemon.init(root, "Refactor Verify App");
       const { recommendation, before } = await recordCycleProposal(daemon, root);
 
-      const first = await daemon.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const first = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(first.ok, JSON.stringify(first)).toBe(true);
       const data = first.data as any;
@@ -505,7 +506,7 @@ describe("daemon refactorVerify", () => {
       expect(data.evidence.residuals.map((residual: any) => residual.code)).toContain("after-coverage-incomplete");
       expect(resolutionEventCount(store)).toBe(1);
 
-      const second = await daemon.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const second = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(second.ok, JSON.stringify(second)).toBe(true);
       expect((second.data as any).append.status).toBe("already-recorded");
@@ -526,6 +527,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const result = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         expectedHeadSha: "0".repeat(40)
       });
@@ -547,7 +549,7 @@ describe("daemon refactorVerify", () => {
       await daemon.init(root, "Refactor Verify App");
       await recordCycleProposal(daemon, root);
 
-      const result = await daemon.refactorVerify(root, { recommendationId: "recommendation.never-recorded" });
+      const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: "recommendation.never-recorded" });
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
@@ -572,7 +574,7 @@ describe("daemon refactorVerify", () => {
       });
       expect(migrated.ok, JSON.stringify(migrated)).toBe(true);
 
-      const result = await daemon.refactorVerify(root, { recommendationId: seeded.recommendationId });
+      const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: seeded.recommendationId });
 
       expect(result.ok).toBe(false);
       expect(errorOf(result).code).toBe("AC_SCHEMA_INVALID");
@@ -601,7 +603,7 @@ describe("daemon refactorVerify", () => {
       expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
       const eventsBefore = store.architectureEvents.length;
 
-      const result = await daemon.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const result = await daemon.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(result.ok, JSON.stringify(result)).toBe(true);
       expect((result.data as any).append.status).toBe("not-appended");
@@ -624,7 +626,7 @@ describe("daemon refactorVerify", () => {
       const connection = await rpc.start();
       const client = new RuntimeRpcClient(connection);
 
-      const result = await client.refactorVerify(root, { recommendationId: recommendation.recommendationId });
+      const result = await client.refactorVerify(root, { schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, recommendationId: recommendation.recommendationId });
 
       expect(result.ok, JSON.stringify(result)).toBe(true);
       expect((result.data as any).schemaVersion).toBe("archcontext.runtime-refactor-verify/v1");
@@ -646,9 +648,31 @@ describe("daemon refactorVerify", () => {
       expect(errorOf(missingId).code).toBe("AC_SCHEMA_INVALID");
       expect(errorOf(missingId).message).toContain("recommendationId");
 
-      const badRefs = await daemon.refactorVerify(root, { recommendationId: "x", executionEvidenceRefs: "nope" } as never);
+      const badRefs = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: "x",
+        executionEvidenceRefs: "nope"
+      } as never);
       expect(badRefs.ok).toBe(false);
       expect(errorOf(badRefs).message).toContain("executionEvidenceRefs");
+
+      // RF5b made the RPC ingress the frozen contract type, so a request that names no schema
+      // version is refused before anything measures on its behalf.
+      const noSchemaVersion = await daemon.refactorVerify(root, { recommendationId: "recommendation.x" } as never);
+      expect(noSchemaVersion.ok).toBe(false);
+      expect(errorOf(noSchemaVersion).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(noSchemaVersion).message).toContain("schemaVersion");
+
+      // The contract invariants run over the rebuilt request, so a claim the daemon would later
+      // compare against a real Git identity is rejected at ingress rather than at comparison time.
+      const badHeadSha = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
+        recommendationId: "recommendation.x",
+        expectedHeadSha: "not-a-sha"
+      });
+      expect(badHeadSha.ok).toBe(false);
+      expect(errorOf(badHeadSha).code).toBe("AC_SCHEMA_INVALID");
+      expect(errorOf(badHeadSha).message).toContain("expectedHeadSha");
     } finally {
       await daemon.stop();
     }
@@ -663,6 +687,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const smuggled = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         executionEvidenceRefs: [
           { kind: "not-a-real-kind", locator: "x", sha256: "a".repeat(64), rawDiff: "--- a/secrets.ts" }
@@ -677,6 +702,7 @@ describe("daemon refactorVerify", () => {
       expect(resolutionEventCount(store)).toBe(0);
 
       const badKind = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         executionEvidenceRefs: [{ kind: "not-a-real-kind", locator: "x", sha256: "a".repeat(64) }]
       } as never);
@@ -700,6 +726,7 @@ describe("daemon refactorVerify", () => {
       const { recommendation } = await recordCycleProposal(daemon, root);
 
       const result = await daemon.refactorVerify(root, {
+        schemaVersion: REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION,
         recommendationId: recommendation.recommendationId,
         executionEvidenceRefs: [
           { kind: "acceptance_receipt", locator: "tasks/receipts/rf4.json", sha256: "b".repeat(64) }
