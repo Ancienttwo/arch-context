@@ -213,6 +213,7 @@ export function buildNpmReleaseDryRunReadback(input: {
     noBunRuntimeDeclared: !("packageManager" in input.packageJson)
       && !("bun" in readRecord(input.packageJson.engines)),
     nativeTokenizerDependencyDeclared: readRecord(input.packageJson.dependencies)["@node-rs/jieba"] === "^2.0.1",
+    descriptorFsDependencyDeclared: readRecord(input.packageJson.dependencies).koffi === "3.1.6",
     homeUrlCorrect: input.packageJson.homepage === HOME_URL,
     noSourceRepositoryUrl: !("repository" in input.packageJson),
     binExposesOnlyArchctx: Object.keys(readRecord(input.packageJson.bin)).length === 1
@@ -327,6 +328,7 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   }
   if ("bun" in readRecord(pkg.engines)) failures.push("engines.bun must not be declared");
   if (readRecord(pkg.dependencies)["@node-rs/jieba"] !== "^2.0.1") failures.push("release package must declare native tokenizer dependency");
+  if (readRecord(pkg.dependencies).koffi !== "3.1.6") failures.push("release package must declare descriptor-relative filesystem dependency");
   const packageBin = readRecord(pkg.bin);
   if (Object.keys(packageBin).length !== 1 || packageBin.archctx !== "./bin/archctx.mjs") {
     failures.push("release package bin must expose only archctx");
@@ -385,7 +387,7 @@ export function inspectNpmReleaseDryRun(recording: unknown): { ok: boolean; fail
   return { ok: failures.length === 0, failures };
 }
 
-function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifest: Record<string, unknown> = {}) {
+export function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifest: Record<string, unknown> = {}) {
   return {
     name: RELEASE_PACKAGE_NAME,
     version: String(rootManifest.version ?? ""),
@@ -410,7 +412,8 @@ function buildReleaseManifest(rootManifest: Record<string, unknown>, coreManifes
     engines: readRecord(rootManifest.engines),
     dependencies: {
       "@colbymchenry/codegraph": readRecord(rootManifest.dependencies)["@colbymchenry/codegraph"],
-      "@node-rs/jieba": readRecord(coreManifest.dependencies)["@node-rs/jieba"]
+      "@node-rs/jieba": readRecord(coreManifest.dependencies)["@node-rs/jieba"],
+      koffi: readRecord(coreManifest.dependencies)["koffi"]
     }
   };
 }

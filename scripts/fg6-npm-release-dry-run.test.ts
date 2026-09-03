@@ -6,6 +6,7 @@ import { ARCHCONTEXT_NODE_RANGE } from "@archcontext/contracts";
 import {
   buildPublicContractsReleaseDryRunReadback,
   buildNpmReleaseDryRunReadback,
+  buildReleaseManifest,
   inspectNpmReleaseDryRun
 } from "./fg6-npm-release-dry-run";
 
@@ -29,7 +30,8 @@ describe("fg6 npm release dry-run", () => {
         bin: { archctx: "./bin/archctx.mjs" },
         dependencies: {
           "@colbymchenry/codegraph": "1.5.0",
-          "@node-rs/jieba": "^2.0.1"
+          "@node-rs/jieba": "^2.0.1",
+          koffi: "3.1.6"
         },
         publishConfig: { registry: "https://registry.npmjs.org/" }
       },
@@ -80,6 +82,36 @@ describe("fg6 npm release dry-run", () => {
     expect(recording.rollout.postPublishInstallCommand).toBe("npm install -g archctx@0.1.5");
     expect(inspectNpmReleaseDryRun(recording)).toEqual({ ok: true, failures: [] });
     rmSync(stageDir, { recursive: true, force: true });
+  });
+
+  test("assembles and requires the descriptor-relative filesystem dependency", () => {
+    const manifest = buildReleaseManifest(
+      {
+        name: "archctx",
+        version: "0.1.5",
+        engines: { node: ARCHCONTEXT_NODE_RANGE },
+        dependencies: { "@colbymchenry/codegraph": "1.5.0" }
+      },
+      {
+        dependencies: { "@node-rs/jieba": "^2.0.1", koffi: "3.1.6" }
+      }
+    );
+
+    expect(manifest.dependencies.koffi).toBe("3.1.6");
+
+    const withoutKoffi = structuredClone(manifest);
+    delete withoutKoffi.dependencies.koffi;
+    const result = inspectNpmReleaseDryRun({
+      schemaVersion: "archcontext.fg6-npm-release-dry-run/v1",
+      taskId: "FG6-release-distribution-dry-run",
+      environment: "npm-release-dry-run",
+      status: "verified",
+      ok: true,
+      package: withoutKoffi
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContain("release package must declare descriptor-relative filesystem dependency");
   });
 
   test("rejects the scoped workspace manifest when it tries to stand in for the public contracts artifact", () => {

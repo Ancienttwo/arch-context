@@ -1,6 +1,26 @@
 # archctx 0.5.1 release checklist
 
-Status: draft. Nothing below is ticked and nothing has been published.
+Status: published-but-broken; superseded by `0.5.2` (`deploy/release-checklists/archctx-0.5.2.md`).
+Do not install `archctx@0.5.1` or `archctx-contracts@0.5.1`.
+
+## Post-mortem
+
+Both packages were published on 2026-09-03 (`archctx@0.5.1` at `15:47:38Z`, shasum
+`b020e49b4c52cb9bcd2b2be9f05092dc08131f50` matching the staged tarball). A clean-room install
+outside the repository then failed at CLI startup: `Cannot find the native Koffi module`. The
+published manifest omitted the `koffi` runtime dependency that the bundle requires at module load.
+
+Root cause: two manifest assemblies drifted. `scripts/local-product-tarball-smoke.mjs` assembled
+its own manifest with `koffi` and asserted it, while `scripts/fg6-npm-release-dry-run.ts`
+assembled the actually-published manifest without it. Every pre-publish gate that stayed green ran
+inside the repository, where the workspace `node_modules` satisfied the koffi import; no gate
+installed the staged tarball into a directory outside the repository. The registry readback ran
+inside the propagation window and reported `not-published` right after a successful upload, which
+is noise, not the defect.
+
+`0.5.2` fixes the assembly, adds the missing assertion, and installs the outside-repo clean-room
+install as a permanent release gate. The `latest` dist-tag moves to `0.5.2`; `0.5.1` stays on the
+registry as an unresolvable historical artifact.
 
 Scope: close the refactor measure → record → verify loop on a caller-reachable surface. `archctx
 refactor verify --request-json` reaches the RF4 `refactorVerify` RPC over the newly frozen
@@ -41,7 +61,7 @@ prepared-but-unpublished candidate rather than as a completed release.
   with its `refactor scan → record → verify → recommendations resolve` coverage.
 - [x] `bun run verify:governance` reports every readback green, including the three no-LLM readbacks
   regenerated at `0.5.1`.
-- [ ] Hosted `Verify` run is green: `Governance Verify` plus all nine platform targets across Ubuntu,
+- [x] Hosted `Verify` run is green: `Governance Verify` plus all nine platform targets across Ubuntu,
   macOS, and Windows on Node `22.22.x`, `24.x`, and `25.x`.
 - [x] `bun run readback:fg6:npm-release-dry-run` reports `failures: []` at `0.5.1` and stages
   `archctx-0.5.1.tgz` and `archctx-contracts-0.5.1.tgz` with their SHA-256 digests recorded here.
@@ -49,9 +69,9 @@ prepared-but-unpublished candidate rather than as a completed release.
   daemon and stdio MCP surface, and records product version `0.5.1` with the `1.5.0` CodeGraph
   dependency binary.
 - [x] `bun run record:al10:release-packaging` reports `AL10-10` and `AL10-11` verified.
-- [ ] `bun run preflight:archctx:npm` reports `ready`: tarball found, registry readback
+- [x] `bun run preflight:archctx:npm` reports `ready`: tarball found, registry readback
   `not-published`, npm identity `ancienttwo`.
-- [ ] `bun run preflight:contracts:npm` reports `ready`: manifest ok, pack ok, unscoped public name,
+- [x] `bun run preflight:contracts:npm` reports `ready`: manifest ok, pack ok, unscoped public name,
   registry readback `not-published`.
 - [ ] Publish `archctx-contracts@0.5.1` and read back version, integrity, shasum, and clean-room import.
 - [ ] Publish `archctx@0.5.1` and read back version, integrity, shasum, Node engine, exact CodeGraph
@@ -77,6 +97,11 @@ node scripts/publish-archctx.mjs --confirm-publish \
 already on the registry, or when `npm whoami` fails, and it never publishes without
 `--confirm-publish`.
 
+Unattended attempts from the agent shell on 2026-09-03: both preflights `ready`, but `npm publish`
+was refused with `EOTP` — the token in `_ops/env/archctx.npm.env` authenticates but is not a
+bypass-2FA granular token, and a non-TTY shell cannot complete web authentication. Nothing reached
+the registry (`clean-room smoke: package-not-published`).
+
 ## Post-publish readback
 
 Not started. Fill this section from the live registry after publishing; do not pre-write expected
@@ -92,24 +117,19 @@ older clients.
 
 ## Pre-publish staging
 
-Not started. Fill this table from `bun run readback:fg6:npm-release-dry-run` at the release
-candidate commit; do not pre-write expected digests here.
-
-| tarball | size | npm shasum | SHA-256 |
-|---|---|---|---|
-
-## Pre-publish staging
-
-Staged by `bun run readback:fg6:npm-release-dry-run` at `fe5d53c` (main after PR #139), artifact
+Staged by `bun run readback:fg6:npm-release-dry-run` at `d32082d` (main after PR #141), artifact
 directory `_ops/npm/fg6-release-dry-run/`:
 
 | tarball | size | npm shasum | SHA-256 |
 |---|---|---|---|
-| `archctx-0.5.1.tgz` | 438484 | `b91852954bd1b06ad80483ff03743144e2332830` | `6e6429bff7443bec96540a755bc0d4c132950aaca527a3b93fbca3e240e6946b` |
+| `archctx-0.5.1.tgz` | 438475 | `b020e49b4c52cb9bcd2b2be9f05092dc08131f50` | `4ca7791aadfd770610edda20ec0a3c1a7ef76dc5e1f7ca8cf729cf288a3208fb` |
 | `archctx-contracts-0.5.1.tgz` | 87653 | `e29b270d1d4a72f7920c0e0e0949ed27ea40b178` | `5d9ba7dfeed7971b421ae9ede499254b8ec51ddd0cc6020741bf18dfe78caf66` |
 
 `bun run readback:fg6:local-product-tarball` and `bun run record:al10:release-packaging` were
-regenerated from these tarballs. Both npm preflights and both publish steps run only in the
-maintainer's real terminal (the unattended shell has no npm identity). 0.5.0 was staged at `65647fe`
-but is not published either; both releases are handed off together.
+regenerated from the release candidate. Both npm preflights report `ready` with npm identity
+`ancienttwo`; both publish steps still run only in the maintainer's real terminal so npm can perform
+interactive web authentication. The prepared-but-unpublished 0.5.0 candidate is superseded by
+0.5.1 and must not be published separately.
 
+Hosted `Verify` run `33753027970` on `main` `d32082d` completed `success` on all ten jobs
+(Governance Verify plus Ubuntu, macOS and Windows on Node 22.22.x, 24.x and 25.x).
