@@ -172,7 +172,7 @@ exit_criteria:
     - test "$(git ls-files | grep -E '^packages/core/[^/]+/src/' | grep -v '/test/' | xargs cat | wc -l | tr -d ' ')" -lt 20000
     - bun packages/surfaces/cli/src/main.ts docs plan --json | jq -e '[.data.drift.diffs[]? | select(.targetId != null)] | length == 0'
     - bun packages/surfaces/cli/src/main.ts docs drift --json | jq -e '.data.ok == true'
-    - test -z "$(git status --short | grep -E '^.. (\.archcontext/|packages/contracts/|packages/core/module-statistics/|packages/surfaces/)')"
+    - test -z "$(git status --short | grep -E '^.. ([.]archcontext[.]|packages[.]contracts[.]|packages[.]core[.]module-statistics[.]|packages[.]surfaces[.])')"
     - bun run verify
 ```
 
