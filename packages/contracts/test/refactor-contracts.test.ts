@@ -503,6 +503,62 @@ describe("refactor proposal and target delta validators", () => {
     expect(architectureTargetDeltaInvariantIssues(delta)).toContain("targetDelta.falsifiers must state at least one falsifier");
   });
 
+  test("a migration-only relation cannot also be required target state", () => {
+    const delta = makeTargetDelta({
+      targetState: {
+        owners: {},
+        requiredRelations: ["relation.temporary-bridge"],
+        removedConcepts: []
+      },
+      migrationState: {
+        active: true,
+        compatibilityContracts: [],
+        temporaryRelations: ["relation.temporary-bridge"]
+      }
+    });
+    const proposal = makeProposal({ targetDelta: delta });
+    const request: RefactorRequestV1 = {
+      schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
+      scope: { kind: "paths", paths: ["packages/core/serializer"] },
+      proposal
+    };
+
+    expect(architectureTargetDeltaInvariantIssues(delta)).toContain(
+      "targetDelta.targetState.requiredRelations must not contain migration-only relation: relation.temporary-bridge"
+    );
+    expect(refactorProposalInvariantIssues(proposal)).toContain(
+      "proposal.targetDelta.targetState.requiredRelations must not contain migration-only relation: relation.temporary-bridge"
+    );
+    expect(refactorRequestInvariantIssues(request)).toContain(
+      "request.proposal.targetDelta.targetState.requiredRelations must not contain migration-only relation: relation.temporary-bridge"
+    );
+  });
+
+  test("distinct target and temporary relations remain valid", () => {
+    const delta = makeTargetDelta({
+      targetState: {
+        owners: {},
+        requiredRelations: ["relation.target-boundary"],
+        removedConcepts: []
+      },
+      migrationState: {
+        active: true,
+        compatibilityContracts: [],
+        temporaryRelations: ["relation.temporary-bridge"]
+      }
+    });
+    const proposal = makeProposal({ targetDelta: delta });
+    const request: RefactorRequestV1 = {
+      schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
+      scope: { kind: "paths", paths: ["packages/core/serializer"] },
+      proposal
+    };
+
+    expect(architectureTargetDeltaInvariantIssues(delta)).toEqual([]);
+    expect(refactorProposalInvariantIssues(proposal)).toEqual([]);
+    expect(refactorRequestInvariantIssues(request)).toEqual([]);
+  });
+
   test("a hand-written interventionId is rejected", () => {
     const delta = { ...makeTargetDelta(), interventionId: "intervention.merge-serializers" };
     expect(architectureTargetDeltaInvariantIssues(delta)).toContain(

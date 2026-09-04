@@ -1,11 +1,8 @@
 /**
- * RF0 characterization freeze for `prepareTask`'s confidence defaults and posture branch.
+ * Characterization freeze for `prepareTask`'s evidence-integrity cutover.
  *
- * `prepareTask` supplies `callerCoverage ?? 0.8`, `testsAvailable ?? true`,
- * `rollbackAvailable ?? true` (`src/index.ts`). Nothing asserted those three constants directly
- * before RF0: they were only visible through the posture a control-loop test happened to expect.
- * These fixtures pin the resulting confidence payload (score 86, level high) and the posture each
- * branch produces, so RF1–RF4 cannot move the defaults without saying so.
+ * Missing readiness inputs remain explicit unknowns. Explicit zero/false evidence stays distinct,
+ * and this legacy path never authors an intervention target.
  *
  * Normalization is an explicit allow-list, not a wildcard: only confidence, posture, the pressure
  * level/score/signal shape, and the proof-point/intervention branch are frozen. The compiled
@@ -32,7 +29,6 @@ interface BaselineFixture {
   description: string;
   input: PrepareTaskFixtureInput;
   expected: unknown;
-  digest: string;
 }
 
 function loadFixtures(name: string): BaselineFixture[] {
@@ -134,50 +130,48 @@ async function runFixture(input: PrepareTaskFixtureInput): Promise<Json> {
 
 const fixtures = loadFixtures("prepare-task");
 
-describe("RF0 baseline: prepareTask confidence defaults and posture branch", () => {
+describe("prepareTask evidence-integrity characterization", () => {
   for (const fixture of fixtures) {
     test(`${fixture.id} — ${fixture.description}`, async () => {
       const actual = await runFixture(fixture.input);
       expect(actual).toEqual(fixture.expected as Json);
-      expect(digestJson(actual)).toBe(fixture.digest);
     });
   }
 });
 
-describe("RF0 baseline: the three default constants restated from the frozen table", () => {
+describe("prepareTask unknown evidence boundary", () => {
   function byId(id: string): BaselineFixture {
     const found = fixtures.find((fixture) => fixture.id === id);
     if (!found) throw new Error(`missing refactor-baseline fixture: ${id}`);
     return found;
   }
 
-  test("omitting all three inputs is exactly 0.8 / true / true", () => {
-    const defaults = byId("all-defaults-high-pressure");
-    const explicit = byId("explicit-defaults-are-identical");
-    expect(explicit.input).toMatchObject({ callerCoverage: 0.8, testsAvailable: true, rollbackAvailable: true });
-    // Identical payloads prove the defaults are those three values, not merely "some high value".
-    expect(defaults.expected).toEqual(explicit.expected);
-    expect(defaults.digest).toBe(explicit.digest);
-    expect(defaults.expected).toMatchObject({
-      confidence: { score: 86, level: "high", coverage: ["caller-coverage:0.8"], rollbackPoints: ["git-worktree"] }
+  test("omitting readiness inputs stays unknown and cannot create high confidence", () => {
+    expect(byId("all-readiness-unknown").expected).toMatchObject({
+      confidence: {
+        score: 0,
+        level: "low",
+        coverage: [],
+        rollbackPoints: [],
+        evidence: { callerCoverage: null, testsAvailable: null, rollbackAvailable: null }
+      },
+      intervention: null
     });
   });
 
-  test("each default is nullish-coalesced, so an explicit falsy value still wins", () => {
-    expect(byId("explicit-zero-coverage-is-not-the-default").expected)
-      .toMatchObject({ confidence: { score: 30, coverage: ["caller-coverage:0"] } });
+  test("explicit zero and false values remain observed rather than unknown", () => {
+    expect(byId("explicit-zero-coverage").expected)
+      .toMatchObject({ confidence: { score: 0, coverage: ["caller-coverage:0"], evidence: { callerCoverage: 0 } } });
     expect(byId("explicit-tests-unavailable").expected)
-      .toMatchObject({ confidence: { score: 71, rollbackPoints: ["git-worktree"] } });
+      .toMatchObject({ confidence: { score: 0, evidence: { testsAvailable: false } } });
     expect(byId("explicit-rollback-unavailable").expected)
-      .toMatchObject({ confidence: { score: 71, rollbackPoints: [] } });
+      .toMatchObject({ confidence: { score: 0, rollbackPoints: [], evidence: { rollbackAvailable: false } } });
   });
 
-  test("the frozen table covers all three posture branches", () => {
-    expect(new Set(fixtures.map((fixture) => (fixture.expected as { posture: string }).posture)))
-      .toEqual(new Set(["intervention", "proof-required", "normal"]));
-    expect((byId("all-defaults-high-pressure").expected as { intervention: unknown }).intervention).not.toBeNull();
-    expect((byId("all-defaults-high-pressure").expected as { proofPoint: unknown }).proofPoint).toBeNull();
-    expect((byId("explicit-zero-coverage-is-not-the-default").expected as { proofPoint: unknown }).proofPoint).not.toBeNull();
-    expect((byId("low-pressure-defaults-stay-normal").expected as { intervention: unknown }).intervention).toBeNull();
+  test("explicit high readiness still does not author an intervention", () => {
+    expect(byId("explicit-readiness").expected).toMatchObject({
+      confidence: { level: "high", score: 86, rollbackPoints: [], evidence: { rollbackAvailable: true } },
+      intervention: null
+    });
   });
 });

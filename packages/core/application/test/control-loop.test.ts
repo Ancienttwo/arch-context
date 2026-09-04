@@ -8,10 +8,10 @@ import { ChangeSetEngine } from "@archcontext/core/changeset-engine";
 import { digestJson, type CodeFactsPort, type NormalizedCodeContext } from "@archcontext/contracts";
 import { computeWorktreeDigest } from "@archcontext/core/architecture-domain";
 import { initializeArchContextModel, planGeneratedProjection, YamlModelStore } from "../../../local-runtime/model-store-yaml/src/index";
-import { detectArchitecturePressure } from "@archcontext/core/pressure-engine";
+import { detectArchitecturePressure, type ArchitecturePressure } from "@archcontext/core/pressure-engine";
 import { validateCompatibilityContract } from "@archcontext/core/policy-engine";
 import { assertNoHumanEditableGeneratedSection } from "@archcontext/core/reconcile-engine";
-import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "@archcontext/core/refactor-decision";
+import { computeRefactorConfidence, decidePosture } from "@archcontext/core/refactor-decision";
 import { applyArchitectureUpdate, checkpointTask, completeTask, prepareTask } from "../src/index";
 
 function tempModel(): string {
@@ -52,6 +52,7 @@ function structuralCompatibilityFacts(): CodeFactsPort {
         symbols,
         edges: [
           { source: "symbol.legacyWrapperV1", target: "symbol.fallbackMapperV2", kind: "imports", confidence: "high" },
+          { source: "symbol.fallbackMapperV2", target: "symbol.legacyWrapperV1", kind: "imports", confidence: "high" },
           { source: "symbol.fallbackMapperV2", target: "symbol.paymentRepository", kind: "reads", confidence: "high" }
         ],
         evidence: [
@@ -155,7 +156,30 @@ function yamlChangeSetEngine(): ChangeSetEngine {
 }
 
 describe("M2 architecture control loop", () => {
-  test("prepare_task enters intervention for high pressure and high confidence", async () => {
+  test("prepare_task rejects invalid explicit readiness evidence before context compilation", async () => {
+    const root = tempModel();
+    let contextRead = false;
+    const codeFacts = structuralCompatibilityFacts();
+    const ensureReady = codeFacts.ensureReady.bind(codeFacts);
+    codeFacts.ensureReady = async (...args) => {
+      contextRead = true;
+      return ensureReady(...args);
+    };
+    try {
+      await expect(prepareTask({
+        workspace: { root, repositoryId: "repo.test", headSha: "abc" },
+        task: "inspect billing",
+        codeFacts,
+        modelStore: new YamlModelStore(),
+        callerCoverage: 1.1
+      })).rejects.toThrow("callerCoverage must be a finite ratio between 0 and 1");
+      expect(contextRead).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare_task preserves observed pressure without synthesizing an intervention", async () => {
     const root = tempModel();
     try {
       const result = await prepareTask({
@@ -167,23 +191,44 @@ describe("M2 architecture control loop", () => {
         testsAvailable: true,
         rollbackAvailable: true
       });
-      expect(result.posture).toBe("intervention");
-      expect(result.intervention?.targetState.removedConcepts).toContain("legacy-wrapper");
-      expect(result.intervention?.migrationState.active).toBe(true);
-      expect(result.context.practiceGuidance.matches.map((match) => match.practiceId)).toContain("compatibility.single-owner");
-      expect(result.intervention?.thesis).not.toContain("minimal diff");
+      expect(result.pressure.signals.some((signal) => signal.type === "dependency-cycle" && signal.evidenceKind === "observed")).toBe(true);
+      expect(result.posture).toBe("normal");
+      expect(result.intervention).toBeUndefined();
+      expect(result.confidence.level).toBe("high");
+      expect(result.context.refactorConfidence).toEqual({
+        level: result.confidence.level,
+        score: result.confidence.score,
+        coverage: result.confidence.coverage
+      });
+      expect(result.context.unknowns.filter((item) => item.startsWith("refactor-readiness:"))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("prepare_task projects the same unknown readiness into compiled context", async () => {
+    const root = tempModel();
+    try {
+      const result = await prepareTask({
+        workspace: { root, repositoryId: "repo.test", headSha: "abc" },
+        task: "add a field to the report view",
+        codeFacts: structuralCompatibilityFacts(),
+        modelStore: new YamlModelStore()
+      });
+      expect(result.confidence).toMatchObject({ level: "low", score: 0, coverage: [] });
+      expect(result.context.refactorConfidence).toEqual({ level: "low", score: 0, coverage: [] });
+      expect(result.context.unknowns).toEqual(expect.arrayContaining([
+        "refactor-readiness:caller-coverage-unknown",
+        "refactor-readiness:tests-available-unknown",
+        "refactor-readiness:rollback-available-unknown"
+      ]));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
   test("high pressure with low confidence enters Proof Required", () => {
-    const pressure = detectArchitecturePressure({
-      task: "rewrite legacy v1 fallback mapper with multiple lifecycle owner and unknown external consumers",
-      symbols: ["legacyWrapperV1", "fallbackMapperV2", "multiple lifecycle owners"],
-      files: ["src/billing/legacy-wrapper-v1.ts", "src/billing/fallback-mapper-v2.ts"],
-      edges: [{ source: "legacyWrapperV1", target: "fallbackMapperV2", kind: "imports", confidence: "high" }]
-    });
+    const pressure: ArchitecturePressure = { level: "high", score: 80, signals: [] };
     const confidence = computeRefactorConfidence({
       callerCoverage: 0.1,
       testsAvailable: false,
@@ -378,18 +423,12 @@ describe("M2 architecture control loop", () => {
     }
   });
 
-  test("target state and migration state stay separate", () => {
-    const pressure = detectArchitecturePressure({
-      task: "remove legacy v1 wrapper fallback mapper with multiple lifecycle owner",
-      symbols: ["legacyWrapperV1", "fallbackMapperV2", "multiple lifecycle owners"],
-      files: ["src/billing/legacy-wrapper-v1.ts", "src/billing/fallback-mapper-v2.ts"],
-      edges: [{ source: "legacyWrapperV1", target: "fallbackMapperV2", kind: "imports", confidence: "high" }]
-    });
+  test("legacy posture cannot author target or migration state from confidence", () => {
+    const pressure: ArchitecturePressure = { level: "high", score: 80, signals: [] };
     const confidence = computeRefactorConfidence({ callerCoverage: 1, testsAvailable: true, rollbackAvailable: true });
-    const intervention = createInterventionProposal({ task: "unify subscription lifecycle", pressure, confidence });
-    expect(intervention.targetState.removedConcepts).toContain("legacy-wrapper");
-    expect(intervention.migrationState.temporaryRelations).toContain("relation.temporary-migration");
-    expect(intervention.targetState.requiredRelations).not.toContain("relation.temporary-migration");
+    expect(pressure.level).toBe("high");
+    expect(confidence.level).toBe("high");
+    expect(decidePosture(pressure, confidence)).toBe("proof-required");
   });
 
   test("compatibility debt proxy fixture reaches required recall shape", () => {

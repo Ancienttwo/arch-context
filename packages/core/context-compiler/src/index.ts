@@ -10,7 +10,7 @@ import type { ArchitecturePosture } from "@archcontext/core/architecture-domain"
 import { loadPracticeCatalog } from "@archcontext/core/practice-catalog";
 import { matchPracticesForTask } from "@archcontext/core/practice-engine";
 import { detectArchitecturePressure, type PressureSignal } from "@archcontext/core/pressure-engine";
-import { computeRefactorConfidence, decidePosture } from "@archcontext/core/refactor-decision";
+import { computeRefactorConfidence, decidePosture, type RefactorConfidence } from "@archcontext/core/refactor-decision";
 
 export interface ContextBudget {
   maxBytes: number;
@@ -150,6 +150,11 @@ export async function compileTaskContext(input: {
   modelStore: ModelStorePort;
   architectureLedger?: ArchitectureContextLedgerPort;
   budget: ContextBudget;
+  readinessEvidence?: {
+    callerCoverage?: number;
+    testsAvailable?: boolean;
+    rollbackAvailable?: boolean;
+  };
   changedPaths?: string[];
 }): Promise<CompiledTaskContext> {
   const model = await input.modelStore.validateModel(input.workspace);
@@ -182,11 +187,9 @@ export async function compileTaskContext(input: {
     edges: codeContext.edges,
     observedEvidence: codeContext.evidence
   });
-  const confidence = computeRefactorConfidence({
-    callerCoverage: codeContext.symbols.length > 0 ? 1 : 0,
-    testsAvailable: codeContext.evidence.some((evidence) => evidence.confidence === "verified"),
-    rollbackAvailable: true
-  });
+  // Only caller-provided measurements establish readiness; retrieval is not evidence.
+  const confidence = computeRefactorConfidence(input.readinessEvidence ?? {});
+  const readinessUnknowns = refactorReadinessUnknowns(confidence);
   const posture = decidePosture(pressure, confidence);
   const resources = [
     ...(ledgerReadback?.resource ? [ledgerReadback.resource] : []),
@@ -219,7 +222,7 @@ export async function compileTaskContext(input: {
     constraints: practiceGuidance.constraints,
     decisions: practiceGuidance.decisions,
     realConstraints: practiceGuidance.realConstraints,
-    unknowns: practiceGuidance.unknowns,
+    unknowns: unique([...practiceGuidance.unknowns, ...readinessUnknowns]),
     recommendedTargetState: {
       practiceCatalogDigest: practiceGuidance.catalogDigest,
       topPracticeIds: practiceGuidance.matches.map((match) => match.practiceId)
@@ -237,7 +240,7 @@ export async function compileTaskContext(input: {
       constraints: trimmedPracticeGuidance.constraints,
       decisions: trimmedPracticeGuidance.decisions,
       realConstraints: trimmedPracticeGuidance.realConstraints,
-      unknowns: trimmedPracticeGuidance.unknowns,
+      unknowns: unique([...trimmedPracticeGuidance.unknowns, ...readinessUnknowns]),
       requiredCheckpoints: unique(["before-task-complete", ...trimmedPracticeGuidance.requiredCheckpoints]),
       resources: [...resources, ...trimmedPracticeGuidance.resources],
       practiceGuidance: trimmedPracticeGuidance
@@ -277,6 +280,11 @@ export async function compileLandscapeTaskContext(input: {
   codeFacts: LandscapeCodeFactsPort;
   modelStore: ModelStorePort;
   budget: ContextBudget;
+  readinessEvidence?: {
+    callerCoverage?: number;
+    testsAvailable?: boolean;
+    rollbackAvailable?: boolean;
+  };
 }): Promise<CompiledTaskContext> {
   const active = activeRepositoriesForTask(input.landscape, input.task);
   const activeRepositoryIds = active.map((repo) => repo.repositoryId);
@@ -300,11 +308,9 @@ export async function compileLandscapeTaskContext(input: {
     edges: codeContext.edges,
     observedEvidence: codeContext.evidence
   });
-  const confidence = computeRefactorConfidence({
-    callerCoverage: codeContext.symbols.length > 0 ? 1 : 0,
-    testsAvailable: codeContext.evidence.some((evidence) => evidence.confidence === "verified"),
-    rollbackAvailable: true
-  });
+  // Only caller-provided measurements establish readiness; retrieval is not evidence.
+  const confidence = computeRefactorConfidence(input.readinessEvidence ?? {});
+  const readinessUnknowns = refactorReadinessUnknowns(confidence);
   const posture = decidePosture(pressure, confidence);
   const landscapeHash = landscapeDigest(input.landscape, input.relations);
   const resources = [
@@ -339,7 +345,7 @@ export async function compileLandscapeTaskContext(input: {
     constraints: practiceGuidance.constraints,
     decisions: practiceGuidance.decisions,
     realConstraints: unique(["cross-repo-content-local-only", "git-worktree-is-collaboration-boundary", ...practiceGuidance.realConstraints]),
-    unknowns: [],
+    unknowns: unique([...practiceGuidance.unknowns, ...readinessUnknowns]),
     recommendedTargetState: {
       activeRepositories: activeRepositoryIds,
       practiceCatalogDigest: practiceGuidance.catalogDigest,
@@ -358,6 +364,7 @@ export async function compileLandscapeTaskContext(input: {
       constraints: trimmedPracticeGuidance.constraints,
       decisions: trimmedPracticeGuidance.decisions,
       realConstraints: unique(["cross-repo-content-local-only", "git-worktree-is-collaboration-boundary", ...trimmedPracticeGuidance.realConstraints]),
+      unknowns: unique([...trimmedPracticeGuidance.unknowns, ...readinessUnknowns]),
       requiredCheckpoints: unique(["before-task-complete", "landscape-scope-review", ...trimmedPracticeGuidance.requiredCheckpoints]),
       resources: [...resources, ...trimmedPracticeGuidance.resources],
       practiceGuidance: trimmedPracticeGuidance
@@ -378,6 +385,14 @@ export async function compileLandscapeTaskContext(input: {
     crossRepoRelations: input.relations.map((relation) => relation.id),
     maxBytes: input.budget.maxBytes
   });
+}
+
+function refactorReadinessUnknowns(confidence: RefactorConfidence): string[] {
+  return [
+    ...(confidence.evidence.callerCoverage === null ? ["refactor-readiness:caller-coverage-unknown"] : []),
+    ...(confidence.evidence.testsAvailable === null ? ["refactor-readiness:tests-available-unknown"] : []),
+    ...(confidence.evidence.rollbackAvailable === null ? ["refactor-readiness:rollback-available-unknown"] : [])
+  ];
 }
 
 function finalizeContext(

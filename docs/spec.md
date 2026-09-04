@@ -1,7 +1,7 @@
 # Product Spec: ArchContext
 
 > **Status**: Active
-> **Last Updated**: 2026-09-02
+> **Last Updated**: 2026-09-05
 > **Owner**: Planner
 > **Full PRD**: `plans/prds/20260619-2039-archcontext.prd.md`
 > **Follow-up PRD**: `plans/prds/20260620-0236-archcontext-local-github-governance.prd.md`
@@ -39,6 +39,25 @@ GitHub App is an optional governance bridge. It handles installation, PR metadat
 - **Delivery**: 公开仓库免费；个人 Pro $5/月，覆盖该开发者可访问的全部私有仓库，不按仓库/Seat/Token/调用计费。MVP 以"可闭环的 Agentic Coding 架构 SOP"为完成标准，而非功能数量；里程碑 M0（契约冻结）→ M6（Beta 加固）。
 
 ## Acceptance Scenarios
+
+### Evidence-bound Prepare and Refactor Authoring
+
+Legacy pressure/context/prepare treats task wording as advisory. File names, symbol names,
+generic verified summaries and ordinary data-access edges do not establish structural facts.
+When measured pressure exists, advisory text does not raise its score. This detector currently
+observes bidirectional imports and explicit overdue migration dates; it does not prove arbitrary
+semantic duplication or optimal module boundaries.
+
+Caller coverage, test availability and rollback availability are supplied evidence. Missing values
+remain unknown, contribute no confidence score and are exposed in context `unknowns`; explicit
+zero/false remain distinct from unknown. Context retrieval never supplies these measurements.
+Readiness booleans do not establish a specific rollback mechanism.
+
+`prepare` does not author a target architecture or kill list. High pressure in the legacy decision
+path requires proof even with high readiness. Accountable agent-authored proposals use the existing
+RF2 assessment path. Target required relations must not overlap migration-only temporary relations;
+invalid proposals fail through the existing `AC_SCHEMA_INVALID` boundary. These source changes do
+not imply a new published provider version or activation of a downstream scheduler.
 
 ### Accepted Projection Delivery Recovery
 

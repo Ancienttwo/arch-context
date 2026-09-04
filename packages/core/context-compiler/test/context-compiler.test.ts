@@ -143,7 +143,13 @@ describe("@archcontext/core/context-compiler", () => {
     expect(context.schemaVersion).toBe("archcontext.task-context/v1");
     expect(context.relevantNodes).toEqual(["symbol.billingV1", "symbol.billingV2"]);
     expect(context.architecturePressure.signals).toContain("duplicate-responsibility");
-    expect(context.refactorConfidence.coverage).toEqual(["caller-coverage:1"]);
+    // Retrieved symbols and generic verified evidence do not measure readiness.
+    expect(context.refactorConfidence).toEqual({ level: "low", score: 0, coverage: [] });
+    expect(context.unknowns).toEqual(expect.arrayContaining([
+      "refactor-readiness:caller-coverage-unknown",
+      "refactor-readiness:tests-available-unknown",
+      "refactor-readiness:rollback-available-unknown"
+    ]));
     expect(context.practiceGuidance.schemaVersion).toBe("archcontext.practice-guidance/v1");
     expect(context.practiceGuidance.matches.map((match) => match.practiceId)).toContain("compatibility.single-owner");
     expect(context.resources.some((resource) => resource.uri?.startsWith("archcontext://practice/"))).toBe(true);
@@ -169,6 +175,9 @@ describe("@archcontext/core/context-compiler", () => {
     expect(context.practiceGuidance.matches.length).toBeLessThanOrEqual(2);
     expect(context.relevantNodes.length).toBeLessThanOrEqual(2);
     expect(context.extensions.budgetExceeded).toBe(true);
+    expect(context.unknowns).toContain("refactor-readiness:caller-coverage-unknown");
+    expect(context.unknowns).toContain("refactor-readiness:tests-available-unknown");
+    expect(context.unknowns).toContain("refactor-readiness:rollback-available-unknown");
   });
 
   test("queries the architecture ledger before requesting only missing CodeGraph facts", async () => {
@@ -357,6 +366,12 @@ describe("@archcontext/core/context-compiler", () => {
     expect(context.extensions.activeRepositories).toEqual(["repo.api", "repo.web"]);
     expect(context.extensions.crossRepoRelations).toEqual(["relation.web-calls-api"]);
     expect(context.relevantNodes).toEqual(["repo.api::symbol.preparetask", "repo.web::symbol.preparetask"]);
+    expect(context.refactorConfidence).toEqual({ level: "low", score: 0, coverage: [] });
+    expect(context.unknowns).toEqual(expect.arrayContaining([
+      "refactor-readiness:caller-coverage-unknown",
+      "refactor-readiness:tests-available-unknown",
+      "refactor-readiness:rollback-available-unknown"
+    ]));
     expect(validateJsonSchema(readJson("schemas/runtime/task-context.schema.json") as any, context as any).valid).toBe(true);
   });
 

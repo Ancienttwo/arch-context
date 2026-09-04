@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "../src/index";
+import { computeRefactorConfidence, createProofPoint, decidePosture } from "../src/index";
 
 const highPressure: ArchitecturePressure = {
   level: "high",
@@ -34,28 +34,60 @@ describe("@archcontext/core/refactor-decision", () => {
     expect(low.level).toBe("low");
     expect(high.level).toBe("high");
     expect(decidePosture(highPressure, low)).toBe("proof-required");
-    expect(decidePosture(highPressure, high)).toBe("intervention");
+    expect(decidePosture(highPressure, high)).toBe("proof-required");
     expect(decidePosture({ ...highPressure, level: "medium", score: 35 }, high)).toBe("structural");
   });
 
-  test("creates proof points and intervention proposals with cleanup state", () => {
-    const confidence = computeRefactorConfidence({
-      callerCoverage: 0.9,
-      testsAvailable: true,
-      rollbackAvailable: true,
-      externalConsumers: ["mobile-app"]
+  test("keeps missing evidence unknown instead of inventing readiness", () => {
+    const confidence = computeRefactorConfidence({});
+
+    expect(confidence).toMatchObject({
+      level: "low",
+      score: 0,
+      coverage: [],
+      rollbackPoints: [],
+      evidence: {
+        callerCoverage: null,
+        testsAvailable: null,
+        rollbackAvailable: null
+      }
     });
-    const proof = createProofPoint("Unify billing lifecycle owner");
-    const proposal = createInterventionProposal({
-      task: "Unify billing lifecycle owner",
-      pressure: highPressure,
-      confidence
+  });
+
+  test("distinguishes observed zero and false evidence from unknown", () => {
+    const confidence = computeRefactorConfidence({
+      callerCoverage: 0,
+      testsAvailable: false,
+      rollbackAvailable: false
     });
 
+    expect(confidence.evidence).toEqual({
+      callerCoverage: 0,
+      testsAvailable: false,
+      rollbackAvailable: false
+    });
+    expect(confidence.coverage).toEqual(["caller-coverage:0"]);
+  });
+
+  test("does not invent a rollback point from availability alone", () => {
+    const confidence = computeRefactorConfidence({ rollbackAvailable: true });
+
+    expect(confidence.evidence.rollbackAvailable).toBe(true);
+    expect(confidence.rollbackPoints).toEqual([]);
+  });
+
+  test("rejects invalid explicit readiness evidence", () => {
+    expect(() => computeRefactorConfidence({ callerCoverage: -0.1 })).toThrow("callerCoverage must be a finite ratio between 0 and 1");
+    expect(() => computeRefactorConfidence({ callerCoverage: 1.1 })).toThrow("callerCoverage must be a finite ratio between 0 and 1");
+    expect(() => computeRefactorConfidence({ callerCoverage: Number.NaN })).toThrow("callerCoverage must be a finite ratio between 0 and 1");
+    expect(() => computeRefactorConfidence({ testsAvailable: "yes" as unknown as boolean })).toThrow("testsAvailable must be a boolean");
+    expect(() => computeRefactorConfidence({ rollbackAvailable: 1 as unknown as boolean })).toThrow("rollbackAvailable must be a boolean");
+  });
+
+  test("creates proof points without authoring target architecture", () => {
+    const proof = createProofPoint("Unify billing lifecycle owner");
+
     expect(proof.falsifiers).toContain("untracked-external-consumer");
-    expect(proposal.id).toBe("intervention.unify-billing-lifecycle-owner");
-    expect(proposal.migrationState.active).toBe(true);
-    expect(proposal.killList.every((item) => item.required)).toBe(true);
-    expect(proposal.constraints.real).toContain("mobile-app");
+    expect(proof.successCriteria).toContain("accountable-target-proposal-authored");
   });
 });

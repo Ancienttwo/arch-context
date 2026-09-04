@@ -22,28 +22,59 @@ describe("@archcontext/core/pressure-engine", () => {
     expect(pressure.signals.every((signal) => signal.severity !== "high")).toBe(true);
   });
 
-  test("detects high architecture pressure from observed structural risk signals", () => {
+  test("does not promote names, task text, summaries, or ordinary data edges into observed pressure", () => {
     const pressure = detectArchitecturePressure({
-      task: "Replace compatibility path",
-      symbols: ["billingLegacyV1", "billingV2Mapper", "two lifecycle owners"],
-      files: ["src/billing/legacy-v1.ts", "src/billing/billing-v2-mapper.ts"],
+      task: "Refactor the legacy wrapper owner",
+      symbols: ["legacyWrapperOwner"],
+      files: ["src/legacy-wrapper-owner.ts"],
       edges: [
-        { source: "billingLegacyV1", target: "billingV2Mapper", kind: "imports", confidence: "high" },
-        { source: "billingV2Mapper", target: "paymentRepository", kind: "reads", confidence: "high" }
+        { source: "legacyWrapperOwner", target: "recordStore", kind: "reads", confidence: "high" }
+      ],
+      observedEvidence: [
+        {
+          id: "evidence.verified-summary",
+          selector: { path: "src/legacy-wrapper-owner.ts" },
+          summary: "verified by test",
+          confidence: "verified",
+          snapshot: {
+            repositoryId: "repo.test",
+            headSha: "abc",
+            worktreeDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        }
       ]
     });
 
-    expect(pressure.level).toBe("high");
-    expect(pressure.signals.map((signal) => signal.type)).toEqual(
-      expect.arrayContaining([
-        "unjustified-wrapper-adapter",
-        "dual-track-business-concept",
-        "multiple-lifecycle-owner",
-        "cross-boundary-data-access"
-      ])
-    );
-    expect(pressure.signals.some((signal) => signal.evidenceKind === "observed")).toBe(true);
-    expect(pressure.signals.flatMap((signal) => signal.evidenceDetails).some((evidence) => evidence.kind === "symbol")).toBe(true);
+    expect(pressure.level).toBe("low");
+    expect(pressure.score).toBe(10);
+    expect(pressure.signals.every((signal) => signal.evidenceKind === "heuristic")).toBe(true);
+  });
+
+  test("keeps a bidirectional import cycle as observed pressure", () => {
+    const edges = [
+      { source: "moduleA", target: "moduleB", kind: "imports" as const, confidence: "high" as const },
+      { source: "moduleB", target: "moduleA", kind: "imports" as const, confidence: "high" as const }
+    ];
+    const pressure = detectArchitecturePressure({
+      task: "refactor",
+      edges
+    });
+    const namedPressure = detectArchitecturePressure({
+      task: "refactor",
+      symbols: ["legacyWrapperOwner"],
+      files: ["src/legacy-wrapper-owner.ts"],
+      edges
+    });
+
+    expect(pressure.signals).toEqual([
+      expect.objectContaining({
+        type: "dependency-cycle",
+        severity: "high",
+        evidenceKind: "observed",
+        evidence: ["moduleA->moduleB", "moduleB->moduleA"]
+      })
+    ]);
+    expect(namedPressure).toEqual(pressure);
   });
 
   test("marks overdue migration evidence as observed", () => {
@@ -70,6 +101,19 @@ describe("@archcontext/core/pressure-engine", () => {
     });
   });
 
+  test("rejects invalid migration date inputs instead of deriving observed evidence", () => {
+    expect(() => detectArchitecturePressure({
+      task: "finish migration",
+      migrationReviewDate: "2026-99-99",
+      now: "2027-01-01"
+    })).toThrow("Invalid migrationReviewDate: expected a valid YYYY-MM-DD date");
+    expect(() => detectArchitecturePressure({
+      task: "finish migration",
+      migrationReviewDate: "2026-01-01",
+      now: "2027-02-29"
+    })).toThrow("Invalid now: expected a valid YYYY-MM-DD date");
+  });
+
   test("keeps simple tasks low pressure", () => {
     expect(detectArchitecturePressure({ task: "rename button label" })).toEqual({
       level: "low",
@@ -78,7 +122,7 @@ describe("@archcontext/core/pressure-engine", () => {
     });
   });
 
-  test("detects cross-repo cycle and dual-track pressure", () => {
+  test("does not let cross-repo task text inflate observed cycle pressure", () => {
     const pressure = detectCrossRepoPressure({
       task: "remove legacy v1/v2 contract",
       relations: [
@@ -88,5 +132,6 @@ describe("@archcontext/core/pressure-engine", () => {
     });
     expect(pressure.signals.map((signal) => signal.type)).toEqual(["cross-repo-cycle", "cross-repo-dual-track"]);
     expect(pressure.signals.find((signal) => signal.type === "cross-repo-dual-track")?.severity).toBe("medium");
+    expect(pressure).toMatchObject({ level: "low", score: 25 });
   });
 });
