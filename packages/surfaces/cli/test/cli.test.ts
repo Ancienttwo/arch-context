@@ -17,7 +17,8 @@ import { ARCHCONTEXT_PRODUCT_VERSION, ARCHCTX_FEATURES, archctxCapabilities, dig
 import { runFastHookEnqueue } from "../src/hook-fast";
 import { resolveCommandExitCode, runCapabilitiesCommand, runCli } from "../src/main";
 
-const CLI_ENTRY = join(process.cwd(), "packages/surfaces/cli/src/main.ts");
+const REPOSITORY_ROOT = resolve(import.meta.dir, "../../../..");
+const CLI_ENTRY = join(REPOSITORY_ROOT, "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
@@ -1716,11 +1717,11 @@ describe("archctx CLI", () => {
       "matchPracticesForTask"
     ];
     for (const file of skillFiles) {
-      const body = readFileSync(join(process.cwd(), file), "utf8");
+      const body = readFileSync(join(REPOSITORY_ROOT, file), "utf8");
       expect(body).toContain("SOP");
       for (const token of forbidden) expect(body).not.toContain(token);
     }
-    const develop = readFileSync(join(process.cwd(), "skills/archcontext-develop/SKILL.md"), "utf8");
+    const develop = readFileSync(join(REPOSITORY_ROOT, "skills/archcontext-develop/SKILL.md"), "utf8");
     expect(develop).toContain("archcontext_checkpoint");
     expect(develop).toContain("added/upgraded");
     expect(develop).toContain("removed/downgraded");
@@ -3984,6 +3985,163 @@ describe("archctx CLI", () => {
       const adopted = readFileSync(join(root, modulePath), "utf8");
       expect(adopted).toStartWith("# runtime-harness/hook-adapters\n<!-- BEGIN ARCHCONTEXT:generated");
       expect(adopted).toEndWith("## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n");
+    } finally {
+      removeTempRoot(root);
+    }
+  }, DAEMON_TEST_TIMEOUT_MS);
+
+  test("projection adopt composes ownership adoption with one accepted semantic change", async () => {
+    const root = createInitializedGitRepo();
+    const modulePath = "docs/architecture/modules/runtime-harness/hook-adapters.md";
+    const original = [
+      "# runtime-harness/hook-adapters",
+      "",
+      "## 1. Old P1",
+      "legacy architecture",
+      "",
+      "## 2. Old P2",
+      "legacy dataflow",
+      "",
+      "## 3. P3 Decisions",
+      "human decision  ",
+      "",
+      "## 4. History",
+      "human history",
+      ""
+    ].join("\n");
+    try {
+      rmSync(join(root, ".archcontext/model/nodes/capability.architecture-context.yaml"), { force: true });
+      writeFileSync(
+        join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.node/v2",
+          id: "capability.runtime-harness.hook-adapters",
+          kind: "capability",
+          name: "Hook Adapters",
+          status: "active",
+          summary: "Routes runtime hook events.",
+          extensions: {
+            contractFiles: {
+              agents: "packages/runtime-harness/AGENTS.md",
+              claude: "packages/runtime-harness/CLAUDE.md"
+            }
+          }
+        }),
+        "utf8"
+      );
+      mkdirSync(join(root, ".archcontext/model/relations"), { recursive: true });
+      writeFileSync(
+        join(root, ".archcontext/model/relations/relation.hook-journal.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.relation/v1",
+          id: "relation.hook-journal",
+          kind: "writes",
+          source: "capability.runtime-harness.hook-adapters",
+          target: "capability.runtime-harness.hook-adapters",
+          intent: "Persist hook event in the owned journal"
+        }),
+        "utf8"
+      );
+      mkdirSync(join(root, ".archcontext/model/flows"), { recursive: true });
+      writeFileSync(
+        join(root, ".archcontext/model/flows/flow.hook-adapters.yaml"),
+        stableYaml({
+          schemaVersion: "archcontext.flow/v1",
+          id: "flow.hook-adapters",
+          capabilityId: "capability.runtime-harness.hook-adapters",
+          name: "Hook projection",
+          applicability: "not-applicable",
+          rationale: "This fixture verifies atomic ownership adoption and semantic acceptance."
+        }),
+        "utf8"
+      );
+      execFileSync("codegraph", ["init", root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+      const baseline = await runTestCli("docs", ["apply", "--profile", "repo-harness/v1", "--approved"], root);
+      expect(baseline.ok, JSON.stringify(baseline)).toBe(true);
+      const nodePath = join(root, ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml");
+      writeFileSync(nodePath, readFileSync(nodePath, "utf8").replace("Routes runtime hook events.", "Routes and validates runtime hook events."), "utf8");
+      mkdirSync(dirname(join(root, modulePath)), { recursive: true });
+      writeFileSync(join(root, modulePath), original, "utf8");
+
+      const expected = {
+        repositoryId: repositoryFingerprint(root),
+        workspaceId: `workspace.${digestJson({ root: canonicalRepositoryRoot(root) } as any).replace(/^sha256:/, "").slice(0, 16)}`,
+        headSha: gitOut(root, "rev-parse", "HEAD"),
+        worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}`
+      };
+      const changedPaths = [
+        ".archcontext/model/nodes/capability.runtime-harness.hook-adapters.yaml",
+        modulePath
+      ];
+      const unresolved = await runTestCli("projection", ["run", "--request-json", JSON.stringify({
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId: "projection_request.hook_adapters_adopt_unresolved",
+        profile: "repo-harness/v1",
+        mode: "plan",
+        targets: ["architecture-docs"],
+        changedPaths,
+        expected
+      } satisfies ProjectionRequestV1)], root);
+      expect(unresolved.ok, JSON.stringify(unresolved)).toBe(true);
+      expect((unresolved.data as ProjectionResultV2).status).toBe("adoption-required");
+      const unresolvedSignal = (unresolved.data as ProjectionResultV2).refreshSignals.find((signal) => signal.mode === "human-action-required");
+      expect(unresolvedSignal).toBeDefined();
+      if (!unresolvedSignal) throw new Error("fixture did not produce an unresolved semantic change");
+      const acceptedChange = {
+        changeSetId: "changeset.hook-adapters-adoption-major",
+        eventId: "architecture_event.hook-adapters-adoption-major",
+        reasonCodes: unresolvedSignal.reasonCodes,
+        affectedNodeIds: unresolvedSignal.affectedNodeIds
+      } satisfies AcceptedArchitectureChangeReferenceV1;
+      const acceptedArgs = [
+        "--profile", "repo-harness/v1",
+        "--accepted-change-set-id", acceptedChange.changeSetId,
+        "--accepted-event-id", acceptedChange.eventId,
+        ...acceptedChange.reasonCodes.flatMap((reason) => ["--major-reason", reason]),
+        ...acceptedChange.affectedNodeIds.flatMap((nodeId) => ["--affected-node", nodeId])
+      ];
+      const preview = await runTestCli("docs", ["adopt", ...acceptedArgs], root);
+      expect(preview.ok, JSON.stringify(preview)).toBe(true);
+      expect((preview.data as any).allowed).toBe(true);
+
+      const request: ProjectionRequestV1 = {
+        schemaVersion: "archcontext.projection-request/v1",
+        requestId: "projection_request.hook_adapters_adopt_accepted",
+        profile: "repo-harness/v1",
+        mode: "adopt",
+        targets: ["architecture-docs"],
+        changedPaths,
+        expected,
+        adoptionPlanId: (preview.data as any).adoptionPlanId,
+        acceptedChange
+      };
+      const daemon = await createStartedDaemon({
+        localStorePath: testRuntimePaths(root).localStorePath,
+        codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
+        codeGraphProviderFactory: () => new MockCodeGraphProvider()
+      });
+      try {
+        const adopted = await runCli("projection", ["run", "--request-json", JSON.stringify(request)], root, { runtimeClient: daemon });
+        expect(adopted.ok, JSON.stringify(adopted)).toBe(true);
+        expect(adopted.data as ProjectionResultV2).toMatchObject({
+          status: "applied",
+          refreshSignals: [{ mode: "refresh-required", acceptedChange }],
+          applyReceipt: { acceptedChange }
+        });
+        expect(projectionResultInvariantIssues(adopted.data as ProjectionResultV2)).toEqual([]);
+        const adoptedBody = readFileSync(join(root, modulePath), "utf8");
+        expect(adoptedBody).toStartWith("# runtime-harness/hook-adapters\n<!-- BEGIN ARCHCONTEXT:generated");
+        expect(adoptedBody).toEndWith("## 3. P3 Decisions\nhuman decision  \n\n## 4. History\nhuman history\n");
+        const receipt = await daemon.inspectProjectionApplyReceipt(root, (adopted.data as ProjectionResultV2).applyReceipt!.lookupKey);
+        expect(receipt).toMatchObject({ ok: true, data: { found: true, deliveryStatus: "delivered" } });
+      } finally {
+        await daemon.stop();
+      }
+
+      const next = await runTestCli("docs", ["plan", "--profile", "repo-harness/v1"], root);
+      expect(next.ok, JSON.stringify(next)).toBe(true);
+      expect((next.data as any).drift.ok).toBe(true);
+      expect((next.data as any).majorChange.mode).toBe("none");
     } finally {
       removeTempRoot(root);
     }
