@@ -55,10 +55,12 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 
 ## Release State
 
-`archctx@0.5.2` and `archctx-contracts@0.5.2` are the current published release on `latest`
-(2026-09-03); they carry the `refactor scan|record|verify` surface, the
+`archctx@0.5.3` and `archctx-contracts@0.5.3` are the current published release on `latest`
+(2026-09-04). Refactor verification responses now report live Git identity while ledger replay
+and append retain the recommendation partition; historical verification evidence stays immutable.
+The packages retain the `0.5.2` protocols: the `refactor scan|record|verify` surface, the
 `refactor-resolution-v1` capability feature, the v3 recommendation rewrite, and the release
-manifest that declares the `koffi` runtime dependency. `0.5.1` was published the same day but its
+manifest that declares the `koffi` runtime dependency. `0.5.1` was published on 2026-09-03 but its
 tarball omitted that dependency, so a fresh install failed at startup; it must not be installed
 and `0.5.2` supersedes it. `0.5.0` was prepared but never published. `archctx@0.4.8` and
 `archctx-contracts@0.4.8` were the last pre-0.5.x published pair (verified with

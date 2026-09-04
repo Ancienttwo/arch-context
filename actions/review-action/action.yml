@@ -18,9 +18,9 @@ inputs:
     required: false
     default: unsupported
   runtime-version:
-    description: ArchContext runtime version expected by this action release; 0.5.2 remains fail-closed until its artifact is publicly released.
+    description: ArchContext runtime version expected by this action release; 0.5.3 remains fail-closed until its artifact is publicly released.
     required: false
-    default: "0.5.2"
+    default: "0.5.3"
   runtime-artifact-url:
     description: HTTPS URL for the pinned ArchContext runtime artifact.
     required: true

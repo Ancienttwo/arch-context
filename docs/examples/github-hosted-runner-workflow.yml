@@ -30,10 +30,10 @@ jobs:
           trust-level: organization
           fail-on: blocking
           fork-pr-mode: unsupported
-          # 0.5.2 is an unreleased identity. Do not enable this template until its published
+          # 0.5.3 is an unreleased identity. Do not enable this template until its published
           # artifact and digest have passed the release gate; the action rejects an unavailable or mismatched artifact.
-          runtime-version: "0.5.2"
-          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.5.2.tgz
+          runtime-version: "0.5.3"
+          runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.5.3.tgz
           runtime-artifact-digest: sha256:<release-digest>
           expected-repository: <owner/name from Challenge>
           expected-head-sha: ${{ github.event.pull_request.head.sha }}
