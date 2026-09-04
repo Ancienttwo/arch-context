@@ -1,8 +1,8 @@
 {
   "version": "0.5.6",
-  "status": "prepared_unpublished",
-  "observedAt": "2026-09-04T13:53:10.660789+00:00",
-  "baseCommit": "91210e7847b6d902688a676e798971cdafa00f4c",
+  "status": "published",
+  "observedAt": "2026-09-04T13:54:26.358Z",
+  "baseCommit": "bd0ce6580bdeecee924abe123a9c5a62204ca495",
   "checks": {
     "preFixRegression": {
       "pass": 0,
@@ -14,7 +14,8 @@
     },
     "typecheck": "pass",
     "packagedCliLifecycleAndRegression": "pass",
-    "consumerRecordContract": "pass with unpublished local tarball"
+    "consumerRecordContract": "pass with local tarball",
+    "registryInstalledCapabilities": "pass"
   },
   "artifacts": {
     "pack.json": {
@@ -42,5 +43,25 @@
       "sha256": "a17d3e782656fcf6e43014173e235e43ab9afef62c4c003e634fa4e9d8ddce35"
     }
   },
-  "activation": "off"
+  "activation": "off",
+  "registry": {
+    "archctx": {
+      "version": "0.5.6",
+      "dist.integrity": "sha512-25e5sbQOskVnHyvbiYiAP5ux2N5zIAvS+dTnJPwmOWC3lhikFI6Gl2114o1DzjmrCbxPolY8bIyCk/rKACzizQ==",
+      "dist.shasum": "153cb75a002b46eef3c10d48581579dc28f5b9ab",
+      "dist-tags": {
+        "beta": "0.1.4-beta.0",
+        "latest": "0.5.6"
+      }
+    },
+    "archctx-contracts": {
+      "version": "0.5.6",
+      "dist.integrity": "sha512-9tajkqviRjd6vWWpckMm99GbKxEuUKEHFuftJaY/MLJai19YddLJPVlKGMZ3QWhMsTLGM31DpxqS1oNMx25+/w==",
+      "dist.shasum": "501bbc1afb032217d5e32522882c8c946eead799",
+      "dist-tags": {
+        "latest": "0.5.6"
+      }
+    }
+  },
+  "registrySmokeRoot": "/tmp/archctx-056-registry-smoke.gi1e5C"
 }

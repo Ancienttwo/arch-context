@@ -1,6 +1,6 @@
 # Implementation Notes: projection-adoption-accepted-change-fixed-point
 
-> **Status**: Active
+> **Status**: Complete
 > **Plan**: plans/plan-20260904-2113-projection-adoption-accepted-change-fixed-point.md
 > **Contract**: tasks/contracts/20260904-2113-projection-adoption-accepted-change-fixed-point.contract.md
 > **Review**: tasks/reviews/20260904-2113-projection-adoption-accepted-change-fixed-point.review.md
@@ -32,6 +32,7 @@
 
 - Checks: `.ai/harness/checks/latest.json`
 - Run snapshots: `.ai/harness/runs/`
+- Registry release: `docs/verification/archctx-0.5.6-release.json`
 
 ## Promotion Filter
 

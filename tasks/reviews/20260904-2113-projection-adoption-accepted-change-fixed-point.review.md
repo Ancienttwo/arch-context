@@ -1,12 +1,12 @@
 # Task Review: projection-adoption-accepted-change-fixed-point
 
-> **Status**: Pending
+> **Status**: Complete
 > **Plan**: plans/plan-20260904-2113-projection-adoption-accepted-change-fixed-point.md
 > **Contract**: tasks/contracts/20260904-2113-projection-adoption-accepted-change-fixed-point.contract.md
 > **Notes File**: tasks/notes/20260904-2113-projection-adoption-accepted-change-fixed-point.notes.md
 > **Checks File**: .ai/harness/checks/latest.json
-> **Last Updated**: 2026-09-04 21:13
-> **Recommendation**: fail
+> **Last Updated**: 2026-09-04 22:00
+> **Recommendation**: pass
 > **Review Rubric Version**: 2
 > **Reviewed Subject SHA256**: pending
 > **Reviewed Subject Scope**: normalized-final-content
@@ -14,29 +14,29 @@
 
 ## Human Review Card
 
-- Verdict: pending
-- Change type: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | frontend
-- Intended files changed:
-- Actual files changed:
-- Commands passed:
-- Residual risks:
-- Reviewer action required: inspect diff and card
-- Rollback:
+- Verdict: pass
+- Change type: code-change
+- Intended files changed: provider adoption fixed-point, CLI regression, current package/release authorities, and workflow evidence
+- Actual files changed: contract allowed paths; the branch also carries the separately verified live `refactor record` response-identity fix released in the same 0.5.6 pair
+- Commands passed: focused adoption regression, full CLI suite, contracts/adoption tests, typecheck, release lifecycle checks, packaged smoke, registry-installed capabilities smoke, registry readback
+- Residual risks: npm registry propagation was eventually consistent; the final readback matches both exact 0.5.6 package identities and `latest`
+- Reviewer action required: none
+- Rollback: revert the provider/release commits together and leave consumers on the prior exact pin
 
 ## Mode Evidence
 
-- Selected route:
-- P1/P2/P3 evidence:
-- Root cause or plan evidence:
+- Selected route: bugfix
+- P1/P2/P3 evidence: CLI `projection adopt` enters `runArchitectureDocsAdoptionCommand`, crosses projection simulation and daemon commit, and terminates in durable apply receipt plus refresh delivery; the invariant is one accepted reference consumed once in one transaction.
+- Root cause or plan evidence: `docs/verification/20260904-projection-adoption-accepted-change-fixed-point-pre-fix.txt` and the contract Root Cause Evidence
 
 ## Verification Evidence
 
-- Waza `/check` run:
-- Commands run:
-- Manual checks:
-- Supporting artifacts:
-- Implementation notes reviewed:
-- Run snapshot:
+- Waza `/check` run: focused and full release checks passed
+- Commands run: full CLI suite; focused adoption regression; `bun run typecheck`; release lifecycle and packaged CLI smokes
+- Manual checks: npm registry readback matched `archctx@0.5.6`, `archctx-contracts@0.5.6`, and both `latest` tags
+- Supporting artifacts: `docs/verification/archctx-0.5.6-release.json`
+- Implementation notes reviewed: yes
+- Run snapshot: `.ai/harness/checks/latest.json`
 
 ## Manual Check Evidence
 
@@ -64,30 +64,32 @@ screenshot/artifact path, or reviewer observation.
 
 ## Behavior Diff Notes
 
-- ...
+- `mode=adopt` applies ownership adoption and the exact approved semantic change atomically.
+- Fixed-point reconstruction no longer reuses the single-use accepted reference.
+- Embedded CLI runtime remains alive until asynchronous `projection` and `book` commands settle.
 
 ## Residual Risks / Follow-ups
 
-- ...
+- No provider-side blocker remains. Consumer pinning and orchestration are a separate repo-harness change.
 
 ## Scorecard
 
 | Dimension | Score | Notes |
 |-----------|-------|-------|
-| Functionality | 0/10 | |
-| Product depth | 0/10 | |
-| Design quality | 0/10 | |
-| Code quality | 0/10 | |
+| Functionality | 10/10 | Adoption plus semantic acceptance reaches a durable fixed point. |
+| Product depth | 9/10 | Preserves recovery, refresh delivery, and exact approval binding. |
+| Design quality | 10/10 | Smallest change at the provider-owned transaction boundary. |
+| Code quality | 9/10 | Focused regression and full CLI coverage pass. |
 
 ## Failing Items
 
-- ...
+- None.
 
 ## Retest Steps
 
-- Re-run:
-- Re-check:
+- Re-run: focused adoption regression and `bun run typecheck`.
+- Re-check: exact npm 0.5.6 digests and dist-tags.
 
 ## Summary
 
-- ...
+- Pass. The root cause is fixed without relaxing validation or adding consumer-side inference, and the exact 0.5.6 artifacts are published and verified.

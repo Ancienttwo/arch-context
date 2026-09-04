@@ -109,7 +109,7 @@ runArchitectureDocsAdoptionCommand rebuilds already-adopted simulated files whil
 - Add a pre-fix regression test covering adoption-required ownership plus node-added semantic acceptance.
 - Change only the provider-owned adoption fixed-point calculation and result projection required to consume acceptedChange exactly once.
 - Preserve exact adoptionPlanId, expectedWorktreeDigest, affected nodes, reason codes, daemon transaction, and fail-closed stale/mismatch behavior.
-- Prepare and publish archctx 0.5.5 only after the focused and release checks pass.
+- Prepare and publish archctx 0.5.6 only after the focused and release checks pass.
 
 ## Non-scope
 - No manual rendered-doc fallback.
@@ -120,7 +120,7 @@ runArchitectureDocsAdoptionCommand rebuilds already-adopted simulated files whil
 - Regression test fails on 0.5.4 source and passes after the fix.
 - CLI/provider focused tests pass.
 - Package/release checks pass.
-- npm readback proves 0.5.5, then repo-harness pins the exact published version and re-runs its blocked adoption flow.
+- npm readback proves 0.5.6, then repo-harness pins the exact published version and re-runs its blocked adoption flow.
 
 ## Rollback
 Revert the provider fix/release commits and keep repo-harness on 0.5.4 until a corrected release exists.
@@ -130,6 +130,6 @@ Revert the provider fix/release commits and keep repo-harness on 0.5.4 until a c
 
 ## Task Breakdown
 - [x] Prove the accepted-change double-consumption root cause and bind a regression guard.
-- [ ] Make protocol adoption commit a no-accepted-change fixed point with a durable apply receipt.
-- [ ] Verify the focused CLI path and full release surface.
-- [ ] Publish 0.5.5 and record registry readback evidence.
+- [x] Make protocol adoption commit a no-accepted-change fixed point with a durable apply receipt.
+- [x] Verify the focused CLI path and full release surface.
+- [x] Publish 0.5.6 and record registry readback evidence.
