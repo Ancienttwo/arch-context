@@ -481,6 +481,12 @@ try {
   );
   assert(resolvedRecommendation.ok === true, `packaged recommendations resolve must accept the recorded verdict: ${JSON.stringify(resolvedRecommendation.error ?? {})}`);
   assert(resolvedRecommendation.data?.nextStatus === "resolved", "packaged recommendations resolve must close the recommendation");
+  const resolvedReadback = await runArchctx("book", "recommendations", "--json");
+  assert(resolvedReadback.ok === true, "resolved recommendation readback must succeed");
+  assert(resolvedReadback.data?.freshness?.worktree?.headSha === verified.data.worktree.headSha, "recommendation freshness must bind the final HEAD");
+  assert(resolvedReadback.data?.freshness?.worktreeDigest === verified.data.worktree.worktreeDigest, "recommendation freshness must bind the final worktree digest");
+  assert(resolvedReadback.data?.provenance?.headSha === proposed.data.worktree.headSha, "recommendation provenance must retain the baseline ledger HEAD");
+  assert(resolvedReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "resolved recommendation must remain visible after HEAD movement");
 
   const stoppedAfterScan = await runArchctx("daemon", "stop");
   assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");

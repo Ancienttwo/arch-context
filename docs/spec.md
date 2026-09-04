@@ -53,9 +53,17 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 `already-delivered` proof，不写 projection。
 旧 v0.4.7 receipt 仍可读取，但没有该 immutable binding 时必须拒绝 recovery，绝不猜测或降级。
 
+### Recommendation Readback Identity
+
+`book recommendations` reports the current checkout identity in `freshness.worktree`,
+`freshness.headSha`, and `freshness.worktreeDigest`, including uncommitted changes. Its
+`provenance` retains the historical ledger scope. Reading lifecycle status never rebinds
+persisted resolution evidence or changes the ledger partition. Other book commands retain
+their ledger readback identity.
+
 ## Release State
 
-`archctx@0.5.3` and `archctx-contracts@0.5.3` are the current published release on `latest`
+`archctx@0.5.4` and `archctx-contracts@0.5.4` are the current published release on `latest`
 (2026-09-04). Refactor verification responses now report live Git identity while ledger replay
 and append retain the recommendation partition; historical verification evidence stays immutable.
 The packages retain the `0.5.2` protocols: the `refactor scan|record|verify` surface, the

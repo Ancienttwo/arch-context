@@ -410,6 +410,12 @@ describe("daemon refactorVerify", () => {
       await daemon.init(root, "Refactor Verify App");
       const { recommendation, before } = await recordCycleProposal(daemon, root);
 
+      const recordedWorktree = worktreeIdentity(root);
+      writeFileSync(join(root, "README.md"), "# completed cutover\n");
+      commitAll(root, "complete cutover after recommendation recording");
+      const finalWorktree = worktreeIdentity(root);
+      expect(finalWorktree.headSha).not.toBe(recordedWorktree.headSha);
+
       const plan = await planAndAppendVerification({
         store,
         root,
@@ -443,6 +449,23 @@ describe("daemon refactorVerify", () => {
 
       expect(resolved.ok, JSON.stringify(resolved)).toBe(true);
       expect((resolved.data as any).nextStatus).toBe("resolved");
+      const book = await daemon.book(root, { command: "recommendations" });
+      expect(book.ok).toBe(true);
+      const data = book.data as any;
+      expect(data.recommendations.find((entry: RecommendationV3) => entry.recommendationId === recommendation.recommendationId).status).toBe("resolved");
+      expect(data.freshness.worktree).toEqual(finalWorktree);
+      expect(data.freshness.headSha).toBe(finalWorktree.headSha);
+      expect(data.freshness.worktreeDigest).toBe(finalWorktree.worktreeDigest);
+      expect(data.provenance.headSha).toBe(recordedWorktree.headSha);
+      expect(data.provenance.worktreeDigest).toBe(recordedWorktree.worktreeDigest);
+
+      writeFileSync(join(root, "README.md"), "# uncommitted follow-up\n");
+      const dirtyBook = await daemon.book(root, { command: "recommendations" });
+      expect((dirtyBook.data as any).freshness.worktree).toEqual(worktreeIdentity(root));
+      expect((dirtyBook.data as any).freshness.worktreeDigest).not.toBe(finalWorktree.worktreeDigest);
+      expect((dirtyBook.data as any).provenance).toEqual(data.provenance);
+      const historical = await daemon.book(root, { command: "evidence", id: recommendation.recommendationId });
+      expect((historical.data as any).freshness.worktree).toEqual(recordedWorktree);
     } finally {
       await daemon.stop();
     }
