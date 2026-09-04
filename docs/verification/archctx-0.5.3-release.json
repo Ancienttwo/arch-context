@@ -1,0 +1,48 @@
+{
+  "version": "0.5.3",
+  "observedAt": "2026-09-04T11:12:20.515707+00:00",
+  "registry": {
+    "archctx": {
+      "version": "0.5.3",
+      "dist.shasum": "c7e352d0d80ca873538476c614ab874411fe4017",
+      "dist.integrity": "sha512-7JJmSAaubcxnYzr3c35ivZd9m5Zg4FhVBlV4pfEJ1aM2m9QAn0A3AbNHpVQUNClaICyR5N6HVstbNYOpgYSU5A==",
+      "dist-tags": {
+        "beta": "0.1.4-beta.0",
+        "latest": "0.5.3"
+      }
+    },
+    "archctx-contracts": {
+      "version": "0.5.3",
+      "dist.shasum": "9c99a136308227ce3690b0ac5de2f73800709ca3",
+      "dist.integrity": "sha512-cuHvZam/PZEvxMcPoVCGQGr6WEa4S+BDfYQya5D/suN8NG0/BVYawve/lHPupQPOq2t0MTbqmbPL05QJpfCHRA==",
+      "dist-tags": {
+        "latest": "0.5.3"
+      }
+    }
+  },
+  "nodeVersion": "v22.22.0",
+  "verification": {
+    "typecheck": "pass",
+    "targetedTests": {
+      "passed": 287,
+      "failed": 0
+    },
+    "npmTarballReadback": "verified",
+    "freshRegistryInstall": "pass",
+    "capabilitiesVersion": "0.5.3",
+    "contractsImportVersion": "0.5.3",
+    "lifecycle": {
+      "headSha": "e2a0a6762cda2d5f120e0a41a742e55a83c64341",
+      "identityMatches": true,
+      "disposition": "not_improved",
+      "resolveError": "AC_REFACTOR_EVIDENCE_REQUIRED",
+      "resolveReason": "evidence-not-resolved",
+      "recommendationStatus": "accepted"
+    }
+  },
+  "consumer": {
+    "repoHarnessProviderPin": "0.5.2",
+    "activation": "off",
+    "status": "requires version contract update"
+  }
+}

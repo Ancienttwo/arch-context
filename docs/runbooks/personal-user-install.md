@@ -1,6 +1,6 @@
 # Personal User Install
 
-This runbook is the current individual-user install path. The pinned reproduction below targets `archctx@0.5.2`, the current published release; `0.5.1` was published with a broken release manifest and must not be installed, and `0.5.0` was never published.
+This runbook is the current individual-user install path. The pinned reproduction below targets `archctx@0.5.6`, the current published release; `0.5.1` was published with a broken release manifest and must not be installed, and `0.5.0` was never published.
 Team collaboration, design-partner rollout, opt-in beta cohorts, and shared organization rollout evidence are deferred.
 
 `archctx@0.4.8` and later carry the recovery capability. `0.4.7` and earlier do not, so users who require
@@ -9,10 +9,10 @@ recovery must not substitute an older version.
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Required release artifact: public npm package `archctx@0.5.2`, published to `latest` on 2026-09-03.
+- Required release artifact: public npm package `archctx@0.5.6`, published to `latest` on 2026-09-04.
 - Runtime: Node.js `>=22.22 <26`, npm, and git must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
-- Do not treat this runbook as approved for a published package version until `docs/verification/fg6-release-distribution-readback.json` is verified for that exact version.
+- Do not treat this runbook as approved for a published package version until `docs/verification/archctx-0.5.6-release.json` is verified for that exact version.
 
 ## Install
 
@@ -29,11 +29,11 @@ archctx --help
 For pinned reproduction of the current verified release:
 
 ```bash
-npm install -g archctx@0.5.2
+npm install -g archctx@0.5.6
 ```
 
-`archctx@0.5.2` is the pinned verified release: `deploy/release-checklists/archctx-0.5.2.md` is
-complete and the clean-room install gate passed on Node 24.18.0 and the 22.22.0 engine floor.
+`archctx@0.5.6` is the pinned verified release: `docs/verification/archctx-0.5.6-release.json` records
+the registry digests, fresh installation, capabilities handshake, and live-HEAD verification.
 `0.5.1` was published with a missing runtime dependency and must not be pinned.
 
 The npm package is the generated public `archctx` artifact. The repository root package
@@ -60,6 +60,6 @@ The no-cloud first-run path is expected to stay local-only. It should not requir
 
 ## Verification Surface
 
-- Public release artifact: `docs/verification/fg6-release-distribution-readback.json`
+- Public release artifact: `docs/verification/archctx-0.5.6-release.json`
 - Local no-cloud first run: `docs/verification/fg6-local-no-cloud-readback.json`
 - Release gate summary: `docs/verification/fg6-staging-release-gate.md`

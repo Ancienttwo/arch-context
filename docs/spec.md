@@ -53,12 +53,24 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 `already-delivered` proof，不写 projection。
 旧 v0.4.7 receipt 仍可读取，但没有该 immutable binding 时必须拒绝 recovery，绝不猜测或降级。
 
+### Recommendation Readback Identity
+
+`book recommendations` reports the current checkout identity in `freshness.worktree`,
+`freshness.headSha`, and `freshness.worktreeDigest`, including uncommitted changes. Its
+`provenance` retains the historical ledger scope. `refactor record` likewise returns the live
+identity validated for its assessment, while its appended event stays in the historical ledger
+partition. Reading lifecycle status never rebinds
+persisted resolution evidence or changes the ledger partition. Other book commands retain
+their ledger readback identity.
+
 ## Release State
 
-`archctx@0.5.2` and `archctx-contracts@0.5.2` are the current published release on `latest`
-(2026-09-03); they carry the `refactor scan|record|verify` surface, the
+`archctx@0.5.6` and `archctx-contracts@0.5.6` are the current published release on `latest`,
+verified by registry readback on 2026-09-04. Refactor verification responses now report live Git identity while ledger replay
+and append retain the recommendation partition; historical verification evidence stays immutable.
+The packages retain the `0.5.2` protocols: the `refactor scan|record|verify` surface, the
 `refactor-resolution-v1` capability feature, the v3 recommendation rewrite, and the release
-manifest that declares the `koffi` runtime dependency. `0.5.1` was published the same day but its
+manifest that declares the `koffi` runtime dependency. `0.5.1` was published on 2026-09-03 but its
 tarball omitted that dependency, so a fresh install failed at startup; it must not be installed
 and `0.5.2` supersedes it. `0.5.0` was prepared but never published. `archctx@0.4.8` and
 `archctx-contracts@0.4.8` were the last pre-0.5.x published pair (verified with

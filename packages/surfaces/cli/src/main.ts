@@ -287,7 +287,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "status":
       return (await runtime()).runtimeStatus(cwd);
     case "projection":
-      return runProjectionProtocolCommand(args, cwd, await runtime());
+      return await runProjectionProtocolCommand(args, cwd, await runtime());
     case "repo": {
       const subcommand = args[0] ?? "list";
       if (subcommand === "add") {
@@ -313,7 +313,7 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
     case "ledger":
       return runLedgerCommand(args, cwd, runtime);
     case "book":
-      return runBookCommand(args, cwd, await runtime());
+      return await runBookCommand(args, cwd, await runtime());
     case "recommendations":
       return runRecommendationsCommand(args, cwd, await runtime());
     case "refactor":
@@ -1099,7 +1099,7 @@ async function runArchitectureDocsProjectionCommand(args: string[], cwd: string,
     } as unknown as Json);
   }
   if (subcommand === "adopt") {
-    return runArchitectureDocsAdoptionCommand(args, root, daemon, projection, profile, generatedAt, acceptedChange);
+    return runArchitectureDocsAdoptionCommand(args, root, daemon, projection, profile, generatedAt);
   }
   if (projection.plan.rejected.length > 0) {
     return errorEnvelope("docs.plan", "AC_PRECONDITION_FAILED", `Architecture documentation projection requires explicit adoption or ownership repair: ${projection.plan.rejected.map((diff) => `${diff.path} (${diff.reasonCode})`).join(", ")}`);
@@ -1275,7 +1275,7 @@ async function runArchitectureDocsAdoptionCommand(
   projection: ReturnType<typeof buildArchitectureDocsProjection>,
   profile: ArchitectureProjectionProfile,
   generatedAt: string,
-  acceptedChange?: AcceptedArchitectureChangeReferenceV1
+  protocolRequest?: ProjectionRequestV1
 ) {
   if (profile !== REPO_HARNESS_PROJECTION_PROFILE) {
     return errorEnvelope("docs.adopt", "AC_SCHEMA_INVALID", `docs adopt requires --profile ${REPO_HARNESS_PROJECTION_PROFILE}`);
@@ -1315,13 +1315,18 @@ async function runArchitectureDocsAdoptionCommand(
     return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-preview-mismatch");
   }
   const simulatedByPath = new Map(projection.loaded.existingFiles.map((file) => [file.path, file]));
-  for (const file of [...projection.plan.files, ...adoption.files]) simulatedByPath.set(file.path, file);
-  const canonicalFirst = buildArchitectureDocsProjection(root, generatedAt, profile, [...simulatedByPath.values()], acceptedChange);
+  for (const file of [...projection.files, ...adoption.files]) simulatedByPath.set(file.path, file);
+  const canonicalFirst = buildArchitectureDocsProjection(root, generatedAt, profile, [...simulatedByPath.values()]);
   const canonicalExistingByPath = new Map(simulatedByPath);
   for (const file of canonicalFirst.files) canonicalExistingByPath.set(file.path, file);
-  const canonical = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()], acceptedChange);
+  const canonical = buildArchitectureDocsProjection(root, generatedAt, profile, [...canonicalExistingByPath.values()]);
   if (!canonical.plan.drift.ok || canonical.plan.rejected.length > 0 || canonical.plan.projectionDigest !== canonicalFirst.plan.projectionDigest) {
-    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", "projection-adoption-fixed-point-unproven");
+    const reasons = canonical.plan.rejected.map((entry) => entry.reasonCode).join(",") || "none";
+    const drift = canonical.plan.drift.diffs.map((entry) => `${entry.path}:${entry.reasonCode}`).join(",") || "none";
+    return errorEnvelope("docs.adopt", "AC_PRECONDITION_FAILED", `projection-adoption-fixed-point-unproven: drift=${drift}; rejected=${reasons}; digest=${canonical.plan.projectionDigest === canonicalFirst.plan.projectionDigest ? "stable" : "changed"}`);
+  }
+  if (protocolRequest) {
+    return applyProjectionProtocolFixedPoint(protocolRequest, projection, canonical, adoption.changeSetId, root, daemon);
   }
   const filesByPath = new Map<string, { path: string; body: string }>();
   for (const file of canonical.files) filesByPath.set(file.path, file);
@@ -1341,6 +1346,111 @@ async function runArchitectureDocsAdoptionCommand(
     ...architectureAdoptionReceipt(adoption),
     apply: applied.data
   } as unknown as Json);
+}
+
+async function applyProjectionProtocolFixedPoint(
+  request: ProjectionRequestV1,
+  input: ReturnType<typeof buildArchitectureDocsProjection>,
+  fixedPoint: ReturnType<typeof buildArchitectureDocsProjection>,
+  changeSetId: string,
+  root: string,
+  daemon: RuntimeDaemonClient
+): Promise<JsonEnvelope> {
+  const committedFiles = projectionProtocolFilesForExpectedOutput(root, fixedPoint);
+  const committedSignals = request.acceptedChange
+    ? input.plan.refreshSignals.map((signal) => ({
+        ...signal,
+        resultingDigests: fixedPoint.plan.architectureDigests
+      }))
+    : fixedPoint.plan.refreshSignals;
+  const applyIdentity = request.acceptedChange
+    ? createProjectionApplyIdentity({
+        repositoryId: request.expected.repositoryId,
+        workspaceId: request.expected.workspaceId,
+        acceptedChange: request.acceptedChange,
+        changeSetId,
+        idempotencyKey: `idem_${changeSetId}`,
+        files: committedFiles,
+        refreshSignals: committedSignals
+      })
+    : undefined;
+  const appliedResult = projectionProtocolResult(request, input, "applied", fixedPoint, applyIdentity, {
+    files: committedFiles,
+    refreshSignals: committedSignals
+  });
+  let recoveryBinding: ProjectionApplyRecoveryBindingV1 | undefined;
+  if (applyIdentity) {
+    try {
+      recoveryBinding = createProjectionApplyRecoveryBinding(request, fixedPoint, appliedResult);
+    } catch (error) {
+      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
+    }
+  }
+  const applyReceipt: ProjectionApplyReceiptV1 | undefined = applyIdentity
+    ? {
+        schemaVersion: "archcontext.projection-apply-receipt/v1",
+        identity: applyIdentity,
+        result: appliedResult,
+        recovery: recoveryBinding
+      }
+    : undefined;
+  const planned = await daemon.planUpdate(root, {
+    id: changeSetId,
+    reason: { taskSessionId: request.requestId },
+    operations: [architectureDocsRenderProjectionOperation(root, fixedPoint.files)],
+    worktreeDigestPrecondition: {
+      profile: "architecture-documentation-projection",
+      expectedDigest: request.expected.worktreeDigest
+    }
+  });
+  if (!planned.ok) return planned;
+  const applied = await daemon.applyUpdate(root, {
+    id: changeSetId,
+    approved: true,
+    expectedWorktreeDigest: request.expected.worktreeDigest,
+    worktreeDigestProfile: "architecture-documentation-projection",
+    ...(applyReceipt ? { projectionApplyReceipt: applyReceipt } : {})
+  });
+  if (!applied.ok) return applied;
+  if (!applyReceipt) return projectionProtocolResultEnvelope(appliedResult);
+
+  // Accepted semantic changes are consumed by the input projection. The committed fixed point is
+  // intentionally rebuilt without that approval, so the post-write check only compares authority
+  // inputs and can distinguish a concurrent mutation from the already-applied semantic delta.
+  let postApplyMatches = false;
+  try {
+    postApplyMatches = architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
+      === request.expected.worktreeDigest;
+    if (!postApplyMatches) {
+      process.stderr.write("warning: projection post-apply worktree digest diverged from the accepted snapshot; refresh delivery deferred to reconcile\n");
+    }
+  } catch (error) {
+    process.stderr.write(`warning: projection post-apply verification failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    postApplyMatches = false;
+  }
+  if (!postApplyMatches) {
+    return projectionProtocolResultEnvelope(projectionResultDelivery(appliedResult, "applied-reconcile-required", []));
+  }
+  const delivery = await daemon.recoverProjectionApply(root, {
+    schemaVersion: PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION,
+    requestId: request.requestId,
+    profile: REPO_HARNESS_PROJECTION_PROFILE,
+    receipt: {
+      lookupKey: applyReceipt.identity.lookupKey,
+      applyId: applyReceipt.identity.applyId
+    }
+  });
+  if (!delivery.ok) return delivery;
+  const delivered = delivery.data as any;
+  if (delivered.found !== true || delivered.refreshSignalsDelivered !== true) {
+    return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection apply receipt was not available for first delivery");
+  }
+  return projectionProtocolResultEnvelope(projectionResultDelivery(
+    appliedResult,
+    "applied",
+    (delivered.receipt as ProjectionApplyReceiptV1).result.refreshSignals,
+    request.requestId
+  ));
 }
 
 /**
@@ -1401,18 +1511,9 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
       "--adoption-plan-id", request.adoptionPlanId!,
       "--expected-worktree-digest", expectedWorktreeDigest,
       "--task-session-id", request.requestId
-    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request.acceptedChange);
+    ], root, daemon, projection, REPO_HARNESS_PROJECTION_PROFILE, generatedAt, request);
     if (!adopted.ok) return adopted;
-    let output: ReturnType<typeof buildArchitectureDocsProjection>;
-    try {
-      output = buildArchitectureDocsProjection(root, generatedAt, REPO_HARNESS_PROJECTION_PROFILE, undefined, request.acceptedChange);
-      if (!output.plan.drift.ok || output.plan.rejected.length > 0) {
-        return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "projection adoption did not reach the architecture-docs fixed point");
-      }
-    } catch (error) {
-      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
-    }
-    return projectionProtocolEnvelope(request, projection, "applied", output);
+    return adopted;
   }
 
   if (request.mode === "apply" && !projection.plan.drift.ok) {
@@ -1436,105 +1537,7 @@ async function runProjectionProtocolCommand(args: string[], cwd: string, daemon:
     } catch (error) {
       return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
     }
-    const committedFiles = projectionProtocolFilesForExpectedOutput(root, fixedPointProjection);
-    const committedSignals = request.acceptedChange
-      ? projection.plan.refreshSignals.map((signal) => ({
-          ...signal,
-          resultingDigests: fixedPointProjection.plan.architectureDigests
-        }))
-      : fixedPointProjection.plan.refreshSignals;
-    const applyIdentity = request.acceptedChange
-      ? createProjectionApplyIdentity({
-          repositoryId: request.expected.repositoryId,
-          workspaceId: request.expected.workspaceId,
-          acceptedChange: request.acceptedChange,
-          changeSetId,
-          idempotencyKey: `idem_${changeSetId}`,
-          files: committedFiles,
-          refreshSignals: committedSignals
-        })
-      : undefined;
-    const appliedResult = projectionProtocolResult(request, projection, "applied", fixedPointProjection, applyIdentity, {
-      files: committedFiles,
-      refreshSignals: committedSignals
-    });
-    let recoveryBinding: ProjectionApplyRecoveryBindingV1 | undefined;
-    if (applyIdentity) {
-      try {
-        recoveryBinding = createProjectionApplyRecoveryBinding(request, fixedPointProjection, appliedResult);
-      } catch (error) {
-        return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", error instanceof Error ? error.message : String(error));
-      }
-    }
-    const applyReceipt: ProjectionApplyReceiptV1 | undefined = applyIdentity
-      ? {
-          schemaVersion: "archcontext.projection-apply-receipt/v1",
-          identity: applyIdentity,
-          result: appliedResult,
-          recovery: recoveryBinding
-        }
-      : undefined;
-    const planned = await daemon.planUpdate(root, {
-      id: changeSetId,
-      reason: { taskSessionId: request.requestId },
-      operations: [architectureDocsRenderProjectionOperation(root, fixedPointProjection.files)],
-      worktreeDigestPrecondition: {
-        profile: "architecture-documentation-projection",
-        expectedDigest: request.expected.worktreeDigest
-      }
-    });
-    if (!planned.ok) return planned;
-    const applied = await daemon.applyUpdate(root, {
-      id: changeSetId,
-      approved: true,
-      expectedWorktreeDigest: request.expected.worktreeDigest,
-      worktreeDigestProfile: "architecture-documentation-projection",
-      ...(applyReceipt ? { projectionApplyReceipt: applyReceipt } : {})
-    });
-    if (!applied.ok) return applied;
-    if (!applyReceipt) return projectionProtocolResultEnvelope(appliedResult);
-
-    // The post-write check must observe only what landed on disk. Rebuilding the semantic
-    // projection with `request.acceptedChange` would re-run the major-change classifier against a
-    // model whose accepted delta is already applied, so it always throws
-    // `architecture-major-change-accepted-reference-without-semantic-delta` and would force a
-    // reconcile on every accepted apply, with or without a concurrent mutation. The worktree
-    // digest ignores projection-owned outputs and runtime evidence, so it stays equal to the
-    // accepted pre-write snapshot unless an authority input changed underneath the write. This is
-    // the same digest profile the daemon enforces before writing, so both ends compare like for like.
-    let postApplyMatches = false;
-    try {
-      postApplyMatches = architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))
-        === request.expected.worktreeDigest;
-      if (!postApplyMatches) {
-        process.stderr.write("warning: projection post-apply worktree digest diverged from the accepted snapshot; refresh delivery deferred to reconcile\n");
-      }
-    } catch (error) {
-      // An unreadable model after the write is itself evidence of a concurrent non-owned
-      // mutation. projection-result/v2 carries no diagnostic field, so the cause goes to the
-      // CLI's existing stderr warning channel instead of being swallowed; the caller still gets
-      // the fail-closed `applied-reconcile-required` status on stdout.
-      process.stderr.write(`warning: projection post-apply verification failed: ${error instanceof Error ? error.message : String(error)}\n`);
-      postApplyMatches = false;
-    }
-    if (!postApplyMatches) {
-      return projectionProtocolResultEnvelope(projectionResultDelivery(appliedResult, "applied-reconcile-required", []));
-    }
-    const delivery = await daemon.recoverProjectionApply(root, {
-      schemaVersion: PROJECTION_APPLY_RECOVERY_INTENT_SCHEMA_VERSION,
-      requestId: request.requestId,
-      profile: REPO_HARNESS_PROJECTION_PROFILE,
-      receipt: {
-        lookupKey: applyReceipt.identity.lookupKey,
-        applyId: applyReceipt.identity.applyId
-      }
-    });
-    if (!delivery.ok) return delivery;
-    const delivered = delivery.data as any;
-    if (delivered.found !== true || delivered.refreshSignalsDelivered !== true) {
-      return errorEnvelope("projection.run", "AC_PRECONDITION_FAILED", "committed projection apply receipt was not available for first delivery");
-    }
-    return projectionProtocolResultEnvelope(projectionResultDelivery(appliedResult, "applied", (delivered.receipt as ProjectionApplyReceiptV1).result.refreshSignals, request.requestId));
+    return applyProjectionProtocolFixedPoint(request, projection, fixedPointProjection, changeSetId, root, daemon);
   }
 
   const status: ProjectionResultV2["status"] = projection.plan.drift.ok ? "noop" : "planned";

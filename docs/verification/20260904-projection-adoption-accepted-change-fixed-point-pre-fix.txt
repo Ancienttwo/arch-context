@@ -1,0 +1,15 @@
+COMMAND=bun test packages/surfaces/cli/test/cli.test.ts --test-name-pattern "projection adopt composes ownership adoption with one accepted semantic change"
+REGRESSION_GUARD=packages/surfaces/cli/test/cli.test.ts
+
+packages/surfaces/cli/test/cli.test.ts:
+error: architecture-major-change-accepted-reference-without-semantic-delta
+      at classifyArchitectureMajorChange (packages/core/projection-engine/src/major-change.ts:142:41)
+      at renderArchitectureDocumentationProjection (packages/core/projection-engine/src/index.ts:340:23)
+      at buildArchitectureDocsProjection (packages/surfaces/cli/src/main.ts:1208:16)
+      at runArchitectureDocsAdoptionCommand (packages/surfaces/cli/src/main.ts:1322:21)
+      at runProjectionProtocolCommand (packages/surfaces/cli/src/main.ts:1397:27)
+(fail) archctx CLI > projection adopt composes ownership adoption with one accepted semantic change
+
+0 pass
+1 fail
+PRE_FIX_EXIT=1

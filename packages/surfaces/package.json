@@ -1,8 +1,11 @@
 {
   "name": "@archcontext/surfaces",
-  "version": "0.5.2",
+  "version": "0.5.6",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
   "bin": {
     "archctx": "./cli/bin/archctx"
   },

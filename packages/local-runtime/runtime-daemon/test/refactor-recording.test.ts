@@ -290,6 +290,37 @@ describe("refactorRecord", () => {
     }
   });
 
+  test.each([false, true])("record response uses live identity after checkout change (committed=%s)", async (committed) => {
+    const root = createGitRepo();
+    const store = new TestLocalStore();
+    const daemon = await startTickingDaemon(store);
+    try {
+      await daemon.init(root, "Refactor Recording App");
+      const first = await daemon.refactorRecord(root, recordInput(root, registerAt(daemon, root).digest));
+      expect(first.ok).toBe(true);
+      const ledgerWorktree = (first.data as any).worktree;
+      const history = JSON.stringify(store.architectureEvents);
+      const count = store.architectureEvents.length;
+      writeFileSync(join(root, "README.md"), "# measured changed checkout\n");
+      if (committed) commitAll(root, "advance after ledger recording");
+      const head = gitOut(root, "rev-parse", "HEAD");
+      const digest = computeWorktreeDigest(root);
+      expect(digest).not.toBe(ledgerWorktree.worktreeDigest);
+      const input = recordInput(root, registerAt(daemon, root).digest);
+      const result = await daemon.refactorRecord(root, input);
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      expect((result.data as any).worktree.headSha).toBe(head);
+      expect((result.data as any).worktree.worktreeDigest).toBe(digest);
+      expect(store.architectureEvents.at(-1)!.worktree).toEqual(ledgerWorktree);
+      expect(JSON.stringify(store.architectureEvents.slice(0, count))).toBe(history);
+      const repeated = await daemon.refactorRecord(root, input);
+      expect(repeated.ok).toBe(true);
+      expect((repeated.data as any).worktree).toEqual((result.data as any).worktree);
+    } finally {
+      await daemon.stop();
+    }
+  });
+
   test("recording three times at the same HEAD on a moving clock appends runs instead of conflicting", async () => {
     const root = createGitRepo();
     const store = new TestLocalStore();

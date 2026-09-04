@@ -3220,9 +3220,17 @@ export class ArchctxDaemon {
       } as unknown as Json);
     }
     if (command === "recommendations") {
+      // Lifecycle readback describes the current checkout; provenance retains the ledger scope.
+      const gitScope = await this.architectureLedgerGitScope(root);
       return okEnvelope("book.recommendations", {
         ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, ...budget }),
-        freshness,
+        freshness: {
+          ...freshness,
+          repository: gitScope.repository,
+          worktree: gitScope.worktree,
+          headSha: gitScope.worktree.headSha,
+          worktreeDigest: gitScope.worktree.worktreeDigest
+        },
         provenance
       } as unknown as Json);
     }
@@ -3614,8 +3622,8 @@ export class ArchctxDaemon {
       });
       return okEnvelope("refactor.record", {
         schemaVersion: "archcontext.runtime-refactor-record/v1",
-        repository: scope.repository,
-        worktree: scope.worktree,
+        repository: gitScope.repository,
+        worktree: gitScope.worktree,
         assessmentDigest: registered.assessment.assessmentDigest,
         runId: built.plan.run.runId,
         catalogDigest: built.plan.run.catalogDigest,
@@ -3682,6 +3690,7 @@ export class ArchctxDaemon {
           `refactor verify expected HEAD ${input.expectedHeadSha}, current ${gitScope.worktree.headSha}`
         );
       }
+      // Ledger replay and append share the recorded partition; the response reports live Git identity.
       const scope = await this.localStore.resolveArchitectureLedgerScope(gitScope);
       const replay = await this.localStore.replayArchitectureLedger({ ...scope, mode: "genesis" });
       const artifacts = recommendationArtifactsFromEvents(replay.events);
@@ -3706,7 +3715,7 @@ export class ArchctxDaemon {
       if (current.status === "resolved" || current.status === "superseded") {
         const recorded = resolutionEvidenceForRecommendation(replay.evidenceState, recommendation.recommendationId);
         return this.refactorVerifyEnvelope({
-          scope,
+          gitScope,
           recommendation,
           evidence: recorded[0],
           appendStatus: "not-appended",
@@ -3760,7 +3769,7 @@ export class ArchctxDaemon {
       const recorded = findResolutionEvidence(replay.evidenceState, plan.evidence.resolutionDigest);
       if (recorded) {
         return this.refactorVerifyEnvelope({
-          scope,
+          gitScope,
           recommendation,
           evidence: recorded,
           appendStatus: "already-recorded",
@@ -3785,7 +3794,7 @@ export class ArchctxDaemon {
         events: [plan.event]
       });
       return this.refactorVerifyEnvelope({
-        scope,
+        gitScope,
         recommendation,
         evidence: plan.evidence,
         appendStatus: "appended",
@@ -3799,7 +3808,7 @@ export class ArchctxDaemon {
 
   /** One envelope shape for all three verify outcomes, so a caller reads the same fields either way. */
   private refactorVerifyEnvelope(input: {
-    scope: ArchitectureLedgerScope;
+    gitScope: ArchitectureLedgerScope;
     recommendation: RecommendationV3;
     evidence: RefactorResolutionEvidenceV1 | undefined;
     appendStatus: "appended" | "already-recorded" | "not-appended";
@@ -3810,8 +3819,8 @@ export class ArchctxDaemon {
   }): JsonEnvelope {
     return okEnvelope("refactor.verify", {
       schemaVersion: "archcontext.runtime-refactor-verify/v1",
-      repository: input.scope.repository,
-      worktree: input.scope.worktree,
+      repository: input.gitScope.repository,
+      worktree: input.gitScope.worktree,
       recommendationId: input.recommendation.recommendationId,
       recommendationStatus: input.recommendation.status,
       disposition: input.evidence?.disposition ?? null,
