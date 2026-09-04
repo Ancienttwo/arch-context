@@ -3622,8 +3622,8 @@ export class ArchctxDaemon {
       });
       return okEnvelope("refactor.record", {
         schemaVersion: "archcontext.runtime-refactor-record/v1",
-        repository: scope.repository,
-        worktree: scope.worktree,
+        repository: gitScope.repository,
+        worktree: gitScope.worktree,
         assessmentDigest: registered.assessment.assessmentDigest,
         runId: built.plan.run.runId,
         catalogDigest: built.plan.run.catalogDigest,

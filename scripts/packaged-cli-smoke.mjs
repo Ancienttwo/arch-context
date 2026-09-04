@@ -488,6 +488,23 @@ try {
   assert(resolvedReadback.data?.provenance?.headSha === proposed.data.worktree.headSha, "recommendation provenance must retain the baseline ledger HEAD");
   assert(resolvedReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "resolved recommendation must remain visible after HEAD movement");
 
+  writeFileSync(join(repo, KILL_LIST_PATH), "export const legacyShim = 1;\n", "utf8");
+  gitInRepo(["add", "-A"]);
+  gitInRepo(["-c", "user.email=packaged-cli-smoke@example.test", "-c", "user.name=Packaged CLI Smoke", "commit", "-m", "reintroduce the legacy shim"]);
+  reindexSmokeRepo();
+  const regressionScan = await runArchctx("refactor", "scan", "--request-json", JSON.stringify(proposalRequest), "--json");
+  assert(regressionScan.ok === true, "regression scan must succeed");
+  const regressionRecord = await runArchctx("refactor", "record", "--assessment-digest", String(regressionScan.data.assessment.assessmentDigest), "--expected-worktree-digest", String(regressionScan.data.worktree.worktreeDigest), "--json");
+  assert(regressionRecord.ok === true, "regression record must succeed");
+  assert(regressionRecord.data?.worktree?.headSha === regressionScan.data.worktree.headSha, "record response must bind the current assessment HEAD");
+  assert(regressionRecord.data?.worktree?.worktreeDigest === regressionScan.data.worktree.worktreeDigest, "record response must bind the current assessment digest");
+  const regression = regressionRecord.data?.recommendations?.find((entry) => entry.category === "refactor_proposal");
+  assert(regression?.relations?.regressesFrom === proposalRecommendation.recommendationId, "regression must link to the resolved recommendation");
+  assert(regression?.recommendationId !== proposalRecommendation.recommendationId, "regression must receive a distinct identity");
+  const regressionReadback = await runArchctx("book", "recommendations", "--json");
+  assert(regressionReadback.ok === true, "regression readback must succeed");
+  assert(regressionReadback.data?.recommendations?.find((entry) => entry.recommendationId === proposalRecommendation.recommendationId)?.status === "resolved", "regression must not reopen its resolved predecessor");
+
   const stoppedAfterScan = await runArchctx("daemon", "stop");
   assert(stoppedAfterScan.ok === true, "daemon stop after refactor scan must succeed");
   await waitForRemoved(gitPaths.data.daemonConnectionPath, "connection file");

@@ -57,7 +57,9 @@ provenance 与 owned output bytes。所有绑定一致后，daemon 才在同一�
 
 `book recommendations` reports the current checkout identity in `freshness.worktree`,
 `freshness.headSha`, and `freshness.worktreeDigest`, including uncommitted changes. Its
-`provenance` retains the historical ledger scope. Reading lifecycle status never rebinds
+`provenance` retains the historical ledger scope. `refactor record` likewise returns the live
+identity validated for its assessment, while its appended event stays in the historical ledger
+partition. Reading lifecycle status never rebinds
 persisted resolution evidence or changes the ledger partition. Other book commands retain
 their ledger readback identity.
 
