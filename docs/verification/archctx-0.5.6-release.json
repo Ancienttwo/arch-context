@@ -1,0 +1,46 @@
+{
+  "version": "0.5.6",
+  "status": "prepared_unpublished",
+  "observedAt": "2026-09-04T13:53:10.660789+00:00",
+  "baseCommit": "91210e7847b6d902688a676e798971cdafa00f4c",
+  "checks": {
+    "preFixRegression": {
+      "pass": 0,
+      "fail": 2
+    },
+    "daemonCliContractsAndCatalog": {
+      "pass": 588,
+      "fail": 0
+    },
+    "typecheck": "pass",
+    "packagedCliLifecycleAndRegression": "pass",
+    "consumerRecordContract": "pass with unpublished local tarball"
+  },
+  "artifacts": {
+    "pack.json": {
+      "path": "/tmp/archctx-record-056-release/pack.json",
+      "sha256": "d24e81a730a17583fe3e78a80172fd3c8d67eb9a0db6ced9023a575b7c32365e"
+    },
+    "canary7.ts": {
+      "path": "/tmp/archctx-record-056-release/canary7.ts",
+      "sha256": "34aa64d5ee69f0d040fa14be07381ba7df0c5415bbde77d3e0cc66702268933b"
+    },
+    "daemon-upgrade.json": {
+      "path": "/tmp/archctx-record-056-release/daemon-upgrade.json",
+      "sha256": "72f742f9731af3c80ea0fd2a4564262b744822aedb9eaf9092fd46f1c05487f4"
+    },
+    "canary7.json": {
+      "path": "/tmp/archctx-record-056-release/canary7.json",
+      "sha256": "af678ce011afff2bdf7a87fbe370518a30431880ab9a0a6f7e4438a39e75fbbe"
+    },
+    "archctx-0.5.6.tgz": {
+      "path": "/tmp/archctx-record-056-release/archctx-0.5.6.tgz",
+      "sha256": "d0145ca9ea16a4801e39a054be320651ae1671b660fcf096cf56cbe76b72e516"
+    },
+    "archctx-contracts-0.5.6.tgz": {
+      "path": "/tmp/archctx-record-056-release/archctx-contracts-0.5.6.tgz",
+      "sha256": "a17d3e782656fcf6e43014173e235e43ab9afef62c4c003e634fa4e9d8ddce35"
+    }
+  },
+  "activation": "off"
+}
