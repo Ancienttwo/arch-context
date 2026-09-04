@@ -1,6 +1,6 @@
 # Task Contract: architecture-evidence-integrity
 
-> **Status**: Active
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260905-architecture-evidence-integrity.md
 > **Task Profile**: code-change
 > **Owner**: Codex parent

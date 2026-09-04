@@ -1,6 +1,6 @@
 # Plan: Architecture evidence integrity and downstream handoff
 
-> **Status**: Executing
+> **Status**: Complete
 > **Created**: 2026-09-05
 > **Artifact Level**: work-package
 > **Promotion Reason**: verification_boundary
@@ -54,8 +54,8 @@ Downstream implementation, new scheduling/LLM runtime, new graph metrics or sche
 - [x] fast-worker: pressure evidence honesty with focused regression tests.
 - [x] deep-worker: unknown confidence and accountable proposal boundary with tests.
 - [x] Parent: integrate consumers and document resulting semantics.
-- [ ] Parent: focused tests, typecheck, full relevant verification and one acceptance review.
-- [ ] Parent: commit accepted work, merge into local main, read back Git state and handoff.
+- [x] Parent: focused tests, typecheck, full relevant verification and one acceptance review.
+- [x] Parent: commit accepted work, merge into local main, read back Git state and handoff.
 
 ## Evidence Contract
 
