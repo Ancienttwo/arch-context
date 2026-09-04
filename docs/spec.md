@@ -63,7 +63,7 @@ their ledger readback identity.
 
 ## Release State
 
-`archctx@0.5.3` and `archctx-contracts@0.5.3` are the current published release on `latest`
+`archctx@0.5.4` and `archctx-contracts@0.5.4` are the current published release on `latest`
 (2026-09-04). Refactor verification responses now report live Git identity while ledger replay
 and append retain the recommendation partition; historical verification evidence stays immutable.
 The packages retain the `0.5.2` protocols: the `refactor scan|record|verify` surface, the

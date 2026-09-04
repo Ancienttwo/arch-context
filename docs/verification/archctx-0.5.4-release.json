@@ -1,9 +1,8 @@
 {
   "version": "0.5.4",
-  "status": "prepared_unpublished",
-  "observedAt": "2026-09-04T12:12:50.338293+00:00",
+  "status": "published",
+  "observedAt": "2026-09-04T12:18:19.026576+00:00",
   "baseCommit": "78755650cdb424ef4d4aefe28d1a000410aebcf5",
-  "npmAuthentication": "npm whoami returned E401",
   "checks": {
     "daemonAndBook": {
       "pass": 239,
@@ -15,7 +14,8 @@
     },
     "typecheck": "pass",
     "packagedCliSmoke": "pass",
-    "existingCanary6Readback": "pass with local tarball; not a published-package receipt"
+    "existingCanary6Readback": "pass through updated consumer and registry-installed dependencies",
+    "officialPackagedCliSmoke": "pass"
   },
   "artifacts": {
     "pack.json": {
@@ -43,5 +43,25 @@
       "sha256": "7649708f82c2918d588263865378bb7d16c26885b82b959a84aa9798a6008daa"
     }
   },
-  "activation": "off"
+  "activation": "off",
+  "registry": {
+    "archctx": {
+      "version": "0.5.4",
+      "dist.integrity": "sha512-pIyqWFk1m5/r54430Qy+QO7lckjSgoLjRKoxpLjG6aZ6zEl9xA9V8dxo57RHwt0+Ka2BDS04ERZv9DgmfoQVog==",
+      "dist.shasum": "c84d408a03aa462e1f7dc612a1512dbf9e4a96f1",
+      "dist-tags": {
+        "beta": "0.1.4-beta.0",
+        "latest": "0.5.4"
+      }
+    },
+    "archctx-contracts": {
+      "version": "0.5.4",
+      "dist.integrity": "sha512-PDdCBiUkswVtHiTj43Jn8aneVQqraQ7LwGMn2gp9Czq46lu887ImEmRJkGoIErlJVXQnQRwqMzG1+aR2PM9yOA==",
+      "dist.shasum": "c552befa5d8ebfadd46359df50d0de41af2fb9e6",
+      "dist-tags": {
+        "latest": "0.5.4"
+      }
+    }
+  },
+  "officialReadbackEvidence": "/tmp/archctx-054-official/canary6-readback.json"
 }
