@@ -50,62 +50,41 @@ export interface PressureInput {
 
 export function detectArchitecturePressure(input: PressureInput): ArchitecturePressure {
   const taskHaystack = input.task.toLowerCase();
-  const structuralItems = [
-    ...(input.symbols ?? []).map((subject) => ({ subject, kind: "symbol" as const })),
-    ...(input.files ?? []).map((subject) => ({ subject, kind: "path" as const }))
-  ].filter((item) => !isBenignSubject(item.subject));
-  const structuralHaystack = structuralItems.map((item) => item.subject).join(" ").toLowerCase();
+  const migrationReviewDate = input.migrationReviewDate === undefined ? undefined : requireIsoDate(input.migrationReviewDate, "migrationReviewDate");
+  const now = input.now === undefined ? undefined : requireIsoDate(input.now, "now");
   const signals: PressureSignal[] = [];
-  addHeuristic(/duplicate|same responsibility|copy/.test(taskHaystack), "duplicate-responsibility", "medium");
-  addHeuristic(/owner|lifecycle/.test(taskHaystack) && /two|multiple|split/.test(taskHaystack), "multiple-lifecycle-owner", "medium");
-  addHeuristic(/wrapper|adapter|mapper|fallback/.test(taskHaystack), "unjustified-wrapper-adapter", "medium");
-  // Strong version markers (v1/v2/legacy/deprecated) are genuine dual-track evidence; bare
-  // "old"/"new" are English-common and only weak heuristics on their own, so they score low
-  // and cannot, alone, push a benign task into medium/high pressure.
+  addHeuristic(/duplicate|same responsibility|copy/.test(taskHaystack), "duplicate-responsibility");
+  addHeuristic(/owner|lifecycle/.test(taskHaystack) && /two|multiple|split/.test(taskHaystack), "multiple-lifecycle-owner");
+  addHeuristic(/wrapper|adapter|mapper|fallback/.test(taskHaystack), "unjustified-wrapper-adapter");
+  // Task wording is advisory only. It does not establish an architectural fact or contribute to
+  // a decision once concrete observed evidence exists.
   const strongDualTrack = /v1|v2|legacy|deprecated/.test(taskHaystack);
   const weakDualTrack = /\bold\b|\bnew\b/.test(taskHaystack);
-  addHeuristic(strongDualTrack || weakDualTrack, "dual-track-business-concept", strongDualTrack ? "medium" : "low");
-  addHeuristic(/direct db|cross boundary|payment credential|forbidden data/.test(taskHaystack), "cross-boundary-data-access", "medium");
-  addHeuristic(/cycle|hotspot|too many callers/.test(taskHaystack), "cycle-or-hotspot", "medium");
-  addHeuristic(/api|contract|schema|event|public/.test(taskHaystack), "contract-after-implementation", "low");
-  addHeuristic(/migration|cleanup|remove old|dual path/.test(taskHaystack), "migration-without-target-state", "low");
-  addHeuristic(/temporary|cleanup later/.test(taskHaystack), "temporary-state-without-removal", "low");
-  addHeuristic(/token|credential|permission|scope|secret|key/.test(taskHaystack), "broad-permission-scope", "low");
-  addHeuristic(/dependency|package|lockfile|version/.test(taskHaystack), "unpinned-runtime-dependency", "low");
+  addHeuristic(strongDualTrack || weakDualTrack, "dual-track-business-concept");
+  addHeuristic(/direct db|cross boundary|payment credential|forbidden data/.test(taskHaystack), "cross-boundary-data-access");
+  addHeuristic(/cycle|hotspot|too many callers/.test(taskHaystack), "cycle-or-hotspot");
+  addHeuristic(/api|contract|schema|event|public/.test(taskHaystack), "contract-after-implementation");
+  addHeuristic(/migration|cleanup|remove old|dual path/.test(taskHaystack), "migration-without-target-state");
+  addHeuristic(/temporary|cleanup later/.test(taskHaystack), "temporary-state-without-removal");
+  addHeuristic(/token|credential|permission|scope|secret|key/.test(taskHaystack), "broad-permission-scope");
+  addHeuristic(/dependency|package|lockfile|version/.test(taskHaystack), "unpinned-runtime-dependency");
 
-  addObserved(/wrapper|adapter|mapper|fallback/.test(structuralHaystack), "unjustified-wrapper-adapter", "high", matchingSubjects(structuralItems, /wrapper|adapter|mapper|fallback/i));
-  addObserved(/v1|v2|legacy|deprecated/.test(structuralHaystack), "dual-track-business-concept", "high", matchingSubjects(structuralItems, /v1|v2|legacy|deprecated/i));
-  addObserved(/duplicate|copy|copied/.test(structuralHaystack), "duplicate-responsibility", "medium", matchingSubjects(structuralItems, /duplicate|copy|copied/i));
-  addObserved(/owner|lifecycle/.test(structuralHaystack) && /two|multiple|split/.test([taskHaystack, structuralHaystack].join(" ")), "multiple-lifecycle-owner", "high", matchingSubjects(structuralItems, /owner|lifecycle|module|service/i));
-  addObserved(/hotspot|too many callers/.test(structuralHaystack), "cycle-or-hotspot", "medium", matchingSubjects(structuralItems, /hotspot|caller/i));
-  addObserved(/boundary|layer|module|domain/.test(structuralHaystack) && hasImportEdge(input.edges), "boundary-crossing-import", "high", edgeSubjects(input.edges, "imports"));
-  addObserved(/cycle|circular/.test(structuralHaystack) || hasBidirectionalImport(input.edges), "dependency-cycle", "high", edgeSubjects(input.edges, "imports"));
-  addObserved(/direct db|database|credential|payment|forbidden data/.test(structuralHaystack) || hasDataEdge(input.edges), "cross-boundary-data-access", "high", [...matchingSubjects(structuralItems, /db|database|credential|payment|data/i), ...edgeSubjects(input.edges, "reads", "writes")]);
-  addObserved(/queue|worker|external|client|server|route/.test(structuralHaystack) && !/telemetry|trace|metric|log/.test(structuralHaystack), "runtime-boundary-without-observability", "medium", matchingSubjects(structuralItems, /queue|worker|external|client|server|route/i));
-  addObserved(/adr|decision|policy|contract|architecture/.test(structuralHaystack), "architecture-intervention", "medium", matchingSubjects(structuralItems, /adr|decision|policy|contract|architecture/i));
-  addObserved(/owner|team|lifecycle/.test(structuralHaystack), "missing-owner", "medium", matchingSubjects(structuralItems, /owner|team|lifecycle/i));
-  if (input.migrationReviewDate && input.now && input.migrationReviewDate < input.now) {
+  addObserved(hasBidirectionalImport(input.edges), "dependency-cycle", "high", edgeSubjects(input.edges, "imports"));
+  if (migrationReviewDate && now && migrationReviewDate < now) {
     signals.push({
       type: "overdue-migration-state",
       severity: "high",
-      evidence: [input.migrationReviewDate],
+      evidence: [migrationReviewDate],
       evidenceKind: "observed",
-      evidenceDetails: [practiceEvidence("runtime-check", "observed", input.migrationReviewDate)]
+      evidenceDetails: [practiceEvidence("runtime-check", "observed", migrationReviewDate)]
     });
   }
-  for (const evidence of input.observedEvidence ?? []) {
-    if (evidence.confidence === "verified" && /test|verified/i.test(evidence.summary)) {
-      addObserved(true, "architecture-intervention", "medium", [evidence.id], evidence.confidence);
-    }
-  }
-  const rawScore = Math.min(100, signals.reduce((sum, signal) => sum + (signal.severity === "high" ? 25 : signal.severity === "medium" ? 15 : 5), 0));
-  const heuristicOnly = signals.length > 0 && signals.every((signal) => signal.evidenceKind === "heuristic");
-  const score = heuristicOnly ? Math.min(rawScore, 25) : rawScore;
+  const score = scorePressureSignals(signals);
   return { level: score >= 60 ? "high" : score >= 30 ? "medium" : "low", score, signals };
 
-  function addHeuristic(condition: boolean, type: PressureSignalType, severity: Exclude<PressureSignal["severity"], "high">): void {
+  function addHeuristic(condition: boolean, type: PressureSignalType): void {
     if (!condition) return;
-    signals.push({ type, severity, evidence: ["task-text"], evidenceKind: "heuristic", evidenceDetails: [practiceEvidence("task-text", "heuristic", input.task)] });
+    signals.push({ type, severity: "low", evidence: ["task-text"], evidenceKind: "heuristic", evidenceDetails: [practiceEvidence("task-text", "heuristic", input.task)] });
   }
 
   function addObserved(
@@ -154,10 +133,15 @@ export function detectCrossRepoPressure(input: {
       evidenceDetails: [practiceEvidence("task-text", "heuristic", input.task ?? "")]
     });
   }
-  const rawScore = Math.min(100, signals.reduce((sum, signal) => sum + (signal.severity === "high" ? 25 : signal.severity === "medium" ? 15 : 5), 0));
-  const heuristicOnly = signals.length > 0 && signals.every((signal) => signal.evidenceKind === "heuristic");
-  const score = heuristicOnly ? Math.min(rawScore, 25) : rawScore;
+  const score = scorePressureSignals(signals);
   return { level: score >= 60 ? "high" : score >= 30 ? "medium" : "low", score, signals };
+}
+
+function scorePressureSignals(signals: PressureSignal[]): number {
+  const observedSignals = signals.filter((signal) => signal.evidenceKind === "observed");
+  const scoredSignals = observedSignals.length > 0 ? observedSignals : signals;
+  const rawScore = Math.min(100, scoredSignals.reduce((sum, signal) => sum + (signal.severity === "high" ? 25 : signal.severity === "medium" ? 15 : 5), 0));
+  return observedSignals.length === 0 ? Math.min(rawScore, 25) : rawScore;
 }
 
 function practiceEvidence(kind: PracticeEvidenceV1["kind"], strength: PracticeEvidenceV1["strength"], subject: string): PracticeEvidenceV1 {
@@ -170,20 +154,13 @@ function practiceEvidence(kind: PracticeEvidenceV1["kind"], strength: PracticeEv
   };
 }
 
-function isBenignSubject(subject: string): boolean {
-  return /(^|[\s/])(readme|docs?|test|tests|fixtures?)([\s/.]|$)/i.test(subject);
-}
-
-function matchingSubjects(items: { subject: string }[], pattern: RegExp): string[] {
-  return items.filter((item) => pattern.test(item.subject)).map((item) => item.subject);
-}
-
-function hasImportEdge(edges?: NormalizedEdge[]): boolean {
-  return (edges ?? []).some((edge) => edge.kind === "imports");
-}
-
-function hasDataEdge(edges?: NormalizedEdge[]): boolean {
-  return (edges ?? []).some((edge) => edge.kind === "reads" || edge.kind === "writes");
+function requireIsoDate(value: string, field: "migrationReviewDate" | "now"): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`Invalid ${field}: expected a valid YYYY-MM-DD date`);
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`Invalid ${field}: expected a valid YYYY-MM-DD date`);
+  }
+  return value;
 }
 
 function hasBidirectionalImport(edges?: NormalizedEdge[]): boolean {

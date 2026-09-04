@@ -1,4 +1,4 @@
-import { createInterventionId, type ArchitectureInterventionModel, type ArchitecturePosture } from "@archcontext/core/architecture-domain";
+import type { ArchitecturePosture } from "@archcontext/core/architecture-domain";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
 
 export interface RefactorConfidence {
@@ -8,36 +8,51 @@ export interface RefactorConfidence {
   externalConsumers: string[];
   persistedData: string[];
   rollbackPoints: string[];
+  evidence: {
+    callerCoverage: number | null;
+    testsAvailable: boolean | null;
+    rollbackAvailable: boolean | null;
+  };
 }
 
 export function computeRefactorConfidence(input: {
-  callerCoverage: number;
-  testsAvailable: boolean;
-  rollbackAvailable: boolean;
+  callerCoverage?: number;
+  testsAvailable?: boolean;
+  rollbackAvailable?: boolean;
   externalConsumers?: string[];
   persistedData?: string[];
 }): RefactorConfidence {
-  let score = Math.round(input.callerCoverage * 70);
-  if (input.testsAvailable) score += 15;
-  if (input.rollbackAvailable) score += 15;
+  validateReadinessEvidence(input);
+  let score = input.callerCoverage === undefined ? 0 : Math.round(input.callerCoverage * 70);
+  if (input.testsAvailable === true) score += 15;
+  if (input.rollbackAvailable === true) score += 15;
   if ((input.externalConsumers?.length ?? 0) > 0) score -= 20;
   if ((input.persistedData?.length ?? 0) > 0) score -= 10;
   score = Math.max(0, Math.min(100, score));
   return {
     level: score >= 70 ? "high" : score >= 40 ? "medium" : "low",
     score,
-    coverage: [`caller-coverage:${input.callerCoverage}`],
+    coverage: input.callerCoverage === undefined ? [] : [`caller-coverage:${input.callerCoverage}`],
     externalConsumers: input.externalConsumers ?? [],
     persistedData: input.persistedData ?? [],
-    rollbackPoints: input.rollbackAvailable ? ["git-worktree"] : []
+    // Availability is a readiness fact, not proof of a concrete rollback mechanism.
+    rollbackPoints: [],
+    evidence: {
+      callerCoverage: input.callerCoverage ?? null,
+      testsAvailable: input.testsAvailable ?? null,
+      rollbackAvailable: input.rollbackAvailable ?? null
+    }
   };
 }
 
-export function decidePosture(pressure: ArchitecturePressure, confidence: RefactorConfidence): ArchitecturePosture {
+export function decidePosture(
+  pressure: ArchitecturePressure,
+  _confidence: RefactorConfidence
+): ArchitecturePosture {
   if (pressure.level === "high") {
-    // High pressure must never resolve to "normal". Direct intervention needs high
-    // confidence; with low or medium confidence, prove the smallest path first.
-    return confidence.level === "high" ? "intervention" : "proof-required";
+    // This legacy path observes pressure and readiness evidence, but does not own
+    // target-architecture authoring. An intervention must be authored through RF2.
+    return "proof-required";
   }
   if (pressure.level === "medium") return "structural";
   return "normal";
@@ -46,45 +61,24 @@ export function decidePosture(pressure: ArchitecturePressure, confidence: Refact
 export function createProofPoint(task: string): { description: string; successCriteria: string[]; falsifiers: string[] } {
   return {
     description: `Prove the smallest end-to-end path for: ${task}`,
-    successCriteria: ["one-owner-observed", "no-fallback-path", "current-tests-pass"],
+    successCriteria: ["accountable-target-proposal-authored", "one-owner-observed", "no-fallback-path", "current-tests-pass"],
     falsifiers: ["untracked-external-consumer", "unacceptable-migration-risk"]
   };
 }
 
-export function createInterventionProposal(input: {
-  task: string;
-  pressure: ArchitecturePressure;
-  confidence: RefactorConfidence;
-}): ArchitectureInterventionModel {
-  const proofPoint = createProofPoint(input.task);
-  return {
-    id: createInterventionId(input.task),
-    status: "proposed",
-    thesis: `Resolve ${input.pressure.signals.map((signal) => signal.type).join(", ")} by moving to a single target architecture rather than adding a permanent compatibility layer.`,
-    targetState: {
-      owners: { primaryLifecycle: "module.target-owner" },
-      requiredRelations: ["relation.target-calls-boundary"],
-      removedConcepts: ["legacy-wrapper", "fallback-mapper"]
-    },
-    migrationState: {
-      active: true,
-      compatibilityContracts: [],
-      cleanupBy: "next-release",
-      temporaryRelations: ["relation.temporary-migration"]
-    },
-    constraints: {
-      real: [...input.confidence.externalConsumers, ...input.confidence.persistedData],
-      inherited: ["internal-callers", "legacy-layout"]
-    },
-    proofPoint,
-    killList: [
-      { id: "remove-legacy-wrapper", target: "symbol.legacyWrapper", required: true },
-      { id: "remove-fallback-mapper", target: "symbol.fallbackMapper", required: true }
-    ],
-    benefitLedger: {
-      benefits: ["single lifecycle owner", "bounded migration cleanup", "fewer compatibility paths"],
-      costs: ["larger coordinated change"],
-      rollbackPoint: input.confidence.rollbackPoints[0] ?? "git"
-    }
-  };
+function validateReadinessEvidence(input: {
+  callerCoverage?: number;
+  testsAvailable?: boolean;
+  rollbackAvailable?: boolean;
+}): void {
+  if (input.callerCoverage !== undefined &&
+    (!Number.isFinite(input.callerCoverage) || input.callerCoverage < 0 || input.callerCoverage > 1)) {
+    throw new TypeError("callerCoverage must be a finite ratio between 0 and 1");
+  }
+  if (input.testsAvailable !== undefined && typeof input.testsAvailable !== "boolean") {
+    throw new TypeError("testsAvailable must be a boolean");
+  }
+  if (input.rollbackAvailable !== undefined && typeof input.rollbackAvailable !== "boolean") {
+    throw new TypeError("rollbackAvailable must be a boolean");
+  }
 }

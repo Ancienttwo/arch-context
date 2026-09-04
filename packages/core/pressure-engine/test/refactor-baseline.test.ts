@@ -40,8 +40,9 @@ describe("RF0 baseline: detectArchitecturePressure payloads", () => {
 
 /**
  * The three invariants the fixture table exists to protect, restated so a future reader sees
- * them without diffing seventeen JSON payloads: the heuristic-only cap, the two level cuts, and
- * the fact that a bidirectional import pair alone is enough for `dependency-cycle`.
+ * them without diffing seventeen JSON payloads: the heuristic-only cap, advisory isolation from
+ * observed scoring, and the fact that a bidirectional import pair alone is enough for
+ * `dependency-cycle`.
  */
 describe("RF0 baseline: pressure invariants restated from the frozen table", () => {
   function byId(id: string): BaselineFixture {
@@ -58,20 +59,22 @@ describe("RF0 baseline: pressure invariants restated from the frozen table", () 
     expect(uncapped).toBeGreaterThan(25);
     expect(capped.score).toBe(25);
     expect(capped.level).toBe("low");
-    // One observed signal removes the cap, so the same heuristics can then exceed 25.
-    expect(byId("heuristic-plus-one-observed-escapes-cap").expected.score).toBe(35);
+    const namedOnly = byId("name-only-context-keeps-heuristics-advisory").expected;
+    expect(namedOnly.score).toBe(10);
+    expect(namedOnly.signals.every((signal) => signal.evidenceKind === "heuristic")).toBe(true);
   });
 
-  test("level cuts sit at 30 and 60", () => {
+  test("observed facts score independently from task-text advisory signals", () => {
     expect(byId("level-threshold-below-medium-25").expected).toMatchObject({ score: 25, level: "low" });
-    expect(byId("level-threshold-medium-boundary-30").expected).toMatchObject({ score: 30, level: "medium" });
-    expect(byId("observed-wrapper-and-dual-track").expected).toMatchObject({ score: 50, level: "medium" });
-    expect(byId("level-threshold-high-boundary-60").expected).toMatchObject({ score: 60, level: "high" });
+    const cycleAndMigration = byId("cycle-and-overdue-migration-medium").expected;
+    expect(cycleAndMigration).toMatchObject({ score: 50, level: "medium" });
+    expect(cycleAndMigration.signals.filter((signal) => signal.evidenceKind === "observed")).toHaveLength(2);
+    expect(cycleAndMigration.signals.filter((signal) => signal.evidenceKind === "heuristic")).toHaveLength(3);
   });
 
   test("a bidirectional import pair alone raises dependency-cycle at high severity", () => {
     const cycle = byId("bidirectional-import-dependency-cycle").expected;
-    const oneWay = byId("unidirectional-import-no-dependency-cycle").expected;
+    const oneWay = byId("unidirectional-import-no-observed-cycle").expected;
     expect(cycle.signals.map((signal) => signal.type)).toContain("dependency-cycle");
     expect(cycle.signals.find((signal) => signal.type === "dependency-cycle")?.severity).toBe("high");
     expect(oneWay.signals.map((signal) => signal.type)).not.toContain("dependency-cycle");

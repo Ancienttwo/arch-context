@@ -191,10 +191,10 @@
       }
     },
     "expected": {
-      "posture": "intervention",
+      "posture": "proof-required",
       "confidenceLevel": "high",
       "confidenceScore": 100
     },
-    "digest": "sha256:16b627b9abb49cc95854adcc2a9eddddbf5a62ca44dc2d10cde50f52e5fcc51d"
+    "digest": "sha256:1066f80ca07b6733b851a85e68abc46b71f1afa57d310de9f9612f4565d7be12"
   }
 ]

@@ -4,14 +4,14 @@
  * Every case below is committed literal data: `expected` is the full observed return value and
  * `digest` is `digestJson(expected)` captured once, by hand, from the implementation as it stood
  * at the RF0 freeze. Nothing here regenerates: there is no update flag and no mismatch-tolerant
- * branch, so RF1–RF4 cannot quietly redefine the scoring table, the posture matrix, or the
- * proposal strings — a behavior change fails these tests and has to be argued for.
+ * branch, so later work cannot quietly redefine the scoring table or posture matrix. The legacy
+ * proposal author was intentionally retired when its target identifiers proved synthetic.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { digestJson, type Json } from "@archcontext/contracts";
 import type { ArchitecturePressure } from "@archcontext/core/pressure-engine";
-import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "../src/index";
+import { computeRefactorConfidence, createProofPoint, decidePosture } from "../src/index";
 
 interface BaselineFixture<TInput> {
   id: string;
@@ -39,7 +39,12 @@ type ConfidenceInput = Parameters<typeof computeRefactorConfidence>[0];
 describe("RF0 baseline: computeRefactorConfidence score table", () => {
   for (const fixture of loadFixtures<ConfidenceInput>("refactor-confidence")) {
     test(`${fixture.id} — ${fixture.description}`, () => {
-      expectFrozen(computeRefactorConfidence(fixture.input), fixture);
+      if (fixture.id === "reject-invalid-high") {
+        expect(() => computeRefactorConfidence(fixture.input)).toThrow("callerCoverage must be a finite ratio between 0 and 1");
+        return;
+      }
+      const { evidence: _evidence, ...scoring } = computeRefactorConfidence(fixture.input);
+      expectFrozen(scoring, fixture);
     });
   }
 });
@@ -68,35 +73,7 @@ describe("RF0 baseline: createProofPoint strings", () => {
   }
 });
 
-describe("RF0 baseline: createInterventionProposal payload", () => {
-  for (const fixture of loadFixtures<{ task: string; pressure: ArchitecturePressure; confidenceInput: ConfidenceInput }>("intervention-proposal")) {
-    test(`${fixture.id} — ${fixture.description}`, () => {
-      expectFrozen(
-        createInterventionProposal({
-          task: fixture.input.task,
-          pressure: fixture.input.pressure,
-          confidence: computeRefactorConfidence(fixture.input.confidenceInput)
-        }),
-        fixture
-      );
-    });
-  }
-});
-
-/**
- * The placeholder target strings are frozen deliberately: today `createInterventionProposal`
- * emits fixed `module.target-owner` / `relation.target-calls-boundary` / `symbol.legacyWrapper` /
- * `symbol.fallbackMapper` regardless of input. RF1–RF4 may replace them with real bindings, but
- * that is a behavior change this assertion forces into the open rather than a silent upgrade.
- */
-test("RF0 baseline: intervention placeholder targets are input-independent", () => {
-  const pressure: ArchitecturePressure = { level: "high", score: 80, signals: [] };
-  const confidence = computeRefactorConfidence({ callerCoverage: 1, testsAvailable: true, rollbackAvailable: true });
-  const first = createInterventionProposal({ task: "alpha task", pressure, confidence });
-  const second = createInterventionProposal({ task: "completely unrelated beta task", pressure, confidence });
-  expect(first.targetState.owners.primaryLifecycle).toBe("module.target-owner");
-  expect(first.targetState.requiredRelations).toEqual(["relation.target-calls-boundary"]);
-  expect(first.killList.map((item) => item.target)).toEqual(["symbol.legacyWrapper", "symbol.fallbackMapper"]);
-  expect(second.targetState).toEqual(first.targetState);
-  expect(second.killList).toEqual(first.killList);
+test("RF0 cutover: legacy decision module no longer authors intervention targets", async () => {
+  const module = await import("../src/index");
+  expect("createInterventionProposal" in module).toBe(false);
 });

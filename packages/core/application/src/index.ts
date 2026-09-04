@@ -14,7 +14,7 @@ import {
   type WorkspaceRef
 } from "@archcontext/contracts";
 import type { ArchitecturePressure, PressureSignal } from "@archcontext/core/pressure-engine";
-import { computeRefactorConfidence, createInterventionProposal, createProofPoint, decidePosture } from "@archcontext/core/refactor-decision";
+import { computeRefactorConfidence, createProofPoint, decidePosture } from "@archcontext/core/refactor-decision";
 import { completeTaskGate } from "@archcontext/core/review-engine";
 
 export interface PrepareTaskInput {
@@ -46,13 +46,23 @@ export interface CheckpointTaskInput {
 }
 
 export async function prepareTask(input: PrepareTaskInput) {
+  const confidence = computeRefactorConfidence({
+    callerCoverage: input.callerCoverage,
+    testsAvailable: input.testsAvailable,
+    rollbackAvailable: input.rollbackAvailable
+  });
   const context = await compileTaskContext({
     workspace: input.workspace,
     task: input.task,
     codeFacts: input.codeFacts,
     modelStore: input.modelStore,
     architectureLedger: input.architectureLedger,
-    budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 }
+    budget: input.budget ?? { maxBytes: 12_288, maxItems: 12 },
+    readinessEvidence: {
+      callerCoverage: input.callerCoverage,
+      testsAvailable: input.testsAvailable,
+      rollbackAvailable: input.rollbackAvailable
+    }
   });
   const pressure: ArchitecturePressure = {
     level: context.architecturePressure.level,
@@ -65,11 +75,6 @@ export async function prepareTask(input: PrepareTaskInput) {
       evidenceDetails: []
     }))
   };
-  const confidence = computeRefactorConfidence({
-    callerCoverage: input.callerCoverage ?? 0.8,
-    testsAvailable: input.testsAvailable ?? true,
-    rollbackAvailable: input.rollbackAvailable ?? true
-  });
   const posture = decidePosture(pressure, confidence);
   return {
     context,
@@ -77,7 +82,7 @@ export async function prepareTask(input: PrepareTaskInput) {
     confidence,
     posture,
     proofPoint: posture === "proof-required" ? createProofPoint(input.task) : undefined,
-    intervention: posture === "intervention" ? createInterventionProposal({ task: input.task, pressure, confidence }) : undefined
+    intervention: undefined
   };
 }
 

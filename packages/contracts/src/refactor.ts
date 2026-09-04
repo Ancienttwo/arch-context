@@ -481,6 +481,12 @@ export function architectureTargetDeltaInvariantIssues(delta: ArchitectureTarget
   if (delta.falsifiers.length === 0) issues.push(`${prefix}.falsifiers must state at least one falsifier`);
   if (delta.completionCriteria.length === 0) issues.push(`${prefix}.completionCriteria must contain at least one outcome`);
   if (delta.benefitLedger.rollbackPoint.trim() === "") issues.push(`${prefix}.benefitLedger.rollbackPoint must not be empty`);
+  const temporaryRelations = new Set(delta.migrationState.temporaryRelations);
+  for (const relation of delta.targetState.requiredRelations) {
+    if (temporaryRelations.has(relation)) {
+      issues.push(`${prefix}.targetState.requiredRelations must not contain migration-only relation: ${relation}`);
+    }
+  }
   if (architectureTargetDeltaInterventionId(delta) !== delta.interventionId) {
     issues.push(`${prefix}.interventionId must be derived from the authored delta`);
   }

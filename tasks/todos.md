@@ -1,7 +1,7 @@
 # Deferred Goal Ledger
 
 > **Status**: Backlog
-> **Updated**: 2026-09-04 21:13
+> **Updated**: 2026-09-05
 > **Scope**: Medium/long-term goals deferred from active plan execution
 
 Current plan tasks live in the active plan's `## Task Breakdown`.
@@ -11,6 +11,9 @@ Do not duplicate that execution checklist here. Record only work intentionally d
 
 | Goal | Why Deferred | Tradeoff | Revisit Trigger |
 |------|--------------|----------|-----------------|
+| Measured direction violations for proactive refactor discovery | 当前 module-statistics 的 directionViolationCount 为 null；本轮先闭合 legacy evidence integrity，不扩大事实采集能力 | RF2 支持该 signal 的形状，但 producer 尚不能证明方向违规；不得宣传完整语义架构优化 | 从 `packages/core/module-statistics` 切声明方向与 observed imports 的 exact comparison，附真实违规/合法边界/缺证据三个对照；见 `docs/researches/20260905-repo-harness-upstream-architecture-review.md` F3 |
+| Refactor scan scope and measured cost budget | node scope 仍采集全仓，CodeGraph import-node 查询预算为 5000；本轮未测 10x 成本 | 保留 partial/insufficient_evidence，不能通过提高上限或伪造 complete 让主动扫描继续 | 下游显式 shadow discovery 可达后，按 `runtime-daemon/src/refactor-scan.ts` 实测采集成本，选择一个 scope/coverage 边界与同 identity snapshot 复用切片；见 review F4 |
+| repo-harness discovery entrypoint and release artifact conformance | 下游在另一台机器并行，当前评审只能证明本地 snapshot 缺生产调用方及 source fixture 与发布证据不等价 | 不覆盖下游 WIP，不声称主动闭环已交付 | 下游先核对最新 HEAD 与现有 Module 4，按 `docs/researches/20260905-repo-harness-refactor-discovery-handoff.md` 的 D1/D2 分别验收 |
 | Design partner / opt-in beta / team collaboration rollout | 当前发布目标收窄到个人用户可安装、可本地 no-cloud 使用；合作 rollout 需要跨账号/跨组织 cohort、观察窗口和支持流程，超出当前 slice | 个人用户 Beta 可以先闭环；暂不声明 design partner 灰度、opt-in beta 或多人协作 verified | 个人用户 Launch Gate 通过后，重新批准 collaboration scope，并准备真实 design partner installation、至少 1 天观察数据、opt-in beta installation 和支持/回滚 telemetry |
 | Production GA external readback（部署端点 / Directory / provider delivery / capture / security scan） | 当前机器没有已部署 production/staging endpoint、GPT App Directory 证据、真实 provider delivery 证据、外部 packet capture 或外部 security scan | Sprint 1-4 只能声明 repo-local deterministic 完成；不得宣称 production GA verified | 配置 `ARCHCONTEXT_PRODUCTION_BASE_URL` 或 staging URL，并提交 Directory/provider/capture/security-scan 证据后，跑 `bun run readback:ga`、`node scripts/privacy-capture-manifest.mjs readback --require-external`、`node scripts/security-scan-manifest.mjs readback --require-external` |
 | Embedding / Vector 检索（默认关闭） | Sprint 4 eval 未显示相对 FTS5 的明确胜出 | 继续使用 FTS5 + CodeGraph；embedding 保持 off，不引入本地向量索引或混合检索复杂度 | 新代表性 eval 显示 embedding 同时满足 ADR-0033 决策门：context recall lift、constraint recall lift、irrelevant ratio、tool-call 不回退 |

@@ -12,7 +12,7 @@
  *   4. Context irrelevant-content ratio        <= 15%      (retrieval lexical baseline)
  *
  * It also asserts the deterministic target-vs-migration separation invariant
- * (refactor-decision). The six other §25.3 deterministic targets already pass
+ * (RF2 refactor-assessment). The six other §25.3 deterministic targets already pass
  * via `bun run verify` and are intentionally NOT re-litigated here.
  *
  * Run:   bun evals/run.ts
@@ -32,7 +32,10 @@ import {
   validatePracticeWaiver
 } from "../packages/core/practice-engine/src/index";
 import { detectArchitecturePressure } from "../packages/core/pressure-engine/src/index";
-import { computeRefactorConfidence, createInterventionProposal, decidePosture } from "../packages/core/refactor-decision/src/index";
+import { computeRefactorConfidence, decidePosture } from "../packages/core/refactor-decision/src/index";
+import { buildModuleStatisticsSnapshot, resolveOwnership, type ModuleStatisticsImportEdgeV1, type ModuleStatisticsTrackedFileV1 } from "../packages/core/module-statistics/src/index";
+import { assessRefactor, deriveTargetDelta } from "../packages/core/refactor-assessment/src/index";
+import type { NativeModel } from "../packages/core/projection-engine/src/index";
 import {
   InMemoryLexicalRetriever,
   REPRESENTATIVE_CHINESE_RETRIEVAL_DOCUMENTS,
@@ -41,8 +44,17 @@ import {
   type RetrievalDocument
 } from "../packages/core/retrieval/src/index";
 import { isArchitectureDirectionViolationSubject, type ArchitecturePosture } from "../packages/core/architecture-domain/src/index";
-import { digestJson } from "../packages/contracts/src/index";
+import {
+  architectureTargetDeltaInterventionId,
+  digestJson,
+  refactorProposalDigest,
+  refactorRequestInvariantIssues,
+  refactorScanInvariantIssues,
+  REFACTOR_PROPOSAL_SCHEMA_VERSION,
+  REFACTOR_REQUEST_SCHEMA_VERSION
+} from "../packages/contracts/src/index";
 import type {
+  ArchitectureTargetDeltaV1,
   EffectivePracticeAssetV1,
   Json,
   NormalizedEdge,
@@ -53,11 +65,13 @@ import type {
   PracticeMatchV1,
   PracticeSourceTrust,
   PracticeWaiverV1,
+  RefactorProposalV1,
+  RefactorRequestV1,
   RetrievalEvalQuery,
   RetrievalEvalSet
 } from "../packages/contracts/src/index";
 
-const DATE = "2026-06-25";
+const DATE = "2026-09-05";
 
 export const THRESHOLDS = {
   compatibilityRecall: 0.85,
@@ -160,8 +174,9 @@ interface DriftCase {
   pattern: string;
   note: string;
   task: string;
-  symbols?: string[];
-  files?: string[];
+  edges?: NormalizedEdge[];
+  migrationReviewDate?: string;
+  now?: string;
   confidence: {
     callerCoverage: number;
     testsAvailable: boolean;
@@ -175,13 +190,25 @@ interface DriftCase {
 interface TargetMigrationCase {
   id: string;
   note: string;
-  task: string;
-  confidence: {
-    callerCoverage: number;
-    testsAvailable: boolean;
-    rollbackAvailable: boolean;
-    externalConsumers?: string[];
-    persistedData?: string[];
+  model: NativeModel;
+  files: ModuleStatisticsTrackedFileV1[];
+  importEdges: ModuleStatisticsImportEdgeV1[];
+  request: {
+    scope: RefactorRequestV1["scope"];
+    proposal: {
+      authoredBy: RefactorProposalV1["authoredBy"];
+      intent: string;
+      scopePaths: string[];
+      targetOutcomes: RefactorProposalV1["targetOutcomes"];
+      killList: RefactorProposalV1["killList"];
+      targetDelta: Omit<ArchitectureTargetDeltaV1, "interventionId" | "unresolvedTargets">;
+    };
+  };
+  expected: {
+    outcome: "valid" | "AC_SCHEMA_INVALID";
+    majorChangeReasons?: string[];
+    unresolvedTargets?: string[];
+    scale?: string;
   };
 }
 
@@ -322,9 +349,9 @@ function scoreCompatibility(cases: CompatibilityCase[]): CompatibilityResult {
 // ---------------------------------------------------------------------------
 // Target 2 — Architecture Drift Precision (pressure-engine + refactor-decision)
 // "Drift detected" == posture !== "normal". Precision = correct drift calls /
-// all drift calls. We also report exact-posture accuracy and drift recall so the
-// known high-pressure/medium-confidence gap surfaces as a recall miss, not a
-// hidden pass.
+// all drift calls. Exact posture accuracy and recall are reported separately for
+// preserved prose-only labels and evidence-backed anchors, so a precision pass
+// cannot conceal the legacy semantic recall gap.
 // ---------------------------------------------------------------------------
 
 interface DriftResult {
@@ -337,11 +364,21 @@ interface DriftResult {
   driftTrueNegatives: number;
   exactMatches: number;
   total: number;
+  historicalProseOnly: DriftRecallBreakdown;
+  evidenceBacked: DriftRecallBreakdown;
   falsePositiveIds: { id: string; pattern: string; expected: string; actual: string }[];
   falseNegativeIds: { id: string; pattern: string; expected: string; actual: string }[];
 }
 
-function scoreDrift(cases: DriftCase[]): DriftResult {
+interface DriftRecallBreakdown {
+  cases: number;
+  expectedDrift: number;
+  detectedDrift: number;
+  falseNegatives: number;
+  recall: number;
+}
+
+export function scoreDrift(cases: DriftCase[]): DriftResult {
   let driftTruePositives = 0;
   let driftFalsePositives = 0;
   let driftFalseNegatives = 0;
@@ -349,12 +386,15 @@ function scoreDrift(cases: DriftCase[]): DriftResult {
   let exactMatches = 0;
   const falsePositiveIds: DriftResult["falsePositiveIds"] = [];
   const falseNegativeIds: DriftResult["falseNegativeIds"] = [];
+  const historicalProseOnly = emptyDriftRecallBreakdown();
+  const evidenceBacked = emptyDriftRecallBreakdown();
 
   for (const item of cases) {
     const pressure = detectArchitecturePressure({
       task: item.task,
-      symbols: item.symbols ?? driftStructuralSymbols(item.task),
-      files: item.files ?? driftStructuralFiles(item.task)
+      edges: item.edges,
+      migrationReviewDate: item.migrationReviewDate,
+      now: item.now
     });
     const confidence = computeRefactorConfidence(item.confidence);
     const actual = decidePosture(pressure, confidence);
@@ -362,6 +402,13 @@ function scoreDrift(cases: DriftCase[]): DriftResult {
 
     const actualDrift = actual !== "normal";
     const expectedDrift = item.expectedPosture !== "normal";
+    const breakdown = item.edges !== undefined || item.migrationReviewDate !== undefined || item.now !== undefined
+      ? evidenceBacked
+      : historicalProseOnly;
+    breakdown.cases += 1;
+    if (expectedDrift) breakdown.expectedDrift += 1;
+    if (actualDrift && expectedDrift) breakdown.detectedDrift += 1;
+    if (!actualDrift && expectedDrift) breakdown.falseNegatives += 1;
     if (actualDrift && expectedDrift) driftTruePositives += 1;
     else if (actualDrift && !expectedDrift) {
       driftFalsePositives += 1;
@@ -384,37 +431,28 @@ function scoreDrift(cases: DriftCase[]): DriftResult {
     driftTrueNegatives,
     exactMatches,
     total: cases.length,
+    historicalProseOnly: finalizeDriftRecallBreakdown(historicalProseOnly),
+    evidenceBacked: finalizeDriftRecallBreakdown(evidenceBacked),
     falsePositiveIds,
     falseNegativeIds
   };
 }
 
-function driftStructuralSymbols(task: string): string[] {
-  const lower = task.toLowerCase();
-  const symbols: string[] = [];
-  if (/wrapper|adapter|mapper|fallback/.test(lower)) {
-    symbols.push("symbol.legacyWrapperV1 legacyWrapperV1 public-api src/runtime/legacy-wrapper-v1.ts");
-    symbols.push("symbol.fallbackMapperV2 fallbackMapperV2 public-api src/runtime/fallback-mapper-v2.ts");
-  }
-  if (/owner|lifecycle|teams|split/.test(lower)) {
-    symbols.push("symbol.lifecycleOwner lifecycleOwner service src/runtime/lifecycle-owner.ts");
-  }
-  if (/payment credential|direct db|persisted/.test(lower)) {
-    symbols.push("symbol.paymentCredential paymentCredential service src/payment/payment-credential.ts");
-  }
-  if (/duplicate|copied|hotspot|too many callers/.test(lower) && /validation|serialization|module|client/.test(lower)) {
-    symbols.push("symbol.duplicateValidationHotspot duplicateValidationHotspot function src/validation/duplicate-validation-hotspot.ts");
-  }
-  return symbols;
+function emptyDriftRecallBreakdown(): DriftRecallBreakdown {
+  return { cases: 0, expectedDrift: 0, detectedDrift: 0, falseNegatives: 0, recall: 0 };
 }
 
-function driftStructuralFiles(task: string): string[] {
-  return driftStructuralSymbols(task).map((symbol) => symbol.split(" ").at(-1) ?? "src/unknown.ts");
+function finalizeDriftRecallBreakdown(breakdown: DriftRecallBreakdown): DriftRecallBreakdown {
+  return {
+    ...breakdown,
+    recall: round(breakdown.detectedDrift / Math.max(1, breakdown.expectedDrift))
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Invariant — target state never contains migration-only relations
-// (refactor-decision.createInterventionProposal)
+// Invariant — RF2 target deltas never contain migration-only relations.
+// Each fixture supplies the model, measured inputs, import edges, and authored
+// request explicitly; this evaluator never derives a target from task prose.
 // ---------------------------------------------------------------------------
 
 interface InvariantResult {
@@ -424,31 +462,145 @@ interface InvariantResult {
   violations: { id: string; reason: string }[];
 }
 
-function scoreTargetMigration(cases: TargetMigrationCase[]): InvariantResult {
+export function scoreTargetMigration(cases: TargetMigrationCase[]): InvariantResult {
   let passed = 0;
   const violations: { id: string; reason: string }[] = [];
 
   for (const item of cases) {
-    const pressure = detectArchitecturePressure({ task: item.task });
-    const confidence = computeRefactorConfidence(item.confidence);
-    const proposal = createInterventionProposal({ task: item.task, pressure, confidence });
-    const temporary = new Set(proposal.migrationState.temporaryRelations);
-    const leaked = proposal.targetState.requiredRelations.filter((relation) => temporary.has(relation));
-    const hasRemoved = proposal.targetState.removedConcepts.length > 0;
-    const hasTemporary = proposal.migrationState.temporaryRelations.length > 0;
+    const input = materializeTargetMigrationInput(item);
+    const derivation = deriveTargetDelta(input.request.proposal?.targetDelta, {
+      model: item.model,
+      snapshot: input.snapshot,
+      currentOwnerIds: input.currentOwnerIds
+    });
 
-    if (leaked.length === 0 && hasRemoved && hasTemporary) {
-      passed += 1;
-    } else if (leaked.length > 0) {
-      violations.push({ id: item.id, reason: `migration relation leaked into target state: ${leaked.join(", ")}` });
-    } else if (!hasRemoved) {
-      violations.push({ id: item.id, reason: "target state declared no removed concepts" });
-    } else {
-      violations.push({ id: item.id, reason: "migration state declared no temporary relations" });
+    if (item.expected.outcome === "AC_SCHEMA_INVALID") {
+      const overlap = item.request.proposal.targetDelta.targetState.requiredRelations
+        .filter((relation) => item.request.proposal.targetDelta.migrationState.temporaryRelations.includes(relation));
+      const expectedIssue = overlap.length === 1
+        ? `request.proposal.targetDelta.targetState.requiredRelations must not contain migration-only relation: ${overlap[0]}`
+        : null;
+      const directIssues = refactorRequestInvariantIssues(input.request);
+      if (expectedIssue === null || directIssues.length !== 1 || directIssues[0] !== expectedIssue) {
+        violations.push({ id: item.id, reason: `expected only the target/migration overlap validator, got ${directIssues.join("; ") || "no invariant issue"}` });
+        continue;
+      }
+      try {
+        assessRefactor(input.assessmentInput);
+        violations.push({ id: item.id, reason: "expected AC_SCHEMA_INVALID but RF2 accepted the request" });
+      } catch (error) {
+        const expectedError = `AC_SCHEMA_INVALID: ${expectedIssue}`;
+        if (error instanceof Error && error.message === expectedError) passed += 1;
+        else violations.push({ id: item.id, reason: `expected ${expectedError}, got ${(error as Error).message}` });
+      }
+      continue;
+    }
+
+    try {
+      const result = assessRefactor(input.assessmentInput);
+      const proposal = result.proposal;
+      const scanIssues = refactorScanInvariantIssues({ snapshot: input.snapshot, assessment: result.assessment, proposal });
+      const reasons = result.assessment.majorChangeReasons;
+      const unresolved = proposal?.targetDelta?.unresolvedTargets ?? [];
+      const targetRelations = new Set(proposal?.targetDelta?.targetState.requiredRelations ?? []);
+      const temporaryRelations = proposal?.targetDelta?.migrationState.temporaryRelations ?? [];
+      const overlap = temporaryRelations.filter((relation) => targetRelations.has(relation));
+      const expectedReasons = item.expected.majorChangeReasons ?? [];
+      const expectedUnresolved = item.expected.unresolvedTargets ?? [];
+      const expectedScale = item.expected.scale;
+
+      if (scanIssues.length > 0) {
+        violations.push({ id: item.id, reason: `RF2 scan invariant issues: ${scanIssues.join("; ")}` });
+      } else if (!sameStrings(derivation.reasons, expectedReasons)) {
+        violations.push({ id: item.id, reason: `deriveTargetDelta reasons expected ${expectedReasons.join(", ") || "none"}, got ${derivation.reasons.join(", ") || "none"}` });
+      } else if (!sameStrings(unresolved, expectedUnresolved)) {
+        violations.push({ id: item.id, reason: `unresolved targets expected ${expectedUnresolved.join(", ") || "none"}, got ${unresolved.join(", ") || "none"}` });
+      } else if (expectedScale !== undefined && result.assessment.scale !== expectedScale) {
+        violations.push({ id: item.id, reason: `assessment scale expected ${expectedScale}, got ${result.assessment.scale}` });
+      } else if (overlap.length > 0) {
+        violations.push({ id: item.id, reason: `migration relation leaked into target state: ${overlap.join(", ")}` });
+      } else {
+        passed += 1;
+      }
+    } catch (error) {
+      violations.push({ id: item.id, reason: `RF2 assessment failed: ${(error as Error).message}` });
     }
   }
 
   return { pass: violations.length === 0, passed, total: cases.length, violations };
+}
+
+function materializeTargetMigrationInput(item: TargetMigrationCase): {
+  snapshot: ReturnType<typeof buildModuleStatisticsSnapshot>;
+  currentOwnerIds: string[];
+  request: RefactorRequestV1;
+  assessmentInput: Parameters<typeof assessRefactor>[0];
+} {
+  const worktreeDigest = digestJson({ evaluator: "target-vs-migration", caseId: item.id });
+  const snapshot = buildModuleStatisticsSnapshot({
+    model: item.model,
+    repository: { repositoryId: `repo.eval.${item.id}`, storageRepositoryId: `storage.repo.eval.${item.id}` },
+    worktree: {
+      workspaceId: `workspace.eval.${item.id}`,
+      storageWorkspaceId: `storage.workspace.eval.${item.id}`,
+      branch: "eval",
+      headSha: "0123456789abcdef0123456789abcdef01234567",
+      worktreeDigest
+    },
+    trackedFiles: item.files,
+    importEdges: item.importEdges,
+    workspacePackages: [],
+    truncated: false,
+    edgeLimit: 100,
+    codeFacts: {
+      version: "eval.rf2/v1",
+      binaryDigest: digestJson({ evaluator: "target-vs-migration", version: 1 }),
+      availability: "ready",
+      indexedWorktreeDigest: worktreeDigest
+    },
+    createdAt: "2026-09-05T00:00:00.000Z"
+  });
+  const authoredDelta: ArchitectureTargetDeltaV1 = {
+    ...item.request.proposal.targetDelta,
+    interventionId: "",
+    unresolvedTargets: []
+  };
+  const targetDelta = { ...authoredDelta, interventionId: architectureTargetDeltaInterventionId(authoredDelta) };
+  const draftProposal: RefactorProposalV1 = {
+    schemaVersion: REFACTOR_PROPOSAL_SCHEMA_VERSION,
+    authoredBy: item.request.proposal.authoredBy,
+    intent: item.request.proposal.intent,
+    scopePaths: item.request.proposal.scopePaths,
+    targetOutcomes: item.request.proposal.targetOutcomes,
+    killList: item.request.proposal.killList,
+    targetDelta,
+    proposalDigest: ""
+  };
+  const proposal = { ...draftProposal, proposalDigest: refactorProposalDigest(draftProposal) };
+  const request: RefactorRequestV1 = {
+    schemaVersion: REFACTOR_REQUEST_SCHEMA_VERSION,
+    scope: item.request.scope,
+    proposal
+  };
+  const ownership = resolveOwnership(item.model.nodes, item.files.map((file) => file.path));
+  const currentOwnerIds = [...new Set(proposal.scopePaths.flatMap((path) => ownership.byPath.get(path)?.owners ?? []))].sort();
+  return {
+    snapshot,
+    currentOwnerIds,
+    request,
+    assessmentInput: {
+      snapshot,
+      model: item.model,
+      trackedFiles: item.files.map((file) => file.path),
+      request,
+      requestId: `request.${item.id}`,
+      createdAt: "2026-09-05T00:00:00.000Z"
+    }
+  };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,8 +1445,8 @@ export function buildReport(input: RepresentativeEvalResult): string {
   if (drift.precision < THRESHOLDS.driftPrecision) {
     backlog.push(
       `- **Drift precision ${pct(drift.precision)} < ${pct(THRESHOLDS.driftPrecision)}.** ` +
-        "`detectArchitecturePressure` over-fires on broad keywords (`/v1|v2|legacy|old|new/`, `/wrapper|adapter|mapper|fallback/`) so benign tasks containing those tokens are labeled drift. " +
-        "Fix: require corroborating structural evidence (symbols/edges) before a high-severity signal, not task-text keywords alone."
+        "Evidence-backed rows must remain isolated from task-text advisory signals. " +
+        "Fix: inspect the labeled false positives and add only the missing concrete evidence path; do not synthesize facts from prose."
     );
   }
   if (retrieval.constraintRecall < THRESHOLDS.contextConstraintRecall) {
@@ -1416,6 +1568,8 @@ ${gateTable}
 
 The deterministic target-vs-migration separation invariant: **${invariant.pass ? "✅ HOLD" : "❌ VIOLATED"}** (${invariant.passed}/${invariant.total}).
 
+Architecture Drift Precision remains a narrow statistical precision gate. It does not certify broad architecture-semantic capability: the preserved prose-only rows explicitly report their recall gap separately from the small evidence-backed anchor set.
+
 ## Methodology
 
 | Target | Engine under test | Dataset |
@@ -1428,13 +1582,13 @@ The deterministic target-vs-migration separation invariant: **${invariant.pass ?
 | Practice Top-3 recall | \`practice-engine.matchPracticesForTask\` | \`evals/practices/{structural-positive,no-keyword-structural-positive}.jsonl\` |
 | Practice benign negatives | \`pressure-engine.detectArchitecturePressure\` + \`practice-engine.matchPracticesForTask\` | \`evals/practices/{benign-negative,keyword-heavy-benign-negative,budget-irrelevant-resource}.jsonl\` |
 | Practice enforcement adversarial | \`practice-engine.evaluatePracticeEnforcement\` + waiver validation | \`evals/practices/enforcement-waiver-adversarial.jsonl\` |
-| Target/migration invariant | \`refactor-decision.createInterventionProposal\` | \`evals/target-vs-migration/cases.jsonl\` |
+| Target/migration invariant | \`module-statistics -> refactor-assessment.deriveTargetDelta -> assessRefactor -> refactorScanInvariantIssues\` | \`evals/target-vs-migration/cases.jsonl\` |
 
 ### Correction vs. the original plan
 
-The follow-up plan proposed measuring constraint recall and irrelevant ratio from **\`context-compiler\` output**. Reading the shipping code shows that is the wrong surface: \`compileTaskContext\` hardcodes \`constraints: []\` and performs no relevance ranking — it is a byte-budget trimmer over whatever the code-facts adapter returns. The real measurement surface for these two §25.3 metrics is the **\`retrieval\` engine** (\`runRetrievalEval\`), added by the Sprint 4 retrieval eval gate, which retrieves constraint-tagged documents and scores \`constraintRecall\`/\`irrelevantRatio\` directly. This eval therefore measures the retrieval engine's **shipping in-memory lexical baseline** (embedding stays default-off per ADR-0033; real SQLite FTS5 remains a future implementation gate). The pre-existing retrieval test only asserted \`contextRecall ≥ 0.8\` on a 3-query set; the §25.3 thresholds had never been gated on a representative set until now.
+This eval measures the **retrieval engine's in-memory lexical baseline** through \`runRetrievalEval\`, using constraint-tagged documents and an explicit top-k budget. It does not measure end-to-end \`context-compiler\` output or the SQLite FTS5 backend. The compiler now combines ledger/CodeGraph context and practice guidance, then applies context budgets; those paths require their own integration evidence. Embedding remains default-off under ADR-0033.
 
-The six other §25.3 targets (schema precision, stale interception, path-escape, changeset atomic recovery, attestation replay, SaaS code-route count) are deterministic and already pass via \`bun run verify\`; they are intentionally out of scope here.
+The six other §25.3 targets (schema precision, stale interception, path-escape, changeset atomic recovery, attestation replay, SaaS code-route count) are deterministic and are checked separately by \`bun run verify\`; this evaluator does not establish their result.
 
 ## Target 1 — Unjustified Compatibility detection Recall
 
@@ -1449,8 +1603,10 @@ The six other §25.3 targets (schema precision, stale interception, path-escape,
 - Drift precision (non-normal posture correctness): **${pct(drift.precision)}** (${drift.driftTruePositives}/${drift.driftTruePositives + drift.driftFalsePositives}), threshold ${pct(THRESHOLDS.driftPrecision)}.
 - Drift recall (genuine drift detected): ${pct(drift.recall)} (${drift.driftTruePositives}/${drift.driftTruePositives + drift.driftFalseNegatives}).
 - Exact posture accuracy: ${pct(drift.exactAccuracy)} (${drift.exactMatches}/${drift.total}).
+- Historical prose-only recall: **${pct(drift.historicalProseOnly.recall)}** (${drift.historicalProseOnly.detectedDrift}/${drift.historicalProseOnly.expectedDrift}; ${drift.historicalProseOnly.falseNegatives} false negatives across ${drift.historicalProseOnly.cases} preserved rows). These labels are retained to expose the legacy semantic gap; they are not an acceptance claim.
+- Evidence-backed recall: **${pct(drift.evidenceBacked.recall)}** (${drift.evidenceBacked.detectedDrift}/${drift.evidenceBacked.expectedDrift}; ${drift.evidenceBacked.falseNegatives} false negatives across ${drift.evidenceBacked.cases} rows).
 - False positives (engine over-flagged drift): ${driftFp}.
-- False negatives (engine missed drift, incl. high-pressure/medium-confidence gap): ${driftFn}.
+- False negatives (engine missed labeled drift): ${driftFn}.
 
 ## Targets 3 & 4 — Context Constraint Recall + irrelevant ratio
 
@@ -1710,9 +1866,12 @@ function main(): void {
     console.log(`  ${gate.pass ? "PASS" : "FAIL"}  ${gate.target}: ${gate.observed} (threshold ${gate.threshold})`);
   }
   console.log(`  ${invariant.pass ? "PASS" : "FAIL"}  Target/migration separation invariant: ${invariant.passed}/${invariant.total}`);
+  console.log(`  Drift recall: ${pct(drift.recall)}; exact posture accuracy: ${pct(drift.exactAccuracy)}`);
+  console.log(`  Drift recall breakdown: historical prose-only ${pct(drift.historicalProseOnly.recall)} (${drift.historicalProseOnly.detectedDrift}/${drift.historicalProseOnly.expectedDrift}, FN ${drift.historicalProseOnly.falseNegatives}); evidence-backed ${pct(drift.evidenceBacked.recall)} (${drift.evidenceBacked.detectedDrift}/${drift.evidenceBacked.expectedDrift}, FN ${drift.evidenceBacked.falseNegatives})`);
+  if (drift.falseNegativeIds.length > 0) console.log(`  Drift false negatives: ${drift.falseNegativeIds.map((item) => item.id).join(", ")}`);
   console.log(`\nDatasets: compatibility=${compatibility.total}, drift=${drift.total}, target-migration=${invariant.total}, retrieval=${retrieval.queries} queries / ${retrieval.documents} docs, zh-retrieval=${chinese.queries} queries / ${chinese.documents} docs, practices=${practices.positiveCases} structural positive / ${practices.directPracticeReferenceCases} direct-reference / ${practices.negativeCases} negative / ${practices.adversarialCases} adversarial`);
   if (!checkOnly) console.log(`Report: docs/verification/m6-representative-eval-report.md`);
-  console.log(`\nVerdict: ${allPass ? "PASS — all §25.3 statistical targets met" : "FAIL — measured gap (see report backlog)"}`);
+  console.log(`\nVerdict: ${allPass ? "PASS — configured statistical gates and RF2 invariant; drift recall gap remains" : "FAIL — measured gap (see report backlog)"}`);
 
   if (!allPass) process.exit(1);
 }
