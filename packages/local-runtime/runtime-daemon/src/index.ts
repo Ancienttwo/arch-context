@@ -3220,9 +3220,17 @@ export class ArchctxDaemon {
       } as unknown as Json);
     }
     if (command === "recommendations") {
+      // Lifecycle readback describes the current checkout; provenance retains the ledger scope.
+      const gitScope = await this.architectureLedgerGitScope(root);
       return okEnvelope("book.recommendations", {
         ...queryArchitectureLedgerBookRecommendations({ events: replay.events, openOnly: input.openOnly, explain: input.explain, ...budget }),
-        freshness,
+        freshness: {
+          ...freshness,
+          repository: gitScope.repository,
+          worktree: gitScope.worktree,
+          headSha: gitScope.worktree.headSha,
+          worktreeDigest: gitScope.worktree.worktreeDigest
+        },
         provenance
       } as unknown as Json);
     }

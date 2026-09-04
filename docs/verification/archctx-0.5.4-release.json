@@ -1,0 +1,47 @@
+{
+  "version": "0.5.4",
+  "status": "prepared_unpublished",
+  "observedAt": "2026-09-04T12:12:50.338293+00:00",
+  "baseCommit": "78755650cdb424ef4d4aefe28d1a000410aebcf5",
+  "npmAuthentication": "npm whoami returned E401",
+  "checks": {
+    "daemonAndBook": {
+      "pass": 239,
+      "fail": 0
+    },
+    "releaseContractsAndCatalog": {
+      "pass": 276,
+      "fail": 0
+    },
+    "typecheck": "pass",
+    "packagedCliSmoke": "pass",
+    "existingCanary6Readback": "pass with local tarball; not a published-package receipt"
+  },
+  "artifacts": {
+    "pack.json": {
+      "path": "/tmp/archctx-book-freshness-release/pack.json",
+      "sha256": "e5b4f723408b1156ce95f211f0624a689a0ea2a66623791aad3cbd62cd53a9cc"
+    },
+    "daemon-upgrade.json": {
+      "path": "/tmp/archctx-book-freshness-release/daemon-upgrade.json",
+      "sha256": "b200eb9500bfcb95ff10a41c1b5549c134d9ede2d48f918bcb4405fad73a2dbb"
+    },
+    "canary6-readback.ts": {
+      "path": "/tmp/archctx-book-freshness-release/canary6-readback.ts",
+      "sha256": "5e1a6b7a49221bdd92e1bd3d3a7af2172756a8bbe6ecc6c11366511f204a5090"
+    },
+    "canary6-readback.json": {
+      "path": "/tmp/archctx-book-freshness-release/canary6-readback.json",
+      "sha256": "7809883bec4bef6b4ba5dec0d7eb877586f1531f779224f5d908baba90d817f1"
+    },
+    "archctx-contracts-0.5.4.tgz": {
+      "path": "/tmp/archctx-book-freshness-release/archctx-contracts-0.5.4.tgz",
+      "sha256": "1197eb4958bbac33d885640ba332419ae65320e3edf87b14ed30b8654cc3161b"
+    },
+    "archctx-0.5.4.tgz": {
+      "path": "/tmp/archctx-book-freshness-release/archctx-0.5.4.tgz",
+      "sha256": "7649708f82c2918d588263865378bb7d16c26885b82b959a84aa9798a6008daa"
+    }
+  },
+  "activation": "off"
+}
