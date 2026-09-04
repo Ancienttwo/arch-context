@@ -130,6 +130,6 @@ Revert the provider fix/release commits and keep repo-harness on 0.5.4 until a c
 
 ## Task Breakdown
 - [x] Prove the accepted-change double-consumption root cause and bind a regression guard.
-- [ ] Make protocol adoption commit a no-accepted-change fixed point with a durable apply receipt.
-- [ ] Verify the focused CLI path and full release surface.
-- [ ] Publish 0.5.5 and record registry readback evidence.
+- [x] Make protocol adoption commit a no-accepted-change fixed point with a durable apply receipt.
+- [x] Verify the focused CLI path and full release surface.
+- [x] Publish 0.5.5 and record registry readback evidence.

@@ -30,8 +30,8 @@ jobs:
           trust-level: organization
           fail-on: blocking
           fork-pr-mode: unsupported
-          # 0.5.5 is an unreleased identity. Do not enable this template until its published
-          # artifact and digest have passed the release gate; the action rejects an unavailable or mismatched artifact.
+          # Keep the artifact digest bound to the published 0.5.5 tarball; the action rejects
+          # an unavailable or mismatched artifact.
           runtime-version: "0.5.5"
           runtime-artifact-url: https://archcontext.repoharness.com/releases/archctx-0.5.5.tgz
           runtime-artifact-digest: sha256:<release-digest>

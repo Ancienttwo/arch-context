@@ -1,0 +1,51 @@
+{
+  "version": "0.5.5",
+  "status": "published",
+  "observedAt": "2026-09-04T13:49:00Z",
+  "sourceCommit": "91210e7",
+  "checks": {
+    "projectionAdoptionRegression": "pass",
+    "cliSuite": {
+      "pass": 71,
+      "fail": 0
+    },
+    "contractsAndAdoption": {
+      "pass": 183,
+      "fail": 0
+    },
+    "typecheck": "pass",
+    "releaseDryRun": "pass",
+    "packagedCliSmoke": "pass",
+    "registryInstalledCapabilities": "pass"
+  },
+  "artifacts": {
+    "archctx-contracts-0.5.5.tgz": {
+      "path": "_ops/npm/fg6-release-dry-run/archctx-contracts-0.5.5.tgz",
+      "sha256": "8cbd659c7a7345175afed535c6ff8b4d56df9e889cf6e090b58ecf0a2bba0802"
+    },
+    "archctx-0.5.5.tgz": {
+      "path": "_ops/npm/fg6-release-dry-run/archctx-0.5.5.tgz",
+      "sha256": "ef1373da5a9cd879fb7d7e98ee1cd65afc736b670a9afb46dd75ab656c3210a7"
+    }
+  },
+  "registry": {
+    "archctx": {
+      "version": "0.5.5",
+      "dist.integrity": "sha512-vn1rYKnMUUgUZ4IJ/hlm5JDKrJ8B2tx+KHZzU/3/vRJLGoYsFtC2EYnFbLoKGel7Vmo52yszwMKbmFOCMXZSCQ==",
+      "dist.shasum": "2befc94b7d3d01f9b54ce6ff5e38899ab677ad77",
+      "dist-tags": {
+        "beta": "0.1.4-beta.0",
+        "latest": "0.5.5"
+      }
+    },
+    "archctx-contracts": {
+      "version": "0.5.5",
+      "dist.integrity": "sha512-gcmZbY7Cb0WdbL4Qn3J6lbQMUJQH1ge+sOF/iECzSIlGP7QwbfP0fZWzzBC3kXOS89zP1nOnU1lrO83Ctlxbzg==",
+      "dist.shasum": "c2621374e6e48bf5ef1d9d56d4f56496ff7047ae",
+      "dist-tags": {
+        "latest": "0.5.5"
+      }
+    }
+  },
+  "registrySmokeRoot": "/tmp/archctx-055-registry-smoke.JtnWzy"
+}

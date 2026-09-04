@@ -1,6 +1,6 @@
 # Task Contract: projection-adoption-accepted-change-fixed-point
 
-> **Status**: Partial
+> **Status**: Fulfilled
 > **Plan**: plans/plan-20260904-2113-projection-adoption-accepted-change-fixed-point.md
 > **Task Profile**: bugfix
 > <!-- legal values: code-change | docs-only | ledger-closeout | migration | eval-only | delegated-run | bugfix (omit for legacy passthrough); see docs/reference-configs/sprint-contracts.md -->
@@ -79,6 +79,8 @@ allowed_paths:
   - docs/runbooks/personal-user-install.md
   - docs/spec.md
   - docs/verification/archctx-0.5.5-release.json
+  - docs/verification/archctx-0.5.3-release.json
+  - docs/verification/archctx-0.5.4-release.json
   - packages/cloud/package.json
   - packages/contracts/package.json
   - packages/contracts/src/product-version.ts
@@ -87,10 +89,13 @@ allowed_paths:
   - packages/core/package.json
   - packages/core/practice-catalog/assets/catalog.yaml
   - packages/local-runtime/package.json
+  - packages/local-runtime/runtime-daemon/src/index.ts
+  - packages/local-runtime/runtime-daemon/test/refactor-verify.test.ts
   - packages/surfaces/package.json
   - packages/surfaces/cli/package.json
   - packages/surfaces/cli/src/main.ts
   - packages/surfaces/cli/test/cli.test.ts
+  - scripts/packaged-cli-smoke.mjs
   - docs/verification/20260904-projection-adoption-accepted-change-fixed-point-pre-fix.txt
   - plans/plan-20260904-2113-projection-adoption-accepted-change-fixed-point.md
   - tasks/todos.md
@@ -166,11 +171,11 @@ exit_criteria:
 
 ## Acceptance Notes (Human Review)
 
-- Functional behavior:
-- Edge cases:
-- Regression risks:
+- Functional behavior: `mode=adopt` now commits ownership adoption plus one exact accepted semantic change in one daemon transaction and returns the durable apply receipt.
+- Edge cases: the post-adoption fixed-point rebuild omits the single-use accepted reference; stale plan, digest, node, and approval mismatches remain fail closed.
+- Regression risks: CLI promise lifetime and projection fixed-point behavior are covered by the full CLI suite and focused adoption tests.
 
 ## Rollback Point
 
-- Commit / checkpoint:
-- Revert strategy:
+- Commit / checkpoint: `91210e7 fix(projection): compose adoption with accepted changes`
+- Revert strategy: revert the provider and release closeout commits together and pin consumers to 0.5.4.

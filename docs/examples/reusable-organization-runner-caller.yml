@@ -21,7 +21,7 @@ jobs:
       expected_repository: ${{ github.repository }}
       expected_head_sha: ${{ github.event.pull_request.head.sha }}
       expected_head_tree_oid: <head tree OID from Challenge>
-      # 0.5.5 remains unreleased; this fails closed until the exact artifact is published.
+      # Bind this URL and digest to the exact published 0.5.5 artifact.
       runtime_artifact_url: https://archcontext.repoharness.com/releases/archctx-0.5.5.tgz
       runtime_artifact_digest: sha256:<release-digest>
       runtime_version: "0.5.5"
