@@ -6,6 +6,7 @@
 > Status: 待下游核对当前实现后排程；不是要求重做已完成任务
 > Downstream reviewed SHA: a95f41e3c2e5d39d8dc765ffdc89fb75eb8ff6aa
 > Upstream reviewed SHA: 79c5ef88480684ce3d419c4399f04d70aa714db9 (0.5.6)
+> Implementation source: 9b587af0d3983901b360d7a0187d460ab134348a; acceptance evidence: tasks/reviews/20260905-architecture-evidence-integrity.review.md
 
 ## 先核对，再派工
 

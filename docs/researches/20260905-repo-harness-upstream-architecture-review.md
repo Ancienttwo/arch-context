@@ -111,7 +111,7 @@
 
 ## 授权实施记录
 
-计划：`plans/plan-20260905-architecture-evidence-integrity.md`。用户随后授权并行实施、验收、提交与合并；fast-worker=Terra/high，deep-worker=Sol/medium，parent 负责集成与验收。
+计划：`plans/plan-20260905-architecture-evidence-integrity.md`。实现源码提交：`9b587af0d3983901b360d7a0187d460ab134348a`；验收记录独立。用户随后授权并行实施、验收、提交与合并；fast-worker=Terra/high，deep-worker=Sol/medium，parent 负责集成与验收。
 
 - F2：去除 name/summary/data-read 伪 observed、未测 readiness 默认值，以及固定 target/kill-list 生成路径。single-repo、landscape 与 prepare 共享明确的 readiness 输入语义；缺失项投影为 unknown，显式 0/false 不被改写。cross-repo 的文字提示也不能提高 observed 分数。
 - 当前 legacy observed 信号最多贡献 50/medium；没有提高权重来人为恢复 high。high → proof-required 的决策分支由直接真实形状输入验证；主动发现与 proposal 判级由 RF2 负责。低 pressure 不等于已证明没有架构问题。
