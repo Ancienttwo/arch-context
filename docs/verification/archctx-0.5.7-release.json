@@ -1,0 +1,69 @@
+{
+  "version": "0.5.7",
+  "status": "published",
+  "observedAt": "2026-09-05T04:00:19.000Z",
+  "baseCommit": "bd3196a1cb2dbb4ab4fbe847393047e8ef8251d7",
+  "checks": {
+    "bunRunVerify": "pass",
+    "cleanRoomRegistryInstall": {
+      "result": "pass",
+      "installedVersion": "0.5.7",
+      "manifestDependencies": {
+        "koffi": "3.1.6",
+        "@node-rs/jieba": "^2.0.1",
+        "@colbymchenry/codegraph": "1.5.0"
+      },
+      "nativePackagesInstalled": [
+        "node_modules/koffi",
+        "node_modules/@node-rs/jieba"
+      ],
+      "capabilitiesVersion": "0.5.7",
+      "requiredFeaturesPresent": [
+        "refactor-assessment-v1",
+        "recommendation-v3",
+        "module-statistics-v1"
+      ]
+    },
+    "registryTarballByteConsistency": {
+      "result": "pass",
+      "archctx": {
+        "localSha1": "980ce1f11890995fea67f0a5df0e2818487feb94",
+        "registryDistShasum": "980ce1f11890995fea67f0a5df0e2818487feb94"
+      },
+      "archctx-contracts": {
+        "localSha1": "dd31c3f94fc51b1f6ff1a571c2104483bbe389f7",
+        "registryDistShasum": "dd31c3f94fc51b1f6ff1a571c2104483bbe389f7"
+      }
+    }
+  },
+  "artifacts": {
+    "archctx-0.5.7.tgz": {
+      "path": "/Users/ancienttwo/Projects/arch-context/.claude/worktrees/release-0.5.7/_ops/npm/fg6-release-dry-run/archctx-0.5.7.tgz",
+      "sha256": "d657e2d3f29d2fbcae4956390de43f884889fac89630ccc1331e5c684ee72ac6"
+    },
+    "archctx-contracts-0.5.7.tgz": {
+      "path": "/Users/ancienttwo/Projects/arch-context/.claude/worktrees/release-0.5.7/_ops/npm/fg6-release-dry-run/archctx-contracts-0.5.7.tgz",
+      "sha256": "907e16c467bb04a8a94eef095f436a4350953240a883d119bbe92863610cc684"
+    }
+  },
+  "registry": {
+    "archctx": {
+      "version": "0.5.7",
+      "dist.integrity": "sha512-RRgDSon6oPC2e2KFf/54sxcwmEdo9Ftkh0v2/lY8C+bAwVUTYSHQye/3Mgoc0DxY/IfT8kkbmpBDM+rUbQeqXw==",
+      "dist.shasum": "980ce1f11890995fea67f0a5df0e2818487feb94",
+      "dist-tags": {
+        "beta": "0.1.4-beta.0",
+        "latest": "0.5.7"
+      }
+    },
+    "archctx-contracts": {
+      "version": "0.5.7",
+      "dist.integrity": "sha512-I02J4xIFUaRstNEvpx8jA7ghivUn792L3jQvsJIJpET0getk2wZHrIN6Xkpnd79McSLI91ILp0AWR1UyKGFdfA==",
+      "dist.shasum": "dd31c3f94fc51b1f6ff1a571c2104483bbe389f7",
+      "dist-tags": {
+        "latest": "0.5.7"
+      }
+    }
+  },
+  "registrySmokeRoot": "/tmp/archctx-057-registry-smoke.HKmtet"
+}
