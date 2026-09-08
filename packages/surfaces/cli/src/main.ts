@@ -269,6 +269,16 @@ async function runCliUnchecked(command = "help", args: string[] = [], cwd: strin
   try {
     switch (command) {
     case "init":
+      if (args.includes("--help") || args.includes("-h")) {
+        return okEnvelope("help", {
+          usage: "archctx init [--name <product-name>]",
+          description: "Initialize the repository architecture model and generated projection.",
+          options: {
+            "--name <product-name>": "Product name (default: ArchContext Project).",
+            "--help, -h": "Show help without initializing the repository."
+          }
+        });
+      }
       return (await runtime()).init(cwd, readFlag(args, "--name") ?? "ArchContext Project");
     case "sync":
       return (await runtime()).sync(cwd, readRepeatedFlag(args, "--changed"));

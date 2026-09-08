@@ -22,6 +22,8 @@ const CLI_ENTRY = join(REPOSITORY_ROOT, "packages/surfaces/cli/src/main.ts");
 const CLI_PROCESS_TIMEOUT_MS = process.platform === "win32" ? 180_000 : 30_000;
 const CLI_DOCS_TEST_TIMEOUT_MS = 15_000;
 const DAEMON_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 30_000;
+// These scenarios perform the full adoption flow plus repeated real CodeGraph syncs.
+const PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 120_000;
 
 function rmSync(path: string, options?: RmDirOptions): void {
   try {
@@ -81,6 +83,24 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   expect(await runCli("capabilities", [], "/path/that/does/not/exist")).toEqual(capabilities);
   const invalid = await runCli("capabilities", ["unexpected"], "/path/that/does/not/exist");
   expect("ok" in invalid && invalid.ok).toBe(false);
+});
+
+test("CLI init help never calls the runtime, including with a product name", async () => {
+  for (const args of [["--help"], ["-h"], ["--name", "Existing App", "--help"], ["--help", "--name", "Existing App"]]) {
+    let initCalls = 0;
+    const result = await runCli("init", args, "/path/that/does/not/exist", {
+      runtimeClient: {
+        init: async () => {
+          initCalls += 1;
+          throw new Error("Help must not initialize the model");
+        }
+      } as unknown as RuntimeDaemonClient
+    });
+    expect(initCalls).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.requestId).toBe("help");
+    expect((result.data as any).usage).toContain("archctx init");
+  }
 });
 
 test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV2", async () => {
@@ -4282,7 +4302,7 @@ describe("archctx CLI", () => {
     expect(stderrOutput).not.toContain("projection post-apply verification failed");
     expect(stderrOutput).not.toContain("accepted-reference-without-semantic-delta");
     expect(stderrOutput).not.toContain("projection post-apply worktree digest diverged");
-  }, DAEMON_TEST_TIMEOUT_MS);
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection apply over real RPC ignores concurrent .ai/harness runtime churn", async () => {
     const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
@@ -4338,7 +4358,7 @@ describe("archctx CLI", () => {
       await rpc.stop().catch(() => undefined);
       removeTempRoot(root);
     }
-  }, DAEMON_TEST_TIMEOUT_MS);
+  }, PROJECTION_CODEGRAPH_TEST_TIMEOUT_MS);
 
   test("projection apply over real RPC rejects concurrent authority-input mutation without a receipt", async () => {
     const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario();
