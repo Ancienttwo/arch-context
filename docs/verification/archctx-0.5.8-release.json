@@ -1,0 +1,102 @@
+{
+  "version": "0.5.8",
+  "status": "published",
+  "baseCommit": "75f3610063518c34e7f771dacecdf0caccbd725f",
+  "pullRequest": "https://github.com/Ancienttwo/arch-context/pull/149",
+  "checks": {
+    "artifactHelpSmoke": {
+      "ok": true,
+      "node": "v22.22.0",
+      "version": "0.5.8",
+      "helpCases": 4,
+      "existingModelUnchanged": true,
+      "noRuntimeState": true
+    },
+    "productLifecycleSmoke": "pass",
+    "fullVerify": {
+      "result": "fail",
+      "passed": 1760,
+      "failed": 2,
+      "errors": 1,
+      "reason": "Two projection integration tests timed out at 30000ms; root cause unconfirmed",
+      "log": "_ops/release-0.5.8/verify-final.log"
+    },
+    "finalFocusedTests": {
+      "pass": 3,
+      "assertions": 82
+    },
+    "localGovernance": {
+      "result": "failed-on-unmodified-recovery-timeout",
+      "suitePass": 1761,
+      "suiteFail": 1,
+      "isolatedRecovery": "pass",
+      "isolatedRecoveryAssertions": 43
+    },
+    "ciRun": 34255297458,
+    "artifactInputsUnchangedSinceBuild": true,
+    "ciResult": "10 checks passed; developer review neutral",
+    "registrySmoke": {
+      "ok": true,
+      "node": "v22.22.0",
+      "version": "0.5.8",
+      "helpCases": 4,
+      "existingModelUnchanged": true,
+      "noRuntimeState": true
+    }
+  },
+  "artifacts": {
+    "archctx-0.5.8.tgz": {
+      "path": "/Users/kito/Projects/arch-context-release-0.5.8/_ops/release-0.5.8/archctx-0.5.8.tgz",
+      "sha1": "7aaa71c8166ef6a92aa4cdccdc27037ef6f595eb",
+      "sha256": "d642d447609b81d72a686a6556a837f666fa35d335e026f61111e5b477632298"
+    },
+    "archctx-contracts-0.5.8.tgz": {
+      "path": "/Users/kito/Projects/arch-context-release-0.5.8/_ops/release-0.5.8/archctx-contracts-0.5.8.tgz",
+      "sha1": "0abf3959d1956ea47549a59443185fc5bf1f9bb0",
+      "sha256": "e372fb074564d63f4525ab74d57095ae5d9af4badd1c2a86e016a10f78dc31a1"
+    }
+  },
+  "finalSourceCommit": "77331f6ab7a31b7f818f5705c6bfd10467a0ce38",
+  "mergeCommit": "ac1109336e7b4a7c3679e9c25b4971e0cf3b48a9",
+  "observedAt": "2026-09-08T17:28:57.514613+00:00",
+  "registry": {
+    "archctx-contracts": {
+      "version": "0.5.8",
+      "latest": "0.5.8",
+      "dist": {
+        "shasum": "0abf3959d1956ea47549a59443185fc5bf1f9bb0",
+        "tarball": "https://registry.npmjs.org/archctx-contracts/-/archctx-contracts-0.5.8.tgz",
+        "fileCount": 179,
+        "integrity": "sha512-5oj6SIMSPzPFBeMw1Vs+BlOuLet/hxot+w/IDohtawVCLf+GFRDKttaywFcQeD+IRfmy7bjyMo/5/WRtmAv2VQ==",
+        "signatures": [
+          {
+            "sig": "MEUCIQDi02VcmfYE1FA1pjO7IsuXvhamUgP7kIeKrjGDWmbKfgIgd+6MJvgGGMlzpuTkpJK7RmMXUKJzOpUpu4aTAt93o6w=",
+            "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+          }
+        ],
+        "unpackedSize": 514005
+      },
+      "tarballByteConsistency": "pass"
+    },
+    "archctx": {
+      "version": "0.5.8",
+      "latest": "0.5.8",
+      "dist": {
+        "shasum": "7aaa71c8166ef6a92aa4cdccdc27037ef6f595eb",
+        "tarball": "https://registry.npmjs.org/archctx/-/archctx-0.5.8.tgz",
+        "fileCount": 87,
+        "integrity": "sha512-tfHMdIHoCKBWZf5ziqc1elS10BK2cqMEeS/V4/ZP64ORjdQrkQrJaFQd+ia2bL+tZyjIhmZyIj1CXpj6uG+G0A==",
+        "signatures": [
+          {
+            "sig": "MEQCID8fn+vtkTMdTI81uBUjOrRREd0r37qBp+rjrnQ8gBVyAiBNdmS4diAt9XiEeTq69mgwAaBt6nRE7YQOxlR4+11P3w==",
+            "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+          }
+        ],
+        "unpackedSize": 2315107
+      },
+      "tarballByteConsistency": "pass"
+    }
+  },
+  "publicationAuthentication": "npm web auth",
+  "release": "https://github.com/Ancienttwo/arch-context/releases/tag/v0.5.8"
+}

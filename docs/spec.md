@@ -84,8 +84,9 @@ their ledger readback identity.
 
 ## Release State
 
-`archctx@0.5.7` and `archctx-contracts@0.5.7` are the current published release on `latest`,
-verified by registry readback on 2026-09-05. Refactor verification responses now report live Git identity while ledger replay
+`archctx@0.5.8` and `archctx-contracts@0.5.8` are the current published release on `latest`,
+verified by registry readback on 2026-09-09. `init --help` and `init -h` return help without
+initializing runtime state or writing architecture model files. Refactor verification responses report live Git identity while ledger replay
 and append retain the recommendation partition; historical verification evidence stays immutable.
 The packages retain the `0.5.2` protocols: the `refactor scan|record|verify` surface, the
 `refactor-resolution-v1` capability feature, the v3 recommendation rewrite, and the release
