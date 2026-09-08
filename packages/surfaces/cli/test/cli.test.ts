@@ -83,6 +83,24 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   expect("ok" in invalid && invalid.ok).toBe(false);
 });
 
+test("CLI init help never calls the runtime, including with a product name", async () => {
+  for (const args of [["--help"], ["-h"], ["--name", "Existing App", "--help"], ["--help", "--name", "Existing App"]]) {
+    let initCalls = 0;
+    const result = await runCli("init", args, "/path/that/does/not/exist", {
+      runtimeClient: {
+        init: async () => {
+          initCalls += 1;
+          throw new Error("Help must not initialize the model");
+        }
+      } as unknown as RuntimeDaemonClient
+    });
+    expect(initCalls).toBe(0);
+    expect(result.ok).toBe(true);
+    expect(result.requestId).toBe("help");
+    expect((result.data as any).usage).toContain("archctx init");
+  }
+});
+
 test("CLI projection run consumes ProjectionRequestV1 and returns a receipt-valid ProjectionResultV2", async () => {
   const root = createInitializedGitRepo();
   try {
