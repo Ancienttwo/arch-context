@@ -264,20 +264,29 @@ export class ChangeSetEngine {
         applied += 1;
         if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
       }
-      for (const projection of deps.projection.planGeneratedProjection(root)) {
-        await this.applyFileOperation(
-          root,
-          projection.path,
-          projection.expectedHash,
-          projection.body,
-          projection.operation,
-          backups,
-          journalId,
-          applied + 1,
-          agentContextPaths
-        );
-        applied += 1;
-        if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
+      // Explicit projection-only drafts own their complete write set. Rebuilding
+      // unrelated generated outputs here would escape preview/receipt ownership
+      // and invalidate the caller's unchanged-input snapshot after commit.
+      const explicitProjectionOnly = draft.operations.length > 0 && draft.operations.every(operation =>
+        (operation.op === "render_projection" || operation.op === "render_agent_context") &&
+        operation.projectionFiles !== undefined && operation.projectionFiles.length > 0
+      );
+      if (!explicitProjectionOnly) {
+        for (const projection of deps.projection.planGeneratedProjection(root)) {
+          await this.applyFileOperation(
+            root,
+            projection.path,
+            projection.expectedHash,
+            projection.body,
+            projection.operation,
+            backups,
+            journalId,
+            applied + 1,
+            agentContextPaths
+          );
+          applied += 1;
+          if (options.faultAfterOperations && applied >= options.faultAfterOperations) throw new Error("fault-injection");
+        }
       }
       await this.validateModel(root, draft, deps, "after");
       const commit = await options.afterModelValidatedBeforeCommit?.({ root, draft, journalId });

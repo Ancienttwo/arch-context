@@ -4267,8 +4267,8 @@ describe("archctx CLI", () => {
   // with the injected non-owned mutation as the only removed variable. Without it the first
   // accepted apply must deliver its refresh signals immediately, and the post-apply check must
   // stay silent — a reconcile-required here would prove the race test passes for the wrong reason.
-  test("an accepted projection apply with no concurrent mutation delivers refresh signals on the first pass", async () => {
-    const { root, protocolRequest, acceptedChange, signalPlan } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
+  test.each(["present", "missing"])("an accepted projection apply with no concurrent mutation delivers refresh signals on the first pass (generated %s)", async (generatedState) => {
+    const { root, protocolRequest, acceptedChange } = await runAdoptedHookAdaptersScenario({ codeGraphReady: true });
     const daemon = await createStartedDaemon({
       localStorePath: testRuntimePaths(root).localStorePath,
       codeFacts: new CodeGraphAdapter(new MockCodeGraphProvider()),
@@ -4281,17 +4281,24 @@ describe("archctx CLI", () => {
       return true;
     };
     try {
+      const generatedPath = join(root, ".archcontext/generated/ARCHITECTURE.md");
+      if (generatedState === "missing") nodeRmSync(generatedPath);
       const applyRequest: ProjectionRequestV1 = {
         ...protocolRequest,
+        expected: { ...protocolRequest.expected, worktreeDigest: architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root)) as `sha256:${string}` },
         requestId: "projection_request.hook_adapters_major_apply_clean",
         mode: "apply",
         acceptedChange
       };
+      const currentPlan = await runCli("projection", ["run", "--request-json", JSON.stringify({ ...applyRequest, mode: "plan" })], root, { runtimeClient: daemon });
+      expect(currentPlan.ok, JSON.stringify(currentPlan)).toBe(true);
       const applied = await runCli("projection", ["run", "--request-json", JSON.stringify(applyRequest)], root, { runtimeClient: daemon });
       expect(applied.ok, JSON.stringify(applied)).toBe(true);
+      expect(existsSync(generatedPath)).toBe(generatedState === "present");
+      expect(architectureDocumentationProjectionWorktreeDigest(root, loadNativeModelFromArchContext(root))).toBe(applyRequest.expected.worktreeDigest);
       expect((applied.data as ProjectionResultV2)).toMatchObject({
         status: "applied",
-        refreshSignals: [{ signalId: (signalPlan.data as any).refreshSignals[0].signalId, acceptedChange }],
+        refreshSignals: [{ signalId: (currentPlan.data as ProjectionResultV2).refreshSignals[0]!.signalId, acceptedChange }],
         applyReceipt: { acceptedChange }
       });
     } finally {
