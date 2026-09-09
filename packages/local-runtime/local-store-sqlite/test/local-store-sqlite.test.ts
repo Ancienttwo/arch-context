@@ -2139,7 +2139,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
       });
       renameSync(absolutePath, backupPath);
       writeFileSync(tempPath, "partial write", "utf8");
@@ -2200,7 +2201,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
       });
       first.close();
 
@@ -2235,7 +2237,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: "schemaVersion: archcontext.policy/v1\nid: policy.final\n" })
       });
       await first.commitChangeSet(journalId);
       first.close();
@@ -2345,7 +2348,8 @@ describe("@archcontext/local-runtime/local-store-sqlite", () => {
         tempPath,
         backupPath,
         existed: true,
-        operation: "update_entity_fields"
+        operation: "update_entity_fields",
+        bodyHash: digestJson({ body: original })
       });
       const event = architectureLedgerEvent(42);
       await first.recordChangeSetLedgerPlan(journalId, { event });

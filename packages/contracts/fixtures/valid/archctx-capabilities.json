@@ -10,5 +10,5 @@
     "architectureDocs": "archcontext.docs-renderer/v4",
     "agentContext": "archcontext.agent-context-renderer/v1"
   },
-  "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "module-statistics-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-protocol-v2", "recommendation-v3", "refactor-assessment-v1", "refactor-resolution-v1"]
+  "features": ["architecture-docs-renderer-v2", "architecture-refresh-signal-v1", "module-statistics-v1", "projection-apply-receipt-v1", "projection-apply-recovery-v1", "projection-prior-committed-applies-v1", "projection-protocol-v2", "recommendation-v3", "refactor-assessment-v1", "refactor-resolution-v1"]
 }

@@ -129,7 +129,7 @@ import { CodeGraphAdapter, CodeGraphCliProvider, MultiRepoCodeGraphAdapter, prep
 import { Context7ExternalDocumentationAdapter, assertContext7LibraryId, assertContext7Version, buildContext7Query } from "@archcontext/local-runtime/context7-adapter";
 import { compileLandscapeTaskContext, compileTaskContext, finalizeContextBudgetMetadata, type ArchitectureContextLedgerPort } from "@archcontext/core/context-compiler";
 import { CONTEXT7_LOCKFILE_SCHEMA_VERSION, EXPLORER_VIEW_IDS, assertNoCallerProvidedAttestationFields, attestationV2Digest, canonicalAttestationV2, createAttestationV2, digestJson, errorEnvelope, LOCAL_RUNTIME_RPC_SCHEMA_VERSION, okEnvelope, productVersionManifest, projectionApplyRecoveryProofInvariantIssues, type AgentJobV1, type ArchitectureActorKind, type ArchitectureChangeFeedRecordV1, type ArchitectureEventBacklinkV1, type ArchitectureEventV1, type AttestationResult, type AttestationV2, type AuthorityCursorV1, type CodeFactsPort, type CodeFactsSnapshot, type Context7LibraryPinV1, type Context7LockfileV1, type DevicePrivateKeySignerPort, type EvidenceStateAtCursorV1, type ExplorerDeltaFailureReasonV2, type ExplorerDeltaQueryV2, type ExplorerProjectionDeltaV2, type ExplorerProjectionQueryV2, type ExplorerProjectionV2, type ExplorerServiceContract, type ExternalDocumentationCacheEntry, type ExternalDocumentationFetchInput, type ExternalDocumentationPort, type ExternalDocumentationProvider, type ExternalDocumentationResourceV1, type InvestigationContextBundle, type InvestigationContextRisk, type InvestigationContextUncertainty, type Json, type JsonEnvelope, type ModelStorePort, type NormalizedCodeContext, type PracticeCheckpointEvent, type PracticeCheckpointSnapshotV1, type PracticeWaiverV1, type ProductVersionManifest, type ProjectionApplyReceiptV1, type ProjectionApplyRecoveryProofV1, type RecommendationFeedbackV1, type RecommendationRunV1, type RecommendationV2, type RepositorySnapshot, type ReviewChallengeV2, type WorkspaceRef } from "@archcontext/contracts";
-import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, type ProjectionApplyRecoveryIntentV1 } from "@archcontext/contracts";
+import { projectionApplyRecoveryIntentInvariantIssues, projectionApplyRecoveryProofDigest, projectionPriorCommittedAppliesIssues, type ProjectionApplyRecoveryIntentV1, type ProjectionPriorCommittedApplyV1 } from "@archcontext/contracts";
 import { RECOMMENDATION_V3_SCHEMA_VERSION, REFACTOR_EXECUTION_EVIDENCE_KINDS, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_PATTERN, REFACTOR_EXECUTION_EVIDENCE_LOCATOR_RULE, REFACTOR_VERIFICATION_REQUEST_KEYS, REFACTOR_VERIFICATION_REQUEST_SCHEMA_VERSION, refactorScanInvariantIssues, refactorVerificationRequestInvariantIssues, type RecommendationV3, type RefactorExecutionEvidenceRefV1, type RefactorProposalPayloadV1, type RefactorResolutionEvidenceV1, type RefactorRequestV1, type StructuralObservationPayloadV1 } from "@archcontext/contracts";
 import { computeGitChangeFingerprint, findRepositoryRoot, prepareDetachedReviewWorktree, readCommitChangeMetadata, readHeadSha, readStagedChangeMetadata, readTrackedSourceFiles, readTrackedTreeEntries, readWorktreeChangeMetadata, removeDetachedReviewWorktree, removePathWithRetry, verifyDetachedReviewWorktree, type DetachedReviewWorktree, type DetachedReviewWorktreePreparation, type GitChangeMetadata, type GitChangeSource } from "@archcontext/local-runtime/git-adapter";
 import { defaultLocalStorePath, migrateLegacyLocalStoreIfNeeded, runtimeStatePaths, SqliteLocalStore, type RuntimeAgentJobRecord, type RuntimeLocalStore } from "@archcontext/local-runtime/local-store-sqlite";
@@ -1049,6 +1049,7 @@ export interface RuntimeDaemonClient {
   completeTask(root: string, input?: RuntimeCompleteTaskInput): Promise<JsonEnvelope> | JsonEnvelope;
   applyUpdate(root: string, input: RuntimeApplyUpdateInput): Promise<JsonEnvelope> | JsonEnvelope;
   inspectProjectionApplyReceipt(root: string, lookupKey: string): Promise<JsonEnvelope> | JsonEnvelope;
+  listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> | JsonEnvelope;
   recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerState(root: string): Promise<JsonEnvelope> | JsonEnvelope;
   ledgerDrift(root: string): Promise<JsonEnvelope> | JsonEnvelope;
@@ -2914,6 +2915,47 @@ export class ArchctxDaemon {
       found: inspection !== undefined,
       ...(inspection ?? {})
     } as unknown as Json);
+  }
+
+  /**
+   * Names the ChangeSets an earlier attempt of `requestId` already committed for this root. The CLI
+   * is a short-lived RPC client, so a caller killed after this daemon committed cannot otherwise
+   * learn that projection-owned files were written under its own request.
+   */
+  async listProjectionPriorCommittedApplies(root: string, requestId: string): Promise<JsonEnvelope> {
+    this.assertRunning();
+    await this.openSession(root);
+    let committed: Awaited<ReturnType<RuntimeLocalStore["listCommittedChangeSetsForTaskSession"]>>;
+    try {
+      committed = await this.localStore.listCommittedChangeSetsForTaskSession(root, requestId);
+    } catch (error) {
+      return errorEnvelope(
+        "projection.prior-committed-applies",
+        "AC_PRECONDITION_FAILED",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    const applies: ProjectionPriorCommittedApplyV1[] = committed
+      .filter((entry) => entry.files.length > 0)
+      .map((entry) => ({
+        ...(entry.applyId === undefined || entry.lookupKey === undefined
+          ? {}
+          : { applyId: entry.applyId as ProjectionPriorCommittedApplyV1["applyId"], lookupKey: entry.lookupKey as ProjectionPriorCommittedApplyV1["lookupKey"] }),
+        requestId,
+        changeSetId: entry.changeSetId,
+        committedAt: entry.committedAt,
+        files: entry.files
+      }))
+      .sort((left, right) => left.changeSetId < right.changeSetId ? -1 : left.changeSetId > right.changeSetId ? 1 : 0);
+    const issues = applies.length === 0 ? [] : projectionPriorCommittedAppliesIssues(applies, requestId);
+    if (issues.length > 0) {
+      return errorEnvelope(
+        "projection.prior-committed-applies",
+        "AC_SCHEMA_INVALID",
+        `projection prior committed applies invariant failed: ${issues.join("; ")}`
+      );
+    }
+    return okEnvelope("projection.prior-committed-applies", { applies } as unknown as Json);
   }
 
   async recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1): Promise<JsonEnvelope> {
@@ -6014,6 +6056,10 @@ export class RuntimeRpcClient implements RuntimeDaemonClient {
     return this.call("inspectProjectionApplyReceipt", [root, lookupKey]);
   }
 
+  listProjectionPriorCommittedApplies(root: string, requestId: string) {
+    return this.call("listProjectionPriorCommittedApplies", [root, requestId]);
+  }
+
   recoverProjectionApply(root: string, intent: ProjectionApplyRecoveryIntentV1) {
     return this.call("recoverProjectionApply", [root, intent]);
   }
@@ -6440,6 +6486,8 @@ export class ArchctxRuntimeRpcServer {
         return this.daemon.applyUpdate(params[0] as string, params[1] as RuntimeApplyUpdateInput);
       case "inspectProjectionApplyReceipt":
         return this.daemon.inspectProjectionApplyReceipt(params[0] as string, params[1] as string);
+      case "listProjectionPriorCommittedApplies":
+        return this.daemon.listProjectionPriorCommittedApplies(params[0] as string, params[1] as string);
       case "recoverProjectionApply":
         return this.daemon.recoverProjectionApply(params[0] as string, params[1] as ProjectionApplyRecoveryIntentV1);
       case "ledgerState":

@@ -1543,6 +1543,7 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   recordChangeSetLedgerAppend(journalId: string, input: { result: ArchitectureLedgerAppendResult }): Promise<void>;
   recordProjectionApplyReceipt(journalId: string, receipt: ProjectionApplyReceiptV1): Promise<void>;
   inspectProjectionApplyReceipt(lookupKey: string): Promise<ProjectionApplyReceiptInspection | undefined>;
+  listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]>;
   consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined>;
   appendArchitectureEvents(input: ArchitectureLedgerAppendInput): Promise<ArchitectureLedgerAppendResult>;
   appendArchitectureEventsAndCommitChangeSet(
@@ -1585,6 +1586,26 @@ export interface RuntimeLocalStore extends LocalStorePort, ChangeSetJournalPort 
   clearDerivedLandscapeState(): void;
   rebuildDerivedLandscapeState(input: LandscapeRebuildInput): Promise<LandscapeRebuildResult>;
   close(): void;
+}
+
+export interface CommittedChangeSetForTaskSessionFile {
+  path: string;
+  operation: "delete" | "write";
+  hash: string;
+}
+
+/**
+ * A committed ChangeSet journal entry looked up by the `reason.taskSessionId` its draft carried.
+ * `applyId`/`lookupKey` are present only when the same journal row also carries a projection apply
+ * receipt, which a plain drift-repair apply never writes.
+ */
+export interface CommittedChangeSetForTaskSession {
+  journalId: string;
+  changeSetId: string;
+  committedAt: string;
+  applyId?: string;
+  lookupKey?: string;
+  files: CommittedChangeSetForTaskSessionFile[];
 }
 
 export interface ProjectionApplyReceiptInspection {
@@ -2251,6 +2272,35 @@ export class SqliteLocalStore implements RuntimeLocalStore {
       deliveryStatus: row.refresh_consumed_at === null ? "pending" : "delivered",
       ...(recoveryProof ? { recoveryProof } : {})
     };
+  }
+
+  async listCommittedChangeSetsForTaskSession(root: string, taskSessionId: string): Promise<CommittedChangeSetForTaskSession[]> {
+    const db = await this.database();
+    const canonicalRoot = resolve(root);
+    const rows = db.prepare(
+      `SELECT journal.journal_id, journal.changeset_id, journal.root, journal.metadata_json, journal.files_json,
+              journal.completed_at, journal.updated_at, receipt.apply_id, receipt.lookup_key
+        FROM changeset_journal journal
+        LEFT JOIN projection_apply_receipts receipt ON receipt.journal_id = journal.journal_id
+        WHERE journal.status = 'committed'
+        ORDER BY journal.completed_at ASC, journal.journal_id ASC`
+    ).all();
+    const matched: CommittedChangeSetForTaskSession[] = [];
+    for (const row of rows) {
+      if (resolve(String(row.root)) !== canonicalRoot) continue;
+      const journalId = String(row.journal_id);
+      if (readChangeSetJournalTaskSessionId(String(row.metadata_json), journalId) !== taskSessionId) continue;
+      matched.push({
+        journalId,
+        changeSetId: String(row.changeset_id),
+        committedAt: String(row.completed_at ?? row.updated_at),
+        ...(row.apply_id === null || row.apply_id === undefined
+          ? {}
+          : { applyId: String(row.apply_id), lookupKey: String(row.lookup_key) }),
+        files: committedChangeSetJournalFiles(String(row.files_json), journalId)
+      });
+    }
+    return matched;
   }
 
   async consumeProjectionApplyReceiptRecovery(proof: ProjectionApplyRecoveryProofV1): Promise<ProjectionApplyReceiptRecoveryConsumption | undefined> {
@@ -7528,6 +7578,50 @@ function changeSetMetadata(draft: ChangeSetDraft): Record<string, unknown> {
     requiresConfirmation: draft.requiresConfirmation,
     idempotencyKey: draft.idempotencyKey
   };
+}
+
+/**
+ * Fail closed on every unreadable shape: an omitted or partial answer here would let a caller
+ * conclude that no earlier attempt wrote, which is the exact wrong conclusion to draw silently.
+ */
+function readChangeSetJournalTaskSessionId(metadataJson: string, journalId: string): string {
+  let metadata: unknown;
+  try {
+    metadata = JSON.parse(metadataJson);
+  } catch {
+    throw new Error(`changeset-journal-metadata-malformed: ${journalId}`);
+  }
+  if (!isJsonRecord(metadata)) throw new Error(`changeset-journal-metadata-malformed: ${journalId}`);
+  const reason = metadata.reason;
+  if (!isJsonRecord(reason) || typeof reason.taskSessionId !== "string" || reason.taskSessionId === "") {
+    throw new Error(`changeset-journal-reason-malformed: ${journalId}`);
+  }
+  return reason.taskSessionId;
+}
+
+function committedChangeSetJournalFiles(filesJson: string, journalId: string): CommittedChangeSetForTaskSessionFile[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(filesJson);
+  } catch {
+    throw new Error(`changeset-journal-files-malformed: ${journalId}`);
+  }
+  if (!Array.isArray(parsed)) throw new Error(`changeset-journal-files-malformed: ${journalId}`);
+  return parsed
+    .map((entry) => {
+      if (!isJsonRecord(entry) || typeof entry.path !== "string" || typeof entry.operation !== "string") {
+        throw new Error(`changeset-journal-file-malformed: ${journalId}`);
+      }
+      if (typeof entry.bodyHash !== "string" || entry.bodyHash === "") {
+        throw new Error(`changeset-journal-file-body-hash-missing: ${journalId}:${entry.path}`);
+      }
+      return {
+        path: entry.path,
+        operation: entry.operation === "delete_entity" ? "delete" as const : "write" as const,
+        hash: entry.bodyHash
+      };
+    })
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
 }
 
 function readChangeSetJournalMetadata(db: SqliteDatabase, journalId: string): Record<string, unknown> {

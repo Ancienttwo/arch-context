@@ -1,4 +1,4 @@
-import { digestJson, type Json } from "./schema";
+import { digestJson, isRepoRelativePosixPath, type Json } from "./schema";
 
 export const PROJECTION_REQUEST_SCHEMA_VERSION = "archcontext.projection-request/v1" as const;
 export const PROJECTION_RESULT_SCHEMA_VERSION = "archcontext.projection-result/v2" as const;
@@ -14,6 +14,7 @@ export const ARCHITECTURE_DOCS_RENDERER_VERSION = "archcontext.docs-renderer/v4"
 export const AGENT_CONTEXT_RENDERER_VERSION = "archcontext.agent-context-renderer/v1" as const;
 
 export const PROJECTION_MODES = ["check", "plan", "apply", "adopt"] as const;
+export const PROJECTION_PRIOR_COMMITTED_APPLY_OPERATIONS = ["delete", "write"] as const;
 export const PROJECTION_TARGETS = ["agent-context", "architecture-docs"] as const;
 export const PROJECTION_RESULT_STATUSES = [
   "adoption-required",
@@ -61,6 +62,7 @@ export const ARCHCTX_FEATURES = [
   "module-statistics-v1",
   "projection-apply-receipt-v1",
   "projection-apply-recovery-v1",
+  "projection-prior-committed-applies-v1",
   "projection-protocol-v2",
   "recommendation-v3",
   "refactor-assessment-v1",
@@ -71,6 +73,7 @@ export type ProjectionMode = (typeof PROJECTION_MODES)[number];
 export type ProjectionTarget = (typeof PROJECTION_TARGETS)[number];
 export type ProjectionResultStatus = (typeof PROJECTION_RESULT_STATUSES)[number];
 export type ProjectionHumanActionReasonCode = (typeof PROJECTION_HUMAN_ACTION_REASON_CODES)[number];
+export type ProjectionPriorCommittedApplyOperation = (typeof PROJECTION_PRIOR_COMMITTED_APPLY_OPERATIONS)[number];
 export type ArchitectureMajorChangeReasonCode = (typeof ARCHITECTURE_MAJOR_CHANGE_REASON_CODES)[number];
 export type ArchitectureRefreshTarget = (typeof ARCHITECTURE_REFRESH_TARGETS)[number];
 export type ArchctxFeature = (typeof ARCHCTX_FEATURES)[number];
@@ -171,6 +174,33 @@ export interface ArchitectureRefreshSignalV1 {
   projectionReceiptDigest: Sha256Digest;
 }
 
+export interface ProjectionPriorCommittedApplyFileV1 {
+  path: string;
+  operation: ProjectionPriorCommittedApplyOperation;
+  /** `digestJson({ body })` of the body this ChangeSet wrote, or `"missing"` for a delete. */
+  hash: string;
+}
+
+/**
+ * A ChangeSet already committed under this request's requestId by an earlier attempt of the same
+ * request. The CLI is a short-lived RPC client while the daemon owns the write, so a caller whose
+ * process was killed after the commit sees only `status: noop` on retry; this array is the only
+ * surface that names what that lost attempt actually wrote.
+ */
+export interface ProjectionPriorCommittedApplyV1 {
+  /**
+   * Present together with `lookupKey` only when the committed ChangeSet also carried a projection
+   * apply receipt, which happens only for an accepted-semantic-change apply. A plain drift-repair
+   * apply commits without one, and both fields are then absent rather than invented.
+   */
+  applyId?: Sha256Digest;
+  lookupKey?: Sha256Digest;
+  requestId: string;
+  changeSetId: string;
+  committedAt: string;
+  files: ProjectionPriorCommittedApplyFileV1[];
+}
+
 export interface ProjectionResultV2 {
   schemaVersion: typeof PROJECTION_RESULT_SCHEMA_VERSION;
   requestId: string;
@@ -182,6 +212,8 @@ export interface ProjectionResultV2 {
   humanActions: ProjectionHumanActionV1[];
   refreshSignals: ArchitectureRefreshSignalV1[];
   applyReceipt?: ProjectionApplyIdentityV1;
+  /** Omitted, never `[]`, when no earlier attempt of this requestId committed. */
+  priorCommittedApplies?: ProjectionPriorCommittedApplyV1[];
   receiptDigest: Sha256Digest;
 }
 
@@ -359,6 +391,9 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
       issues.push(`${prefix} unchanged requires equal non-null digests`);
     }
   }
+  if (input.priorCommittedApplies) {
+    issues.push(...projectionPriorCommittedAppliesIssues(input.priorCommittedApplies, input.requestId));
+  }
   const { receiptDigest, ...receiptPayload } = input;
   if (projectionResultReceiptDigest(receiptPayload) !== receiptDigest) issues.push("receiptDigest must match the canonical projection result payload");
   for (const [index, signal] of input.refreshSignals.entries()) {
@@ -368,6 +403,40 @@ export function projectionResultInvariantIssues(input: ProjectionResultV2): stri
     if (signal.worktree.workspaceId !== input.outputSnapshot.workspaceId) issues.push(`${prefix}.workspaceId must match outputSnapshot.workspaceId`);
     if (signal.worktree.headSha !== input.outputSnapshot.headSha) issues.push(`${prefix}.headSha must match outputSnapshot.headSha`);
     if (signal.worktree.worktreeDigest !== input.outputSnapshot.worktreeDigest) issues.push(`${prefix}.worktreeDigest must match outputSnapshot.worktreeDigest`);
+  }
+  return issues;
+}
+
+export function projectionPriorCommittedAppliesIssues(
+  input: readonly ProjectionPriorCommittedApplyV1[],
+  requestId: string
+): string[] {
+  const issues = sortedUniqueIssues("priorCommittedApplies.changeSetId", input.map((entry) => entry.changeSetId));
+  if (input.length === 0) issues.push("priorCommittedApplies must be omitted instead of empty");
+  for (const [index, entry] of input.entries()) {
+    const prefix = `priorCommittedApplies[${index}]`;
+    issues.push(...sortedUniqueIssues(`${prefix}.files.path`, entry.files.map((file) => file.path)));
+    if (entry.requestId !== requestId) issues.push(`${prefix}.requestId must match the projection result requestId`);
+    if (entry.changeSetId.trim() === "") issues.push(`${prefix}.changeSetId must not be empty`);
+    if (!ISO_INSTANT.test(entry.committedAt)) issues.push(`${prefix}.committedAt must be an ISO-8601 UTC instant`);
+    if (entry.files.length === 0) issues.push(`${prefix}.files must name at least one committed file`);
+    if ((entry.applyId === undefined) !== (entry.lookupKey === undefined)) {
+      issues.push(`${prefix}.applyId and lookupKey must be present together or both absent`);
+    }
+    for (const field of ["applyId", "lookupKey"] as const) {
+      const value = entry[field];
+      if (value !== undefined && !SHA256_DIGEST.test(value)) issues.push(`${prefix}.${field} must be a SHA-256 digest`);
+    }
+    for (const [fileIndex, file] of entry.files.entries()) {
+      const filePrefix = `${prefix}.files[${fileIndex}]`;
+      if (!isRepoRelativePosixPath(file.path)) issues.push(`${filePrefix}.path must be a repository-relative POSIX path`);
+      if (!(PROJECTION_PRIOR_COMMITTED_APPLY_OPERATIONS as readonly string[]).includes(file.operation)) {
+        issues.push(`${filePrefix}.operation must be a supported committed operation`);
+      }
+      const expectsMissing = file.operation === "delete";
+      if (expectsMissing && file.hash !== "missing") issues.push(`${filePrefix}.hash must be "missing" for a delete`);
+      if (!expectsMissing && !SHA256_DIGEST.test(file.hash)) issues.push(`${filePrefix}.hash must be a SHA-256 body digest`);
+    }
   }
   return issues;
 }
@@ -614,6 +683,9 @@ export function architectureRefreshSignalInvariantIssues(input: ArchitectureRefr
   }
   return issues;
 }
+
+const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 
 function sortedUniqueIssues(label: string, values: readonly string[]): string[] {
   const expected = [...new Set(values)].sort();
