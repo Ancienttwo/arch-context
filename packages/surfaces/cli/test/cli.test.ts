@@ -77,6 +77,9 @@ test("CLI capabilities exposes the exact local protocol and renderer handshake w
   const capabilities = runCapabilitiesCommand();
   expect(capabilities).toEqual(archctxCapabilities(ARCHCONTEXT_PRODUCT_VERSION));
   expect(capabilities.features).toEqual([...ARCHCTX_FEATURES]);
+  // Consumers gate on this handshake, not on field presence, because the result field is omitted
+  // whenever no earlier attempt of the request committed.
+  expect(capabilities.features).toContain("projection-prior-committed-applies-v1");
   expect(capabilities.renderers.architectureDocs).toBe("archcontext.docs-renderer/v4");
   const processOutput = execFileSync("bun", [CLI_ENTRY, "capabilities", "--json"], { encoding: "utf8" });
   expect(JSON.parse(processOutput)).toEqual(capabilities);
