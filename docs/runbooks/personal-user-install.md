@@ -9,7 +9,7 @@ recovery must not substitute an older version.
 ## Scope
 
 - Target user: one local developer using ArchContext on their own repository.
-- Required release artifact: public npm package `archctx@0.5.9`, published to `latest` on 2026-09-05.
+- Required release artifact: public npm package `archctx@0.5.9`, published to `latest` on 2026-09-10.
 - Runtime: Node.js `>=22.22 <26`, npm, and git must be available on `PATH`.
 - Not required for this path: GitHub App installation, ArchContext Cloud token, Cloudflare deploy access, or LLM provider credentials.
 - Do not treat this runbook as approved for a published package version until `docs/verification/archctx-0.5.9-release.json` is verified for that exact version.
